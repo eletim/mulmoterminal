@@ -54,6 +54,7 @@ export default [
       "src/components/CommandCell.vue", //        overrides of the shared .cell-btn + the shared chrome imports
       "src/components/TerminalCell.vue", //       shared chrome import
       "src/components/LauncherCell.vue", //       shared chrome imports
+      "src/components/CellChromeButtons.vue", //  shared chrome import — also what gives its fragment root a scope id (#787)
       "src/components/ToolbarPopover.vue", //     shared popover chrome import
     ],
     rules: { "vue/no-restricted-block": "off" },
