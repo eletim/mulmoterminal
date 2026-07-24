@@ -8,7 +8,8 @@ import { createPubSub } from "./infra/pubsub.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
-import { getUserMcpServers, getWorklogConfig } from "./config/config-routes.js";
+import { getUserMcpServers, getWorklogConfig, getTerminalSubmit } from "./config/config-routes.js";
+import { submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
   tmuxAvailable,
@@ -381,6 +382,11 @@ initRemoteHostBackend({
   captureTerminalScreen: remoteHostCaptureTerminalScreen,
   writeToSession: remoteHostWriteToSession,
   canClearBox: remoteHostCanClearBox,
+  // The byte(s) that submit for this session (#772), resolved live from config so the
+  // phone's "send" commits the paste the same way the keyboard does. Scoped to the
+  // session's agent — the mapping is Claude's binding, so a shell/codex session in the
+  // picker keeps plain CR (same agent lookup as canClearBox above).
+  submitSequence: (sessionId) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit()),
 });
 
 // Mount per-collection fs.watchers → completion bells via the notifier. After the

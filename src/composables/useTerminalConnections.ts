@@ -28,32 +28,30 @@ import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { messageEffect } from "./serverMessage";
+import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
+import { getTerminalSubmitMode } from "./terminalSubmitMode";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
 
 export type ConnStatus = "connecting" | "connected" | "disconnected";
 
-// Shift+Enter must insert a NEWLINE in the prompt, not submit. xterm sends "\r" for
-// both Enter and Shift+Enter, so the PTY can't tell them apart — we intercept the key
-// and send the sequence Claude Code reads as a newline (Meta/Alt+Enter = ESC + CR).
-export const NEWLINE_SEQUENCE = "\x1b\r";
-type ModifierKeyEvent = Pick<KeyboardEvent, "type" | "key" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey">;
-export function shiftEnterNewline(e: ModifierKeyEvent): string | null {
-  const isShiftEnter = e.type === "keydown" && e.key === "Enter" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey;
-  return isShiftEnter ? NEWLINE_SEQUENCE : null;
-}
-
-// The xterm custom key handler: on Shift+Enter, `send` the newline and return false (cancel xterm's
-// default \r); otherwise return true so xterm handles the key normally. `preventDefault()` is essential:
-// xterm's _keyDown returns early on a false custom handler WITHOUT preventDefault, so the browser fires a
-// follow-up keypress that _keyPress turns into a bare \r — submitting the prompt. Cancelling the default
-// stops that keypress.
-type ShiftEnterEvent = ModifierKeyEvent & { preventDefault: () => void };
-export function makeShiftEnterHandler(send: (data: string) => void): (e: ShiftEnterEvent) => boolean {
+// Enter submits and Shift/Option+Enter make a newline — but which BYTES carry each meaning
+// depends on the host's Claude binding, so the choice lives in `enterKeyOverride` (keyed by
+// the user's `terminalSubmit` setting) rather than being hardcoded here. xterm emits "\r" for
+// both Enter and Shift+Enter, so whenever we need anything else we intercept the key and send
+// the right bytes ourselves.
+//
+// The handler: when `enterKeyOverride` returns bytes, `send` them and return false to cancel
+// xterm's default \r; otherwise return true so xterm handles the key normally.
+// `preventDefault()` is essential: xterm's _keyDown returns early on a false custom handler
+// WITHOUT preventDefault, so the browser fires a follow-up keypress that _keyPress turns into a
+// bare \r — submitting the prompt. Cancelling the default stops that keypress.
+type EnterHandlerEvent = EnterKeyEvent & { preventDefault: () => void };
+export function makeEnterHandler(getMode: () => TerminalSubmitMode, send: (data: string) => void): (e: EnterHandlerEvent) => boolean {
   return (e) => {
-    const newline = shiftEnterNewline(e);
-    if (newline === null) return true;
+    const bytes = enterKeyOverride(getMode(), e);
+    if (bytes === null) return true;
     e.preventDefault();
-    send(newline);
+    send(bytes);
     return false;
   };
 }
@@ -76,6 +74,18 @@ export interface ConnTarget {
   // it rides the /ws query and overrides the directory's default.
   launch?: LaunchChoice | null;
 }
+
+// The `terminalSubmit` mapping describes the user's CLAUDE binding, so it only applies to
+// Claude cells. A launcher / codex / command / dev-terminal cell is a shell or another TUI
+// where a bare Enter must stay xterm's native \r — a reversed setting must not rewrite it.
+export const isClaudeTarget = (t: ConnTarget): boolean => !t.devTerminal && !t.command && !t.launcher && !t.codex;
+
+// The submit/newline byte mapping in effect for one connection: the user's `terminalSubmit`
+// setting for a Claude cell, the standard binding for everything else. Used by the keyboard
+// handler AND the GUI-originated sends (submitText / pasteAndSubmit), so all three agree on
+// which byte submits.
+const effectiveSubmitMode = (c: Conn): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
+const submitBytesFor = (c: Conn): string => submitSequence(effectiveSubmitMode(c));
 
 // Forwarded to whatever component is currently attached, so the parent's existing
 // session/cwd/exit wiring (grid_v2 persistence, recent-dir recording, re-run UI)
@@ -193,20 +203,15 @@ function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): v
 }
 
 // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
-// each keystroke, so input always targets the live socket).
+// each keystroke, so input always targets the live socket). The Enter-family key handler
+// rides the same socket: keys whose bytes differ from xterm's native \r (per the user's
+// Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function wireTerminalInput(term: Terminal, c: Conn): void {
-  term.onData((data) => {
-    if (c.ws && c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(JSON.stringify({ type: "input", data }));
-    }
-  });
-  // Shift+Enter → newline (not submit): send the sequence ourselves and suppress the
-  // \r xterm would otherwise emit for it (returning false cancels the default).
-  term.attachCustomKeyEventHandler(
-    makeShiftEnterHandler((data) => {
-      if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
-    }),
-  );
+  const send = (data: string): void => {
+    if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
+  };
+  term.onData(send);
+  term.attachCustomKeyEventHandler(makeEnterHandler(() => effectiveSubmitMode(c), send));
 }
 
 // Linkify file paths in the output → open them in a new tab via the raw-file route,
@@ -471,19 +476,22 @@ export function terminate(key: string) {
   release(key);
 }
 
-// Submit a GUI-originated message into the PTY (text + a SEPARATE delayed CR — a
-// same-burst text+CR reads as a paste in Claude's TUI). Both writes pin to the
-// socket captured now; if the slot reconnects before the CR fires we skip it rather
-// than submit a stray turn. Returns whether the text was delivered.
+// Submit a GUI-originated message into the PTY (text + a SEPARATE delayed submit — a
+// same-burst text+submit reads as a paste in Claude's TUI). The submit byte follows the
+// connection's `terminalSubmit` mapping (ESC+CR for a Claude cell in esc-cr mode), so a GUI
+// send commits the same way the keyboard does. Both writes pin to the socket captured now;
+// if the slot reconnects before the submit fires we skip it rather than submit a stray turn.
+// Returns whether the text was delivered.
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
   if (!c) return false;
   const sock = c.ws;
   if (!sock || sock.readyState !== WebSocket.OPEN) return false;
+  const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: text }));
   setTimeout(() => {
     if (c.ws === sock && sock.readyState === WebSocket.OPEN) {
-      sock.send(JSON.stringify({ type: "input", data: "\r" }));
+      sock.send(JSON.stringify({ type: "input", data: submit }));
     }
   }, 60);
   return true;
@@ -514,9 +522,10 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
   if (!text || !c || !sock || sock.readyState !== WebSocket.OPEN) return false;
+  const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${text}${PASTE_END}` }));
   setTimeout(() => {
-    if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: "\r" }));
+    if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
   }, PASTE_SUBMIT_MS);
   return true;
 }
