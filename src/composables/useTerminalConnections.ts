@@ -28,7 +28,7 @@ import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { messageEffect } from "./serverMessage";
-import { enterKeyOverride, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
+import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 
 export type ConnStatus = "connecting" | "connected" | "disconnected";
@@ -275,12 +275,18 @@ function ensure(key: string, target: ConnTarget): Conn {
 // codex cell always resolves to the standard binding, read live so a retarget to/from a
 // Claude session is honoured.
 function attachEnterKeyHandler(term: Terminal, c: Conn): void {
-  const resolveMode = (): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
   const send = (data: string): void => {
     if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
   };
-  term.attachCustomKeyEventHandler(makeEnterHandler(resolveMode, send));
+  term.attachCustomKeyEventHandler(makeEnterHandler(() => effectiveSubmitMode(c), send));
 }
+
+// The submit/newline byte mapping in effect for one connection: the user's `terminalSubmit`
+// setting for a Claude cell, the standard binding for everything else. Used by the keyboard
+// handler AND the GUI-originated sends (submitText / pasteAndSubmit), so all three agree on
+// which byte submits.
+const effectiveSubmitMode = (c: Conn): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
+const submitBytesFor = (c: Conn): string => submitSequence(effectiveSubmitMode(c));
 
 function scheduleReconnect(c: Conn) {
   if (!shouldReconnect({ released: c.released, sawExit: c.sawExit, reconnectPending: c.reconnectTimer !== null, isCommand: !!c.target.command })) return;
@@ -464,19 +470,22 @@ export function terminate(key: string) {
   release(key);
 }
 
-// Submit a GUI-originated message into the PTY (text + a SEPARATE delayed CR — a
-// same-burst text+CR reads as a paste in Claude's TUI). Both writes pin to the
-// socket captured now; if the slot reconnects before the CR fires we skip it rather
-// than submit a stray turn. Returns whether the text was delivered.
+// Submit a GUI-originated message into the PTY (text + a SEPARATE delayed submit — a
+// same-burst text+submit reads as a paste in Claude's TUI). The submit byte follows the
+// connection's `terminalSubmit` mapping (ESC+CR for a Claude cell in esc-cr mode), so a GUI
+// send commits the same way the keyboard does. Both writes pin to the socket captured now;
+// if the slot reconnects before the submit fires we skip it rather than submit a stray turn.
+// Returns whether the text was delivered.
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
   if (!c) return false;
   const sock = c.ws;
   if (!sock || sock.readyState !== WebSocket.OPEN) return false;
+  const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: text }));
   setTimeout(() => {
     if (c.ws === sock && sock.readyState === WebSocket.OPEN) {
-      sock.send(JSON.stringify({ type: "input", data: "\r" }));
+      sock.send(JSON.stringify({ type: "input", data: submit }));
     }
   }, 60);
   return true;
@@ -507,9 +516,10 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
   if (!text || !c || !sock || sock.readyState !== WebSocket.OPEN) return false;
+  const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${text}${PASTE_END}` }));
   setTimeout(() => {
-    if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: "\r" }));
+    if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
   }, PASTE_SUBMIT_MS);
   return true;
 }

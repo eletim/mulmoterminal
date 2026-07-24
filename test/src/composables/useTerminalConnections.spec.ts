@@ -410,6 +410,84 @@ describe("makeEnterHandler", () => {
   });
 });
 
+// The GUI-originated sends (header run:"input", skill invocation, worktree commit prompt)
+// paste/type text then submit a beat later — that delayed submit byte must follow the same
+// Claude-scoped mapping as the keyboard, or a Claude cell in esc-cr mode never submits.
+describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit (Claude-scoped)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    setTerminalSubmitMode("cr");
+  });
+  afterEach(() => setTerminalSubmitMode("cr"));
+
+  const openCell = (key: string, t: ReturnType<typeof target> | (ReturnType<typeof target> & { launcher: { shell: true } })) => {
+    conn.attach(key, t, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+    ws.sent.length = 0; // drop init sends
+    return ws;
+  };
+
+  it("submitText: a Claude cell in esc-cr submits with ESC+CR (text first, submit delayed)", () => {
+    vi.useFakeTimers();
+    try {
+      setTerminalSubmitMode("esc-cr");
+      const ws = openCell("cell-st", target(null));
+      expect(conn.submitText("cell-st", "/compact")).toBe(true);
+      expect(ws.sent).toEqual([JSON.stringify({ type: "input", data: "/compact" })]); // submit not yet
+      vi.advanceTimersByTime(60);
+      expect(ws.sent).toContain(JSON.stringify({ type: "input", data: submitSequence("esc-cr") }));
+      conn.release("cell-st");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("submitText: a shell cell submits with plain \\r even in esc-cr", () => {
+    vi.useFakeTimers();
+    try {
+      setTerminalSubmitMode("esc-cr");
+      const ws = openCell("cell-st2", { ...target(null), launcher: { shell: true as const } });
+      conn.submitText("cell-st2", "ls");
+      vi.advanceTimersByTime(60);
+      expect(ws.sent).toContain(JSON.stringify({ type: "input", data: "\r" }));
+      expect(ws.sent).not.toContain(JSON.stringify({ type: "input", data: "\x1b\r" }));
+      conn.release("cell-st2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pasteAndSubmit: a Claude cell in esc-cr submits with ESC+CR after the paste", () => {
+    vi.useFakeTimers();
+    try {
+      setTerminalSubmitMode("esc-cr");
+      const ws = openCell("cell-ps", target(null));
+      expect(conn.pasteAndSubmit("cell-ps", "line1\nline2")).toBe(true);
+      vi.advanceTimersByTime(200);
+      expect(ws.sent).toContain(JSON.stringify({ type: "input", data: submitSequence("esc-cr") }));
+      conn.release("cell-ps");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("submitText: the default cr mode still submits with plain \\r", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = openCell("cell-st3", target(null));
+      conn.submitText("cell-st3", "hi");
+      vi.advanceTimersByTime(60);
+      expect(ws.sent).toContain(JSON.stringify({ type: "input", data: "\r" }));
+      conn.release("cell-st3");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 // terminalSubmit is Claude's binding, so it must apply only to Claude cells — a shell /
 // codex / command / dev-terminal cell keeps the standard binding regardless of the setting.
 describe("isClaudeTarget", () => {
