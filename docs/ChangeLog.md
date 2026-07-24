@@ -2,6 +2,31 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.8.0 — 2026-07-25
+
+### Terminal input & keyboard
+
+- **Configurable submit / newline byte mapping** (#772): whether Enter *submits* or inserts a *newline* is decided by Claude Code from the received bytes, and that mapping is environment-dependent. A new global `terminalSubmit` setting (`"cr"` default, or `"esc-cr"`) selects which byte submits. It is honored across the browser keyboard, the phone remote-view submit, and GUI-originated sends (header `run:"input"`, skill invocation, the worktree commit prompt), and is scoped to **Claude sessions only** — shell/codex/command cells always submit with a plain `\r`, since `ESC+CR` is Alt+Enter to a shell. IME candidate-confirm Enter is never intercepted. The default `"cr"` is byte-for-byte the previous behavior. Documented in the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit).
+- **Clickable file paths in terminal output** (#778): file paths in output are linkified and open a browser preview via the raw-file route, scoped to the session's live cwd (`?cwd=` constrained to live session dirs).
+- **Larger scrollback after reattach** (#776): the PTY replay buffer was raised (64 KiB → 1 MiB) so roughly 1000 lines of scrollback survive a reconnect.
+
+### Header & grid
+
+- **Richer default header buttons** (#775): the built-in starter set now adds 📁 browse files, 🖥 new terminal here, 🔗 this branch's PR (git repos, only when a PR exists), and 🌐 open on GitHub — alongside the existing insert-path / reveal. Setting `buttons` at any level still replaces the whole default set; this is now spelled out in the docs.
+- **Zoomed-grid view-toggle placement** (#769, #771, #774): when a cell is expanded, the view-toggle no longer covers the cell's ✕ or the Settings button — it moved into the global header and sits at the right end next to Settings.
+- **User-guide help links** (#770): the empty grid and the settings modal now link into the user guide.
+
+### Worklog
+
+- **Worklog header shortcut** (#765): a `#worklog` shortcut added to the grid view's right-hand icon group.
+- **Weekly worklog pages indexed** (#773): weekly worklog pages register in `index.md` with a `#worklog` tag, so each page appears under the worklog filter.
+
+### Fixes & docs
+
+- **Phone terminal view lists grid sessions only** (#767).
+- **Dev-server watch test flake on Windows** (#777): resolved an `fs.watch` flake by re-touching until restart.
+- **Cross-repo PR/Issue view guide** (#763): new ja/en guide page.
+
 ## mulmoterminal@1.7.2 — 2026-07-24
 
 A hardening release: a repo-wide code review turned up a family of real bugs across the server, the plugin runtime, the remote-host (phone) channel, and the git/worktree tooling. Each fix ships with a regression test.
