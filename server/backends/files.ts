@@ -1,27 +1,32 @@
-// Raw workspace-file serving — GET /api/files/raw?path=<workspace-relative>.
+// Raw file serving — GET /api/files/raw?path=<rel>[&cwd=<session dir>].
 //
 // Consumers: the collection plugin's image/file fields (the binding's imageSrc maps
 // here) and its custom views, whose LLM-authored HTML builds
-// `<img src="<origin>/api/files/raw?path=...">` for poster/thumbnail fields. Mirrors
-// MulmoClaude's server/api/routes/files.ts GET /files/raw (the path the gallery view
-// hardcodes), trimmed to what MulmoTerminal needs.
+// `<img src="<origin>/api/files/raw?path=...">` for poster/thumbnail fields; and the
+// terminal's clickable file-path links, which pass the session's cwd so a path an agent
+// printed inside its own project (possibly a sibling repo outside the workspace root)
+// resolves. Mirrors MulmoClaude's server/api/routes/files.ts GET /files/raw (the path the
+// gallery view hardcodes), trimmed to what MulmoTerminal needs.
 //
-// Security (this serves arbitrary workspace files):
-//   - Path containment: the resolved absolute path must stay within the workspace
-//     root — reject traversal / absolute escapes (the only real attack surface on a
-//     loopback server).
+// Security (this serves arbitrary files under a base dir):
+//   - Base: the workspace root by default, or the `?cwd=` dir when given — but only if
+//     that cwd is the root or a live session's directory (`deps.sessionCwds`), never an
+//     arbitrary absolute dir from the query. The `path` is then contained within that
+//     base — tilde-expanded, then rejected on `..` / absolute / symlink escape.
 //   - `Content-Security-Policy: sandbox` + `X-Content-Type-Options: nosniff` so an
 //     `.svg`/`.html` with embedded JS can't run in the app origin via direct
 //     navigation or <iframe>; PDFs skip the sandbox CSP (WebKit refuses to render
 //     sandbox-opaque PDFs) but keep nosniff. Matches MulmoClaude's RAW_SECURITY_HEADERS.
 import path from "node:path";
+import os from "node:os";
 import type { Express, Request, Response } from "express";
 import { statFileOr404 } from "./statFileOr404.js";
 import { parseByteRange } from "./byte-range.js";
 import { rawServingPlan } from "./rawServingPlan.js";
 import { streamFileToResponse } from "./streamFile.js";
+import { authorizedServingBase, expandTilde, containedPath, realContainedWithin } from "../files/pathContainment.js";
 
-export function mountFilesRoutes(app: Express, deps: { workspace: string }): void {
+export function mountFilesRoutes(app: Express, deps: { workspace: string; sessionCwds: () => Iterable<string> }): void {
   const root = path.resolve(deps.workspace);
 
   app.get("/api/files/raw", (req: Request, res: Response) => {
@@ -30,11 +35,20 @@ export function mountFilesRoutes(app: Express, deps: { workspace: string }): voi
       res.status(400).json({ error: "`path` query is required" });
       return;
     }
-    // Containment: resolve against the workspace root and reject anything that
-    // escapes it (absolute input, `..`, symlink-free check on the resolved string).
-    const abs = path.resolve(root, rel);
-    if (abs !== root && !abs.startsWith(root + path.sep)) {
-      res.status(403).json({ error: "path escapes the workspace root" });
+    // Base: the `?cwd=` dir only if it's the root or a live session's cwd (else the
+    // workspace root when no cwd is given); an unrecognized cwd is refused, not trusted.
+    const cwd = typeof req.query.cwd === "string" ? req.query.cwd : null;
+    const base = authorizedServingBase(cwd, root, deps.sessionCwds());
+    if (base === null) {
+      res.status(403).json({ error: "cwd is not an active session directory" });
+      return;
+    }
+    // Contain `path` within the base — tilde-expand, reject `..`/absolute escapes
+    // lexically, then symlinks.
+    const lexical = containedPath(base, expandTilde(rel, os.homedir()));
+    const abs = lexical ? realContainedWithin(base, lexical) : null;
+    if (!abs) {
+      res.status(403).json({ error: "path escapes the serving root" });
       return;
     }
     const stat = statFileOr404(res, abs);
