@@ -421,7 +421,7 @@ describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit 
   });
   afterEach(() => setTerminalSubmitMode("cr"));
 
-  const openCell = (key: string, t: ReturnType<typeof target> | (ReturnType<typeof target> & { launcher: { shell: true } })) => {
+  const openCell = (key: string, t: conn.ConnTarget) => {
     conn.attach(key, t, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
     const ws = FakeWebSocket.instances.at(-1);
     if (!ws) throw new Error("no socket created");
