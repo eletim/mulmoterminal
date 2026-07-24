@@ -357,6 +357,47 @@ describe("isSystemClipboard", () => {
   });
 });
 
+describe("isOpenableTerminalLink", () => {
+  it("opens http and https OSC 8 targets", () => {
+    expect(conn.isOpenableTerminalLink("https://github.com/o/r/pull/2541")).toBe(true);
+    expect(conn.isOpenableTerminalLink("http://localhost:3000/x")).toBe(true);
+    expect(conn.isOpenableTerminalLink("HTTPS://EXAMPLE.COM")).toBe(true); // scheme is case-insensitive
+  });
+
+  // A terminal program is untrusted output — a `javascript:`/`file:`/relative target must NOT open.
+  it.each(["javascript:alert(1)", "file:///etc/passwd", "mailto:a@b.com", "vscode://x", "/rel/path", "example.com", ""])(
+    "refuses non-http(s) target %j",
+    (uri) => {
+      expect(conn.isOpenableTerminalLink(uri)).toBe(false);
+    },
+  );
+});
+
+describe("OSC 8 link handler wiring", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    mockTermState.options = {};
+  });
+
+  it("ensure() sets a linkHandler that opens http(s) links and ignores others", () => {
+    conn.attach("cell-link", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const handler = mockTermState.options.linkHandler as { activate: (e: unknown, uri: string) => void } | undefined;
+    expect(handler).toBeTruthy();
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      handler?.activate({}, "https://github.com/o/r/pull/2541");
+      expect(open).toHaveBeenCalledWith("https://github.com/o/r/pull/2541", "_blank", "noopener,noreferrer");
+      open.mockClear();
+      handler?.activate({}, "javascript:alert(1)"); // must not open
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      open.mockRestore();
+      conn.release("cell-link");
+    }
+  });
+});
+
 // The pure key→bytes decision (enterKeyOverride) is covered in test/common/terminalSubmit.spec.ts;
 // here we cover the thin wrapper that turns that decision into a send + preventDefault, and that
 // it re-reads the mode getter each call so a live config change takes effect.
