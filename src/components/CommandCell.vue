@@ -7,6 +7,30 @@ import { formatCwd } from "./cwdDisplay";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { browserLocale } from "../utils/browserLocale";
+import {
+  CELL_ACTIONS,
+  CELL_BTN,
+  CELL_BTN_BOX,
+  CELL_BTN_INK,
+  CELL_BTN_SIZE,
+  CELL_CMD,
+  CELL_DIR,
+  CELL_DIR_PATH,
+  CELL_DOT,
+  CELL_DOT_IDLE,
+  CELL_DOT_WORKING,
+  CELL_FRAME,
+  CELL_HEADER,
+  CELL_HEADER_ZOOMABLE,
+  CELL_TERM,
+} from "./cellChromeClasses";
+
+// The summarize button's own colours, and the smaller ✕ on the summary panel. One complete
+// string per state rather than a base plus an override: two utilities for the same property
+// on one element are resolved by Tailwind's output order, not by the order written here.
+const SUMMARIZE_READY = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[#9db4ff] hover:bg-[#24305c] hover:text-[#cdd8ff]`;
+const SUMMARIZE_BUSY = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-default text-[#7f88ad]`;
+const SUMMARY_CLOSE_BTN = `${CELL_BTN_BOX} h-[22px] w-[22px] text-[13px] ${CELL_BTN_INK}`;
 
 // A grid cell that runs a `script.json` command (a cell launcher's Run) instead of
 // a Claude session. Ephemeral: it has no session id and isn't persisted — a reload
@@ -132,20 +156,24 @@ function onHeaderClick(event: MouseEvent) {
 </script>
 
 <template>
-  <div class="cell">
-    <div class="cell-header" :class="{ 'is-zoomable': !expanded }" @click="onHeaderClick">
-      <span class="cell-dot" :class="finished ? 'is-idle' : 'is-working'" :title="finished ? 'Finished' : 'Running…'" />
-      <span v-if="dirDisplay" class="cell-dir" :title="command.cwd ?? ''"
-        ><span class="cell-dir-path">{{ dirDisplay }}</span></span
+  <div class="cell" :class="CELL_FRAME">
+    <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" @click="onHeaderClick">
+      <span
+        class="cell-dot"
+        :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
+        :title="finished ? 'Finished' : 'Running…'"
+      />
+      <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="command.cwd ?? ''"
+        ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
-      <span class="cell-cmd">▶ {{ command.label }}</span>
-      <span class="cell-actions">
-        <button v-if="reorderable" class="cell-btn" title="Move left" aria-label="Move command left" @click="emit('move', -1)">◀</button>
-        <button v-if="reorderable" class="cell-btn" title="Move right" aria-label="Move command right" @click="emit('move', 1)">▶</button>
-        <button v-if="finished" class="cell-btn" title="Re-run" aria-label="Re-run command" @click="rerun">↻</button>
+      <span class="cell-cmd" :class="CELL_CMD">▶ {{ command.label }}</span>
+      <span class="cell-actions" :class="CELL_ACTIONS">
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move command left" @click="emit('move', -1)">◀</button>
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move command right" @click="emit('move', 1)">▶</button>
+        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Re-run" aria-label="Re-run command" @click="rerun">↻</button>
         <button
           class="cell-btn cell-summarize"
-          :class="{ 'is-busy': summaryState === 'loading' }"
+          :class="summaryState === 'loading' ? `is-busy ${SUMMARIZE_BUSY}` : SUMMARIZE_READY"
           title="Summarize output (AI)"
           aria-label="Summarize command output"
           :disabled="summaryState === 'loading'"
@@ -159,6 +187,7 @@ function onHeaderClick(event: MouseEvent) {
     <TerminalView
       ref="termRef"
       class="cell-term"
+      :class="CELL_TERM"
       :session-id="null"
       :connect-key="connectKey"
       :cwd="command.cwd"
@@ -170,7 +199,9 @@ function onHeaderClick(event: MouseEvent) {
     <div v-if="showSummary" data-testid="cell-summary" class="flex max-h-[40%] min-h-0 flex-none flex-col border-t border-t-[#2a2a4e] bg-[#141b33]">
       <div class="flex flex-none items-center justify-between border-b border-b-[#232a48] py-0.5 pl-2.5 pr-1.5">
         <span class="font-sans text-[11px] font-semibold text-[#9db4ff]">✦ Summary</span>
-        <button class="cell-btn cell-summary-close" title="Dismiss summary" aria-label="Dismiss summary" @click="closeSummary">✕</button>
+        <button class="cell-btn cell-summary-close" :class="SUMMARY_CLOSE_BTN" title="Dismiss summary" aria-label="Dismiss summary" @click="closeSummary">
+          ✕
+        </button>
       </div>
       <div class="min-h-0 flex-auto overflow-auto px-2.5 pb-2 pt-1.5">
         <span v-if="summaryState === 'loading'" class="font-sans text-[12px] text-[#7f88ad]">Summarizing…</span>
@@ -208,29 +239,3 @@ function onHeaderClick(event: MouseEvent) {
     </div>
   </div>
 </template>
-
-<style scoped src="./cellChromeBase.css"></style>
-<style scoped src="./cellChrome.css"></style>
-
-<!-- These two buttons carry the shared .cell-btn class (cellChromeBase.css). That
-     rule is unlayered scoped CSS, which beats Tailwind's layered utilities, so their
-     per-instance overrides (colour, size) can't move to utilities until the shared
-     chrome itself is converted — kept scoped for now. -->
-<style scoped>
-.cell-summarize {
-  color: #9db4ff;
-}
-.cell-summarize:hover {
-  background: #24305c;
-  color: #cdd8ff;
-}
-.cell-summarize.is-busy {
-  color: #7f88ad;
-  cursor: default;
-}
-.cell-summary-close {
-  width: 22px;
-  height: 22px;
-  font-size: 13px;
-}
-</style>

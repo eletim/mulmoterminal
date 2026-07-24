@@ -1,23 +1,27 @@
 import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import CellChromeButtons from "../../../src/components/CellChromeButtons.vue";
+import { CELL_BTN, CELL_CLOSE_BTN } from "../../../src/components/cellChromeClasses";
 
 const mountButtons = (expanded = false) => mount(CellChromeButtons, { props: { expanded } });
 
-const scopeIds = (html: string): string[] => [...html.matchAll(/data-v-[0-9a-f]+/g)].map((m) => m[0]);
-
 describe("CellChromeButtons", () => {
-  // The shared .cell-btn / .cell-close rules are SCOPED CSS (cellChromeBase.css), so they
-  // only reach these buttons while the component has a scope id of its own — a fragment root
-  // never inherits the parent cell's. Without one both buttons rendered with the browser's
-  // default button chrome while the neighbouring ◀ ▶ (in the cell's own template) did not (#787).
-  it("stamps a scope id on both buttons, so the shared cell-btn styles apply", () => {
+  // Both buttons must carry their styling as utilities. As scoped CSS it reached neither: this
+  // component's template has a fragment root, and Vue gives the parent cell's scope id to a
+  // single root element only — so both rendered with the browser's default button chrome while
+  // the neighbouring ◀ ▶ (in the cell's own template) did not (#787, #791).
+  it("styles both buttons with utilities rather than a stylesheet", () => {
     const w = mountButtons();
-    expect(scopeIds(w.find('[aria-label="Expand terminal"]').html())).not.toHaveLength(0);
-    expect(scopeIds(w.find('[aria-label="Close terminal"]').html())).not.toHaveLength(0);
+    expect(w.find('[aria-label="Expand terminal"]').classes()).toEqual(expect.arrayContaining(CELL_BTN.split(" ")));
+    expect(w.find('[aria-label="Close terminal"]').classes()).toEqual(expect.arrayContaining(CELL_CLOSE_BTN.split(" ")));
   });
 
-  it("carries the shared chrome classes the styles key off", () => {
+  // The close button's red hover is the whole reason it isn't just CELL_BTN.
+  it("gives the close button its own hover colours", () => {
+    expect(mountButtons().find('[aria-label="Close terminal"]').classes()).not.toContain("hover:bg-hover");
+  });
+
+  it("keeps the cell-btn / cell-close hooks the grid and the specs select on", () => {
     const w = mountButtons();
     expect(w.find('[aria-label="Expand terminal"]').classes()).toContain("cell-btn");
     expect(w.find('[aria-label="Close terminal"]').classes()).toEqual(expect.arrayContaining(["cell-btn", "cell-close"]));

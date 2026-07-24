@@ -7,6 +7,8 @@
 // TerminalCell keeps its own pair. Its close is not the same action — it may hold a live
 // session, so it goes through a confirmation — and sharing a button whose click means two
 // different things is how the confirmation would eventually get lost.
+import { CELL_BTN, CELL_CLOSE_BTN } from "./cellChromeClasses";
+
 defineProps<{ expanded: boolean }>();
 const emit = defineEmits<{ (e: "toggle-expand" | "close"): void }>();
 </script>
@@ -14,17 +16,12 @@ const emit = defineEmits<{ (e: "toggle-expand" | "close"): void }>();
 <template>
   <button
     class="cell-btn"
+    :class="CELL_BTN"
     :title="expanded ? 'Restore' : 'Expand'"
     :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
     @click="emit('toggle-expand')"
   >
     {{ expanded ? "⤡" : "⤢" }}
   </button>
-  <button class="cell-btn cell-close" title="Close terminal" aria-label="Close terminal" @click="emit('close')">✕</button>
+  <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click="emit('close')">✕</button>
 </template>
-
-<!-- The shared chrome is SCOPED CSS in every cell that uses it, so a `.cell-btn` here only
-     matches while this component carries a scope id of its own — and a fragment root (two
-     buttons) never inherits the parent cell's. Without this import both buttons fall back to
-     the browser's default button chrome (#787). -->
-<style scoped src="./cellChromeBase.css"></style>
