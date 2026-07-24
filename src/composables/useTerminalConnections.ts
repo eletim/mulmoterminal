@@ -261,8 +261,17 @@ function ensure(key: string, target: ConnTarget): Conn {
   host.style.height = "100%";
   term.open(host);
   // Render each glyph in its own cell (canvas) instead of the default DOM renderer, which flows text
-  // as inline runs. A full-width CJK glyph that isn't exactly 2× the Latin cell would otherwise let a
-  // long Japanese line drift right and spill its tail past the terminal's edge into the hidden area.
+  // as inline runs: a full-width CJK glyph that isn't exactly 2× the Latin cell lets a long Japanese
+  // line drift right and spill its tail past the terminal's edge (the reason this was added, b12cc48).
+  // A fixed-grid renderer makes that structurally impossible.
+  //
+  // CAVEAT — version mismatch: @xterm/addon-canvas is xterm-5 era (its peerDependency is
+  // `@xterm/xterm@^5`, and there is no stable xterm-6 build — even 0.8.0-beta still peers ^5), but the
+  // app runs @xterm/xterm@6. It renders, but this xterm-5 renderer on xterm-6 internals is the
+  // suspected cause of broken selection auto-scroll + scrollbar (#782) and OSC 8 link click (#783),
+  // all of which regressed when this was introduced. Don't just bump the addon; the real fix is a
+  // renderer decision — WebGL keeps the fixed grid (so the CJK drift above stays fixed), the DOM
+  // renderer drops the dependency but risks that drift. Read #782 before touching this.
   // Best-effort: if the canvas renderer can't initialise, xterm keeps the DOM renderer.
   try {
     term.loadAddon(new CanvasAddon());
