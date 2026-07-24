@@ -30,6 +30,7 @@ import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot"
 import { messageEffect } from "./serverMessage";
 import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
+import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
 
 export type ConnStatus = "connecting" | "connected" | "disconnected";
 
@@ -78,6 +79,13 @@ export interface ConnTarget {
 // Claude cells. A launcher / codex / command / dev-terminal cell is a shell or another TUI
 // where a bare Enter must stay xterm's native \r — a reversed setting must not rewrite it.
 export const isClaudeTarget = (t: ConnTarget): boolean => !t.devTerminal && !t.command && !t.launcher && !t.codex;
+
+// The submit/newline byte mapping in effect for one connection: the user's `terminalSubmit`
+// setting for a Claude cell, the standard binding for everything else. Used by the keyboard
+// handler AND the GUI-originated sends (submitText / pasteAndSubmit), so all three agree on
+// which byte submits.
+const effectiveSubmitMode = (c: Conn): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
+const submitBytesFor = (c: Conn): string => submitSequence(effectiveSubmitMode(c));
 
 // Forwarded to whatever component is currently attached, so the parent's existing
 // session/cwd/exit wiring (grid_v2 persistence, recent-dir recording, re-run UI)
@@ -194,6 +202,30 @@ function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): v
   });
 }
 
+// Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
+// each keystroke, so input always targets the live socket). The Enter-family key handler
+// rides the same socket: keys whose bytes differ from xterm's native \r (per the user's
+// Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
+function wireTerminalInput(term: Terminal, c: Conn): void {
+  const send = (data: string): void => {
+    if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
+  };
+  term.onData(send);
+  term.attachCustomKeyEventHandler(makeEnterHandler(() => effectiveSubmitMode(c), send));
+}
+
+// Linkify file paths in the output → open them in a new tab via the raw-file route,
+// scoped to the session's live cwd (read lazily, since it's learned after connect).
+function registerFilePathLinks(term: Terminal, c: Conn): void {
+  term.registerLinkProvider(
+    createFilePathLinkProvider(
+      term,
+      () => c.knownCwd,
+      (url) => window.open(url, "_blank", "noopener,noreferrer"),
+    ),
+  );
+}
+
 function ensure(key: string, target: ConnTarget): Conn {
   const existing = conns.get(key);
   if (existing) {
@@ -257,36 +289,10 @@ function ensure(key: string, target: ConnTarget): Conn {
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
-
-  // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is
-  // re-read each keystroke, so input always targets the live socket).
-  term.onData((data) => {
-    if (c.ws && c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(JSON.stringify({ type: "input", data }));
-    }
-  });
-  attachEnterKeyHandler(term, c);
+  registerFilePathLinks(term, c);
+  wireTerminalInput(term, c);
   return c;
 }
-
-// Enter-family keys whose bytes differ from xterm's native \r (per the user's
-// `terminalSubmit` mapping): send the right bytes ourselves and suppress the \r xterm would
-// otherwise emit (returning false cancels the default). The mapping is Claude-only; a shell /
-// codex cell always resolves to the standard binding, read live so a retarget to/from a
-// Claude session is honoured.
-function attachEnterKeyHandler(term: Terminal, c: Conn): void {
-  const send = (data: string): void => {
-    if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
-  };
-  term.attachCustomKeyEventHandler(makeEnterHandler(() => effectiveSubmitMode(c), send));
-}
-
-// The submit/newline byte mapping in effect for one connection: the user's `terminalSubmit`
-// setting for a Claude cell, the standard binding for everything else. Used by the keyboard
-// handler AND the GUI-originated sends (submitText / pasteAndSubmit), so all three agree on
-// which byte submits.
-const effectiveSubmitMode = (c: Conn): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
-const submitBytesFor = (c: Conn): string => submitSequence(effectiveSubmitMode(c));
 
 function scheduleReconnect(c: Conn) {
   if (!shouldReconnect({ released: c.released, sawExit: c.sawExit, reconnectPending: c.reconnectTimer !== null, isCommand: !!c.target.command })) return;

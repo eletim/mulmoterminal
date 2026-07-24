@@ -37,6 +37,7 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
+import { ptys } from "../session/registry.js";
 import { mountShortcutsRoutes } from "../backends/shortcuts.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlPreviewRoute } from "../backends/html.js";
@@ -133,9 +134,10 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // UI. The tasks themselves are loaded + started below, once the spawn infra exists.
   mountSchedulerRoutes(app, { workspace: CLAUDE_CWD });
 
-  // Raw workspace-file serving (GET /api/files/raw?path=) — backs collection image/file
-  // fields and custom-view <img> URLs. Rooted at the shared workspace.
-  mountFilesRoutes(app, { workspace: CLAUDE_CWD });
+  // Raw file serving (GET /api/files/raw?path=[&cwd=]) — backs collection image/file
+  // fields, custom-view <img> URLs, and terminal file-path links. Rooted at the shared
+  // workspace; a `?cwd=` is honoured only for a live session's own directory.
+  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: () => [...ptys.values()].map((entry) => entry.cwd) });
 
   // Serve presentHtml pages for the View's iframe (GET /artifacts/html/<rest>) with an
   // HTML preview CSP. The View navigates the iframe to this URL (htmlArtifactPreviewUrl).

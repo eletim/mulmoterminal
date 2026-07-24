@@ -9,6 +9,9 @@ import { mountFilesRoutes } from "../../../server/backends/files.js";
 
 let server: Server;
 let base: string;
+// A session project dir OUTSIDE the workspace root (a sibling repo), reachable only via
+// the `?cwd=` scope — mirrors an agent whose cwd is a different repo.
+let sessionDir: string;
 
 beforeAll(async () => {
   const ws = mkdtempSync(path.join(tmpdir(), "mt-files-"));
@@ -17,8 +20,12 @@ beforeAll(async () => {
   writeFileSync(path.join(ws, "downloads", "images", "a.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   writeFileSync(path.join(ws, "secret.txt"), "top secret");
 
+  sessionDir = mkdtempSync(path.join(tmpdir(), "mt-session-"));
+  mkdirSync(path.join(sessionDir, "assets", "media"), { recursive: true });
+  writeFileSync(path.join(sessionDir, "assets", "media", "hero.gif"), Buffer.from([0x47, 0x49, 0x46, 0x38]));
+
   const app = express();
-  mountFilesRoutes(app, { workspace: ws });
+  mountFilesRoutes(app, { workspace: ws, sessionCwds: () => [sessionDir] });
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());
   });
@@ -77,5 +84,33 @@ describe("GET /api/files/raw", () => {
     const res = await fetch(`${base}/api/files/raw?path=downloads/images/a.png`, { headers: { Range: "bytes=99-100" } });
     expect(res.status).toBe(416);
     expect(res.headers.get("content-range")).toBe("bytes */4");
+  });
+});
+
+describe("GET /api/files/raw?cwd= (session-scoped serving)", () => {
+  it("serves a relative path inside the session cwd", async () => {
+    const url = `${base}/api/files/raw?cwd=${encodeURIComponent(sessionDir)}&path=${encodeURIComponent("assets/media/hero.gif")}`;
+    const res = await fetch(url);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/gif");
+    expect((await res.arrayBuffer()).byteLength).toBe(4);
+  });
+
+  it("serves an absolute path that lies inside the session cwd (as a ~/ expansion would)", async () => {
+    const abs = path.join(sessionDir, "assets", "media", "hero.gif");
+    const res = await fetch(`${base}/api/files/raw?cwd=${encodeURIComponent(sessionDir)}&path=${encodeURIComponent(abs)}`);
+    expect(res.status).toBe(200);
+  });
+
+  it("403s on a path escaping the session cwd", async () => {
+    const url = `${base}/api/files/raw?cwd=${encodeURIComponent(sessionDir)}&path=${encodeURIComponent("../mt-files-x/secret.txt")}`;
+    expect((await fetch(url)).status).toBe(403);
+  });
+
+  it("403s on a cwd that is not the root or a live session dir (even if it exists)", async () => {
+    // tmpdir exists and sessionDir lives under it, but tmpdir itself is not an authorized
+    // serving base — query tampering can't repoint serving at an arbitrary absolute dir.
+    const url = `${base}/api/files/raw?cwd=${encodeURIComponent(tmpdir())}&path=${encodeURIComponent(path.basename(sessionDir) + "/assets/media/hero.gif")}`;
+    expect((await fetch(url)).status).toBe(403);
   });
 });
