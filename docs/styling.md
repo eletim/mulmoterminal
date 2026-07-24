@@ -46,7 +46,7 @@ Spacing/radius use Tailwind's scale on a 4px base: `px-2` = 8px, `px-2.5` = 10px
    one place means every exception is visible in review, and the reasons can be audited
    (and entries deleted) as the constraints go away. Today's entries are all `@keyframes`,
    `:deep` into `v-html`/CodeMirror, a sibling combinator, a parent-state layout machine,
-   and the shared cell-chrome imports.
+   and one shared popover chrome import.
 2. **Prefer a token over a raw hex.** Where a token exists, `bg-elevated` beats
    `bg-[#20203a]` — the token is what theme-switches, so the arbitrary hex would be a
    regression. **But** when a color is *already* hardcoded in the scoped CSS and has no
@@ -89,6 +89,16 @@ Spacing/radius use Tailwind's scale on a 4px base: `px-2` = 8px, `px-2.5` = 10px
   `style.css` therefore wraps its resets in `@layer base` and pulls the Material Symbols
   package in with `@import … layer(base)`. Third-party CSS imported from JS is unlayered:
   import it from CSS with `layer(base)` instead.
+- **A fragment-root component gets NO scope id — scoped CSS silently misses it.** Vue passes
+  the parent's scope id to a single root element only, so a component whose template has two
+  or more roots matches neither the parent's scoped rules nor (without a `<style scoped>` of
+  its own) any at all: the element falls back to the browser default. This is invisible until
+  someone looks at it — it cost #787. Utilities are global and have no such failure mode.
+- **Two utilities for one property on one element: the output order decides, not yours.**
+  `hover:bg-hover` next to `hover:bg-[var(--err-hover-bg)]` is a coin flip, because Tailwind
+  sorts the generated CSS. Compose one complete string per state (see
+  `cellChromeClasses.ts`) instead of a base plus an override. Variants are safe the other way
+  round: every `hover:` rule is emitted after the unvarianted ones, so `bg-x hover:bg-y` works.
 - **Verify that a utility *wins*, not just that it exists.** Grepping the built CSS for
   `.px-2\.5{…}` only proves it was generated. Confirm the rendered `getComputedStyle`
   matches the original declaration — that is what catches a cascade-layer loss.

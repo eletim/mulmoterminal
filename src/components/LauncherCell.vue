@@ -6,6 +6,20 @@ import { formatCwd } from "./cwdDisplay";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import { isShellLauncher, type CellLauncher } from "./gridTabs";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
+import {
+  CELL_ACTIONS,
+  CELL_BTN,
+  CELL_CMD,
+  CELL_DIR,
+  CELL_DIR_PATH,
+  CELL_DOT,
+  CELL_DOT_IDLE,
+  CELL_DOT_WORKING,
+  CELL_FRAME,
+  CELL_HEADER,
+  CELL_HEADER_ZOOMABLE,
+  CELL_TERM,
+} from "./cellChromeClasses";
 
 // A grid cell running a configured launch command (a plain shell, codex, any
 // interactive program) instead of Claude. Unlike CommandCell this is PERSISTENT: it
@@ -59,22 +73,27 @@ function relaunch() {
 </script>
 
 <template>
-  <div class="cell">
-    <div class="cell-header" :class="{ 'is-zoomable': !expanded }" @click="onHeaderClick">
-      <span class="cell-dot" :class="finished ? 'is-idle' : 'is-working'" :title="finished ? 'Exited' : 'Running…'" />
-      <span v-if="dirDisplay" class="cell-dir" :title="cwd ?? ''"
-        ><span class="cell-dir-path">{{ dirDisplay }}</span></span
+  <div class="cell" :class="CELL_FRAME">
+    <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" @click="onHeaderClick">
+      <span
+        class="cell-dot"
+        :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
+        :title="finished ? 'Exited' : 'Running…'"
+      />
+      <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="cwd ?? ''"
+        ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
-      <span class="cell-cmd">⌘ {{ launcher.label }}</span>
-      <span class="cell-actions">
-        <button v-if="reorderable" class="cell-btn" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">◀</button>
-        <button v-if="reorderable" class="cell-btn" title="Move right" aria-label="Move launcher right" @click="emit('move', 1)">▶</button>
-        <button v-if="finished" class="cell-btn" title="Relaunch" aria-label="Relaunch" @click="relaunch">↻</button>
+      <span class="cell-cmd" :class="CELL_CMD">⌘ {{ launcher.label }}</span>
+      <span class="cell-actions" :class="CELL_ACTIONS">
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">◀</button>
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move launcher right" @click="emit('move', 1)">▶</button>
+        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">↻</button>
         <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
       </span>
     </div>
     <TerminalView
       class="cell-term"
+      :class="CELL_TERM"
       :persist-key="`cell-${uid}`"
       :session-id="session"
       :connect-key="connectKey"
@@ -87,6 +106,3 @@ function relaunch() {
     />
   </div>
 </template>
-
-<style scoped src="./cellChromeBase.css"></style>
-<style scoped src="./cellChrome.css"></style>
