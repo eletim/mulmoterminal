@@ -25,7 +25,7 @@ beforeAll(async () => {
   writeFileSync(path.join(sessionDir, "assets", "media", "hero.gif"), Buffer.from([0x47, 0x49, 0x46, 0x38]));
 
   const app = express();
-  mountFilesRoutes(app, { workspace: ws });
+  mountFilesRoutes(app, { workspace: ws, sessionCwds: () => [sessionDir] });
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());
   });
@@ -107,8 +107,10 @@ describe("GET /api/files/raw?cwd= (session-scoped serving)", () => {
     expect((await fetch(url)).status).toBe(403);
   });
 
-  it("falls back to the workspace root when cwd is not an existing absolute dir", async () => {
-    const url = `${base}/api/files/raw?cwd=${encodeURIComponent("not/absolute")}&path=downloads/images/a.png`;
-    expect((await fetch(url)).status).toBe(200);
+  it("403s on a cwd that is not the root or a live session dir (even if it exists)", async () => {
+    // tmpdir exists and sessionDir lives under it, but tmpdir itself is not an authorized
+    // serving base — query tampering can't repoint serving at an arbitrary absolute dir.
+    const url = `${base}/api/files/raw?cwd=${encodeURIComponent(tmpdir())}&path=${encodeURIComponent(path.basename(sessionDir) + "/assets/media/hero.gif")}`;
+    expect((await fetch(url)).status).toBe(403);
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { containedPath, realContainedWithin, resolveBase, expandTilde } from "../../../server/files/pathContainment";
+import { containedPath, realContainedWithin, resolveBase, expandTilde, authorizedServingBase } from "../../../server/files/pathContainment";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-files-"));
 
@@ -22,6 +22,28 @@ describe("containedPath (write/read containment)", () => {
   });
   it("accepts an absolute path that lies inside the base", () => {
     expect(containedPath(base, "/proj/root/docs/a.md")).toBe(path.resolve(base, "docs/a.md"));
+  });
+});
+
+describe("authorizedServingBase", () => {
+  const root = "/proj/root";
+  const sessions = ["/home/me/repo-a", "/home/me/repo-b"];
+  it("returns the workspace root when no cwd is given", () => {
+    expect(authorizedServingBase(null, root, sessions)).toBe(path.resolve(root));
+    expect(authorizedServingBase("", root, sessions)).toBe(path.resolve(root));
+  });
+  it("allows the root and any live session cwd", () => {
+    expect(authorizedServingBase(root, root, sessions)).toBe(path.resolve(root));
+    expect(authorizedServingBase("/home/me/repo-b", root, sessions)).toBe(path.resolve("/home/me/repo-b"));
+  });
+  it("normalizes before comparing (trailing slash / non-canonical)", () => {
+    expect(authorizedServingBase("/home/me/repo-a/", root, sessions)).toBe(path.resolve("/home/me/repo-a"));
+    expect(authorizedServingBase("/home/me/repo-a/../repo-a", root, sessions)).toBe(path.resolve("/home/me/repo-a"));
+  });
+  it("rejects a cwd that is neither the root nor a live session dir", () => {
+    expect(authorizedServingBase("/etc", root, sessions)).toBeNull();
+    expect(authorizedServingBase("/home/me", root, sessions)).toBeNull(); // a parent of a session dir is not itself authorized
+    expect(authorizedServingBase("/home/me/repo-a", root, [])).toBeNull(); // no live sessions
   });
 });
 

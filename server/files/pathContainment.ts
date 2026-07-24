@@ -18,6 +18,22 @@ export function resolveBase(cwd: string | null, defaultCwd: string): string {
   return defaultCwd;
 }
 
+// The serving base for a raw-file request: the workspace root when no cwd is given, or
+// the requested cwd ONLY if it is the root or a server-known session directory. Returns
+// null when a cwd is given but unauthorized — so a caller can't repoint serving at an
+// arbitrary absolute dir via query tampering (the raw route serves file bytes to a
+// browser tab, so an unconstrained base is a drive-by read primitive on the loopback).
+export function authorizedServingBase(cwd: string | null, root: string, sessionCwds: Iterable<string>): string | null {
+  const resolvedRoot = path.resolve(root);
+  if (!cwd) return resolvedRoot;
+  const requested = path.resolve(cwd);
+  if (requested === resolvedRoot) return requested;
+  for (const known of sessionCwds) {
+    if (path.resolve(known) === requested) return requested;
+  }
+  return null;
+}
+
 // Expand a leading `~` to the home dir (`~` alone, or `~/…` / `~\…`). Only a leading
 // tilde is a home reference; `~user` and a mid-string `~` are left untouched.
 export function expandTilde(p: string, homeDir: string): string {

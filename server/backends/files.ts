@@ -9,10 +9,10 @@
 // gallery view hardcodes), trimmed to what MulmoTerminal needs.
 //
 // Security (this serves arbitrary files under a base dir):
-//   - Base: the workspace root by default, or the `?cwd=` session dir (absolute +
-//     existing) when given. The `path` is contained within that base — tilde-expanded,
-//     then rejected on `..` / absolute / symlink escape (the only real attack surface on
-//     a loopback server).
+//   - Base: the workspace root by default, or the `?cwd=` dir when given — but only if
+//     that cwd is the root or a live session's directory (`deps.sessionCwds`), never an
+//     arbitrary absolute dir from the query. The `path` is then contained within that
+//     base — tilde-expanded, then rejected on `..` / absolute / symlink escape.
 //   - `Content-Security-Policy: sandbox` + `X-Content-Type-Options: nosniff` so an
 //     `.svg`/`.html` with embedded JS can't run in the app origin via direct
 //     navigation or <iframe>; PDFs skip the sandbox CSP (WebKit refuses to render
@@ -24,9 +24,9 @@ import { statFileOr404 } from "./statFileOr404.js";
 import { parseByteRange } from "./byte-range.js";
 import { rawServingPlan } from "./rawServingPlan.js";
 import { streamFileToResponse } from "./streamFile.js";
-import { resolveBase, expandTilde, containedPath, realContainedWithin } from "../files/pathContainment.js";
+import { authorizedServingBase, expandTilde, containedPath, realContainedWithin } from "../files/pathContainment.js";
 
-export function mountFilesRoutes(app: Express, deps: { workspace: string }): void {
+export function mountFilesRoutes(app: Express, deps: { workspace: string; sessionCwds: () => Iterable<string> }): void {
   const root = path.resolve(deps.workspace);
 
   app.get("/api/files/raw", (req: Request, res: Response) => {
@@ -35,10 +35,16 @@ export function mountFilesRoutes(app: Express, deps: { workspace: string }): voi
       res.status(400).json({ error: "`path` query is required" });
       return;
     }
-    // Base: the `?cwd=` session dir when given (else the workspace root). Contain `path`
-    // within it — tilde-expand, reject `..`/absolute escapes lexically, then symlinks.
+    // Base: the `?cwd=` dir only if it's the root or a live session's cwd (else the
+    // workspace root when no cwd is given); an unrecognized cwd is refused, not trusted.
     const cwd = typeof req.query.cwd === "string" ? req.query.cwd : null;
-    const base = resolveBase(cwd, root);
+    const base = authorizedServingBase(cwd, root, deps.sessionCwds());
+    if (base === null) {
+      res.status(403).json({ error: "cwd is not an active session directory" });
+      return;
+    }
+    // Contain `path` within the base — tilde-expand, reject `..`/absolute escapes
+    // lexically, then symlinks.
     const lexical = containedPath(base, expandTilde(rel, os.homedir()));
     const abs = lexical ? realContainedWithin(base, lexical) : null;
     if (!abs) {
