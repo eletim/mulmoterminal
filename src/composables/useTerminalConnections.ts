@@ -28,7 +28,7 @@ import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { messageEffect } from "./serverMessage";
-import { enterKeyOverride, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
+import { enterKeyOverride, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 
 export type ConnStatus = "connecting" | "connected" | "disconnected";
@@ -73,6 +73,11 @@ export interface ConnTarget {
   // it rides the /ws query and overrides the directory's default.
   launch?: LaunchChoice | null;
 }
+
+// The `terminalSubmit` mapping describes the user's CLAUDE binding, so it only applies to
+// Claude cells. A launcher / codex / command / dev-terminal cell is a shell or another TUI
+// where a bare Enter must stay xterm's native \r — a reversed setting must not rewrite it.
+export const isClaudeTarget = (t: ConnTarget): boolean => !t.devTerminal && !t.command && !t.launcher && !t.codex;
 
 // Forwarded to whatever component is currently attached, so the parent's existing
 // session/cwd/exit wiring (grid_v2 persistence, recent-dir recording, re-run UI)
@@ -260,15 +265,21 @@ function ensure(key: string, target: ConnTarget): Conn {
       c.ws.send(JSON.stringify({ type: "input", data }));
     }
   });
-  // Enter-family keys whose bytes differ from xterm's native \r (per the user's
-  // `terminalSubmit` mapping): send the right bytes ourselves and suppress the \r xterm
-  // would otherwise emit (returning false cancels the default).
-  term.attachCustomKeyEventHandler(
-    makeEnterHandler(getTerminalSubmitMode, (data) => {
-      if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
-    }),
-  );
+  attachEnterKeyHandler(term, c);
   return c;
+}
+
+// Enter-family keys whose bytes differ from xterm's native \r (per the user's
+// `terminalSubmit` mapping): send the right bytes ourselves and suppress the \r xterm would
+// otherwise emit (returning false cancels the default). The mapping is Claude-only; a shell /
+// codex cell always resolves to the standard binding, read live so a retarget to/from a
+// Claude session is honoured.
+function attachEnterKeyHandler(term: Terminal, c: Conn): void {
+  const resolveMode = (): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
+  const send = (data: string): void => {
+    if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
+  };
+  term.attachCustomKeyEventHandler(makeEnterHandler(resolveMode, send));
 }
 
 function scheduleReconnect(c: Conn) {

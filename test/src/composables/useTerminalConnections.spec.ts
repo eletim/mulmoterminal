@@ -229,6 +229,51 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     }
   });
 
+  it("does NOT apply esc-cr to a shell cell — a bare Enter stays native \\r (scoped to Claude sessions)", () => {
+    mockKeyState.handler = () => true;
+    setTerminalSubmitMode("esc-cr");
+    try {
+      const shellTarget = { ...target(null), launcher: { shell: true as const } };
+      conn.attach("cell-shell", shellTarget, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+      const ws = FakeWebSocket.instances.at(-1);
+      if (!ws) throw new Error("no socket created");
+      ws.onopen?.();
+      ws.sent.length = 0; // drop the socket's init sends so we only see what the key emits
+
+      // A shell's bare Enter must NOT be rewritten to ESC+CR — it stays xterm's native \r.
+      const enter = {
+        type: "keydown",
+        key: "Enter",
+        shiftKey: false,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        isComposing: false,
+        preventDefault: vi.fn(),
+      };
+      expect(mockKeyState.handler(enter)).toBe(true); // passes through to xterm
+      expect(ws.sent).toHaveLength(0);
+
+      // Shift+Enter keeps the standard newline (ESC+CR), same as before the setting existed.
+      const shiftEnter = {
+        type: "keydown",
+        key: "Enter",
+        shiftKey: true,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        isComposing: false,
+        preventDefault: vi.fn(),
+      };
+      expect(mockKeyState.handler(shiftEnter)).toBe(false);
+      expect(ws.sent).toContain(JSON.stringify({ type: "input", data: newlineSequence("cr") }));
+
+      conn.release("cell-shell");
+    } finally {
+      setTerminalSubmitMode("cr");
+    }
+  });
+
   it("configures xterm with macOptionIsMeta so macOS Option acts as Meta (Alt bindings reach the PTY)", () => {
     mockTermState.options = {};
     conn.attach("cell-opt", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
@@ -362,5 +407,25 @@ describe("makeEnterHandler", () => {
     mode = "esc-cr";
     expect(handler(ev({}))).toBe(false); // esc-cr: the same key is now intercepted as submit
     expect(send).toHaveBeenCalledWith(submitSequence("esc-cr"));
+  });
+});
+
+// terminalSubmit is Claude's binding, so it must apply only to Claude cells — a shell /
+// codex / command / dev-terminal cell keeps the standard binding regardless of the setting.
+describe("isClaudeTarget", () => {
+  const base = { sessionId: null, cwd: "/x", devTerminal: false, command: null, launcher: null };
+
+  it("is true for a plain Claude cell", () => {
+    expect(conn.isClaudeTarget({ ...base })).toBe(true);
+    // A launch (provider/model) choice is Claude-only, so it's still a Claude cell.
+    expect(conn.isClaudeTarget({ ...base, launch: { provider: "openrouter", model: "x" } })).toBe(true);
+  });
+
+  it("is false for shell / codex / command / dev-terminal cells", () => {
+    expect(conn.isClaudeTarget({ ...base, launcher: { shell: true } })).toBe(false);
+    expect(conn.isClaudeTarget({ ...base, launcher: { index: 0 } })).toBe(false);
+    expect(conn.isClaudeTarget({ ...base, codex: true })).toBe(false);
+    expect(conn.isClaudeTarget({ ...base, command: { source: "script", index: 0, label: "dev", cwd: null } })).toBe(false);
+    expect(conn.isClaudeTarget({ ...base, devTerminal: true })).toBe(false);
   });
 });

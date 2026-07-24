@@ -135,6 +135,9 @@ An invalid value (a typo, or anything other than `"cr"` / `"esc-cr"`) is ignored
 
 ### Notes
 
+- **Claude sessions only** — `terminalSubmit` describes *Claude Code's* binding, so it only affects
+  Claude cells. A **shell**, **codex**, or command cell always submits with a plain Enter (`\r`),
+  even in `esc-cr` mode — a reversed setting never rewrites a shell's Enter.
 - **Smartphones** — a soft keyboard can only send a bare **Enter** (there is no Shift+Enter, and on
   Android the Return key often isn't even a normal Enter). So on a phone Enter follows the table
   above and you can't insert a newline from the on-screen keyboard; compose multi-line prompts from

@@ -24,6 +24,12 @@ export const submitSequence = (mode: TerminalSubmitMode): string => (mode === "e
 // The byte(s) it reads as "insert a newline" — the other one.
 export const newlineSequence = (mode: TerminalSubmitMode): string => (mode === "esc-cr" ? CR : ESC_CR);
 
+// The submit byte(s) for a specific session. `terminalSubmit` describes the user's CLAUDE
+// binding, so it applies ONLY to Claude sessions; every other agent (shell, codex, a
+// one-shot command) keeps plain CR — a reversed setting must never rewrite a shell's Enter,
+// where ESC+CR is Alt+Enter, not submit.
+export const submitSequenceForAgent = (agent: string | undefined, mode: TerminalSubmitMode): string => (agent === "claude" ? submitSequence(mode) : CR);
+
 // The structural shape of a keydown the override needs. A real DOM KeyboardEvent satisfies
 // it, and so does a plain test object — no DOM dependency, so this stays testable and shared.
 export interface EnterKeyEvent {

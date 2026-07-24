@@ -6,6 +6,7 @@ import {
   isTerminalSubmitMode,
   submitSequence,
   newlineSequence,
+  submitSequenceForAgent,
   enterKeyOverride,
   type EnterKeyEvent,
   type TerminalSubmitMode,
@@ -30,6 +31,21 @@ describe("terminalSubmit constants", () => {
   // Shift+Enter would be indistinguishable to the host.
   it.each(TERMINAL_SUBMIT_MODES)("submit and newline differ in %s mode", (mode) => {
     expect(submitSequence(mode)).not.toBe(newlineSequence(mode));
+  });
+});
+
+describe("submitSequenceForAgent", () => {
+  // The mapping is Claude's binding, so only a Claude session follows it.
+  it("applies the configured mapping to Claude sessions", () => {
+    expect(submitSequenceForAgent("claude", "cr")).toBe(CR);
+    expect(submitSequenceForAgent("claude", "esc-cr")).toBe(ESC_CR);
+  });
+
+  // A shell/codex/command session (or an unknown/missing agent) must keep plain CR even in
+  // esc-cr mode — ESC+CR is Alt+Enter to a shell, not submit.
+  it.each(["shell", "codex", "bash", undefined])("keeps plain CR for non-Claude agent %j", (agent) => {
+    expect(submitSequenceForAgent(agent, "cr")).toBe(CR);
+    expect(submitSequenceForAgent(agent, "esc-cr")).toBe(CR);
   });
 });
 

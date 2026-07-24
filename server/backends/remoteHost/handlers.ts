@@ -50,9 +50,10 @@ export interface RemoteHostHandlerDeps {
   // is submitted (#572). Answered in server/index.ts, where the agent kind and the
   // turn state live.
   canClearBox: (sessionId: string) => boolean;
-  // The byte(s) that submit in the host's Claude binding (#772), read live from config.
-  // The phone sends only text; which byte commits it is this environment fact.
-  submitSequence: () => string;
+  // The byte(s) that submit for a given session (#772), read live from config. The phone
+  // sends only text; which byte commits it is the host's Claude binding — but only for a
+  // Claude session, so this is resolved per session id (shell/codex stay on plain CR).
+  submitSequence: (sessionId: string) => string;
 }
 
 // Parse the optional `attachments` param ([{ storage_id }]) into storage ids. A

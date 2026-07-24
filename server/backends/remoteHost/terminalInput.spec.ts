@@ -77,26 +77,36 @@ describe("sendTerminalInput", () => {
     expect(chunks).toEqual([`${PASTE_START}git status${PASTE_END}`, "\r"]);
   });
 
-  // #772: the byte(s) that submit come from the host's Claude binding, not a hardcoded CR.
-  // Default (no submitSequence dep) stays CR; an ESC+CR mapping must submit with ESC+CR.
-  it("submits with the configured submit sequence", async () => {
+  // #772: the byte(s) that submit come from the host's Claude binding, not a hardcoded CR,
+  // and are resolved PER SESSION (the mapping is Claude-only, so a shell session stays CR).
+  it("submits with the session's configured submit sequence", async () => {
     const chunks: string[] = [];
     const submits: Array<() => void> = [];
+    const seen: string[] = [];
     const send = createTerminalInputSender({
       writeToSession: (_id: string, chunk: string) => {
         chunks.push(chunk);
         return true;
       },
-      submitSequence: () => "\x1b\r",
+      // ESC+CR only for the Claude session; anything else (a shell) stays plain CR.
+      submitSequence: (id: string) => {
+        seen.push(id);
+        return id === "claude-1" ? "\x1b\r" : "\r";
+      },
       scheduleSubmit: (fn: () => void) => {
         submits.push(fn);
       },
     });
-    const sent = send("s1", "hi");
+    const a = send("claude-1", "hi");
     await tick();
     submits.shift()?.();
-    await expect(sent).resolves.toEqual({ sent: true });
-    expect(chunks).toEqual([`${PASTE_START}hi${PASTE_END}`, "\x1b\r"]);
+    await expect(a).resolves.toEqual({ sent: true });
+    const b = send("shell-1", "ls");
+    await tick();
+    submits.shift()?.();
+    await expect(b).resolves.toEqual({ sent: true });
+    expect(seen).toEqual(["claude-1", "shell-1"]); // the session id reaches the resolver
+    expect(chunks).toEqual([`${PASTE_START}hi${PASTE_END}`, "\x1b\r", `${PASTE_START}ls${PASTE_END}`, "\r"]);
   });
 
   it("defaults the submit sequence to CR when unset", async () => {
