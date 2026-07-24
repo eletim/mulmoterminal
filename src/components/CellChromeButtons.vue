@@ -22,3 +22,9 @@ const emit = defineEmits<{ (e: "toggle-expand" | "close"): void }>();
   </button>
   <button class="cell-btn cell-close" title="Close terminal" aria-label="Close terminal" @click="emit('close')">✕</button>
 </template>
+
+<!-- The shared chrome is SCOPED CSS in every cell that uses it, so a `.cell-btn` here only
+     matches while this component carries a scope id of its own — and a fragment root (two
+     buttons) never inherits the parent cell's. Without this import both buttons fall back to
+     the browser's default button chrome (#787). -->
+<style scoped src="./cellChromeBase.css"></style>
