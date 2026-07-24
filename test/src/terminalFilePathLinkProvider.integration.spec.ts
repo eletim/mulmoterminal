@@ -22,7 +22,7 @@ beforeAll(() => {
         dispatchEvent: () => false,
       }) as MediaQueryList;
   }
-  if (!("ResizeObserver" in window)) {
+  if (!window.ResizeObserver) {
     window.ResizeObserver = class {
       observe() {}
       unobserve() {}
