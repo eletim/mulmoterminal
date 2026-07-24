@@ -167,12 +167,14 @@ const terminalScreenHandlers = ({
     listTerminalSessions: async () => ({ sessions: await listTerminalSessions() }) as unknown as JsonObject,
 
     // `suggestion` is the agent's own dim ghost text — the phone offers it as a chip,
-    // since it has no Tab key to accept it with (#563).
+    // since it has no Tab key to accept it with (#563). The screen also carries the
+    // session's cwd / branch / summary / prompt when the host knows them, so the phone can
+    // head the terminal with what the grid cell shows (#786); the whole SessionScreen is
+    // the wire shape, so a field added there reaches the phone without another edit here.
     getTerminalScreen: async (params: JsonObject) => {
       const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
       if (!sessionId) throw new Error("sessionId is required");
-      const { screen, suggestion } = await captureTerminalScreen(sessionId);
-      return { screen, suggestion };
+      return (await captureTerminalScreen(sessionId)) as unknown as JsonObject;
     },
 
     // Type a line into the session and press Enter, as if the user were at the
