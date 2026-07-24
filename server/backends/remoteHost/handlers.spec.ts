@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createRemoteHostHandlers } from "./handlers.js";
+import type { SessionScreen } from "./terminalScreen.js";
 import { initCollectionsBackend } from "../collections.js";
 
 const unusedTerminalDeps = {
@@ -206,5 +207,40 @@ describe("createRemoteHostHandlers · listSkills", () => {
     const { skills } = (await handlers.listSkills({})) as unknown as { skills: string[] };
     expect(skills).toContain("mt-plain-skill");
     expect(skills).not.toContain("mt-collection");
+  });
+});
+
+// The phone's per-session view (#786, mulmoserver#107) reads the session's dir, branch,
+// summary and prompt off this response, so the handler has to forward whatever the host
+// could answer instead of trimming the payload back to screen + suggestion.
+describe("getTerminalScreen", () => {
+  const handlersFor = (screen: SessionScreen) =>
+    createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+      captureTerminalScreen: async () => screen,
+    });
+
+  it("forwards the session's cwd, branch, summary and prompt beside the screen", async () => {
+    const handlers = handlersFor({ screen: "$ ", suggestion: "", cwd: "/repo", branch: "main", summary: "Fix the parser", prompt: "fix it" });
+    expect(await handlers.getTerminalScreen({ sessionId: "a" })).toEqual({
+      screen: "$ ",
+      suggestion: "",
+      cwd: "/repo",
+      branch: "main",
+      summary: "Fix the parser",
+      prompt: "fix it",
+    });
+  });
+
+  it("forwards a screen the host had no metadata for unchanged", async () => {
+    const handlers = handlersFor({ screen: "$ ", suggestion: "ls" });
+    expect(await handlers.getTerminalScreen({ sessionId: "a" })).toEqual({ screen: "$ ", suggestion: "ls" });
+  });
+
+  it("rejects a request with no session id", async () => {
+    await expect(handlersFor({ screen: "", suggestion: "" }).getTerminalScreen({})).rejects.toThrow(/sessionId is required/);
   });
 });

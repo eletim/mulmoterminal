@@ -5,6 +5,7 @@ import {
   agentFromPaneCommand,
   buildSessionList,
   captureSessionScreen,
+  definedScreenMeta,
   type CaptureScreenDeps,
   type SessionListInput,
 } from "../../../../server/backends/remoteHost/terminalScreen.js";
@@ -183,5 +184,87 @@ describe("captureSessionScreen", () => {
 
   it("reports no suggestion when the fallback renderer is the source", async () => {
     expect((await captureSessionScreen("a", captureDeps())).suggestion).toBe("");
+  });
+
+  // The phone's per-session view heads the screen with the same four things the grid cell
+  // shows (#786) — read for the session being captured, and only for that one.
+  it("carries the session's cwd, branch, summary and prompt beside the screen", async () => {
+    const metaOf = vi.fn(async () => ({ cwd: "/repo", branch: "feat/786", summary: "Adding meta", prompt: "add branch to the phone view" }));
+    const captured = await captureSessionScreen("a", captureDeps({ metaOf }));
+    expect(captured).toEqual({
+      screen: "rendered:buffered",
+      suggestion: "",
+      cwd: "/repo",
+      branch: "feat/786",
+      summary: "Adding meta",
+      prompt: "add branch to the phone view",
+    });
+    expect(metaOf).toHaveBeenCalledWith("a");
+  });
+
+  // A host that answers nothing looks exactly like one built before #786 — the phone
+  // renders the screen alone.
+  it("sends only the screen when the host has no metadata to add", async () => {
+    const captured = await captureSessionScreen("a", captureDeps({ metaOf: async () => ({ cwd: "", branch: "", summary: "", prompt: "" }) }));
+    expect(captured).toEqual({ screen: "rendered:buffered", suggestion: "" });
+  });
+
+  it("sends only the screen when no metadata reader is wired at all", async () => {
+    expect(await captureSessionScreen("a", captureDeps())).toEqual({ screen: "rendered:buffered", suggestion: "" });
+  });
+
+  // Metadata decorates the screen: a git call that blew up or a dir that has since been
+  // deleted must not cost the phone the terminal output it asked for.
+  it("still returns the screen when reading the metadata throws", async () => {
+    const metaOf = vi.fn(async () => {
+      throw new Error("git exploded");
+    });
+    expect(await captureSessionScreen("a", captureDeps({ metaOf }))).toEqual({ screen: "rendered:buffered", suggestion: "" });
+  });
+
+  // Reading the metadata shells out to git, so it must not queue behind the capture.
+  it("reads the metadata concurrently with the screen", async () => {
+    const order: string[] = [];
+    const captured = await captureSessionScreen(
+      "a",
+      captureDeps({
+        render: async () => {
+          order.push("render:start");
+          await Promise.resolve();
+          order.push("render:end");
+          return [{ text: "screen", dim: "" }];
+        },
+        metaOf: async () => {
+          order.push("meta:start");
+          return { branch: "main" };
+        },
+      }),
+    );
+    expect(order).toEqual(["render:start", "meta:start", "render:end"]);
+    expect(captured.branch).toBe("main");
+  });
+});
+
+// The response is written into a Firestore command doc, which rejects `undefined` outright,
+// and the phone renders one labelled row per field it receives.
+describe("definedScreenMeta", () => {
+  it("keeps the fields the host could answer", () => {
+    const meta = { cwd: "/repo", branch: "main", summary: "Fix the parser", prompt: "fix it" };
+    expect(definedScreenMeta(meta)).toEqual(meta);
+  });
+
+  it("drops a field the host has no value for, key and all", () => {
+    expect(definedScreenMeta({ cwd: "/repo", branch: undefined, summary: "", prompt: "   " })).toEqual({ cwd: "/repo" });
+    expect(Object.keys(definedScreenMeta({ cwd: "/repo", branch: undefined }))).toEqual(["cwd"]);
+  });
+
+  it("returns nothing for an empty read", () => {
+    expect(definedScreenMeta({})).toEqual({});
+  });
+
+  // Emptiness is judged on the trimmed value, but the value itself is passed through as-is:
+  // a prompt's own leading spaces are the user's text, not ours to edit.
+  it("passes a value with surrounding whitespace through unchanged", () => {
+    expect(definedScreenMeta({ prompt: "  fix it  " })).toEqual({ prompt: "  fix it  " });
   });
 });

@@ -84,14 +84,36 @@ export interface CaptureScreenDeps {
   captureStyledPane: (id: string) => string | null;
   sourceOf: (id: string) => ScreenSource | undefined;
   render: (input: ScreenSource) => Promise<ScreenRow[]>;
+  // What the grid cell's header shows for this session, for the phone to head the screen
+  // with (#786). Optional: a host that can't answer any of it just sends the screen.
+  metaOf?: (id: string) => Promise<SessionScreenMeta>;
 }
 
-export interface SessionScreen {
+// The session's identity around the screen — the dir it runs in, that dir's git branch, the
+// AI summary of the session, and the prompt that started the latest turn (mulmoserver#107).
+// Every field is optional: a session that outlived a restart has no PTY left, so the host
+// knows none of them.
+export interface SessionScreenMeta {
+  cwd?: string;
+  branch?: string;
+  summary?: string;
+  prompt?: string;
+}
+
+export interface SessionScreen extends SessionScreenMeta {
   screen: string;
   // The follow-up prompt the agent is offering as dim ghost text, "" when it offers none.
   // The phone cannot press Tab to accept it, so it is handed over as its own value for
   // the phone to offer as a chip (#563).
   suggestion: string;
+}
+
+// A field the host can't answer is dropped entirely rather than sent as "": the response is
+// written to a Firestore command doc, which rejects an `undefined` value outright, and the
+// phone renders each field it receives as its own labelled row — an empty one would read as
+// "this session has no branch" instead of "not known".
+export function definedScreenMeta(meta: SessionScreenMeta): SessionScreenMeta {
+  return Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined && value.trim() !== ""));
 }
 
 // tmux first: it renders the real screen, works while detached, and survives a restart.
@@ -105,7 +127,20 @@ const screenRowsOf = async (id: string, { captureStyledPane, sourceOf, render }:
   return render(source);
 };
 
+// The metadata decorates the screen, so a failure reading it (a git call that blew up, a dir
+// that has since been deleted) costs those fields — never the terminal output itself.
+const screenMetaOf = async (id: string, metaOf: CaptureScreenDeps["metaOf"]): Promise<SessionScreenMeta> => {
+  if (!metaOf) return {};
+  try {
+    return definedScreenMeta(await metaOf(id));
+  } catch {
+    return {};
+  }
+};
+
 export async function captureSessionScreen(id: string, deps: CaptureScreenDeps): Promise<SessionScreen> {
-  const rows = await screenRowsOf(id, deps);
-  return { screen: rowsToScreen(rows).trimEnd(), suggestion: suggestionFromRows(rows) };
+  // Concurrently: the meta read shells out to git, which is otherwise pure latency added to
+  // every screen the phone pulls.
+  const [rows, meta] = await Promise.all([screenRowsOf(id, deps), screenMetaOf(id, deps.metaOf)]);
+  return { screen: rowsToScreen(rows).trimEnd(), suggestion: suggestionFromRows(rows), ...meta };
 }
