@@ -1,0 +1,67 @@
+# Windows gotchas
+
+Traps this codebase has actually hit on Windows, each with where the fix lives. Read before
+debugging a Windows-only failure, and before writing a path comparison, a spawn, or an
+`fs.watch` that will run there.
+
+`windows-daily.yaml` is the only job that executes any of this — it runs daily and on `main`,
+not on pull requests. Dispatch it on a branch with
+`gh workflow run windows-daily.yaml --ref <branch>`.
+
+## Spawning
+
+**`CreateProcessW` runs PE images only.** A `.cmd`, a `.bat`, and an extensionless shell shim
+cannot be executed directly — they need `cmd.exe`. An npm-global install leaves exactly those
+(`claude`, `claude.cmd`, `claude.ps1`) and no `.exe`.
+
+**node-pty's PATH lookup matches file names exactly.** `src/win/path_util.cc get_shell_path`
+never appends an executable extension, so a bare `claude` misses `claude.exe` and the spawn
+fails with `File not found: ` — with *nothing* after the colon, because the path it failed to
+find is the empty string. Two further bugs live in the same function: the PATH splitter drops
+the segment after the final `;`, and a name that exists relative to the cwd returns empty.
+
+**The existence gate and the actual launch resolve differently.** node-pty checks the file
+exists via its own lookup, then calls `CreateProcessW(nullptr, cmdline, …)`, which does its
+own PATH search and appends `.exe`. A command can therefore pass the gate on one file and run
+a different one — which is how an extensionless shim "works" by accident.
+
+→ `server/infra/resolve-bin.ts` resolves the name before node-pty sees it, and
+`server/infra/cmd-escape.ts` wraps a batch target in `cmd.exe /d /s /c`. Both are reached from
+the single `spawnPty()` in `server/session/pty-spawn.ts` (#794, #798).
+
+**cmd.exe re-parses the command line before the child's CRT does.** `\"` — the CRT's escape,
+and what node-pty's own `argsToCommandLine` emits — does not escape a quote for cmd; it *ends*
+the quoted run, after which a `&` in the same argument is a command separator. Quote every
+argument, double internal quotes (`""`), double a trailing backslash run, and reject NUL/CR/LF.
+`%VAR%` is still expanded inside double quotes and cmd has no escape for it. Rust hit this in
+CVE-2024-24576; Node answered CVE-2024-27980 by refusing to spawn `.cmd` without a shell.
+
+## Paths
+
+**`path.resolve` drive-qualifies.** `path.resolve("\\home\\u")` becomes `C:\home\u`. Resolving
+one side of a comparison and not the other silently stops matching — that was #802.
+
+**Comparison is case-insensitive.** NTFS and the Win32 API treat `C:\Users\u` and `c:\users\u`
+as one directory; `String.startsWith` and `===` do not. macOS is *usually* case-insensitive
+too, but a case-sensitive APFS volume is a supported setup, so folding there would widen a
+containment guard on a guess.
+
+**A prefix is not containment.** `…\project-old` starts with `…\project` as a string. The
+separator is what makes the check a boundary.
+
+→ `server/infra/path-within.ts` — `isWithin` / `isStrictlyWithin` / `isSamePath`. Use these
+rather than hand-rolling `target.startsWith(base + path.sep)`; several callers are security
+boundaries, and the lexical answer still needs a realpath pass for symlinks.
+
+## Filesystem watching
+
+**`fs.watch` on an 8.3 short path is unreliable, and can abort the process.** `os.tmpdir()`
+returns `C:\Users\RUNNER~1\…` on a GitHub runner; expand it with `realpathSync` before
+watching. Even then Windows gives no delivery guarantee — the reload case in
+`test/scripts/dev-server.spec.ts` is skipped there rather than left to flake.
+
+## Environment
+
+**`process.env` is case-insensitive, a copy of it is not.** Windows spells it `Path` and
+`ComSpec`; `Object.entries(process.env)` keeps that casing, so `copy.PATH` is `undefined`.
+→ `envValue()` in `server/infra/pty-env.ts`.
