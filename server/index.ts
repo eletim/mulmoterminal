@@ -71,6 +71,7 @@ import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames } from "./infra/plugins-registry.js";
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
+import { pruneOrphanSettings } from "./session/session-settings.js";
 
 // Per-session activity flags, driven by Claude hooks (see /api/hook).
 
@@ -499,13 +500,18 @@ server.on("error", (err) => {
 
 server.listen(PORT, () => {
   console.log(`mulmoterminal running at http://localhost:${PORT}`);
+  const surviving = tmuxAvailable() ? tmuxListSessionIds() : [];
   if (tmuxAvailable()) {
-    const surviving = tmuxListSessionIds();
     const detail = surviving.length ? ` — ${surviving.length} session(s) survived; reattach on connect` : "";
     console.log(`[tmux] persistence on${detail}`);
   } else {
     console.log("[tmux] not found — terminals are not persistent across a server restart");
   }
+  // A crash never reaches reap(), so settings files — one of which may hold a provider's API
+  // token — outlive the sessions that used them. Anything not backed by a surviving tmux
+  // session is an orphan: a PTY without tmux died with the server that owned it.
+  const droppedSettings = pruneOrphanSettings(new Set(surviving));
+  if (droppedSettings.length) console.log(`[settings] removed ${droppedSettings.length} orphaned session settings file(s)`);
   if (sandboxEnabled()) {
     if (!sandboxPlatformSupported()) {
       console.log("[sandbox] MULMOTERMINAL_SANDBOX set but only supported on macOS for now — using host spawn");

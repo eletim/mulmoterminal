@@ -2,7 +2,7 @@
 // presets plus an optional custom attention-sound file. Unified read/write so a
 // partial update (e.g. just the sound) never clobbers the other field. Extracted
 // from config-routes.ts so the sanitize/load/save logic is unit-testable.
-import { existsSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePresets } from "./cwd-presets.js";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
@@ -19,6 +19,7 @@ import {
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import { readTextFile } from "../infra/read-text-file.js";
+import { writeFileAtomicSync } from "../files/atomic-write.js";
 
 export interface AppConfig {
   cwdPresets: CwdPreset[];
@@ -288,8 +289,9 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
 // surface it instead of reporting a false success.
 export function saveAppConfig(file: string, config: AppConfig): boolean {
   try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify(toPublicAppConfig(config), null, 2));
+    // Atomic: this is the file holding every provider, launcher and header button, and a
+    // truncated one reads as corrupt on the next boot — i.e. as no configuration at all.
+    writeFileAtomicSync(file, JSON.stringify(toPublicAppConfig(config), null, 2));
     return true;
   } catch {
     return false;

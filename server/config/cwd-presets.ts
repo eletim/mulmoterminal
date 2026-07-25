@@ -1,9 +1,10 @@
 // Directory presets the launch form offers, persisted at config.json. Extracted
 // from index.ts so the sanitize/load/save logic is unit-testable.
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { type CwdPreset } from "./config-schema.js";
 import { readJsonFile } from "../infra/read-text-file.js";
+import { writeFileAtomicSync } from "../files/atomic-write.js";
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const isPreset = (v: unknown): v is CwdPreset => isRecord(v) && typeof v.label === "string" && typeof v.path === "string";
@@ -32,8 +33,7 @@ export function loadPresets(file: string): CwdPreset[] {
 // instead of reporting a false success.
 export function savePresets(file: string, presets: CwdPreset[]): boolean {
   try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ cwdPresets: presets }, null, 2));
+    writeFileAtomicSync(file, JSON.stringify({ cwdPresets: presets }, null, 2));
     return true;
   } catch {
     return false;
