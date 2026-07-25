@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { gridShortcutFor, isEditableTarget, type ShortcutKeyEvent } from "../../../src/composables/gridShortcut.js";
+import type { Keymap } from "../../../common/keymap.js";
+
+const KEYMAP: Keymap = { "zoom-next": "PageDown", "zoom-prev": "PageUp" };
 
 const key = (over: Partial<ShortcutKeyEvent> = {}): ShortcutKeyEvent => ({
   type: "keydown",
@@ -12,44 +15,64 @@ const key = (over: Partial<ShortcutKeyEvent> = {}): ShortcutKeyEvent => ({
 });
 
 describe("gridShortcutFor", () => {
-  it("maps bare PageDown/PageUp to next/prev while zoomed", () => {
-    expect(gridShortcutFor(key({ key: "PageDown" }), true)).toBe("zoom-next");
-    expect(gridShortcutFor(key({ key: "PageUp" }), true)).toBe("zoom-prev");
+  it("resolves the user's bindings while zoomed", () => {
+    expect(gridShortcutFor(KEYMAP, key({ key: "PageDown" }), true)).toBe("zoom-next");
+    expect(gridShortcutFor(KEYMAP, key({ key: "PageUp" }), true)).toBe("zoom-prev");
+  });
+
+  it("does nothing with an EMPTY keymap — shortcuts are opt-in via config.json", () => {
+    expect(gridShortcutFor({}, key({ key: "PageDown" }), true)).toBeNull();
+    expect(gridShortcutFor({}, key({ key: "PageUp" }), true)).toBeNull();
   });
 
   it("does nothing when nothing is zoomed — an un-zoomed grid has no selected terminal", () => {
-    expect(gridShortcutFor(key({ key: "PageDown" }), false)).toBeNull();
-    expect(gridShortcutFor(key({ key: "PageUp" }), false)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ key: "PageDown" }), false)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ key: "PageUp" }), false)).toBeNull();
   });
 
-  it("leaves Shift+PageUp alone so xterm's scrollback still works", () => {
-    expect(gridShortcutFor(key({ key: "PageUp", shiftKey: true }), true)).toBeNull();
-    expect(gridShortcutFor(key({ key: "PageDown", shiftKey: true }), true)).toBeNull();
+  it("gates the actions that need a subject terminal on being zoomed", () => {
+    const map: Keymap = { "terminal-new-adjacent": "F2", "terminal-close": "F3" };
+    expect(gridShortcutFor(map, key({ key: "F2" }), true)).toBe("terminal-new-adjacent");
+    expect(gridShortcutFor(map, key({ key: "F3" }), true)).toBe("terminal-close");
+    expect(gridShortcutFor(map, key({ key: "F2" }), false)).toBeNull();
+    expect(gridShortcutFor(map, key({ key: "F3" }), false)).toBeNull();
+  });
+
+  it("lets terminal-new work WITHOUT a zoom — appending a cell needs no subject", () => {
+    const map: Keymap = { "terminal-new": "F1" };
+    expect(gridShortcutFor(map, key({ key: "F1" }), false)).toBe("terminal-new");
+    expect(gridShortcutFor(map, key({ key: "F1" }), true)).toBe("terminal-new");
+  });
+
+  it("leaves Shift+PageUp alone when only the bare key is bound (xterm's scrollback)", () => {
+    expect(gridShortcutFor(KEYMAP, key({ key: "PageUp", shiftKey: true }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ key: "PageDown", shiftKey: true }), true)).toBeNull();
+  });
+
+  it("honours a binding that DOES ask for a modifier", () => {
+    const shifted: Keymap = { "zoom-next": "Shift+PageDown" };
+    expect(gridShortcutFor(shifted, key({ key: "PageDown", shiftKey: true }), true)).toBe("zoom-next");
+    expect(gridShortcutFor(shifted, key({ key: "PageDown" }), true)).toBeNull();
   });
 
   it("leaves every other modifier combination alone", () => {
-    expect(gridShortcutFor(key({ altKey: true }), true)).toBeNull();
-    expect(gridShortcutFor(key({ ctrlKey: true }), true)).toBeNull();
-    expect(gridShortcutFor(key({ metaKey: true }), true)).toBeNull();
-    expect(gridShortcutFor(key({ ctrlKey: true, shiftKey: true }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ altKey: true }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ ctrlKey: true }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ metaKey: true }), true)).toBeNull();
   });
 
   it("ignores anything that isn't a keydown", () => {
-    expect(gridShortcutFor(key({ type: "keyup" }), true)).toBeNull();
-    expect(gridShortcutFor(key({ type: "keypress" }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ type: "keyup" }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ type: "keypress" }), true)).toBeNull();
   });
 
   it("ignores the keystroke while an IME is composing — it pages the candidate list", () => {
-    expect(gridShortcutFor(key({ isComposing: true }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ isComposing: true }), true)).toBeNull();
   });
 
-  it("ignores unrelated keys", () => {
-    expect(gridShortcutFor(key({ key: "ArrowDown" }), true)).toBeNull();
-    expect(gridShortcutFor(key({ key: "Enter" }), true)).toBeNull();
-    expect(gridShortcutFor(key({ key: "" }), true)).toBeNull();
-    // A key literally named like an Object.prototype member must not read through the chain.
-    expect(gridShortcutFor(key({ key: "constructor" }), true)).toBeNull();
-    expect(gridShortcutFor(key({ key: "toString" }), true)).toBeNull();
+  it("ignores unbound keys", () => {
+    expect(gridShortcutFor(KEYMAP, key({ key: "ArrowDown" }), true)).toBeNull();
+    expect(gridShortcutFor(KEYMAP, key({ key: "" }), true)).toBeNull();
   });
 });
 

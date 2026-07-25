@@ -39,7 +39,9 @@ import {
   resolveCellStatus,
   MAX_TERMINALS,
 } from "./gridTabs";
-import { gridShortcutFor, isEditableTarget } from "../composables/gridShortcut";
+import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composables/gridShortcut";
+import { useCaptureKeydown } from "../composables/useCaptureKeydown";
+import { getActiveKeymap } from "../composables/activeKeymap";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
 import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
@@ -377,18 +379,33 @@ function onShortcutKey(e: KeyboardEvent) {
   if (showSettings.value) return;
   const target = e.target instanceof HTMLElement ? e.target : null;
   if (target && isEditableTarget(target.tagName, Array.from(target.classList))) return;
-  const shortcut = gridShortcutFor(e, expandedUid.value !== null);
+  const shortcut = gridShortcutFor(getActiveKeymap(), e, expandedUid.value !== null);
   if (!shortcut) return;
   e.preventDefault();
   e.stopPropagation();
-  state.value = moveZoom(
-    state.value,
-    displayCells.value.map((c) => c.uid),
-    shortcut === "zoom-next" ? 1 : -1,
-  );
+  runShortcut(shortcut);
 }
-onMounted(() => window.addEventListener("keydown", onShortcutKey, true));
-onBeforeUnmount(() => window.removeEventListener("keydown", onShortcutKey, true));
+
+// Every action but `terminal-new` needs a terminal to act ON, and the zoomed cell is the
+// only one the grid can name — gridShortcutFor has already refused those while un-zoomed.
+function runShortcut(shortcut: GridShortcut) {
+  const order = displayCells.value.map((c) => c.uid);
+  const uid = expandedUid.value;
+  if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
+    state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
+  } else if (shortcut === "terminal-new") {
+    onAddTerminal();
+  } else if (shortcut === "terminal-new-adjacent" && uid !== null) {
+    state.value = insertCellAfter(state.value, uid, shellCell(cellCwd(uid) ?? defaultCwd.value ?? ""));
+  } else if (shortcut === "terminal-close" && uid !== null) {
+    onClose(uid);
+  }
+}
+
+// The dir a new adjacent terminal inherits: the one the zoomed cell is running in, which is
+// what "split this terminal" means everywhere else. Falls back to the server default.
+const cellCwd = (uid: number): string | null => state.value.cells.find((c) => c.uid === uid)?.cwd ?? null;
+useCaptureKeydown(onShortcutKey);
 
 // Launch the config skill in a new auto-running session and switch to the single view so it shows
 // (the grid has no single active session). The skill then asks which directory / batch.

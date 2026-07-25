@@ -22,7 +22,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Parallel terminals | Up to **9 cells** per page; overflow adds a new **page (tab)**. Cells auto-sort by state (needs-you first) |
 | Status colors + sound | Working (blue) / **awaiting input (amber)** / **done, review it (blue ring)** / idle. Know you've been "called" without watching |
 | Cockpit roster | While zoomed with `⤢`, a **one-row-per-session text list** beside the terminal (directory, AI summary, prompt, latest reply, status word). Click a row to swap; `▤ / ☰` toggles the thumbnail filmstrip |
-| Keyboard: switch the enlarged terminal | While zoomed, `Page Down` / `Page Up` walk the enlargement along the on-screen order. Stops at both ends; `Shift`+`Page Up/Down` is left to the terminal's scrollback ([basics](basics.html#keyboard-zoom-switch)) |
+| Keyboard: switch the enlarged terminal | While zoomed, bound keys walk the enlargement along the on-screen order. **Opt-in — nothing is bound by default**; add a `keymap` to `config.json` ([config](config.html#keymap)) |
 | Add / close / reorder cells | `New terminal ＋`, each cell's `✕`, and `◀ ▶` in reorder mode |
 | Worktree isolation | Git worktrees so many agents can run on the same repo without colliding |
 | Session persistence (tmux) | If tmux is available, each session runs inside tmux and **reconnects** across reloads and server restarts |

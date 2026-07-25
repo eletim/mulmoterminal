@@ -63,6 +63,7 @@ Open it from the ⚙ in the toolbar.
 | `pushEnabled` | Where the Web Push toggle is stored (default `false` → [Mobile notifications](notifications.html)) |
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
+| `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
 
 ## Running on another model (providers) {#providers}
 
@@ -144,6 +145,68 @@ An invalid value (a typo, or anything other than `"cr"` / `"esc-cr"`) is ignored
   the remote view's text box instead.
 - **Japanese / other IME input** — while the IME is composing, **Enter confirms the candidate** and
   is never taken as submit or newline, in either mode. Your CJK input is unaffected.
+
+## Keyboard shortcuts (`keymap`) {#keymap}
+
+Keyboard shortcuts are **opt-in**. There are no defaults: with no `keymap` in `config.json`, nothing is
+bound and no key is intercepted. That is deliberate — **every key you bind is a key the program inside the
+terminal stops receiving**, and only you know whether that trade is worth it for your workflow.
+
+```json
+{
+  "keymap": {
+    "zoom-next": "PageDown",
+    "zoom-prev": "Shift+PageUp"
+  }
+}
+```
+
+### Actions
+
+| Action | What it does | Needs a zoomed cell |
+|---|---|---|
+| `zoom-next` | Move the enlargement to the **next** terminal in the on-screen order | yes |
+| `zoom-prev` | Same, to the **previous** one | yes |
+| `terminal-new` | Add a terminal at the **end** (same as the toolbar's `New terminal ＋`) | no |
+| `terminal-new-adjacent` | Add a terminal **right after the current one**, inheriting its working directory — the closest thing to "split this terminal" | yes |
+| `terminal-close` | **Close** the current terminal (same as its `✕`) | yes |
+
+Most actions need a terminal to act *on*, and the zoomed cell is the only one the grid can name — an
+un-zoomed grid has no "current terminal", so those do nothing rather than guessing. The zoom moves **stop at
+both ends** instead of wrapping. See [Basics → switching the enlarged terminal](basics.html#keyboard-zoom-switch).
+
+{: .warning }
+> **`terminal-close` closes immediately, with no confirmation** — the same as clicking the cell's `✕`, which
+> ends that session. Bind it to something you won't hit by accident.
+
+### Binding syntax
+
+`Modifier+Modifier+Key`. The key is matched against the browser's `KeyboardEvent.key` value.
+
+- **Modifiers**: `Shift`, `Ctrl` (`Control`), `Alt` (`Option`), `Cmd` (`Command`, `Meta`). Case-insensitive.
+- **Key**: exactly as the browser reports it — `PageDown`, `Home`, `F5`, `ArrowUp`, `a`. Printable letters
+  are **case-sensitive** (`A` implies Shift is held).
+- **Modifiers match exactly.** Binding `PageDown` does *not* fire for `Shift+PageDown`; that keystroke stays
+  with the terminal. This is how you keep `Shift`+`Page Up`/`Page Down` for xterm's scrollback.
+- A malformed binding (unknown modifier, a lone `Shift`, a trailing `+`) makes MulmoTerminal **refuse to
+  start**, printing the offending line. A silently-ignored typo is indistinguishable from "the shortcut just
+  doesn't work", which would send you hunting in the app for a one-character problem in a file.
+- An IME composition always passes through, so Japanese/CJK candidate selection is never intercepted.
+
+### Combinations that cannot be bound
+
+MulmoTerminal runs in a browser tab, and some keys never reach a web page in a form it can suppress.
+
+| Combination | Why |
+|---|---|
+| `Cmd`/`Ctrl`+`W`, `+T`, `+N`, `Cmd`/`Ctrl`+`Shift`+`T` | **Reserved by the browser** (close/new tab, new window). A page cannot intercept them — binding one simply does nothing |
+| `Ctrl`+`Cmd`+`D` and similar on macOS | The **OS** may consume it first (this one opens Dictionary), so it may never reach the browser at all. Depends on your system settings |
+| `Ctrl`+`C` / `Ctrl`+`D` / `Ctrl`+`B` etc. | These *can* be bound, but they are what the shell, `readline` and `tmux` use. Binding one takes it away from the terminal — allowed, but rarely what you want |
+
+{: .note }
+> An **unknown action name only warns** and the app still starts — that is what a config written for a newer
+> MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
+> navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
 
 ## Per-project `.mulmoterminal.json` {#per-dir}
 

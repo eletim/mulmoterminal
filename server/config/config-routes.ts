@@ -24,7 +24,8 @@ import { launchOptions } from "./launch-options.js";
 import { badArrayField, badNullableArrayField } from "./config-body.js";
 import { getUpdateStatus } from "./update-status.js";
 
-const CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config.json");
+export const APP_CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config.json");
+const CONFIG_FILE = APP_CONFIG_FILE;
 let config: AppConfig = loadAppConfig(CONFIG_FILE);
 
 // The repos the cross-repo PR view aggregates — read live so a POST /api/config that

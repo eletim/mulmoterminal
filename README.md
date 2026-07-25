@@ -810,11 +810,11 @@ Favorited collections get their own toolbar buttons.
 - **Zoom & filmstrip** — a cell's **⤢** enlarges one agent while the rest shrink to
   thumbnails in a bottom **filmstrip**; click a thumbnail to switch, **⤡** to return to the
   grid — so you can flip between "see everything" and "focus on one" in a click. While
-  zoomed, **Page Down / Page Up** walk the enlargement along the on-screen order without
-  reaching for the mouse (stops at both ends; `Shift`+`Page Up/Down` is left to the
-  terminal's own scrollback). See the
-  [guide](https://receptron.github.io/mulmoterminal/guide/en/basics.html#keyboard-zoom-switch)
-  for the full caveats.
+  zoomed, keys you bind walk the enlargement along the on-screen order without reaching for
+  the mouse — **opt-in, nothing is bound by default**, since any bound key is taken from the
+  terminal underneath. Add a `keymap` to `~/.mulmoterminal/config.json`; see the
+  [guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap)
+  for the syntax, the action list, and combinations a browser can never bind.
 
 ![Zoom — one agent enlarged, the others as a filmstrip along the bottom](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-zoom.png)
 
