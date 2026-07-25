@@ -87,6 +87,9 @@ const markRecovered = (ctx: RunnerContext): void => {
   ctx.timer = null;
   ctx.downSince = null;
   ctx.attempt = 0;
+  // The incident is over, so its error stops describing the channel: kept, it would be
+  // reported as the cause of whatever outage comes next.
+  ctx.lastError = null;
   if (ctx.state === "online") return;
   ctx.deps.log.info("host runner re-subscribed");
   setState(ctx, "online");

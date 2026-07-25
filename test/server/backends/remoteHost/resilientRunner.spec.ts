@@ -208,6 +208,25 @@ describe("startResilientRunner", () => {
     expect(health.at(-1)?.lastError).toBe("listen: Missing or insufficient permissions.");
   });
 
+  it("forgets the incident's error once the channel has recovered", () => {
+    const { clock, runner, health } = setup();
+    runner.started[0]?.onEvent?.({ phase: "error", method: "listen", message: "unavailable" });
+    runner.die();
+    clock.advance(1_000 + SETTLE_MS);
+    expect(health.at(-1)).toEqual(expect.objectContaining({ state: "online", lastError: null }));
+  });
+
+  // Kept across a recovery, an old error is reported as the cause of the NEXT outage —
+  // sending diagnosis after something that was fixed minutes ago.
+  it("does not blame a new outage on the previous incident's error", () => {
+    const { clock, runner, health } = setup();
+    runner.started[0]?.onEvent?.({ phase: "error", method: "listen", message: "unavailable" });
+    runner.die();
+    clock.advance(1_000 + SETTLE_MS); // recovered
+    runner.die(); // a fresh outage, this one with no error event of its own
+    expect(health.at(-1)?.lastError).toBeNull();
+  });
+
   it("forwards events to the owner's handler", () => {
     const onEvent = vi.fn();
     const { runner } = setup({ options: { onEvent } });
