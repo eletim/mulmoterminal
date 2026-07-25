@@ -376,7 +376,7 @@ const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(p
 const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
   const cwd = ptys.get(sessionId)?.cwd ?? "";
   // The three git reads are independent, so the phone waits for one spawn rather than three.
-  const [head, repoUrl, upstream] = await Promise.all([
+  const [head, repoUrl, onOrigin] = await Promise.all([
     cwd ? currentBranch(cwd) : null,
     cwd ? resolveGithubUrl(cwd) : null,
     cwd ? tracksOriginBranch(cwd) : false,
@@ -386,7 +386,7 @@ const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionSc
     branch: head?.branch ?? "",
     summary: aiTitles.get(sessionId) ?? "",
     prompt: lastPrompts.get(sessionId) ?? "",
-    githubUrl: githubBranchUrl(repoUrl, head?.branch ?? null, upstream) ?? "",
+    githubUrl: githubBranchUrl(repoUrl, head?.branch ?? null, onOrigin) ?? "",
   };
 };
 
