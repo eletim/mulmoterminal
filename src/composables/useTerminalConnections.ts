@@ -31,6 +31,7 @@ import { messageEffect } from "./serverMessage";
 import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
+import { filesGotoFile } from "./useFilesView";
 
 export type ConnStatus = "connecting" | "connected" | "disconnected";
 
@@ -218,14 +219,16 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
   term.attachCustomKeyEventHandler(makeEnterHandler(() => effectiveSubmitMode(c), send));
 }
 
-// Linkify file paths in the output → open them in a new tab via the raw-file route,
-// scoped to the session's live cwd (read lazily, since it's learned after connect).
+// Linkify file paths in the output, scoped to the session's live cwd (read lazily, since
+// it's learned after connect). A document or an image opens in a new tab through the file
+// routes; source opens in the app's own Files view, where it is highlighted and editable.
 function registerFilePathLinks(term: Terminal, c: Conn): void {
   term.registerLinkProvider(
     createFilePathLinkProvider(
       term,
       () => c.knownCwd,
       (url) => window.open(url, "_blank", "noopener,noreferrer"),
+      (filePath, cwd) => filesGotoFile(cwd, filePath),
     ),
   );
 }

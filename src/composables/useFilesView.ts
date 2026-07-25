@@ -16,9 +16,20 @@ const originFromHistory = (): string => {
 
 /** Open the Files view rooted at `cwd` (the terminal's project dir). */
 export function filesGotoIndex(cwd: string | null): void {
+  pushFilesRoute(cwd ? { cwd } : {});
+}
+
+/** Open the Files view rooted at `cwd` with `path` (project-relative) already open in the
+ *  editor — what a clicked source path in terminal output does, so the file lands where the
+ *  app can highlight and edit it instead of in a tab showing its bytes (#808). */
+export function filesGotoFile(cwd: string | null, path: string): void {
+  pushFilesRoute(cwd ? { cwd, path } : { path });
+}
+
+function pushFilesRoute(query: Record<string, string>): void {
   const alreadyOpen = router.currentRoute.value.name === "files";
   const returnPath = alreadyOpen ? originFromHistory() : router.currentRoute.value.fullPath;
-  router.push({ name: "files", query: cwd ? { cwd } : {}, state: { returnPath } });
+  router.push({ name: "files", query, state: { returnPath } });
 }
 
 /** Close the Files view → back to the view it was opened from. */
@@ -26,14 +37,24 @@ export function filesClose(): void {
   router.push(originFromHistory());
 }
 
-export function useFilesView(): { isOpen: ComputedRef<boolean>; cwd: ComputedRef<string | null>; close: () => void } {
+export function useFilesView(): {
+  isOpen: ComputedRef<boolean>;
+  cwd: ComputedRef<string | null>;
+  requestedPath: ComputedRef<string | null>;
+  close: () => void;
+} {
   return {
     isOpen: computed(() => router.currentRoute.value.name === "files"),
     // The project dir to browse — the ?cwd= query (a single string; arrays/absent => null).
-    cwd: computed(() => {
-      const q = router.currentRoute.value.query.cwd;
-      return typeof q === "string" ? q : null;
-    }),
+    cwd: computed(() => queryString("cwd")),
+    // A file to open on arrival — the ?path= query. The view owns what happens next; this
+    // only reports what the URL asked for.
+    requestedPath: computed(() => queryString("path")),
     close: filesClose,
   };
+}
+
+function queryString(name: string): string | null {
+  const value = router.currentRoute.value.query[name];
+  return typeof value === "string" && value !== "" ? value : null;
 }

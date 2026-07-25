@@ -35,8 +35,13 @@ async function writeLine(term: Terminal, text: string): Promise<void> {
   await new Promise<void>((resolve) => term.write(text, resolve));
 }
 
-function provideLinks(term: Terminal, cwd: string | null, open: (url: string) => void): ILink[] | undefined {
-  const provider = createFilePathLinkProvider(term, () => cwd, open);
+function provideLinks(
+  term: Terminal,
+  cwd: string | null,
+  open: (url: string) => void,
+  openInFiles: (filePath: string, cwd: string) => void = () => {},
+): ILink[] | undefined {
+  const provider = createFilePathLinkProvider(term, () => cwd, open, openInFiles);
   let result: ILink[] | undefined;
   provider.provideLinks(1, (links) => {
     result = links;
@@ -62,6 +67,27 @@ describe("createFilePathLinkProvider against real xterm", () => {
 
     link.activate(new MouseEvent("click"), link.text);
     expect(open).toHaveBeenCalledWith("/api/files/raw?cwd=%2FUsers%2Fme%2Fproj&path=dir%2Fa.gif");
+
+    term.dispose();
+  });
+
+  // The other arm of activate(): a source path never opens a tab, it hands the path to the
+  // app's Files view (#808).
+  it("hands a clicked source path to the Files view instead of opening a tab", async () => {
+    const term = new Terminal({ cols: 120, rows: 10, allowProposedApi: true });
+    term.open(document.createElement("div"));
+    await writeLine(term, "see src/main.ts for details");
+
+    const open = vi.fn();
+    const openInFiles = vi.fn();
+    const links = provideLinks(term, "/Users/me/proj", open, openInFiles);
+    if (!links) throw new Error("expected the provider to return links");
+
+    const [link] = links;
+    expect(link.text).toBe("src/main.ts");
+    link.activate(new MouseEvent("click"), link.text);
+    expect(openInFiles).toHaveBeenCalledWith("src/main.ts", "/Users/me/proj");
+    expect(open).not.toHaveBeenCalled();
 
     term.dispose();
   });

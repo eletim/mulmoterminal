@@ -10,7 +10,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { marked } from "marked";
 import type { Express, Request, Response } from "express";
-import { resolveBase, containedPath, realContainedWithin } from "./pathContainment.js";
+import os from "node:os";
+import { resolveBase, resolveContained } from "./pathContainment.js";
 import { htmlDoc, jsonHtmlDoc, tableHtmlDoc, delimiterForExtension } from "./renderedDoc.js";
 
 // Cap on the bytes served to the editor / accepted on write — a text editor, not a
@@ -58,9 +59,7 @@ const browseRel = (req: Request): string => (typeof req.query.path === "string" 
 // Resolve `path` under the request's project base; 403 (and returns null) if it escapes —
 // lexically OR through a symlink. One containment gate shared by every route (read + write).
 function containedFor(req: Request, res: Response, defaultCwd: string): string | null {
-  const base = browseBase(req, defaultCwd);
-  const lexical = containedPath(base, browseRel(req));
-  const abs = lexical ? realContainedWithin(base, lexical) : null;
+  const abs = resolveContained(browseBase(req, defaultCwd), browseRel(req), os.homedir());
   if (!abs) {
     res.status(403).json({ error: "path escapes the project root" });
     return null;

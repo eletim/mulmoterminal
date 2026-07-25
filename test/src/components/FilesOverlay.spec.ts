@@ -8,17 +8,22 @@ import FilesOverlay from "../../../src/components/FilesOverlay.vue";
 const hoisted = vi.hoisted(() => ({
   setCwd: (() => {}) as (v: string | null) => void,
   setOpen: (() => {}) as (v: boolean) => void,
+  setRequestedPath: (() => {}) as (v: string | null) => void,
 }));
 vi.mock("../../../src/composables/useFilesView", async () => {
   const { ref: r } = await import("vue");
   const cwd = r<string | null>("/proj");
   const isOpen = r(true);
+  // ?path= — a file the URL asks to open (a clicked source path in terminal output).
+  const requestedPath = r<string | null>(null);
   hoisted.setCwd = (v) => (cwd.value = v);
   hoisted.setOpen = (v) => (isOpen.value = v);
+  hoisted.setRequestedPath = (v) => (requestedPath.value = v);
   return {
-    useFilesView: () => ({ isOpen, cwd, close: () => (isOpen.value = false) }),
+    useFilesView: () => ({ isOpen, cwd, requestedPath, close: () => (isOpen.value = false) }),
     // Revert re-opens /files at the restored root (isOpen back to true).
     filesGotoIndex: (v: string | null) => ((cwd.value = v), (isOpen.value = true)),
+    filesGotoFile: (v: string | null, p: string) => ((cwd.value = v), (requestedPath.value = p), (isOpen.value = true)),
   };
 });
 
@@ -70,6 +75,7 @@ describe("FilesOverlay", () => {
   beforeEach(() => {
     fakeEditor.setDoc.mockClear();
     hoisted.setCwd("/proj");
+    hoisted.setRequestedPath(null);
     hoisted.setOpen(true);
     mockFs();
   });
@@ -202,5 +208,50 @@ describe("FilesOverlay", () => {
     const w = mountOverlay();
     await flushPromises();
     expect(w.text()).toContain("HTTP 500");
+  });
+
+  // ?path= — the file a clicked source path in terminal output asks for (#808).
+  describe("a file requested by the URL", () => {
+    it("opens on arrival, without a tree click", async () => {
+      hoisted.setRequestedPath("src/app.ts");
+      mountOverlay();
+      await flushPromises();
+      expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "app.ts");
+    });
+
+    it("opens a second requested file while the view is already open", async () => {
+      hoisted.setRequestedPath("src/app.ts");
+      mountOverlay();
+      await flushPromises();
+      fakeEditor.setDoc.mockClear();
+
+      hoisted.setRequestedPath("src/other.ts");
+      await flushPromises();
+      expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "other.ts");
+    });
+
+    // Codex flagged the `pathRel === openPath` early-return as stale-content risk when the
+    // ROOT changes under the same relative path. It is not: the root-change watcher runs
+    // teardown() first, which clears openPath. Pinned here so that stays true — the guard's
+    // correctness depends on teardown, which is not visible from the guard itself.
+    it("reloads the same relative path when the project root changes", async () => {
+      hoisted.setRequestedPath("src/app.ts");
+      mountOverlay();
+      await flushPromises();
+      fakeEditor.setDoc.mockClear();
+
+      const urls: string[] = [];
+      const previous = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        urls.push(String(input));
+        return previous(input, init);
+      }) as unknown as typeof fetch;
+
+      hoisted.setCwd("/other-proj"); // same path string, different project
+      await flushPromises();
+
+      expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "app.ts");
+      expect(urls.some((u) => u.includes("%2Fother-proj") && u.includes("src%2Fapp.ts"))).toBe(true);
+    });
   });
 });

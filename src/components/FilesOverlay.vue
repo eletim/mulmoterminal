@@ -23,7 +23,7 @@ interface Entry {
   size: number;
 }
 
-const { isOpen, cwd, close } = useFilesView();
+const { isOpen, cwd, requestedPath, close } = useFilesView();
 
 const roots = ref<Node[]>([]);
 const treeError = ref<string | null>(null);
@@ -108,18 +108,25 @@ function confirmDiscard(): boolean {
 
 async function openFile(node: Node): Promise<void> {
   if (node.dir) return toggleDir(node);
-  if (node.path === openPath.value) return; // already open — no reload, no prompt
+  await loadFile(node.path);
+}
+
+// Open a project-relative path in the editor. Split out from openFile because the other way
+// in has no tree node to hand over: a clicked source path in terminal output arrives as
+// ?path= and opens the same file (#808).
+async function loadFile(pathRel: string): Promise<void> {
+  if (pathRel === openPath.value) return; // already open — no reload, no prompt
   if (!confirmDiscard()) return;
   const id = ++reqId;
   fileError.value = null;
   showPreview.value = false;
   try {
-    const res = await fetch(`/api/files/browse/text?${qs(node.path)}`);
+    const res = await fetch(`/api/files/browse/text?${qs(pathRel)}`);
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     const data = await res.json();
     if (id !== reqId) return;
-    openPath.value = node.path;
-    editor?.setDoc(typeof data.text === "string" ? data.text : "", node.name);
+    openPath.value = pathRel;
+    editor?.setDoc(typeof data.text === "string" ? data.text : "", pathRel.split("/").pop() ?? pathRel);
     dirty.value = false;
   } catch (e) {
     if (id === reqId) fileError.value = e instanceof Error ? e.message : String(e);
@@ -195,9 +202,16 @@ watch(
     await nextTick();
     if (editorHost.value) editor = createEditor(editorHost.value, () => (dirty.value = true));
     loadRoot();
+    if (requestedPath.value) loadFile(requestedPath.value);
   },
   { immediate: true },
 );
+
+// A second clicked path while the view is already open: the route changes but the setup
+// watcher above sees no change in [isOpen, cwd], so the file would never open.
+watch(requestedPath, (pathRel) => {
+  if (isOpen.value && pathRel) loadFile(pathRel);
+});
 
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => {

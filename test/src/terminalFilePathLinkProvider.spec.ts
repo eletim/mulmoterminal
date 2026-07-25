@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { computeFilePathLinks, rawFileUrl, fileViewerRoute, type TerminalCell } from "../../src/composables/terminalFilePathLinkProvider";
+import {
+  computeFilePathLinks,
+  rawFileUrl,
+  fileViewerRoute,
+  fileLinkTarget,
+  fileExtension,
+  type TerminalCell,
+} from "../../src/composables/terminalFilePathLinkProvider";
 
 // Build a row of terminal cells from a string. Chars in WIDE occupy two columns (a
 // width-2 cell + a width-0 continuation cell), as xterm stores CJK / emoji glyphs.
@@ -85,5 +92,45 @@ describe("fileViewerRoute", () => {
   it("leaves an extensionless file alone", () => {
     expect(fileViewerRoute("Makefile")).toBe("/api/files/raw");
     expect(fileViewerRoute("docs/README")).toBe("/api/files/raw");
+  });
+});
+
+describe("fileLinkTarget", () => {
+  const CWD = "/Users/me/proj";
+
+  // A browser tab can only show source as bytes; the app's Files view highlights it, sits
+  // next to the tree, and can edit it (#808).
+  it.each(["src/a.ts", "src/a.vue", "main.py", "go/main.go", "deploy.sh", "config.yaml", "styles.css"])("opens %s in the app", (file) => {
+    expect(fileLinkTarget(file, CWD)).toEqual({ kind: "files" });
+  });
+
+  it.each(["docs/a.md", "data/a.csv", "package.json"])("opens %s at its rendered URL instead", (file) => {
+    expect(fileLinkTarget(file, CWD)).toEqual({ kind: "url", url: rawFileUrl(file, CWD) });
+  });
+
+  // What the browser genuinely renders better than an editor would.
+  it.each(["shot.png", "paper.pdf", "chart.svg", "page.html"])("keeps %s in a tab", (file) => {
+    expect(fileLinkTarget(file, CWD)).toEqual({ kind: "url", url: rawFileUrl(file, CWD) });
+  });
+
+  it("sends an unknown or extensionless file to the raw route, not the editor", () => {
+    expect(fileLinkTarget("Makefile", CWD)).toEqual({ kind: "url", url: rawFileUrl("Makefile", CWD) });
+    expect(fileLinkTarget("archive.bin", CWD)).toEqual({ kind: "url", url: rawFileUrl("archive.bin", CWD) });
+  });
+
+  it("matches the extension case-insensitively", () => {
+    expect(fileLinkTarget("SRC/A.TS", CWD)).toEqual({ kind: "files" });
+  });
+});
+
+describe("fileExtension", () => {
+  it("reads the last extension, lower-cased", () => {
+    expect(fileExtension("a/b/C.TS")).toBe(".ts");
+    expect(fileExtension("notes.md.bak")).toBe(".bak");
+  });
+
+  it("is empty when there is none, and treats a dotfile as having none", () => {
+    expect(fileExtension("Makefile")).toBe("");
+    expect(fileExtension(".mdrc")).toBe(".mdrc"); // a leading dot IS the name here — the tables simply don't list it
   });
 });
