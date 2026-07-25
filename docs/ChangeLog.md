@@ -14,9 +14,11 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
   The escaping rule itself is still wrong for a non-MSVC target and is tracked in #819; after this change the only argument that can carry a quote in a normal spawn is a background chat's initial prompt.
 
-### Tests
+### Tests, docs & dependencies
 
 - **A Windows CI flake removed** (#816, #817): `streamFile.spec.ts` waited 20 ms for real file I/O and asserted an empty buffer when a loaded runner took longer. It now waits for the stream outcome itself, which also catches a request whose bytes arrive but whose response never ends. Test-only change.
+- **`CLAUDE.md`** (#815): the repo's agent-facing conventions, in the file an agent reads first.
+- `@codemirror/state` 6.7.1, `@codemirror/lang-markdown` 6.5.1 (#818).
 
 ## mulmoterminal@1.11.0 — 2026-07-25
 
