@@ -1,6 +1,6 @@
 ---
 name: mulmoterminal-config
-description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, attention sound, header buttons/chips, and which model/provider its sessions run on. Also sets up an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway) and keyboard shortcuts (`keymap`) in the global config. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many.
+description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal.
 ---
 
 # Configure a MulmoTerminal directory
@@ -40,8 +40,12 @@ no `cwdPresets`, say there's no history yet and ask for the paths.
 ### 2. Pick what to configure — checkboxes again
 
 One `multiSelect` question: **Name badge + chrome colors** / **Terminal palette** / **Header buttons** /
-**Header chips** / **Attention sound** / **Which model it runs on** / **Keyboard shortcuts**. Configure only what they ticked.
-(Keyboard shortcuts are global, not per-directory — see the `keymap` section.)
+**Header chips** / **Attention sound** / **Which model it runs on** / **Keyboard shortcuts** / **Enter key behaviour** /
+**Dev-work log**. Configure only what they ticked.
+
+The last three are **global**, not per-directory, and none of them has a Settings-modal UI — they exist
+only in `~/.mulmoterminal/config.json`, which is why this skill is the way a user finds them at all.
+Mention them when the user's complaint matches one (see each section below).
 
 ### 3. Choose a colour direction — preset first, never a blank hex
 
@@ -310,6 +314,47 @@ never add one they did not request.
 - This is a partial `POST /api/config` merge — write only `keymap`, so their other settings survive.
 - The browser reads the keymap on page load: **reload the tab** after writing. A hand-edit made while
   the server is running also needs a server restart before it reaches the page.
+
+## Enter key behaviour — `terminalSubmit` in `~/.mulmoterminal/config.json`
+
+Reach for this when the user says **"Shift+Enter submits my prompt instead of adding a line"** (or,
+equivalently, "a bare Enter drops to a new line instead of sending"). That is the tell-tale sign
+their Claude Code is on the reversed key binding, and it also makes the phone remote view's *send*
+button only type the text without submitting it.
+
+```jsonc
+{ "terminalSubmit": "cr" }      // default: Enter submits, Shift+Enter makes a newline
+{ "terminalSubmit": "esc-cr" }  // reversed: Enter submits with ESC+CR, Shift+Enter makes a newline
+```
+
+- **Do not set this speculatively.** `cr` is the default and correct for almost everyone. Only write
+  `esc-cr` after the user confirms the symptom above — setting it wrongly breaks Enter the other way.
+- The *meaning* is identical in both modes (Enter submits, Shift/Option+Enter makes a newline); only
+  which bytes carry it differs, because that is what the user's Claude Code was rebound to.
+- **Claude sessions only.** A shell, codex, or command cell always submits with a plain `\r` even in
+  `esc-cr`, so a reversed setting never rewrites a shell's Enter. Say so if they ask.
+- An invalid value falls back to `cr`, so a typo cannot leave Enter broken.
+- Takes effect after a **tab reload** (keyboard) and a **server restart** (phone remote view).
+- Partial `POST /api/config` merge — write only `terminalSubmit`.
+
+## Dev-work log — `worklogEnabled` / `worklogIntervalHours`
+
+A built-in scheduled task, **off by default**. When on, it fires every `worklogIntervalHours` and
+spawns a Claude session that merges recent work across the user's saved working dirs (`cwdPresets`),
+grouped by repository, into weekly wiki pages.
+
+```json
+{ "worklogEnabled": true, "worklogIntervalHours": 6 }
+```
+
+- **Say the cost out loud before enabling it**: each run spawns an LLM session, so this spends tokens
+  on a schedule whether or not the user is at the keyboard. Never turn it on unprompted.
+- `worklogIntervalHours` is clamped to **1–168** (one week) and rounded; anything invalid becomes the
+  default **6**. Offer a longer interval to anyone worried about cost.
+- It reads `cwdPresets`, so it is worth nothing until the user has launched terminals in a few
+  directories. Check that list before offering it.
+- The batch scaffolds its own wiki pages and state file — the user only flips the flag.
+- Partial `POST /api/config` merge — write only these two keys.
 
 ## Example result
 

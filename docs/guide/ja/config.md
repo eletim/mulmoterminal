@@ -14,6 +14,18 @@ nav_order: 4
 設定は 3 か所にあります。**設定モーダル（⚙）**・**グローバル設定 `~/.mulmoterminal/config.json`**・
 **プロジェクトごとの `<project>/.mulmoterminal.json`**。ボタン/チップは両ファイルがマージされます。
 
+{: .highlight }
+> **手書きする必要はありません。** MulmoTerminal のセッションで **`/mulmoterminal-config`** と打てば、
+> 同梱スキルがチェックボックスと配色プリセットで案内しながら、妥当なファイルを書いてくれます。現在の
+> ディレクトリでも、最近使った複数ディレクトリまとめてでも可能です。（⚙ → **🎨 Configure appearance…**
+> ボタンからも同じスキルが起動します。）
+>
+> **UI が一切なく `~/.mulmoterminal/config.json` にしか存在しない設定**を見つける手段でもあります——
+> [`providers`](#providers)（別のモデル）・[`keymap`](#keymap)（キーボードショートカット）・
+> [`terminalSubmit`](#terminal-submit)（「Shift+Enter で改行ではなく送信されてしまう」の対処）・定期 dev-work ログ。
+> 手編集でも構いません（このページに全フィールドの説明があります）が、スキルは書きながら検証します。
+> これは特に `keymap` で効いてきます——記法を間違えるとサーバが起動しなくなるためです。
+
 ---
 
 ## 設定モーダル（⚙）

@@ -13,6 +13,19 @@ nav_order: 4
 
 Settings live in three places: the **settings modal (⚙)**, the **global config `~/.mulmoterminal/config.json`**, and the **per-project `<project>/.mulmoterminal.json`**. Buttons and chips are merged from both files.
 
+{: .highlight }
+> **You don't have to hand-write any of this.** Run **`/mulmoterminal-config`** in any MulmoTerminal
+> session and the bundled skill walks you through it with checkboxes and colour presets, then writes
+> a valid file — for the current directory or several of your recent ones at once. (The ⚙ →
+> **🎨 Configure appearance…** button starts the same skill.)
+>
+> It is also how you find the settings that have **no UI at all** and exist only in
+> `~/.mulmoterminal/config.json`: [`providers`](#providers) (another model),
+> [`keymap`](#keymap) (keyboard shortcuts), [`terminalSubmit`](#terminal-submit) (the fix for
+> "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Hand-editing works
+> too — this page documents every field — but the skill validates as it writes, which matters for
+> `keymap`, where a malformed binding stops the server from starting.
+
 ---
 
 ## Settings modal (⚙)
