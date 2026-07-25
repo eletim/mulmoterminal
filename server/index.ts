@@ -57,7 +57,7 @@ import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
 import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
 import { feedRefreshTaskDef, type AgentWorkerRunner } from "@mulmoclaude/core/feeds/server";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
-import { installConfigSkill } from "./infra/install-config-skill.js";
+import { installBundledSkills } from "./infra/install-bundled-skills.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
 import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
@@ -99,10 +99,10 @@ await fs.mkdir(CLAUDE_CWD, { recursive: true });
 // fault-isolated per step, so it never aborts boot (see workspaceSetup.ts).
 initWorkspaceSetup({ workspace: CLAUDE_CWD });
 
-// Install the mulmoterminal-config skill into the user's global skills roots so any
-// launched terminal can run `/mulmoterminal-config` to author a .mulmoterminal.json.
-// Best-effort + never clobbers a user's own same-named skill (see install-config-skill.ts).
-installConfigSkill();
+// Install the skills we ship into the user's global skills roots so any launched terminal can run
+// `/mulmoterminal-config` (author a .mulmoterminal.json) and `/mulmoterminal-bug-report`.
+// Best-effort + never clobbers a user's own same-named skill (see install-bundled-skills.ts).
+installBundledSkills();
 
 // Pub/sub channel the sidebar subscribes to for live session-activity changes.
 

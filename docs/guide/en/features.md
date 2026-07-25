@@ -58,6 +58,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Voice input | Dictate into the prompt via microphone transcription |
 | MCP servers | Join your own HTTP MCP servers to sessions via the MCP SERVERS setting |
 | Launch commands | Start something other than Claude (`Shell` / `codex` / anything) as a **persistent terminal** |
+| `/mulmoterminal-bug-report` | Something looks broken? The bundled skill hears the symptom, checks whether it is actually configuration or by design (reading your real config and version), searches the existing issues, and only then helps you file one — with the environment collected and secrets masked |
 
 ## 4. Extend — a DSL to fit you
 

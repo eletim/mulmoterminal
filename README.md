@@ -1243,11 +1243,11 @@ server/
                   open-dir.ts, scripts.ts (Run-menu script.json loader)
   infra/          process/transport/misc: tmux.ts, tmux-routes.ts, sandbox.ts,
                   pubsub.ts (socket.io /ws/pubsub), spa-fallback.ts, host-tools.ts,
-                  plugins-registry.ts, web-push.ts, install-config-skill.ts, accounting-tool.ts
+                  plugins-registry.ts, web-push.ts, install-bundled-skills.ts, accounting-tool.ts
   mcp/            per-session MCP broker
   backends/       wiki, collections, feeds, accounting, notifier,
                   translation, whisper, remote-host, html, files
-  skills/         bundled mulmoterminal-config skill assets
+  skills/         bundled skills (mulmoterminal-config, mulmoterminal-bug-report)
   fix-pty-perms.js              postinstall: fixes node-pty binary permissions
 src/
   App.vue                       Layout; owns the active session + single/grid view
