@@ -72,6 +72,7 @@ describe("syncCodexSkills", () => {
   // and is also where chmod cannot produce one, so the case is driven the POSIX way.
   it.skipIf(process.platform === "win32")("skips a mirror it could not replace, rather than overlaying it", () => {
     writeSkill(src, "books", "# v2");
+    writeFileSync(path.join(src, "books", "only-in-source.md"), "new");
     mkdirSync(path.join(dst, "books"), { recursive: true });
     writeFileSync(path.join(dst, "books", ".mt-mirror"), "x");
     writeFileSync(path.join(dst, "books", "stale.txt"), "old");
@@ -84,7 +85,9 @@ describe("syncCodexSkills", () => {
       // looks synced while holding whatever the source deleted. (The directory itself may be
       // partially emptied — rmSync removes contents before it fails on the directory — so the
       // assertion is on what did NOT arrive, which is the part that matters.)
-      expect(existsSync(path.join(dst, "books", "SKILL.md"))).toBe(false);
+      // A file only the new copy could bring — asserting on one that exists in both would
+      // depend on how far rmSync got before failing, which differs between machines.
+      expect(existsSync(path.join(dst, "books", "only-in-source.md"))).toBe(false);
     } finally {
       chmodSync(dst, 0o700);
     }

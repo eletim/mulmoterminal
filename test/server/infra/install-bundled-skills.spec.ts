@@ -66,17 +66,18 @@ describe("installOwnedSkill", () => {
   // cannot produce it there, so the case is driven the POSIX way.
   it.skipIf(process.platform === "win32")("reports unreplaceable rather than overlaying a copy it could not remove", () => {
     installOwnedSkill(source, destParent);
-    writeFileSync(path.join(destParent, path.basename(source), "dropped-from-bundle.md"), "old");
+    // A file only the SECOND copy could bring. Asserting on one that exists in BOTH would
+    // depend on how far rmSync got before failing — it may or may not empty the directory
+    // first, and that differs between machines (this test passed locally and failed in CI on
+    // exactly that).
+    writeFileSync(path.join(source, "new-in-bundle.md"), "shipped later");
     chmodSync(destParent, 0o500);
     try {
       expect(installOwnedSkill(source, destParent)).toBe("unreplaceable");
     } finally {
       chmodSync(destParent, 0o700);
     }
-    // The bundle's copy did not land. (The directory itself may be partially emptied — rmSync
-    // removes contents before it fails on the directory — so the assertion is on what did NOT
-    // arrive, which is the part that would have been reported as a fresh install.)
-    expect(existsSync(path.join(destParent, path.basename(source), "SKILL.md"))).toBe(false);
+    expect(existsSync(path.join(destParent, path.basename(source), "new-in-bundle.md"))).toBe(false);
   });
 
   // Regression: a skill dir holding a file named exactly `schema.json` is loaded by the
