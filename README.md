@@ -2,6 +2,13 @@
 
 **Run a whole team of coding agents from your browser — and actually keep up with them.**
 
+### 📖 Documentation — **[receptron.github.io/mulmoterminal](https://receptron.github.io/mulmoterminal/)**
+
+- **User guide:** [English](https://receptron.github.io/mulmoterminal/guide/en/) — the grid
+  view, everyday workflows, the full feature list, configuration, and mobile push notifications.
+- **ユーザーガイド:** [日本語](https://receptron.github.io/mulmoterminal/guide/ja/) —
+  グリッドの使い方・日々のワークフロー・機能一覧・設定・スマホ通知の設定はこちら。
+
 ![MulmoTerminal — a grid of live Claude Code sessions, each color-coded by state, updating in real time](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/hero.gif)
 
 MulmoTerminal turns [Claude Code](https://claude.com/claude-code) (and OpenAI's **Codex**)
@@ -13,12 +20,6 @@ ping to your phone when a task finishes. One `npx` command, no Electron, no conf
 ```bash
 npx mulmoterminal        # starts on http://localhost:34567 and opens your browser
 ```
-
-- 📖 **User guide:** [English](https://receptron.github.io/mulmoterminal/guide/en/) — the
-  grid view, everyday workflows, the full feature list, configuration, and mobile push
-  notifications.
-- 📖 **ユーザーガイド:** [日本語](https://receptron.github.io/mulmoterminal/guide/ja/) —
-  グリッドの使い方・日々のワークフロー・機能一覧・設定・スマホ通知の設定はこちら。
 
 ![MulmoTerminal's grid view — four live Claude sessions running side by side, each in its own color-coded project](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-2x2-live.png)
 
