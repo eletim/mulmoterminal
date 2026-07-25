@@ -111,6 +111,25 @@ describe("validateKeymap", () => {
     expect(warnings(input)[0].reason).toContain("zoom-next");
   });
 
+  it("names the winner by DISPATCH order, not the order in the config file", () => {
+    // actionForKey scans KEYMAP_ACTIONS, so zoom-next wins however the file is written.
+    const listedLast = { "terminal-close": "PageDown", "zoom-next": "PageDown" };
+    expect(warnings(listedLast).map((w) => w.action)).toEqual(["terminal-close"]);
+    expect(warnings(listedLast)[0].reason).toContain("zoom-next");
+    // ...and the runtime really does resolve it that way.
+    expect(actionForKey(listedLast, ev({ key: "PageDown" }))).toBe("zoom-next");
+  });
+
+  it("warns about every loser when three actions share one keystroke", () => {
+    const input = { "terminal-close": "F5", "terminal-new": "F5", "zoom-prev": "F5" };
+    expect(
+      warnings(input)
+        .map((w) => w.action)
+        .sort(),
+    ).toEqual(["terminal-close", "terminal-new"]);
+    expect(actionForKey(input, ev({ key: "F5" }))).toBe("zoom-prev");
+  });
+
   it("compares duplicates as PARSED keystrokes, not raw strings", () => {
     // The same keystroke spelled differently — modifier names are case-insensitive.
     expect(warnings({ "zoom-next": "Shift+PageUp", "zoom-prev": "shift+PageUp" })).toHaveLength(1);

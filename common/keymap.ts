@@ -105,8 +105,9 @@ export function validateKeymap(input: unknown): KeymapProblem[] {
   if (typeof input !== "object" || Array.isArray(input)) {
     return [{ action: "keymap", binding: input, reason: "`keymap` must be an object of action -> key binding", fatal: true }];
   }
-  const claimedBy = new Map<string, string>();
-  return Object.entries(input as Record<string, unknown>).flatMap(([action, binding]): KeymapProblem[] => {
+  const entries = Object.entries(input as Record<string, unknown>);
+  const bound = new Map<string, { action: KeymapAction; binding: string }[]>();
+  const problems = entries.flatMap(([action, binding]): KeymapProblem[] => {
     if (!isKeymapAction(action)) {
       return [{ action, binding, reason: `unknown action (known: ${KEYMAP_ACTIONS.join(", ")})`, fatal: false }];
     }
@@ -115,14 +116,30 @@ export function validateKeymap(input: unknown): KeymapProblem[] {
     if (parsed === null) {
       return [{ action, binding, reason: 'unparseable key binding — expected e.g. "PageDown" or "Shift+PageUp"', fatal: true }];
     }
-    // Two actions on one key: only the first fires, so the other silently never works.
-    // Compared as PARSED, since "Shift+PageUp" and "shift+pageup" are the same keystroke.
-    const owner = claimedBy.get(canonicalBinding(parsed));
-    if (owner !== undefined) {
-      return [{ action, binding, reason: `same keystroke as \`${owner}\` — only \`${owner}\` will fire`, fatal: false }];
-    }
-    claimedBy.set(canonicalBinding(parsed), action);
+    // Grouped as PARSED, since "Shift+PageUp" and "shift+pageup" are one keystroke.
+    const key = canonicalBinding(parsed);
+    bound.set(key, [...(bound.get(key) ?? []), { action, binding }]);
     return [];
+  });
+  return [...problems, ...duplicateWarnings(bound)];
+}
+
+// Two actions on one keystroke: only one can fire, so the others silently never work.
+//
+// The winner is decided the way `actionForKey` decides it — first in KEYMAP_ACTIONS order —
+// NOT by which came first in the config file. Reporting the config-order winner would name
+// the wrong action whenever the two orders disagree, which is worse than not naming one.
+function duplicateWarnings(bound: Map<string, { action: KeymapAction; binding: string }[]>): KeymapProblem[] {
+  return [...bound.values()].flatMap((claims) => {
+    if (claims.length < 2) return [];
+    const byDispatch = [...claims].sort((a, b) => KEYMAP_ACTIONS.indexOf(a.action) - KEYMAP_ACTIONS.indexOf(b.action));
+    const [winner, ...losers] = byDispatch;
+    return losers.map(({ action, binding }) => ({
+      action,
+      binding,
+      reason: `same keystroke as \`${winner.action}\` — only \`${winner.action}\` will fire`,
+      fatal: false,
+    }));
   });
 }
 
