@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isLauncherEnvVar, isPathVar, sanitizePathEntries, sanitizePtyEnv } from "../../../server/infra/pty-env";
+import { isLauncherEnvVar, isPathVar, pathFromEnv, sanitizePathEntries, sanitizePtyEnv } from "../../../server/infra/pty-env";
 
 describe("isLauncherEnvVar", () => {
   it("flags the vars package-manager launchers inject", () => {
@@ -115,5 +115,22 @@ describe("sanitizePtyEnv", () => {
   it("cleans a windows-cased Path key", () => {
     const out = sanitizePtyEnv({ Path: "C:\\repo\\node_modules\\.bin;C:\\Windows" }, ";");
     expect(out.Path).toBe("C:\\Windows");
+  });
+});
+
+describe("pathFromEnv", () => {
+  it("reads the search path whatever the key's casing is", () => {
+    expect(pathFromEnv({ PATH: "/usr/bin" })).toBe("/usr/bin");
+    expect(pathFromEnv({ Path: "C:\\Windows" })).toBe("C:\\Windows");
+    expect(pathFromEnv({ path: "/usr/bin" })).toBe("/usr/bin");
+  });
+
+  it("is undefined when the env carries no search path", () => {
+    expect(pathFromEnv({ HOME: "/Users/u", PATHEXT: ".COM;.EXE" })).toBeUndefined();
+    expect(pathFromEnv({})).toBeUndefined();
+  });
+
+  it("survives an empty value rather than reporting it as absent", () => {
+    expect(pathFromEnv({ Path: "" })).toBe("");
   });
 });
