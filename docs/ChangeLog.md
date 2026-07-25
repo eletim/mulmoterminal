@@ -2,6 +2,56 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.12.0 — 2026-07-26
+
+No new features — this release is entirely durability and correctness work, plus a dependency refresh. Every item below is a failure a 1.11.1 user can hit today without being told why.
+
+### Your configuration can no longer be destroyed by a crash
+
+- **`saveAppConfig` wrote non-atomically** (#822): `writeFileSync` truncates the destination and then fills it, so a crash, a kill, or a full disk mid-write leaves a half-written `config.json`. The next boot reads that as corrupt, and the lenient loader turns corrupt into an empty config — every provider, launcher, and header button, gone. `server/files/atomic-write.ts` exists for exactly this ("so a crash mid-write can't leave a truncated one behind") and was already used by feeds and scheduled sessions, but not by the file whose loss costs the most. It has a synchronous sibling now, and both `saveAppConfig` and the cwd presets go through it. A failed rename throws, which the callers already report as "the save failed" — with the previous file still on disk, which is the point.
+
+  No retry loop in the sync version on purpose: the async one can wait out a Windows lock, but a synchronous caller cannot stall the event loop. The writer and renamer are injected, because the property that matters — that the destination is never opened for writing — is invisible from outside; the difference only shows if the process dies between the two calls. The first version of these tests passed just as happily against a plain `writeFileSync`, so they now assert on the calls themselves.
+
+- **API tokens outlived their sessions** (#822): `cleanupSessionSettings` only ran from `reap()`, which a crash never reaches. What stayed behind was not inert — a provider session's settings file holds its API token, so the token survived the session, survived being rotated or revoked, and survived the provider being removed from the config. Boot now prunes every settings file not backed by a surviving tmux session; nothing else can still be reading one, since a PTY without tmux died with the server that owned it. Files belonging to live sessions, and files we did not write, are left alone.
+
+### The phone link recovers instead of going quietly dead
+
+- **The Firestore command channel stopped for good after a sleep or a network change** (#823, #825): `@mulmoclaude/core`'s `startHostRunner` gives up on its listener permanently — a non-transient error stops it outright, and a transient one only survives five retries (~31s). Anything longer outlasts it, so the host went offline while the toolbar still showed the last state it happened to fetch. The first sign was the phone failing to connect, with nothing on the Mac but a single server log line.
+
+  - **`resilientRunner`** re-subscribes on core's behalf and gives up on **time** (5 min) rather than a retry count, then passes the closure through so the client can escalate to a full re-auth from its parked blob.
+  - **The listener error text core drops on the floor is kept**, logged, and surfaced.
+  - **`healthNotice`** raises an urgent bell entry when the channel gives up, cleared when it comes back — asked of the notifier rather than remembered, so a notice raised before a restart is still found.
+  - **`/api/remote-host/*` responses now carry `health`** (`online` / `reconnecting` / `offline`, plus the last listener error), and the toolbar shows **Online / Reconnecting… / Offline** with the cause.
+  - **A 30s poll** keeps an idle tab from going stale and from never firing its auto-reconnect.
+
+  Escalation is staged: re-subscribe for the first 5 minutes (backoff 1s→60s, which covers sleep and network moves), then give up to disconnected with a bell notice while the client re-authenticates from its parked blob (the only path that fixes an expired token), then discard the blob and prompt for Connect if that 401s. `lastError` is cleared on confirmed recovery, so a later outage cannot report a finished incident's cause. The wrapper coexists harmlessly with a fixed core.
+
+### Windows: four silent failures, none of which said anything
+
+All of these are invisible from POSIX.
+
+- **A config file saved on Windows was read as no config at all** (#821): Notepad, `Set-Content`, and PowerShell 5.1's `Out-File -Encoding utf8` all write a UTF-8 BOM. Node's utf8 decode leaves the leading U+FEFF in place, so `JSON.parse` throws on character one — and this repo's config readers answer an exception with an empty config. `.mulmoterminal.json` lost its colors, badges, buttons, provider and model; `script.json` lost the Run menu; cwd presets vanished; `config.json` was judged corrupt, which the lenient loader turns into no providers, launchers, or header buttons. Nothing was ever displayed. The repo already had two workarounds for the same trap (SKILL.md frontmatter and wiki pages) — the rule was known and simply had not reached the JSON readers, so it now lives in `server/infra/read-text-file.ts`. Only a *leading* BOM is stripped; a U+FEFF in the middle is a zero-width no-break space, i.e. content. Genuinely broken JSON is still judged corrupt, which is what stops the app-config writer from overwriting a file you are editing.
+- **Scheduled tasks and the translation cache had the same BOM trap** and now go through the same reader.
+- **DOS device names reached the file routes** (#821): Windows resolves `CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9` in *every* directory, so `C:\anything\NUL` is the null device, not a missing file — containment answered "inside the base" and the open hit a device. `NUL` read empty; **`CON` blocked until console input arrived, hanging the request**. Extensions do not help (`CON.txt` is still CON), nor do trailing dots or spaces. The guard sits in `resolveContained`, the gate both file entry points already share, so one route cannot be fixed without the other. Windows only — `con` is an ordinary filename on POSIX. Matching is per segment, on both separators, case-insensitive, and lets `console.ts` / `nullable.ts` / `com10.txt` through.
+- **Cleanup deletion threw on a locked file** (#821): `rmSync(..., { force: true })` only swallows "it wasn't there"; on Windows a file another process holds open fails with EPERM/EBUSY. Every one of these six call sites is cleanup — the work they belong to has already finished or failed — so an exception only turns a transient lock into broken housekeeping: `reap` stopping partway while an exiting claude still holds a settings file, boot giving up on installing skills. They all go through `server/infra/fs-cleanup.ts` now and report failure as a return value.
+- **Two CRLF line-splitting bugs** (#820): "split external text into lines" was written as `split("\n")` in about 20 places; under CRLF each line keeps a trailing `\r`, poisoning whatever that rule feeds. `parseNumstatLine` produced diff paths like `src/a.ts\r`, so the client requested a diff for a path that does not exist and got nothing; `parseTmuxEnvironment` left an invisible character on every env value. Both moved to a new `server/infra/split-lines.ts`. Four more sites were verified safe by their own `trim`/`JSON.parse` and now carry CRLF cases so that safety cannot be removed silently; the rest were deliberately left rather than mass-rewritten.
+
+### Windows: the spawn paths that had never been tested there
+
+- **The Run menu / launcher PowerShell path** (`powershell.exe -NoLogo -Command`) had only pure argv-shape tests and had never actually been spawned on Windows; it now has 9 real-PTY cases covering quoted JSON, metacharacters, exit codes, and cwd (#820).
+- **The codex argv path had no coverage at all**, which matters because `buildCodexArgs` deliberately embeds double quotes for TOML (`-c key="value"`) — if they are lost the value stops being a string. It now round-trips through the `.cmd` shim. The comment in `codex-args.ts` claiming "no shell is involved" stopped being true when #801 put codex behind a `.cmd`, and is corrected.
+- **Adversarial argument content**: one spawn passing 20 arguments with the whole argv compared, so a dropped, split, joined, or reordered argument is caught. Leading/trailing whitespace and tabs, embedded quotes, `""`, `^ ( ) [ ] { }`, `& | < >`, `; , =`, `!`, `$` and backticks, runs of backslashes including trailing ones, Japanese, emoji (surrogate pairs), accents. The empty-string argument is its own case, since dropping it shifts every later flag onto the wrong value. `%VAR%` is deliberately excluded as a known cmd limitation pinned elsewhere. All green on real Windows; the one failure was a wrong assumption in the test itself (a PowerShell backtick escapes only inside double quotes), now recorded as both behaviors.
+
+### Internals
+
+- **Duplicate code reduced — `server/` and `src/` now share via `common/`** (#826, #827): jscpd's 4 duplicate-code alerts led to the real pattern behind them: values and wire types hand-mirrored between the two sides, even though `common/` is included by **both** tsconfigs and already carried `dirChrome` / `themeColors` / `modelPresets`. The mirroring was self-perpetuating — `firebase.ts` and `firebaseConfig.ts` each carried a comment claiming the server tsconfig cannot reach a shared module, which has not been true since `common/` existed. `firebaseConfig`, `Shortcut`/`ShortcutKind`/`sameShortcut`, `GitStatus`, `LaunchProviderOption`/`LaunchOptions`, the `GhItem`/`PrItem`/`IssueItem` family, and `EMPTY_DIR_CHROME` each have one definition now. `TEXT_EXTS` and `IN_APP_EXTENSIONS` share 45 entries but answer different questions, so only the intersection moved to `SOURCE_CODE_EXTENSIONS` and each side keeps its extras — both resulting sets are byte-identical to before, and `test/common/sourceExtensions.spec.ts` pins the deliberate asymmetries (`.md` routes to the rendered viewer, `.txt` opens in Files, dotfiles are server-only) so the next reader cannot "fix" them into symmetry. `AppRouteDeps` and `HookDeps` restated the same 7 callbacks and now extend one `SessionActivityDeps`; `TerminalCell` reuses the existing `CellChromeButtons` while keeping its own confirming close. Behaviour-preserving throughout, `-344 / +98` lines.
+- **Every spec is type-checked now** (#826): `tsconfig.test.json` and `tsconfig.test-server.json` had been missing `test/scripts/**` and `test/*.ts` all along.
+- **`CLAUDE.md` and `README.md`** record the `common/` rule that the mirrored copies violated, so the next shared value lands in the right place.
+
+### Dependencies
+
+- `@mulmoclaude/core` 1.3.0 → 1.5.0, `collection-plugin` 1.0.2 → 1.1.1, `google-plugin` 1.0.2 → 1.2.0, `mulmoscript-plugin` 1.1.1 → 1.1.2, `accounting-plugin` / `chart-plugin` / `html-plugin` / `markdown-plugin` → 1.0.3, `form-plugin` 1.0.1 → 1.0.2, `x-plugin` 1.0.0 → 1.0.1, `@mulmobridge/web-push` 1.0.0 → 1.0.1, `@receptron/task-scheduler` 1.0.0 → 1.0.1 (#824).
+
 ## mulmoterminal@1.11.1 — 2026-07-26
 
 ### Windows
