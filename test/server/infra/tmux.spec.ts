@@ -50,6 +50,12 @@ describe("TMUX_CONF_LINES", () => {
     expect(TMUX_CONF_LINES.some((l) => l.includes("terminal-overrides") && l.includes("Ms="))).toBe(true);
   });
 
+  // #783: tmux strips OSC 8 hyperlinks (Claude's statusline `PR #NNNN`) unless told the outer
+  // terminal has the `hyperlinks` feature — same shape as the Ms override above.
+  it("forwards OSC 8 hyperlinks to the outer terminal", () => {
+    expect(TMUX_CONF_LINES.some((l) => l.includes("terminal-features") && l.includes("hyperlinks"))).toBe(true);
+  });
+
   // Regression (#740): with DOUBLE quotes tmux escape-processes the value while parsing the
   // conf — `\E` becomes a bare `E` and `\007` a raw BEL — so the stored capability emits
   // `E]52;…` as literal text and the clipboard write never happens. Measured on tmux 3.6a.

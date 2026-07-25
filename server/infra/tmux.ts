@@ -55,6 +55,12 @@ export const TMUX_CONF_LINES: readonly string[] = [
   "set -g destroy-unattached off",
   "set -g mouse on",
   "set -g set-clipboard on",
+  // Declare that the outer terminal (our web xterm) understands OSC 8 hyperlinks, so tmux
+  // FORWARDS them instead of stripping them. Without this, a program's `PR #123`-style
+  // hyperlink (Claude Code's statusline, and any OSC 8 link) never reaches xterm and isn't
+  // clickable. Same shape as the `Ms` clipboard fix: xterm supports it (linkHandler), but
+  // tmux only passes it through when told the terminal has the `hyperlinks` feature.
+  "set -as terminal-features '*:hyperlinks'",
   // SINGLE quotes: inside double quotes tmux runs its own escape processing over the
   // value, which eats the `\E` (leaving a bare `E` that is not an escape at all) and turns
   // `\007` into a raw BEL — so the capability tmux stores emits `E]52;…` as literal text
@@ -90,6 +96,11 @@ export function planMsOverride(showStdout: string): MsOverridePlan {
 function applyLiveTmuxOptions(): void {
   tmux(["set", "-g", "mouse", "on"]);
   tmux(["set", "-g", "set-clipboard", "on"]);
+  // Forward OSC 8 hyperlinks to the outer xterm (see TMUX_CONF_LINES). Append only when
+  // absent — `set -as` does NOT de-dupe, so an unguarded call grows the list on every restart.
+  if (!tmux(["show", "-g", "terminal-features"]).stdout.includes("hyperlinks")) {
+    tmux(["set", "-as", "terminal-features", "*:hyperlinks"]);
+  }
   const plan = planMsOverride(tmux(["show", "-g", "terminal-overrides"]).stdout);
   if (plan.kind === "append") tmux(["set", "-ag", "terminal-overrides", OSC52_MS_OVERRIDE]);
   if (plan.kind === "replace") tmux(["set", "-g", `terminal-overrides[${plan.index}]`, MS_OVERRIDE_ENTRY]);
