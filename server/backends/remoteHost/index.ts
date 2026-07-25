@@ -15,7 +15,11 @@
 // (re)connect — see session.ts).
 import type { Express } from "express";
 import { createRemoteHost, startHostRunner, type RemoteHostLifecycle } from "@mulmoclaude/core/remote-host/server";
+import { publish, clear, listFor } from "@mulmoclaude/core/notifier";
 
+import type { RunnerHealth } from "../../../common/remoteHostHealth.js";
+import { startResilientRunner } from "./resilientRunner.js";
+import { createHealthNotice } from "./healthNotice.js";
 import { createRemoteHostHandlers, type RemoteHostHandlerDeps } from "./handlers.js";
 import { createSaveAttachment } from "./attachmentStore.js";
 import { buildIngestAttachments } from "./ingestAttachments.js";
@@ -31,6 +35,11 @@ const PREFIX = "[remote-host]";
 // Module-level singleton — one host runner per process. Null until initialized.
 let lifecycle: RemoteHostLifecycle | null = null;
 
+// Health of the live command channel (#823). "offline" until a runner starts, so a host
+// that was never connected doesn't claim to be healthy.
+let health: RunnerHealth = { state: "offline", lastError: null, changedAt: 0 };
+export const currentHealth = (): RunnerHealth => health;
+
 // Everything the handlers need except `ingest`, which this module builds itself — it has to
 // read the LIVE session's storage/uid, which only exist once a connection is up. Derived
 // rather than restated so a new handler dependency cannot be added in one place only.
@@ -41,13 +50,30 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
   // user) into data/attachments/ and hands startChat path-only attachments. Reads
   // the LIVE session's storage/uid (both change per (re)connect — see session.ts).
   const ingest = buildIngestAttachments({ storage: currentStorage, uid: currentUid, saveAttachment: createSaveAttachment(deps.workspace) });
+  const log = {
+    info: (msg: string) => console.log(PREFIX, msg),
+    warn: (msg: string) => console.warn(PREFIX, msg),
+  };
+  const notice = createHealthNotice({ publish, clear, list: listFor, log });
+  const onHealth = (next: RunnerHealth): void => {
+    health = next;
+    notice(next);
+  };
   lifecycle = createRemoteHost({
     hostId: HOST_ID,
     signIn,
     restore,
     signOut,
     currentUid,
-    startRunner: (channel, handlers, options) => startHostRunner(currentFirestore(), channel, handlers, options),
+    // Wrapped so a listener death is retried here instead of ending the session: core
+    // gives up after five tries (~31s), which any sleep or network move outlasts (#823).
+    startRunner: (channel, handlers, options) =>
+      startResilientRunner({
+        start: (runnerOptions) => startHostRunner(currentFirestore(), channel, handlers, runnerOptions),
+        options,
+        onHealth,
+        log,
+      }),
     // Expired offline-queued startChat commands: delete the phone's staged Storage
     // uploads before the runner removes the doc (protocol v2 offline queue).
     onExpire,
@@ -61,11 +87,7 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
       canClearBox: deps.canClearBox,
       submitSequence: deps.submitSequence,
     }),
-    log: {
-      info: (msg) => console.log(PREFIX, msg),
-      warn: (msg) => console.warn(PREFIX, msg),
-      debug: () => undefined,
-    },
+    log: { ...log, debug: () => undefined },
   });
 }
 
@@ -74,5 +96,5 @@ export interface RemoteHostRouteOptions {
 }
 
 export function mountRemoteHostRoutes(app: Express, { isAllowedOrigin }: RemoteHostRouteOptions): void {
-  mountRoutes(app, { isAllowedOrigin, getLifecycle: () => lifecycle, exportSession, reconnectErrorStatus });
+  mountRoutes(app, { isAllowedOrigin, getLifecycle: () => lifecycle, exportSession, reconnectErrorStatus, currentHealth });
 }

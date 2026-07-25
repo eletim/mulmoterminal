@@ -3,19 +3,23 @@
 // app without pulling in Firebase or the handler table. index.ts wires the real
 // deps; routes.spec.ts wires fakes.
 //
-//   GET  /api/remote-host/status                  → { status, session }
-//   POST /api/remote-host/connect     { idToken }  → { status, session }
-//   POST /api/remote-host/reconnect   { session }  → { status, session } | 401 | 5xx
-//   POST /api/remote-host/disconnect               → { status, session: null }
+//   GET  /api/remote-host/status                  → { status, session, health }
+//   POST /api/remote-host/connect     { idToken }  → { status, session, health }
+//   POST /api/remote-host/reconnect   { session }  → { status, session, health } | 401 | 5xx
+//   POST /api/remote-host/disconnect               → { status, session: null, health }
 //
 // Every response carries the current session blob so the browser can keep its
-// localStorage copy fresh (case A', mulmoserver#50); null when disconnected.
+// localStorage copy fresh (case A', mulmoserver#50); null when disconnected. It also
+// carries the runner's health, so the toolbar can say "reconnecting" rather than
+// silently showing the last state it happened to fetch (#823).
 import type { Express, Request, Response } from "express";
 import type { RemoteHostLifecycle, RemoteHostStatus } from "@mulmoclaude/core/remote-host/server";
+import type { RunnerHealth } from "../../../common/remoteHostHealth.js";
 
 interface StatusResponse {
   status: RemoteHostStatus;
   session: string | null;
+  health: RunnerHealth;
 }
 interface ErrorResponse {
   error: string;
@@ -29,13 +33,23 @@ export interface RemoteHostRouteDeps {
   // 401 for a genuinely expired/invalid blob (client drops it), 5xx for a transient
   // failure (client keeps it and can retry).
   reconnectErrorStatus: (err: unknown) => number;
+  currentHealth: () => RunnerHealth;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export function mountRemoteHostRoutes(app: Express, deps: RemoteHostRouteDeps): void {
-  const respond = (res: Response<RemoteHostResponse>, status: RemoteHostStatus): Response => res.json({ status, session: deps.exportSession() });
+  // A runner that isn't running has no health to report: an explicit disconnect leaves
+  // the last live reading behind, and repeating it would show "online" while nothing is
+  // subscribed.
+  const healthFor = (status: RemoteHostStatus): RunnerHealth => {
+    const live = deps.currentHealth();
+    return status.connected ? live : { ...live, state: "offline" };
+  };
+
+  const respond = (res: Response<RemoteHostResponse>, status: RemoteHostStatus): Response =>
+    res.json({ status, session: deps.exportSession(), health: healthFor(status) });
 
   // Origin-guarded (loopback only) + not-initialized guard. Returns the live lifecycle
   // (already sent the error response and returns null when either guard fails).

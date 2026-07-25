@@ -7,7 +7,7 @@
 // starts the Firestore command loop + presence heartbeat. The dropdown shows
 // online/offline + the connected uid and offers Connect / Disconnect. Trigger and
 // panel chrome are shared with NotificationBell via toolbarPopover.css.
-import { onMounted, onUnmounted, ref, useTemplateRef } from "vue";
+import { computed, onMounted, onUnmounted, ref, useTemplateRef } from "vue";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { renderSVG } from "uqr";
 
@@ -15,9 +15,11 @@ import ToolbarPopover from "./ToolbarPopover.vue";
 import { auth } from "../config/firebase";
 // Session parking (localStorage) + reconnect-outcome decision live in a plain module
 // so they're unit-testable without mounting this Firebase-importing component.
-import { loadStoredSession, persistSession, reconnectAction, type FetchResult, type RemoteHostStatus } from "./remoteHostSession";
+import { healthOrFallback, loadStoredSession, persistSession, reconnectAction, type FetchResult, type RemoteHostStatus } from "./remoteHostSession";
 import { registerRemoteHostSelfHeal } from "./remoteHostSelfHeal";
+import { remoteHostView } from "./remoteHostView";
 import { usePubSub } from "../composables/usePubSub";
+import type { RunnerHealth } from "../../common/remoteHostHealth";
 
 // Mobile companion PWA — shown in the dropdown as help text (not fetched here).
 const MOBILE_URL = "https://mulmoserver.web.app";
@@ -27,7 +29,13 @@ const qrDataUrl = `data:image/svg+xml;base64,${btoa(renderSVG(MOBILE_URL))}`;
 const busy = ref(false);
 const error = ref<string | null>(null);
 const status = ref<RemoteHostStatus>({ connected: false, uid: null });
+const health = ref<RunnerHealth>({ state: "offline", lastError: null, changedAt: 0 });
 const popoverRef = useTemplateRef<InstanceType<typeof ToolbarPopover>>("popover");
+
+// "Online" only while the channel is actually subscribed — a runner re-subscribing after
+// an outage says so, instead of showing green while the phone still can't reach us (#823).
+const view = computed(() => remoteHostView(status.value.connected, health.value.state));
+const isReconnecting = computed(() => view.value.reconnecting);
 
 function onPopoverOpen() {
   refreshStatus().catch(() => undefined);
@@ -46,17 +54,22 @@ async function fetchStatus(url: string, method: "GET" | "POST", body?: unknown):
       const detail = await res.json().catch(() => null);
       return { ok: false, error: (detail && typeof detail.error === "string" && detail.error) || `HTTP ${res.status}`, httpStatus: res.status };
     }
-    const data = (await res.json()) as { status: RemoteHostStatus; session: string | null };
-    return { ok: true, status: data.status, session: data.session ?? null };
+    const data = (await res.json()) as { status: RemoteHostStatus; session: string | null; health?: unknown };
+    return { ok: true, status: data.status, session: data.session ?? null, health: healthOrFallback(data.health, data.status.connected) };
   } catch (err) {
     return { ok: false, error: errorText(err), httpStatus: 0 };
   }
 }
 
+function applyOk(result: Extract<FetchResult, { ok: true }>): void {
+  status.value = result.status;
+  health.value = result.health;
+}
+
 async function refreshStatus() {
   const result = await fetchStatus("/api/remote-host/status", "GET");
   if (result.ok) {
-    status.value = result.status;
+    applyOk(result);
     // Keep the parked blob fresh (the refresh token can rotate) — but never clear
     // it on a disconnected status, so an auto-reconnect still has it.
     if (result.session) persistSession(result.session);
@@ -71,10 +84,13 @@ async function refreshStatus() {
 // transient failures KEEP it so a later retry/restart can still reconnect.
 async function tryAutoReconnect() {
   if (status.value.connected) return;
+  // The server re-subscribes on its own for a while; replaying the blob meanwhile would
+  // tear down a session that is still healing and open a fresh Firebase app each poll.
+  if (isReconnecting.value) return;
   const blob = loadStoredSession();
   if (!blob) return;
   const res = await fetchStatus("/api/remote-host/reconnect", "POST", { session: blob });
-  if (res.ok) status.value = res.status;
+  if (res.ok) applyOk(res);
   const action = reconnectAction(res);
   if (action === "park" && res.ok) persistSession(res.session);
   else if (action === "drop") persistSession(null);
@@ -95,7 +111,7 @@ async function onConnect() {
       error.value = res.error;
       return;
     }
-    status.value = res.status;
+    applyOk(res);
     persistSession(res.session); // park the session for popup-free reconnect after a restart
     popoverRef.value?.close();
   } catch (err) {
@@ -110,7 +126,7 @@ async function onDisconnect() {
   error.value = null;
   const res = await fetchStatus("/api/remote-host/disconnect", "POST");
   if (res.ok) {
-    status.value = res.status;
+    applyOk(res);
     persistSession(null); // forget the parked session on an explicit disconnect
     popoverRef.value?.close();
   } else {
@@ -143,21 +159,25 @@ onUnmounted(() => stopSelfHeal?.());
   <ToolbarPopover
     ref="popover"
     icon="phonelink"
-    :title="status.connected ? 'Remote host connected' : 'Remote host'"
+    :title="view.online ? 'Remote host connected' : view.reconnecting ? 'Remote host reconnecting' : 'Remote host'"
     trigger-label="Remote host"
     pane-class="w-[300px] gap-2 p-2.5 font-sans"
     pane-label="Remote host"
-    :trigger-class="{ connected: status.connected }"
+    :trigger-class="{ connected: view.online }"
     @open="onPopoverOpen"
   >
     <div class="flex items-center gap-1.5">
-      <span class="material-symbols-outlined text-[16px] leading-none" :class="status.connected ? 'text-[#35c46a]' : 'text-muted'">
-        {{ status.connected ? "check_circle" : "radio_button_unchecked" }}
+      <span class="material-symbols-outlined text-[16px] leading-none" :class="view.toneClass">
+        {{ view.icon }}
       </span>
-      <span class="text-[12px] font-semibold text-fg">{{ status.connected ? "Online" : "Offline" }}</span>
+      <span class="text-[12px] font-semibold text-fg">{{ view.label }}</span>
     </div>
 
     <p v-if="status.uid" class="font-mono text-[10px] text-muted [overflow-wrap:anywhere]">Signed in as {{ status.uid }}</p>
+
+    <p v-if="health.lastError && health.state !== 'online'" class="text-[11px] leading-[1.4] text-[#e0a526] [overflow-wrap:anywhere]">
+      Last channel error: {{ health.lastError }}
+    </p>
 
     <button
       v-if="!status.connected"
