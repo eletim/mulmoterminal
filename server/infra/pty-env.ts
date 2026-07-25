@@ -37,6 +37,14 @@ export function isPathVar(name: string): boolean {
   return name.toLowerCase() === "path";
 }
 
+// The search path out of a PLAIN env object. `env.PATH` is only reliable on the live
+// `process.env`, whose Windows lookups are case-insensitive; a copy (what sanitizePtyEnv
+// returns) keeps the original "Path" key and answers undefined to `.PATH`.
+export function pathFromEnv(env: NodeJS.ProcessEnv): string | undefined {
+  const entry = Object.entries(env).find(([name]) => isPathVar(name));
+  return entry?.[1];
+}
+
 // yarn v1's temp dir is `yarn--` + a timestamp.
 const YARN_SHIM_DIR = /^yarn--\d/;
 

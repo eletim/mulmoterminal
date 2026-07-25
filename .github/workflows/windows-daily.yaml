@@ -4,9 +4,11 @@
 # on main instead, which is early enough to catch a regression before a release.
 #
 # What it actually guards: server/infra/pty-env.ts branches on PATH casing ("Path"),
-# the ";" delimiter and "\" separators; server/index.ts spawns powershell.exe; and the
-# postinstall (server/fix-pty-perms.js) runs on every install. None of that had ever
-# executed on Windows before this workflow.
+# the ";" delimiter and "\" separators; server/infra/resolve-bin.ts resolves a bare
+# command name to an .exe on PATH before node-pty sees it (#794), and its spec spawns a
+# real PTY here; server/index.ts spawns powershell.exe; and the postinstall
+# (server/fix-pty-perms.js) runs on every install. None of that had ever executed on
+# Windows before this workflow.
 name: Windows (daily)
 
 on:
