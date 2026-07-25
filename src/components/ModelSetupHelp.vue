@@ -98,7 +98,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
         <pre class="m-0 overflow-x-auto rounded-md border border-border bg-input p-3 font-mono text-[11px] leading-relaxed text-fg">
 OPENROUTER_API_KEY=sk-or-…</pre>
         <p class="m-0 font-sans text-[11px] leading-relaxed text-secondary">
-          In the shell that starts MulmoTerminal, or a <code class="font-mono">.env</code> beside it. Keys never go in
+          In the shell that starts MulmoTerminal, or a <code class="font-mono">.env</code> in the directory you start it from. Keys never go in
           <code class="font-mono">config.json</code>. Restart the server after adding one.
         </p>
       </section>

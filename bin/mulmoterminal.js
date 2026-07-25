@@ -25,6 +25,7 @@ import {
   SECOND_INSTANCE_NOTE,
   nodeMeetsMinimum,
   MIN_NODE_LABEL,
+  serverNodeArgs,
 } from "./cli-args.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -248,7 +249,9 @@ function runServer(port, noOpen, cwd, onChild) {
     // stderr is piped (and passed through) so a fatal boot error can be inspected once the
     // child closes — a half-unpacked npx cache entry crashes here with ERR_MODULE_NOT_FOUND,
     // and without reading stderr the launcher cannot tell that from a real bug.
-    const server = spawn(process.execPath, ["--import", "tsx", SERVER_ENTRY], {
+    // The .env comes from where the user ran the command — the spawn's own cwd is the
+    // package directory, so serverNodeArgs makes that path absolute (#795).
+    const server = spawn(process.execPath, serverNodeArgs(SERVER_ENTRY, process.cwd()), {
       cwd: PKG_DIR,
       env: { ...process.env, NODE_ENV: "production", PORT: String(port), CLAUDE_CWD: cwd },
       stdio: ["inherit", "inherit", "pipe"],

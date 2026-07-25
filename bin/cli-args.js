@@ -9,6 +9,7 @@
 //
 // These return a decision; the caller prints and exits. Nothing here reads argv, the
 // environment or the filesystem.
+import { join } from "node:path";
 
 /**
  * Which port the launcher should ask for.
@@ -132,4 +133,20 @@ export const MIN_NODE_LABEL = `${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}`;
 export function nodeMeetsMinimum(version) {
   const [major, minor] = version.split(".").map((part) => Number.parseInt(part, 10));
   return major > MIN_NODE_MAJOR || (major === MIN_NODE_MAJOR && minor >= MIN_NODE_MINOR);
+}
+
+/**
+ * The node arguments the launcher spawns the server with.
+ *
+ * `--env-file-if-exists` is what makes a `.env` in the LAUNCH directory reach the server
+ * (#795): the dev scripts have always passed it, the launcher never did, so a key written
+ * there was silently absent and the provider stayed unusable. The path is absolute because
+ * the spawn runs with `cwd` set to the package directory — a relative `.env` would be looked
+ * for inside node_modules and quietly not found.
+ *
+ * Node options must precede the script path; anything after it is an argument to the script.
+ * The launch directory is passed rather than read here so the choice stays checkable.
+ */
+export function serverNodeArgs(serverEntry, launchDir) {
+  return ["--import", "tsx", `--env-file-if-exists=${join(launchDir, ".env")}`, serverEntry];
 }
