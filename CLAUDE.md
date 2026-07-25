@@ -12,7 +12,11 @@ anything not covered here.
 ## Run after changes
 - `yarn format` — Prettier. `.prettierignore` excludes `*.md`, so Markdown is not reformatted.
 - `yarn lint` — ESLint.
-- `yarn typecheck` — `vue-tsc -b`.
+- `yarn typecheck` — `vue-tsc -b`. **App code only — it does NOT compile the specs.**
+- `yarn typecheck:server` / `yarn typecheck:test` — CI runs these too. `typecheck:test`
+  (`tsconfig.test.json` + `tsconfig.test-server.json`) is the one that type-checks the specs,
+  including the ones colocated under `server/` rather than in `test/`. Change a shared type or
+  a wire shape and run **all three**: `yarn typecheck` alone passes while CI fails.
 - `yarn build` — `vue-tsc -b && vite build`.
 - `yarn test` — **Vitest** (`test/**/*.spec.ts`). Mock external APIs; tests must run without API keys.
 - `yarn dev` — server + Vite together (local development).
