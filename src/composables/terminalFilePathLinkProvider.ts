@@ -1,6 +1,16 @@
-// Turns file paths in xterm terminal output into clickable links that open the file in a
-// new browser tab (via the raw-file route, scoped to the session's cwd). Registered next
-// to WebLinksAddon, which handles http/https URLs.
+// Turns file paths in xterm terminal output into clickable links, scoped to the session's
+// cwd. WHAT a click opens is chosen by extension (ROUTE_BY_EXTENSION / IN_APP_EXTENSIONS
+// below) — the raw route is only the fallback. Registered next to WebLinksAddon, which
+// handles http/https URLs.
+//
+// ── DOCS ──────────────────────────────────────────────────────────────────────────────
+// That routing is a documented, user-facing spec. Change or extend it and update all
+// three in the same commit — they went stale together once and stayed wrong for a
+// release (#834):
+//   1. README.md — "Clicking a file path" (the canonical table)
+//   2. docs/guide/en/features.md + docs/guide/ja/features.md — the file-path row, BOTH
+//   3. docs/terminal-notes.md — the link-mechanisms table
+// ──────────────────────────────────────────────────────────────────────────────────────
 //
 // The pure core (computeFilePathLinks) maps a row of terminal cells to link ranges in
 // 1-based inclusive columns — accounting for wide (CJK) glyphs that occupy two columns —

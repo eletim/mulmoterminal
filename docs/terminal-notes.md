@@ -65,9 +65,14 @@ The `esc-cr` bare-Enter interception is guarded on `isComposing` so IME confirm 
 
 | Kind | Where | Recognizes |
 |---|---|---|
-| Local file path (#778) | `terminalFilePathLinkProvider.ts` (`registerLinkProvider`) | a token with a `/` and a file extension → opens `/api/files/raw` preview, scoped to the session cwd |
+| Local file path (#778) | `terminalFilePathLinkProvider.ts` (`registerLinkProvider`) | a token with a `/` and a file extension, scoped to the session cwd → **routed by extension** (#808–#811): rendered/indented/table routes, the in-app Files view, or `/api/files/raw` as the fallback |
 | OSC 8 hyperlink (#783/#785) | `linkHandler` + xterm core `OscLinkService` | arbitrary text → URL (Claude statusline `PR #NNNN`) — **requires the tmux `hyperlinks` feature** |
 | Plain URL | `WebLinksAddon` | visible `http(s)://` URLs |
+
+The per-extension routing table is **not** repeated here — it belongs to the file routes and
+the Files view, not to this stack, and nothing in it breaks when xterm or tmux is upgraded.
+It lives in [README → Clicking a file path](https://github.com/receptron/mulmoterminal#clicking-a-file-path);
+change one and change the other (#834).
 
 ### Mouse tracking & selection — `guardMouseTracking` (#729/#737)
 

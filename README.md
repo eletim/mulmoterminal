@@ -78,6 +78,34 @@ asks the local server to open the OS file dialog and inserts the chosen path (wo
 browser, including Chrome). The path is inserted at the cursor — it is not submitted, so you
 can review it first.
 
+<a id="clicking-a-file-path"></a>
+
+**Clicking a file path** — the other direction. A path an agent *prints* becomes a link, and
+**what it opens is chosen by its extension**, so each kind arrives as the thing it is rather
+than as bytes (files within the session's working directory only):
+
+| A clicked … | opens as |
+|---|---|
+| `.md` `.markdown` | **rendered** markdown in a new tab — the same sandboxed `…/md` HTML the Files preview uses. It follows your system light/dark setting, since under the sandbox CSP it can't ask the app which theme is on |
+| `.json` | **indented** in a new tab (Chrome and Safari otherwise show one long line) |
+| `.csv` `.tsv` | a **table** in a new tab, with a sticky header that scrolls inside its own box |
+| source, config, logs, and `.txt` — 46 extensions | the app's own **Files** view (`/files?path=`), where CodeMirror highlights it, the tree is right there, and it can be edited |
+| everything else — images, PDF, SVG, HTML, video | raw bytes in a new tab, which the browser renders better than an editor would |
+
+Highlighting in the Files view covers the JS/TS family, JSON and Markdown (the modes
+`cmEditor.ts` bundles); other languages open as plain text.
+
+This set is **deliberately asymmetric** with the set the server serves as viewable text —
+`.md` goes to the rendered viewer rather than the Files view, `.txt` does the opposite, and
+dotfiles are server-only. The 45 extensions both sides agree on live in
+`common/sourceExtensions.ts`, each side adds its own extras, and
+`test/common/sourceExtensions.spec.ts` pins the asymmetry so it isn't "fixed" into symmetry.
+
+> **Changing this?** The routing table is `ROUTE_BY_EXTENSION` / `IN_APP_EXTENSIONS` in
+> `src/composables/terminalFilePathLinkProvider.ts`. Update this section, the
+> `docs/guide/{en,ja}/features.md` row, and the link table in `docs/terminal-notes.md`
+> together — all three went stale once already (#834).
+
 ---
 
 ## Install & run

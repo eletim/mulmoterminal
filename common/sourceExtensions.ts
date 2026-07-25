@@ -9,6 +9,9 @@
 //     (composables/terminalFilePathLinkProvider.ts, which also covers .txt).
 // Each side adds its own extras next to its import; anything that belongs to only one of
 // them does NOT belong here.
+//
+// Adding an extension changes what a clicked path DOES, which is documented — see the DOCS
+// block in composables/terminalFilePathLinkProvider.ts for the three files to update (#834).
 export const SOURCE_CODE_EXTENSIONS = [
   ".ts",
   ".tsx",
