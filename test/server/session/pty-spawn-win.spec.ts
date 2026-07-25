@@ -9,6 +9,7 @@ import path from "node:path";
 import pty from "node-pty";
 import { spawnPty } from "../../../server/session/pty-spawn";
 import { resolvePtyLaunchForEnv } from "../../../server/infra/resolve-bin";
+import { hookSettingsJson } from "../../../server/session/hook-settings";
 
 const isWindows = process.platform === "win32";
 
@@ -128,6 +129,76 @@ describe.skipIf(!isWindows)("spawnPty on Windows", () => {
   // correctness wart rather than a privilege boundary.
   it("expands %VAR% inside an argument — the known limitation of the cmd.exe path", async () => {
     expect(await argvThroughShim(["%MT_MARKER%"])).toEqual(["expanded-by-cmd"]);
+  });
+
+  // #813: the real thing. The cases above use a shim of our own shape and payloads we chose;
+  // a user on npm-installed Claude Code reported the `--settings` JSON arriving with almost
+  // every quote gone, through exactly this path. So: npm's OWN generated shim (cmd-shim's
+  // template, whose last line is a compound `endLocal & goto … || title … & "%_prog%" … %*`)
+  // carrying the ACTUAL hookSettingsJson payload — 1.6 kB with embedded single quotes, `@`,
+  // `>` and `&` inside JSON string values.
+  it("round-trips the real --settings payload through npm's own generated shim", async () => {
+    const npmShim = `mt-npmshim-${process.pid}`;
+    const echoJs = path.join(dir, "echo-args.js");
+    writeFileSync(
+      path.join(dir, `${npmShim}.cmd`),
+      [
+        "@ECHO off",
+        "GOTO start",
+        ":find_dp0",
+        "SET dp0=%~dp0",
+        "EXIT /b",
+        ":start",
+        "SETLOCAL",
+        "CALL :find_dp0",
+        "",
+        `SET "_prog=${probeExe}"`,
+        "",
+        `endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "${probeExe}"  "${echoJs}" %*`,
+        "",
+      ].join("\r\n"),
+    );
+
+    const settings = hookSettingsJson({ host: "127.0.0.1", port: 34567, sessionId: "11111111-2222-3333-4444-555555555555" });
+    const args = ["--session-id", "11111111-2222-3333-4444-555555555555", "--settings", settings, "--permission-mode", "auto"];
+
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(npmShim, args, dir))).toBe(0);
+    const received: string[] = JSON.parse(readFileSync(argsOut, "utf8"));
+    expect(received).toEqual(args);
+    // Said explicitly, because this is the reported symptom: the JSON must still parse.
+    expect(() => JSON.parse(received[3])).not.toThrow();
+  });
+
+  // #813 again, and the reason the case above was misleading: it reads the child's PARSED
+  // argv, and node is the most forgiving argv parser on Windows — it implements the MSVC
+  // extension where `""` inside a quoted argument means one literal quote. The real target
+  // (`claude.exe`, a native binary) does not, and drops them. So assert what cmd.exe actually
+  // DELIVERS, which is the thing this code is responsible for; how the far end parses it is
+  // the far end's contract, and the reason the JSON now travels as a file at all.
+  //
+  // The shim here is cmd-shim's NON-shebang branch — what npm generates for a package whose
+  // bin is a native .exe, which is what Claude Code ships. It differs from the compound form
+  // above, and the point of having both is that the shim shape does not matter: both hand
+  // `%*` on unchanged.
+  it("delivers our escaping to the shim intact, whatever the shim shape", async () => {
+    const rawShim = `mt-rawshim-${process.pid}`;
+    const rawOut = path.join(dir, "raw.txt");
+    writeFileSync(
+      path.join(dir, `${rawShim}.cmd`),
+      ["@ECHO off", "GOTO start", ":find_dp0", "SET dp0=%~dp0", "EXIT /b", ":start", "SETLOCAL", "CALL :find_dp0", `>"${rawOut}" ECHO %*`, ""].join("\r\n"),
+    );
+
+    rmSync(rawOut, { force: true });
+    const settings = hookSettingsJson({ host: "127.0.0.1", port: 34567, sessionId: "11111111-2222-3333-4444-555555555555" });
+    expect(await exitCodeOf(spawnPty(rawShim, ["--settings", settings], dir))).toBe(0);
+
+    const raw = readFileSync(rawOut, "utf8");
+    // Our own escaping, unaltered: cmd.exe passed the command line through rather than
+    // rewriting it. If this ever fails, cmd IS the corrupting layer and cmd-escape.ts is wrong.
+    expect(raw).toContain('""hooks""');
+    expect(raw).toContain("-d @- >/dev/null 2>&1");
+    expect(raw.trim().startsWith('"--settings"')).toBe(true);
   });
 
   // cmd.exe is an extra process between us and the shim, so a non-zero exit has one more

@@ -17,7 +17,7 @@ import type { SpawnDeps } from "./spawn-deps.js";
 import { loadDirConfig } from "../config/dir-config.js";
 import { getProviders } from "../config/config-routes.js";
 import { requireResolution, resolveProvider, type DirModelChoice } from "./provider-env.js";
-import { settingsArgument, withSettingsCleanup } from "./session-settings.js";
+import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
 import { effectiveChoice } from "./launch-choice.js";
 
 export interface SpawnClaudeOptions {
@@ -70,6 +70,10 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     if (launch) launchChoices.set(sessionId, choice);
 
     const hookSettings = deps.hookSettingsJson(sandbox ? SANDBOX_HOST : "localhost", sessionId, resolved.env);
+    const mcpJson = deps.mcpConfigJson(sessionId, sandbox ? SANDBOX_HOST : "127.0.0.1", sandbox);
+    // File-ized only when it is actually passed (attachGuiMcp), so a cell that never carries
+    // the GUI MCP leaves no file behind for reap to clean up.
+    const mcpConfig = attachGuiMcp ? mcpConfigArgument(sessionId, mcpJson) : mcpJson;
     const args = buildClaudeArgs({
       model: resolved.model,
       sessionId,
@@ -81,7 +85,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       settings: settingsArgument(sessionId, hookSettings, Object.keys(resolved.env).length > 0),
       permissionMode: deps.permissionMode,
       attachGuiMcp,
-      mcpConfig: deps.mcpConfigJson(sessionId, sandbox ? SANDBOX_HOST : "127.0.0.1", sandbox),
+      mcpConfig,
       // Auto-allow the GUI tools + the user's own configured MCP servers (mcp__<id>), so
       // their tools don't trip a permission prompt on every call.
       guiMcpTools: [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(","),

@@ -4,19 +4,24 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { cleanupSessionSettings, settingsArgument, withSettingsCleanup } from "../../../server/session/session-settings.js";
+import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "../../../server/session/session-settings.js";
+import { hookSettingsJson } from "../../../server/session/hook-settings.js";
+import { buildClaudeArgs } from "../../../server/agents/claude-args.js";
 
 const SESSION = "settings-spec-session";
 const fileFor = (id: string) => path.join(os.homedir(), ".mulmoterminal", "settings", `${id}.json`);
+const mcpFileFor = (id: string) => path.join(os.homedir(), ".mulmoterminal", "settings", `${id}-mcp.json`);
 
 afterEach(() => cleanupSessionSettings(SESSION));
 
 describe("settingsArgument", () => {
   // A settings payload with no secret in it keeps travelling inline, so every existing
-  // session's spawn is untouched by this feature.
+  // session's spawn is untouched by this feature. The platform is named rather than
+  // inherited: Windows has its own reason to use a file (#813, below), so left implicit
+  // this would assert the opposite of the truth on the Windows runner.
   it("returns the JSON itself when nothing in it is secret", () => {
     const json = JSON.stringify({ hooks: {} });
-    expect(settingsArgument(SESSION, json, false)).toBe(json);
+    expect(settingsArgument(SESSION, json, false, "linux")).toBe(json);
     expect(existsSync(fileFor(SESSION))).toBe(false);
   });
 
@@ -69,5 +74,72 @@ describe("withSettingsCleanup", () => {
 describe("cleanupSessionSettings", () => {
   it("is a no-op for a session that never wrote one", () => {
     expect(() => cleanupSessionSettings("never-existed-session")).not.toThrow();
+  });
+});
+
+// #813: on Windows a `.cmd`-installed Claude is launched through cmd.exe, so an inline JSON
+// argument is parsed by cmd and then by the child's CRT — two parsers that disagree about
+// quoting. A path carries no quotes and no metacharacters, so the layer stops mattering.
+describe("the Windows reason for a file", () => {
+  const json = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "curl -d @- >/dev/null 2>&1" }] }] } });
+
+  it("writes a file on win32 even when nothing is secret", () => {
+    expect(settingsArgument(SESSION, json, false, "win32")).toBe(fileFor(SESSION));
+    expect(readFileSync(fileFor(SESSION), "utf8")).toBe(json);
+  });
+
+  it("keeps POSIX inline, so a working platform is untouched", () => {
+    expect(settingsArgument(SESSION, json, false, "darwin")).toBe(json);
+    expect(settingsArgument(SESSION, json, false, "linux")).toBe(json);
+    expect(existsSync(fileFor(SESSION))).toBe(false);
+  });
+
+  it("gives --mcp-config its own file, so the two never overwrite each other", () => {
+    const settings = settingsArgument(SESSION, json, false, "win32");
+    const mcp = mcpConfigArgument(SESSION, '{"mcpServers":{}}', "win32");
+    expect(mcp).toBe(mcpFileFor(SESSION));
+    expect(mcp).not.toBe(settings);
+    expect(readFileSync(settings, "utf8")).toBe(json);
+    expect(readFileSync(mcp, "utf8")).toBe('{"mcpServers":{}}');
+  });
+
+  it("passes --mcp-config inline off Windows", () => {
+    expect(mcpConfigArgument(SESSION, "{}", "darwin")).toBe("{}");
+  });
+
+  // reap() calls this once per session; it has to take BOTH files or the mcp one outlives
+  // every Windows session.
+  it("cleans up both files", () => {
+    settingsArgument(SESSION, json, false, "win32");
+    mcpConfigArgument(SESSION, "{}", "win32");
+    cleanupSessionSettings(SESSION);
+    expect(existsSync(fileFor(SESSION))).toBe(false);
+    expect(existsSync(mcpFileFor(SESSION))).toBe(false);
+  });
+});
+
+// The property that makes #813 impossible, stated once over the arguments a real spawn
+// builds: with the two JSON payloads travelling as files, NOTHING claude is launched with
+// contains a quote — so no parser downstream, however unforgiving, has anything to lose.
+describe("the argv a Windows spawn ends up with", () => {
+  it("contains no quote at all once the JSON payloads are files", () => {
+    const settings = settingsArgument(SESSION, hookSettingsJson({ host: "127.0.0.1", port: 34567, sessionId: SESSION }), false, "win32");
+    const mcpConfig = mcpConfigArgument(
+      SESSION,
+      JSON.stringify({ mcpServers: { "mulmoterminal-gui": { type: "http", url: "http://127.0.0.1:34567/api/mcp/x" } } }),
+      "win32",
+    );
+    const args = buildClaudeArgs({
+      model: null,
+      sessionId: SESSION,
+      resume: null,
+      canResume: false,
+      settings,
+      permissionMode: "auto",
+      attachGuiMcp: true,
+      mcpConfig,
+      guiMcpTools: "mulmoterminal_readXPost,mulmoterminal_searchX",
+    });
+    expect(args.filter((a) => a.includes('"'))).toEqual([]);
   });
 });
