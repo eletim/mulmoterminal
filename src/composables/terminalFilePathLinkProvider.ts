@@ -61,12 +61,77 @@ const ROUTE_BY_EXTENSION: Record<string, string> = {
 
 const RAW_ROUTE = "/api/files/raw";
 
-/** The route a path's extension is opened through — lower-cased, since a `README.MD` is
- *  still markdown, and `.md` in the middle of a name is not an extension. */
-export function fileViewerRoute(filePath: string): string {
+// Source: nothing a browser tab can do with it beyond showing the bytes, which is what the
+// app's own Files view does better — CodeMirror highlights it, the tree is right there, and
+// it can be edited (#808). Kept to what a terminal actually prints paths to; the list can
+// grow the same way ROUTE_BY_EXTENSION does.
+const IN_APP_EXTENSIONS = new Set<string>([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".c",
+  ".h",
+  ".cpp",
+  ".cc",
+  ".hpp",
+  ".cs",
+  ".php",
+  ".swift",
+  ".scala",
+  ".lua",
+  ".sql",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".xml",
+  ".jsonc",
+  ".txt",
+  ".log",
+  ".diff",
+  ".patch",
+]);
+
+/** How a clicked path opens: in the app's own Files view, or at a URL in a new tab. */
+export type FileLinkTarget = { kind: "files" } | { kind: "url"; url: string };
+
+/** A path's extension, lower-cased — `README.MD` is still markdown, and a `.md` in the
+ *  middle of a name is not an extension. Empty when there is none. */
+export function fileExtension(filePath: string): string {
   const dot = filePath.lastIndexOf(".");
-  const ext = dot === -1 ? "" : filePath.slice(dot).toLowerCase();
-  return ROUTE_BY_EXTENSION[ext] ?? RAW_ROUTE;
+  return dot === -1 ? "" : filePath.slice(dot).toLowerCase();
+}
+
+/** The route a path's extension is opened through. */
+export function fileViewerRoute(filePath: string): string {
+  return ROUTE_BY_EXTENSION[fileExtension(filePath)] ?? RAW_ROUTE;
+}
+
+export function fileLinkTarget(filePath: string, cwd: string): FileLinkTarget {
+  if (IN_APP_EXTENSIONS.has(fileExtension(filePath))) return { kind: "files" };
+  return { kind: "url", url: rawFileUrl(filePath, cwd) };
 }
 
 export function rawFileUrl(filePath: string, cwd: string): string {
@@ -84,7 +149,12 @@ function readCells(term: Terminal, bufferLineNumber: number): TerminalCell[] | n
   return cells;
 }
 
-export function createFilePathLinkProvider(term: Terminal, getCwd: () => string | null, openUrl: (url: string) => void): ILinkProvider {
+export function createFilePathLinkProvider(
+  term: Terminal,
+  getCwd: () => string | null,
+  openUrl: (url: string) => void,
+  openInFiles: (filePath: string, cwd: string) => void,
+): ILinkProvider {
   return {
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void): void {
       const cwd = getCwd();
@@ -94,7 +164,11 @@ export function createFilePathLinkProvider(term: Terminal, getCwd: () => string 
         text: link.text,
         range: { start: { x: link.startX, y: bufferLineNumber }, end: { x: link.endX, y: bufferLineNumber } },
         decorations: { pointerCursor: true, underline: true },
-        activate: () => openUrl(rawFileUrl(link.text, cwd)),
+        activate: () => {
+          const target = fileLinkTarget(link.text, cwd);
+          if (target.kind === "files") openInFiles(link.text, cwd);
+          else openUrl(target.url);
+        },
       }));
       callback(links.length ? links : undefined);
     },
