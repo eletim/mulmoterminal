@@ -121,7 +121,10 @@ export interface RawServingPlan {
 
 export function rawServingPlan(absPath: string, size: number): RawServingPlan {
   const ext = path.extname(absPath).toLowerCase();
-  const contentType = MIME_BY_EXT[ext] ?? (TEXT_EXTS.has(ext) ? TEXT_PLAIN : "application/octet-stream");
+  // `path.extname` is "" for a dotfile (`.gitignore`, `.env`), so fall back to the full
+  // basename for the text lookup — else those names in TEXT_EXTS never match and download.
+  const textKey = ext || path.basename(absPath).toLowerCase();
+  const contentType = MIME_BY_EXT[ext] ?? (TEXT_EXTS.has(textKey) ? TEXT_PLAIN : "application/octet-stream");
   const cap = isMedia(contentType) ? MAX_MEDIA_BYTES : MAX_RAW_BYTES;
   return { contentType, sandbox: contentType !== "application/pdf", tooLarge: size > cap };
 }

@@ -27,6 +27,11 @@ describe("rawServingPlan — content type", () => {
     },
   );
 
+  // Dotfiles have an empty `path.extname`, so they must be matched by basename.
+  it.each(["/w/.gitignore", "/w/.dockerignore", "/w/.editorconfig", "/w/.env", "/w/proj/.GITIGNORE"])("serves the dotfile %s as viewable text/plain", (p) => {
+    expect(rawServingPlan(p, 1).contentType).toBe("text/plain; charset=utf-8");
+  });
+
   it("falls back to octet-stream for a genuinely unknown extension (still downloads)", () => {
     expect(rawServingPlan("/w/a.xyz", 1).contentType).toBe("application/octet-stream");
     expect(rawServingPlan("/w/a.bin", 1).contentType).toBe("application/octet-stream");
