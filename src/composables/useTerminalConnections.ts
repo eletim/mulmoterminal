@@ -1,3 +1,15 @@
+// ── CHANGING THE TERMINAL? UPDATE THE DOCS IN THE SAME COMMIT ─────────────────────────
+// Terminal behaviour is documented in three places, and a spec that changes in code but
+// not in prose leaves a reader believing something that is no longer true — which is
+// exactly what happened to the file-path link routing (#834):
+//   - docs/terminal-notes.md — the developer reference for this stack (xterm addons,
+//     tmux passthrough, links, mouse tracking, renderer) AND its upgrade regression
+//     checklist. Read it before touching xterm, an addon, tmux, or node-pty.
+//   - README.md — the user-facing behaviour (keys, selection, file paths, the GUI panel).
+//   - docs/guide/en/features.md + docs/guide/ja/features.md — the feature table, in BOTH
+//     languages; they are meant to stay in sync.
+// ──────────────────────────────────────────────────────────────────────────────────────
+//
 // A module-singleton manager that owns each terminal's durable runtime — its
 // WebSocket, xterm instance, reconnect/backoff state — independent of the Vue
 // component lifecycle. This is what lets a session's PTY stay alive (and its
