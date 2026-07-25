@@ -12,7 +12,7 @@ import { createRemoteHostAuth, createRemoteHostSession, isSeedableBlob, type Rem
 import type { Firestore } from "firebase/firestore";
 import type { FirebaseStorage } from "firebase/storage";
 
-import { firebaseConfig } from "./firebase.js";
+import { firebaseConfig } from "../../../common/firebaseConfig.js";
 
 const session = createRemoteHostSession(firebaseConfig);
 let handles: RemoteHostSessionHandles | null = null;

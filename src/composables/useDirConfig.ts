@@ -4,7 +4,7 @@ import type { ITheme } from "@xterm/xterm";
 import { isThemeId, type ThemeId } from "./useTheme";
 // Shared with the server config schema so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors";
-import type { DirChrome } from "../../common/dirChrome";
+import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
 
 // The per-directory overrides a terminal adopts when its cwd holds a
 // `.mulmoterminal.json` (served by GET /api/dir-config). The raw sound path stays
@@ -16,19 +16,7 @@ export interface DirConfig extends DirChrome {
   hasSound: boolean;
 }
 
-const EMPTY: DirConfig = {
-  name: null,
-  badgeColor: null,
-  headerColor: null,
-  headerTextColor: null,
-  cellColor: null,
-  cellBorderColor: null,
-  dotColor: null,
-  buttonColor: null,
-  theme: null,
-  colors: null,
-  hasSound: false,
-};
+const EMPTY: DirConfig = { ...EMPTY_DIR_CHROME, theme: null, colors: null, hasSound: false };
 
 function parseColors(input: unknown): Partial<ITheme> | null {
   if (!isRecord(input)) return null;

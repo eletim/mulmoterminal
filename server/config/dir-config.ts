@@ -7,7 +7,7 @@
 import { existsSync, statSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
-import type { DirChrome } from "../../common/dirChrome.js";
+import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import {
@@ -98,14 +98,7 @@ export function resolveDirSound(cwd: string, input: unknown): string | null {
 }
 
 const EMPTY: DirConfig = {
-  name: null,
-  badgeColor: null,
-  headerColor: null,
-  headerTextColor: null,
-  cellColor: null,
-  cellBorderColor: null,
-  dotColor: null,
-  buttonColor: null,
+  ...EMPTY_DIR_CHROME,
   theme: null,
   colors: null,
   sound: null,

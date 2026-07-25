@@ -14,7 +14,7 @@ import { useSoundEnabled } from "../composables/useSoundEnabled";
 import { useUpdateStatus } from "../composables/useUpdateStatus";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
 import { parseTagQuery } from "./wikiTagFilter";
-import type { Shortcut } from "../types/shortcuts";
+import type { Shortcut } from "../../common/shortcuts";
 import type { StatusCounts } from "./gridTabs";
 import { gridStatusSummary } from "./gridTabs";
 

@@ -10,7 +10,7 @@
 // `material-icons` class, which the shadow-injected icon CSS maps to Material Symbols.
 import { computed } from "vue";
 import { useShortcuts } from "../composables/useShortcuts";
-import type { ShortcutKind } from "../types/shortcuts";
+import type { ShortcutKind } from "../../common/shortcuts";
 
 const props = defineProps<{
   kind: ShortcutKind;

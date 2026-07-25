@@ -8,6 +8,7 @@
 // kind of thing that widens by accident. Serving an SVG WITHOUT the sandbox is stored XSS
 // against /api/* and the session cookie.
 import path from "node:path";
+import { SOURCE_CODE_EXTENSIONS } from "../../common/sourceExtensions.js";
 
 const MAX_RAW_BYTES = 25 * 1024 * 1024; // images / text / generic
 const MAX_MEDIA_BYTES = 500 * 1024 * 1024; // audio / video (streamed via Range)
@@ -40,71 +41,33 @@ const MIME_BY_EXT: Record<string, string> = {
 // `.md`/`.ts`/… should open, not save). text/plain is never executed, so it stays safe under
 // the sandbox CSP; a genuinely unknown extension still falls through to octet-stream (download).
 const TEXT_PLAIN = "text/plain; charset=utf-8";
-const TEXT_EXTS = new Set<string>([
+
+// On top of the shared source set: prose and markup the browser would otherwise render or
+// download, the languages the client's in-app viewer doesn't claim, and the extensionless
+// dotfiles (matched by basename — see `textKey` below). `.txt`/`.json`/`.csv` are absent
+// because MIME_BY_EXT already types them.
+const TEXT_ONLY_EXTS = [
   ".md",
   ".markdown",
   ".rst",
   ".adoc",
   ".mdx",
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".vue",
-  ".svelte",
-  ".astro",
-  ".py",
-  ".rb",
-  ".go",
-  ".rs",
-  ".java",
-  ".kt",
-  ".c",
-  ".h",
-  ".cpp",
-  ".cc",
-  ".hpp",
-  ".cs",
-  ".php",
-  ".swift",
-  ".scala",
-  ".lua",
   ".pl",
-  ".sql",
   ".r",
   ".dart",
   ".ex",
   ".exs",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".fish",
-  ".yml",
-  ".yaml",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".conf",
   ".env",
   ".properties",
   ".html",
   ".htm",
-  ".css",
-  ".scss",
-  ".sass",
-  ".less",
-  ".xml",
-  ".jsonc",
-  ".log",
-  ".diff",
-  ".patch",
   ".gitignore",
   ".dockerignore",
   ".editorconfig",
   ".lock",
-]);
+];
+
+const TEXT_EXTS = new Set<string>([...SOURCE_CODE_EXTENSIONS, ...TEXT_ONLY_EXTS]);
 
 // Audio and video are the large, Range-streamed kinds that get the bigger cap.
 function isMedia(mime: string): boolean {

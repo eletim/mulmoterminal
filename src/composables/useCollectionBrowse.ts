@@ -7,7 +7,7 @@
 // The open collection/feed PAGE is the URL; only the open RECORD (a modal) stays
 // in-memory — records are intentionally not addressable (no history entry).
 import { computed, reactive, watch, type ComputedRef } from "vue";
-import type { ShortcutKind } from "../types/shortcuts";
+import type { ShortcutKind } from "../../common/shortcuts";
 import { router } from "../router";
 
 type BrowseView = { mode: "closed" } | { mode: "index"; kind: ShortcutKind } | { mode: "detail"; kind: ShortcutKind; slug: string; selectedId: string | null };

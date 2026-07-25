@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { isUnread } from "../composables/useSessions";
 import { useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 import { relativeTime } from "./cellDisplay";
@@ -16,7 +15,7 @@ const props = defineProps<
 >();
 const emit = defineEmits<SessionListEmits>();
 
-const { unreadCount, filteredSessions } = useSessionFilter(props);
+const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
 </script>
 
 <template>

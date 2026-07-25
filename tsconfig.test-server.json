@@ -3,6 +3,6 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test-server.tsbuildinfo"
   },
-  "include": ["test/server/**/*.ts", "test/bin/**/*.ts", "server/**/*.spec.ts"],
+  "include": ["test/server/**/*.ts", "test/bin/**/*.ts", "test/scripts/**/*.ts", "server/**/*.spec.ts"],
   "exclude": []
 }

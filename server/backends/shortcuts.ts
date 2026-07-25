@@ -1,11 +1,7 @@
 // Shared launcher shortcuts (pinned collections / feeds) over
-// `<workspace>/config/shortcuts.json`. MulmoClaude and MulmoTerminal SHARE this
-// file — favoriting a collection in one app must show up in the other — so the
-// on-disk format is the contract: an OBJECT WRAPPER `{ shortcuts: Shortcut[] }`
-// (not a bare array), matching mulmoclaude/src/types/shortcuts.ts +
-// server/utils/files/shortcuts-io.ts. Reimplemented verbatim here (the format is
-// tiny and stable; shortcuts.spec.ts pins it) rather than sharing a package, so
-// MulmoTerminal stays MulmoClaude-change-free.
+// `<workspace>/config/shortcuts.json`. The shape and its dedupe key live in
+// common/shortcuts.ts, which also records the MulmoClaude cross-app contract; this
+// module owns the reading, validating and atomic writing of the file.
 //
 //   GET /api/shortcuts  → { shortcuts }
 //   PUT /api/shortcuts  → replace the whole array → { shortcuts }
@@ -13,20 +9,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { Express, Request, Response } from "express";
-
-/** Which route family a shortcut points at. */
-export const SHORTCUT_KINDS = ["collection", "feed"] as const;
-export type ShortcutKind = (typeof SHORTCUT_KINDS)[number];
-
-export interface Shortcut {
-  kind: ShortcutKind;
-  /** Target collection / feed slug. */
-  slug: string;
-  /** Cached display label (refreshed on reconcile). */
-  title: string;
-  /** Cached material-symbols glyph (refreshed on reconcile). */
-  icon: string;
-}
+import { sameShortcut, SHORTCUT_KINDS, type Shortcut, type ShortcutKind } from "../../common/shortcuts.js";
 
 /** On-disk shape — object wrapper (not a bare array) so the schema can grow
  *  without a migration. THIS is the cross-app contract. */
@@ -35,11 +18,6 @@ interface ShortcutsFile {
 }
 
 const KINDS = new Set<string>(SHORTCUT_KINDS);
-
-/** True when two shortcuts target the same thing (the dedupe key). */
-function sameShortcut(left: Pick<Shortcut, "kind" | "slug">, right: Pick<Shortcut, "kind" | "slug">): boolean {
-  return left.kind === right.kind && left.slug === right.slug;
-}
 
 /** Coerce arbitrary JSON into a clean `Shortcut[]`: drop malformed entries (bad
  *  kind / empty slug / non-string fields), default title→slug and icon→"bookmark",

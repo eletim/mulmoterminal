@@ -8,7 +8,7 @@
 // user ends up re-doing the parts that already worked.
 import { computed, onMounted, onUnmounted, nextTick, ref } from "vue";
 import { trapTabKey } from "../utils/focusTrap";
-import type { LaunchProviderOption } from "../composables/useLaunchOptions";
+import type { LaunchProviderOption } from "../../common/launchOptions";
 
 const props = defineProps<{ providers: LaunchProviderOption[] }>();
 const emit = defineEmits<{ (e: "close"): void }>();

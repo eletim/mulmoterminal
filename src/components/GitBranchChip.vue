@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { GitStatus } from "../composables/useGitStatus";
+import type { GitStatus } from "../../common/gitStatus";
 
 // `hideDirty` suppresses the dirty count for worktree cells, which already show
 // ahead/dirty vs their base branch in the diff badge next to this chip.

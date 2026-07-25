@@ -18,3 +18,18 @@ export interface DirChrome {
   dotColor: string | null;
   buttonColor: string | null;
 }
+
+// "Nothing configured" — the base every DirConfig/PublicDirConfig empty spreads, so adding
+// a field above can't leave one side's default silently missing. Readonly because it is now
+// one object behind both sides' defaults, where it used to be a literal per file: a caller
+// that assigned it somewhere mutable would corrupt every later "no config here".
+export const EMPTY_DIR_CHROME: Readonly<DirChrome> = {
+  name: null,
+  badgeColor: null,
+  headerColor: null,
+  headerTextColor: null,
+  cellColor: null,
+  cellBorderColor: null,
+  dotColor: null,
+  buttonColor: null,
+};

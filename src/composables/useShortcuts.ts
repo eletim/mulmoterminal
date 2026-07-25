@@ -8,7 +8,7 @@
 // client owns the full array and replaces it wholesale. Mutations are optimistic
 // with rollback, and serialized so overlapping replace-all PUTs can't reorder.
 import { computed, ref, type ComputedRef } from "vue";
-import { sameShortcut, type Shortcut, type ShortcutKind } from "../types/shortcuts";
+import { sameShortcut, type Shortcut, type ShortcutKind } from "../../common/shortcuts";
 import { reconcileShortcuts } from "./reconcileShortcuts";
 import { fetchJson } from "../utils/fetchJson";
 

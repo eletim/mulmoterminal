@@ -20,12 +20,13 @@ import type { RunCommand } from "./runCommand";
 import { useHeaderButtons } from "../composables/useHeaderButtons";
 import TimelineOverlay from "./TimelineOverlay.vue";
 import CockpitHeader from "./CockpitHeader.vue";
+import CellChromeButtons from "./CellChromeButtons.vue";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { activityStatus, type CellStatus } from "./gridTabs";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
-import { CELL_ACTIONS, CELL_BTN, CELL_CLOSE_BTN, CELL_DOT, CELL_DOT_IDLE, CELL_DOT_WORKING, CELL_HEADER_ZOOMABLE, CELL_TERM } from "./cellChromeClasses";
+import { CELL_ACTIONS, CELL_BTN, CELL_DOT, CELL_DOT_IDLE, CELL_DOT_WORKING, CELL_HEADER_ZOOMABLE, CELL_TERM } from "./cellChromeClasses";
 import { handoffTargets, pullLastTurn, type HandoffTarget } from "../composables/useHandoff";
 import { runOneExchange, liveCrossTalkDeps } from "../composables/useCrossTalk";
 import { outcomeMessage } from "../composables/exchangeRules";
@@ -1010,16 +1011,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         @click="onHeaderClick"
       >
         <span class="cell-actions" :class="CELL_ACTIONS">
-          <button
-            class="cell-btn"
-            :class="CELL_BTN"
-            :title="expanded ? 'Restore' : 'Expand'"
-            :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
-            @click.stop="emit('toggle-expand')"
-          >
-            {{ expanded ? "⤡" : "⤢" }}
-          </button>
-          <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click.stop="close">✕</button>
+          <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="close" />
         </span>
       </CockpitHeader>
       <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
@@ -1107,16 +1099,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              track, so they're always pinned top-right. `.stop` so they don't trigger the
              header's click-to-zoom. -->
         <span class="cell-actions" :class="CELL_ACTIONS">
-          <button
-            class="cell-btn"
-            :class="CELL_BTN"
-            :title="expanded ? 'Restore' : 'Expand'"
-            :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
-            @click.stop="emit('toggle-expand')"
-          >
-            {{ expanded ? "⤡" : "⤢" }}
-          </button>
-          <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click.stop="close">✕</button>
+          <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="close" />
         </span>
       </div>
       <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />
