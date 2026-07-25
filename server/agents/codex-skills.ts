@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, mkdirSync, cpSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { removeQuietly } from "../infra/fs-cleanup.js";
 
 // Marks a codex skill dir mulmoterminal owns, so a re-sync overwrites OURS but never clobbers
 // codex's own curated/system skills.
@@ -33,7 +34,7 @@ function removeOrphanedMirrors(destDir: string, keep: ReadonlySet<string>): stri
     if (keep.has(name)) continue;
     const dst = path.join(destDir, name);
     if (!isOurs(dst)) continue;
-    rmSync(dst, { recursive: true, force: true });
+    removeQuietly(dst);
     removed.push(name);
   }
   return removed;
@@ -60,7 +61,7 @@ export function syncCodexSkills(sourceDir: string, destDir: string): { mirrored:
       skipped.push(name);
       continue;
     }
-    rmSync(dst, { recursive: true, force: true });
+    removeQuietly(dst);
     cpSync(path.join(sourceDir, name), dst, { recursive: true });
     writeFileSync(path.join(dst, MIRROR_MARKER), "managed by mulmoterminal\n");
     mirrored.push(name);

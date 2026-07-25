@@ -60,9 +60,44 @@ export function containedPath(base: string, rel: string): string | null {
  *  through symlinks — because BOTH file entry points need exactly this and had it written
  *  out separately: the raw route expanded `~`, the browse routes did not, so the same
  *  clicked path was served by one and refused by the other (#808). */
-export function resolveContained(base: string, rel: string, homeDir: string): string | null {
+export function resolveContained(base: string, rel: string, homeDir: string, platform: NodeJS.Platform = process.platform): string | null {
+  if (namesAWindowsDevice(rel, platform)) return null;
   const lexical = containedPath(base, expandTilde(rel, homeDir));
   return lexical ? realContainedWithin(base, lexical) : null;
+}
+
+// The DOS device names. Windows resolves them in EVERY directory — `C:\anything\NUL` is the
+// null device, not a missing file — so containment says yes and the open lands on a device
+// instead of on the project. NUL reads as empty, which is merely wrong; CON blocks until the
+// console has input, which hangs the request that asked for it. An extension does not help
+// (`CON.txt` is still CON), so the check is on the segment's stem.
+//
+// Windows only: `con` is a perfectly ordinary filename on POSIX, and refusing it there would
+// break a real file for no reason.
+const WINDOWS_DEVICE_NAMES = new Set([
+  "CON",
+  "PRN",
+  "AUX",
+  "NUL",
+  ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
+]);
+
+// Counted rather than matched: an anchored `[. ]+$` backtracks over a long run.
+function trimTrailingDotsAndSpaces(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === "." || text[end - 1] === " ")) end--;
+  return text.slice(0, end);
+}
+
+/** Does any segment of `rel` name a DOS device? Trailing dots and spaces are stripped first,
+ *  because Windows strips them too — `NUL. ` opens NUL. */
+export function namesAWindowsDevice(rel: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== "win32") return false;
+  return rel.split(/[\\/]/).some((segment) => {
+    const stem = trimTrailingDotsAndSpaces(segment.split(".")[0]);
+    return WINDOWS_DEVICE_NAMES.has(stem.toUpperCase());
+  });
 }
 
 function realpathOr(p: string): string {

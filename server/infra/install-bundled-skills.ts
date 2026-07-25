@@ -3,12 +3,13 @@
 // including under `npx`, since they ship in the package. Modeled on server/codex-skills.ts: an
 // ownership marker means we only ever refresh OUR copy and never clobber a user's own same-named
 // skill. Best-effort: a filesystem failure logs and continues, never aborting server startup.
-import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { codexSkillsRoot } from "../agents/codex-skills.js";
 import { dirConfigJsonSchema } from "../config/config-schema.js";
+import { removeQuietly } from "./fs-cleanup.js";
 
 const OWNER_MARKER = ".mt-owned";
 const OWNER_MARKER_BODY = "managed by mulmoterminal\n";
@@ -34,7 +35,7 @@ export function installOwnedSkill(sourceDir: string, destParent: string, extras:
   if (!existsSync(sourceDir)) return "absent-source";
   const dest = path.join(destParent, path.basename(sourceDir));
   if (existsSync(dest) && !isOurs(dest)) return "skipped";
-  rmSync(dest, { recursive: true, force: true });
+  removeQuietly(dest);
   cpSync(sourceDir, dest, { recursive: true });
   writeFileSync(path.join(dest, OWNER_MARKER), OWNER_MARKER_BODY);
   for (const [file, content] of Object.entries(extras)) writeFileSync(path.join(dest, file), content);

@@ -10,13 +10,14 @@
 // Verified in Phase 0 (#202): a sandboxed claude authenticates via the mounted ~/.claude
 // and connects to the host GUI MCP over host.docker.internal.
 import { spawnSync } from "node:child_process";
-import { writeFileSync, readFileSync, copyFileSync, chmodSync, rmSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, copyFileSync, chmodSync, mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import pty from "node-pty";
 import { spawnCapture } from "./spawnCapture.js";
+import { removeQuietly } from "./fs-cleanup.js";
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
@@ -272,8 +273,8 @@ export function writeSandboxCredentials(sessionId: string): string | null {
 // Used before a spawn (clear stale) and on reap.
 export function cleanupSandbox(sessionId: string): void {
   run("docker", ["rm", "-f", sandboxContainerName(sessionId)]);
-  rmSync(sandboxClaudeConfigPath(sessionId), { force: true });
-  rmSync(sandboxCredentialsPath(sessionId), { force: true });
+  removeQuietly(sandboxClaudeConfigPath(sessionId));
+  removeQuietly(sandboxCredentialsPath(sessionId));
 }
 
 // --- Opt-in host credentials for the sandbox ---
