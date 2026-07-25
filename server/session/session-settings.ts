@@ -13,6 +13,7 @@ import { writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { removeQuietly } from "../infra/fs-cleanup.js";
+import { SESSION_ID_RE } from "../config/env.js";
 
 const SETTINGS_DIR = path.join(os.homedir(), ".mulmoterminal", "settings");
 
@@ -87,10 +88,13 @@ export function pruneOrphanSettings(liveIds: ReadonlySet<string>, dir: string = 
   return dropped;
 }
 
-// `<id>.json` and `<id>-mcp.json` are the two we write; anything else in the directory is
-// not ours to delete.
+// `<id>.json` and `<id>-mcp.json` are the two we write, and `<id>` is always a session id —
+// every caller takes one from randomUUID() or a SESSION_ID_RE match. Requiring that shape is
+// what keeps this from deleting a file that merely happens to end in `.json`: the directory
+// is ours, but "ours" is not a good enough reason to remove something we did not write.
 function sessionIdFromFileName(name: string): string | null {
   if (!name.endsWith(".json")) return null;
   const stem = name.slice(0, -".json".length);
-  return stem.endsWith("-mcp") ? stem.slice(0, -"-mcp".length) : stem;
+  const id = stem.endsWith("-mcp") ? stem.slice(0, -"-mcp".length) : stem;
+  return SESSION_ID_RE.test(id) ? id : null;
 }

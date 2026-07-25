@@ -165,32 +165,39 @@ describe("pruneOrphanSettings", () => {
 
   const write = (dir: string, name: string) => writeFileSync(path.join(dir, name), "{}");
 
+  const DEAD = "11111111-2222-3333-4444-555555555555";
+  const ALIVE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
   it("drops both files of a session that did not survive", () => {
     const dir = tmpDir();
-    write(dir, "dead-session.json");
-    write(dir, "dead-session-mcp.json");
-    expect(pruneOrphanSettings(new Set(), dir).sort()).toEqual(["dead-session-mcp.json", "dead-session.json"]);
-    expect(existsSync(path.join(dir, "dead-session.json"))).toBe(false);
-    expect(existsSync(path.join(dir, "dead-session-mcp.json"))).toBe(false);
+    write(dir, `${DEAD}.json`);
+    write(dir, `${DEAD}-mcp.json`);
+    expect(pruneOrphanSettings(new Set(), dir).sort()).toEqual([`${DEAD}-mcp.json`, `${DEAD}.json`]);
+    expect(existsSync(path.join(dir, `${DEAD}.json`))).toBe(false);
+    expect(existsSync(path.join(dir, `${DEAD}-mcp.json`))).toBe(false);
   });
 
   // The whole point of the liveIds argument: a tmux-backed session is still running with the
   // settings it was started with, so taking its file away is the one thing this must not do.
   it("keeps the files of a session that survived", () => {
     const dir = tmpDir();
-    write(dir, "alive.json");
-    write(dir, "alive-mcp.json");
-    expect(pruneOrphanSettings(new Set(["alive"]), dir)).toEqual([]);
-    expect(existsSync(path.join(dir, "alive.json"))).toBe(true);
-    expect(existsSync(path.join(dir, "alive-mcp.json"))).toBe(true);
+    write(dir, `${ALIVE}.json`);
+    write(dir, `${ALIVE}-mcp.json`);
+    expect(pruneOrphanSettings(new Set([ALIVE]), dir)).toEqual([]);
+    expect(existsSync(path.join(dir, `${ALIVE}.json`))).toBe(true);
+    expect(existsSync(path.join(dir, `${ALIVE}-mcp.json`))).toBe(true);
   });
 
-  it("leaves anything that is not one of ours alone", () => {
+  // Flagged by Codex on #822: the first version matched ANY `*.json`, so a file that merely
+  // shares the extension — the exact case its own comment promised to leave alone — was
+  // deleted. The directory being ours is not a reason to remove something we did not write.
+  it("leaves anything that is not one of ours alone, including other .json files", () => {
     const dir = tmpDir();
-    write(dir, "notes.txt");
-    write(dir, "README.md");
+    for (const name of ["notes.txt", "README.md", "notes.json", "backup.json", "not-a-uuid-mcp.json"]) write(dir, name);
     expect(pruneOrphanSettings(new Set(), dir)).toEqual([]);
-    expect(existsSync(path.join(dir, "notes.txt"))).toBe(true);
+    for (const name of ["notes.txt", "README.md", "notes.json", "backup.json", "not-a-uuid-mcp.json"]) {
+      expect(existsSync(path.join(dir, name)), name).toBe(true);
+    }
   });
 
   it("is a no-op when nothing has ever been written", () => {
