@@ -2,15 +2,23 @@
 // the reconnect-outcome decision, split out of RemoteHostControl.vue so they're
 // unit-testable without mounting the Firebase-importing component.
 
+import { isRunnerHealth, type RunnerHealth } from "../../common/remoteHostHealth";
+
 export interface RemoteHostStatus {
   connected: boolean;
   uid: string | null;
 }
 
-// The result of a /api/remote-host/* call: the status + parked blob on success, or
-// an error with the HTTP status (0 for a network failure) so the caller can tell a
-// genuinely-expired blob (401) from a transient failure.
-export type FetchResult = { ok: true; status: RemoteHostStatus; session: string | null } | { ok: false; error: string; httpStatus: number };
+// The result of a /api/remote-host/* call: the status + parked blob + runner health on
+// success, or an error with the HTTP status (0 for a network failure) so the caller can
+// tell a genuinely-expired blob (401) from a transient failure.
+export type FetchResult =
+  { ok: true; status: RemoteHostStatus; session: string | null; health: RunnerHealth } | { ok: false; error: string; httpStatus: number };
+
+// A response without a usable health block (an older server, a proxy rewriting it) must
+// still render something coherent, so fall back to what `connected` already implies.
+export const healthOrFallback = (value: unknown, connected: boolean): RunnerHealth =>
+  isRunnerHealth(value) ? value : { state: connected ? "online" : "offline", lastError: null, changedAt: 0 };
 
 // The server's Firebase session blob (refresh token included) parked in localStorage
 // so a server restart can reconnect without a Google popup. Same-machine (localhost)
