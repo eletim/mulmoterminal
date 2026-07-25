@@ -83,6 +83,12 @@ runs, you're ready. **Recommended:** `tmux` (session persistence) · `gh` (PRs/I
 npx mulmoterminal@latest                        # opens http://localhost:34567
 ```
 
+**うまく起動しないとき（npx キャッシュ破損）:** 最初の `npx` インストールが途中で中断されると、`~/.npm/_npx/<hash>` が壊れたまま残り、次回起動が `ERR_MODULE_NOT_FOUND` で落ちることがあります（公開パッケージの不具合ではありません）。
+ランチャが破損キャッシュを検知して**削除コマンドを表示**するので、それを実行してから再度 `npx mulmoterminal@latest` してください。
+
+**If it won't start (`ERR_MODULE_NOT_FOUND`):** If a first `npx` install was interrupted, a half-unpacked `~/.npm/_npx/<hash>` can remain and a later run fails at startup — a corrupted npx cache, not a bug in the published package.
+The launcher detects it and prints the exact removal command; run that, then `npx mulmoterminal@latest` again.
+
 ---
 
 ## 日本語
