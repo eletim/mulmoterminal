@@ -5,6 +5,8 @@ import path from "node:path";
 import os from "node:os";
 
 import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "../../../server/session/session-settings.js";
+import { hookSettingsJson } from "../../../server/session/hook-settings.js";
+import { buildClaudeArgs } from "../../../server/agents/claude-args.js";
 
 const SESSION = "settings-spec-session";
 const fileFor = (id: string) => path.join(os.homedir(), ".mulmoterminal", "settings", `${id}.json`);
@@ -113,5 +115,31 @@ describe("the Windows reason for a file", () => {
     cleanupSessionSettings(SESSION);
     expect(existsSync(fileFor(SESSION))).toBe(false);
     expect(existsSync(mcpFileFor(SESSION))).toBe(false);
+  });
+});
+
+// The property that makes #813 impossible, stated once over the arguments a real spawn
+// builds: with the two JSON payloads travelling as files, NOTHING claude is launched with
+// contains a quote — so no parser downstream, however unforgiving, has anything to lose.
+describe("the argv a Windows spawn ends up with", () => {
+  it("contains no quote at all once the JSON payloads are files", () => {
+    const settings = settingsArgument(SESSION, hookSettingsJson({ host: "127.0.0.1", port: 34567, sessionId: SESSION }), false, "win32");
+    const mcpConfig = mcpConfigArgument(
+      SESSION,
+      JSON.stringify({ mcpServers: { "mulmoterminal-gui": { type: "http", url: "http://127.0.0.1:34567/api/mcp/x" } } }),
+      "win32",
+    );
+    const args = buildClaudeArgs({
+      model: null,
+      sessionId: SESSION,
+      resume: null,
+      canResume: false,
+      settings,
+      permissionMode: "auto",
+      attachGuiMcp: true,
+      mcpConfig,
+      guiMcpTools: "mulmoterminal_readXPost,mulmoterminal_searchX",
+    });
+    expect(args.filter((a) => a.includes('"'))).toEqual([]);
   });
 });

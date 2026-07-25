@@ -170,6 +170,37 @@ describe.skipIf(!isWindows)("spawnPty on Windows", () => {
     expect(() => JSON.parse(received[3])).not.toThrow();
   });
 
+  // #813 again, and the reason the case above was misleading: it reads the child's PARSED
+  // argv, and node is the most forgiving argv parser on Windows — it implements the MSVC
+  // extension where `""` inside a quoted argument means one literal quote. The real target
+  // (`claude.exe`, a native binary) does not, and drops them. So assert what cmd.exe actually
+  // DELIVERS, which is the thing this code is responsible for; how the far end parses it is
+  // the far end's contract, and the reason the JSON now travels as a file at all.
+  //
+  // The shim here is cmd-shim's NON-shebang branch — what npm generates for a package whose
+  // bin is a native .exe, which is what Claude Code ships. It differs from the compound form
+  // above, and the point of having both is that the shim shape does not matter: both hand
+  // `%*` on unchanged.
+  it("delivers our escaping to the shim intact, whatever the shim shape", async () => {
+    const rawShim = `mt-rawshim-${process.pid}`;
+    const rawOut = path.join(dir, "raw.txt");
+    writeFileSync(
+      path.join(dir, `${rawShim}.cmd`),
+      ["@ECHO off", "GOTO start", ":find_dp0", "SET dp0=%~dp0", "EXIT /b", ":start", "SETLOCAL", "CALL :find_dp0", `>"${rawOut}" ECHO %*`, ""].join("\r\n"),
+    );
+
+    rmSync(rawOut, { force: true });
+    const settings = hookSettingsJson({ host: "127.0.0.1", port: 34567, sessionId: "11111111-2222-3333-4444-555555555555" });
+    expect(await exitCodeOf(spawnPty(rawShim, ["--settings", settings], dir))).toBe(0);
+
+    const raw = readFileSync(rawOut, "utf8");
+    // Our own escaping, unaltered: cmd.exe passed the command line through rather than
+    // rewriting it. If this ever fails, cmd IS the corrupting layer and cmd-escape.ts is wrong.
+    expect(raw).toContain('""hooks""');
+    expect(raw).toContain("-d @- >/dev/null 2>&1");
+    expect(raw.trim().startsWith('"--settings"')).toBe(true);
+  });
+
   // cmd.exe is an extra process between us and the shim, so a non-zero exit has one more
   // layer to survive than it did before #798.
   it("propagates a failing shim's exit code through the cmd.exe layer", async () => {
