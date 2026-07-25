@@ -1,18 +1,9 @@
 // Read-only git status for a terminal's working dir, so the header can always show
 // branch / dirty / ahead·behind without the user running `git status`. Reuses the
 // shared git runner and never throws — a non-repo dir is just `repo:false`.
+import type { GitStatus } from "../../common/gitStatus.js";
 import { git, gitTopLevel } from "./worktrees.js";
 import { dirtyCount } from "./dirty-count.js";
-
-export interface GitStatus {
-  repo: boolean;
-  branch: string | null; // null when detached or non-repo
-  detached: boolean;
-  dirty: number; // uncommitted entries (incl. untracked)
-  ahead: number; // commits on HEAD not on the upstream
-  behind: number; // commits on the upstream not on HEAD
-  upstream: boolean; // HEAD has a tracking branch (ahead/behind are meaningful)
-}
 
 const NOT_REPO: GitStatus = { repo: false, branch: null, detached: false, dirty: 0, ahead: 0, behind: 0, upstream: false };
 

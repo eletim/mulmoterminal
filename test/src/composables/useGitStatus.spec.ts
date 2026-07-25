@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { defineComponent, ref, h, nextTick } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
 
-import { useGitStatus, type GitStatus } from "../../../src/composables/useGitStatus";
+import { useGitStatus } from "../../../src/composables/useGitStatus";
+import type { GitStatus } from "../../../common/gitStatus";
 
 const REPO: GitStatus = { repo: true, branch: "main", detached: false, dirty: 2, ahead: 0, behind: 0, upstream: true };
 

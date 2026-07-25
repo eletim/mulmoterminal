@@ -1277,6 +1277,10 @@ src/
   composables/                  useSessions, usePubSub, useGitStatus, useCost,
                                 useChatLauncher, useFilesView, useWikiBrowse,
                                 useCollectionBrowse, useNotifications, useVoiceInput, …
+common/           Shared by server/ and src/ — both tsconfigs include it, so a value or
+                  wire type either side decides from belongs HERE, never mirrored in both:
+                  dirChrome.ts, ghItems.ts, gitStatus.ts, launchOptions.ts, shortcuts.ts,
+                  sourceExtensions.ts, modelPresets.ts, modelIds.ts, theme*.ts, …
 vite.config.ts    Dev proxy for /ws (+ /ws/codex, /ws/launch, /ws/run), /ws/pubsub, /api, /artifacts
 vitest.config.ts  jsdom test environment
 ```

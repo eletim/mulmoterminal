@@ -5,21 +5,7 @@
 // restarts the server with a different environment, so `reloadLaunchOptions` is there for
 // the settings screen rather than a poll.
 import { ref } from "vue";
-import type { ModelPreset } from "../../common/modelPresets";
-
-export interface LaunchProviderOption {
-  id: string;
-  label: string;
-  ready: boolean;
-  reason?: string;
-  tokenEnv: string;
-  models: ModelPreset[];
-}
-
-export interface LaunchOptions {
-  providers: LaunchProviderOption[];
-  anyReady: boolean;
-}
+import type { LaunchOptions } from "../../common/launchOptions";
 
 const EMPTY: LaunchOptions = { providers: [], anyReady: false };
 const FETCH_TIMEOUT_MS = 8000;

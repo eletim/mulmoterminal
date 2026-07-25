@@ -217,9 +217,10 @@ MulmoTerminal equivalent needs three pieces, adapted to a no-router, state-drive
 
 ## Resolved decisions
 
-- **Shortcuts sharing** → **reimplement verbatim + fixture test** (`server/backends/shortcuts.ts` +
-  `src/types/shortcuts.ts`, `shortcuts.spec.ts` pins the `{ shortcuts: [...] }` wrapper). Keeps
-  MulmoTerminal MulmoClaude-change-free; the shared file is the contract.
+- **Shortcuts sharing** → **reimplement verbatim + fixture test** (`common/shortcuts.ts` holds the
+  shape for both sides, `server/backends/shortcuts.ts` the file I/O, and `shortcuts.spec.ts` pins the
+  `{ shortcuts: [...] }` wrapper). Keeps MulmoTerminal MulmoClaude-change-free; the shared file is
+  the contract.
 - **Browse panel placement** → **full-screen overlay** (`CollectionsBrowseOverlay.vue`), driven by
   `useCollectionBrowse` view-state; the binding's nav fns map onto it.
 - **CSS isolation** → keep the shadow frame (the overlay reuses `PluginFrame` + `collectionShadowCss`,

@@ -18,3 +18,16 @@ export interface DirChrome {
   dotColor: string | null;
   buttonColor: string | null;
 }
+
+// "Nothing configured" — the base every DirConfig/PublicDirConfig empty spreads, so adding
+// a field above can't leave one side's default silently missing.
+export const EMPTY_DIR_CHROME: DirChrome = {
+  name: null,
+  badgeColor: null,
+  headerColor: null,
+  headerTextColor: null,
+  cellColor: null,
+  cellBorderColor: null,
+  dotColor: null,
+  buttonColor: null,
+};

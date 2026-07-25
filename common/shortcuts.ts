@@ -1,8 +1,11 @@
-// Launcher shortcut (pinned collection / feed) — browser-safe shape shared by the
-// shortcuts store, PinToggle, and the toolbar launcher. The on-disk format
-// (`{ shortcuts: Shortcut[] }`) is written/read by the server (server/backends/
-// shortcuts.ts) and is the SAME file + format MulmoClaude uses — keep this type in
-// sync with mulmoclaude/src/types/shortcuts.ts.
+// Launcher shortcut (a pinned collection / feed), shared across the build boundary: the
+// server reads and writes `<workspace>/config/shortcuts.json`, the browser's store,
+// PinToggle and the toolbar launcher render it.
+//
+// MulmoClaude and MulmoTerminal SHARE that file — favoriting a collection in one app must
+// show up in the other — so the on-disk format is the contract: an OBJECT WRAPPER
+// `{ shortcuts: Shortcut[] }`, not a bare array, matching mulmoclaude/src/types/shortcuts.ts.
+// Keep this type in sync with MulmoClaude's.
 
 export const SHORTCUT_KINDS = ["collection", "feed"] as const;
 export type ShortcutKind = (typeof SHORTCUT_KINDS)[number];

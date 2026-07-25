@@ -4,41 +4,10 @@
 // /api/issues (the repos set in Settings, aggregated server-side via `gh`) on open and
 // on the reload button, grouped by repo. Read-only: a row click opens it on GitHub.
 import { ref, watch } from "vue";
+import type { CiState, RepoIssues, RepoPrs } from "../../common/ghItems";
 import { usePrsView } from "../composables/usePrsView";
 import { useEscapeToClose } from "../composables/useEscapeToClose";
 import { relativeTimeFromIso } from "./cellDisplay";
-
-type CiState = "passing" | "failing" | "pending" | "none";
-interface PrItem {
-  number: number;
-  title: string;
-  author: string;
-  updatedAt: string;
-  isDraft: boolean;
-  url: string;
-  review: string | null;
-  ci: CiState;
-}
-interface RepoPrs {
-  repo: string;
-  prs?: PrItem[];
-  error?: string;
-  truncated?: boolean;
-}
-interface IssueItem {
-  number: number;
-  title: string;
-  author: string;
-  updatedAt: string;
-  url: string;
-}
-interface RepoIssues {
-  repo: string;
-  issues?: IssueItem[];
-  error?: string;
-  truncated?: boolean;
-  url?: string;
-}
 
 const { isOpen, close } = usePrsView();
 

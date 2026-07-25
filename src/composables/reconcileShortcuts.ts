@@ -6,7 +6,7 @@
 // with no undo. So the rule that decides what to drop is the dangerous part, and the
 // `drifted` flag matters just as much: it is what keeps a routine index fetch from rewriting
 // that file on every visit.
-import { type Shortcut, type ShortcutKind } from "../types/shortcuts";
+import { type Shortcut, type ShortcutKind } from "../../common/shortcuts";
 
 // What the index that just fetched knows about the things of this kind that exist.
 export interface LiveEntry {

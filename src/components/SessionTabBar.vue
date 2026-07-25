@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { isUnread } from "../composables/useSessions";
 import { useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 
@@ -9,7 +8,7 @@ import SessionFilters from "./SessionFilters.vue";
 const props = defineProps<SessionListProps>();
 const emit = defineEmits<SessionListEmits>();
 
-const { unreadCount, filteredSessions } = useSessionFilter(props);
+const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
 
 // The horizontal bar never scrolls — tabs flex to share the available width.
 // Cap to the most-recent N (sessions are already sorted by recency) so they

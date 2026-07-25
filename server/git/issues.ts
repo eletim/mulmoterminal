@@ -1,21 +1,9 @@
 // Aggregate open issues across the user's configured repos via the `gh` CLI, mirroring
 // prs.ts. One `gh issue list` per repo in parallel; a failing repo yields a per-repo
 // error instead of sinking the view. The pure normalize helper is unit-tested.
+import type { IssueItem, RepoIssues } from "../../common/ghItems.js";
 import { runGh } from "./gh";
-import { normalizeGhItemBase, type GhItemBase } from "./ghItem";
-
-export type IssueItem = GhItemBase;
-
-export interface RepoIssues {
-  repo: string;
-  issues?: IssueItem[];
-  error?: string;
-  // True when the repo has more than ISSUE_LIMIT open issues, so the list is capped —
-  // the UI then links to the repo's issues page for the rest.
-  truncated?: boolean;
-  // The repo's GitHub issues page, used as the "see the rest" target when truncated.
-  url?: string;
-}
+import { normalizeGhItemBase } from "./ghItem";
 
 // Per-repo cap. Small on purpose: this is a glanceable digest, and overflow is one
 // click away on GitHub (unlike the PR view, which is the primary place PRs are read).

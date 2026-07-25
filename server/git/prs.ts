@@ -2,25 +2,9 @@
 // login is the auth). One `gh pr list` per repo, run in parallel; a repo that errors
 // (missing, no access, gh not installed) yields a per-repo error instead of failing
 // the whole view. The pure normalize/rollup helpers are unit-tested without gh.
+import type { CiState, PrItem, RepoPrs } from "../../common/ghItems.js";
 import { runGh } from "./gh";
-import { isRecord, normalizeGhItemBase, type GhItemBase } from "./ghItem";
-
-export type CiState = "passing" | "failing" | "pending" | "none";
-
-export interface PrItem extends GhItemBase {
-  isDraft: boolean;
-  review: string | null; // gh reviewDecision (APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED / null)
-  ci: CiState;
-}
-
-export interface RepoPrs {
-  repo: string;
-  prs?: PrItem[];
-  error?: string;
-  // True when the repo has at least PR_LIMIT open PRs, so the list may be incomplete —
-  // surfaced in the UI so a truncated view isn't mistaken for full coverage.
-  truncated?: boolean;
-}
+import { isRecord, normalizeGhItemBase } from "./ghItem";
 
 // Per-repo cap. High enough for a review dashboard; a repo that hits it is flagged
 // `truncated` rather than silently cut.

@@ -3,16 +3,7 @@
 // focus, and on a light interval (only while the tab is visible). `refresh` is
 // exposed so a caller can force an update right after a turn finishes.
 import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
-
-export interface GitStatus {
-  repo: boolean;
-  branch: string | null;
-  detached: boolean;
-  dirty: number;
-  ahead: number;
-  behind: number;
-  upstream: boolean;
-}
+import type { GitStatus } from "../../common/gitStatus";
 
 const POLL_MS = 10_000;
 

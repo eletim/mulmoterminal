@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { sameShortcut } from "../../../src/types/shortcuts";
+import { sameShortcut } from "../../common/shortcuts";
 
 // The dedupe/removal key for the whole favourites store: unpin, the add-if-absent check, and
 // the reconcile all match on this. Too loose and unpinning one favourite removes another;

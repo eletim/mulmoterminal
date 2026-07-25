@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// The expand/restore and close buttons every grid cell's header ends with.
+// The expand/restore and close buttons every grid cell's header ends with — identical in
+// the command, launcher and terminal cells, down to the labels and the glyphs, because they
+// mean the same thing to the grid: one zooms this cell, the other retires it (#646 B3).
 //
-// Identical in the command and launcher cells, down to the labels and the glyphs, because
-// they mean the same thing to the grid: one zooms this cell, the other retires it (#646 B3).
+// What "close" DOES stays with the parent: TerminalCell's may hold a live session, so its
+// handler confirms before tearing down. This emits the intent and never acts on it, so a
+// cell can't lose its confirmation by adopting the shared buttons (#826).
 //
-// TerminalCell keeps its own pair. Its close is not the same action — it may hold a live
-// session, so it goes through a confirmation — and sharing a button whose click means two
-// different things is how the confirmation would eventually get lost.
+// No `.stop` on the clicks: the enclosing header's zoom gesture already ignores anything
+// inside a button (shouldZoomOnHeaderClick), and stopping here would only hide that.
 import { CELL_BTN, CELL_CLOSE_BTN } from "./cellChromeClasses";
 
 defineProps<{ expanded: boolean }>();

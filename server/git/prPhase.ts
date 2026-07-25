@@ -7,8 +7,9 @@
 // The cwd → (repo, branch) resolution lives at the route (server/index.ts), same as the
 // header's PR button — this module takes an already-resolved repo/branch so it stays free
 // of the config/header layer.
+import type { CiState } from "../../common/ghItems.js";
 import { runGh } from "./gh.js";
-import { rollupCiState, type CiState } from "./prs.js";
+import { rollupCiState } from "./prs.js";
 import { createTtlCache } from "./ttl-cache.js";
 import { branchQuery, type BranchQueryDeps } from "./branch-query.js";
 

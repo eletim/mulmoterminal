@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { reconcileShortcuts } from "../../../src/composables/reconcileShortcuts";
-import type { Shortcut } from "../../../src/types/shortcuts";
+import type { Shortcut } from "../../../common/shortcuts";
 
 const pin = (kind: Shortcut["kind"], slug: string, title = slug, icon = "star"): Shortcut => ({ kind, slug, title, icon });
 

@@ -20,8 +20,10 @@ export interface SessionListProps {
 
 // The Unread chip's count and the filter-applied list, shared by both layouts.
 // The horizontal bar caps `filteredSessions` to its most-recent tabs itself.
+// `isUnread` rides along because both layouts also mark rows with it — one import
+// gets a layout everything the session-list contract offers.
 export function useSessionFilter(props: Pick<SessionListProps, "sessions" | "filter">) {
   const unreadCount = computed(() => props.sessions.filter(isUnread).length);
   const filteredSessions = computed(() => (props.filter === "unread" ? props.sessions.filter(isUnread) : props.sessions));
-  return { unreadCount, filteredSessions };
+  return { unreadCount, filteredSessions, isUnread };
 }

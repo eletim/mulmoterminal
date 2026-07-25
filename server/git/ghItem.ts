@@ -1,16 +1,10 @@
-// The fields every `gh` list row shares (issues and PRs alike): identity (number, url),
-// display text (title, author, updatedAt). issues.ts / prs.ts layer their own extra
-// fields on top of this base.
+// Normalizes the fields every `gh` list row shares (issues and PRs alike). The shape
+// itself is the wire contract and lives in common/ghItems.ts; issues.ts / prs.ts layer
+// their own extra fields on top of this base.
+import type { GhItemBase } from "../../common/ghItems.js";
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const asString = (v: unknown): string => (typeof v === "string" ? v : "");
-
-export interface GhItemBase {
-  number: number;
-  title: string;
-  author: string;
-  updatedAt: string;
-  url: string;
-}
 
 // Returns null when the row lacks the identity fields (number + url) — a row we can't
 // link to or key on is not worth rendering. Missing text fields degrade to "".

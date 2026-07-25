@@ -6,6 +6,7 @@
 // 1-based inclusive columns — accounting for wide (CJK) glyphs that occupy two columns —
 // so the string ranges from findFilePathLinks land on the right cells.
 import type { Terminal, ILinkProvider, ILink } from "@xterm/xterm";
+import { SOURCE_CODE_EXTENSIONS } from "../../common/sourceExtensions";
 import { findFilePathLinks } from "./terminalFilePathLinks";
 
 export interface TerminalCell {
@@ -63,56 +64,12 @@ const RAW_ROUTE = "/api/files/raw";
 
 // Source: nothing a browser tab can do with it beyond showing the bytes, which is what the
 // app's own Files view does better — CodeMirror highlights it, the tree is right there, and
-// it can be edited (#808). Kept to what a terminal actually prints paths to; the list can
-// grow the same way ROUTE_BY_EXTENSION does.
-const IN_APP_EXTENSIONS = new Set<string>([
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".vue",
-  ".svelte",
-  ".astro",
-  ".py",
-  ".rb",
-  ".go",
-  ".rs",
-  ".java",
-  ".kt",
-  ".c",
-  ".h",
-  ".cpp",
-  ".cc",
-  ".hpp",
-  ".cs",
-  ".php",
-  ".swift",
-  ".scala",
-  ".lua",
-  ".sql",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".fish",
-  ".yml",
-  ".yaml",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".css",
-  ".scss",
-  ".sass",
-  ".less",
-  ".xml",
-  ".jsonc",
-  ".txt",
-  ".log",
-  ".diff",
-  ".patch",
-]);
+// it can be edited (#808).
+//
+// The shared source set plus `.txt`. Prose (`.md` and friends) is deliberately absent — it
+// has its own rendered route in ROUTE_BY_EXTENSION — and so is `.html`, which opens at a URL
+// so the raw route can serve it under the sandbox CSP.
+const IN_APP_EXTENSIONS = new Set<string>([...SOURCE_CODE_EXTENSIONS, ".txt"]);
 
 /** How a clicked path opens: in the app's own Files view, or at a URL in a new tab. */
 export type FileLinkTarget = { kind: "files" } | { kind: "url"; url: string };

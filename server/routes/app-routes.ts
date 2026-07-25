@@ -51,9 +51,10 @@ import type { createTranslationWorker } from "../session/translation-worker.js";
 import type { createTitleManager } from "../session/session-title.js";
 import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClientCount } from "../infra/tmux.js";
 import { resumableSessionPredicate } from "../session/resumable-sessions.js";
+import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { SPA_FALLBACK_RE } from "../infra/spa-fallback.js";
 
-export interface AppRouteDeps {
+export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
   isAllowedOrigin: (origin: string | undefined) => boolean;
   publish: (channel: string, data: unknown) => void;
@@ -64,15 +65,7 @@ export interface AppRouteDeps {
   spawnCodexPty: ReturnType<typeof createCodexSpawner>["spawnCodexPty"];
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
-  forgetTitle: (id: string) => void;
-  noteTitleTurn: (id: string, prompt: string) => void;
-  /** Feed the live turn's tool names for the phone's planning-vs-editing status (#727). */
-  noteWorkPhase: (id: string, event: string, toolName?: string) => void;
-  maybeGenerateTitle: (id: string, cwd: string | undefined) => Promise<void>;
   reap: (id: string) => void;
-  setWorking: (id: string, working: boolean, event?: string) => void;
-  setWaiting: (id: string, waiting: boolean, event?: string) => void;
-  publishActivity: (id: string) => void;
 }
 
 // The channel a directory-config change is announced on.

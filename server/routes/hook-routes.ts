@@ -12,19 +12,12 @@ import { latestUserPrompt } from "../session/session-reads.js";
 import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
 import { failPendingTranslation } from "../session/translation-worker.js";
+import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { publishesDirConfig, toolHookRecord } from "../session/tool-hook.js";
 
 // The header shows one line, so a longer prompt is stored truncated rather than in full.
 
-export interface HookDeps {
-  setWorking: (id: string, working: boolean, event?: string) => void;
-  setWaiting: (id: string, waiting: boolean, event?: string) => void;
-  publishActivity: (id: string) => void;
-  forgetTitle: (id: string) => void;
-  noteTitleTurn: (id: string, prompt: string) => void;
-  /** Feed the live turn's tool names, so the published status can say planning vs editing (#727). */
-  noteWorkPhase: (id: string, event: string, toolName?: string) => void;
-  maybeGenerateTitle: (id: string, cwd: string | undefined) => Promise<void>;
+export interface HookDeps extends SessionActivityDeps {
   recordToolCallStart: (sessionId: string, call: { toolUseId?: string; toolName?: string; toolInput?: unknown }) => Promise<void>;
   recordToolCallEnd: (
     sessionId: string,
