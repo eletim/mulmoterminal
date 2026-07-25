@@ -37,7 +37,7 @@ pty.spawn(CLAUDE_BIN, [
 
 | # | Setting | Value / source | Purpose | Risk if changed / removed |
 |---|---------|----------------|---------|---------------------------|
-| 1 | program | `CLAUDE_BIN` (env, default `claude`) — on Windows resolved to an absolute `.exe` first (`infra/resolve-bin.ts`) | The binary run in the PTY | Wrong/missing → spawn fails (now caught: the connection closes with an error instead of crashing the server) |
+| 1 | program | `CLAUDE_BIN` (env, default `claude`) — on Windows resolved to an absolute `.exe`, else to a `.cmd`/`.bat` shim run under `cmd.exe` (`infra/resolve-bin.ts`, `infra/cmd-escape.ts`) | The binary run in the PTY | Wrong/missing → spawn fails (now caught: the connection closes with an error instead of crashing the server) |
 | 2 | `cwd` | `CLAUDE_CWD` (launcher `--cwd` / env, default `~/mulmoclaude`) | Directory claude runs in. **Also scopes** which `.claude/skills` and (if enabled) `.mcp.json` are picked up, and which `~/.claude/projects/<encoded cwd>` session list the sidebar shows | Change → a different project + session list; missing dir is `mkdir -p`'d |
 | 3 | `env` | `process.env` (full passthrough) | claude finds the CLI + tools via `PATH`, and sees `CLAUDE_CWD` / any API keys present | Narrowing risks breaking `PATH` / auth; full passthrough also exposes all server env to the child |
 | 4 | `--session-id <uuid>` | new sessions | Server picks the id up front, so it knows the session before claude writes any file | Must be a fresh UUID; reuse collides with an existing session |

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveWindowsExecutable, resolvePtyBin } from "../../../server/infra/resolve-bin";
+import { resolveWindowsExecutable, resolveWindowsBatch, resolvePtyLaunch } from "../../../server/infra/resolve-bin";
 
 // A fake Windows filesystem: the exact set of files that exist, matched case-insensitively
 // the way Windows does.
@@ -10,6 +10,8 @@ const filesystem = (...files: string[]) => {
 
 const LOCAL_BIN = "C:\\Users\\u\\.local\\bin";
 const SYSTEM32 = "C:\\Windows\\System32";
+const NPM_BIN = "C:\\Users\\u\\AppData\\Roaming\\npm";
+const COMSPEC = `${SYSTEM32}\\cmd.exe`;
 
 describe("resolveWindowsExecutable", () => {
   it("finds the .exe a bare name refers to (the #794 case: no extensionless shim exists)", () => {
@@ -96,15 +98,64 @@ describe("resolveWindowsExecutable", () => {
   });
 });
 
-describe("resolvePtyBin", () => {
+describe("resolveWindowsBatch", () => {
+  it("finds the .cmd an npm-global install leaves on PATH", () => {
+    const exists = filesystem(`${NPM_BIN}\\claude`, `${NPM_BIN}\\claude.cmd`, `${NPM_BIN}\\claude.ps1`);
+    expect(resolveWindowsBatch("claude", NPM_BIN, exists)).toBe(`${NPM_BIN}\\claude.cmd`);
+  });
+
+  it("finds a .bat too, and prefers .cmd when both are there", () => {
+    expect(resolveWindowsBatch("tool", NPM_BIN, filesystem(`${NPM_BIN}\\tool.bat`))).toBe(`${NPM_BIN}\\tool.bat`);
+    expect(resolveWindowsBatch("tool", NPM_BIN, filesystem(`${NPM_BIN}\\tool.bat`, `${NPM_BIN}\\tool.cmd`))).toBe(`${NPM_BIN}\\tool.cmd`);
+  });
+
+  it("ignores an extensionless shim — cmd.exe cannot run one either", () => {
+    expect(resolveWindowsBatch("claude", NPM_BIN, filesystem(`${NPM_BIN}\\claude`))).toBeNull();
+  });
+});
+
+describe("resolvePtyLaunch", () => {
+  const ARGS = ["--resume", "abc"];
+
   it("is a no-op off Windows even when a candidate would match — node-pty resolves bare names there", () => {
     const everythingExists = () => true;
-    expect(resolvePtyBin("claude", "darwin", "/usr/local/bin", everythingExists)).toBe("claude");
-    expect(resolvePtyBin("claude", "linux", "/usr/local/bin", everythingExists)).toBe("claude");
-    expect(resolvePtyBin("claude", "win32", "C:\\bin", everythingExists)).toBe("C:\\bin\\claude.exe");
+    expect(resolvePtyLaunch("claude", ARGS, "darwin", "/usr/local/bin", undefined, everythingExists)).toEqual({ file: "claude", args: ARGS });
+    expect(resolvePtyLaunch("claude", ARGS, "linux", "/usr/local/bin", undefined, everythingExists)).toEqual({ file: "claude", args: ARGS });
+  });
+
+  it("names the .exe and leaves the arguments as an argv array (#794, unchanged)", () => {
+    const exists = filesystem(`${LOCAL_BIN}\\claude.exe`);
+    expect(resolvePtyLaunch("claude", ARGS, "win32", LOCAL_BIN, COMSPEC, exists)).toEqual({ file: `${LOCAL_BIN}\\claude.exe`, args: ARGS });
+  });
+
+  it("runs a .cmd through cmd.exe as one raw command line", () => {
+    const exists = filesystem(`${NPM_BIN}\\claude.cmd`, COMSPEC);
+    expect(resolvePtyLaunch("claude", ARGS, "win32", NPM_BIN, COMSPEC, exists)).toEqual({
+      file: COMSPEC,
+      args: `/d /s /c ""${NPM_BIN}\\claude.cmd" "--resume" "abc""`,
+    });
+  });
+
+  // The reporter's codex install in #794: an extensionless shim (and a .cmd) in an EARLIER
+  // PATH directory than the codex.exe that actually runs today. cmd.exe's own per-directory
+  // order would move it onto the batch path; a spawn that works must not gain a layer.
+  it("prefers an .exe anywhere on PATH over a .cmd in an earlier directory", () => {
+    const exists = filesystem(`${NPM_BIN}\\codex`, `${NPM_BIN}\\codex.cmd`, `${LOCAL_BIN}\\codex.exe`);
+    expect(resolvePtyLaunch("codex", [], "win32", `${NPM_BIN};${LOCAL_BIN}`, COMSPEC, exists)).toEqual({ file: `${LOCAL_BIN}\\codex.exe`, args: [] });
   });
 
   it("keeps the bare name on Windows when nothing resolves, so a host that works today still works", () => {
-    expect(resolvePtyBin("claude", "win32", "C:\\nowhere")).toBe("claude");
+    expect(resolvePtyLaunch("claude", ARGS, "win32", "C:\\nowhere", COMSPEC, filesystem())).toEqual({ file: "claude", args: ARGS });
+  });
+
+  it("falls back to a PATH lookup for the command processor when ComSpec is unusable", () => {
+    const exists = filesystem(`${NPM_BIN}\\claude.cmd`, `${SYSTEM32}\\cmd.exe`);
+    const launch = resolvePtyLaunch("claude", [], "win32", `${NPM_BIN};${SYSTEM32}`, "C:\\gone\\cmd.exe", exists);
+    expect(launch.file).toBe(`${SYSTEM32}\\cmd.exe`);
+  });
+
+  it("still names cmd.exe when neither ComSpec nor PATH can place it", () => {
+    const launch = resolvePtyLaunch("claude", [], "win32", NPM_BIN, undefined, filesystem(`${NPM_BIN}\\claude.cmd`));
+    expect(launch.file).toBe("cmd.exe");
   });
 });
