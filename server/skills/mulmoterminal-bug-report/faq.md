@@ -69,14 +69,22 @@ design. The conditions and the exclusions are listed in the notifications guide 
 order (RemoteHost connected, the toggle on, at least one registered device) before treating it as a
 bug.
 
-## No scrollbar, selection doesn't autoscroll, or links in the output aren't clickable
+## Can't select or copy text that scrolled off screen (or no scrollbar) in a Claude/Codex terminal
 
+source: server/infra/tmux.ts
 source: src/composables/useTerminalConnections.ts
+source: docs/terminal-notes.md
 
-Known and unresolved — a renderer generation mismatch is the prime suspect, and the source comment
-at that call site explains why it cannot simply be bumped. Issues already exist, so **do not open a
-new one**: search the repo for "scrollbar", "OSC 8" or "renderer" and add the environment and repro
-steps to the matching one.
+Not a renderer bug — the canvas-mismatch theory was ruled out, and the OSC 8 "links aren't
+clickable" half was tmux stripping hyperlinks (fixed in #785). tmux owns the scrollback, so the
+outer terminal only ever holds the visible screen. A **shell** cell keeps its history in tmux and
+can be drag-selected; a **Claude/Codex** cell runs in the alternate screen, which has no scrollback
+at all (its tmux `history_size` is 0) — the app redraws its own transcript as you scroll. Selecting
+that scrolled-off history is therefore impossible in ANY terminal (VS Code / iTerm included), not
+specific to this app. Workaround: to copy long output from a Claude/Codex cell, redirect it to a
+file and open it in the browser viewer (source/text files render inline, #785), or select
+screen-by-screen. Background and the parked shell-cell fix live in #782 and docs/terminal-notes.md;
+**do not open a new issue** — add repro details to #782.
 
 ## The phone's terminal view shows no directory or branch
 
