@@ -20,8 +20,10 @@ export interface DirChrome {
 }
 
 // "Nothing configured" — the base every DirConfig/PublicDirConfig empty spreads, so adding
-// a field above can't leave one side's default silently missing.
-export const EMPTY_DIR_CHROME: DirChrome = {
+// a field above can't leave one side's default silently missing. Readonly because it is now
+// one object behind both sides' defaults, where it used to be a literal per file: a caller
+// that assigned it somewhere mutable would corrupt every later "no config here".
+export const EMPTY_DIR_CHROME: Readonly<DirChrome> = {
   name: null,
   badgeColor: null,
   headerColor: null,
