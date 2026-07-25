@@ -29,7 +29,10 @@ function fakeRes(headersSent: boolean) {
   return { res, stream, status, json, destroy };
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 20));
+// Real file I/O has no settle time we can name: on a loaded Windows runner the open hadn't
+// even delivered a byte after the 20ms sleep this used to use, so the test read an empty
+// buffer and failed. Wait for the outcome itself instead of guessing how long it takes.
+const SETTLE_TIMEOUT_MS = 3000;
 
 describe("streamFileToResponse", () => {
   it("serves an existing file", async () => {
@@ -40,7 +43,8 @@ describe("streamFileToResponse", () => {
     const chunks: Buffer[] = [];
     stream.on("data", (c: Buffer) => chunks.push(c));
     streamFileToResponse(file, res);
-    await settle();
+    // The pipe ends the response once the file is drained, so by then `chunks` holds it all.
+    await vi.waitFor(() => expect(stream.readableEnded).toBe(true), { timeout: SETTLE_TIMEOUT_MS });
     expect(Buffer.concat(chunks).toString()).toBe("hello");
     expect(status).not.toHaveBeenCalled();
   });
@@ -50,8 +54,7 @@ describe("streamFileToResponse", () => {
   it("responds 500 when the file can't be read and nothing was sent yet", async () => {
     const { res, status, json, destroy } = fakeRes(false);
     streamFileToResponse(path.join(tmpdir(), "does-not-exist-xyz.bin"), res);
-    await settle();
-    expect(status).toHaveBeenCalledWith(500);
+    await vi.waitFor(() => expect(status).toHaveBeenCalledWith(500), { timeout: SETTLE_TIMEOUT_MS });
     expect(json).toHaveBeenCalledWith({ error: "failed to read file" });
     expect(destroy).not.toHaveBeenCalled();
   });
@@ -59,8 +62,7 @@ describe("streamFileToResponse", () => {
   it("destroys the connection when the stream errors after headers were sent", async () => {
     const { res, status, destroy } = fakeRes(true);
     streamFileToResponse(path.join(tmpdir(), "does-not-exist-xyz.bin"), res);
-    await settle();
-    expect(destroy).toHaveBeenCalled();
+    await vi.waitFor(() => expect(destroy).toHaveBeenCalled(), { timeout: SETTLE_TIMEOUT_MS });
     expect(status).not.toHaveBeenCalled();
   });
 });
