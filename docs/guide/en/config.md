@@ -219,7 +219,8 @@ it. Two ways out, both from Apple's guide:
   macOS: `Fn`+`F2` fires a binding written as `"F2"`.)*
 - Or turn the default off: **System Settings → Keyboard → Keyboard Shortcuts → Function Keys →
   "Use F1, F2, etc. keys as standard function keys"**. The bare key then works, and `Fn` gives you
-  the system feature instead.
+  the system feature instead. (Apple's [step-by-step article](https://support.apple.com/en-us/102439)
+  covers older macOS versions, where the setting sits in System Preferences → Keyboard.)
 
 Which system feature each key controls depends on the keyboard and macOS version, and Apple
 publishes no fixed per-key table — so if one key stays dead after the change, assume the system
