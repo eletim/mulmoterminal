@@ -2,6 +2,16 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.9.2 — 2026-07-25
+
+### Windows
+
+- **npm-global installs spawn too** (#798, #801): 1.9.1 fixed the Claude Code installer's shape (`claude.exe` on PATH). This covers the other one — `npm i -g` leaves only `claude` (a shell shim), `claude.cmd` and `claude.ps1`, with no `.exe` at all. `CreateProcessW`, which node-pty ultimately calls, runs PE images only, so both variants of that install failed: the `.cmd` alone never satisfies node-pty's existence gate (`File not found: `, empty), and with the extensionless shim the gate passes but `CreateProcess` then looks for a `claude.exe` that isn't there (`Cannot create process`). A batch target now runs under `cmd.exe /d /s /c`, decided in the same single place as 1.9.1's fix, so `claude`, `codex`, `tmux` and the launcher all inherit it. Setting `CLAUDE_BIN` to an explicit `.cmd` path — the workaround #794 documented — is wrapped as well.
+
+  Two things are deliberate here. `.exe`/`.com` still wins across the **whole** PATH before any `.cmd` is considered, rather than cmd.exe's per-directory order: an install whose shim sits in an earlier directory than its real `.exe` runs the `.exe` today and must not silently gain a parsing layer. And the argument escaping is cmd's, not the CRT's — `\"` does not escape a quote for cmd, it *ends* the quoted run and hands the rest of the argument to the parser, which is the injection this has to prevent. Every argument is quoted, internal quotes doubled, a trailing backslash run doubled, and NUL/CR/LF rejected outright rather than mangled. `%VAR%` expansion remains (cmd has no escape for it inside quotes) and is pinned as a test; rejecting every argument containing a percent sign would break ordinary prompts, and substituting our own child's environment into its own argument is a correctness wart rather than a privilege boundary. Rust hit the same wall in CVE-2024-24576, and Node answered CVE-2024-27980 by refusing to spawn `.cmd` without a shell at all.
+
+  The escaping is verified empirically, not on paper: the Windows CI job builds a shim shaped like npm's (`node "…cli.js" %*`) and asserts the child's `process.argv` matches what was passed — JSON payloads (the real `--settings` / `--mcp-config` shape), `& | > ^ ( )`, embedded quotes, a trailing backslash, CJK, `50% done` — plus exit-code propagation through the extra cmd.exe process. Off Windows the resolution is inert: the same name, the same argv array, and no filesystem probe at all, pinned by its own test.
+
 ## mulmoterminal@1.9.1 — 2026-07-25
 
 ### Windows
