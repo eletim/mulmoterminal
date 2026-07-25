@@ -2,7 +2,7 @@
 // presets plus an optional custom attention-sound file. Unified read/write so a
 // partial update (e.g. just the sound) never clobbers the other field. Extracted
 // from config-routes.ts so the sanitize/load/save logic is unit-testable.
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePresets } from "./cwd-presets.js";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
@@ -18,6 +18,7 @@ import {
   type HeaderChip,
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
+import { readTextFile } from "../infra/read-text-file.js";
 
 export interface AppConfig {
   cwdPresets: CwdPreset[];
@@ -209,7 +210,7 @@ export function loadAppConfigResult(file: string): AppConfigLoad {
   if (!existsSync(file)) return { status: "missing" };
   let text: string;
   try {
-    text = readFileSync(file, "utf8");
+    text = readTextFile(file);
   } catch (err) {
     return { status: "corrupt", error: `cannot read ${file}: ${String(err)}` };
   }

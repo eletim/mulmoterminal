@@ -3,8 +3,9 @@
 // is unit-testable without spawning a PTY. The browser sends only an INDEX into
 // this list (never a raw command), and the server re-reads the file to resolve it
 // — so the file is the allowlist of what can run.
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
+import { readJsonFile } from "../infra/read-text-file.js";
 
 export interface ScriptDef {
   label: string;
@@ -40,7 +41,7 @@ export function loadScripts(workspaceDir: string): ScriptDef[] {
   try {
     const file = path.join(workspaceDir, SCRIPTS_FILE);
     if (!existsSync(file)) return [];
-    return sanitizeScripts(JSON.parse(readFileSync(file, "utf8"))?.scripts);
+    return sanitizeScripts((readJsonFile(file) as { scripts?: unknown } | null)?.scripts);
   } catch {
     return [];
   }
