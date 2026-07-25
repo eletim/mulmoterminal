@@ -216,6 +216,52 @@ describe.skipIf(!isWindows)("spawnPty on Windows", () => {
     expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(args);
   });
 
+  // Everything awkward a real argument can hold, in ONE spawn: the comparison is the whole
+  // argv array, so a single case that is dropped, split, merged or re-ordered shows up. A
+  // Run command and a chat prompt are user text, so this is not a hypothetical set.
+  //
+  // `%VAR%` is deliberately absent — cmd expands it and has no escape for it inside quotes,
+  // which is pinned on its own below. `!VAR!` IS here: delayed expansion is off by default
+  // (and `/d` does not turn it off), so this records the default and would flag a machine
+  // where it is on.
+  it("round-trips awkward argument content", async () => {
+    const args = [
+      "plain",
+      "two words",
+      "trailing space ",
+      " leading space",
+      "tab\there",
+      'say "hi"',
+      'nested ""double""',
+      "single 'quoted'",
+      "caret^and^more",
+      "parens (a) [b] {c}",
+      "amp&pipe|redir>lt<",
+      "semi;comma,equals=",
+      "bang!not!expanded",
+      "dollar$and`backtick",
+      "back\\slash\\\\double",
+      "path\\ending\\",
+      "日本語とCJK",
+      "emoji 📎 and 🎉",
+      "combining é and ñ",
+      'mixed 日本語 with "quotes" and &amp',
+    ];
+
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(SHIM, args, dir))).toBe(0);
+    expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(args);
+  });
+
+  // An empty argument has to stay a POSITION, not vanish — an argv that silently loses one
+  // shifts every flag after it onto the wrong value.
+  it("keeps an empty argument as an argument", async () => {
+    const args = ["--before", "", "--after"];
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(SHIM, args, dir))).toBe(0);
+    expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(args);
+  });
+
   // cmd.exe is an extra process between us and the shim, so a non-zero exit has one more
   // layer to survive than it did before #798.
   it("propagates a failing shim's exit code through the cmd.exe layer", async () => {

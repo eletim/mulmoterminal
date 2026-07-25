@@ -69,6 +69,33 @@ describe.skipIf(!isWindows)("a shell terminal on Windows", () => {
     expect(output).toContain("a&b|c>d");
   });
 
+  // Awkward content on the PowerShell side. Single-quoted in PowerShell so the shell itself
+  // treats the payload as literal — what is being checked is that the string survives the
+  // hop from us to PowerShell intact, not PowerShell's own quoting rules.
+  it.each([
+    ["double quotes", '{"a":1}'],
+    ["parens and brackets", "(a) [b] {c}"],
+    ["ampersand and pipe", "a&b|c"],
+    ["semicolon and comma", "a;b,c"],
+    ["caret and percent", "a^b%c%"],
+    ["bang", "a!b"],
+    ["CJK", "日本語のテキスト"],
+    ["emoji", "emoji 📎 ok"],
+    ["accents", "café naïve"],
+  ])("carries %s through to the command", async (_case, payload) => {
+    const { output } = await runShell(`Write-Output '${payload}'`, dir);
+    expect(output).toContain(payload);
+  });
+
+  // A backtick is PowerShell's own escape character, so it is the one case where the shell
+  // legitimately consumes something. Recorded rather than asserted as pass-through: a Run
+  // command containing one does not mean what it looks like.
+  it("lets PowerShell consume its own escape character", async () => {
+    const { output } = await runShell("Write-Output 'a`nb'", dir);
+    expect(output).toContain("a");
+    expect(output).not.toContain("`");
+  });
+
   it("reports a failing command's exit code", async () => {
     const { exitCode } = await runShell("exit 3", dir);
     expect(exitCode).toBe(3);
