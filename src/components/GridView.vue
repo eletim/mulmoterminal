@@ -22,6 +22,7 @@ import {
   launchInCell,
   setSortMode,
   moveCell,
+  moveZoom,
   orderCells,
   pageSlice,
   activityStatus,
@@ -38,6 +39,7 @@ import {
   resolveCellStatus,
   MAX_TERMINALS,
 } from "./gridTabs";
+import { gridShortcutFor, isEditableTarget } from "../composables/gridShortcut";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
 import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
@@ -367,6 +369,26 @@ onMounted(loadConfig);
 function closeSettings() {
   showSettings.value = false;
 }
+
+// Page Up / Page Down walk the zoom between terminals (#829). Listened for on `window` in the
+// CAPTURE phase because xterm binds keydown on its own textarea: capture runs first, so the
+// key can be claimed before the terminal turns it into a page-forward escape sequence.
+function onShortcutKey(e: KeyboardEvent) {
+  if (showSettings.value) return;
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  if (target && isEditableTarget(target.tagName, Array.from(target.classList))) return;
+  const shortcut = gridShortcutFor(e, expandedUid.value !== null);
+  if (!shortcut) return;
+  e.preventDefault();
+  e.stopPropagation();
+  state.value = moveZoom(
+    state.value,
+    displayCells.value.map((c) => c.uid),
+    shortcut === "zoom-next" ? 1 : -1,
+  );
+}
+onMounted(() => window.addEventListener("keydown", onShortcutKey, true));
+onBeforeUnmount(() => window.removeEventListener("keydown", onShortcutKey, true));
 
 // Launch the config skill in a new auto-running session and switch to the single view so it shows
 // (the grid has no single active session). The skill then asks which directory / batch.
