@@ -61,9 +61,18 @@ describe("fileViewerRoute", () => {
     expect(fileViewerRoute("Notes.Markdown")).toBe("/api/files/browse/md");
   });
 
+  it("indents JSON instead of serving it as one line", () => {
+    expect(fileViewerRoute("package.json")).toBe("/api/files/browse/json");
+  });
+
+  // One route, because the delimiter comes from the file's own extension.
+  it.each([".csv", ".tsv"])("renders %s as a table", (ext) => {
+    expect(fileViewerRoute(`data/rows${ext}`)).toBe("/api/files/browse/table");
+  });
+
   // Everything the raw route already serves well — images, PDFs, source files as text — must
   // keep going there. Only a file we can present BETTER gets a different route.
-  it.each(["a.png", "a.pdf", "a.ts", "a.txt", "a.json", "a.svg", "a.html"])("leaves %s on the raw route", (file) => {
+  it.each(["a.png", "a.pdf", "a.ts", "a.txt", "a.svg", "a.html", "a.yaml"])("leaves %s on the raw route", (file) => {
     expect(fileViewerRoute(file)).toBe("/api/files/raw");
   });
 
