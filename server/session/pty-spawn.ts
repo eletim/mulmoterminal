@@ -7,7 +7,7 @@ import type { IPty } from "node-pty";
 import path from "node:path";
 import type { WebSocket } from "ws";
 import { sanitizePtyEnv } from "../infra/pty-env.js";
-import { resolvePtyBinForEnv } from "../infra/resolve-bin.js";
+import { resolvePtyLaunchForEnv } from "../infra/resolve-bin.js";
 import { withoutUnset } from "./provider-env.js";
 import { tmuxAvailable, tmuxNewSessionArgs, tmuxScrubEnvNames } from "../infra/tmux.js";
 import {
@@ -34,9 +34,11 @@ const PTY_ROWS = 30;
 // the settings `env` block, which can set a variable but not remove one.
 export function spawnPty(bin: string, args: string[], cwd: string, unset: readonly string[] = []): IPty {
   const env = withoutUnset(sanitizePtyEnv(process.env, path.delimiter), unset);
-  // On Windows a bare name never reaches node-pty as-is: its own PATH lookup ignores
-  // executable extensions, so `claude` misses claude.exe (see infra/resolve-bin.ts, #794).
-  return pty.spawn(resolvePtyBinForEnv(bin, env), args, { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd, env });
+  // On Windows neither the name nor the arguments reach node-pty as they are: its PATH
+  // lookup ignores executable extensions (so `claude` misses claude.exe, #794), and a batch
+  // shim has to be run through cmd.exe (#798). See infra/resolve-bin.ts.
+  const launch = resolvePtyLaunchForEnv(bin, args, env);
+  return pty.spawn(launch.file, launch.args, { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd, env });
 }
 
 // Would this session run in the Docker sandbox? Single-view interactive only (the caller
