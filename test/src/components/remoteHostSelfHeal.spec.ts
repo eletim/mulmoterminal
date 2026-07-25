@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { registerRemoteHostSelfHeal } from "../../../src/components/remoteHostSelfHeal.js";
 
 describe("registerRemoteHostSelfHeal", () => {
@@ -37,5 +37,35 @@ describe("registerRemoteHostSelfHeal", () => {
 
     stop();
     if (original) Object.defineProperty(document, "visibilityState", original);
+  });
+
+  // Without a tick, a tab left open and visible keeps whatever status it fetched on mount:
+  // the channel can die and the toolbar goes on showing "connected" (#823).
+  describe("periodic heal", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("heals on a timer while nothing else fires", () => {
+      vi.useFakeTimers();
+      const heal = vi.fn();
+      const stop = registerRemoteHostSelfHeal(heal, () => () => undefined, 30_000);
+
+      expect(heal).not.toHaveBeenCalled(); // the caller heals once itself; the tick is extra
+      vi.advanceTimersByTime(29_999);
+      expect(heal).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(heal).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(60_000);
+      expect(heal).toHaveBeenCalledTimes(3); // keeps ticking, not a one-shot
+      stop();
+    });
+
+    it("stops ticking after cleanup", () => {
+      vi.useFakeTimers();
+      const heal = vi.fn();
+      const stop = registerRemoteHostSelfHeal(heal, () => () => undefined, 30_000);
+      stop();
+      vi.advanceTimersByTime(300_000);
+      expect(heal).not.toHaveBeenCalled();
+    });
   });
 });

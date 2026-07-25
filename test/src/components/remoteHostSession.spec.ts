@@ -1,11 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { SESSION_KEY, loadStoredSession, persistSession, reconnectAction, type FetchResult } from "../../../src/components/remoteHostSession.js";
+import {
+  SESSION_KEY,
+  healthOrFallback,
+  loadStoredSession,
+  persistSession,
+  reconnectAction,
+  type FetchResult,
+} from "../../../src/components/remoteHostSession.js";
 
 const okStatus = { connected: true, uid: "u1" };
+const okHealth = { state: "online" as const, lastError: null, changedAt: 1 };
 
 describe("reconnectAction", () => {
   it("parks the blob on a successful reconnect (case 1)", () => {
-    const res: FetchResult = { ok: true, status: okStatus, session: "blob-v2" };
+    const res: FetchResult = { ok: true, status: okStatus, session: "blob-v2", health: okHealth };
     expect(reconnectAction(res)).toBe("park");
   });
 
@@ -22,6 +30,31 @@ describe("reconnectAction", () => {
   it("keeps the blob on a network failure (httpStatus 0)", () => {
     const res: FetchResult = { ok: false, error: "offline", httpStatus: 0 };
     expect(reconnectAction(res)).toBe("keep");
+  });
+});
+
+// The health block is what the toolbar renders; a malformed one has to read as "nothing
+// reported" rather than paint a state the server never claimed.
+describe("healthOrFallback", () => {
+  it("keeps a well-formed health as-is", () => {
+    const health = { state: "reconnecting", lastError: "listen: unavailable", changedAt: 42 };
+    expect(healthOrFallback(health, true)).toEqual(health);
+  });
+
+  it("falls back to what `connected` implies when there is no health", () => {
+    expect(healthOrFallback(undefined, true).state).toBe("online");
+    expect(healthOrFallback(undefined, false).state).toBe("offline");
+  });
+
+  it.each([
+    ["an unknown state", { state: "flapping", lastError: null, changedAt: 1 }],
+    ["a missing timestamp", { state: "online", lastError: null }],
+    ["a non-string error", { state: "online", lastError: 500, changedAt: 1 }],
+    ["a bare string", "online"],
+    ["null", null],
+  ])("rejects %s", (_label, value) => {
+    expect(healthOrFallback(value, false).state).toBe("offline");
+    expect(healthOrFallback(value, false).lastError).toBeNull();
   });
 });
 
