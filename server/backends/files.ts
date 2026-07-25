@@ -24,7 +24,7 @@ import { statFileOr404 } from "./statFileOr404.js";
 import { parseByteRange } from "./byte-range.js";
 import { rawServingPlan } from "./rawServingPlan.js";
 import { streamFileToResponse } from "./streamFile.js";
-import { authorizedServingBase, expandTilde, containedPath, realContainedWithin } from "../files/pathContainment.js";
+import { authorizedServingBase, resolveContained } from "../files/pathContainment.js";
 
 export function mountFilesRoutes(app: Express, deps: { workspace: string; sessionCwds: () => Iterable<string> }): void {
   const root = path.resolve(deps.workspace);
@@ -44,9 +44,9 @@ export function mountFilesRoutes(app: Express, deps: { workspace: string; sessio
       return;
     }
     // Contain `path` within the base — tilde-expand, reject `..`/absolute escapes
-    // lexically, then symlinks.
-    const lexical = containedPath(base, expandTilde(rel, os.homedir()));
-    const abs = lexical ? realContainedWithin(base, lexical) : null;
+    // lexically, then symlinks. The same gate the browse routes use, so a path one of them
+    // serves is never refused by the other.
+    const abs = resolveContained(base, rel, os.homedir());
     if (!abs) {
       res.status(403).json({ error: "path escapes the serving root" });
       return;

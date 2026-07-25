@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { containedPath, realContainedWithin, resolveBase, expandTilde, authorizedServingBase } from "../../../server/files/pathContainment";
+import { containedPath, realContainedWithin, resolveBase, expandTilde, authorizedServingBase, resolveContained } from "../../../server/files/pathContainment";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-files-"));
 
@@ -68,6 +68,47 @@ describe("expandTilde", () => {
     expect(expandTilde("a/~/b", home)).toBe("a/~/b");
     expect(expandTilde("/abs/x.png", home)).toBe("/abs/x.png");
     expect(expandTilde("rel/x.png", home)).toBe("rel/x.png");
+  });
+});
+
+// The gate both file entry points share. It exists because they had it written out
+// separately and drifted: the raw route expanded `~`, the browse routes did not, so a
+// clicked `~/proj/a.ts` was served by one and refused by the other (#808).
+describe("resolveContained (the shared gate)", () => {
+  const HOME = "/home/user";
+
+  it("expands a leading tilde before containing it", () => {
+    const root = realpathSync(tmp());
+    writeFileSync(path.join(root, "a.ts"), "x");
+    expect(resolveContained(root, `~/a.ts`, root)).toBe(path.join(root, "a.ts"));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("accepts a project-relative and an absolute path inside the base", () => {
+    const root = realpathSync(tmp());
+    writeFileSync(path.join(root, "a.ts"), "x");
+    expect(resolveContained(root, "a.ts", HOME)).toBe(path.join(root, "a.ts"));
+    expect(resolveContained(root, path.join(root, "a.ts"), HOME)).toBe(path.join(root, "a.ts"));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("still refuses an escape — the expansion must not become a way out", () => {
+    const root = realpathSync(tmp());
+    expect(resolveContained(root, "../secret", HOME)).toBeNull();
+    expect(resolveContained(root, "/etc/passwd", HOME)).toBeNull();
+    // A tilde path that expands OUTSIDE the base is exactly the case the expansion adds.
+    expect(resolveContained(root, "~/elsewhere.ts", HOME)).toBeNull();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("still refuses a symlink that leaves the base", () => {
+    const root = realpathSync(tmp());
+    const outside = realpathSync(tmp());
+    writeFileSync(path.join(outside, "secret.txt"), "s");
+    symlinkSync(outside, path.join(root, "link"));
+    expect(resolveContained(root, "link/secret.txt", HOME)).toBeNull();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   });
 });
 

@@ -54,6 +54,17 @@ export function containedPath(base: string, rel: string): string | null {
   return abs;
 }
 
+/** The absolute path `rel` names under `base`, or null when it escapes.
+ *
+ *  The whole gate in one call — tilde expanded, contained lexically, then contained again
+ *  through symlinks — because BOTH file entry points need exactly this and had it written
+ *  out separately: the raw route expanded `~`, the browse routes did not, so the same
+ *  clicked path was served by one and refused by the other (#808). */
+export function resolveContained(base: string, rel: string, homeDir: string): string | null {
+  const lexical = containedPath(base, expandTilde(rel, homeDir));
+  return lexical ? realContainedWithin(base, lexical) : null;
+}
+
 function realpathOr(p: string): string {
   try {
     return fs.realpathSync(p);
