@@ -252,7 +252,8 @@ the session in a way that is hard to diagnose from inside it.
   the picker on its own. `models` exists only to ADD ids we have not measured — an empty array in the
   example teaches the user they must fill it in.
 - **Never write the API key into this file, or into any file.** `tokenEnv` is the *name* of an
-  environment variable; the key belongs in the shell that starts the server, or a `.env` beside it.
+  environment variable; the key belongs in the shell that starts the server, or a `.env` in the
+  directory it is started from.
   If the user pastes a key at you, tell them where it goes — do not store it.
 - `baseUrl` must **not** end in `/v1`. Claude Code appends `/v1/messages` itself, so a trailing
   `/v1` produces `/v1/v1/messages` and every request 404s.

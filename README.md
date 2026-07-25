@@ -363,9 +363,15 @@ Requires **Node ≥ 22.9** (uses `node --env-file-if-exists`) and the `claude` C
 ## Configuration
 
 The server is configured entirely through environment variables, optionally
-loaded from a `.env` file via `node --env-file-if-exists=.env` (wired into the
-npm scripts). The `.env` is optional — every variable below has a default, so
-the server runs without one.
+loaded from a `.env` file. `npx mulmoterminal` reads the `.env` **in the
+directory you run it from**; the npm scripts read the one in the repo root. The
+`.env` is optional — every variable below has a default, so the server runs
+without one.
+
+A variable already set in your shell wins over the same name in `.env`, so
+adding a file never overrides what you exported. The server's environment is
+inherited by every terminal it starts, so anything in `.env` is also visible to
+the `claude` / `codex` sessions themselves.
 
 | Variable     | Default        | Description |
 | ------------ | -------------- | ----------- |

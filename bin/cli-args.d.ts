@@ -9,3 +9,4 @@ export declare function saysYes(answer: unknown): boolean;
 export declare const SECOND_INSTANCE_NOTE: string;
 export declare const MIN_NODE_LABEL: string;
 export declare function nodeMeetsMinimum(version: string): boolean;
+export declare function serverNodeArgs(serverEntry: string, launchDir: string): string[];

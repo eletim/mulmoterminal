@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import path from "node:path";
 
 import {
   parsePortArg,
@@ -10,6 +11,7 @@ import {
   SECOND_INSTANCE_NOTE,
   nodeMeetsMinimum,
   MIN_NODE_LABEL,
+  serverNodeArgs,
 } from "../../bin/cli-args.js";
 
 const DEFAULT_PORT = 34567;
@@ -291,5 +293,40 @@ describe("nodeMeetsMinimum", () => {
   it("labels the minimum it enforces", () => {
     expect(MIN_NODE_LABEL).toBe("22.9");
     expect(nodeMeetsMinimum(`${MIN_NODE_LABEL}.0`)).toBe(true);
+  });
+});
+
+describe("serverNodeArgs", () => {
+  const ENTRY = "/pkg/server/index.ts";
+
+  // The gap #795 closes: the dev scripts always passed this flag and the launcher never did,
+  // so a key written into .env was silently absent from the server.
+  it("reads .env from the launch directory, by absolute path", () => {
+    expect(serverNodeArgs(ENTRY, "/home/u/project")).toContain(`--env-file-if-exists=${path.join("/home/u/project", ".env")}`);
+  });
+
+  // The spawn runs with cwd set to the package directory, so a relative path would be looked
+  // for inside node_modules.
+  it("does not pass a bare relative .env", () => {
+    expect(serverNodeArgs(ENTRY, "/home/u/project")).not.toContain("--env-file-if-exists=.env");
+  });
+
+  // A node option after the script path is an argument to the script, not to node.
+  it("keeps every node option ahead of the entry script", () => {
+    const args = serverNodeArgs(ENTRY, "/home/u/project");
+    expect(args[args.length - 1]).toBe(ENTRY);
+    expect(args.filter((a) => a.startsWith("--")).every((a) => args.indexOf(a) < args.indexOf(ENTRY))).toBe(true);
+  });
+
+  it("still loads tsx, which is what lets the server entry be TypeScript", () => {
+    expect(serverNodeArgs(ENTRY, "/home/u/p").slice(0, 2)).toEqual(["--import", "tsx"]);
+  });
+
+  // No shell is involved in the spawn, so a directory with spaces needs no quoting — and
+  // must not get any, or the path would carry literal quote characters.
+  it("leaves a launch directory containing spaces as one unquoted argument", () => {
+    const flag = serverNodeArgs(ENTRY, "/home/u/My Projects/app").find((a) => a.startsWith("--env-file"));
+    expect(flag).toBe(`--env-file-if-exists=${path.join("/home/u/My Projects/app", ".env")}`);
+    expect(flag).not.toContain('"');
   });
 });
