@@ -1,7 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
+import { SOURCE_CODE_EXTENSIONS } from "../../../common/sourceExtensions.js";
 import { rawServingPlan } from "../../../server/backends/rawServingPlan.js";
+
+const TEXT_PLAIN = "text/plain; charset=utf-8";
 
 const KB = 1024,
   MB = 1024 * KB;
@@ -80,5 +83,38 @@ describe("rawServingPlan — the size cap", () => {
   // An audio file is media too, not a generic file on the small cap.
   it("gives audio the media cap", () => {
     expect(rawServingPlan("/w/x.mp3", 100 * MB).tooLarge).toBe(false);
+  });
+});
+
+// The shared source list is only HALF of what this module serves as text (#826). Pinning
+// both halves here is what keeps a later "tidy-up" from folding the server's own extras
+// into the shared list — which would change what the CLIENT opens in its Files view.
+describe("rawServingPlan — the shared source list vs this module's own extras", () => {
+  it.each([...SOURCE_CODE_EXTENSIONS])("serves the shared source extension %s as text", (ext) => {
+    expect(rawServingPlan(`/w/file${ext}`, 1).contentType).toBe(TEXT_PLAIN);
+  });
+
+  // Prose, markup and the languages the client's in-app viewer doesn't claim. These are
+  // deliberately NOT in the shared list: the client sends .md to the rendered markdown
+  // route and .html to a URL, so promoting them here would silently move both.
+  it.each([".md", ".markdown", ".rst", ".adoc", ".mdx", ".pl", ".r", ".dart", ".ex", ".exs", ".env", ".properties", ".html", ".htm"])(
+    "serves %s as text without it being in the shared list",
+    (ext) => {
+      expect(rawServingPlan(`/w/file${ext}`, 1).contentType).toBe(TEXT_PLAIN);
+      expect(SOURCE_CODE_EXTENSIONS).not.toContain(ext);
+    },
+  );
+
+  // `path.extname` is "" for these, so they only match via the basename fallback.
+  it.each([".gitignore", ".dockerignore", ".editorconfig"])("serves the dotfile %s as text by basename", (name) => {
+    expect(rawServingPlan(`/w/${name}`, 1).contentType).toBe(TEXT_PLAIN);
+    expect(SOURCE_CODE_EXTENSIONS).not.toContain(name);
+  });
+
+  // .txt is the client's own extra: MIME_BY_EXT already types it here, so it must NOT be
+  // added to the shared list to "fix" the asymmetry.
+  it("types .txt through the mime table rather than the shared list", () => {
+    expect(rawServingPlan("/w/a.txt", 1).contentType).toBe(TEXT_PLAIN);
+    expect(SOURCE_CODE_EXTENSIONS).not.toContain(".txt");
   });
 });

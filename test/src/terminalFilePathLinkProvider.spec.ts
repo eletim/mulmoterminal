@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { SOURCE_CODE_EXTENSIONS } from "../../common/sourceExtensions";
 import {
   computeFilePathLinks,
   rawFileUrl,
@@ -133,4 +134,33 @@ describe("fileExtension", () => {
     expect(fileExtension("Makefile")).toBe("");
     expect(fileExtension(".mdrc")).toBe(".mdrc"); // a leading dot IS the name here — the tables simply don't list it
   });
+});
+
+// The shared source list is only PART of what opens in the Files view (#826), and the
+// server serves a wider set as text than this module claims. Pinning both directions here
+// keeps a later "tidy-up" from folding one side's extras into the shared list.
+describe("the shared source list vs this module's own extras", () => {
+  const CWD_ = "/w";
+
+  it.each([...SOURCE_CODE_EXTENSIONS])("opens the shared source extension %s in the Files view", (ext) => {
+    expect(fileLinkTarget(`/w/file${ext}`, CWD_)).toEqual({ kind: "files" });
+  });
+
+  // .txt is this module's own extra — the server types it through its mime table instead,
+  // so it is deliberately absent from the shared list.
+  it("opens .txt in the Files view although it is not in the shared list", () => {
+    expect(fileLinkTarget("/w/notes.txt", CWD_)).toEqual({ kind: "files" });
+    expect(SOURCE_CODE_EXTENSIONS).not.toContain(".txt");
+  });
+
+  // The server serves these as text/plain, but here they must NOT open in the Files view:
+  // markdown has its own rendered route, and .html goes to a URL so the raw route can
+  // serve it under the sandbox CSP.
+  it.each([".md", ".markdown", ".rst", ".adoc", ".mdx", ".pl", ".r", ".dart", ".ex", ".exs", ".env", ".properties", ".html", ".htm"])(
+    "sends %s to a URL rather than the Files view",
+    (ext) => {
+      expect(fileLinkTarget(`/w/file${ext}`, CWD_).kind).toBe("url");
+      expect(SOURCE_CODE_EXTENSIONS).not.toContain(ext);
+    },
+  );
 });
