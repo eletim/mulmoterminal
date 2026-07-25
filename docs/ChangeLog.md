@@ -2,6 +2,22 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.11.1 — 2026-07-26
+
+### Windows
+
+- **A session on an npm-installed Claude Code starts again** (#813, #814): the `--settings` JSON arrived at `claude` with nearly every quote gone — `Error: Settings file not found: {"hooks:{UserPromptSubmit:[{hooks:[{type:command,command:curl` — and the session exited immediately. `--settings` and `--mcp-config` are now written to a file and only the *path* is passed, so nothing claude is launched with contains a quote at all. There is a test asserting exactly that over the argv a real spawn builds. POSIX is untouched and stays inline.
+
+  The diagnosis is worth recording, because the first attempt at it was wrong. The escaping added in 1.9.2 (#801) emits cmd.exe's own `""` doubling, and that is delivered intact — a test now asserts the **raw command line** the shim receives, and it still holds `""hooks""` and `-d @- >/dev/null 2>&1` unaltered. So neither `cmd-escape.ts` nor cmd.exe was corrupting anything. What drops the quotes is the **receiving program**: `""` inside a quoted argument means one literal quote to the Microsoft CRT, and Claude Code's `claude.exe` is a native binary that does not implement that extension. The reporter's own data said so from the start — `\"` worked and `""` did not, in the same shell against the same binary.
+
+  The CI test that had passed was itself the reason this took two rounds: it read the *parsed argv* of its child, and its child was `node.exe` — the most forgiving argv parser on Windows. The one assumption it never checked was its own stand-in for the real target. It now asserts what cmd delivers rather than what node forgives, and carries a shim of both shapes `cmd-shim` generates. Diagnosis credit to @chikara813, who posted the shim's contents and read `cmd-shim`'s source rather than assuming a version difference.
+
+  The escaping rule itself is still wrong for a non-MSVC target and is tracked in #819; after this change the only argument that can carry a quote in a normal spawn is a background chat's initial prompt.
+
+### Tests
+
+- **A Windows CI flake removed** (#816, #817): `streamFile.spec.ts` waited 20 ms for real file I/O and asserted an empty buffer when a loaded runner took longer. It now waits for the stream outcome itself, which also catches a request whose bytes arrive but whose response never ends. Test-only change.
+
 ## mulmoterminal@1.11.0 — 2026-07-25
 
 ### Clicking a file path in terminal output
