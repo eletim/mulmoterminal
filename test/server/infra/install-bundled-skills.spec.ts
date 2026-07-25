@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { installOwnedSkill, SCHEMA_ASSET_FILE } from "../../../server/infra/install-config-skill";
+import { BUNDLED_SKILL_NAMES, installOwnedSkill, SCHEMA_ASSET_FILE } from "../../../server/infra/install-bundled-skills";
 import { loadDirConfig } from "../../../server/config/dir-config";
 
 const NAME = "mulmoterminal-config";
@@ -98,6 +98,22 @@ describe("shipped colour presets (palettes.json)", () => {
       CHROME_KEYS.forEach((key) => {
         if (config[key] !== undefined) expect(loaded[key]).not.toBeNull();
       });
+    });
+  }
+});
+
+// Every name in the list has to resolve to a real directory that ships: the installer copies by
+// name, so a typo or a renamed directory silently leaves the user without that skill — there is no
+// error, the slash command just never appears.
+describe("BUNDLED_SKILL_NAMES", () => {
+  it("names more than one skill (the installer used to be hardwired to the config one)", () => {
+    expect(BUNDLED_SKILL_NAMES.length).toBeGreaterThan(1);
+  });
+
+  for (const name of BUNDLED_SKILL_NAMES) {
+    it(`${name} ships a directory with a SKILL.md whose frontmatter name matches`, () => {
+      const skill = readFileSync(path.join(process.cwd(), "server", "skills", name, "SKILL.md"), "utf8");
+      expect(skill).toMatch(new RegExp(`^---\\nname: ${name}\\n`));
     });
   }
 });

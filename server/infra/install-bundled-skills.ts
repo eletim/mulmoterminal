@@ -1,6 +1,6 @@
-// Install the `mulmoterminal-config` skill into the user's global skills roots on boot, so it's
-// callable from ANY launched terminal (`/mulmoterminal-config`) regardless of cwd — including
-// under `npx`, since the skill ships in the package. Modeled on server/codex-skills.ts: an
+// Install the skills we ship into the user's global skills roots on boot, so each is callable from
+// ANY launched terminal (`/mulmoterminal-config`, `/mulmoterminal-bug-report`) regardless of cwd —
+// including under `npx`, since they ship in the package. Modeled on server/codex-skills.ts: an
 // ownership marker means we only ever refresh OUR copy and never clobber a user's own same-named
 // skill. Best-effort: a filesystem failure logs and continues, never aborting server startup.
 import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync } from "node:fs";
@@ -16,10 +16,12 @@ const OWNER_MARKER_BODY = "managed by mulmoterminal\n";
 // name makes the collections engine load the skill dir as a (broken) user-scope collection.
 export const SCHEMA_ASSET_FILE = "dir-config.schema.json";
 
-function bundledSkillDir(): string {
+export const BUNDLED_SKILL_NAMES = ["mulmoterminal-config", "mulmoterminal-bug-report"] as const;
+
+function bundledSkillDir(name: string): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   // ".." climbs server/infra/ → server/, where the bundled skills/ dir lives.
-  return path.join(here, "..", "skills", "mulmoterminal-config");
+  return path.join(here, "..", "skills", name);
 }
 
 const isOurs = (dir: string): boolean => existsSync(path.join(dir, OWNER_MARKER));
@@ -44,20 +46,23 @@ function skillsRoots(): string[] {
   return [path.join(os.homedir(), ".claude", "skills"), codexSkillsRoot()];
 }
 
-export function installConfigSkill(): void {
+// The generated JSON Schema rides along with the config skill only, so it validates against the
+// exact live shape rather than a hand-copied one that could drift. NOT named `schema.json`: the
+// collections engine treats any skill dir holding that exact filename as a user-scope collection
+// definition, and would log a validation failure for ours.
+const extrasFor = (name: string): Record<string, string> =>
+  name === "mulmoterminal-config" ? { [SCHEMA_ASSET_FILE]: JSON.stringify(dirConfigJsonSchema(), null, 2) + "\n" } : {};
+
+export function installBundledSkills(): void {
   if (process.env.MULMOTERMINAL_NO_SKILL_INSTALL) return;
-  const source = bundledSkillDir();
-  // A JSON Schema generated from config-schema.ts, shipped beside the skill so it validates
-  // against the exact live shape rather than a hand-copied one that could drift.
-  // NOT named `schema.json`: the collections engine treats any skill dir holding that exact
-  // filename as a user-scope collection definition, and would log a validation failure for ours.
-  const extras = { [SCHEMA_ASSET_FILE]: JSON.stringify(dirConfigJsonSchema(), null, 2) + "\n" };
   for (const root of skillsRoots()) {
-    try {
-      mkdirSync(root, { recursive: true });
-      installOwnedSkill(source, root, extras);
-    } catch (err) {
-      console.error(`[config-skill] install into ${root} failed — continuing`, err instanceof Error ? err.message : String(err));
+    for (const name of BUNDLED_SKILL_NAMES) {
+      try {
+        mkdirSync(root, { recursive: true });
+        installOwnedSkill(bundledSkillDir(name), root, extrasFor(name));
+      } catch (err) {
+        console.error(`[skills] installing ${name} into ${root} failed — continuing`, err instanceof Error ? err.message : String(err));
+      }
     }
   }
 }
