@@ -1,4 +1,5 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { hasErrnoCode } from "../errors.js";
@@ -47,4 +48,32 @@ export async function writeFileAtomic(filePath: string, content: string): Promis
   const tmp = `${filePath}.${randomUUID()}.tmp`;
   await writeFile(tmp, content);
   await renameWithRetry(tmp, filePath);
+}
+
+/** The same guarantee for a caller that cannot await: write a unique temp, then rename over
+ *  the destination. A crash mid-write leaves the temp behind and the PREVIOUS file intact,
+ *  which is the whole point — `writeFileSync` truncates first, so the same crash leaves a
+ *  half-written config that the next boot reads as corrupt.
+ *
+ *  No retry loop here: the async path can wait out a Windows lock, and a synchronous caller
+ *  cannot block the event loop to do the same. A contended rename therefore throws, which the
+ *  callers already turn into "the save failed" — with the old file still on disk. */
+export function writeFileAtomicSync(
+  filePath: string,
+  content: string,
+  // Injected so the property that matters — the destination is never opened for writing —
+  // can be asserted. It cannot be observed from outside: the difference between this and a
+  // plain writeFileSync only shows if the process dies between the two calls.
+  write: (file: string, data: string) => void = writeFileSync,
+  renameOver: (from: string, to: string) => void = renameSync,
+): void {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.${randomUUID()}.tmp`;
+  write(tmp, content);
+  try {
+    renameOver(tmp, filePath);
+  } catch (err) {
+    rmSync(tmp, { force: true }); // do not leave our temp behind when the rename is the thing that failed
+    throw err;
+  }
 }

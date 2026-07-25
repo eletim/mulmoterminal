@@ -1,10 +1,17 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { tmpdir } from "node:os";
 
-import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "../../../server/session/session-settings.js";
+import {
+  cleanupSessionSettings,
+  settingsArgument,
+  mcpConfigArgument,
+  withSettingsCleanup,
+  pruneOrphanSettings,
+} from "../../../server/session/session-settings.js";
 import { hookSettingsJson } from "../../../server/session/hook-settings.js";
 import { buildClaudeArgs } from "../../../server/agents/claude-args.js";
 
@@ -141,5 +148,59 @@ describe("the argv a Windows spawn ends up with", () => {
       guiMcpTools: "mulmoterminal_readXPost,mulmoterminal_searchX",
     });
     expect(args.filter((a) => a.includes('"'))).toEqual([]);
+  });
+});
+
+// A crash never reaches reap(), so its sessions' settings files stay behind — and a provider
+// session's file holds its API token, which then outlives the session, survives being rotated
+// or revoked, and survives the provider being removed from the config.
+describe("pruneOrphanSettings", () => {
+  const dirs: string[] = [];
+  const tmpDir = () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mt-prune-"));
+    dirs.push(dir);
+    return dir;
+  };
+  afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+  const write = (dir: string, name: string) => writeFileSync(path.join(dir, name), "{}");
+
+  const DEAD = "11111111-2222-3333-4444-555555555555";
+  const ALIVE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+  it("drops both files of a session that did not survive", () => {
+    const dir = tmpDir();
+    write(dir, `${DEAD}.json`);
+    write(dir, `${DEAD}-mcp.json`);
+    expect(pruneOrphanSettings(new Set(), dir).sort()).toEqual([`${DEAD}-mcp.json`, `${DEAD}.json`]);
+    expect(existsSync(path.join(dir, `${DEAD}.json`))).toBe(false);
+    expect(existsSync(path.join(dir, `${DEAD}-mcp.json`))).toBe(false);
+  });
+
+  // The whole point of the liveIds argument: a tmux-backed session is still running with the
+  // settings it was started with, so taking its file away is the one thing this must not do.
+  it("keeps the files of a session that survived", () => {
+    const dir = tmpDir();
+    write(dir, `${ALIVE}.json`);
+    write(dir, `${ALIVE}-mcp.json`);
+    expect(pruneOrphanSettings(new Set([ALIVE]), dir)).toEqual([]);
+    expect(existsSync(path.join(dir, `${ALIVE}.json`))).toBe(true);
+    expect(existsSync(path.join(dir, `${ALIVE}-mcp.json`))).toBe(true);
+  });
+
+  // Flagged by Codex on #822: the first version matched ANY `*.json`, so a file that merely
+  // shares the extension — the exact case its own comment promised to leave alone — was
+  // deleted. The directory being ours is not a reason to remove something we did not write.
+  it("leaves anything that is not one of ours alone, including other .json files", () => {
+    const dir = tmpDir();
+    for (const name of ["notes.txt", "README.md", "notes.json", "backup.json", "not-a-uuid-mcp.json"]) write(dir, name);
+    expect(pruneOrphanSettings(new Set(), dir)).toEqual([]);
+    for (const name of ["notes.txt", "README.md", "notes.json", "backup.json", "not-a-uuid-mcp.json"]) {
+      expect(existsSync(path.join(dir, name)), name).toBe(true);
+    }
+  });
+
+  it("is a no-op when nothing has ever been written", () => {
+    expect(pruneOrphanSettings(new Set(), path.join(tmpDir(), "never-created"))).toEqual([]);
   });
 });

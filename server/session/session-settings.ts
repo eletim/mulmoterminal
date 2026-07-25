@@ -9,10 +9,11 @@
 // The env block is the transport for a reason: Claude Code applies it itself, so it
 // reaches the session identically on the host, under tmux — where a pane inherits the
 // tmux SERVER's environment, not the spawning client's — and inside a container.
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { removeQuietly } from "../infra/fs-cleanup.js";
+import { SESSION_ID_RE } from "../config/env.js";
 
 const SETTINGS_DIR = path.join(os.homedir(), ".mulmoterminal", "settings");
 
@@ -59,4 +60,41 @@ export function withSettingsCleanup<T>(sessionId: string, spawn: () => T): T {
 export function cleanupSessionSettings(sessionId: string): void {
   removeQuietly(settingsFile(sessionId));
   removeQuietly(mcpConfigFile(sessionId));
+}
+
+/** Drop settings files left behind by a server that never got to reap.
+ *
+ *  `cleanupSessionSettings` runs from reap(), which a crash — or a machine losing power —
+ *  never reaches. What stays behind is not inert: a provider session's file holds its API
+ *  token, so without this a token outlives the session that used it, survives being rotated
+ *  or revoked, and survives the provider being removed from the config entirely.
+ *
+ *  `liveIds` is what actually survived the restart — the tmux sessions still running. Nothing
+ *  else can still be reading its settings: a PTY without tmux died with the server that owned
+ *  it. Returns the ids it dropped, for the boot log. */
+export function pruneOrphanSettings(liveIds: ReadonlySet<string>, dir: string = SETTINGS_DIR): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return []; // no settings dir yet — nothing has been written
+  }
+  const dropped: string[] = [];
+  for (const name of names) {
+    const id = sessionIdFromFileName(name);
+    if (id === null || liveIds.has(id)) continue;
+    if (removeQuietly(path.join(dir, name))) dropped.push(name);
+  }
+  return dropped;
+}
+
+// `<id>.json` and `<id>-mcp.json` are the two we write, and `<id>` is always a session id —
+// every caller takes one from randomUUID() or a SESSION_ID_RE match. Requiring that shape is
+// what keeps this from deleting a file that merely happens to end in `.json`: the directory
+// is ours, but "ours" is not a good enough reason to remove something we did not write.
+function sessionIdFromFileName(name: string): string | null {
+  if (!name.endsWith(".json")) return null;
+  const stem = name.slice(0, -".json".length);
+  const id = stem.endsWith("-mcp") ? stem.slice(0, -"-mcp".length) : stem;
+  return SESSION_ID_RE.test(id) ? id : null;
 }
