@@ -208,37 +208,40 @@ MulmoTerminal runs in a browser tab, and some keys never reach a web page in a f
 
 ### On a Mac, watch out for the function keys {#macos-keys}
 
-**`F1`–`F12` do not reach the browser by default.** macOS treats the top row as *media* keys
-(brightness, volume, …), so a binding on `F2` looks completely dead — no keydown is delivered at
-all, and nothing in MulmoTerminal can see it. Two ways out:
+**`F1`–`F12` do not reach the browser by default.** Apple documents that ["by default, keyboard
+function keys are set up to control system features"](https://support.apple.com/guide/mac-help/use-keyboard-function-keys-mchlp2596/mac)
+— brightness, volume and so on. While that is in effect, pressing `F2` never delivers a keydown to
+the page at all, so a binding on it looks completely dead and nothing in MulmoTerminal can observe
+it. Two ways out, both from Apple's guide:
 
-- Press **`Fn`+`F2`**, which sends the real function key. A binding of `"F2"` matches it — `Fn` is
-  not a modifier the browser reports, so it needs no spelling in the binding.
-- Or turn on **System Settings → Keyboard → "Use F1, F2, etc. keys as standard function keys"**, after
-  which the bare key works and `Fn` gives you the media action instead.
+- Hold **`Fn`** (or the **Globe** key) while pressing the key. A binding of `"F2"` matches that —
+  `Fn` is not a modifier the browser reports, so it needs no spelling in the binding. *(Verified on
+  macOS: `Fn`+`F2` fires a binding written as `"F2"`.)*
+- Or turn the default off: **System Settings → Keyboard → Keyboard Shortcuts → Function Keys →
+  "Use F1, F2, etc. keys as standard function keys"**. The bare key then works, and `Fn` gives you
+  the system feature instead.
 
-`F4` is worth avoiding entirely: macOS binds it to Spotlight / Launchpad, so it can be swallowed
-even with the setting above.
+Which system feature each key controls depends on the keyboard and macOS version, and Apple
+publishes no fixed per-key table — so if one key stays dead after the change, assume the system
+still owns it and pick another. The console check below tells you which case you are in.
 
-**`Option`+letter is unreliable on macOS.** Bindings are matched against the browser's
-`KeyboardEvent.key`, and with Option held macOS reports the *composed* character rather than the
-letter — `Option`+`n` typically arrives as a dead-key `˜`, not `n`, so a binding of `"Alt+n"` never
-matches. Prefer `Option` with a **non-printing** key (`Alt+ArrowDown`, `Alt+PageUp`), which is
-unaffected.
+**`Option`+letter is a poor choice on macOS.** Bindings are matched against `KeyboardEvent.key`,
+which per [MDN](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key) reports *the
+character the keystroke would actually input*, after the modifiers and keyboard layout are applied
+— and it is the literal string `"Dead"` for a dead key. Since macOS uses `Option` to type alternate
+characters and accents, `Option`+letter generally arrives as that character rather than the letter,
+so a binding like `"Alt+n"` will not match. Prefer `Option` with a **non-printing** key
+(`Alt+ArrowDown`, `Alt+PageUp`), which is unaffected. Check your own layout with the snippet below
+before committing to one.
 
 {: .note }
-> Not sure what a key actually sends? Paste this in the browser devtools console and press it — if
-> nothing is logged, the OS or hardware took it before the page:
+> Not sure what a key actually sends? Paste this in the browser devtools console and press it. **If
+> nothing is logged, the OS or the keyboard took it before the page** — no binding can help. If it
+> logs something other than what you wrote in `keymap`, bind what it actually reports.
 >
 > ```js
 > addEventListener("keydown", e => console.log(e.key, e.code, {shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey}), true);
 > ```
-
-{: .note }
-> An **unknown action name only warns** and the app still starts — that is what a config written for a newer
-> MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
-> navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
-
 ## Per-project `.mulmoterminal.json` {#per-dir}
 
 Place this at the project root to change the appearance, sound, and header of **terminals (grid cells) opened in that directory**.
