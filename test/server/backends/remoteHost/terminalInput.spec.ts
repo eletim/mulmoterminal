@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import type { SessionAgent } from "../../../../server/backends/remoteHost/terminalScreen.js";
+import type { SessionAgent } from "../../../../common/sessionAgent.js";
 
 import { sanitizeTerminalInput, canClearInputBox } from "../../../../server/backends/remoteHost/terminalInput.js";
 

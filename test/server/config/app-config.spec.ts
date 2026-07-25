@@ -201,7 +201,6 @@ describe("loadAppConfig / saveAppConfig", () => {
       prRepos: ["o/r"],
       launchers: [{ label: "Shell", command: "$SHELL" }],
       quickCommands: [],
-      quickCommands: [],
       userMcpServers: [{ id: "weather", url: "http://localhost:9000/mcp" }],
       buttons: [{ id: "pr", label: "PR", run: "shell" as const, cmd: "gh pr create" }],
       chips: ["dir", "git"],

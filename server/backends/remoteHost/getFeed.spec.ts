@@ -58,7 +58,7 @@ describe("createRemoteHostHandlers · getFeed", () => {
       spawnChat: () => ({ chatId: "x" }),
       ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
       listTerminalSessions: async () => [],
-      captureTerminalScreen: async () => ({ screen: "", suggestion: "" }),
+      captureTerminalScreen: async () => ({ screen: "", suggestion: "", quickCommands: [] }),
       writeToSession: () => false,
       canClearBox: () => false,
       submitSequence: () => "\r",
