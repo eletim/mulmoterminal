@@ -122,3 +122,33 @@ props/emits の型と filter ロジックは既に `composables/sessionList.ts` 
 4. jscpd をローカルで CI と同じ条件（min-tokens 50）で流し、clone 数が減っていること
 5. 拡張子リストは**リファクタ前後で集合が完全一致する**ことをテストで固定する
    （単なる移動ではなく、意図的な差分が事故で消えていないことの回帰テスト）
+
+### テストの置き場所（実装中に判明した制約）
+
+最初 `test/common/sourceExtensions.spec.ts` に両側をまたぐ 1 本を置いたが、これは
+**どちらの test tsconfig からも型チェックされない**ことが分かった:
+
+- `tsconfig.test.json` の include は `test/src/**` のみ
+- `tsconfig.test-server.json` の include は `test/server/**` / `test/bin/**` のみ
+
+`test/common/**`・`test/scripts/**`・`test/*.ts` は両方の外側にあり、vitest でしか
+コンパイルされない状態だった（計 5 spec）。`shortcuts.spec.ts` を `test/src/types/` から
+`test/common/` に移した時点で、この spec も型チェックを失っていた。
+
+またぐ spec を通すために試した2案はどちらも駄目だった:
+
+- app 側プロジェクトに `types: ["node"]` を足す → `src/components/ToolsPane.vue` が壊れる
+  （`window.setTimeout` は `number` を返すが `NodeJS.Timeout` がオーバーロードに勝つ）。
+  テスト設定のためにアプリ本体を直すのは方向が逆。
+- server 側プロジェクトに `src/**` を引き込む → DOM lib が入り、無関係な
+  `server/infra/pluginRuntime.ts` の `fetch` 型付けが壊れる。
+
+よって**またぐ spec は作らず**、各側が既に持っている spec に非対称性を書く:
+
+- `test/server/backends/rawServingPlan.spec.ts` — 共通リストは全部 text/plain、
+  かつ docs / markup / dotfile の追加分も text/plain だが**共通リストには入っていない**
+- `test/src/terminalFilePathLinkProvider.spec.ts` — 共通リストは全部 Files ビューで開く、
+  `.txt` も開く、サーバ側の追加分は**意図的に開かない**
+
+あわせて `test/common/**` / `test/scripts/**` / `test/*.ts` を両 tsconfig の include に
+追加し、`test/**/*.spec.ts` が全て型チェック対象になるようにした。
