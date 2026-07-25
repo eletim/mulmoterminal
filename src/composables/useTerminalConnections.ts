@@ -164,6 +164,10 @@ const clipboardProvider: IClipboardProvider = {
   },
 };
 
+// Which OSC 8 hyperlink targets we open on click. Restricted to http(s) so a program can't
+// emit a `javascript:`/`file:` link that runs on click — the safeguard xterm's docs call for.
+export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.test(uri);
+
 // Keep a drag as a text selection: refuse the mouse-tracking modes an app would use to take it
 // over, so its coordinate reports never land in the agent's prompt (#729). Registered per
 // terminal and disposed with it.
@@ -247,6 +251,14 @@ function ensure(key: string, target: ConnTarget): Conn {
     // `term.parser` is proposed API and THROWS without this, so the hooks below would take the
     // terminal down at construction rather than degrade.
     allowProposedApi: true,
+    // OSC 8 hyperlinks in terminal output (e.g. Claude Code's statusline "PR #123"). Without a
+    // handler, xterm falls back to a confirm() dialog with a strongly-worded warning on every
+    // click — which reads as "the link is broken". Open http(s) targets in a new tab instead.
+    linkHandler: {
+      activate: (_event, uri) => {
+        if (isOpenableTerminalLink(uri)) window.open(uri, "_blank", "noopener,noreferrer");
+      },
+    },
   });
   const swallowedMouseModes = new Set<number>();
   guardMouseTracking(term, swallowedMouseModes);

@@ -35,6 +35,77 @@ const MIME_BY_EXT: Record<string, string> = {
   ".csv": "text/csv; charset=utf-8",
 };
 
+// Source / docs / config files: serve as text so they VIEW in the browser instead of
+// downloading (the file-path links in terminal output point at these — a code workspace's
+// `.md`/`.ts`/… should open, not save). text/plain is never executed, so it stays safe under
+// the sandbox CSP; a genuinely unknown extension still falls through to octet-stream (download).
+const TEXT_PLAIN = "text/plain; charset=utf-8";
+const TEXT_EXTS = new Set<string>([
+  ".md",
+  ".markdown",
+  ".rst",
+  ".adoc",
+  ".mdx",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".vue",
+  ".svelte",
+  ".astro",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".kt",
+  ".c",
+  ".h",
+  ".cpp",
+  ".cc",
+  ".hpp",
+  ".cs",
+  ".php",
+  ".swift",
+  ".scala",
+  ".lua",
+  ".pl",
+  ".sql",
+  ".r",
+  ".dart",
+  ".ex",
+  ".exs",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".env",
+  ".properties",
+  ".html",
+  ".htm",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".xml",
+  ".jsonc",
+  ".log",
+  ".diff",
+  ".patch",
+  ".gitignore",
+  ".dockerignore",
+  ".editorconfig",
+  ".lock",
+]);
+
 // Audio and video are the large, Range-streamed kinds that get the bigger cap.
 function isMedia(mime: string): boolean {
   return mime.startsWith("audio/") || mime.startsWith("video/");
@@ -50,7 +121,10 @@ export interface RawServingPlan {
 
 export function rawServingPlan(absPath: string, size: number): RawServingPlan {
   const ext = path.extname(absPath).toLowerCase();
-  const contentType = MIME_BY_EXT[ext] ?? "application/octet-stream";
+  // `path.extname` is "" for a dotfile (`.gitignore`, `.env`), so fall back to the full
+  // basename for the text lookup — else those names in TEXT_EXTS never match and download.
+  const textKey = ext || path.basename(absPath).toLowerCase();
+  const contentType = MIME_BY_EXT[ext] ?? (TEXT_EXTS.has(textKey) ? TEXT_PLAIN : "application/octet-stream");
   const cap = isMedia(contentType) ? MAX_MEDIA_BYTES : MAX_RAW_BYTES;
   return { contentType, sandbox: contentType !== "application/pdf", tooLarge: size > cap };
 }
