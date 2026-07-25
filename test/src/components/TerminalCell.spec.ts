@@ -1661,6 +1661,25 @@ describe("TerminalCell", () => {
     expect(w.emitted("toggle-expand")).toHaveLength(1);
   });
 
+  // The header's own click zooms the cell, so a click on one of ITS buttons must not do both.
+  // Nothing stops propagation here — shouldZoomOnHeaderClick declines anything inside a
+  // button — so these pin the guard from the cell's side, where the two meet (#826).
+  it("closes without also zooming when the close button is clicked in the tiled grid", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+    await flushPromises();
+    expect(w.find(".cell-header").classes()).toContain("is-zoomable"); // the header WOULD zoom
+    await w.find(".cell-close").trigger("click");
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(w.emitted("toggle-expand")).toBeUndefined();
+  });
+
+  it("emits toggle-expand once — not twice — when the expand button is clicked in the tiled grid", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj" });
+    await flushPromises();
+    await w.find('[aria-label="Expand terminal"]').trigger("click");
+    expect(w.emitted("toggle-expand")).toHaveLength(1); // the button, not the button + the header
+  });
+
   it("zooms on a header-background click when it's a filmstrip thumbnail (switch to it)", async () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/proj", zoomed: true, expanded: false });
     await flushPromises();
