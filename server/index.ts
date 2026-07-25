@@ -44,7 +44,9 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
 import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
-import { currentBranch } from "./git/git-status.js";
+import { currentBranch, tracksOriginBranch } from "./git/git-status.js";
+import { resolveGithubUrl } from "./git/gitRemote.js";
+import { githubBranchUrl } from "./git/githubBranchUrl.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
 import { initGoogleBackend } from "./backends/google.js";
@@ -373,12 +375,18 @@ const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(p
 // no branch to look up — those fields are simply absent, and the phone shows the screen alone.
 const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
   const cwd = ptys.get(sessionId)?.cwd ?? "";
-  const head = cwd ? await currentBranch(cwd) : null;
+  // The three git reads are independent, so the phone waits for one spawn rather than three.
+  const [head, repoUrl, onOrigin] = await Promise.all([
+    cwd ? currentBranch(cwd) : null,
+    cwd ? resolveGithubUrl(cwd) : null,
+    cwd ? tracksOriginBranch(cwd) : false,
+  ]);
   return {
     cwd,
     branch: head?.branch ?? "",
     summary: aiTitles.get(sessionId) ?? "",
     prompt: lastPrompts.get(sessionId) ?? "",
+    githubUrl: githubBranchUrl(repoUrl, head?.branch ?? null, onOrigin) ?? "",
   };
 };
 
