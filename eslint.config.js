@@ -51,9 +51,6 @@ export default [
       "src/components/WikiPageView.vue", //       :deep into v-html markdown
       "src/components/WikiBrowseOverlay.vue", //  :deep into v-html lint output
       "src/components/FilesOverlay.vue", //       :deep into CodeMirror's injected root
-      "src/components/CommandCell.vue", //        overrides of the shared .cell-btn + the shared chrome imports
-      "src/components/TerminalCell.vue", //       shared chrome import
-      "src/components/LauncherCell.vue", //       shared chrome imports
       "src/components/ToolbarPopover.vue", //     shared popover chrome import
     ],
     rules: { "vue/no-restricted-block": "off" },

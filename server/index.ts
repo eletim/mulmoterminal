@@ -36,14 +36,15 @@ import { generateHeaderTitle } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, ptys } from "./session/registry.js";
+import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { createToolStores } from "./session/tool-store.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
-import { agentFromPaneCommand, buildSessionList, captureSessionScreen } from "./backends/remoteHost/terminalScreen.js";
+import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
+import { currentBranch } from "./git/git-status.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
 import { initGoogleBackend } from "./backends/google.js";
@@ -365,6 +366,21 @@ const remoteHostWriteToSession = (sessionId: string, chunk: string): boolean => 
 // phone's text is submitted (#572). The rule itself lives with the sender.
 const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.get(sessionId)?.agent, activity.get(sessionId)?.working);
 
+// What the phone's per-session view heads the screen with (#786, mulmoserver#107): the same
+// dir / branch / summary / prompt the grid cell shows, read from the tables /api/sessions
+// answers from. A session that outlived a restart has no PtyEntry, so it has no cwd here and
+// no branch to look up — those fields are simply absent, and the phone shows the screen alone.
+const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
+  const cwd = ptys.get(sessionId)?.cwd ?? "";
+  const head = cwd ? await currentBranch(cwd) : null;
+  return {
+    cwd,
+    branch: head?.branch ?? "",
+    summary: aiTitles.get(sessionId) ?? "",
+    prompt: lastPrompts.get(sessionId) ?? "",
+  };
+};
+
 const remoteHostCaptureTerminalScreen = (sessionId: string) =>
   captureSessionScreen(sessionId, {
     captureStyledPane: tmuxCaptureStyledPane,
@@ -373,6 +389,7 @@ const remoteHostCaptureTerminalScreen = (sessionId: string) =>
       return entry ? { buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows } : undefined;
     },
     render: renderScreen,
+    metaOf: remoteHostSessionScreenMeta,
   });
 
 initRemoteHostBackend({

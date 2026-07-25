@@ -25,6 +25,7 @@ import type { Launcher, LaunchPick } from "./launchers";
 import { activityStatus, type CellStatus } from "./gridTabs";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
+import { CELL_ACTIONS, CELL_BTN, CELL_CLOSE_BTN, CELL_DOT, CELL_DOT_IDLE, CELL_DOT_WORKING, CELL_HEADER_ZOOMABLE, CELL_TERM } from "./cellChromeClasses";
 import { handoffTargets, pullLastTurn, type HandoffTarget } from "../composables/useHandoff";
 import { runOneExchange, liveCrossTalkDeps } from "../composables/useCrossTalk";
 import { outcomeMessage } from "../composables/exchangeRules";
@@ -840,8 +841,9 @@ const HEADER_STATUS = {
   done: `bg-selected border-b-accent ${HEADER_FG}`,
   blocked: "bg-[var(--warn-bg-subtle)] border-b-amber text-warn",
 } as const;
-// idle/working dots stay on cellChromeBase (which owns the working pulse).
-const DOT_STATUS = { idle: "", working: "", done: "bg-accent", blocked: "bg-amber" } as const;
+// Every state names its own colour: a base tint plus a status tint would be two `bg-*`
+// utilities on one element, and Tailwind's output order — not this map — would pick.
+const DOT_STATUS = { idle: CELL_DOT_IDLE, working: CELL_DOT_WORKING, done: "bg-accent", blocked: "bg-amber" } as const;
 const cellStatusClass = computed(() => CELL_STATUS[status.value]);
 const headerStatusClass = computed(() => HEADER_STATUS[status.value]);
 const dotStatusClass = computed(() => DOT_STATUS[status.value]);
@@ -998,7 +1000,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
       <CockpitHeader
         v-if="filmstrip"
         class="cell-header flex-none border-b"
-        :class="[statusClass, { 'is-zoomable': !expanded }]"
+        :class="[statusClass, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]"
         :status="status"
         :agent="agent"
         :cwd="cwd"
@@ -1007,16 +1009,17 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         :header-text-color="dirConfig.headerTextColor"
         @click="onHeaderClick"
       >
-        <span class="cell-actions">
+        <span class="cell-actions" :class="CELL_ACTIONS">
           <button
             class="cell-btn"
+            :class="CELL_BTN"
             :title="expanded ? 'Restore' : 'Expand'"
             :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
             @click.stop="emit('toggle-expand')"
           >
             {{ expanded ? "⤡" : "⤢" }}
           </button>
-          <button class="cell-btn cell-close" title="Close terminal" aria-label="Close terminal" @click.stop="close">✕</button>
+          <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click.stop="close">✕</button>
         </span>
       </CockpitHeader>
       <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
@@ -1024,7 +1027,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
       <div
         v-else
         class="cell-header flex h-[34px] flex-none items-center gap-2 border-b px-2"
-        :class="[statusClass, headerStatusClass, { 'is-zoomable': !expanded }]"
+        :class="[statusClass, headerStatusClass, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]"
         :style="headerStyle"
         @click="onHeaderClick"
       >
@@ -1033,7 +1036,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              push the actions past the cell's `overflow: hidden` edge — the buttons must
              stay reachable no matter how much a dir's config crams in here. -->
         <div data-testid="cell-header-main" class="flex min-w-0 flex-auto items-center gap-2 overflow-hidden">
-          <span class="cell-dot" :class="[statusClass, dotStatusClass]" :title="statusLabel" />
+          <span class="cell-dot" :class="[CELL_DOT, statusClass, dotStatusClass]" :title="statusLabel" />
           <!-- Normal grid: the dir is a button that opens it. As a filmstrip thumbnail the
                header's job is to zoom (switch to this terminal), so the dir is inert text
                and a click on it falls through to the header's zoom gesture. -->
@@ -1103,22 +1106,24 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         <!-- Expand/restore + close stay on row 1 (the info row) and OUTSIDE the info
              track, so they're always pinned top-right. `.stop` so they don't trigger the
              header's click-to-zoom. -->
-        <span class="cell-actions">
+        <span class="cell-actions" :class="CELL_ACTIONS">
           <button
             class="cell-btn"
+            :class="CELL_BTN"
             :title="expanded ? 'Restore' : 'Expand'"
             :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
             @click.stop="emit('toggle-expand')"
           >
             {{ expanded ? "⤡" : "⤢" }}
           </button>
-          <button class="cell-btn cell-close" title="Close terminal" aria-label="Close terminal" @click.stop="close">✕</button>
+          <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click.stop="close">✕</button>
         </span>
       </div>
       <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />
       <TerminalView
         ref="termRef"
         class="cell-term"
+        :class="CELL_TERM"
         :persist-key="`cell-${uid}`"
         :session-id="sessionId"
         :connect-key="connectKey"
@@ -1196,6 +1201,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               type="button"
               data-testid="cell-ask"
               class="cell-btn"
+              :class="CELL_BTN"
               title="Bring another terminal's last turn into this input box"
               aria-label="Bring another terminal's last turn here"
               aria-haspopup="true"
@@ -1256,14 +1262,15 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           <button
             v-if="sessionId && agent !== 'codex'"
             class="cell-btn"
+            :class="CELL_BTN"
             title="Activity timeline"
             aria-label="Show activity timeline"
             @click="timelineOpen = true"
           >
             🕘
           </button>
-          <button v-if="reorderable" class="cell-btn" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">◀</button>
-          <button v-if="reorderable" class="cell-btn" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">▶</button>
+          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">◀</button>
+          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">▶</button>
         </template>
       </TerminalView>
       <div
@@ -1274,7 +1281,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         <div class="flex flex-none items-center gap-2 border-b border-b-border bg-panel px-2 py-1.5">
           <span class="font-sans text-[12px] font-semibold text-fg">Changes vs {{ diff?.base ?? "base" }}</span>
           <span class="flex-auto font-sans text-[11px] text-dim">{{ diff?.ahead ?? 0 }} ahead · {{ diff?.dirty ?? 0 }} uncommitted</span>
-          <button class="cell-btn" title="Close diff" aria-label="Close diff" @click="diffOpen = false">✕</button>
+          <button class="cell-btn" :class="CELL_BTN" title="Close diff" aria-label="Close diff" @click="diffOpen = false">✕</button>
         </div>
         <div v-if="diff && diff.files.length" class="max-h-[35%] flex-none overflow-y-auto border-b border-b-border px-2 py-1">
           <div v-for="f in diff.files" :key="f.path" data-testid="cell-diff-file" class="flex items-baseline gap-2 py-px font-mono text-[11px]">
@@ -1608,5 +1615,3 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
     </div>
   </div>
 </template>
-
-<style scoped src="./cellChromeBase.css"></style>

@@ -2,6 +2,23 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.9.0 — 2026-07-25
+
+### Phone / remote host
+
+- **`getTerminalScreen` now carries the session's identity** (#786, #789): the response ships `cwd`, `branch`, `summary` (the AI header title) and `prompt` (the last meaningful user prompt) beside `screen` and `suggestion`, so the phone's per-session view (receptron/mulmoserver#107) can head the terminal with what the grid cell shows. Every field is optional and a value the host cannot answer is omitted key and all — the response is written to a Firestore command doc, which rejects `undefined`, and a blank labelled row on the phone would read as "no branch" rather than "not known". The metadata read runs concurrently with the screen capture (the branch lookup shells out to git), and a failure there costs the metadata, never the screen. A session that outlived a host restart has no PTY left, so it sends the screen alone, exactly as before.
+
+### Grid cells
+
+- **The expand ⤢ and close ✕ buttons look the same in every cell again** (#787, #788): in the launcher and command cells they rendered as browser-default buttons — a grey box with a rounded border, stretched vertically — while the Claude cell's were flat icon buttons and the ◀ ▶ beside them were fine. The cause was neither CSS nor the theme: `CellChromeButtons` renders a fragment root (two `<button>`s) and had no `<style>` of its own, so it carried no scope id at all — Vue hands the parent's scope id to a single root element only — and the shared, scoped `.cell-btn` / `.cell-close` rules matched nothing.
+- **The shared cell chrome is now Tailwind utilities** (#791, #792): `cellChromeBase.css`, `cellChrome.css` and `CommandCell`'s own scoped block are deleted; their declarations live as utility strings in `cellChromeClasses.ts`, applied on the elements, so styling reaches a fragment-root component by construction. The `cell-*` class names stay as state and query hooks, carrying no styling. The status dot's pulse — the one thing a utility cannot express — moved into the Tailwind theme as `animate-cell-pulse`. Equivalence was verified by rendering every converted element twice, once with the deleted CSS and once with the new utilities, and diffing `getComputedStyle`: identical apart from an invisible border colour, `rounded-full` vs `50%` on a square dot, and the intended keyframes rename.
+
+### Docs & dependencies
+
+- **Why the canvas renderer is there, in the source** (#790): the `@xterm/addon-canvas` load site now records why it was introduced (the DOM renderer's CJK glyph metrics drift long Japanese lines off the right edge) and the trap that comes with it — the addon is an xterm-5 peer while the app runs `@xterm/xterm@6`, the prime suspect behind the selection-autoscroll / scrollbar (#782) and OSC 8 link-click (#783) regressions. Comments only; no behaviour change.
+- **Deduplicated `@mulmoclaude/core`** (#784): `@mulmoclaude/mulmoscript-plugin` 1.1.0 requires core `^1.2.0`, which installed as a nested duplicate beside the root's 1.0.1. The root now takes `^1.2.0` and the lockfile is deduped so a single copy is hoisted — core carries backend service singletons and a native duckdb binding, where a duplicate is not harmless.
+- `docs/styling.md` gained two gotchas learned here: a fragment-root component gets no scope id (so scoped CSS silently misses it), and two utilities for one property on one element are resolved by Tailwind's output order — compose one complete string per state instead.
+
 ## mulmoterminal@1.8.0 — 2026-07-25
 
 ### Terminal input & keyboard

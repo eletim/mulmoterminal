@@ -147,6 +147,9 @@ The published package ships the server (run via `tsx`) plus the pre-built web UI
 server, and opens the browser. For local development from a clone, see
 [Running](#running).
 
+**Won't start with `ERR_MODULE_NOT_FOUND`?** If a first `npx` run was interrupted, a half-unpacked `~/.npm/_npx/<hash>` cache can remain and a later run fails at startup — a corrupted npx cache, not a bug in the published package.
+The launcher detects it and prints the exact, OS-appropriate removal command; run that, then `npx mulmoterminal@latest` again.
+
 ---
 
 ## Contents

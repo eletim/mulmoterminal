@@ -1,0 +1,45 @@
+// The grid cells' shared chrome — the Claude cell (TerminalCell), the command cell, and the
+// launcher cell — as Tailwind utility strings, so the styling travels with the markup
+// (docs/styling.md). It used to be scoped CSS (cellChromeBase.css / cellChrome.css), which
+// silently failed to reach a component whose template has a fragment root: Vue gives the
+// parent's scope id to a single root element only (#787).
+//
+// The `cell-*` class names stay on the elements as state and query hooks. They carry no
+// styling now, so the specs that select on them aren't coupled to how a cell looks.
+
+export const CELL_FRAME =
+  "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--cell-border,var(--border))] bg-[var(--cell-bg,var(--bg-base))]";
+
+export const CELL_HEADER = "flex h-[34px] flex-none items-center gap-2 border-b border-b-border bg-[var(--cell-header-bg,var(--bg-panel))] px-2";
+
+// Added only while a click on the header background zooms the cell.
+export const CELL_HEADER_ZOOMABLE = "cursor-pointer hover:bg-hover";
+
+// Shape without a colour: the caller picks one of the tints below, so an active state and the
+// idle tint never land on the same element as two competing `bg-*` utilities — which of them
+// wins is decided by Tailwind's output order, not by the order they are written in.
+export const CELL_DOT = "h-[9px] w-[9px] flex-none rounded-full";
+// A directory's configured colour tints the idle dot; a status replaces it outright.
+export const CELL_DOT_IDLE = "bg-[var(--cell-dot,var(--text-dim))]";
+export const CELL_DOT_WORKING = "bg-accent animate-cell-pulse";
+
+export const CELL_ACTIONS = "flex flex-none gap-1";
+
+// Split into box / size / ink for the same reason as the dot: a caller that resizes a button
+// or gives it its own colours swaps ONE piece instead of layering a second utility for a
+// property that is already set.
+export const CELL_BTN_BOX = "inline-flex items-center justify-center rounded-md border-none bg-transparent leading-none";
+export const CELL_BTN_SIZE = "h-[26px] w-7 text-[16px]";
+export const CELL_BTN_INK = "cursor-pointer text-[var(--cell-btn,var(--text-secondary))] hover:bg-hover hover:text-fg";
+export const CELL_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} ${CELL_BTN_INK}`;
+export const CELL_CLOSE_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[var(--cell-btn,var(--text-secondary))] hover:bg-[var(--err-hover-bg)] hover:text-err-text`;
+
+// Truncated from the FRONT (rtl) so the tail — the project dir — stays visible, and floored at
+// ~15 characters of path so it stays readable in a narrow cell.
+export const CELL_DIR =
+  "min-w-[16ch] max-w-[45%] flex-initial truncate text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl]";
+export const CELL_DIR_PATH = "[unicode-bidi:plaintext]";
+
+export const CELL_CMD = "min-w-0 flex-auto truncate font-mono text-[12px] text-secondary";
+
+export const CELL_TERM = "min-h-0 flex-1";

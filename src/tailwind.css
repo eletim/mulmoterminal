@@ -46,3 +46,21 @@
   --font-sans: system-ui, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", monospace;
 }
+
+/* The grid cell's working dot. A keyframes animation is the one thing a utility can't
+   express, so it belongs here in the theme rather than in a component's <style> block —
+   `animate-cell-pulse` is then an ordinary utility. Slower and dimmer than Tailwind's own
+   `animate-pulse`, which is why it isn't just that. */
+@theme {
+  --animate-cell-pulse: cell-pulse 1.2s ease-in-out infinite;
+
+  @keyframes cell-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+}
