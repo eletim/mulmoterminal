@@ -10,6 +10,7 @@ import pty from "node-pty";
 import { spawnPty } from "../../../server/session/pty-spawn";
 import { resolvePtyLaunchForEnv } from "../../../server/infra/resolve-bin";
 import { hookSettingsJson } from "../../../server/session/hook-settings";
+import { buildCodexArgs } from "../../../server/agents/codex-args";
 
 const isWindows = process.platform === "win32";
 
@@ -199,6 +200,66 @@ describe.skipIf(!isWindows)("spawnPty on Windows", () => {
     expect(raw).toContain('""hooks""');
     expect(raw).toContain("-d @- >/dev/null 2>&1");
     expect(raw.trim().startsWith('"--settings"')).toBe(true);
+  });
+
+  // The OTHER agent's argv, which nobody had looked at on Windows. buildCodexArgs embeds
+  // double quotes on purpose — `-c key="value"` is parsed as TOML, so the quotes are part of
+  // the value's syntax — and its comment said "no shell is involved, so the URL needs no
+  // escaping". That stopped being true when a `.cmd`-installed codex started going through
+  // cmd.exe (#801): lose those quotes and the TOML value is no longer a string.
+  it("round-trips codex's quoted TOML overrides through a .cmd shim", async () => {
+    const args = buildCodexArgs({ resume: null, model: "gpt-5", guiMcpUrl: "http://127.0.0.1:34567/api/mcp/abc-123" });
+    expect(args.some((a) => a.includes('"'))).toBe(true); // the case only exists while they are quoted
+
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(SHIM, args, dir))).toBe(0);
+    expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(args);
+  });
+
+  // Everything awkward a real argument can hold, in ONE spawn: the comparison is the whole
+  // argv array, so a single case that is dropped, split, merged or re-ordered shows up. A
+  // Run command and a chat prompt are user text, so this is not a hypothetical set.
+  //
+  // `%VAR%` is deliberately absent — cmd expands it and has no escape for it inside quotes,
+  // which is pinned on its own below. `!VAR!` IS here: delayed expansion is off by default
+  // (and `/d` does not turn it off), so this records the default and would flag a machine
+  // where it is on.
+  it("round-trips awkward argument content", async () => {
+    const args = [
+      "plain",
+      "two words",
+      "trailing space ",
+      " leading space",
+      "tab\there",
+      'say "hi"',
+      'nested ""double""',
+      "single 'quoted'",
+      "caret^and^more",
+      "parens (a) [b] {c}",
+      "amp&pipe|redir>lt<",
+      "semi;comma,equals=",
+      "bang!not!expanded",
+      "dollar$and`backtick",
+      "back\\slash\\\\double",
+      "path\\ending\\",
+      "日本語とCJK",
+      "emoji 📎 and 🎉",
+      "combining é and ñ",
+      'mixed 日本語 with "quotes" and &amp',
+    ];
+
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(SHIM, args, dir))).toBe(0);
+    expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(args);
+  });
+
+  // An empty argument has to stay a POSITION, not vanish — an argv that silently loses one
+  // shifts every flag after it onto the wrong value.
+  it("keeps an empty argument as an argument", async () => {
+    const args = ["--before", "", "--after"];
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(SHIM, args, dir))).toBe(0);
+    expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(args);
   });
 
   // cmd.exe is an extra process between us and the shim, so a non-zero exit has one more

@@ -1,12 +1,13 @@
 // Pure parsing rules that were trapped behind `gh` / `git` spawns, so no test reached them.
 
+import { splitLines } from "../infra/split-lines.js";
+
 // The PR URL from `gh pr create` output: the LAST http(s) line. gh prints the PR URL last,
 // after any tips or notices — so a tip that happens to contain an http line must not win, and
 // the last one is taken rather than the first. Empty output → null (the caller falls back to
 // the compare URL).
 export function lastGhUrl(stdout: string): string | null {
-  const urls = stdout
-    .split("\n")
+  const urls = splitLines(stdout)
     .map((line) => line.trim())
     .filter((line) => line.startsWith("http"));
   return urls.length ? urls[urls.length - 1] : null;

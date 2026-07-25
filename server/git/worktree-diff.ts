@@ -5,6 +5,7 @@
 import { git, repoRoot, defaultBaseBranch, isManagedWorktree } from "./worktrees.js";
 import { dirtyCount } from "./dirty-count.js";
 import { capPatch, parseNumstatLine } from "./git-parse.js";
+import { splitLines } from "../infra/split-lines.js";
 
 export interface WorktreeFile {
   path: string;
@@ -50,9 +51,9 @@ const REV_END = "--";
 // for binary). Untracked files aren't in `git diff`, so add them from status.
 async function changedFiles(cwd: string, base: string): Promise<WorktreeFile[]> {
   const tracked = await git([...QUOTE_PATH_OFF, "diff", "--numstat", base, REV_END], cwd);
-  const files: WorktreeFile[] = tracked.ok ? tracked.stdout.split("\n").filter(Boolean).map(parseNumstat) : [];
+  const files: WorktreeFile[] = tracked.ok ? splitLines(tracked.stdout).filter(Boolean).map(parseNumstat) : [];
   const untracked = await git([...QUOTE_PATH_OFF, "ls-files", "--others", "--exclude-standard"], cwd);
-  const news = untracked.ok ? untracked.stdout.split("\n").filter(Boolean) : [];
+  const news = untracked.ok ? splitLines(untracked.stdout).filter(Boolean) : [];
   return [...files, ...news.map((path): WorktreeFile => ({ path, additions: 0, deletions: 0, status: "untracked" }))];
 }
 

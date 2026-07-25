@@ -10,6 +10,7 @@ import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isStrictlyWithin } from "../infra/path-within.js";
+import { splitLines } from "../infra/split-lines.js";
 
 // realpathSync.native, not the JS one: on Windows only the native call expands an
 // 8.3 short component (C:\Users\RUNNER~1 → …\runneradmin) to the long form that
@@ -89,7 +90,7 @@ export function isManagedWorktree(repoToplevel: string, p: string): boolean {
 export function parseWorktreeList(porcelain: string): { path: string; head: string; branch: string | null }[] {
   const out: { path: string; head: string; branch: string | null }[] = [];
   let cur: { path: string; head: string; branch: string | null } | null = null;
-  for (const line of porcelain.split("\n")) {
+  for (const line of splitLines(porcelain)) {
     if (line.startsWith("worktree ")) cur = { path: line.slice(9).trim(), head: "", branch: null };
     else if (line.startsWith("HEAD ") && cur) cur.head = line.slice(5).trim();
     else if (line.startsWith("branch ") && cur)
