@@ -2,6 +2,29 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.10.0 — 2026-07-25
+
+### Configuration
+
+- **`npx mulmoterminal` now reads the `.env` in the directory you run it from** (#795, #806): the "Running a session on another model" help says a key belongs "in the shell that starts MulmoTerminal, or a `.env` beside it". That was true of a dev launch and false of every real one — `yarn server` passes `--env-file-if-exists`, the npx launcher never did, so a key written into `.env` never reached the server and the provider stayed unusable with nothing to explain why. The launcher now passes the flag with an **absolute** path: its spawn runs with `cwd` set to the package directory, where a relative `.env` would be looked for inside `node_modules` and quietly not found. The file is read from where the command was typed, not from the workspace — the two are the same directory unless `--cwd` says otherwise, and there the shell's directory is what the help promises and what the user can see.
+
+  Two behaviours were measured rather than assumed, since both decide what a key ends up being, and both are pinned as tests that spawn the real `node`: a name already set in your shell is **not** overridden by `.env`, and with several `--env-file` flags the last one wins. Note that `.env` values reach the `claude` / `codex` sessions too, since a session inherits the server's environment — already true of a dev launch, now stated in the README instead of left to be discovered.
+
+### Windows
+
+- **One path-containment rule, and the three callers it was broken in** (#802, #803): `target === base || target.startsWith(base + path.sep)` was hand-rolled in eight places, plus a ninth doing the same job with `===`. Six were safe only by construction — the target is derived from the base with `path.resolve(base, rel)`, so the prefix is the same bytes — and every place where the two sides came from *different* sources was wrong on Windows. `worktreeTask` resolved the cwd but not the root, so `C:\home\u\…` was compared against an unresolved `\home\u\…` and never matched (this was the daily Windows job's standing failure). `authorizedServingBase` compared a browser-supplied directory against stored session cwds with `===`, so a differently-cased spelling of one directory refused raw file serving. `isManagedWorkspace` did the same against `os.homedir()`, so a differently-cased workspace silently skipped preset/help seeding.
+
+  `server/infra/path-within.ts` now owns the rule — both sides resolved, case folded on win32 only (a case-sensitive APFS volume is a supported setup, and widening a containment guard on a guess is the wrong direction), and the separator boundary kept so `…/project-old` is not inside `…/project`. `platform` is a parameter, so both arms are checkable from any host: `path.resolve` is itself platform-dependent, which is what broke. `isManagedWorktree` keeps its deliberate asymmetry through `isStrictlyWithin` — the worktrees root holds worktrees but is not one, so a delete aimed at the root must not pass.
+
+- **The Windows CI job is green for the first time**: with the above fixed and the `fs.watch` reload case skipped there (it passes on one Node version and fails on the other for the same commit, and a job that is red half the time hides the regressions it exists to catch), `windows-daily` passes on Node 22 and 24. A red run now means a real regression.
+
+- **`docs/windows-gotchas.md`**: the traps this repo has actually hit, each with where the fix lives — `CreateProcessW` running PE images only, node-pty's exact-name PATH lookup and its empty error message, cmd.exe's second parse of the command line, `path.resolve` drive qualification, case folding, 8.3 short paths, and env-name casing. A test file already pointed at this document; it did not exist.
+
+### Docs & dependencies
+
+- **The terminal scrollback / selection FAQ entry was wrong** (#782, #805): it blamed a "renderer generation mismatch", which the investigation ruled out. The cause is that tmux owns the scrollback and splits by cell type — a shell cell keeps real history in the main buffer and can be drag-selected, while a Claude/Codex cell runs on the alternate screen with `history_size = 0` and redraws its own transcript, so its scrolled-off history cannot be drag-selected in **any** terminal (VS Code and iTerm included). The OSC 8 half of the entry was fixed in 1.9.1 and is dropped. The practical workaround — redirect long output to a file and open it in the browser viewer — is now written down.
+- Dependency bumps (#807): `@mulmoclaude/*` plugins to 1.0.2 / core 1.3.0 / mulmoscript-plugin 1.1.1, `@mulmoclaude/x-plugin` and `@receptron/task-scheduler` and `@mulmobridge/web-push` to 1.0.0, `mulmocast` 2.9.2.
+
 ## mulmoterminal@1.9.2 — 2026-07-25
 
 ### Windows
