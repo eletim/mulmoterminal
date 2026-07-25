@@ -16,15 +16,30 @@ import os from "node:os";
 const SETTINGS_DIR = path.join(os.homedir(), ".mulmoterminal", "settings");
 
 const settingsFile = (sessionId: string): string => path.join(SETTINGS_DIR, `${sessionId}.json`);
+const mcpConfigFile = (sessionId: string): string => path.join(SETTINGS_DIR, `${sessionId}-mcp.json`);
 
-// The settings to pass as `--settings`: the JSON itself when it holds nothing secret,
-// otherwise the path to a private file holding it.
-export function settingsArgument(sessionId: string, json: string, secret: boolean): string {
-  if (!secret) return json;
-  const file = settingsFile(sessionId);
+// Windows has a second, unrelated reason to use a file: there, a `.cmd`-installed Claude is
+// launched through cmd.exe (#798), so a JSON argument is parsed by cmd and then by the
+// child's CRT, and the two disagree about quoting. A path has no quotes and no
+// metacharacters, which removes that layer rather than escaping through it (#813).
+const mustUseFile = (secret: boolean, platform: NodeJS.Platform): boolean => secret || platform === "win32";
+
+function writePrivate(file: string, json: string): string {
   mkdirSync(SETTINGS_DIR, { recursive: true, mode: 0o700 });
   writeFileSync(file, json, { encoding: "utf8", mode: 0o600 });
   return file;
+}
+
+// The settings to pass as `--settings`: the JSON itself when it holds nothing secret and
+// nothing between us and Claude Code would re-parse it, otherwise a private file's path.
+export function settingsArgument(sessionId: string, json: string, secret: boolean, platform: NodeJS.Platform = process.platform): string {
+  return mustUseFile(secret, platform) ? writePrivate(settingsFile(sessionId), json) : json;
+}
+
+// The same for `--mcp-config`, which is the other large JSON argument a spawn carries. It
+// holds no secret, so only the Windows reason applies.
+export function mcpConfigArgument(sessionId: string, json: string, platform: NodeJS.Platform = process.platform): string {
+  return mustUseFile(false, platform) ? writePrivate(mcpConfigFile(sessionId), json) : json;
 }
 
 // Run a spawn, taking the session's settings file with it if the spawn throws. A session
@@ -39,7 +54,8 @@ export function withSettingsCleanup<T>(sessionId: string, spawn: () => T): T {
   }
 }
 
-// Drop a session's settings file. Safe to call for sessions that never wrote one.
+// Drop a session's files. Safe to call for sessions that never wrote one.
 export function cleanupSessionSettings(sessionId: string): void {
   rmSync(settingsFile(sessionId), { force: true });
+  rmSync(mcpConfigFile(sessionId), { force: true });
 }

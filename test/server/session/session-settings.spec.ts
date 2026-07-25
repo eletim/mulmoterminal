@@ -4,10 +4,11 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import { cleanupSessionSettings, settingsArgument, withSettingsCleanup } from "../../../server/session/session-settings.js";
+import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "../../../server/session/session-settings.js";
 
 const SESSION = "settings-spec-session";
 const fileFor = (id: string) => path.join(os.homedir(), ".mulmoterminal", "settings", `${id}.json`);
+const mcpFileFor = (id: string) => path.join(os.homedir(), ".mulmoterminal", "settings", `${id}-mcp.json`);
 
 afterEach(() => cleanupSessionSettings(SESSION));
 
@@ -69,5 +70,46 @@ describe("withSettingsCleanup", () => {
 describe("cleanupSessionSettings", () => {
   it("is a no-op for a session that never wrote one", () => {
     expect(() => cleanupSessionSettings("never-existed-session")).not.toThrow();
+  });
+});
+
+// #813: on Windows a `.cmd`-installed Claude is launched through cmd.exe, so an inline JSON
+// argument is parsed by cmd and then by the child's CRT — two parsers that disagree about
+// quoting. A path carries no quotes and no metacharacters, so the layer stops mattering.
+describe("the Windows reason for a file", () => {
+  const json = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "curl -d @- >/dev/null 2>&1" }] }] } });
+
+  it("writes a file on win32 even when nothing is secret", () => {
+    expect(settingsArgument(SESSION, json, false, "win32")).toBe(fileFor(SESSION));
+    expect(readFileSync(fileFor(SESSION), "utf8")).toBe(json);
+  });
+
+  it("keeps POSIX inline, so a working platform is untouched", () => {
+    expect(settingsArgument(SESSION, json, false, "darwin")).toBe(json);
+    expect(settingsArgument(SESSION, json, false, "linux")).toBe(json);
+    expect(existsSync(fileFor(SESSION))).toBe(false);
+  });
+
+  it("gives --mcp-config its own file, so the two never overwrite each other", () => {
+    const settings = settingsArgument(SESSION, json, false, "win32");
+    const mcp = mcpConfigArgument(SESSION, '{"mcpServers":{}}', "win32");
+    expect(mcp).toBe(mcpFileFor(SESSION));
+    expect(mcp).not.toBe(settings);
+    expect(readFileSync(settings, "utf8")).toBe(json);
+    expect(readFileSync(mcp, "utf8")).toBe('{"mcpServers":{}}');
+  });
+
+  it("passes --mcp-config inline off Windows", () => {
+    expect(mcpConfigArgument(SESSION, "{}", "darwin")).toBe("{}");
+  });
+
+  // reap() calls this once per session; it has to take BOTH files or the mcp one outlives
+  // every Windows session.
+  it("cleans up both files", () => {
+    settingsArgument(SESSION, json, false, "win32");
+    mcpConfigArgument(SESSION, "{}", "win32");
+    cleanupSessionSettings(SESSION);
+    expect(existsSync(fileFor(SESSION))).toBe(false);
+    expect(existsSync(mcpFileFor(SESSION))).toBe(false);
   });
 });
