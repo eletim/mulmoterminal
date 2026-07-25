@@ -2,6 +2,23 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.11.0 — 2026-07-25
+
+### Clicking a file path in terminal output
+
+Terminal output is full of file paths, and clicking one used to do the same thing whatever it was: serve the bytes. A `.md` opened as markdown source, a `.csv` as a wall of commas, a `.ts` as text. Each kind now opens as the thing it is (#808).
+
+- **Markdown renders** (#809): the "another model" help had always said a key belongs in a `.env` — and the Files overlay had always previewed markdown properly — but a clicked `.md` went to the raw route, which serves it as `text/plain`. It now goes to the route the overlay uses. The rendered page also stopped being hardcoded light: it opens in its own tab under a sandbox CSP and so cannot ask the app which theme is on, so it follows the reader's system setting instead of flashing white.
+- **JSON is indented, CSV/TSV become a table** (#810): Chrome and Safari show a raw JSON file as one long line. A delimited file becomes a real table with a sticky header that scrolls inside its own box, so a wide one never pushes the page sideways. The CSV parser is written out rather than pulled in — the RFC 4180 rules are small enough to state exactly, and a loose parser silently splits a field in half, which is a wrong table nobody notices. Its output was cross-checked against Python's `csv.reader`, including the case where a quote preceded by spaces does *not* open a quoted field; that agreement is pinned as a test. Unparseable JSON and an unterminated quote both show what the file actually holds rather than an error, since that is exactly when someone opens the viewer.
+- **Source opens in the Files view** (#811): a browser tab can only show source as bytes, and the app already highlights and edits it. A clicked `.ts` / `.py` / `.sh` / `.yaml` (about forty extensions) now opens in the Files view instead of a tab — no new dependency, since the highlighting is the editor's own. The alternative was a server-side highlighter, which the sandbox CSP forces, and that means a package for something the app can already do. Highlighting today covers the JS/TS family, JSON and Markdown — the modes `cmEditor.ts` bundles; other languages open as plain text.
+- **`/files` gained `?path=`**: the file being edited now rides the URL like the project root already did, so a Files view is linkable and survives a reload.
+
+Images, PDFs, SVGs and HTML keep opening in a tab — the browser renders those better than an editor would.
+
+### Path containment
+
+- **One gate for both file entry points**: the raw route and the browse routes had written the same containment out separately and drifted — the raw one expanded a leading `~`, the browse ones did not. It never mattered while every clicked path went to the raw route; sending source files to the browse routes made it reachable, so a line printing `~/proj/src/main.ts` would have opened onto a 403. `resolveContained()` in `files/pathContainment.ts` is now that gate, and both call it. Containment itself is unchanged: a tilde expanding outside the base is still refused, as are `..`, an absolute path, and a symlink leaving the base.
+
 ## mulmoterminal@1.10.0 — 2026-07-25
 
 ### Configuration
