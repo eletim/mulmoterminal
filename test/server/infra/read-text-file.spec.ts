@@ -6,7 +6,7 @@
 // The BOM is file CONTENT, so these run everywhere: the bug is reachable from any host that
 // opens a file written on Windows (a repo checkout, a synced directory, a pasted config).
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { stripBom, readTextFile, readJsonFile } from "../../../server/infra/read-text-file";
@@ -14,6 +14,7 @@ import { loadDirConfig } from "../../../server/config/dir-config";
 import { loadPresets } from "../../../server/config/cwd-presets";
 import { loadScripts } from "../../../server/files/scripts";
 import { loadAppConfigResult } from "../../../server/config/app-config";
+import { loadUserTasks } from "../../../server/backends/scheduler";
 
 const BOM = "﻿";
 const dirs: string[] = [];
@@ -92,6 +93,19 @@ describe("the config readers, given a BOM", () => {
     writeFileSync(file, `${BOM}${JSON.stringify({ launchers: [{ label: "shell", command: "bash" }] })}`, "utf8");
     const result = loadAppConfigResult(file);
     expect(result.status).toBe("ok");
+  });
+
+  // The user's scheduled tasks — a file they edit by hand, so the same trap, and losing it
+  // means every scheduled run silently stops happening.
+  it("keeps the scheduled tasks (tasks.json)", () => {
+    const workspace = tmp();
+    mkdirSync(path.join(workspace, "config", "scheduler"), { recursive: true });
+    writeFileSync(
+      path.join(workspace, "config", "scheduler", "tasks.json"),
+      `${BOM}${JSON.stringify([{ id: "daily", prompt: "summarise", schedule: { kind: "daily", hour: 9, minute: 0 } }])}`,
+      "utf8",
+    );
+    expect(loadUserTasks(workspace)).toHaveLength(1);
   });
 
   // A genuinely corrupt file must still be reported as corrupt: that verdict is what stops a

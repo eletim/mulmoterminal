@@ -21,6 +21,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { Express, Request, Response } from "express";
+import { stripBom } from "../infra/read-text-file.js";
 
 // ── On-disk cache schema (SHARED with MulmoClaude — do not diverge) ───────────
 
@@ -57,7 +58,7 @@ function dictionaryPath(workspace: string, namespace: string): string {
 async function loadDictionary(workspace: string, namespace: string): Promise<DictionaryFile> {
   let raw: unknown;
   try {
-    raw = JSON.parse(await fs.readFile(dictionaryPath(workspace, namespace), "utf8"));
+    raw = JSON.parse(stripBom(await fs.readFile(dictionaryPath(workspace, namespace), "utf8")));
   } catch {
     return emptyDictionary(); // missing / unreadable / malformed → start empty
   }

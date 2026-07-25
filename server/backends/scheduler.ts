@@ -16,11 +16,11 @@
 // supplied by server/index.ts. journal / chat-index stay MulmoClaude-only (their run
 // logic isn't in the shared package).
 import path from "node:path";
-import { readFileSync } from "node:fs";
 import type { Express, Request, Response } from "express";
 import { SCHEDULE_TYPES } from "@receptron/task-scheduler";
 import { createTaskManager } from "@mulmoclaude/core/scheduler";
 import type { TaskDefinition, TaskSchedule } from "@mulmoclaude/core/scheduler";
+import { readTextFile } from "../infra/read-text-file.js";
 
 const log = {
   info: (message: string, data?: Record<string, unknown>) => console.log(`[scheduler] ${message}`, data ?? ""),
@@ -77,7 +77,7 @@ function tasksFilePath(workspace: string): string {
 export function loadUserTasks(workspace: string): PersistedUserTask[] {
   let raw: string;
   try {
-    raw = readFileSync(tasksFilePath(workspace), "utf8");
+    raw = readTextFile(tasksFilePath(workspace));
   } catch {
     return [];
   }
