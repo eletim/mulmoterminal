@@ -1661,10 +1661,10 @@
   resolved "https://registry.yarnpkg.com/@mozilla/readability/-/readability-0.6.0.tgz#134e3ce3ff1676716e550de0b8de957bcc59208b"
   integrity sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ==
 
-"@mulmobridge/web-push@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@mulmobridge/web-push/-/web-push-1.0.0.tgz#178562589f2519b5150d4b1a8b06cc843257f38e"
-  integrity sha512-ymaIU4AgCdzdWkimVEkp+78LlA1iPdmth2h2I5zqkUVbqvU2ZiV4DYPSHKS4/zLqd0rHVwt/JJUvdqbhouDR/g==
+"@mulmobridge/web-push@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@mulmobridge/web-push/-/web-push-1.0.1.tgz#8243ffee8c3b677bf885af928a89055a683538c4"
+  integrity sha512-ZnL6Sij5411VhPLqbey2p2Q1rR5E2nSnE1encKmzcVb6eHex+UUtmu8vmXwNmU0JLbBL+tQL5HMwhz8qdqKBBA==
 
 "@mulmocast/deck-web@^1.1.1":
   version "1.1.1"
@@ -1705,103 +1705,103 @@
   resolved "https://registry.yarnpkg.com/@mulmochat-plugin/ui-image/-/ui-image-0.4.1.tgz#8fd3b1c4ffe21e6bc22761ff48eac03306e0d345"
   integrity sha512-I3AqTIuQPsSMNxDON9UTxT2KO57HV6uUVotCIFskV0UqBMQrQ3FUu8J+qXRWDdjPyYaHoC8AJsi91TbNrOMwng==
 
-"@mulmoclaude/accounting-plugin@^1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/accounting-plugin/-/accounting-plugin-1.0.2.tgz#4b717a95acd6e29377dd5e943f855b3f1a276994"
-  integrity sha512-xP4vUtOTfJ4j9N81RgTJk8pCjoq47Um2It8ObjHRdGQZx14tvwk7u+z3YF4q3A/8n9jc6m49ljMnSKzgETYz2Q==
+"@mulmoclaude/accounting-plugin@^1.0.3":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/accounting-plugin/-/accounting-plugin-1.0.3.tgz#2fb5aba9140c19fc2385879189e0684684f6ce87"
+  integrity sha512-Z42ehJwyi7BeEUE4dVkG1bqDc8MPbXxuLsrjkD8yXmUG3lPZkHbDeR5mPnGUzsmC+K8rvaAQxevjzZWswOtMAA==
   dependencies:
-    "@mulmoclaude/common" "^1.1.0"
-    "@mulmoclaude/core" "^1.3.0"
+    "@mulmoclaude/common" "^1.1.1"
+    "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/chart-plugin@^1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/chart-plugin/-/chart-plugin-1.0.2.tgz#8a5ec25d1e9b615e241182c1768b18ddff2aaed2"
-  integrity sha512-LeToXud6N2BMajfBsyhVc4wYDIUSQ5mC+i941YhVyCQ8wIErNQzAq9AUHNuqyf7HH3pQIwINJd3uMCkqwNXrFw==
+"@mulmoclaude/chart-plugin@^1.0.3":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/chart-plugin/-/chart-plugin-1.0.3.tgz#f2792cfb7f75f2331f56fe88cbbba3cf99879214"
+  integrity sha512-XkQiVPia34KAU1G3qZZhVfSebOGxDy9heUOb7BMuTc4eLEt+0JKO6bSJpoffIKhunrQXRdDBt+GS5HwdqlxHOQ==
   dependencies:
-    "@mulmoclaude/core" "^1.3.0"
+    "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/collection-plugin@^1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/collection-plugin/-/collection-plugin-1.0.2.tgz#9219013af8793516121996e63dd788660b8a5735"
-  integrity sha512-LkT7L2CHNgKouyJrA1dS7jL+hmLwGWwo0qcoZTLvbbFXbK8pCCY+pufaijJSmmpT3gX6UBJlQspbauTdUuwUPA==
+"@mulmoclaude/collection-plugin@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/collection-plugin/-/collection-plugin-1.1.1.tgz#18eb0ded20844ac55cf737e0c367b72b72f5e44f"
+  integrity sha512-5r18FEgGFwae3y2S7rmhN+WpVzM/LsRMOI5fqJ8cALQJp2Q5Oqopq7qnhwqDrOAOxR7UlIPEAx3WaCPTi1pWqA==
   dependencies:
     vuedraggable "^4.1.0"
     zod "^4.4.3"
 
-"@mulmoclaude/common@^1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/common/-/common-1.1.0.tgz#1ea05200189952be0649c86f1577add8be740780"
-  integrity sha512-dZ8hfJUVAKgUDNqpghjHaMCW5LIjQZUTK8CH0FtptmxxaJu651xbZNbE/spqjgl0YWJP2P9CtQC8U56cfhWtnA==
+"@mulmoclaude/common@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/common/-/common-1.1.1.tgz#38c57cb4d6530679996e9ce2732d3be207ad3872"
+  integrity sha512-bq47GoDVsKFraKrvRpzhkRJHQ6/omXCIRYrMNch7mq8eXU/kRNHFU7e+rfdoNaoDnLt1S/lZY5nZu7RVoPx9CA==
 
-"@mulmoclaude/core@^1.3.0":
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.3.0.tgz#f6a36a686893b3ceb1c7dfce7c3d1957fc486982"
-  integrity sha512-CV4t9wvmSzqvWNo5hkgK02FBzE57Y0/7go5ATiOKbBR1O8Fxeur8R1vahjXMbCiEtaVE+CveNN0aGkBIqMLYyw==
+"@mulmoclaude/core@^1.5.0":
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.5.0.tgz#6ebdb13498ed2b90a2ca129319bc86b26b88103c"
+  integrity sha512-AaIJOde/CVO3vPPv08RSM8HUhjknjNdIYR89Xp68w97HnOizykpjIn5pe1ScbLCZs2NVJxLRol6+zW8sH4azRw==
   dependencies:
     "@duckdb/node-api" "^1.5.5-r.1"
-    "@mulmoclaude/common" "^1.1.0"
-    "@mulmoclaude/markdown-utils" "^1.3.0"
+    "@mulmoclaude/common" "^1.1.1"
+    "@mulmoclaude/markdown-utils" "^1.3.1"
     fast-xml-parser "^5.10.1"
     google-auth-library "^10.9.1"
     iconv-lite "^0.7.3"
     js-yaml "^5.2.2"
     zod "^4.4.3"
 
-"@mulmoclaude/form-plugin@^1.0.1":
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/form-plugin/-/form-plugin-1.0.1.tgz#a2ee1ef9cecbceec5e091b9e9758508fec2ae221"
-  integrity sha512-YKeJAd8rxnUkAMTab2+aPsO9Nut27TFKvJz6YWHiXFFH6lWuMThF+fvTUQlkFugO6ShtETNd/jSpvTXIzOWlKQ==
-
-"@mulmoclaude/google-plugin@^1.0.2":
+"@mulmoclaude/form-plugin@^1.0.2":
   version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/google-plugin/-/google-plugin-1.0.2.tgz#2ce286d79445e908e3b23fe9988a7afe3b04dae9"
-  integrity sha512-VPeH30lnovH170Hqbw+JGzB2d0U7SvR1enRqHoqaSNhiaL1om9rfW0/7TeoZ9y3CwdFcB5JpbdEGnMGxmA2cfw==
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/form-plugin/-/form-plugin-1.0.2.tgz#8768bcddcd0f388a7a9dbe01c112b8b1bf0ce255"
+  integrity sha512-UPlsbsrB4HnDp93zjJGAB0QkKRPLYST9x4KKuPHEIw3nTmXX9xrQ3j/UA7CI+sonik1AnqUYJjjlkS1bAkIDPA==
+
+"@mulmoclaude/google-plugin@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/google-plugin/-/google-plugin-1.2.0.tgz#2e6c1bafc2a7fffbc59fd990ff45d9db1e7541df"
+  integrity sha512-UQ658N2r+Ldr/cUT2O0ObZ/2emwbVpfGMfNHGeEEQe/qbeD+dw8bl8PPZ4ysqGGwvIvhRNwWLNDcYERjLARb2g==
   dependencies:
-    "@mulmoclaude/core" "^1.3.0"
+    "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/html-plugin@^1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/html-plugin/-/html-plugin-1.0.2.tgz#7bc4c9a8b7f298364bd6b1e3bbdec74e9568695f"
-  integrity sha512-2u3BTaWXi2wsouOmKQ03ruNEsF6V2ClMG7lYI7pnQQOYVcQrtRgMoy6kTEFZAFPcm6GNec+/fYq9kyk8diGdKQ==
+"@mulmoclaude/html-plugin@^1.0.3":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/html-plugin/-/html-plugin-1.0.3.tgz#75b2f1431528ee18044a4542531964519a22c4f5"
+  integrity sha512-+tgBif7heiX9BZf1D5KzIs2aEJq9/HXexBa4X73FIlkH5PWEvEi4noWg0RBP4h70QnjWD0JQU0UIkni6iLVUzQ==
   dependencies:
-    "@mulmoclaude/common" "^1.1.0"
-    "@mulmoclaude/core" "^1.3.0"
+    "@mulmoclaude/common" "^1.1.1"
+    "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/markdown-plugin@^1.0.2":
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/markdown-plugin/-/markdown-plugin-1.0.2.tgz#20a601c71d214f995bff5b2c9eddbd2a8be3a74d"
-  integrity sha512-RF9LD9DrVZN3v2QO5S3+Npazj/olYQUJ/RYfgEvsKCfURipqZvn5FDDmBVEj2rZdQC6hyVkFJYjwQTcLCJplRQ==
+"@mulmoclaude/markdown-plugin@^1.0.3":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/markdown-plugin/-/markdown-plugin-1.0.3.tgz#caf453c72f04ea1e910cc9005a3039d7332eb9e5"
+  integrity sha512-gTjf0gAWgXIC90j7UXtyA8REU8evo2//xBhcjh5qX2FD2QVyOXicWeNxpjdlA6zDvPTEdGQf8Ws4fY95dCB4Pw==
   dependencies:
     "@marp-team/marp-core" "^4.4.0"
-    "@mulmoclaude/common" "^1.1.0"
-    "@mulmoclaude/markdown-utils" "^1.3.0"
+    "@mulmoclaude/common" "^1.1.1"
+    "@mulmoclaude/markdown-utils" "^1.3.1"
     js-yaml "^5.2.2"
     marked "^18.0.7"
     mermaid "^11.16.0"
 
-"@mulmoclaude/markdown-utils@^1.3.0":
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/markdown-utils/-/markdown-utils-1.3.0.tgz#dc500e6df4bcf406c97eb3fbc0ba393dc80735ab"
-  integrity sha512-1rul4YCW80PJvQFFYb8gPHg2oQ2Mgqd911AIuJU+9IboNCMg/osp0lEB+WW7OwU0uphdztHUf2LdCD/KAxd/QA==
+"@mulmoclaude/markdown-utils@^1.3.1":
+  version "1.3.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/markdown-utils/-/markdown-utils-1.3.1.tgz#75805d14143c1717d6393b0e5da6ac8a7948dfd0"
+  integrity sha512-lfick3P37teJSBOgCxI/2f6hds53Ye3Ob32s8eVM0ycSeF3IMs1LuBbLhYMfTk+7W3WIEm8TV5cvN127Tz5YuA==
   dependencies:
-    "@mulmoclaude/common" "^1.1.0"
+    "@mulmoclaude/common" "^1.1.1"
     js-yaml "^5.2.2"
     marked "^18.0.7"
 
-"@mulmoclaude/mulmoscript-plugin@^1.1.1":
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/mulmoscript-plugin/-/mulmoscript-plugin-1.1.1.tgz#5e3f590a24de0bf675f9614bad8a106b9df1ac62"
-  integrity sha512-4k9tTQxxIAaWZtpfEhPiyjOOBoCzkn4n8m3gpSn6Kjt1GyF3TOIzLeNgeQE57DPVTgVxkhafy2Y05nu8mOSMQQ==
+"@mulmoclaude/mulmoscript-plugin@^1.1.2":
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/mulmoscript-plugin/-/mulmoscript-plugin-1.1.2.tgz#2310be3d56c1a56f70435649266c2618b84cbcca"
+  integrity sha512-BYnmzUZwbnXwRuqFmL5Q6Ix/auuFfTkJ1clgNZ/n78TWvPQdVM8KLiR5x0ZTFmeS42ONbJneFnkGB63NFbyAeQ==
   dependencies:
-    "@mulmoclaude/common" "^1.1.0"
-    "@mulmoclaude/core" "^1.3.0"
+    "@mulmoclaude/common" "^1.1.1"
+    "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/x-plugin@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/x-plugin/-/x-plugin-1.0.0.tgz#578387142f735e509881c2c7b703ed6aca797223"
-  integrity sha512-yIPUHxmWvS6lHzMWZzdNqtFxkQvL2SOr0bgINepXJSOdaxvDe7ZKa0J12yJGO5a7Kohb5I1e/+wVGfrLNqSU4g==
+"@mulmoclaude/x-plugin@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/x-plugin/-/x-plugin-1.0.1.tgz#f3900f1c24b874945c63b910cc77652d01828d49"
+  integrity sha512-jM3f3ljUWXtDQX1vrCFo10b0f2FcTVMijMpyQL7GfZLGldsIeSsF9wGWQzARNQ0xrWgp4x02uWC0IfhyptgjDA==
   dependencies:
-    "@mulmoclaude/common" "^1.1.0"
+    "@mulmoclaude/common" "^1.1.1"
 
 "@napi-rs/wasm-runtime@^1.1.4", "@napi-rs/wasm-runtime@^1.1.6":
   version "1.1.6"
@@ -2115,10 +2115,10 @@
     modern-tar "^0.7.6"
     yargs "^18.0.0"
 
-"@receptron/task-scheduler@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@receptron/task-scheduler/-/task-scheduler-1.0.0.tgz#9d17a3fe3cad5ea00b2d9ecc72f7c255d1f72c78"
-  integrity sha512-c43kZSeyjWgpvBxJG4OzswLLT1WicKWbfg8u1XZ44ffm3IburNXTBdcOVtG8NP7lcOJS+h+2z6VFNrY+kbx2NQ==
+"@receptron/task-scheduler@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@receptron/task-scheduler/-/task-scheduler-1.0.1.tgz#9597cea41cab378cbcb4c458c08882d13e986c15"
+  integrity sha512-AoG3RGSvQ8m/ccgPg+i8hgrk1+0lTxBO5hrdTEPciK7J5ORWW6tTfbPkzeaQ3U/9aCclCEv81gepOvASZ+4zpw==
 
 "@rolldown/binding-android-arm64@1.0.3":
   version "1.0.3"
