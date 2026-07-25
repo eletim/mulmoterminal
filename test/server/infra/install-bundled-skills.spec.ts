@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { BUNDLED_SKILL_NAMES, installOwnedSkill, SCHEMA_ASSET_FILE } from "../../../server/infra/install-bundled-skills";
@@ -55,6 +55,29 @@ describe("installOwnedSkill", () => {
   it("returns absent-source when the bundled skill is missing", () => {
     expect(installOwnedSkill(path.join(root, "nope"), destParent)).toBe("absent-source");
     expect(existsSync(path.join(destParent, NAME))).toBe(false);
+  });
+
+  // Flagged by Codex on #821, the same stale-overlay class as syncCodexSkills: copying on top
+  // of a copy we could not remove leaves whatever the bundle has since dropped in place while
+  // reporting it as installed. `unreplaceable` is its own outcome — nobody else owns the
+  // directory, we simply could not replace it.
+  //
+  // The state it models (something still holding the directory) is Windows-only, and chmod
+  // cannot produce it there, so the case is driven the POSIX way.
+  it.skipIf(process.platform === "win32")("reports unreplaceable rather than overlaying a copy it could not remove", () => {
+    installOwnedSkill(source, destParent);
+    // A file only the SECOND copy could bring. Asserting on one that exists in BOTH would
+    // depend on how far rmSync got before failing — it may or may not empty the directory
+    // first, and that differs between machines (this test passed locally and failed in CI on
+    // exactly that).
+    writeFileSync(path.join(source, "new-in-bundle.md"), "shipped later");
+    chmodSync(destParent, 0o500);
+    try {
+      expect(installOwnedSkill(source, destParent)).toBe("unreplaceable");
+    } finally {
+      chmodSync(destParent, 0o700);
+    }
+    expect(existsSync(path.join(destParent, path.basename(source), "new-in-bundle.md"))).toBe(false);
   });
 
   // Regression: a skill dir holding a file named exactly `schema.json` is loaded by the

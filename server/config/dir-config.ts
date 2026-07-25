@@ -4,11 +4,12 @@
 // terminal falls back to the global theme/sound. Field validation lives in the zod
 // schemas of config-schema.ts; the path-confinement check for `sound` (the security
 // surface) stays here because it touches the filesystem.
-import { existsSync, readFileSync, statSync, realpathSync } from "node:fs";
+import { existsSync, statSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import type { DirChrome } from "../../common/dirChrome.js";
 import { isWithin } from "../infra/path-within.js";
+import { readJsonFile } from "../infra/read-text-file.js";
 import {
   dirNameField,
   dirColorField,
@@ -120,7 +121,7 @@ export function loadDirConfig(cwd: string): DirConfig {
     const base = path.resolve(cwd);
     const file = path.join(base, DIR_CONFIG_FILE);
     if (!existsSync(file)) return EMPTY;
-    const raw: unknown = JSON.parse(readFileSync(file, "utf8"));
+    const raw: unknown = readJsonFile(file);
     if (!isRecord(raw)) return EMPTY;
     return {
       name: dirNameField.parse(raw.name),

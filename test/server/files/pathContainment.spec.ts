@@ -2,7 +2,15 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { containedPath, realContainedWithin, resolveBase, expandTilde, authorizedServingBase, resolveContained } from "../../../server/files/pathContainment";
+import {
+  containedPath,
+  realContainedWithin,
+  resolveBase,
+  expandTilde,
+  authorizedServingBase,
+  resolveContained,
+  namesAWindowsDevice,
+} from "../../../server/files/pathContainment";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-files-"));
 
@@ -143,5 +151,54 @@ describe("resolveBase", () => {
     expect(resolveBase(null, "/default")).toBe("/default");
     expect(resolveBase(path.join(dir, "missing"), "/default")).toBe("/default");
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// Windows resolves the DOS device names in EVERY directory: `C:\\anything\\NUL` is the null
+// device, not a missing file. Containment says yes — the path is inside the base — and the
+// open lands on a device. NUL reads as empty (merely wrong); CON blocks until the console has
+// input, which hangs the request that asked for it.
+describe("namesAWindowsDevice", () => {
+  it.each(["NUL", "CON", "PRN", "AUX", "COM1", "COM9", "LPT1", "LPT9"])("refuses %s on Windows", (name) => {
+    expect(namesAWindowsDevice(name, "win32")).toBe(true);
+  });
+
+  // A colon opens an NTFS alternate data stream, and `NUL:` is the legacy device spelling —
+  // neither stops the name in front of it being a device. Flagged by Codex on #821.
+  it("refuses one behind a colon (alternate data stream / legacy device spelling)", () => {
+    for (const name of ["NUL:$DATA", "CON:foo", "docs/NUL:x", "AUX:"]) {
+      expect(namesAWindowsDevice(name, "win32"), name).toBe(true);
+    }
+  });
+
+  it("refuses one whatever its case, extension, or trailing dots and spaces", () => {
+    for (const name of ["nul", "Nul", "NUL.txt", "con.log", "NUL.", "NUL. ", "aux .txt"]) {
+      expect(namesAWindowsDevice(name, "win32"), name).toBe(true);
+    }
+  });
+
+  it("refuses one in ANY segment, with either separator", () => {
+    expect(namesAWindowsDevice("docs/NUL/readme.md", "win32")).toBe(true);
+    expect(namesAWindowsDevice("docs\\CON\\readme.md", "win32")).toBe(true);
+  });
+
+  it("allows ordinary names that merely start the same way", () => {
+    for (const name of ["console.ts", "contact.md", "nullable.ts", "com10.txt", "auxiliary/notes.md", "printer.log"]) {
+      expect(namesAWindowsDevice(name, "win32"), name).toBe(false);
+    }
+  });
+
+  // `con` is an ordinary filename on POSIX; refusing it there would break a real file.
+  it("allows every one of them off Windows", () => {
+    for (const name of ["NUL", "con/readme.md", "aux.txt"]) {
+      expect(namesAWindowsDevice(name, "linux"), name).toBe(false);
+    }
+  });
+
+  it("is refused by the shared gate, not just recognised", () => {
+    const root = realpathSync(tmp());
+    expect(resolveContained(root, "NUL", "/home/user", "win32")).toBeNull();
+    expect(resolveContained(root, "docs/CON.txt", "/home/user", "win32")).toBeNull();
+    rmSync(root, { recursive: true, force: true });
   });
 });

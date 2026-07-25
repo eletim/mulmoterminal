@@ -9,9 +9,10 @@
 // The env block is the transport for a reason: Claude Code applies it itself, so it
 // reaches the session identically on the host, under tmux — where a pane inherits the
 // tmux SERVER's environment, not the spawning client's — and inside a container.
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { removeQuietly } from "../infra/fs-cleanup.js";
 
 const SETTINGS_DIR = path.join(os.homedir(), ".mulmoterminal", "settings");
 
@@ -56,6 +57,6 @@ export function withSettingsCleanup<T>(sessionId: string, spawn: () => T): T {
 
 // Drop a session's files. Safe to call for sessions that never wrote one.
 export function cleanupSessionSettings(sessionId: string): void {
-  rmSync(settingsFile(sessionId), { force: true });
-  rmSync(mcpConfigFile(sessionId), { force: true });
+  removeQuietly(settingsFile(sessionId));
+  removeQuietly(mcpConfigFile(sessionId));
 }

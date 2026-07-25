@@ -3,12 +3,13 @@
 // including under `npx`, since they ship in the package. Modeled on server/codex-skills.ts: an
 // ownership marker means we only ever refresh OUR copy and never clobber a user's own same-named
 // skill. Best-effort: a filesystem failure logs and continues, never aborting server startup.
-import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, cpSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { codexSkillsRoot } from "../agents/codex-skills.js";
 import { dirConfigJsonSchema } from "../config/config-schema.js";
+import { removeQuietly } from "./fs-cleanup.js";
 
 const OWNER_MARKER = ".mt-owned";
 const OWNER_MARKER_BODY = "managed by mulmoterminal\n";
@@ -26,15 +27,23 @@ function bundledSkillDir(name: string): string {
 
 const isOurs = (dir: string): boolean => existsSync(path.join(dir, OWNER_MARKER));
 
+/** What installing one bundled skill did. `unreplaceable` is ours but could not be removed,
+ *  so it was left as it was rather than overlaid — see the copy site. */
+export type InstallOutcome = "installed" | "skipped" | "absent-source" | "unreplaceable";
+
 // Copy `sourceDir` into `<destParent>/<name>`, refreshing our own copy so shipped edits/removals
 // propagate, but SKIPPING a same-named directory we don't own (no marker) so a user's hand-written
 // skill is never clobbered. `extras` are additional files written into the destination after the
 // copy (e.g. a generated schema.json). Returns what happened, for logging/tests.
-export function installOwnedSkill(sourceDir: string, destParent: string, extras: Record<string, string> = {}): "installed" | "skipped" | "absent-source" {
+export function installOwnedSkill(sourceDir: string, destParent: string, extras: Record<string, string> = {}): InstallOutcome {
   if (!existsSync(sourceDir)) return "absent-source";
   const dest = path.join(destParent, path.basename(sourceDir));
   if (existsSync(dest) && !isOurs(dest)) return "skipped";
-  rmSync(dest, { recursive: true, force: true });
+  // Copying ON TOP of a copy we failed to remove leaves whatever the bundle has since
+  // dropped in place, while we report it as freshly installed. That is a distinct outcome
+  // from "skipped": nobody else owns this directory, we simply could not replace it (on
+  // Windows, something still holds it open — see infra/fs-cleanup.ts).
+  if (!removeQuietly(dest)) return "unreplaceable";
   cpSync(sourceDir, dest, { recursive: true });
   writeFileSync(path.join(dest, OWNER_MARKER), OWNER_MARKER_BODY);
   for (const [file, content] of Object.entries(extras)) writeFileSync(path.join(dest, file), content);
@@ -59,7 +68,10 @@ export function installBundledSkills(): void {
     for (const name of BUNDLED_SKILL_NAMES) {
       try {
         mkdirSync(root, { recursive: true });
-        installOwnedSkill(bundledSkillDir(name), root, extrasFor(name));
+        const outcome = installOwnedSkill(bundledSkillDir(name), root, extrasFor(name));
+        // Worth a line: the copy on disk is now older than the bundle, and silence would
+        // read as "up to date".
+        if (outcome === "unreplaceable") console.warn(`[skills] could not replace ${name} in ${root} — leaving the existing copy in place`);
       } catch (err) {
         console.error(`[skills] installing ${name} into ${root} failed — continuing`, err instanceof Error ? err.message : String(err));
       }
