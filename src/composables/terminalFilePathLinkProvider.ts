@@ -54,6 +54,9 @@ export function computeFilePathLinks(cells: TerminalCell[]): ColumnLink[] {
 const ROUTE_BY_EXTENSION: Record<string, string> = {
   ".md": "/api/files/browse/md",
   ".markdown": "/api/files/browse/md",
+  ".json": "/api/files/browse/json",
+  ".csv": "/api/files/browse/table",
+  ".tsv": "/api/files/browse/table",
 };
 
 const RAW_ROUTE = "/api/files/raw";
