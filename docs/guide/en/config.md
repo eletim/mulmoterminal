@@ -13,6 +13,19 @@ nav_order: 4
 
 Settings live in three places: the **settings modal (⚙)**, the **global config `~/.mulmoterminal/config.json`**, and the **per-project `<project>/.mulmoterminal.json`**. Buttons and chips are merged from both files.
 
+{: .highlight }
+> **You don't have to hand-write any of this.** Run **`/mulmoterminal-config`** in any MulmoTerminal
+> session and the bundled skill walks you through it with checkboxes and colour presets, then writes
+> a valid file — for the current directory or several of your recent ones at once. (The ⚙ →
+> **🎨 Configure appearance…** button starts the same skill.)
+>
+> It is also how you find the settings that have **no UI at all** and exist only in
+> `~/.mulmoterminal/config.json`: [`providers`](#providers) (another model),
+> [`keymap`](#keymap) (keyboard shortcuts), [`terminalSubmit`](#terminal-submit) (the fix for
+> "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Hand-editing works
+> too — this page documents every field — but the skill validates as it writes, which matters for
+> `keymap`, where a malformed binding stops the server from starting.
+
 ---
 
 ## Settings modal (⚙)
@@ -199,6 +212,7 @@ both ends** instead of wrapping. See [Basics → switching the enlarged terminal
 - **Two actions on the same keystroke** only ever fires the first, so MulmoTerminal **warns** at startup
   naming both. Comparison is on the parsed keystroke, so `Shift+PageUp` and `shift+PageUp` count as the same.
 - An IME composition always passes through, so Japanese/CJK candidate selection is never intercepted.
+- **On a Mac, function keys and `Option`+letter need care** — see [below](#macos-keys) before picking either.
 
 ### Combinations that cannot be bound
 
@@ -210,6 +224,43 @@ MulmoTerminal runs in a browser tab, and some keys never reach a web page in a f
 | `Ctrl`+`Cmd`+`D` and similar on macOS | The **OS** may consume it first (this one opens Dictionary), so it may never reach the browser at all. Depends on your system settings |
 | `Ctrl`+`C` / `Ctrl`+`D` / `Ctrl`+`B` etc. | These *can* be bound, but they are what the shell, `readline` and `tmux` use. Binding one takes it away from the terminal — allowed, but rarely what you want |
 
+### On a Mac, watch out for the function keys {#macos-keys}
+
+**`F1`–`F12` do not reach the browser by default.** Apple documents that ["by default, keyboard
+function keys are set up to control system features"](https://support.apple.com/guide/mac-help/use-keyboard-function-keys-mchlp2596/mac)
+— brightness, volume and so on. While that is in effect, pressing `F2` never delivers a keydown to
+the page at all, so a binding on it looks completely dead and nothing in MulmoTerminal can observe
+it. Two ways out, both from Apple's guide:
+
+- Hold **`Fn`** (or the **Globe** key) while pressing the key. A binding of `"F2"` matches that —
+  `Fn` is not a modifier the browser reports, so it needs no spelling in the binding. *(Verified on
+  macOS: `Fn`+`F2` fires a binding written as `"F2"`.)*
+- Or turn the default off: **System Settings → Keyboard → Keyboard Shortcuts → Function Keys →
+  "Use F1, F2, etc. keys as standard function keys"**. The bare key then works, and `Fn` gives you
+  the system feature instead. (Apple's [step-by-step article](https://support.apple.com/en-us/102439)
+  covers older macOS versions, where the setting sits in System Preferences → Keyboard.)
+
+Which system feature each key controls depends on the keyboard and macOS version, and Apple
+publishes no fixed per-key table — so if one key stays dead after the change, assume the system
+still owns it and pick another. The console check below tells you which case you are in.
+
+**`Option`+letter is a poor choice on macOS.** Bindings are matched against `KeyboardEvent.key`,
+which per [MDN](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key) reports *the
+character the keystroke would actually input*, after the modifiers and keyboard layout are applied
+— and it is the literal string `"Dead"` for a dead key. Since macOS uses `Option` to type alternate
+characters and accents, `Option`+letter generally arrives as that character rather than the letter,
+so a binding like `"Alt+n"` will not match. Prefer `Option` with a **non-printing** key
+(`Alt+ArrowDown`, `Alt+PageUp`), which is unaffected. Check your own layout with the snippet below
+before committing to one.
+
+{: .note }
+> Not sure what a key actually sends? Paste this in the browser devtools console and press it. **If
+> nothing is logged, the OS or the keyboard took it before the page** — no binding can help. If it
+> logs something other than what you wrote in `keymap`, bind what it actually reports.
+>
+> ```js
+> addEventListener("keydown", e => console.log(e.key, e.code, {shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey}), true);
+> ```
 {: .note }
 > An **unknown action name only warns** and the app still starts — that is what a config written for a newer
 > MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
