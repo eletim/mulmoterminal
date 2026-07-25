@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeFilePathLinks, rawFileUrl, type TerminalCell } from "../../src/composables/terminalFilePathLinkProvider";
+import { computeFilePathLinks, rawFileUrl, fileViewerRoute, type TerminalCell } from "../../src/composables/terminalFilePathLinkProvider";
 
 // Build a row of terminal cells from a string. Chars in WIDE occupy two columns (a
 // width-2 cell + a width-0 continuation cell), as xterm stores CJK / emoji glyphs.
@@ -42,5 +42,39 @@ describe("computeFilePathLinks", () => {
 describe("rawFileUrl", () => {
   it("builds a cwd-scoped raw-file URL with both params encoded", () => {
     expect(rawFileUrl("assets/a b.gif", "/Users/me/proj")).toBe("/api/files/raw?cwd=%2FUsers%2Fme%2Fproj&path=assets%2Fa%20b.gif");
+  });
+
+  // A doc is for reading: the raw route serves .md as text/plain, so clicking one used to
+  // open the source (#808). Same query shape, so only the route changes.
+  it("sends markdown to the rendering route, keeping the same params", () => {
+    expect(rawFileUrl("docs/terminal notes.md", "/Users/me/proj")).toBe("/api/files/browse/md?cwd=%2FUsers%2Fme%2Fproj&path=docs%2Fterminal%20notes.md");
+  });
+});
+
+describe("fileViewerRoute", () => {
+  it.each([".md", ".markdown"])("renders %s", (ext) => {
+    expect(fileViewerRoute(`docs/notes${ext}`)).toBe("/api/files/browse/md");
+  });
+
+  it("matches the extension case-insensitively — README.MD is still markdown", () => {
+    expect(fileViewerRoute("README.MD")).toBe("/api/files/browse/md");
+    expect(fileViewerRoute("Notes.Markdown")).toBe("/api/files/browse/md");
+  });
+
+  // Everything the raw route already serves well — images, PDFs, source files as text — must
+  // keep going there. Only a file we can present BETTER gets a different route.
+  it.each(["a.png", "a.pdf", "a.ts", "a.txt", "a.json", "a.svg", "a.html"])("leaves %s on the raw route", (file) => {
+    expect(fileViewerRoute(file)).toBe("/api/files/raw");
+  });
+
+  it("does not treat a mid-name .md or a dotfile as an extension", () => {
+    expect(fileViewerRoute("notes.md.bak")).toBe("/api/files/raw");
+    expect(fileViewerRoute("archive.md.gz")).toBe("/api/files/raw");
+    expect(fileViewerRoute(".mdrc")).toBe("/api/files/raw");
+  });
+
+  it("leaves an extensionless file alone", () => {
+    expect(fileViewerRoute("Makefile")).toBe("/api/files/raw");
+    expect(fileViewerRoute("docs/README")).toBe("/api/files/raw");
   });
 });

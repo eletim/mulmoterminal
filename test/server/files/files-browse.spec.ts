@@ -28,4 +28,21 @@ describe("mdToHtmlDoc", () => {
     expect(doc).toContain("<title>a&lt;b&gt;.md</title>");
     expect(doc.startsWith("<!doctype html>")).toBe(true);
   });
+
+  // The page opens in its own tab under a sandbox CSP, so it cannot ask the app which theme
+  // is on — it has to follow the reader's system setting instead of flashing white (#808).
+  it("follows the reader's colour scheme", () => {
+    const doc = mdToHtmlDoc("<p>x</p>", "a.md");
+    expect(doc).toContain("color-scheme:light dark");
+    expect(doc).toContain("@media(prefers-color-scheme:dark)");
+  });
+
+  // Everything is inlined on purpose: a sandboxed document fetching a stylesheet or a font
+  // would be a request the CSP has to allow, for styling that has to work offline anyway.
+  it("stays self-contained — no external stylesheet, script or font", () => {
+    const doc = mdToHtmlDoc("<p>x</p>", "a.md");
+    expect(doc).not.toContain("<link");
+    expect(doc).not.toContain("<script");
+    expect(doc).not.toMatch(/https?:\/\//);
+  });
 });
