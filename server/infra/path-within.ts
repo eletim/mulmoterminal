@@ -19,6 +19,11 @@ const platformPath = (platform: NodeJS.Platform) => (platform === "win32" ? path
 // case-insensitive too, but a case-sensitive APFS volume is a supported setup — and
 // several callers here are containment GUARDS, where folding on a guess would widen
 // what passes. So only win32 folds.
+//
+// Not modelled: Windows 10+ can mark an individual directory case-SENSITIVE (fsutil, for
+// WSL interop), where two names folding together are genuinely two directories. Every guard
+// that matters here also re-checks against realpath, and the opt-in setup is rare enough
+// that failing the common case to serve it would be the worse trade.
 const normalize = (p: string, platform: NodeJS.Platform): string => {
   const resolved = platformPath(platform).resolve(p);
   return platform === "win32" ? resolved.toLowerCase() : resolved;

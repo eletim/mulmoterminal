@@ -40,6 +40,13 @@ describe("authorizedServingBase", () => {
     expect(authorizedServingBase("/home/me/repo-a/", root, sessions)).toBe(path.resolve("/home/me/repo-a"));
     expect(authorizedServingBase("/home/me/repo-a/../repo-a", root, sessions)).toBe(path.resolve("/home/me/repo-a"));
   });
+  // The browser sends the cwd back as a query param, so its casing is whatever the URL
+  // carried. On Windows that still names one directory; on POSIX it names another one.
+  it("matches a session cwd by the platform's own casing rule", () => {
+    const expected = process.platform === "win32" ? path.resolve("/home/me/repo-a") : null;
+    expect(authorizedServingBase("/home/me/REPO-A", root, sessions)).toBe(expected);
+  });
+
   it("rejects a cwd that is neither the root nor a live session dir", () => {
     expect(authorizedServingBase("/etc", root, sessions)).toBeNull();
     expect(authorizedServingBase("/home/me", root, sessions)).toBeNull(); // a parent of a session dir is not itself authorized

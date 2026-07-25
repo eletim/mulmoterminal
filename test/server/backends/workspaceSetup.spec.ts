@@ -37,6 +37,13 @@ describe("isManagedWorkspace", () => {
     expect(isManagedWorkspace(makeTempDir())).toBe(false);
   });
 
+  // The workspace arrives from the launcher's --cwd, so its casing is the user's. On
+  // Windows that still names the managed directory; on POSIX it names a different one, and
+  // seeding must stay out of it.
+  it("compares by the platform's own casing rule", () => {
+    expect(isManagedWorkspace(path.join(homedir(), "MULMOCLAUDE"))).toBe(process.platform === "win32");
+  });
+
   it("honors MULMOCLAUDE_WORKSPACE_PATH (resolved compare)", () => {
     const dir = makeTempDir();
     process.env[ENV_KEY] = dir;
