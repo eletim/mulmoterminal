@@ -42,8 +42,32 @@ export function computeFilePathLinks(cells: TerminalCell[]): ColumnLink[] {
   }));
 }
 
+// Which route opens a clicked path, by extension. A file the browser can only show as
+// SOURCE goes to the raw route; one we can present better gets its own. Kept as a table so
+// the next extension is a row rather than a branch (#808).
+//
+// The markdown route is what the Files overlay already previews with — same `cwd`/`path`
+// query, marked-rendered, served under a sandbox CSP. It resolves its base slightly more
+// loosely than the raw route (any existing absolute dir, vs. the raw route's "root or a live
+// session cwd"), which is the browse routes' documented posture; the cwd handed over here is
+// the session's own either way.
+const ROUTE_BY_EXTENSION: Record<string, string> = {
+  ".md": "/api/files/browse/md",
+  ".markdown": "/api/files/browse/md",
+};
+
+const RAW_ROUTE = "/api/files/raw";
+
+/** The route a path's extension is opened through — lower-cased, since a `README.MD` is
+ *  still markdown, and `.md` in the middle of a name is not an extension. */
+export function fileViewerRoute(filePath: string): string {
+  const dot = filePath.lastIndexOf(".");
+  const ext = dot === -1 ? "" : filePath.slice(dot).toLowerCase();
+  return ROUTE_BY_EXTENSION[ext] ?? RAW_ROUTE;
+}
+
 export function rawFileUrl(filePath: string, cwd: string): string {
-  return `/api/files/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(filePath)}`;
+  return `${fileViewerRoute(filePath)}?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(filePath)}`;
 }
 
 function readCells(term: Terminal, bufferLineNumber: number): TerminalCell[] | null {

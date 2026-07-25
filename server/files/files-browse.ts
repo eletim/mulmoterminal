@@ -17,12 +17,27 @@ import { resolveBase, containedPath, realContainedWithin } from "./pathContainme
 export const MAX_EDIT_BYTES = 2 * 1024 * 1024;
 
 // Wrap marked's HTML output in a minimal, self-contained document (served sandboxed).
+//
+// Colours follow the READER's system theme rather than the app's: this document opens in its
+// own tab under a sandbox CSP, so it cannot ask the app for its theme — and a hardcoded light
+// page is a white flash for anyone reading in the dark. `color-scheme` is what gets the
+// scrollbars and form controls to match; the media query does the rest.
 export function mdToHtmlDoc(bodyHtml: string, title: string): string {
   const esc = (s: string) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
-  const style =
-    "body{max-width:48rem;margin:2rem auto;padding:0 1rem;font-family:system-ui,sans-serif;line-height:1.6;color:#1a1a2e}" +
-    "pre{background:#f4f4f4;padding:1rem;overflow:auto}code{font-family:ui-monospace,monospace}img{max-width:100%}";
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${style}</style></head><body>${bodyHtml}</body></html>`;
+  const style = [
+    ":root{color-scheme:light dark}",
+    "body{max-width:48rem;margin:2rem auto;padding:0 1rem;font-family:system-ui,sans-serif;line-height:1.6;color:#1a1a2e;background:#fff}",
+    "pre{background:#f4f4f4;padding:1rem;overflow:auto}code{font-family:ui-monospace,monospace}img{max-width:100%}",
+    "a{color:#0b57d0}blockquote{margin:0;padding:0 1rem;border-left:4px solid #d0d0d8;color:#55555f}",
+    "table{border-collapse:collapse}th,td{border:1px solid #d0d0d8;padding:.25rem .5rem}",
+    "@media(prefers-color-scheme:dark){",
+    "body{color:#e6e6ea;background:#16161a}",
+    "pre{background:#232329}",
+    "a{color:#8ab4f8}blockquote{border-left-color:#3a3a44;color:#a0a0aa}",
+    "th,td{border-color:#3a3a44}",
+    "}",
+  ].join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${style}</style></head><body>${bodyHtml}</body></html>`;
 }
 
 export interface BrowseEntry {
