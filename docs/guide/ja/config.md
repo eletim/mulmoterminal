@@ -242,6 +242,11 @@ macOS は `Option` を代替文字やアクセントの入力に使うため、`
 > ```js
 > addEventListener("keydown", e => console.log(e.key, e.code, {shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey}), true);
 > ```
+{: .note }
+> **未知のアクション名は警告のみ**で、起動は続行します——新しいバージョン向けに書かれた設定はこう見えるので、
+> ダウングレードでアプリが使えなくなってはいけないためです。並べ替え・ページ切替・ナビゲーション等の追加
+> アクションは [issue #829](https://github.com/receptron/mulmoterminal/issues/829) で追跡しています。
+
 ## プロジェクトごとの `.mulmoterminal.json` {#per-dir}
 
 プロジェクト直下に置くと、**そのディレクトリで開いた端末（グリッドセル）**の見た目・音・ヘッダーを変えられます。

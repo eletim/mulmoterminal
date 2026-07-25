@@ -243,6 +243,11 @@ before committing to one.
 > ```js
 > addEventListener("keydown", e => console.log(e.key, e.code, {shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey}), true);
 > ```
+{: .note }
+> An **unknown action name only warns** and the app still starts — that is what a config written for a newer
+> MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
+> navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
+
 ## Per-project `.mulmoterminal.json` {#per-dir}
 
 Place this at the project root to change the appearance, sound, and header of **terminals (grid cells) opened in that directory**.

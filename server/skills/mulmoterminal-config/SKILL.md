@@ -1,6 +1,6 @@
 ---
 name: mulmoterminal-config
-description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, attention sound, header buttons/chips, and which model/provider its sessions run on. Also sets up an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway) in the global config. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, or add header buttons/chips to a project's terminal — for one project or across many.
+description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, attention sound, header buttons/chips, and which model/provider its sessions run on. Also sets up an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway) and keyboard shortcuts (`keymap`) in the global config. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many.
 ---
 
 # Configure a MulmoTerminal directory
@@ -40,7 +40,8 @@ no `cwdPresets`, say there's no history yet and ask for the paths.
 ### 2. Pick what to configure — checkboxes again
 
 One `multiSelect` question: **Name badge + chrome colors** / **Terminal palette** / **Header buttons** /
-**Header chips** / **Attention sound** / **Which model it runs on**. Configure only what they ticked.
+**Header chips** / **Attention sound** / **Which model it runs on** / **Keyboard shortcuts**. Configure only what they ticked.
+(Keyboard shortcuts are global, not per-directory — see the `keymap` section.)
 
 ### 3. Choose a colour direction — preset first, never a blank hex
 
@@ -263,6 +264,52 @@ the session in a way that is hard to diagnose from inside it.
   survive.
 - The server reads the environment at startup: after adding a key, it has to be restarted.
 - Providers do not work in the Docker sandbox; say so rather than letting the user find out.
+
+## Keyboard shortcuts — `keymap` in `~/.mulmoterminal/config.json`
+
+Also the **global** file, not the per-directory one, and **there are no defaults**: with no `keymap`,
+no shortcut exists and no key is intercepted. Every binding the user adds is a key the program inside
+the terminal (Claude Code, `vim`, `less`, the shell) stops receiving — so ask before binding, and
+never add one they did not request.
+
+```json
+{
+  "keymap": {
+    "zoom-next": "PageDown",
+    "zoom-prev": "PageUp"
+  }
+}
+```
+
+| Action | What it does | Needs a zoomed cell |
+|---|---|---|
+| `zoom-next` / `zoom-prev` | Move the enlargement along the on-screen order | yes |
+| `terminal-new` | Add a terminal at the end (the toolbar's `＋`) | no |
+| `terminal-new-adjacent` | Add one right after the current terminal, inheriting its cwd | yes |
+| `terminal-close` | Close the current terminal | yes |
+
+- Syntax is `Modifier+Modifier+Key`; modifiers are `Shift` / `Ctrl` (`Control`) / `Alt` (`Option`) /
+  `Cmd` (`Command`, `Meta`), case-insensitive. The key is matched against the browser's
+  `KeyboardEvent.key` — `PageDown`, `Home`, `ArrowUp`, `a` — and is **case-sensitive** for letters.
+- **A malformed binding stops the server from starting**, naming the entry. So validate before
+  writing: a stray `+`, a lone `Shift`, or an unknown modifier costs the user their whole app until
+  they fix the file. Never guess a spelling — if unsure, ask them to press the key and read it off
+  the devtools console (`addEventListener("keydown", e => console.log(e.key), true)`).
+- **Modifiers match exactly.** Binding `PageDown` leaves `Shift+PageDown` with the terminal, which is
+  how xterm's scrollback keeps working. Point this out when proposing `PageUp`/`PageDown`.
+- **Do not propose `F1`–`F12` on a Mac.** macOS delivers no keydown for them by default (they are
+  media keys), so the binding looks broken for reasons the user cannot see. If they insist, tell them
+  it needs `Fn`+the key, or System Settings → Keyboard → Keyboard Shortcuts → Function Keys.
+- **Do not propose `Option`+letter on a Mac** — `KeyboardEvent.key` reports the composed character,
+  not the letter, so it never matches. `Option`+a non-printing key (`Alt+ArrowDown`) is fine.
+- **Never propose `Cmd`/`Ctrl`+`W`, `+T`, `+N`** — the browser reserves them; the binding silently
+  does nothing.
+- Two actions on one keystroke only fires the first; the startup check warns, but do not write one.
+- **`terminal-close` ends the session with no confirmation.** Only bind it if the user asks, and
+  suggest a combination they will not hit by accident.
+- This is a partial `POST /api/config` merge — write only `keymap`, so their other settings survive.
+- The browser reads the keymap on page load: **reload the tab** after writing. A hand-edit made while
+  the server is running also needs a server restart before it reaches the page.
 
 ## Example result
 
