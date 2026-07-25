@@ -194,6 +194,7 @@ both ends** instead of wrapping. See [Basics → switching the enlarged terminal
 - **Two actions on the same keystroke** only ever fires the first, so MulmoTerminal **warns** at startup
   naming both. Comparison is on the parsed keystroke, so `Shift+PageUp` and `shift+PageUp` count as the same.
 - An IME composition always passes through, so Japanese/CJK candidate selection is never intercepted.
+- **On a Mac, function keys and `Option`+letter need care** — see [below](#macos-keys) before picking either.
 
 ### Combinations that cannot be bound
 
@@ -204,6 +205,34 @@ MulmoTerminal runs in a browser tab, and some keys never reach a web page in a f
 | `Cmd`/`Ctrl`+`W`, `+T`, `+N`, `Cmd`/`Ctrl`+`Shift`+`T` | **Reserved by the browser** (close/new tab, new window). A page cannot intercept them — binding one simply does nothing |
 | `Ctrl`+`Cmd`+`D` and similar on macOS | The **OS** may consume it first (this one opens Dictionary), so it may never reach the browser at all. Depends on your system settings |
 | `Ctrl`+`C` / `Ctrl`+`D` / `Ctrl`+`B` etc. | These *can* be bound, but they are what the shell, `readline` and `tmux` use. Binding one takes it away from the terminal — allowed, but rarely what you want |
+
+### On a Mac, watch out for the function keys {#macos-keys}
+
+**`F1`–`F12` do not reach the browser by default.** macOS treats the top row as *media* keys
+(brightness, volume, …), so a binding on `F2` looks completely dead — no keydown is delivered at
+all, and nothing in MulmoTerminal can see it. Two ways out:
+
+- Press **`Fn`+`F2`**, which sends the real function key. A binding of `"F2"` matches it — `Fn` is
+  not a modifier the browser reports, so it needs no spelling in the binding.
+- Or turn on **System Settings → Keyboard → "Use F1, F2, etc. keys as standard function keys"**, after
+  which the bare key works and `Fn` gives you the media action instead.
+
+`F4` is worth avoiding entirely: macOS binds it to Spotlight / Launchpad, so it can be swallowed
+even with the setting above.
+
+**`Option`+letter is unreliable on macOS.** Bindings are matched against the browser's
+`KeyboardEvent.key`, and with Option held macOS reports the *composed* character rather than the
+letter — `Option`+`n` typically arrives as a dead-key `˜`, not `n`, so a binding of `"Alt+n"` never
+matches. Prefer `Option` with a **non-printing** key (`Alt+ArrowDown`, `Alt+PageUp`), which is
+unaffected.
+
+{: .note }
+> Not sure what a key actually sends? Paste this in the browser devtools console and press it — if
+> nothing is logged, the OS or hardware took it before the page:
+>
+> ```js
+> addEventListener("keydown", e => console.log(e.key, e.code, {shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey}), true);
+> ```
 
 {: .note }
 > An **unknown action name only warns** and the app still starts — that is what a config written for a newer
