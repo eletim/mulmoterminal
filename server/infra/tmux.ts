@@ -10,6 +10,7 @@ import path from "node:path";
 import os from "node:os";
 import { isLauncherEnvVar } from "./pty-env.js";
 import { spawnCapture } from "./spawnCapture.js";
+import { splitLines } from "./split-lines.js";
 
 const SERVER_SOCKET = "mulmoterminal";
 const SESSION_PREFIX = "mt-";
@@ -78,7 +79,7 @@ export type MsOverridePlan = { kind: "ok" } | { kind: "append" } | { kind: "repl
 // tmux prints one `terminal-overrides[N] value` line per entry and doubles each stored
 // backslash, so a correct entry shows as `Ms=\\E]52;` and the broken one as `Ms=E]52;`.
 export function planMsOverride(showStdout: string): MsOverridePlan {
-  for (const line of showStdout.split("\n")) {
+  for (const line of splitLines(showStdout)) {
     const entry = /^terminal-overrides\[(\d+)\] (.*)$/.exec(line);
     if (!entry) continue;
     const [, index, value] = entry;
@@ -122,7 +123,7 @@ const ENV_FLAGGED_REMOVED = /^-[A-Za-z_]\w*$/;
 export function parseTmuxEnvironment(stdout: string): Map<string, string> {
   const entries = new Map<string, string>();
   let current: string | null = null;
-  for (const line of stdout.replace(/\n$/, "").split("\n")) {
+  for (const line of splitLines(stdout.replace(/\r?\n$/, ""))) {
     if (ENV_ASSIGNMENT.test(line)) {
       const eq = line.indexOf("=");
       current = line.slice(0, eq);

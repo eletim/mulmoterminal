@@ -87,12 +87,18 @@ describe.skipIf(!isWindows)("a shell terminal on Windows", () => {
     expect(output).toContain(payload);
   });
 
-  // A backtick is PowerShell's own escape character, so it is the one case where the shell
-  // legitimately consumes something. Recorded rather than asserted as pass-through: a Run
-  // command containing one does not mean what it looks like.
-  it("lets PowerShell consume its own escape character", async () => {
+  // A backtick is PowerShell's escape character, but ONLY inside double quotes — the
+  // assumption this case started life asserting, and the Windows runner corrected it. In
+  // single quotes it is literal like everything else, so a Run command wrapped that way means
+  // what it looks like; wrapped in double quotes it does not, and both are worth recording
+  // because a Run command is user text.
+  it("treats a backtick literally inside single quotes", async () => {
     const { output } = await runShell("Write-Output 'a`nb'", dir);
-    expect(output).toContain("a");
+    expect(output).toContain("a`nb");
+  });
+
+  it("lets PowerShell consume the backtick inside double quotes", async () => {
+    const { output } = await runShell('Write-Output "x`ty"', dir);
     expect(output).not.toContain("`");
   });
 
