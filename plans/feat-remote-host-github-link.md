@@ -7,9 +7,14 @@ Issue: #832 / スマホ側: receptron/mulmoserver#110
 スマホのリモートターミナル画面が表示している dir が GitHub リポジトリなら、GitHub へ飛べる
 URL を一緒に渡す。`SessionScreenMeta` に `githubUrl?: string` を足すだけで、ハンドラは無改造。
 
-## リンク先の決定ルール
+## リンク先の決定ルール（結論：常にリポジトリのトップ）
 
-**ブランチが origin 上にあれば `/tree/<branch>`、無ければリポジトリのトップ。**
+> **2026-07-26 追記 — `/tree/<branch>` は撤回した。** サーバをデプロイして実機で確認したところ、
+> tree のリンクが 404 になった。原因は下の「なぜブランチリンクを諦めたか」。以下の
+> upstream 判定は**すべて削除済み**で、`githubUrl` はリポジトリのトップだけを返す。
+> 記録として残すのは、同じ設計を再度書き起こさないため。
+
+当初の案：**ブランチが origin 上にあれば `/tree/<branch>`、無ければリポジトリのトップ。**
 
 `/tree/<branch>` を無条件に使えない理由は、**GitHub に無いブランチが 404 になる**ため。managed
 worktree は `agent/<slug>` を切った直後で、そのブランチはローカルにしか存在しない。
@@ -38,6 +43,31 @@ worktree は `agent/<slug>` を切った直後で、そのブランチはロー�
 
 `aheadBehind` の `upstream`（どのリモートでも true）は**意図的に別の問い**なので変更しない。
 ahead/behind は追跡先が何であれ意味がある。この非対称はコメントで明記した。
+
+### なぜブランチリンクを諦めたか（実機で 404、原因を実測）
+
+上の判定を全部通しても **404 は消えなかった**。`refs/remotes/origin/*` は **ローカルの
+キャッシュ**であり、GitHub 側でブランチが消えても `git fetch --prune` するまで残るため。
+
+そして**このアプリが作るブランチは、まさにその消え方をする** — PR をマージする時に
+`--delete-branch` するので、マージ直後のセッションは「ローカルには追跡 ref があるが GitHub
+には無いブランチ」の上にいる。
+
+実測（マージ済みの `feat/remote-host-github-link` で確認）:
+
+| 確認 | 結果 |
+|---|---|
+| ローカル `refs/remotes/origin/feat/remote-host-github-link` | 存在する |
+| `git ls-remote --heads origin feat/remote-host-github-link` | 0 件 |
+| `https://github.com/receptron/mulmoterminal/tree/feat/remote-host-github-link` | **404** |
+| `https://github.com/receptron/mulmoterminal` | 200 |
+
+**ローカルの情報だけでは「GitHub に今もあるか」は原理的に判定できない。** 唯一の局所的な解は
+ポーリングのたびに `git ls-remote`（ネットワーク往復）で、スマホが繰り返し引く画面には重すぎる。
+よって `/tree/<branch>` は撤回し、常にリポジトリのトップを返す。
+
+再挑戦するなら、必要なのは upstream の判定強化ではなく **GitHub に問い合わせる手段**
+（`ls-remote` のキャッシュ付き、または GitHub API）である。
 
 ## 実装
 

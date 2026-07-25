@@ -80,6 +80,48 @@ strip; click a thumbnail's header margin to switch cells). **⤡** returns to th
 
 ![Zoom (filmstrip view)](../images/grid-zoom.png)
 
+### Switching the enlarged terminal from the keyboard {#keyboard-zoom-switch}
+
+You can bind keys that move the enlargement to the next / previous terminal — the keyboard equivalent of
+clicking a roster row, so you can walk the whole board without reaching for the mouse. The order followed is
+the one on screen, so it respects the roster's current sort (including attention-first ordering).
+
+{: .important }
+> **Nothing is bound out of the box.** Any key this claims is a key the program inside the terminal stops
+> receiving, so that trade is yours to make: add a `keymap` to `~/.mulmoterminal/config.json` and the
+> shortcuts turn on. With no `keymap`, they stay off entirely.
+
+```json
+{
+  "keymap": {
+    "zoom-next": "PageDown",
+    "zoom-prev": "PageUp"
+  }
+}
+```
+
+→ **Binding syntax, the full action list, and which combinations can never be bound:
+[Configuration → Keyboard shortcuts](config.html#keymap).**
+
+Two behaviours worth knowing:
+
+- **They only work while zoomed.** In the normal grid nothing happens, because an un-zoomed grid has no
+  "current terminal" — the enlarged cell *is* the selection.
+- **They stop at both ends** rather than wrapping. With only two terminals this means roughly half of your
+  presses do nothing: previous-on-the-first and next-on-the-last are deliberately no-ops.
+
+Collapsing with **⤡** returns you to the page holding the terminal you were just looking at, not the page you
+originally zoomed in from.
+
+{: .warning }
+> **A bound key is taken away from the program inside the terminal.** Bind `PageDown` and, while zoomed, it
+> no longer reaches `less`, `vim`, or Claude Code's own paging. Modifiers are matched exactly, so binding the
+> bare key leaves **`Shift`+`Page Up` / `Shift`+`Page Down`** alone — they still scroll the terminal's
+> scrollback, which is the usual way out. An active IME conversion always passes through, so a candidate list
+> paging with Page Down keeps working.
+
+On a Mac laptop keyboard there are no dedicated Page Up / Page Down keys; use **`Fn`+`↑`** and **`Fn`+`↓`**.
+
 ## Mixing Claude and Codex
 
 In the same grid, you can launch **Claude** or **Codex** per cell. Both share the same terminal experience,

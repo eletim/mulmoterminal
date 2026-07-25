@@ -20,6 +20,7 @@ import {
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
+import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 
@@ -56,6 +57,9 @@ export interface AppConfig {
   // Which received bytes the host's Claude reads as "submit" vs "newline" (#772). Drives
   // both the browser key handler and the phone remote-view submit. Default "cr".
   terminalSubmit: TerminalSubmitMode;
+  // User-defined keyboard shortcuts (#829). NO defaults: an empty map means the shortcuts
+  // are off, because every binding takes that key away from the terminal underneath.
+  keymap: Keymap;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -199,6 +203,7 @@ export const emptyConfig = (): AppConfig => ({
   worklogIntervalHours: DEFAULT_WORKLOG_INTERVAL_HOURS,
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
+  keymap: {},
 });
 
 // Drop malformed entries rather than rejecting the whole config: one bad provider must
@@ -230,6 +235,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     worklogIntervalHours: sanitizeWorklogIntervalHours(o.worklogIntervalHours),
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
+    keymap: sanitizeKeymap(o.keymap),
   };
 }
 
@@ -296,6 +302,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     worklogIntervalHours: body.worklogIntervalHours !== undefined ? sanitizeWorklogIntervalHours(body.worklogIntervalHours) : base.worklogIntervalHours,
     providers: body.providers !== undefined ? sanitizeProviders(body.providers) : base.providers,
     terminalSubmit: body.terminalSubmit !== undefined ? sanitizeTerminalSubmit(body.terminalSubmit) : base.terminalSubmit,
+    keymap: body.keymap !== undefined ? sanitizeKeymap(body.keymap) : base.keymap,
   };
 }
 
@@ -317,6 +324,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     worklogEnabled: config.worklogEnabled,
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
+    keymap: config.keymap,
   };
 }
 

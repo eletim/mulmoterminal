@@ -265,11 +265,14 @@ describe("definedScreenMeta", () => {
 
   // The phone's whole rule for the GitHub link is "render it if the key is there" (#832), so
   // a dir that isn't a GitHub repo must lose the key rather than arrive as "".
+  // The value is the repository ROOT, never a /tree/<branch>: a branch URL 404s whenever the
+  // branch is gone from GitHub, which the host cannot see — refs/remotes/origin/* is a local
+  // cache that outlives a branch deleted at merge time.
   it("drops githubUrl for a dir the host can't place on GitHub, and keeps a real one", () => {
     expect(definedScreenMeta({ cwd: "/repo", githubUrl: "" })).toEqual({ cwd: "/repo" });
-    expect(definedScreenMeta({ cwd: "/repo", githubUrl: "https://github.com/o/r/tree/main" })).toEqual({
+    expect(definedScreenMeta({ cwd: "/repo", githubUrl: "https://github.com/o/r" })).toEqual({
       cwd: "/repo",
-      githubUrl: "https://github.com/o/r/tree/main",
+      githubUrl: "https://github.com/o/r",
     });
   });
 

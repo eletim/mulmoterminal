@@ -8,7 +8,9 @@ import { createPubSub } from "./infra/pubsub.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
-import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands } from "./config/config-routes.js";
+import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
+import { enforceKeymap } from "./config/keymap-check.js";
+import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
@@ -46,9 +48,8 @@ import { renderScreen } from "./session/headlessScreen.js";
 import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
-import { currentBranch, tracksOriginBranch } from "./git/git-status.js";
+import { currentBranch } from "./git/git-status.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
-import { githubBranchUrl } from "./git/githubBranchUrl.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
 import { initGoogleBackend } from "./backends/google.js";
@@ -232,6 +233,23 @@ const { translateViaHiddenChat } = createTranslationWorker({
   },
 });
 
+// Before anything binds a port: a typo'd key binding must stop the boot with a message
+// naming it, not disappear into a shortcut that silently never fires.
+enforceKeymap(APP_CONFIG_FILE, {
+  readConfig: () => {
+    try {
+      return JSON.parse(readFileSync(APP_CONFIG_FILE, "utf8"));
+    } catch {
+      return undefined; // missing or unparseable — not this check's business to report
+    }
+  },
+  warn: (message) => console.warn(`\x1b[33m${message}\x1b[0m`),
+  fail: (message) => {
+    console.error(`\x1b[31m${message}\x1b[0m`);
+    process.exit(1);
+  },
+});
+
 const app = express();
 // Generous body limit: PostToolUse hook payloads carry the tool's full output
 // (a big Read/Bash result can blow past Express's 100kb default, which would 413
@@ -379,18 +397,20 @@ const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(p
 // no branch to look up — those fields are simply absent, and the phone shows the screen alone.
 const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
   const cwd = ptys.get(sessionId)?.cwd ?? "";
-  // The three git reads are independent, so the phone waits for one spawn rather than three.
-  const [head, repoUrl, onOrigin] = await Promise.all([
-    cwd ? currentBranch(cwd) : null,
-    cwd ? resolveGithubUrl(cwd) : null,
-    cwd ? tracksOriginBranch(cwd) : false,
-  ]);
+  // Both git reads are independent, so the phone waits for one spawn rather than two.
+  const [head, repoUrl] = await Promise.all([cwd ? currentBranch(cwd) : null, cwd ? resolveGithubUrl(cwd) : null]);
   return {
     cwd,
     branch: head?.branch ?? "",
     summary: aiTitles.get(sessionId) ?? "",
     prompt: lastPrompts.get(sessionId) ?? "",
-    githubUrl: githubBranchUrl(repoUrl, head?.branch ?? null, onOrigin) ?? "",
+    // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
+    // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged
+    // branch deleted at merge time keeps resolving here until someone prunes — and every
+    // branch this app creates is deleted that way. Measured: the tree URL 404s, the root
+    // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
+    // on a screen the phone polls (#832).
+    githubUrl: repoUrl ?? "",
   };
 };
 
