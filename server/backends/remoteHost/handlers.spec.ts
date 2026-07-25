@@ -10,7 +10,7 @@ import { initCollectionsBackend } from "../collections.js";
 
 const unusedTerminalDeps = {
   listTerminalSessions: async () => [],
-  captureTerminalScreen: async () => ({ screen: "", suggestion: "" }),
+  captureTerminalScreen: async () => ({ screen: "", suggestion: "", quickCommands: [] }),
   writeToSession: () => false,
   canClearBox: () => false,
   submitSequence: () => "\r",
@@ -224,10 +224,19 @@ describe("getTerminalScreen", () => {
     });
 
   it("forwards the session's cwd, branch, summary and prompt beside the screen", async () => {
-    const handlers = handlersFor({ screen: "$ ", suggestion: "", cwd: "/repo", branch: "main", summary: "Fix the parser", prompt: "fix it" });
+    const handlers = handlersFor({
+      screen: "$ ",
+      suggestion: "",
+      quickCommands: [],
+      cwd: "/repo",
+      branch: "main",
+      summary: "Fix the parser",
+      prompt: "fix it",
+    });
     expect(await handlers.getTerminalScreen({ sessionId: "a" })).toEqual({
       screen: "$ ",
       suggestion: "",
+      quickCommands: [],
       cwd: "/repo",
       branch: "main",
       summary: "Fix the parser",
@@ -236,11 +245,11 @@ describe("getTerminalScreen", () => {
   });
 
   it("forwards a screen the host had no metadata for unchanged", async () => {
-    const handlers = handlersFor({ screen: "$ ", suggestion: "ls" });
-    expect(await handlers.getTerminalScreen({ sessionId: "a" })).toEqual({ screen: "$ ", suggestion: "ls" });
+    const handlers = handlersFor({ screen: "$ ", suggestion: "ls", quickCommands: [] });
+    expect(await handlers.getTerminalScreen({ sessionId: "a" })).toEqual({ screen: "$ ", suggestion: "ls", quickCommands: [] });
   });
 
   it("rejects a request with no session id", async () => {
-    await expect(handlersFor({ screen: "", suggestion: "" }).getTerminalScreen({})).rejects.toThrow(/sessionId is required/);
+    await expect(handlersFor({ screen: "", suggestion: "", quickCommands: [] }).getTerminalScreen({})).rejects.toThrow(/sessionId is required/);
   });
 });

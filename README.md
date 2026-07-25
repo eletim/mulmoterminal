@@ -442,6 +442,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `soundFile`  | Absolute path to a custom **attention sound** (played when a session needs attention). Empty/unset uses the built-in synthesized chime. |
 | `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates (via your `gh` login). |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides Claude — a plain shell, `codex`, any interactive command. |
+| `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
 | `userMcpServers` | `{ id, url }` HTTP MCP servers merged into the **single-view** Claude session's `--mcp-config` (a `localhost` URL is reached over `host.docker.internal` in the Docker sandbox). Takes effect on the next session. |
 | `buttons`    | Header action buttons — see [Header buttons](#header-buttons). Omit to keep the defaults; set to replace them. |
 | `chips`      | Header info chips. Omit to keep the default set; `[]` hides all built-ins. |
@@ -1030,7 +1031,7 @@ same-origin-guarded.
 
 | Endpoint | Purpose |
 | -------- | ------- |
-| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `prRepos`, `launchers`, `userMcpServers`, `providers`). |
+| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
 | `GET /api/sound` · `/api/dir-sound?cwd=` · `/api/dir-config?cwd=` | Custom / per-directory attention sound + per-dir config. |
 | `GET /api/launch-options` | The Anthropic-compatible backends this server can reach, each with its models and — when it can't — the reason. Reports the **name** of the env var a key is read from, never the key. |
 | `GET /api/notifications`(`/history`) · `POST /api/notifications/:id/clear` | Notification feed. |

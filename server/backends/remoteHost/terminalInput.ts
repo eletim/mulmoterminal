@@ -13,7 +13,7 @@
 //   3. Send the submitting Enter as a SEPARATE write a beat later — Claude's TUI
 //      drops a CR that arrives while it is still committing the paste.
 
-import type { SessionAgent } from "./terminalScreen.js";
+import type { SessionAgent } from "../../../common/sessionAgent.js";
 
 // Strip ALL control bytes (C0/C1 — ESC, Ctrl-C, CR/LF, and an embedded
 // bracketed-paste terminator). Only printable text survives, whitespace collapsed.

@@ -2,6 +2,7 @@ import { ref, type Ref } from "vue";
 import { presetLabel, type CwdPreset } from "../components/presets";
 import type { Launcher } from "../components/launchers";
 import type { UserMcpServer } from "../components/userMcp";
+import type { QuickCommand } from "../../common/quickCommands";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setActiveKeymap } from "./activeKeymap";
@@ -29,6 +30,10 @@ const launchers = ref<Launcher[]>([]);
 // User-added HTTP MCP servers merged into the single-view session's --mcp-config —
 // SINGLETON like the others.
 const userMcpServers = ref<UserMcpServer[]>([]);
+
+// The phrases the phone offers as chips on a session (#830) — SINGLETON like the others, so
+// the settings editor and any future in-app use read one list.
+const quickCommands = ref<QuickCommand[]>([]);
 
 // Pre-#163 recent dirs lived in localStorage (the removed useRecentDirs). They are
 // imported once into the server-side preset list on load — see migrateLegacyRecents.
@@ -187,6 +192,12 @@ async function saveLaunchers(next: Launcher[]): Promise<boolean> {
   if (r.ok) launchers.value = r.value ?? [];
   return r.ok;
 }
+// Persist the phone quick commands (partial update).
+async function saveQuickCommands(next: QuickCommand[]): Promise<boolean> {
+  const r = await postConfigField<QuickCommand[]>("quickCommands", next);
+  if (r.ok) quickCommands.value = r.value ?? [];
+  return r.ok;
+}
 // Persist the user MCP servers (partial update).
 async function saveUserMcpServers(next: UserMcpServer[]): Promise<boolean> {
   const r = await postConfigField<UserMcpServer[]>("userMcpServers", next);
@@ -219,6 +230,7 @@ export function useAppConfig() {
       pushEnabled.value = c.pushEnabled === true;
       prRepos.value = Array.isArray(c.prRepos) ? c.prRepos : [];
       launchers.value = Array.isArray(c.launchers) ? c.launchers : [];
+      quickCommands.value = Array.isArray(c.quickCommands) ? c.quickCommands : [];
       userMcpServers.value = Array.isArray(c.userMcpServers) ? c.userMcpServers : [];
       // The Enter-key submit/newline byte mapping — read once so every terminal's key
       // handler honours it (config.json-only; unset falls back to the standard binding).
@@ -238,6 +250,7 @@ export function useAppConfig() {
     presets,
     prRepos,
     launchers,
+    quickCommands,
     userMcpServers,
     soundFile,
     pushEnabled,
@@ -251,6 +264,7 @@ export function useAppConfig() {
     savePushEnabled,
     savePrRepos,
     saveLaunchers,
+    saveQuickCommands,
     saveUserMcpServers,
   };
 }

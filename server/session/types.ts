@@ -3,7 +3,7 @@
 // modules that read it can name them without importing the boot module (#548).
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";
-import type { SessionAgent } from "../backends/remoteHost/terminalScreen.js";
+import type { SessionAgent } from "../../common/sessionAgent.js";
 
 export interface Activity {
   working?: boolean;

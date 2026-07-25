@@ -19,6 +19,14 @@ export function canAddLauncher(label: string, command: string, existing: readonl
   return !!l && !!c && !existing.some((entry) => entry.label === l);
 }
 
+// A phone chip: a label short enough to fit one, and the text it inserts. Same uniqueness rule
+// as a launcher — the label is what the list and the chip show.
+export function canAddQuickCommand(label: string, text: string, existing: readonly { label: string }[]): boolean {
+  const l = label.trim();
+  const t = text.trim();
+  return !!l && !!t && !existing.some((entry) => entry.label === l);
+}
+
 // The id becomes the `mcp__<id>` tool prefix server-side, so it is restricted; the url must be
 // http(s). A bad id breaks the tool namespace; a non-http url breaks the MCP connection.
 const MCP_ID_RE = /^[A-Za-z0-9_-]+$/;

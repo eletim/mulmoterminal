@@ -15,6 +15,8 @@ import { z } from "zod";
 import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
 import { THEME_IDS } from "../../common/themeIds.js";
 import { isUsableModelId } from "../../common/modelIds.js";
+import { SESSION_AGENTS } from "../../common/sessionAgent.js";
+import type { QuickCommand } from "../../common/quickCommands.js";
 
 // ---- shared constants ---------------------------------------------------------------------
 
@@ -101,6 +103,15 @@ export type CwdPreset = z.infer<typeof cwdPresetSchema>;
 // interactive command). `command` runs on the user's own machine as a persistent PTY.
 export const launcherSchema = z.object({ label: z.string(), command: z.string() });
 export type Launcher = z.infer<typeof launcherSchema>;
+
+// Validation for common/quickCommands.ts's QuickCommand, which the settings UI edits and so
+// cannot live here. `satisfies` is what keeps the two from drifting: widen the schema without
+// widening the interface and this stops compiling.
+export const quickCommandSchema = z.object({
+  label: z.string(),
+  text: z.string(),
+  agents: z.array(z.enum(SESSION_AGENTS)).optional(),
+}) satisfies z.ZodType<QuickCommand>;
 
 // A user-added HTTP MCP server for the single-view session. `id` becomes the server name in
 // --mcp-config (and the `mcp__<id>__*` tool prefix), `url` its streamable-HTTP endpoint.

@@ -10,7 +10,9 @@ import SettingsField from "./SettingsField.vue";
 import GuideLinks from "./GuideLinks.vue";
 import type { Launcher } from "./launchers";
 import type { UserMcpServer } from "./userMcp";
-import { canAddLauncher, canAddMcpServer, canAddRepo } from "./settingsValidators";
+import type { QuickCommand } from "../../common/quickCommands";
+import { SESSION_AGENTS, type SessionAgent } from "../../common/sessionAgent";
+import { canAddLauncher, canAddMcpServer, canAddQuickCommand, canAddRepo } from "./settingsValidators";
 import { formatUsd } from "./formatUsd";
 
 const props = defineProps<{
@@ -18,6 +20,7 @@ const props = defineProps<{
   pushEnabled?: boolean;
   prRepos?: string[];
   launchers?: Launcher[];
+  quickCommands?: QuickCommand[];
   userMcpServers?: UserMcpServer[];
   cwd?: string | null;
   sessionId?: string | null;
@@ -27,6 +30,7 @@ const emit = defineEmits<{
   (e: "update-push-enabled", on: boolean): void;
   (e: "update-repos", repos: string[]): void;
   (e: "update-launchers", launchers: Launcher[]): void;
+  (e: "update-quick-commands", commands: QuickCommand[]): void;
   (e: "update-user-mcp", servers: UserMcpServer[]): void;
   (e: "configure-appearance" | "close"): void;
 }>();
@@ -75,6 +79,43 @@ function removeLauncher(label: string) {
   launcherList.value = launcherList.value.filter((l) => l.label !== label);
   emit("update-launchers", launcherList.value);
 }
+
+// Phrases the phone offers as chips on a session (#830). Same editable-mirror shape as the
+// lists above; `agents` scopes an entry to session kinds, and selecting none means every kind.
+const quickCommandList = ref<QuickCommand[]>([...(props.quickCommands ?? [])]);
+watch(
+  () => props.quickCommands,
+  (c) => (quickCommandList.value = [...(c ?? [])]),
+);
+const newQuickLabel = ref("");
+const newQuickText = ref("");
+const newQuickAgents = ref<SessionAgent[]>([]);
+const newQuickValid = computed(() => canAddQuickCommand(newQuickLabel.value, newQuickText.value, quickCommandList.value));
+
+function toggleNewQuickAgent(agent: SessionAgent) {
+  newQuickAgents.value = newQuickAgents.value.includes(agent) ? newQuickAgents.value.filter((a) => a !== agent) : [...newQuickAgents.value, agent];
+}
+
+function addQuickCommand() {
+  if (!newQuickValid.value) return;
+  const label = newQuickLabel.value.trim();
+  const text = newQuickText.value.trim();
+  // Omit `agents` rather than send [] — the server reads an empty list as "every kind" too,
+  // but leaving the key out is what the config format documents for "unscoped".
+  const agents = newQuickAgents.value.length ? [...newQuickAgents.value] : undefined;
+  quickCommandList.value = [...quickCommandList.value, agents ? { label, text, agents } : { label, text }];
+  newQuickLabel.value = "";
+  newQuickText.value = "";
+  newQuickAgents.value = [];
+  emit("update-quick-commands", quickCommandList.value);
+}
+
+function removeQuickCommand(label: string) {
+  quickCommandList.value = quickCommandList.value.filter((c) => c.label !== label);
+  emit("update-quick-commands", quickCommandList.value);
+}
+
+const agentScopeLabel = (command: QuickCommand): string => (command.agents?.length ? command.agents.join(" / ") : "all");
 
 // User HTTP MCP servers (id + url) merged into the single-view Claude session. Editable
 // list mirroring the saved value; add/remove emits the new list up.
@@ -398,6 +439,62 @@ onUnmounted(() => {
           @keydown.enter="addLauncher"
         />
         <SettingsButton :disabled="!newLauncherValid" @click="addLauncher">Add</SettingsButton>
+      </div>
+
+      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Phone quick commands</h3>
+      <p class="mb-3 mt-1.5 text-[12px] text-dim">
+        Phrases you send often, offered as chips on the phone's terminal view. Tapping one puts the text in the input box — it isn't sent until you press send.
+        The label is the chip's face, so keep it short. Example: <code>PR</code> → <code>PR作って</code>. Leave every kind unchecked to offer a command
+        everywhere, or tick the ones it suits — <code>git status</code> belongs to a shell, not to Claude.
+      </p>
+      <ul v-if="quickCommandList.length" class="m-0 mb-2 flex list-none flex-col gap-1 p-0">
+        <li v-for="c in quickCommandList" :key="c.label" class="flex items-center gap-2 rounded-md border border-border bg-elevated py-1 pl-2.5 pr-1.5">
+          <span class="flex-none font-mono text-[12px] text-secondary">{{ c.label }}</span>
+          <code class="min-w-0 flex-auto truncate font-mono text-[11px] text-dim">{{ c.text }}</code>
+          <span class="flex-none rounded-sm bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[10px] text-muted">{{ agentScopeLabel(c) }}</span>
+          <button
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-[14px] text-muted hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+            type="button"
+            :title="`Remove ${c.label}`"
+            :aria-label="`Remove ${c.label}`"
+            @click="removeQuickCommand(c.label)"
+          >
+            ✕
+          </button>
+        </li>
+      </ul>
+      <div class="flex items-center gap-2">
+        <SettingsField
+          v-model="newQuickLabel"
+          class="min-w-0 shrink grow basis-[25%]"
+          placeholder="Label"
+          aria-label="Quick command label"
+          spellcheck="false"
+          @keydown.enter="addQuickCommand"
+        />
+        <SettingsField
+          v-model="newQuickText"
+          class="min-w-0 flex-auto"
+          placeholder="text to insert (e.g. PR作って)"
+          aria-label="Quick command text"
+          spellcheck="false"
+          @keydown.enter="addQuickCommand"
+        />
+        <SettingsButton :disabled="!newQuickValid" @click="addQuickCommand">Add</SettingsButton>
+      </div>
+      <div class="mt-1.5 flex items-center gap-3">
+        <span class="text-[11px] text-muted">Offer to:</span>
+        <label v-for="agent in SESSION_AGENTS" :key="agent" class="flex cursor-pointer items-center gap-1 text-[11px] text-dim">
+          <input
+            type="checkbox"
+            class="cursor-pointer"
+            :checked="newQuickAgents.includes(agent)"
+            :aria-label="`Offer to ${agent} sessions`"
+            @change="toggleNewQuickAgent(agent)"
+          />
+          <span class="font-mono">{{ agent }}</span>
+        </label>
+        <span class="text-[11px] text-muted">(none ticked = every kind)</span>
       </div>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">MCP servers</h3>

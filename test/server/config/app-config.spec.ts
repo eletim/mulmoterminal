@@ -6,6 +6,7 @@ import {
   sanitizeSoundFile,
   sanitizeRepos,
   sanitizeLaunchers,
+  sanitizeQuickCommands,
   sanitizeUserMcpServers,
   sanitizePushEnabled,
   sanitizeWorklogIntervalHours,
@@ -80,6 +81,52 @@ describe("sanitizeLaunchers", () => {
   });
 });
 
+describe("sanitizeQuickCommands", () => {
+  it("keeps trimmed label+text pairs, drops incomplete/dup/junk", () => {
+    expect(
+      sanitizeQuickCommands([
+        { label: "  PR ", text: " PR作って " },
+        { label: "merge", text: "mergeして" },
+        { label: "PR", text: "again" }, // dup label — dropped
+        { label: "NoText", text: "   " }, // text is only whitespace — dropped
+        { label: "", text: "x" }, // no label — dropped
+        "junk",
+      ]),
+    ).toEqual([
+      { label: "PR", text: "PR作って" },
+      { label: "merge", text: "mergeして" },
+    ]);
+    expect(sanitizeQuickCommands("nope")).toEqual([]);
+    expect(sanitizeQuickCommands(undefined)).toEqual([]);
+  });
+
+  it("keeps a valid agents scope and de-duplicates it", () => {
+    expect(sanitizeQuickCommands([{ label: "PR", text: "t", agents: ["claude", "claude", "codex"] }])).toEqual([
+      { label: "PR", text: "t", agents: ["claude", "codex"] },
+    ]);
+  });
+
+  // An empty scope must mean the same as no scope — "offered to nothing" is never what a user
+  // meant, and it would hide the command with no way to see why.
+  it("drops the agents key when the scope is empty", () => {
+    expect(sanitizeQuickCommands([{ label: "PR", text: "t", agents: [] }])).toEqual([{ label: "PR", text: "t" }]);
+    expect(Object.keys(sanitizeQuickCommands([{ label: "PR", text: "t", agents: [] }])[0])).toEqual(["label", "text"]);
+  });
+
+  it("rejects an entry whose agents name a kind that does not exist", () => {
+    expect(sanitizeQuickCommands([{ label: "PR", text: "t", agents: ["gemini"] }])).toEqual([]);
+  });
+
+  // The label has to fit a phone chip, and the text is bounded like a launcher command.
+  it("caps the label and text lengths, and the number of commands", () => {
+    const [only] = sanitizeQuickCommands([{ label: "L".repeat(80), text: "T".repeat(900) }]);
+    expect(only.label).toHaveLength(24);
+    expect(only.text).toHaveLength(500);
+    const many = Array.from({ length: 30 }, (_, i) => ({ label: `Q${i}`, text: `t${i}` }));
+    expect(sanitizeQuickCommands(many).length).toBeLessThanOrEqual(20);
+  });
+});
+
 describe("sanitizeUserMcpServers", () => {
   it("keeps valid id + http(s) url, drops bad id/url/dup", () => {
     expect(
@@ -134,6 +181,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     soundFile: null,
     prRepos: [],
     launchers: [],
+    quickCommands: [],
     userMcpServers: [],
     buttons: null,
     chips: null,
@@ -152,6 +200,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       soundFile: "/s.wav",
       prRepos: ["o/r"],
       launchers: [{ label: "Shell", command: "$SHELL" }],
+      quickCommands: [],
       userMcpServers: [{ id: "weather", url: "http://localhost:9000/mcp" }],
       buttons: [{ id: "pr", label: "PR", run: "shell" as const, cmd: "gh pr create" }],
       chips: ["dir", "git"],
@@ -197,6 +246,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       soundFile: null,
       prRepos: ["o/r"],
       launchers: [{ label: "S", command: "sh" }],
+      quickCommands: [],
       userMcpServers: [{ id: "ok", url: "https://x/mcp" }],
       keymap: { "zoom-next": "PageDown" },
       buttons: null,
@@ -293,6 +343,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     soundFile: null,
     prRepos: ["o/r"],
     launchers: [{ label: "Shell", command: "$SHELL" }],
+    quickCommands: [],
     userMcpServers: [{ id: "weather", url: "http://localhost:9000/mcp" }],
     buttons: null,
     chips: null,
@@ -345,6 +396,7 @@ describe("mergeConfigUpdate", () => {
     soundFile: null,
     prRepos: [],
     launchers: [],
+    quickCommands: [],
     userMcpServers: [],
     buttons: [{ id: "reveal", label: "Reveal in the file manager", run: "open", emoji: "📂", open: { reveal: "${dir}" } }],
     chips: ["git", "diff", "ctx", "usage"],
