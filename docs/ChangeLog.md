@@ -2,6 +2,27 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@1.9.1 — 2026-07-25
+
+### Windows
+
+- **Sessions start on Windows again** (#794, #799): every `claude` session failed with `File not found:` — nothing after the colon — while Codex sessions on the same host worked. node-pty gates each Windows spawn on its own PATH lookup (`src/win/path_util.cc`, `get_shell_path`), which compares file names **exactly** and never appends an executable extension, so a bare `claude` misses the `…\.local\bin\claude.exe` that the official installer produces and the failing path is the empty string. The name is now resolved to an absolute `.exe`/`.com` inside `spawnPty()` — the one function every PTY spawn goes through — so `claude`, `codex`, `tmux` (which has no `*_BIN` override of its own, and needed an extensionless copy of `tmux.exe` as a workaround) and `powershell.exe` are all covered at once. Only PE images are ever substituted: node-pty launches through `CreateProcessW`, which cannot run a `.cmd`, a `.bat` or an extensionless shell shim, so resolving to one would break the spawns that work today — that is exactly why Codex worked, its extensionless shim satisfied the gate while a `codex.exe` elsewhere on PATH was what actually ran. When nothing resolves, the bare name is passed through unchanged, so hosts that work today are untouched. The rule is covered by 16 pure tests on every OS, and the Windows runner now spawns a real PTY from a bare name and pins the upstream node-pty behaviour so a future fix there is noticed. npm-global installs that ship only a `.cmd` still need a `cmd.exe` wrapper and are tracked in #798.
+
+### Terminal
+
+- **OSC 8 hyperlinks are clickable again** (#783, #785): links in terminal output — Claude's statusline `PR #NNNN`, for one — did nothing when clicked. The cause was not the front end: **tmux was stripping OSC 8**, since it only forwards advanced sequences when the outer terminal is declared to support them (the same shape as the existing OSC 52 `Ms` override). `set -as terminal-features '*:hyperlinks'` is now written into our isolated tmux config and applied live to an already-running server. The browser side gained an xterm `linkHandler` that opens `http(s)` links directly instead of raising a `confirm` dialog.
+- **Source and text files open in the browser instead of downloading** (#785): the raw-file route now serves `.md`, `.ts`, `.js` and friends as `text/plain`, so a file link from the terminal previews inline. Images, PDFs and media are unchanged, and unknown extensions still download.
+- **Developer notes for the terminal stack** (#785): `docs/terminal-notes.md` records the xterm/addon version constraints, which behaviours come from which setting (with the issue that introduced them), the tmux passthrough rule, and a regression checklist to walk before an xterm upgrade.
+
+### Support & docs
+
+- **A bundled `/mulmoterminal-bug-report` skill** (#793, #797): its goal is to get the user unstuck, not to file issues. It hears out the symptom one question at a time, checks whether the behaviour is configuration or by design by **reading the real config, schema and version** rather than guessing, searches existing issues (a fixed-but-outdated version ends in an update instead of a report), and only then collects the environment — keys masked, full preview and consent before posting. Its `faq.md` is an index that deliberately stores no values, only config keys and source paths, and CI verifies every entry still points at a key and a file that exist.
+- **npx cache corruption troubleshooting** (#735, #796): the `ERR_MODULE_NOT_FOUND` startup failure caused by an interrupted first `npx` install is now documented in the README and the docs landing page, so it is reachable by search rather than only from the changelog and the launcher's own hint.
+
+### Dependencies
+
+- `concurrently` 10.0.3 → 10.0.4, `eslint` 10.7.0 → 10.8.0 (#800).
+
 ## mulmoterminal@1.9.0 — 2026-07-25
 
 ### Phone / remote host
