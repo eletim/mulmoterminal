@@ -14,10 +14,12 @@ afterEach(() => cleanupSessionSettings(SESSION));
 
 describe("settingsArgument", () => {
   // A settings payload with no secret in it keeps travelling inline, so every existing
-  // session's spawn is untouched by this feature.
+  // session's spawn is untouched by this feature. The platform is named rather than
+  // inherited: Windows has its own reason to use a file (#813, below), so left implicit
+  // this would assert the opposite of the truth on the Windows runner.
   it("returns the JSON itself when nothing in it is secret", () => {
     const json = JSON.stringify({ hooks: {} });
-    expect(settingsArgument(SESSION, json, false)).toBe(json);
+    expect(settingsArgument(SESSION, json, false, "linux")).toBe(json);
     expect(existsSync(fileFor(SESSION))).toBe(false);
   });
 
