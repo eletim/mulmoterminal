@@ -191,6 +191,8 @@ both ends** instead of wrapping. See [Basics → switching the enlarged terminal
 - A malformed binding (unknown modifier, a lone `Shift`, a trailing `+`) makes MulmoTerminal **refuse to
   start**, printing the offending line. A silently-ignored typo is indistinguishable from "the shortcut just
   doesn't work", which would send you hunting in the app for a one-character problem in a file.
+- **Two actions on the same keystroke** only ever fires the first, so MulmoTerminal **warns** at startup
+  naming both. Comparison is on the parsed keystroke, so `Shift+PageUp` and `shift+PageUp` count as the same.
 - An IME composition always passes through, so Japanese/CJK candidate selection is never intercepted.
 
 ### Combinations that cannot be bound

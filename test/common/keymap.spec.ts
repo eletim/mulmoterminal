@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { actionForKey, matchesBinding, parseKeyBinding, sanitizeKeymap, type KeymapKeyEvent } from "../../common/keymap.js";
+import { actionForKey, matchesBinding, parseKeyBinding, sanitizeKeymap, validateKeymap, type KeymapKeyEvent } from "../../common/keymap.js";
 
 const ev = (over: Partial<KeymapKeyEvent> = {}): KeymapKeyEvent => ({
   key: "PageDown",
@@ -97,6 +97,35 @@ describe("actionForKey", () => {
   it("does not read through the prototype chain", () => {
     expect(actionForKey(keymap, ev({ key: "constructor" }))).toBeNull();
     expect(actionForKey(keymap, ev({ key: "toString" }))).toBeNull();
+  });
+});
+
+describe("validateKeymap", () => {
+  const warnings = (input: unknown) => validateKeymap(input).filter((p) => !p.fatal);
+  const errors = (input: unknown) => validateKeymap(input).filter((p) => p.fatal);
+
+  it("WARNS when two actions claim the same keystroke — only the first would ever fire", () => {
+    const input = { "zoom-next": "PageDown", "terminal-close": "PageDown" };
+    expect(errors(input)).toEqual([]);
+    expect(warnings(input).map((w) => w.action)).toEqual(["terminal-close"]);
+    expect(warnings(input)[0].reason).toContain("zoom-next");
+  });
+
+  it("compares duplicates as PARSED keystrokes, not raw strings", () => {
+    // The same keystroke spelled differently — modifier names are case-insensitive.
+    expect(warnings({ "zoom-next": "Shift+PageUp", "zoom-prev": "shift+PageUp" })).toHaveLength(1);
+  });
+
+  it("does NOT call different keystrokes duplicates", () => {
+    expect(validateKeymap({ "zoom-next": "PageDown", "zoom-prev": "Shift+PageDown" })).toEqual([]);
+    // KeyboardEvent.key is case-sensitive for printable characters.
+    expect(validateKeymap({ "zoom-next": "a", "zoom-prev": "A" })).toEqual([]);
+  });
+
+  it("a malformed binding never claims a keystroke, so it can't cause a false duplicate", () => {
+    const input = { "zoom-next": "Hyper+PageDown", "zoom-prev": "PageDown" };
+    expect(errors(input)).toHaveLength(1);
+    expect(warnings(input)).toEqual([]);
   });
 });
 

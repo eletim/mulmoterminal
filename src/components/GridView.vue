@@ -42,6 +42,7 @@ import {
 import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composables/gridShortcut";
 import { useCaptureKeydown } from "../composables/useCaptureKeydown";
 import { getActiveKeymap } from "../composables/activeKeymap";
+import { preferredLaunchDir } from "./launchDir";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
 import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
@@ -396,15 +397,22 @@ function runShortcut(shortcut: GridShortcut) {
   } else if (shortcut === "terminal-new") {
     onAddTerminal();
   } else if (shortcut === "terminal-new-adjacent" && uid !== null) {
-    state.value = insertCellAfter(state.value, uid, shellCell(cellCwd(uid) ?? defaultCwd.value ?? ""));
+    state.value = insertCellAfter(state.value, uid, shellCell(adjacentCwd(uid)));
   } else if (shortcut === "terminal-close" && uid !== null) {
     onClose(uid);
   }
 }
 
-// The dir a new adjacent terminal inherits: the one the zoomed cell is running in, which is
-// what "split this terminal" means everywhere else. Falls back to the server default.
-const cellCwd = (uid: number): string | null => state.value.cells.find((c) => c.uid === uid)?.cwd ?? null;
+// The dir a new adjacent terminal opens in: the one the current terminal is running in, which
+// is what "split this terminal" means everywhere else. Falling back through preferredLaunchDir
+// rather than straight to defaultCwd keeps this on the SAME rule the launch form uses — it also
+// tries the most recent cwd preset, which a cell with no recorded dir would otherwise skip.
+const adjacentCwd = (uid: number): string =>
+  preferredLaunchDir({
+    initialCwd: state.value.cells.find((c) => c.uid === uid)?.cwd,
+    presets: presets.value,
+    defaultCwd: defaultCwd.value,
+  });
 useCaptureKeydown(onShortcutKey);
 
 // Launch the config skill in a new auto-running session and switch to the single view so it shows

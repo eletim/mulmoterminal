@@ -105,17 +105,29 @@ export function validateKeymap(input: unknown): KeymapProblem[] {
   if (typeof input !== "object" || Array.isArray(input)) {
     return [{ action: "keymap", binding: input, reason: "`keymap` must be an object of action -> key binding", fatal: true }];
   }
+  const claimedBy = new Map<string, string>();
   return Object.entries(input as Record<string, unknown>).flatMap(([action, binding]): KeymapProblem[] => {
     if (!isKeymapAction(action)) {
       return [{ action, binding, reason: `unknown action (known: ${KEYMAP_ACTIONS.join(", ")})`, fatal: false }];
     }
     if (typeof binding !== "string") return [{ action, binding, reason: "binding must be a string", fatal: true }];
-    if (parseKeyBinding(binding) === null) {
+    const parsed = parseKeyBinding(binding);
+    if (parsed === null) {
       return [{ action, binding, reason: 'unparseable key binding — expected e.g. "PageDown" or "Shift+PageUp"', fatal: true }];
     }
+    // Two actions on one key: only the first fires, so the other silently never works.
+    // Compared as PARSED, since "Shift+PageUp" and "shift+pageup" are the same keystroke.
+    const owner = claimedBy.get(canonicalBinding(parsed));
+    if (owner !== undefined) {
+      return [{ action, binding, reason: `same keystroke as \`${owner}\` — only \`${owner}\` will fire`, fatal: false }];
+    }
+    claimedBy.set(canonicalBinding(parsed), action);
     return [];
   });
 }
+
+// A binding's identity as a keystroke, for spotting two actions that claim the same one.
+const canonicalBinding = (b: KeyBinding): string => `${b.shift ? "S" : ""}${b.alt ? "A" : ""}${b.ctrl ? "C" : ""}${b.meta ? "M" : ""}|${b.key}`;
 
 // Keep only known actions bound to a parseable, non-empty string. Unknown keys and
 // malformed bindings are dropped rather than rejecting the whole map, matching how the
