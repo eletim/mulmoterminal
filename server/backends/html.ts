@@ -20,6 +20,7 @@ import { artifactsFileOps } from "./artifacts.js";
 import { publishFileChange } from "./fileChange.js";
 import { statFileOr404 } from "./statFileOr404.js";
 import { streamFileToResponse } from "./streamFile.js";
+import { isWithin } from "../infra/path-within.js";
 
 // Curated CDN allowlist (matches the collection custom-view policy) for an
 // LLM-authored page that may pull a charting/util lib or font from a CDN.
@@ -80,7 +81,7 @@ export function mountHtmlPreviewRoute(app: Express, deps: { workspace: string })
   app.get(/^\/artifacts\/html\/(.+)/, (req: Request, res: Response) => {
     const rel = req.params[0] ?? "";
     const abs = path.resolve(root, rel);
-    if (abs !== root && !abs.startsWith(root + path.sep)) {
+    if (!isWithin(root, abs)) {
       res.status(403).json({ error: "path escapes artifacts/html" });
       return;
     }

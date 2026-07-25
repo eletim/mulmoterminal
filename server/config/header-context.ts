@@ -8,6 +8,7 @@ import { git } from "../git/worktrees.js";
 import { parseGithubWebUrl } from "../git/gitRemote.js";
 import { mergeHeaderConfig, type HeaderConfig, type HeaderContext } from "./header-config.js";
 import { loadDirConfig } from "./dir-config.js";
+import { isStrictlyWithin } from "../infra/path-within.js";
 
 const WORKTREES_ROOT = path.join(os.homedir(), ".mulmoterminal", "worktrees");
 
@@ -27,11 +28,9 @@ export function repoFromWebUrl(webUrl: string | null): string | null {
 // than the task dir itself (a session working in <task>/src would read as "src"). Root is a
 // parameter so the rule is unit-testable without the real home dir. Exported for that test.
 export function worktreeTask(cwd: string, root: string = WORKTREES_ROOT): string | null {
-  const resolved = path.resolve(cwd);
-  const prefix = root + path.sep;
-  if (!resolved.startsWith(prefix)) return null;
+  if (!isStrictlyWithin(root, cwd)) return null;
   // segments[0] = "<repo>-<hash>", segments[1] = "<task>", anything after is inside the task.
-  const segments = resolved.slice(prefix.length).split(path.sep);
+  const segments = path.relative(path.resolve(root), path.resolve(cwd)).split(path.sep);
   return segments[1] ?? null;
 }
 

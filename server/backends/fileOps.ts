@@ -16,6 +16,7 @@
 import fs from "fs/promises";
 import path from "path";
 import type { FileOps } from "gui-chat-protocol";
+import { isWithin } from "../infra/path-within.js";
 
 const MAX_SYMLINK_DEPTH = 40;
 
@@ -49,7 +50,7 @@ export function createFileOps(rootFor: () => string, label: string): FileOps {
   const lexicalAbs = (rel: string): { root: string; abs: string } => {
     const root = path.resolve(rootFor());
     const abs = path.resolve(root, rel);
-    if (abs !== root && !abs.startsWith(root + path.sep)) {
+    if (!isWithin(root, abs)) {
       throw new Error(`${label} path escapes its root: ${rel}`);
     }
     return { root, abs };
@@ -58,7 +59,7 @@ export function createFileOps(rootFor: () => string, label: string): FileOps {
   const safeAbs = async (rel: string): Promise<string> => {
     const { root, abs } = lexicalAbs(rel);
     const [realRoot, realAbs] = await Promise.all([realpathAllowingMissing(root), realpathAllowingMissing(abs)]);
-    if (realAbs !== realRoot && !realAbs.startsWith(realRoot + path.sep)) {
+    if (!isWithin(realRoot, realAbs)) {
       throw new Error(`${label} path escapes its root via symlink: ${rel}`);
     }
     return abs;

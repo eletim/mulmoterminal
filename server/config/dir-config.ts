@@ -8,6 +8,7 @@ import { existsSync, readFileSync, statSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import type { DirChrome } from "../../common/dirChrome.js";
+import { isWithin } from "../infra/path-within.js";
 import {
   dirNameField,
   dirColorField,
@@ -74,8 +75,6 @@ export function dirConfigWriteTarget(toolName: unknown, toolInput: unknown, sess
   return sessionCwd ? path.dirname(path.resolve(sessionCwd, file)) : null;
 }
 
-const isInside = (base: string, target: string): boolean => target === base || target.startsWith(base + path.sep);
-
 // Confine the configured sound to a real file INSIDE cwd. Relative paths only;
 // anything absolute or escaping via "../" is rejected so an opened project can't
 // point the player at arbitrary files on disk. The lexical check only constrains the
@@ -87,10 +86,10 @@ export function resolveDirSound(cwd: string, input: unknown): string | null {
   if (!rel || path.isAbsolute(rel)) return null;
   const base = path.resolve(cwd);
   const resolved = path.resolve(base, rel);
-  if (!isInside(base, resolved)) return null;
+  if (!isWithin(base, resolved)) return null;
   if (!existsSync(resolved) || !statSync(resolved).isFile()) return null;
   try {
-    if (!isInside(realpathSync(base), realpathSync(resolved))) return null;
+    if (!isWithin(realpathSync(base), realpathSync(resolved))) return null;
   } catch {
     return null;
   }

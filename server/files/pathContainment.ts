@@ -4,6 +4,7 @@
 // symlink escape.
 import path from "node:path";
 import fs from "node:fs";
+import { isSamePath, isWithin } from "../infra/path-within.js";
 
 // Resolve a client-supplied project dir: absolute + existing dir, else the default
 // workspace (mirrors index.ts resolveWorkspace).
@@ -27,9 +28,11 @@ export function authorizedServingBase(cwd: string | null, root: string, sessionC
   const resolvedRoot = path.resolve(root);
   if (!cwd) return resolvedRoot;
   const requested = path.resolve(cwd);
-  if (requested === resolvedRoot) return requested;
+  // isSamePath, not `===`: on Windows the browser's cwd and the stored session cwd name one
+  // directory even when their casing differs, and a raw string compare would refuse to serve.
+  if (isSamePath(requested, resolvedRoot)) return requested;
   for (const known of sessionCwds) {
-    if (path.resolve(known) === requested) return requested;
+    if (isSamePath(known, requested)) return requested;
   }
   return null;
 }
@@ -47,7 +50,7 @@ export function expandTilde(p: string, homeDir: string): string {
 export function containedPath(base: string, rel: string): string | null {
   const root = path.resolve(base);
   const abs = path.resolve(root, rel);
-  if (abs !== root && !abs.startsWith(root + path.sep)) return null;
+  if (!isWithin(root, abs)) return null;
   return abs;
 }
 
@@ -74,6 +77,6 @@ export function realContainedWithin(base: string, absLexical: string): string | 
     existing = parent;
   }
   const real = rest.length ? path.resolve(realpathOr(existing), ...rest) : realpathOr(existing);
-  if (real !== root && !real.startsWith(root + path.sep)) return null;
+  if (!isWithin(root, real)) return null;
   return real;
 }

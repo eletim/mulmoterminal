@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isStrictlyWithin } from "../infra/path-within.js";
 
 // realpathSync.native, not the JS one: on Windows only the native call expands an
 // 8.3 short component (C:\Users\RUNNER~1 → …\runneradmin) to the long form that
@@ -79,8 +80,9 @@ function canonicalPath(p: string): string {
 // canonicalized so a symlink under the root can't escape it (string-prefix alone
 // would let `<root>/link -> /outside` slip through).
 export function isManagedWorktree(repoToplevel: string, p: string): boolean {
-  const root = canonicalPath(worktreesRoot(repoToplevel)) + path.sep;
-  return canonicalPath(p).startsWith(root);
+  // STRICTLY within: the root holds worktrees but is not one, so a delete aimed at the
+  // root itself must not pass this guard.
+  return isStrictlyWithin(canonicalPath(worktreesRoot(repoToplevel)), canonicalPath(p));
 }
 
 // Parse `git worktree list --porcelain` into entries (blocks split by blank lines).

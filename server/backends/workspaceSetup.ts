@@ -19,6 +19,7 @@ import os from "node:os";
 import { mkdirSync } from "node:fs";
 import { seedHelps, syncPresetSkills, syncActivePresetSkills, presetSkillsAssetDir } from "@mulmoclaude/core/workspace-setup";
 import { syncCodexSkills, codexSkillsRoot } from "../agents/codex-skills.js";
+import { isSamePath } from "../infra/path-within.js";
 
 // Console-backed logger, matching the prefix style other backends use.
 const log = {
@@ -37,7 +38,10 @@ function managedWorkspacePath(): string {
  *  is confined to it so launching the terminal in an arbitrary project dir never
  *  writes mulmoclaude presets/helps there. */
 export function isManagedWorkspace(workspace: string): boolean {
-  return path.resolve(workspace) === path.resolve(managedWorkspacePath());
+  // isSamePath, not `===`: the workspace arrives from the launcher's --cwd, so on Windows it
+  // can name the managed directory in a different casing than os.homedir() spells it, and a
+  // raw compare would silently skip seeding.
+  return isSamePath(workspace, managedWorkspacePath());
 }
 
 // Run one seeding step in isolation: a filesystem edge case (EACCES/ENOSPC/path
