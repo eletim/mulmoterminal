@@ -25,18 +25,6 @@ export async function currentBranch(cwd: string): Promise<{ branch: string | nul
   return { branch: null, detached: head.ok };
 }
 
-// Whether HEAD tracks a branch ON ORIGIN — deliberately narrower than aheadBehind's
-// `upstream` below, which counts whatever remote the branch follows because that is what
-// ahead/behind is measured against. A caller that pairs this with origin's URL needs the
-// stricter question: a branch tracking a second remote (a fork's `upstream`, another push
-// target) is absent from origin, so a link built from origin + this branch name would 404.
-// False too for a detached HEAD, an unpushed branch, a non-repo dir, and a tracking ref
-// that is still configured but no longer fetched — `--abbrev-ref` fails on all of them.
-export async function tracksOriginBranch(cwd: string): Promise<boolean> {
-  const res = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd);
-  return res.ok && res.stdout.trim().startsWith("origin/");
-}
-
 // ahead/behind vs the tracking branch. `--left-right @{upstream}...HEAD` prints
 // "<behind>\t<ahead>"; a missing upstream makes the command fail → upstream:false.
 async function aheadBehind(cwd: string): Promise<{ ahead: number; behind: number; upstream: boolean }> {

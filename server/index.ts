@@ -44,9 +44,8 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
 import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
-import { currentBranch, tracksOriginBranch } from "./git/git-status.js";
+import { currentBranch } from "./git/git-status.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
-import { githubBranchUrl } from "./git/githubBranchUrl.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
 import { initGoogleBackend } from "./backends/google.js";
@@ -375,18 +374,20 @@ const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(p
 // no branch to look up — those fields are simply absent, and the phone shows the screen alone.
 const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
   const cwd = ptys.get(sessionId)?.cwd ?? "";
-  // The three git reads are independent, so the phone waits for one spawn rather than three.
-  const [head, repoUrl, onOrigin] = await Promise.all([
-    cwd ? currentBranch(cwd) : null,
-    cwd ? resolveGithubUrl(cwd) : null,
-    cwd ? tracksOriginBranch(cwd) : false,
-  ]);
+  // Both git reads are independent, so the phone waits for one spawn rather than two.
+  const [head, repoUrl] = await Promise.all([cwd ? currentBranch(cwd) : null, cwd ? resolveGithubUrl(cwd) : null]);
   return {
     cwd,
     branch: head?.branch ?? "",
     summary: aiTitles.get(sessionId) ?? "",
     prompt: lastPrompts.get(sessionId) ?? "",
-    githubUrl: githubBranchUrl(repoUrl, head?.branch ?? null, onOrigin) ?? "",
+    // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
+    // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged
+    // branch deleted at merge time keeps resolving here until someone prunes — and every
+    // branch this app creates is deleted that way. Measured: the tree URL 404s, the root
+    // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
+    // on a screen the phone polls (#832).
+    githubUrl: repoUrl ?? "",
   };
 };
 
