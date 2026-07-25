@@ -114,6 +114,14 @@ describe.skipIf(!isWindows)("spawnPty on Windows", () => {
     expect(await argvThroughShim(args)).toEqual(args);
   });
 
+  // The CLAUDE_BIN workaround from #794, applied to an npm-global install: an absolute path
+  // skips the PATH search, and a batch file still cannot be handed to CreateProcess.
+  it("runs an explicit absolute .cmd path", async () => {
+    rmSync(argsOut, { force: true });
+    expect(await exitCodeOf(spawnPty(shimCmd, ["--explicit"], dir))).toBe(0);
+    expect(JSON.parse(readFileSync(argsOut, "utf8"))).toEqual(["--explicit"]);
+  });
+
   // Pinned, not fixed: cmd expands %VAR% inside double quotes and has no escape for it. See
   // cmd-escape.ts — rejecting every argument containing a percent sign would break ordinary
   // prompts, and substituting our own child's environment into its own argument is a

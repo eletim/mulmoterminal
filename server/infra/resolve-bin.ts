@@ -88,6 +88,15 @@ export function resolvePtyLaunch(
   fileExists = isExecutableFile,
 ): PtyLaunch {
   if (platform !== "win32") return { file: bin, args };
+  // A name that already names a path needs no PATH search — but CreateProcess still cannot
+  // RUN a batch file, and `CLAUDE_BIN=C:\…\claude.cmd` is exactly what someone reaches for
+  // when working around a broken spawn. Wrapped without an existence check: a relative path
+  // is relative to the PTY's cwd, not this process's, so checking here would ask the wrong
+  // directory — and cmd.exe naming the path it cannot find beats node-pty's empty message.
+  if (namesAPath(bin)) {
+    if (!endsWithOneOf(bin, BATCH_EXTENSIONS)) return { file: bin, args };
+    return { file: commandProcessor(comspec, searchPath, fileExists), args: batchCommandLine(bin, args) };
+  }
   const executable = resolveWindowsExecutable(bin, searchPath, fileExists);
   if (executable) return { file: executable, args };
   const batch = resolveWindowsBatch(bin, searchPath, fileExists);

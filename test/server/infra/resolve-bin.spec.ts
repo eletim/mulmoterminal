@@ -153,6 +153,27 @@ describe("resolvePtyLaunch", () => {
     expect(resolvePtyLaunch("codex", [], "win32", `${NPM_BIN};${LOCAL_BIN}`, COMSPEC, exists)).toEqual({ file: `${LOCAL_BIN}\\codex.exe`, args: [] });
   });
 
+  // `CLAUDE_BIN=C:\…\claude.cmd` is what someone sets to work around a broken spawn, and it
+  // skips the PATH search entirely — but CreateProcess still cannot run a batch file.
+  it("wraps an explicit .cmd/.bat path, absolute or relative", () => {
+    const explicit = `${NPM_BIN}\\claude.cmd`;
+    expect(resolvePtyLaunch(explicit, ARGS, "win32", NPM_BIN, COMSPEC, filesystem(COMSPEC))).toEqual({
+      file: COMSPEC,
+      args: `/d /s /c ""${explicit}" "--resume" "abc""`,
+    });
+    const relative = ".\\claude.bat";
+    expect(resolvePtyLaunch(relative, [], "win32", NPM_BIN, COMSPEC, filesystem(COMSPEC))).toEqual({
+      file: COMSPEC,
+      args: `/d /s /c ""${relative}""`,
+    });
+  });
+
+  it("leaves an explicit .exe path alone — node-pty and CreateProcess both handle it", () => {
+    const explicit = `${LOCAL_BIN}\\claude.exe`;
+    expect(resolvePtyLaunch(explicit, ARGS, "win32", LOCAL_BIN, COMSPEC, filesystem(explicit))).toEqual({ file: explicit, args: ARGS });
+    expect(resolvePtyLaunch("/bin/bash", ARGS, "win32", LOCAL_BIN, COMSPEC, filesystem())).toEqual({ file: "/bin/bash", args: ARGS });
+  });
+
   it("keeps the bare name on Windows when nothing resolves, so a host that works today still works", () => {
     expect(resolvePtyLaunch("claude", ARGS, "win32", "C:\\nowhere", COMSPEC, filesystem())).toEqual({ file: "claude", args: ARGS });
   });
