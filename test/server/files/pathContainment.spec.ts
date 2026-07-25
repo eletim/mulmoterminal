@@ -163,6 +163,14 @@ describe("namesAWindowsDevice", () => {
     expect(namesAWindowsDevice(name, "win32")).toBe(true);
   });
 
+  // A colon opens an NTFS alternate data stream, and `NUL:` is the legacy device spelling —
+  // neither stops the name in front of it being a device. Flagged by Codex on #821.
+  it("refuses one behind a colon (alternate data stream / legacy device spelling)", () => {
+    for (const name of ["NUL:$DATA", "CON:foo", "docs/NUL:x", "AUX:"]) {
+      expect(namesAWindowsDevice(name, "win32"), name).toBe(true);
+    }
+  });
+
   it("refuses one whatever its case, extension, or trailing dots and spaces", () => {
     for (const name of ["nul", "Nul", "NUL.txt", "con.log", "NUL.", "NUL. ", "aux .txt"]) {
       expect(namesAWindowsDevice(name, "win32"), name).toBe(true);

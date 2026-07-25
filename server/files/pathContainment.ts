@@ -95,7 +95,10 @@ function trimTrailingDotsAndSpaces(text: string): string {
 export function namesAWindowsDevice(rel: string, platform: NodeJS.Platform = process.platform): boolean {
   if (platform !== "win32") return false;
   return rel.split(/[\\/]/).some((segment) => {
-    const stem = trimTrailingDotsAndSpaces(segment.split(".")[0]);
+    // `.` and `:` both end the stem: `CON.txt` is CON, and so is `NUL:$DATA` — a colon opens
+    // an NTFS alternate data stream (and `NUL:` is the legacy device spelling), neither of
+    // which stops the name in front of it being a device.
+    const stem = trimTrailingDotsAndSpaces(segment.split(/[.:]/)[0]);
     return WINDOWS_DEVICE_NAMES.has(stem.toUpperCase());
   });
 }

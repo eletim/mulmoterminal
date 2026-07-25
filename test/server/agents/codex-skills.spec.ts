@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syncCodexSkills, codexifySkillSeed } from "../../../server/agents/codex-skills.js";
@@ -62,6 +62,32 @@ describe("syncCodexSkills", () => {
     expect(res.mirrored).toEqual(["books"]);
     expect(readFileSync(path.join(dst, "books", "SKILL.md"), "utf8")).toBe("# v2");
     expect(existsSync(path.join(dst, "books", "stale.txt"))).toBe(false);
+  });
+
+  // Flagged by Codex on #821: when the mirror cannot be removed, copying ON TOP of it leaves
+  // whatever the source has since deleted in place — a stale skill codex keeps loading —
+  // while the sync reports success. It must skip and say so instead.
+  //
+  // Windows is where an unremovable directory actually happens (another process holding it),
+  // and is also where chmod cannot produce one, so the case is driven the POSIX way.
+  it.skipIf(process.platform === "win32")("skips a mirror it could not replace, rather than overlaying it", () => {
+    writeSkill(src, "books", "# v2");
+    mkdirSync(path.join(dst, "books"), { recursive: true });
+    writeFileSync(path.join(dst, "books", ".mt-mirror"), "x");
+    writeFileSync(path.join(dst, "books", "stale.txt"), "old");
+    chmodSync(dst, 0o500); // read+execute: the child cannot be unlinked
+    try {
+      const res = syncCodexSkills(src, dst);
+      expect(res.mirrored).toEqual([]);
+      expect(res.skipped).toEqual(["books"]);
+      // The new source was NOT laid on top: what makes the overlay dangerous is a mirror that
+      // looks synced while holding whatever the source deleted. (The directory itself may be
+      // partially emptied — rmSync removes contents before it fails on the directory — so the
+      // assertion is on what did NOT arrive, which is the part that matters.)
+      expect(existsSync(path.join(dst, "books", "SKILL.md"))).toBe(false);
+    } finally {
+      chmodSync(dst, 0o700);
+    }
   });
 
   it("no-ops when the source doesn't exist", () => {
