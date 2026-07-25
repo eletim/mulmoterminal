@@ -4,6 +4,7 @@ import type { Launcher } from "../components/launchers";
 import type { UserMcpServer } from "../components/userMcp";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
+import { setActiveKeymap } from "./activeKeymap";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
 // useAppConfig() caller — the beep player lives in the single view while the
@@ -222,6 +223,9 @@ export function useAppConfig() {
       // The Enter-key submit/newline byte mapping — read once so every terminal's key
       // handler honours it (config.json-only; unset falls back to the standard binding).
       setTerminalSubmitMode(isTerminalSubmitMode(c.terminalSubmit) ? c.terminalSubmit : DEFAULT_TERMINAL_SUBMIT_MODE);
+      // Keyboard shortcuts are opt-in: no `keymap` in config.json leaves this empty and
+      // every shortcut stays off.
+      setActiveKeymap(c.keymap);
       await migrateLegacyRecents();
     } catch {
       // the app still works; presets are just unavailable

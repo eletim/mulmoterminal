@@ -22,6 +22,7 @@ import {
   launchInCell,
   setSortMode,
   moveCell,
+  moveZoom,
   orderCells,
   pageSlice,
   activityStatus,
@@ -38,6 +39,10 @@ import {
   resolveCellStatus,
   MAX_TERMINALS,
 } from "./gridTabs";
+import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composables/gridShortcut";
+import { useCaptureKeydown } from "../composables/useCaptureKeydown";
+import { getActiveKeymap } from "../composables/activeKeymap";
+import { preferredLaunchDir } from "./launchDir";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
 import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
@@ -367,6 +372,48 @@ onMounted(loadConfig);
 function closeSettings() {
   showSettings.value = false;
 }
+
+// Page Up / Page Down walk the zoom between terminals (#829). Listened for on `window` in the
+// CAPTURE phase because xterm binds keydown on its own textarea: capture runs first, so the
+// key can be claimed before the terminal turns it into a page-forward escape sequence.
+function onShortcutKey(e: KeyboardEvent) {
+  if (showSettings.value) return;
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  if (target && isEditableTarget(target.tagName, Array.from(target.classList))) return;
+  const shortcut = gridShortcutFor(getActiveKeymap(), e, expandedUid.value !== null);
+  if (!shortcut) return;
+  e.preventDefault();
+  e.stopPropagation();
+  runShortcut(shortcut);
+}
+
+// Every action but `terminal-new` needs a terminal to act ON, and the zoomed cell is the
+// only one the grid can name — gridShortcutFor has already refused those while un-zoomed.
+function runShortcut(shortcut: GridShortcut) {
+  const order = displayCells.value.map((c) => c.uid);
+  const uid = expandedUid.value;
+  if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
+    state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
+  } else if (shortcut === "terminal-new") {
+    onAddTerminal();
+  } else if (shortcut === "terminal-new-adjacent" && uid !== null) {
+    state.value = insertCellAfter(state.value, uid, shellCell(adjacentCwd(uid)));
+  } else if (shortcut === "terminal-close" && uid !== null) {
+    onClose(uid);
+  }
+}
+
+// The dir a new adjacent terminal opens in: the one the current terminal is running in, which
+// is what "split this terminal" means everywhere else. Falling back through preferredLaunchDir
+// rather than straight to defaultCwd keeps this on the SAME rule the launch form uses — it also
+// tries the most recent cwd preset, which a cell with no recorded dir would otherwise skip.
+const adjacentCwd = (uid: number): string =>
+  preferredLaunchDir({
+    initialCwd: state.value.cells.find((c) => c.uid === uid)?.cwd,
+    presets: presets.value,
+    defaultCwd: defaultCwd.value,
+  });
+useCaptureKeydown(onShortcutKey);
 
 // Launch the config skill in a new auto-running session and switch to the single view so it shows
 // (the grid has no single active session). The skill then asks which directory / batch.

@@ -142,6 +142,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     worklogIntervalHours: 6,
     providers: [],
     terminalSubmit: "cr",
+    keymap: {},
   };
   it("round-trips presets + soundFile + prRepos + launchers + userMcpServers through a file", () => {
     const dir = tmp();
@@ -159,6 +160,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       worklogIntervalHours: 12,
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
+      keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
     };
     expect(saveAppConfig(file, cfg)).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
@@ -187,6 +189,7 @@ describe("loadAppConfig / saveAppConfig", () => {
           { id: "bad url", url: "nope" },
         ],
         terminalSubmit: "bogus", // unknown mode => standard 'cr'
+        keymap: { "zoom-next": "PageDown", "warp-drive": "F1", "zoom-prev": "Shift+" }, // unknown action + bad binding are dropped
       }),
     );
     expect(loadAppConfig(file)).toEqual({
@@ -195,6 +198,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       prRepos: ["o/r"],
       launchers: [{ label: "S", command: "sh" }],
       userMcpServers: [{ id: "ok", url: "https://x/mcp" }],
+      keymap: { "zoom-next": "PageDown" },
       buttons: null,
       chips: null,
       pushEnabled: false,
@@ -297,6 +301,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     worklogIntervalHours: 6,
     providers: [],
     terminalSubmit: "cr" as const,
+    keymap: {},
   };
 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
@@ -348,6 +353,7 @@ describe("mergeConfigUpdate", () => {
     worklogIntervalHours: 6,
     providers: [],
     terminalSubmit: "cr",
+    keymap: {},
     ...over,
   });
 

@@ -19,6 +19,7 @@ import {
   canMoveCell,
   setSortMode,
   moveCell,
+  moveZoom,
   orderCells,
   visibleOrdered,
   activityStatus,
@@ -150,6 +151,79 @@ describe("closeCell reflows across pages", () => {
   it("leaves the zoom untouched when a NON-zoomed cell is closed", () => {
     const after = closeCell(make(running(3), { expanded: 2 }), 0, [0, 1, 2]);
     expect(after.expanded).toBe(2);
+  });
+});
+
+describe("moveZoom (Page Up / Page Down walk the zoom along the filmstrip)", () => {
+  const order3 = [0, 1, 2];
+
+  it("moves the zoom forward and back along the on-screen order", () => {
+    expect(moveZoom(make(running(3), { expanded: 1 }), order3, 1).expanded).toBe(2);
+    expect(moveZoom(make(running(3), { expanded: 1 }), order3, -1).expanded).toBe(0);
+  });
+
+  it("stops at either end instead of wrapping", () => {
+    expect(moveZoom(make(running(3), { expanded: 2 }), order3, 1).expanded).toBe(2);
+    expect(moveZoom(make(running(3), { expanded: 0 }), order3, -1).expanded).toBe(0);
+  });
+
+  it("does nothing when nothing is zoomed", () => {
+    const s = make(running(3));
+    expect(moveZoom(s, order3, 1)).toBe(s);
+  });
+
+  it("does nothing when `expanded` is stale (points at a cell that's gone)", () => {
+    const s = make(running(3), { expanded: 99 });
+    expect(moveZoom(s, order3, 1)).toBe(s);
+  });
+
+  it("does nothing when the zoomed cell isn't in the given order", () => {
+    const s = make(running(3), { expanded: 2 });
+    expect(moveZoom(s, [0, 1], 1)).toBe(s);
+  });
+
+  it("does nothing with an empty order", () => {
+    const s = make(running(3), { expanded: 1 });
+    expect(moveZoom(s, [], 1)).toBe(s);
+  });
+
+  it("refuses to zoom a uid the order mentions but the grid no longer has", () => {
+    const s = make(running(2), { expanded: 1 });
+    expect(moveZoom(s, [0, 1, 42], 1)).toBe(s);
+  });
+
+  it("follows the zoom with the page, so collapsing lands on the cell just viewed", () => {
+    // 12 terminals = 2 pages. Zoomed on the last cell of page 0, stepping forward
+    // crosses onto page 1.
+    const s = make(running(12), { expanded: 8, page: 0 });
+    const after = moveZoom(
+      s,
+      s.cells.map((c) => c.uid),
+      1,
+    );
+    expect(after.expanded).toBe(9);
+    expect(after.page).toBe(1);
+  });
+
+  it("walks the page back when stepping backwards across the boundary", () => {
+    const s = make(running(12), { expanded: 9, page: 1 });
+    const after = moveZoom(
+      s,
+      s.cells.map((c) => c.uid),
+      -1,
+    );
+    expect(after.expanded).toBe(8);
+    expect(after.page).toBe(0);
+  });
+
+  it("uses the ORDER's index for the page, not the cell's position in state.cells", () => {
+    // "auto" sort can float a later cell to the front; the page must follow what the user
+    // is actually looking at on screen.
+    const s = make(running(12), { expanded: 11, page: 0 });
+    const reversed = [...s.cells.map((c) => c.uid)].reverse(); // 11 is now index 0
+    const after = moveZoom(s, reversed, 1);
+    expect(after.expanded).toBe(10); // the next one in the ON-SCREEN order
+    expect(after.page).toBe(0);
   });
 });
 

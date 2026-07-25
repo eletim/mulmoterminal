@@ -171,6 +171,26 @@ function expandNeighbour(order: number[] | undefined, uid: number, remaining: Ce
   return neighbour !== undefined && remaining.some((c) => c.uid === neighbour) ? neighbour : null;
 }
 
+// Walk the zoom one step along the on-screen `order` (dir -1 = previous, +1 = next).
+// Stops at either end rather than wrapping.
+//
+// Refusing to act unless something is zoomed is what makes the `page` update below sound:
+// while zoomed `visibleOrdered` returns the WHOLE ordered list, so an index into `order` is
+// an index into the un-paged list. Un-zoomed, `order` is only the current page's slice and
+// the same arithmetic would land on the wrong page.
+export function moveZoom(state: GridState, order: readonly number[], dir: -1 | 1): GridState {
+  const uid = zoomedUid(state);
+  if (uid === null) return state;
+  const from = order.indexOf(uid);
+  if (from < 0) return state; // not on screen — without this, -1 + 1 would jump to the front
+  const at = from + dir;
+  const next = at >= 0 ? order[at] : undefined;
+  if (next === undefined || !state.cells.some((c) => c.uid === next)) return state;
+  // Follow the zoom with the page, so collapsing lands on the cell the user was just
+  // looking at instead of wherever they zoomed in from (insertCellAfter does the same).
+  return { ...state, expanded: next, page: Math.floor(at / PAGE_SIZE) };
+}
+
 // Zooming shows one cell big with the others as a filmstrip beside it, so it only means
 // anything when there IS another cell to switch to. With a single occupied cell the ⤢ button
 // used to swap a working layout for a filmstrip containing nothing, and squeeze the

@@ -8,7 +8,9 @@ import { createPubSub } from "./infra/pubsub.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
-import { getUserMcpServers, getWorklogConfig, getTerminalSubmit } from "./config/config-routes.js";
+import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, APP_CONFIG_FILE } from "./config/config-routes.js";
+import { enforceKeymap } from "./config/keymap-check.js";
+import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
@@ -226,6 +228,23 @@ const { translateViaHiddenChat } = createTranslationWorker({
   spawnHiddenChat: (sessionId, prompt) => {
     // ws=null → headless; the worker buffers output nobody reads. Default cwd = CLAUDE_CWD (trusted).
     spawnClaudePty(sessionId, null, null, { initialPrompt: prompt });
+  },
+});
+
+// Before anything binds a port: a typo'd key binding must stop the boot with a message
+// naming it, not disappear into a shortcut that silently never fires.
+enforceKeymap(APP_CONFIG_FILE, {
+  readConfig: () => {
+    try {
+      return JSON.parse(readFileSync(APP_CONFIG_FILE, "utf8"));
+    } catch {
+      return undefined; // missing or unparseable — not this check's business to report
+    }
+  },
+  warn: (message) => console.warn(`\x1b[33m${message}\x1b[0m`),
+  fail: (message) => {
+    console.error(`\x1b[31m${message}\x1b[0m`);
+    process.exit(1);
   },
 });
 
