@@ -117,10 +117,19 @@ describe("resolveWindowsBatch", () => {
 describe("resolvePtyLaunch", () => {
   const ARGS = ["--resume", "abc"];
 
-  it("is a no-op off Windows even when a candidate would match — node-pty resolves bare names there", () => {
-    const everythingExists = () => true;
-    expect(resolvePtyLaunch("claude", ARGS, "darwin", "/usr/local/bin", undefined, everythingExists)).toEqual({ file: "claude", args: ARGS });
-    expect(resolvePtyLaunch("claude", ARGS, "linux", "/usr/local/bin", undefined, everythingExists)).toEqual({ file: "claude", args: ARGS });
+  // Off Windows this must be inert, not merely equivalent: node-pty resolves bare names
+  // correctly there, so the name goes through untouched, the SAME argv array is handed on,
+  // and the filesystem is never consulted (no probe runs at all).
+  it.each(["darwin", "linux"] as const)("touches nothing on %s — same name, same argv array, no filesystem probe", (platform) => {
+    let probes = 0;
+    const countingProbe = () => {
+      probes++;
+      return true;
+    };
+    const launch = resolvePtyLaunch("claude", ARGS, platform, "/usr/local/bin", "/bin/sh", countingProbe);
+    expect(launch.file).toBe("claude");
+    expect(launch.args).toBe(ARGS);
+    expect(probes).toBe(0);
   });
 
   it("names the .exe and leaves the arguments as an argv array (#794, unchanged)", () => {
