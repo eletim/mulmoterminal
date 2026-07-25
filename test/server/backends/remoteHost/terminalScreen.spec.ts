@@ -262,6 +262,16 @@ describe("definedScreenMeta", () => {
     expect(definedScreenMeta({})).toEqual({});
   });
 
+  // The phone's whole rule for the GitHub link is "render it if the key is there" (#832), so
+  // a dir that isn't a GitHub repo must lose the key rather than arrive as "".
+  it("drops githubUrl for a dir the host can't place on GitHub, and keeps a real one", () => {
+    expect(definedScreenMeta({ cwd: "/repo", githubUrl: "" })).toEqual({ cwd: "/repo" });
+    expect(definedScreenMeta({ cwd: "/repo", githubUrl: "https://github.com/o/r/tree/main" })).toEqual({
+      cwd: "/repo",
+      githubUrl: "https://github.com/o/r/tree/main",
+    });
+  });
+
   // Emptiness is judged on the trimmed value, but the value itself is passed through as-is:
   // a prompt's own leading spaces are the user's text, not ours to edit.
   it("passes a value with surrounding whitespace through unchanged", () => {

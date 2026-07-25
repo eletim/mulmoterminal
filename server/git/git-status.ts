@@ -25,6 +25,14 @@ export async function currentBranch(cwd: string): Promise<{ branch: string | nul
   return { branch: null, detached: head.ok };
 }
 
+// Whether HEAD tracks a remote branch. Exported for the callers that need only that —
+// one git call instead of aheadBehind's counts — and false for every case that makes
+// `@{upstream}` unresolvable: no upstream, a detached HEAD, or a non-repo dir.
+export async function hasUpstream(cwd: string): Promise<boolean> {
+  const res = await git(["rev-parse", "--verify", "--quiet", "@{upstream}"], cwd);
+  return res.ok;
+}
+
 // ahead/behind vs the tracking branch. `--left-right @{upstream}...HEAD` prints
 // "<behind>\t<ahead>"; a missing upstream makes the command fail → upstream:false.
 async function aheadBehind(cwd: string): Promise<{ ahead: number; behind: number; upstream: boolean }> {

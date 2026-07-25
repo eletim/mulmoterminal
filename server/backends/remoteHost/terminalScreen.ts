@@ -98,6 +98,10 @@ export interface SessionScreenMeta {
   branch?: string;
   summary?: string;
   prompt?: string;
+  // The dir's page on GitHub, so the phone can link out to it (#832). Absent for every dir
+  // the host can't place there — not a repo, no origin, or an origin that isn't github.com
+  // — which is why the phone only ever has to decide "link or no link".
+  githubUrl?: string;
 }
 
 export interface SessionScreen extends SessionScreenMeta {
