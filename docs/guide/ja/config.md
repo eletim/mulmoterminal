@@ -46,6 +46,10 @@ nav_order: 4
     { "label": "Shell", "command": "$SHELL" },
     { "label": "Node REPL", "command": "node" }
   ],
+  "quickCommands": [
+    { "label": "PR", "text": "PR作って", "agents": ["claude"] },
+    { "label": "merge", "text": "mergeして" }
+  ],
   "prRepos": ["acme/web", "acme/api"],
   "userMcpServers": [],
   "buttons": [],
@@ -57,6 +61,7 @@ nav_order: 4
 |---|---|
 | `cwdPresets` | ランチャに並ぶ作業ディレクトリのチップ（`{ label, path }`。クリックで欄に入力、▶ で即起動） |
 | `launchers` | グリッドセルの「OR LAUNCH」に並ぶ起動コマンド |
+| `quickCommands` | **スマホ**のターミナル表示にチップとして並ぶ定型文（`{ label, text, agents? }`）。タップすると `text` が入力欄に入るだけで、**送信されるのは送信ボタンを押したとき**。`agents` で `"claude"` / `"codex"` / `"shell"` に絞れる（省略＝全種別）。設定画面の **Phone quick commands** で編集 |
 | `prRepos` | 横断 PR/Issue ビューの対象リポ |
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |
 | `providers` | Anthropic 互換の接続先（→ [OpenRouter で別のモデルを使う](providers.html)） |

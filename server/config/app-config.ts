@@ -8,6 +8,7 @@ import { sanitizePresets } from "./cwd-presets.js";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import {
   launcherSchema,
+  quickCommandSchema,
   userMcpServerSchema,
   providerSchema,
   type CwdPreset,
@@ -18,6 +19,7 @@ import {
   type HeaderChip,
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
+import type { QuickCommand } from "../../common/quickCommands.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 
@@ -30,6 +32,9 @@ export interface AppConfig {
   prRepos: string[];
   // User-defined launch commands offered in the grid cell launcher (label + command).
   launchers: Launcher[];
+  // Phrases the phone offers as chips on a session's terminal view (#830), optionally
+  // scoped to session kinds. Empty by default — no chips until the user adds one.
+  quickCommands: QuickCommand[];
   // User-added HTTP MCP servers merged into the single-view session's --mcp-config.
   userMcpServers: UserMcpServer[];
   // Global terminal-header action buttons; applied to every terminal (scoped with `when`).
@@ -102,6 +107,32 @@ export function sanitizeLaunchers(input: unknown): Launcher[] {
   return out;
 }
 
+const QUICK_COMMAND_LABEL_MAX = 24;
+const QUICK_COMMAND_TEXT_MAX = 500;
+const QUICK_COMMANDS_MAX = 20;
+
+// Same shape of rule as sanitizeLaunchers: non-empty label AND text, trimmed and capped,
+// unique labels, bounded count. The label is short because it has to fit a phone chip.
+// An `agents` array that survives the schema is kept as-is; an empty one is dropped so it
+// means the same as omitting it (offered everywhere) rather than "offered to nothing".
+export function sanitizeQuickCommands(input: unknown): QuickCommand[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: QuickCommand[] = [];
+  for (const v of input) {
+    const parsed = quickCommandSchema.safeParse(v);
+    if (!parsed.success) continue;
+    const label = parsed.data.label.trim().slice(0, QUICK_COMMAND_LABEL_MAX);
+    const text = parsed.data.text.trim().slice(0, QUICK_COMMAND_TEXT_MAX);
+    if (!label || !text || seen.has(label)) continue;
+    seen.add(label);
+    const agents = parsed.data.agents?.length ? [...new Set(parsed.data.agents)] : undefined;
+    out.push(agents ? { label, text, agents } : { label, text });
+    if (out.length >= QUICK_COMMANDS_MAX) break;
+  }
+  return out;
+}
+
 // "owner/repo" only — the value is passed to `gh pr list --repo`, so reject anything
 // that isn't a plain slug (no spaces, flags, or paths). Trimmed, de-duplicated.
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
@@ -159,6 +190,7 @@ export const emptyConfig = (): AppConfig => ({
   soundFile: null,
   prRepos: [],
   launchers: [],
+  quickCommands: [],
   userMcpServers: [],
   buttons: null,
   chips: null,
@@ -189,6 +221,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     soundFile: sanitizeSoundFile(o.soundFile),
     prRepos: sanitizeRepos(o.prRepos),
     launchers: sanitizeLaunchers(o.launchers),
+    quickCommands: sanitizeQuickCommands(o.quickCommands),
     userMcpServers: sanitizeUserMcpServers(o.userMcpServers),
     buttons: sanitizeButtons(o.buttons),
     chips: sanitizeChips(o.chips),
@@ -254,6 +287,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     soundFile: body.soundFile !== undefined ? sanitizeSoundFile(body.soundFile) : base.soundFile,
     prRepos: body.prRepos !== undefined ? sanitizeRepos(body.prRepos) : base.prRepos,
     launchers: body.launchers !== undefined ? sanitizeLaunchers(body.launchers) : base.launchers,
+    quickCommands: body.quickCommands !== undefined ? sanitizeQuickCommands(body.quickCommands) : base.quickCommands,
     userMcpServers: body.userMcpServers !== undefined ? sanitizeUserMcpServers(body.userMcpServers) : base.userMcpServers,
     buttons: body.buttons !== undefined ? sanitizeButtons(body.buttons) : base.buttons,
     chips: body.chips !== undefined ? sanitizeChips(body.chips) : base.chips,
@@ -275,6 +309,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     soundFile: config.soundFile,
     prRepos: config.prRepos,
     launchers: config.launchers,
+    quickCommands: config.quickCommands,
     userMcpServers: config.userMcpServers,
     buttons: config.buttons,
     chips: config.chips,

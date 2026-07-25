@@ -3,12 +3,8 @@
 // Both entry points are dependency-injected and free of server/index.ts internals, so the
 // join rules and the capture fallback are unit-testable without a live PTY or tmux.
 import { parseStyledRows, rowsToScreen, suggestionFromRows, type ScreenRow } from "../../session/screen-rows.js";
-
-// What is running in a session, so the phone can offer input that suits it: shell
-// command suggestions are useful in zsh and meaningless to an agent that reads prose
-// (mulmoserver#84). Null when the host cannot tell — a session that outlived a restart
-// exists only in tmux, and nothing recorded what launched it.
-export type SessionAgent = "claude" | "codex" | "shell";
+import type { SessionAgent } from "../../../common/sessionAgent.js";
+import type { QuickCommandChip } from "./quickCommands.js";
 
 // Map a tmux pane's current command onto the kinds the phone knows. Anything else is a
 // shell or a one-off program the phone has no special input for — "shell" is the right
@@ -87,6 +83,9 @@ export interface CaptureScreenDeps {
   // What the grid cell's header shows for this session, for the phone to head the screen
   // with (#786). Optional: a host that can't answer any of it just sends the screen.
   metaOf?: (id: string) => Promise<SessionScreenMeta>;
+  // The user's saved phrases that apply to THIS session, already scoped to its kind (#830).
+  // Optional, and an unconfigured host simply offers none.
+  quickCommandsOf?: (id: string) => QuickCommandChip[];
 }
 
 // The session's identity around the screen — the dir it runs in, that dir's git branch, the
@@ -110,6 +109,12 @@ export interface SessionScreen extends SessionScreenMeta {
   // The phone cannot press Tab to accept it, so it is handed over as its own value for
   // the phone to offer as a chip (#563).
   suggestion: string;
+  // The user's own saved phrases for this session (#830), already filtered to its kind.
+  // Always present, `[]` when none apply — unlike the meta fields it is an array, so an
+  // empty one is a fine thing to send and the phone needs no "is it there" check.
+  // Kept OUT of SessionScreenMeta on purpose: definedScreenMeta trims its values, which
+  // only makes sense for strings.
+  quickCommands: QuickCommandChip[];
 }
 
 // A field the host can't answer is dropped entirely rather than sent as "": the response is
@@ -142,9 +147,24 @@ const screenMetaOf = async (id: string, metaOf: CaptureScreenDeps["metaOf"]): Pr
   }
 };
 
+// Reading the saved phrases must not cost the screen either — it is config, not output.
+const quickCommandsOf = (id: string, read: CaptureScreenDeps["quickCommandsOf"]): QuickCommandChip[] => {
+  if (!read) return [];
+  try {
+    return read(id);
+  } catch {
+    return [];
+  }
+};
+
 export async function captureSessionScreen(id: string, deps: CaptureScreenDeps): Promise<SessionScreen> {
   // Concurrently: the meta read shells out to git, which is otherwise pure latency added to
   // every screen the phone pulls.
   const [rows, meta] = await Promise.all([screenRowsOf(id, deps), screenMetaOf(id, deps.metaOf)]);
-  return { screen: rowsToScreen(rows).trimEnd(), suggestion: suggestionFromRows(rows), ...meta };
+  return {
+    screen: rowsToScreen(rows).trimEnd(),
+    suggestion: suggestionFromRows(rows),
+    quickCommands: quickCommandsOf(id, deps.quickCommandsOf),
+    ...meta,
+  };
 }

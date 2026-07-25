@@ -179,7 +179,7 @@ describe("captureSessionScreen", () => {
   it("hands the agent's dim suggestion over beside the screen", async () => {
     const styled = `${ESC}[38;5;246m────${ESC}[39m\n${ESC}[39m❯ ${ESC}[2mwrite the tests${ESC}[0m\n${ESC}[38;5;246m────${ESC}[39m`;
     const captured = await captureSessionScreen("a", captureDeps({ captureStyledPane: () => styled }));
-    expect(captured).toEqual({ screen: "────\n❯ write the tests\n────", suggestion: "write the tests" });
+    expect(captured).toEqual({ screen: "────\n❯ write the tests\n────", suggestion: "write the tests", quickCommands: [] });
   });
 
   it("reports no suggestion when the fallback renderer is the source", async () => {
@@ -194,6 +194,7 @@ describe("captureSessionScreen", () => {
     expect(captured).toEqual({
       screen: "rendered:buffered",
       suggestion: "",
+      quickCommands: [],
       cwd: "/repo",
       branch: "feat/786",
       summary: "Adding meta",
@@ -206,11 +207,11 @@ describe("captureSessionScreen", () => {
   // renders the screen alone.
   it("sends only the screen when the host has no metadata to add", async () => {
     const captured = await captureSessionScreen("a", captureDeps({ metaOf: async () => ({ cwd: "", branch: "", summary: "", prompt: "" }) }));
-    expect(captured).toEqual({ screen: "rendered:buffered", suggestion: "" });
+    expect(captured).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
   });
 
   it("sends only the screen when no metadata reader is wired at all", async () => {
-    expect(await captureSessionScreen("a", captureDeps())).toEqual({ screen: "rendered:buffered", suggestion: "" });
+    expect(await captureSessionScreen("a", captureDeps())).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
   });
 
   // Metadata decorates the screen: a git call that blew up or a dir that has since been
@@ -219,7 +220,7 @@ describe("captureSessionScreen", () => {
     const metaOf = vi.fn(async () => {
       throw new Error("git exploded");
     });
-    expect(await captureSessionScreen("a", captureDeps({ metaOf }))).toEqual({ screen: "rendered:buffered", suggestion: "" });
+    expect(await captureSessionScreen("a", captureDeps({ metaOf }))).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
   });
 
   // Reading the metadata shells out to git, so it must not queue behind the capture.

@@ -15,8 +15,20 @@ import SettingsModal from "./SettingsModal.vue";
 defineProps<{ cwd?: string | null; sessionId?: string | null }>();
 const emit = defineEmits<{ (e: "configure-appearance" | "close"): void }>();
 
-const { soundFile, saveSound, pushEnabled, savePushEnabled, prRepos, savePrRepos, launchers, saveLaunchers, userMcpServers, saveUserMcpServers } =
-  useAppConfig();
+const {
+  soundFile,
+  saveSound,
+  pushEnabled,
+  savePushEnabled,
+  prRepos,
+  savePrRepos,
+  launchers,
+  saveLaunchers,
+  quickCommands,
+  saveQuickCommands,
+  userMcpServers,
+  saveUserMcpServers,
+} = useAppConfig();
 </script>
 
 <template>
@@ -25,6 +37,7 @@ const { soundFile, saveSound, pushEnabled, savePushEnabled, prRepos, savePrRepos
     :push-enabled="pushEnabled"
     :pr-repos="prRepos"
     :launchers="launchers"
+    :quick-commands="quickCommands"
     :user-mcp-servers="userMcpServers"
     :cwd="cwd"
     :session-id="sessionId"
@@ -32,6 +45,7 @@ const { soundFile, saveSound, pushEnabled, savePushEnabled, prRepos, savePrRepos
     @update-push-enabled="savePushEnabled"
     @update-repos="savePrRepos"
     @update-launchers="saveLaunchers"
+    @update-quick-commands="saveQuickCommands"
     @update-user-mcp="saveUserMcpServers"
     @configure-appearance="emit('configure-appearance')"
     @close="emit('close')"

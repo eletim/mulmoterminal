@@ -19,6 +19,7 @@ import {
 } from "./app-config.js";
 import { type HeaderConfig } from "./header-config.js";
 import { type Launcher, type Provider, type UserMcpServer } from "./config-schema.js";
+import type { QuickCommand } from "../../common/quickCommands.js";
 import { type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import { launchOptions } from "./launch-options.js";
 import { badArrayField, badNullableArrayField } from "./config-body.js";
@@ -37,6 +38,12 @@ export function getPrRepos(): string[] {
 // index against the current list without a restart.
 export function getLaunchers(): Launcher[] {
   return config.launchers;
+}
+
+// The phrases the phone offers as chips — read live so a Settings edit reaches the next
+// screen the phone pulls without a restart (#830).
+export function getQuickCommands(): QuickCommand[] {
+  return config.quickCommands;
 }
 
 // User-added HTTP MCP servers — read live so a config change is picked up by the next

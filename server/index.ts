@@ -8,7 +8,7 @@ import { createPubSub } from "./infra/pubsub.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
-import { getUserMcpServers, getWorklogConfig, getTerminalSubmit } from "./config/config-routes.js";
+import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands } from "./config/config-routes.js";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
@@ -44,6 +44,8 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
 import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
+import type { SessionAgent } from "../common/sessionAgent.js";
+import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { currentBranch, tracksOriginBranch } from "./git/git-status.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { githubBranchUrl } from "./git/githubBranchUrl.js";
@@ -329,6 +331,11 @@ const remoteHostSpawnChat = (message: string) => {
 };
 // The phone's remote terminal view (#435). Both accessors live here because the PTY table
 // and the title/activity side-tables do; the backend only sees the two functions.
+// A live session knows what it spawned. One that outlived us has no PtyEntry left, so ask
+// tmux what is running in it now — which is also the truer answer when the user started a
+// shell and ran an agent inside it. Null when neither can say.
+const agentOfSession = (id: string): SessionAgent | null => ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id));
+
 const remoteHostListTerminalSessions = async () =>
   buildSessionList({
     liveIds: [...ptys.keys()],
@@ -343,10 +350,7 @@ const remoteHostListTerminalSessions = async () =>
     detailOf: (id) => ({
       title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
       cwd: ptys.get(id)?.cwd ?? "",
-      // A live session knows what it spawned. One that outlived us has no PtyEntry
-      // left, so ask tmux what is running in it now — which is also the truer answer
-      // when the user started a shell and ran an agent inside it.
-      agent: ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id)),
+      agent: agentOfSession(id),
     }),
   });
 
@@ -399,6 +403,10 @@ const remoteHostCaptureTerminalScreen = (sessionId: string) =>
     },
     render: renderScreen,
     metaOf: remoteHostSessionScreenMeta,
+    // Read from config on every screen so an edit in Settings reaches the phone without a
+    // restart; scoped here rather than on the phone, which then needs no notion of session
+    // kinds (#830).
+    quickCommandsOf: (id) => quickCommandsForAgent(getQuickCommands(), agentOfSession(id)),
   });
 
 initRemoteHostBackend({

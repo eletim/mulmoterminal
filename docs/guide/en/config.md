@@ -45,6 +45,10 @@ Open it from the ⚙ in the toolbar.
     { "label": "Shell", "command": "$SHELL" },
     { "label": "Node REPL", "command": "node" }
   ],
+  "quickCommands": [
+    { "label": "PR", "text": "PR作って", "agents": ["claude"] },
+    { "label": "merge", "text": "mergeして" }
+  ],
   "prRepos": ["acme/web", "acme/api"],
   "userMcpServers": [],
   "buttons": [],
@@ -56,6 +60,7 @@ Open it from the ⚙ in the toolbar.
 |---|---|
 | `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, ▶ to launch) |
 | `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell |
+| `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
 | `providers` | Anthropic-compatible backends (→ [Using another model via OpenRouter](providers.html)) |
