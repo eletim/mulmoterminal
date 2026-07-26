@@ -21,9 +21,17 @@ describe("badArrayField", () => {
     expect(badArrayField({ providers: value })).toBe("providers");
   });
 
-  // Codex on PR #587: `providers` was the one array field missing from this guard.
-  it("guards providers alongside the array fields that predate it", () => {
-    expect(ARRAY_FIELDS).toContain("providers");
+  // The `it.each` above iterates ARRAY_FIELDS itself, so it proves each member IS guarded and
+  // nothing about which members exist — drop one and it silently runs one case fewer while that
+  // field becomes wipeable. Pinning the whole list is what makes a removal (or a new field the
+  // author forgot to add) fail here.
+  //
+  // Written as the full list rather than one assertion per field because the gap has now
+  // appeared three times: `providers` (#587), `quickCommands` (#830), `pushKinds` (#850) — each
+  // caught by review rather than by a test. Adding a field means updating this line, which is
+  // the point: it is a decision, not an oversight.
+  it("guards exactly these fields — a removal here is a field that can be silently wiped", () => {
+    expect([...ARRAY_FIELDS]).toEqual(["cwdPresets", "prRepos", "launchers", "quickCommands", "pushKinds", "userMcpServers", "providers"]);
   });
 
   it("names only the first offender — the response reports one field", () => {
