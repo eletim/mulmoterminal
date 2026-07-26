@@ -84,6 +84,7 @@ Open it from the ⚙ in the toolbar.
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
+| `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |
 | `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 
 ## Running on another model (providers) {#providers}
@@ -104,6 +105,41 @@ Note that `baseUrl` must not end in `/v1`, and `tokenEnv` is the **name** of a v
 
 → **Full walkthrough, the measured model list, how to add your own models, and troubleshooting:
 [Using another model via OpenRouter](providers.html).**
+
+## Which clone made this PR (`prWorkdirFooter`) {#pr-workdir-footer}
+
+If you keep several checkouts of the same repo side by side — `myrepo`, `myrepo2`, `myrepo3` —
+a PR on GitHub says nothing about which one it came from. From a cell you can reach its PR; the
+other direction is a guess.
+
+So a PR created with **⧉ Open PR** ends its body with the name of the clone the work happened in:
+
+```
+work in myrepo3
+```
+
+That is the directory name of the **main checkout**, not of the worktree — MulmoTerminal runs
+each task in a worktree under `~/.mulmoterminal/worktrees/`, and the worktree's own name is just
+the branch, which the PR already shows.
+
+**On by default.** To turn it off, in `~/.mulmoterminal/config.json`:
+
+```json
+{
+  "prWorkdirFooter": false
+}
+```
+
+The next PR you create honours it — **no restart needed**. This setting has no Settings-modal
+control, so it is read from the file each time a PR is created.
+
+Notes:
+
+- Only PRs **this app creates** get the line. Pressing ⧉ Open PR again on a branch that already
+  has a PR just opens it — the line is never appended twice.
+- Editing the PR body on GitHub afterwards is fine; nothing rewrites it later.
+- If the line can't be added (no `gh`, a network error), the PR is still created and opened —
+  you just don't get the line.
 
 ## Enter — submit vs. newline (`terminalSubmit`) {#terminal-submit}
 
