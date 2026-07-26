@@ -94,6 +94,16 @@ describe("normalizeFontFamily", () => {
     expect(normalizeFontFamily(TERMINAL_FONT_FAMILY_DEFAULT)).toBe(TERMINAL_FONT_FAMILY_DEFAULT);
   });
 
+  // The value is normalized TWICE on its way to the canvas — once by the server reading the config
+  // file, once by the client re-validating what came off the wire. A non-idempotent rule would
+  // compound there, appending `monospace` again on every hop.
+  it("is idempotent, because the value is normalized on both sides of the wire", () => {
+    ["Cica", "'HackGen Console', Menlo", "Menlo, monospace", TERMINAL_FONT_FAMILY_DEFAULT].forEach((stack) => {
+      const once = normalizeFontFamily(stack);
+      expect(normalizeFontFamily(once)).toBe(once);
+    });
+  });
+
   // The shipped JSON Schema can only carry the portable pattern (no \p{L} without the `u` flag),
   // so it is a SUBSET check. It must never reject something the real rule accepts, or the config
   // skill would refuse a valid font stack that the server would have loaded happily.

@@ -196,7 +196,10 @@ BIZ UDGothic); anything else tears the box-drawing frames an agent TUI is made o
 
 Most users want this **globally**, not per directory — it is the same font everywhere unless one
 project's output is a different language. The global key has no Settings UI, so writing
-`~/.mulmoterminal/config.json` is the only way to set it.
+`~/.mulmoterminal/config.json` is the only way to set it. **Tell the user to restart
+`mulmoterminal`** after you write it: that file is read once at server startup, so unlike a
+`.mulmoterminal.json` edit (which is watched and applies instantly) the global one does nothing
+until a restart — and "I set it and nothing happened" is exactly how that reads.
 
 ### Attention sound — `sound`
 

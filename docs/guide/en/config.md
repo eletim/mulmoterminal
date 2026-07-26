@@ -115,7 +115,11 @@ The font every terminal renders in. There is **no Settings UI** — put a CSS fo
 { "fontFamily": "'Cica', 'MS Gothic', monospace" }
 ```
 
-Restart nothing: reload the browser tab and the terminals re-fit to the new font.
+Then **restart `mulmoterminal`** and reload the browser tab. The global config is read once at
+server startup, so a hand-edit doesn't reach the browser until it restarts — the same caveat as
+[`keymap`](#keymap) and [`terminalSubmit`](#terminal-submit), and the usual reason a new key looks
+like it "didn't work". The **per-directory** key ([below](#per-dir)) is different: that file is
+watched, so it applies the moment you save it.
 
 Name the fonts **as your OS lists them**, most-wanted first, and the browser uses the first one that
 is installed. Unset (the normal case) you get the built-in stack: **JetBrains Mono → Fira Code →
@@ -136,8 +140,10 @@ box-drawing frame — which is most of what an agent TUI draws. Fonts built for 
 
 ### If it doesn't take
 
-- **Nothing changed.** The font isn't installed under that exact name, so the browser skipped it and
-  fell through to the next one. Check the spelling against your font book.
+- **Nothing changed at all, for any font.** You probably haven't restarted the server. The global
+  config is only read at startup — see above. (A per-directory `fontFamily` needs no restart.)
+- **Nothing changed for one font.** It isn't installed under that exact name, so the browser skipped
+  it and fell through to the next one. Check the spelling against your font book.
 - **The whole value was ignored.** A stack is validated as one unit — if any entry is unusable, the
   whole thing is dropped and the built-in stack applies, rather than half of it taking effect.
   Characters CSS treats as syntax (`;` `{` `}` `(` `)` `<` `>` `\` `/` `@` `!`) are rejected, and
@@ -471,6 +477,9 @@ everything stays aligned.
 Same rules as the global key — see [Terminal font](#font-family) for how to choose one, what happens
 to an invalid stack, and why a CJK face has to be em-square. Handy for a repo whose logs are full of
 Japanese while the rest of your work is ASCII.
+
+Unlike the global key, this one needs **no restart**: `.mulmoterminal.json` is watched, so the
+terminals in that directory re-fit to the new font the moment you save.
 
 ### Customizing the header (buttons / chips) {#header}
 
