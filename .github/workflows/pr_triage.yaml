@@ -53,9 +53,9 @@ jobs:
         coderabbitai[bot]
         sourcery-ai[bot]
       # Marker embedded in the comment body so a re-run recognises its own
-      # previous comment and stays silent. `gh pr comment` is not idempotent, and
-      # a stale `edited` event (CodeRabbit rewriting the title right after we
-      # close) would otherwise post a second copy of the same template.
+      # previous comment and stays silent. `gh pr comment` is not idempotent, so
+      # without it an author who reopens the PR collects a second copy of the
+      # same template.
       TRIAGE_MARKER: "<!-- mulmoterminal-pr-triage -->"
     steps:
       - name: Decide and act
@@ -70,10 +70,14 @@ jobs:
           set -euo pipefail
           echo "PR=#${PR_NUMBER} author=${PR_AUTHOR}"
 
-          # Exact-line match against the allowlist. `grep -Fxq` treats the pattern
-          # as a fixed string and requires whole-line equality, so the `[bot]`
-          # suffix isn't read as a regex character class.
-          if echo "${MAINTAINERS}" | grep -Fxq "${PR_AUTHOR}"; then
+          # `grep -Fxq` requires whole-line equality against a fixed string, so
+          # the `[bot]` suffix isn't read as a regex character class and a login
+          # that merely contains a maintainer's name doesn't match.
+          is_allowlisted() {
+            echo "${MAINTAINERS}" | grep -Fxq "$1"
+          }
+
+          if is_allowlisted "${PR_AUTHOR}"; then
             echo "maintainer / allowlisted bot — pass through"
             exit 0
           fi
@@ -84,7 +88,7 @@ jobs:
           # a maintainer retitling an outside PR they've chosen to keep (including
           # the ones that predate this workflow), and CodeRabbit rewriting the
           # title right after we closed.
-          if echo "${MAINTAINERS}" | grep -Fxq "${SENDER}"; then
+          if is_allowlisted "${SENDER}"; then
             echo "event triggered by ${SENDER} (maintainer) — standing down"
             exit 0
           fi
