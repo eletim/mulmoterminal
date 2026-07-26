@@ -32,7 +32,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 import { swallowsMouseTracking } from "./mouseTrackingModes";
-import { clearResetModes, recordSwallowedModes, wantsWheelReports, wheelReportSequence } from "./wheelReports";
+import { clearResetModes, recordSwallowedModes } from "./mouseReports";
+import { guardMouseClicks, guardMouseWheel } from "./terminalMouseInput";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
@@ -190,12 +191,8 @@ export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.
 // one case that gets past this hook — a sequence mixing tracking with an unrelated mode, which
 // is honoured on purpose. Letting every reset through keeps that recoverable.
 //
-// What was swallowed is still remembered: in the alternate buffer, xterm's fallback would turn
-// the wheel into arrow keys — which a TUI binds to input history, so scrolling spun the prompt
-// history (#737). When the app asked for wheel tracking, the wheel handler synthesizes the SGR
-// report it asked for instead; `term.input` routes it through onData to the PTY like any
-// keystroke. The cell coordinate is fixed at 1;1 — a transcript scroll doesn't depend on where
-// the pointer sits, and the real position isn't exposed at this layer.
+// What was swallowed is still remembered, because the app still needs the mouse: the wheel (#737)
+// and its own click targets (#845) are synthesized from the record by ./terminalMouseInput.
 //
 // The record is owned by the connection, not this closure, because it is per SESSION: connect()
 // clears it alongside term.reset() so a crashed app's modes can't outlive it.
@@ -209,14 +206,7 @@ function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): v
     clearResetModes(swallowedMouseModes, params);
     return false;
   });
-  term.attachCustomWheelEventHandler((ev) => {
-    if (term.buffer.active.type !== "alternate" || !wantsWheelReports(swallowedMouseModes)) return true;
-    const seq = wheelReportSequence(ev.deltaY, 1, 1);
-    if (!seq) return true;
-    term.input(seq, false);
-    ev.preventDefault();
-    return false;
-  });
+  guardMouseWheel(term, swallowedMouseModes);
 }
 
 // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
@@ -287,6 +277,7 @@ function ensure(key: string, target: ConnTarget): Conn {
   host.style.width = "100%";
   host.style.height = "100%";
   term.open(host);
+  guardMouseClicks(term, swallowedMouseModes);
   // Render each glyph in its own cell (canvas) instead of the default DOM renderer, which flows text
   // as inline runs: a full-width CJK glyph that isn't exactly 2× the Latin cell lets a long Japanese
   // line drift right and spill its tail past the terminal's edge (the reason this was added, b12cc48).

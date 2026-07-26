@@ -74,13 +74,23 @@ the Files view, not to this stack, and nothing in it breaks when xterm or tmux i
 It lives in [README → Clicking a file path](https://github.com/receptron/mulmoterminal#clicking-a-file-path);
 change one and change the other (#834).
 
-### Mouse tracking & selection — `guardMouseTracking` (#729/#737)
+### Mouse tracking & selection — `guardMouseTracking` (#729/#737/#845)
 
 - SET of a mouse-tracking mode (`CSI ? … h`, e.g. 1000/1002/1003/1006) is **swallowed** so a drag
   stays a text selection instead of the app's coordinate reports landing in the prompt (#729).
-- In the alternate buffer, xterm's fallback turns the wheel into ↑/↓ arrows — which a TUI binds to
-  input history, so scrolling spun the prompt. The wheel handler synthesizes the SGR report the
-  app asked for instead (#737). The swallowed modes are per-session and cleared on `term.reset()`.
+- The swallow takes the whole mouse away from the app, so **the wheel and clicks are synthesized
+  back** (`src/composables/terminalMouseInput.ts`; the rules are pure in `mouseReports.ts`). Both
+  fire only in the alternate buffer, and only for an app that asked for tracking + SGR (1006):
+  - **Wheel** (#737) — xterm's fallback turns it into ↑/↓ arrows, which a TUI binds to input
+    history, so scrolling spun the prompt.
+  - **Click** (#845) — a press and release that stayed put becomes an SGR press/release pair, so
+    the app's own click targets ("Jump to bottom", "1 new message") respond. A drag reports
+    nothing (it is still a selection), and a click on a link reports nothing either — xterm marks
+    the screen element `xterm-cursor-pointer` while a link is hovered, and that click already has
+    an owner. Nothing is `preventDefault()`ed, so xterm's selection is untouched.
+- The swallowed modes are per-session and cleared on `term.reset()`.
+- xterm exposes no pixel-to-cell mapping, so cell coordinates are derived from `.xterm-screen`'s
+  own box. Reaching into `_core._renderService.dimensions` instead would need an `any`.
 
 ### Renderer (canvas vs DOM)
 
