@@ -7,6 +7,8 @@ has_children: true
 
 # MulmoTerminal Guide (English)
 
+> 🆕 **[What's new in 2.0.0](v2.0.0.html)** — setting up keyboard shortcuts, per-kind Push, and the phone features (as of 2026-07-26)
+
 **Run a whole team of AI coding agents (Claude Code / Codex) in parallel, on one board** —
 MulmoTerminal is the cockpit for that. The headline features first.
 
