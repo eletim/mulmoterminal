@@ -136,7 +136,7 @@ export async function summarizeLog(log: string, deps: SummarizeDeps = {}): Promi
 }
 
 interface CommandSummaryDeps {
-  isAllowedOrigin: (origin?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 // POST /api/command/summarize { log } -> { summary, truncated }. Same-origin guarded
@@ -144,7 +144,7 @@ interface CommandSummaryDeps {
 // local `claude` binary. Mirrors mountPickFileRoute's shape.
 export function mountCommandSummaryRoute(app: Express, { isAllowedOrigin }: CommandSummaryDeps): void {
   app.post("/api/command/summarize", async (req: Request, res) => {
-    if (!isAllowedOrigin(req.headers.origin)) return res.status(403).json({ error: "forbidden origin" });
+    if (!isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) return res.status(403).json({ error: "forbidden origin" });
     const body = isRecord(req.body) ? req.body : {};
     if (typeof body.log !== "string") return res.status(400).json({ error: "body.log (string) required" });
     try {

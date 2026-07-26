@@ -56,7 +56,7 @@ import { SPA_FALLBACK_RE } from "../infra/spa-fallback.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
-  isAllowedOrigin: (origin: string | undefined) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
   toolStores: ReturnType<typeof createToolStores>;

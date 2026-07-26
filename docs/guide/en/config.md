@@ -464,7 +464,34 @@ Your project's scripts that can run in a grid cell (dev server, tests, build, an
 |---|---|---|
 | `CLAUDE_CWD` / `--cwd` | The directory you run `npx mulmoterminal` in (only `~/mulmoclaude` when the server is started directly) | The default working directory (the PTY's cwd); also set via `--cwd` |
 | `PORT` | `34567` | The server port |
+| `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
+
+### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}
+
+The server binds to **loopback only**, so it answers this machine and nothing else. That is the
+right default because **MulmoTerminal has no login of its own**: anything that can open a socket
+to it can read your sessions, browse files under a session's directory, and start terminals.
+
+Set `MULMOTERMINAL_HOST` to widen that deliberately — `0.0.0.0` for every interface, or one
+address. `localhost` is accepted and normally resolves to loopback — though a hosts file can
+point it elsewhere, which is why the warning below is based on **what the server actually bound**
+(`server.address()`) rather than on what you typed. It prints at startup whenever that is not
+loopback, because there is no other signal that it happened.
+
+```bash
+MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # trusted networks only — see the caveat below
+```
+
+**This is for port-forwarding, not for browsing from another machine.** The same-origin checks
+that protect the terminal WebSockets accept only a *localhost* origin, so a browser opening
+`http://<this-machine>:34567` from elsewhere on the network loads the page and then fails to
+attach a terminal. Where the opt-in does help is when something forwards a local port to the
+server — a **Docker container** or **WSL**, where the process must bind `0.0.0.0` inside for the
+mapping to reach it while the browser still connects to `localhost` on the outside.
+
+You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
+host over Firestore, not over your local network (→ [from your phone](phone.html)).
 
 ---
 

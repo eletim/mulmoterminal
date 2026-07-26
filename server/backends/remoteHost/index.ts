@@ -93,7 +93,7 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
 }
 
 export interface RemoteHostRouteOptions {
-  isAllowedOrigin: (origin?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 export function mountRemoteHostRoutes(app: Express, { isAllowedOrigin }: RemoteHostRouteOptions): void {

@@ -38,7 +38,7 @@ export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
   server: Server;
   /** Only same-machine browser origins may open a terminal socket. */
-  isAllowedOrigin: (origin: string | undefined) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   claudeBin: string;
   setWaiting: (id: string, waiting: boolean) => void;
   reattachPty: (entry: PtyEntry, ws: WebSocket, sessionId: string) => PtyEntry;
@@ -369,7 +369,7 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
     // socket.io is entitled to.
     if (!kind) return;
     const target = serverFor[kind];
-    if (!deps.isAllowedOrigin(req.headers.origin)) {
+    if (!deps.isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) {
       console.warn(`[ws] rejected cross-origin upgrade from ${req.headers.origin}`);
       socket.destroy();
       return;

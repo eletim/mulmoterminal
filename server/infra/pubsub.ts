@@ -12,16 +12,19 @@ export interface Publisher {
   publish(channel: string, data: unknown): void;
 }
 
-export function createPubSub(server: HttpServer, isAllowedOrigin: (origin?: string) => boolean = () => true) {
+export function createPubSub(server: HttpServer, isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean = () => true) {
   const io = new IOServer(server, {
     path: "/ws/pubsub",
     transports: ["websocket"],
     // Reject cross-origin connections so an untrusted website can't subscribe to
     // session activity. allowRequest covers the websocket handshake; cors covers
     // any polling/preflight.
-    allowRequest: (req, cb) => cb(null, isAllowedOrigin(req.headers.origin)),
+    allowRequest: (req, cb) => cb(null, isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)),
     cors: {
-      origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
+      // Socket.IO hands this callback no request, so there is genuinely no peer to check —
+      // spelled out rather than omitted. allowRequest above gates the actual handshake and
+      // does see the socket, so this covers only polling/preflight.
+      origin: (origin, cb) => cb(null, isAllowedOrigin(origin, undefined)),
       credentials: true,
     },
   });

@@ -50,7 +50,7 @@ export function resolveGithubUrl(dir: string): Promise<string | null> {
 }
 
 interface GitRemoteOptions {
-  isAllowedOrigin: (origin?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 // POST /api/git-remote { path } -> { githubUrl: string | null }. Lets the browser
