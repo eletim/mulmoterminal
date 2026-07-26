@@ -3,19 +3,7 @@
 // A terminal header's Files button opens it rooted at that terminal's directory.
 import { computed, type ComputedRef } from "vue";
 import { router } from "../router";
-
-// The view to return to when the Files view closes rides on the history entry (router
-// state), NOT a module variable — so entering /files via browser back/forward restores
-// that entry's own origin instead of a stale one, and a fresh/direct load falls back to
-// chat. Reopening while already in Files (root change, or the guarded-close revert)
-// carries the same origin forward.
-const originFromHistory = (): string => {
-  const origin = router.options.history.state.returnPath;
-  // Resolved from the NAME, not written as "/": that path is the default-view entry and
-  // now lands on the grid (#883). A string is still what comes back, because this value
-  // is also stored in history state, which the check above reads back as a string.
-  return typeof origin === "string" ? origin : router.resolve({ name: "chat" }).fullPath;
-};
+import { overlayOriginState, overlayReturnPath } from "./overlayOrigin";
 
 /** Open the Files view rooted at `cwd` (the terminal's project dir). */
 export function filesGotoIndex(cwd: string | null): void {
@@ -30,14 +18,12 @@ export function filesGotoFile(cwd: string | null, path: string): void {
 }
 
 function pushFilesRoute(query: Record<string, string>): void {
-  const alreadyOpen = router.currentRoute.value.name === "files";
-  const returnPath = alreadyOpen ? originFromHistory() : router.currentRoute.value.fullPath;
-  router.push({ name: "files", query, state: { returnPath } });
+  router.push({ name: "files", query, state: overlayOriginState() });
 }
 
 /** Close the Files view → back to the view it was opened from. */
 export function filesClose(): void {
-  router.push(originFromHistory());
+  router.push(overlayReturnPath());
 }
 
 export function useFilesView(): {

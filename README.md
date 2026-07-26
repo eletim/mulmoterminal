@@ -838,7 +838,10 @@ Favorited collections get their own toolbar buttons.
 - **Notifications** (🔔) — a toolbar bell with an unread badge and a dropdown of active
   notifications; click a row to jump to its session.
 - **Voice input** — dictate a prompt via on-device Whisper (`POST /api/transcribe`, macOS
-  only; the model downloads on first use).
+  only; the model downloads on first use). Settings picks **the language you dictate in**
+  (per browser): your browser's, whisper's own per-clip detection, or a fixed one. Worth
+  setting — speech in a language the mic is not expecting comes back *translated* into the
+  one it is, so an English browser silently turned Japanese dictation into English.
 - **Remote host** — link MulmoTerminal to the companion phone client (Google sign-in) to
   watch and start sessions from your phone.
 - **Themes** — four terminal palettes (midnight / nord / daylight / solarized), your pick

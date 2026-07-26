@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
-import { useRoute } from "vue-router";
 import { router } from "./router";
 import Sidebar from "./components/Sidebar.vue";
 import SessionTabBar from "./components/SessionTabBar.vue";
@@ -13,6 +12,7 @@ import WikiBrowseOverlay from "./components/WikiBrowseOverlay.vue";
 import PrsOverlay from "./components/PrsOverlay.vue";
 import FilesOverlay from "./components/FilesOverlay.vue";
 import GridView from "./components/GridView.vue";
+import { useRoute } from "vue-router";
 import AppSettingsModal from "./components/AppSettingsModal.vue";
 import AppToolbar from "./components/AppToolbar.vue";
 import { useSessions, type Filter } from "./composables/useSessions";
@@ -33,6 +33,10 @@ import { clampTerminalWidth, maxTerminalWidth, MIN_TERMINAL, splitterKeyWidth } 
 
 // View mode is now the URL: the multi-terminal grid is /terminals, everything else
 // (chat + the collection/accounting overlays) lives under the single-view shell.
+// Route-based on purpose: the OVERLAYS live inside the `!isGrid` block below, so widening
+// this to "the view underneath an overlay" stops them rendering at all — the URL changes and
+// the grid just stays on screen. Which BUTTONS the header offers is a separate question, and
+// the one that follows the underlying view (AppToolbar).
 const route = useRoute();
 const isGrid = computed(() => route.name === "terminals");
 

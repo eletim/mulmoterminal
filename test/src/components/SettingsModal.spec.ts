@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import SettingsModal from "../../../src/components/SettingsModal.vue";
+import { VOICE_LANGUAGES } from "../../../src/composables/voiceLanguage";
 
 const mountModal = (props: Record<string, unknown> = {}) => mount(SettingsModal, { props });
 
@@ -111,6 +112,78 @@ describe("SettingsModal", () => {
 
     await cards()[checked()].trigger("keydown", { key: "ArrowLeft" });
     expect(checked()).toBe(start); // back to where we started
+  });
+
+  // The section offers a setting for a mic that only exists on a machine that can transcribe
+  // (macOS + whisper-server + ffmpeg), so its whole contract is "appears iff the server says
+  // capable" — including when the server can't be reached at all.
+  describe("Voice input section", () => {
+    const VOICE_URL = "/api/transcribe/model";
+    const stubStatus = (respond: (url: string) => { ok: boolean; json: () => Promise<unknown> }) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => respond(url)),
+      );
+    // Every other GET the modal fires on open resolves to an empty body it tolerates.
+    const otherRoutes = { ok: true, json: async () => ({}) };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const voiceSelect = (w: ReturnType<typeof mount>) => w.find('[aria-label="Language for voice input"]');
+
+    it("shows the language picker when the server reports capable", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: true, json: async () => ({ capable: true, model: { name: "base", state: "ready" } }) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(true);
+      expect(w.text()).toContain("Voice input");
+    });
+
+    it("offers every language the picker exports, plus locale and auto", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: true, json: async () => ({ capable: true, model: { name: "base", state: "ready" } }) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      const values = voiceSelect(w)
+        .findAll("option")
+        .map((o) => o.attributes("value"));
+      expect(values).toEqual(["locale", "auto", ...VOICE_LANGUAGES.map((l) => l.code)]);
+    });
+
+    it("hides the section when the machine cannot transcribe", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: true, json: async () => ({ capable: false, model: { name: "base", state: "idle" } }) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(false);
+      expect(w.text()).not.toContain("Voice input");
+    });
+
+    // A probe that never answers must read as "no voice input", not as an empty section or a
+    // thrown error inside onMounted.
+    it("hides the section when the probe fails", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("network down");
+        }),
+      );
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(false);
+    });
+
+    it("hides the section when the route is absent", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: false, json: async () => ({}) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(false);
+    });
   });
 
   describe("Google account link (broker support)", () => {

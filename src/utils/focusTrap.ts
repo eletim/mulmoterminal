@@ -1,3 +1,9 @@
+// What counts as focusable inside a modal. Every form control the modals actually use is
+// listed, because an element the trap can't see is one Tab can leave the dialog through
+// when it happens to sit first or last — `select` was missing while the settings modal
+// grew one.
+export const MODAL_FOCUSABLE = 'button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 // Keep Tab focus inside `container`: on Tab from the last focusable element wrap to
 // the first, and on Shift+Tab from the first wrap to the last — so focus can't reach
 // background controls behind a modal. Call from a keydown handler on a "Tab" event.
