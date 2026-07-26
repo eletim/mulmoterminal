@@ -30,7 +30,7 @@ export interface Cell {
   // The agent this cell runs. "codex" reconnects via /ws/codex; absent = Claude (the default).
   agent?: "codex";
 }
-// How the grid orders its cells. "manual": the user's hand-arranged order (◀▶);
+// How the grid orders its cells. "manual": the user's hand-arranged order (the move buttons);
 // "auto": attention-first, recomputed from each cell's live status.
 export type SortMode = "manual" | "auto";
 // A cell's live activity, reported up from the cell. Drives the "auto" order and the
@@ -93,7 +93,7 @@ export function addCell(state: GridState): GridState {
   return { ...state, cells, nextUid: state.nextUid + 1, page: pageCount(cells.length) - 1, expanded };
 }
 
-// The uid of the trailing launch cell that "+ Terminal" (and the launcher's own ✕)
+// The uid of the trailing launch cell that "+ Terminal" (and the launcher's own close button)
 // cancels, or null when there's nothing to cancel. The sole entry cell is never
 // cancelable, so it's excluded.
 export function cancelableLaunchUid(state: GridState): number | null {
@@ -242,7 +242,7 @@ const pageHolding = (order: readonly number[], uid: number, fallback: number): n
 
 // The keyboard's way in and out of the zoom (#829). Every other zoom action needs something
 // already enlarged, so without this one a keymap cannot be used at all without first reaching
-// for the ⤢ button.
+// for the expand button.
 //
 // Un-zoomed there is no "current" cell to enlarge, so it takes the first one ON THE PAGE THE
 // USER IS LOOKING AT — `order` is the whole un-paged list, so index 0 would be a cell from the
@@ -317,7 +317,7 @@ function nextCandidate(state: GridState, order: readonly number[], statusByUid: 
 }
 
 // Zooming shows one cell big with the others as a filmstrip beside it, so it only means
-// anything when there IS another cell to switch to. With a single occupied cell the ⤢ button
+// anything when there IS another cell to switch to. With a single occupied cell the expand button
 // used to swap a working layout for a filmstrip containing nothing, and squeeze the
 // terminal's status bar and input off the bottom of the viewport for no gain (#374).
 //

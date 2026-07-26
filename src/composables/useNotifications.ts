@@ -157,7 +157,7 @@ export function useNotifications() {
     }),
   );
 
-  /** Dismiss (clear) a notification: the ✕ action. Optimistically drops it, then
+  /** Dismiss (clear) a notification: the close button action. Optimistically drops it, then
    *  asks the server to clear; on failure we resync from the server. */
   async function dismiss(id: string): Promise<void> {
     remove(id);

@@ -82,13 +82,13 @@ useEscapeToClose(isOpen, close);
         aria-label="Reload PR and issue list"
         @click="load"
       >
-        ↻
+        <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
       </button>
       <span v-if="loading" class="text-[12px] text-muted">Loading…</span>
     </header>
     <div class="flex-auto overflow-y-auto px-4 pb-16 pt-3">
       <p v-if="!loading && !prsError && !issuesError && repos.length === 0 && issueRepos.length === 0" class="px-1 py-6 text-[13px] text-muted">
-        No repositories configured. Add <code>owner/repo</code> entries under Settings (⚙) → Pull request repos.
+        No repositories configured. Add <code>owner/repo</code> entries under Settings → Pull request repos.
       </p>
       <template v-else>
         <h2

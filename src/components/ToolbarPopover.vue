@@ -35,7 +35,7 @@ defineExpose({ close });
       :aria-label="triggerLabel"
       @click="toggle"
     >
-      <span class="material-symbols-outlined">{{ icon }}</span>
+      <span class="material-symbols-outlined" aria-hidden="true">{{ icon }}</span>
       <slot name="trigger-extra" />
     </button>
 

@@ -195,7 +195,7 @@ export async function previewAttention(soundFile: string | null) {
 
 // Beep when any session transitions into `waiting` (needs attention), across every
 // page/view, by listening to the same "sessions" activity stream the cells use — so
-// the beep tracks the amber header exactly. `enabled` gates it (the 🔔 toggle);
+// the beep tracks the amber header exactly. `enabled` gates it (the sound toggle);
 // `soundFile`, when set, plays the user's chosen file instead of the chime.
 export function useAttentionSound(enabled: Ref<boolean>, soundFile?: Ref<string | null>) {
   armUnlock();

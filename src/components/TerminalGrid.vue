@@ -48,7 +48,7 @@ const props = defineProps<{
   presets: CwdPreset[];
   launchers: Launcher[];
   home: string | null;
-  // Manual sort mode: each cell shows ◀▶ to reorder.
+  // Manual sort mode: each cell shows move buttons to reorder.
   reorderable?: boolean;
   openSessionIds: string[];
   openCwds: string[];

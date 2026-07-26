@@ -253,7 +253,7 @@ onBeforeUnmount(() => {
         aria-label="Reload tree"
         @click="loadRoot"
       >
-        ↻
+        <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
       </button>
       <button
         type="button"
@@ -262,7 +262,7 @@ onBeforeUnmount(() => {
         aria-label="Close files"
         @click="requestClose"
       >
-        ✕
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
       </button>
     </header>
     <div class="flex min-h-0 flex-auto">
@@ -279,8 +279,10 @@ onBeforeUnmount(() => {
           :style="{ paddingLeft: `${8 + depth * 14}px` }"
           @click="openFile(node)"
         >
-          <span class="w-2.5 flex-none text-dim">{{ node.dir ? (node.expanded ? "▾" : "▸") : "" }}</span>
-          <span class="flex-none">{{ node.dir ? "📁" : "📄" }}</span>
+          <span class="w-3.5 flex-none text-dim">
+            <span v-if="node.dir" class="material-symbols-outlined" aria-hidden="true">{{ node.expanded ? "expand_more" : "chevron_right" }}</span>
+          </span>
+          <span class="material-symbols-outlined flex-none" aria-hidden="true">{{ node.dir ? "folder" : "description" }}</span>
           <span class="truncate">{{ node.name }}</span>
         </button>
       </nav>

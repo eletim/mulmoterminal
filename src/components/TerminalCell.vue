@@ -39,7 +39,7 @@ const termRef = useTemplateRef<InstanceType<typeof TerminalView>>("termRef");
 
 // Clicking the header background zooms this cell (mirrors clicking the terminal body) —
 // in the tiled grid and as a filmstrip thumbnail alike. Only the already-expanded cell
-// stays inert (restore via the ⤡ button). Header buttons keep their action.
+// stays inert (restore via the restore button). Header buttons keep their action.
 function onHeaderClick(event: MouseEvent) {
   if (shouldZoomOnHeaderClick(event.target, props.expanded)) emit("toggle-expand");
 }
@@ -69,16 +69,16 @@ const props = defineProps<
     // Dirs with a running session in another cell, so the launcher can tint preset
     // chips whose dir is already in use.
     openCwds?: string[];
-    // An added (not the sole entry) launcher: show a ✕ to dismiss it before launching.
+    // An added (not the sole entry) launcher: show a close button to dismiss it before launching.
     cancellable?: boolean;
-    // Manual sort mode: show ◀▶ to swap this cell with its neighbour.
+    // Manual sort mode: show move buttons to swap this cell with its neighbour.
     reorderable?: boolean;
   }
 >();
 const emit = defineEmits<
   GridCellEmits & {
     // `record-cwd`: auto-record a fresh launch's server-confirmed cwd as a preset.
-    // `remove-preset`: drop a preset (its ✕) from the shared list — value is the path.
+    // `remove-preset`: drop a preset (its close button) from the shared list — value is the path.
     (e: "session" | "cwd" | "record-cwd" | "remove-preset", value: string): void;
     // `run` launches in THIS (empty) cell from the launcher; `runSpare` is the running
     // terminal's header menu, which must NOT replace the session — it runs in a new cell.
@@ -112,7 +112,7 @@ const cellStyle = computed(() =>
 // Live git status (branch/dirty/ahead·behind) for the header chip. `refreshGit`
 // is called alongside loadDiff() so a finished turn's changes show immediately.
 const { status: gitStatus, refresh: refreshGit } = useGitStatus(cwd);
-// Activity timeline overlay (the header 🕘) — only meaningful for a Claude session.
+// Activity timeline overlay (the header history button) — only meaningful for a Claude session.
 const timelineOpen = ref(false);
 // A small filmstrip thumbnail (some OTHER cell is zoomed): strip the header to just
 // dir + what it's doing + a zoom button, and hide the second (terminal) header row.
@@ -328,7 +328,7 @@ function launchProgram(index: number, l: Launcher) {
   emit("launch", { index, label: l.label, cwd: dirInput.value.trim() || props.defaultCwd });
 }
 
-// The chip's ▶ button: a one-click quick launch — fill the field and jump straight
+// The chip's launch button: a one-click quick launch — fill the field and jump straight
 // into a fresh session in that dir.
 function selectPreset(p: CwdPreset) {
   dirInput.value = p.path;
@@ -340,7 +340,7 @@ function selectPreset(p: CwdPreset) {
 // click / folder pick would fetch the lists twice.
 let skipDirWatch = false;
 
-// The chip's main click (and the 📁 folder picker): fill the field WITHOUT launching,
+// The chip's main click (and the folder picker): fill the field WITHOUT launching,
 // and refresh the resume / script / worktree lists for that dir so the user can pick a
 // session to resume — or start fresh — instead of launching immediately.
 function fillDir(path: string) {
@@ -355,7 +355,7 @@ function fillDir(path: string) {
   loadWorktrees();
 }
 
-// The 📁 button: the browser can't open a native folder chooser, so the local server does
+// The folder button: the browser can't open a native folder chooser, so the local server does
 // (POST /api/pick-file { directory: true }). Fill the Working-directory field with the pick.
 async function pickDir() {
   try {
@@ -717,7 +717,7 @@ function teardown() {
   const id = sessionId.value; // capture before the reset below nulls it
   termRef.value?.terminate();
   // Reap on the server over HTTP too — the WS `terminate` only reaches the server while
-  // the socket is open, so a disconnected cell's ✕ would otherwise leave its tmux alive.
+  // the socket is open, so a disconnected cell's close button would otherwise leave its tmux alive.
   if (id) fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }).catch(() => {});
   launched.value = false;
   recordNextCwd = false; // drop any pending fresh-launch record from a torn-down session
@@ -1192,7 +1192,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               :aria-expanded="askMenuOpen"
               @click="openAskMenu"
             >
-              💬
+              <span class="material-symbols-outlined" aria-hidden="true">forum</span>
             </button>
             <div
               v-if="askMenuOpen"
@@ -1219,7 +1219,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                   title="Send this cell's turn there and bring the answer back, both submitted"
                   @click="exchangeWith(target)"
                 >
-                  ⇄
+                  <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
                 </button>
               </div>
               <p v-if="!askTargets.length" class="m-0 px-2 py-1.5 font-sans text-[12px] text-dim">No other terminal to read</p>
@@ -1232,7 +1232,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               class="absolute right-0 top-full z-20 mt-1 cursor-pointer whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:text-fg"
               @click="stopExchange"
             >
-              ⇄ exchanging — stop
+              <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span> exchanging — stop
             </button>
             <p
               v-else-if="askMsg"
@@ -1251,10 +1251,14 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Show activity timeline"
             @click="timelineOpen = true"
           >
-            🕘
+            <span class="material-symbols-outlined" aria-hidden="true">history</span>
           </button>
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">◀</button>
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">▶</button>
+          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+          </button>
+          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+          </button>
         </template>
       </TerminalView>
       <div
@@ -1265,7 +1269,9 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         <div class="flex flex-none items-center gap-2 border-b border-b-border bg-panel px-2 py-1.5">
           <span class="font-sans text-[12px] font-semibold text-fg">Changes vs {{ diff?.base ?? "base" }}</span>
           <span class="flex-auto font-sans text-[11px] text-dim">{{ diff?.ahead ?? 0 }} ahead · {{ diff?.dirty ?? 0 }} uncommitted</span>
-          <button class="cell-btn" :class="CELL_BTN" title="Close diff" aria-label="Close diff" @click="diffOpen = false">✕</button>
+          <button class="cell-btn" :class="CELL_BTN" title="Close diff" aria-label="Close diff" @click="diffOpen = false">
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
         </div>
         <div v-if="diff && diff.files.length" class="max-h-[35%] flex-none overflow-y-auto border-b border-b-border px-2 py-1">
           <div v-for="f in diff.files" :key="f.path" data-testid="cell-diff-file" class="flex items-baseline gap-2 py-px font-mono text-[11px]">
@@ -1287,30 +1293,30 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         <div class="flex flex-none items-center gap-2 border-t border-t-border bg-panel px-2 py-1.5">
           <button
             data-testid="cell-diff-btn"
-            class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="prBusy || working || (diff?.dirty ?? 0) === 0"
             :title="(diff?.dirty ?? 0) === 0 ? 'No uncommitted changes' : working ? 'Wait for the session to finish' : 'Ask Claude to commit the changes'"
             @click="commitViaClaude"
           >
-            ✓ Commit
+            <span class="material-symbols-outlined" aria-hidden="true">check</span> Commit
           </button>
           <button
             data-testid="cell-diff-btn"
-            class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="prBusy || (diff?.ahead ?? 0) === 0"
             :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes first' : 'git push -u origin'"
             @click="pushBranch"
           >
-            ⬆ Push
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span> Push
           </button>
           <button
             data-testid="cell-diff-btn"
-            class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="prBusy || (diff?.ahead ?? 0) === 0"
             :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes in the terminal first' : 'Push and open a pull request'"
             @click="openPR"
           >
-            ⧉ Open PR
+            <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span> Open PR
           </button>
           <span v-if="prMsg" data-testid="cell-diff-msg" class="min-w-0 flex-auto truncate font-sans text-[11px] text-dim">{{ prMsg }}</span>
         </div>
@@ -1386,7 +1392,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         aria-label="Cancel new terminal"
         @click="emit('close')"
       >
-        ✕
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
       </button>
       <div v-if="presets.length" class="flex max-w-[360px] flex-wrap justify-center gap-1.5">
         <span
@@ -1427,7 +1433,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             "
             @click="selectPreset(p)"
           >
-            <span class="material-symbols-outlined text-[14px]">play_arrow</span>
+            <span class="material-symbols-outlined text-[14px]" aria-hidden="true">play_arrow</span>
           </button>
           <button
             type="button"
@@ -1437,7 +1443,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :aria-label="`Remove ${p.path} from the list`"
             @click="emit('remove-preset', p.path)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </span>
       </div>
@@ -1483,7 +1489,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Choose the working directory"
             @click="pickDir"
           >
-            <span class="material-symbols-outlined text-[18px]">folder_open</span>
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">folder_open</span>
           </button>
           <button
             type="button"
@@ -1494,7 +1500,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Start a new terminal here"
             @click="launch"
           >
-            <span class="material-symbols-outlined text-[18px]">play_arrow</span>
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">play_arrow</span>
           </button>
         </span>
       </label>
@@ -1515,11 +1521,11 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           />
           <button
             data-testid="wt-start"
-            class="cursor-pointer rounded-md border border-border bg-elevated px-4 py-[7px] font-sans text-[14px] font-medium text-secondary flex-none whitespace-nowrap hover:bg-hover hover:text-fg"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-4 py-[7px] font-sans text-[14px] font-medium text-secondary flex-none whitespace-nowrap hover:bg-hover hover:text-fg"
             :disabled="!worktreeTask.trim()"
             @click="createWorktreeAndLaunch"
           >
-            ＋ New worktree
+            <span class="material-symbols-outlined" aria-hidden="true">add</span> New worktree
           </button>
         </div>
         <div v-for="w in worktrees" :key="w.path" class="flex items-center gap-1.5">
@@ -1538,7 +1544,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Remove worktree"
             @click="removeWorktree(w)"
           >
-            🗑
+            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
           </button>
         </div>
       </div>
@@ -1549,11 +1555,11 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             v-for="s in scripts"
             :key="s.index"
             data-testid="cell-script-item"
-            class="cursor-pointer rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
             :title="s.command"
             @click="runScript(s)"
           >
-            ▶ {{ s.label }}
+            <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ s.label }}
           </button>
         </div>
       </div>
@@ -1564,11 +1570,11 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             v-for="(l, i) in launchers"
             :key="l.label"
             data-testid="cell-script-item"
-            class="cursor-pointer rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
             :title="l.command"
             @click="launchProgram(i, l)"
           >
-            ⌘ {{ l.label }}
+            <span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ l.label }}
           </button>
         </div>
       </div>

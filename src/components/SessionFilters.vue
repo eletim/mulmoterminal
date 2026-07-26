@@ -26,6 +26,6 @@ const emit = defineEmits<{
     aria-label="Sort by most recent"
     @click="emit('refresh')"
   >
-    <span class="material-symbols-outlined">refresh</span>
+    <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
   </button>
 </template>

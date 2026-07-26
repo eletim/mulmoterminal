@@ -29,7 +29,7 @@ const props = defineProps<{
   addTerminalActive?: boolean;
   autoSort?: boolean;
   statusCounts?: StatusCounts;
-  // Grid zoom state, so the header can host the roster ⇄ strip toggle (shown only while zoomed).
+  // Grid zoom state, so the header can host the roster / strip toggle (shown only while zoomed).
   showViewToggle?: boolean;
   listMode?: boolean;
 }>();
@@ -145,8 +145,8 @@ function showPrs(): void {
         :icon="autoSort ? 'sort' : 'swap_horiz'"
         :title="
           autoSort
-            ? 'Auto order: attention-first — needs-attention cells float up (click for manual ◀▶ ordering)'
-            : 'Manual order: reorder cells with ◀▶ (click for auto attention-sort)'
+            ? 'Auto order: attention-first — needs-attention cells float up (click for manual arrow ordering)'
+            : 'Manual order: reorder cells with the arrow buttons (click for auto attention-sort)'
         "
         label="Toggle grid cell ordering"
         :active="autoSort"
