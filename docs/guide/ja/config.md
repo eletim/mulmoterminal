@@ -84,6 +84,7 @@ nav_order: 4
 | `worklogEnabled` / `worklogIntervalHours` | 定期 dev-work ログ（既定 OFF / 6 時間） |
 | `terminalSubmit` | どのバイトを**送信**／**改行**とみなすか — `"cr"`（既定）または `"esc-cr"`（→ [Enter — 送信と改行](#terminal-submit)） |
 | `keymap` | ユーザ定義のキーボードショートカット。**既定は空——何も割り当てられていない**（→ [キーボードショートカット](#keymap)） |
+| `prWorkdirFooter` | 作成した PR の本文末尾に `work in <クローン名>` を書く（→ [この PR はどのクローンの作業か](#pr-workdir-footer)）。**既定 ON**、`false` で無効 |
 
 ## 別のモデルで動かす（プロバイダ） {#providers}
 
@@ -103,6 +104,41 @@ Claude Code は Anthropic 互換のバックエンドなら何にでも接続で
 
 → **手順・検証済みモデル一覧・モデルの追加方法・トラブルシューティングは
 [OpenRouter で別のモデルを使う](providers.html) にまとめてあります。**
+
+## この PR はどのクローンの作業か（`prWorkdirFooter`） {#pr-workdir-footer}
+
+同じリポジトリのクローンを `myrepo`, `myrepo2`, `myrepo3` … と並べて使っていると、GitHub 上の
+PR を見ても**どのクローンで作業したのか分かりません**。セルから PR へは辿れるのに、逆は勘に
+なります。
+
+そこで **⧉ Open PR** で作成した PR は、本文の末尾に作業したクローンの名前が入ります。
+
+```
+work in myrepo3
+```
+
+ここに入るのは **main のチェックアウト**のディレクトリ名で、worktree の名前ではありません。
+MulmoTerminal は各タスクを `~/.mulmoterminal/worktrees/` 以下の worktree で動かしますが、その
+名前は branch そのもので、branch は PR がすでに表示しているからです。
+
+**既定は ON** です。切るときは `~/.mulmoterminal/config.json` に:
+
+```json
+{
+  "prWorkdirFooter": false
+}
+```
+
+次に作成する PR から反映されます。**再起動は不要**です（この設定は設定モーダルに項目が無いため、
+PR 作成のたびにファイルから読み直しています）。
+
+補足:
+
+- この行が入るのは**このアプリが作成した PR だけ**です。既に PR がある branch で ⧉ Open PR を
+  押しても、その PR が開くだけで、行が二重に付くことはありません。
+- 後から GitHub 上で本文を編集して構いません。あとから書き換えられることはありません。
+- 行の追記に失敗した場合（`gh` が無い、通信エラーなど）でも、**PR の作成自体は成功**して開き
+  ます。行が付かないだけです。
 
 ## Enter — 送信と改行（`terminalSubmit`） {#terminal-submit}
 

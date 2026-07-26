@@ -66,6 +66,10 @@ export interface AppConfig {
   // User-defined keyboard shortcuts (#829). NO defaults: an empty map means the shortcuts
   // are off, because every binding takes that key away from the terminal underneath.
   keymap: Keymap;
+  // Append `work in <clone name>` to the body of PRs this app creates (#872), so a PR says
+  // which of several side-by-side clones produced it. ON unless explicitly disabled — the
+  // line is the whole point of the feature, and a reader who doesn't want it sets `false`.
+  prWorkdirFooter: boolean;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -195,6 +199,13 @@ export function sanitizeWorklogEnabled(input: unknown): boolean {
   return input === true;
 }
 
+// Inverted against every other boolean here: this one defaults ON, so anything that is not
+// an explicit `false` — including a missing key, which is what every existing config file
+// has — leaves it enabled.
+export function sanitizePrWorkdirFooter(input: unknown): boolean {
+  return input !== false;
+}
+
 // Positive whole hours, clamped to [1, 168]. Anything else falls back to the default.
 export function sanitizeWorklogIntervalHours(input: unknown): number {
   if (typeof input !== "number" || !Number.isFinite(input) || input <= 0) return DEFAULT_WORKLOG_INTERVAL_HOURS;
@@ -221,6 +232,7 @@ export const emptyConfig = (): AppConfig => ({
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
+  prWorkdirFooter: true,
 });
 
 // Drop malformed entries rather than rejecting the whole config: one bad provider must
@@ -254,6 +266,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
+    prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
   };
 }
 
@@ -306,22 +319,26 @@ export function backupCorruptConfig(file: string): string | null {
 // stale in-memory copy would otherwise write back its boot-time values for the omitted
 // fields, clobbering whatever another instance persisted since (e.g. wiping buttons).
 export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>): AppConfig {
+  // `undefined` means "the body didn't mention this field", which is NOT the same as a field
+  // sent as null/[] — those are real values the sanitizer decides on.
+  const updated = <T>(key: keyof AppConfig, sanitize: (input: unknown) => T, current: T): T => (body[key] !== undefined ? sanitize(body[key]) : current);
   return {
-    cwdPresets: body.cwdPresets !== undefined ? sanitizePresets(body.cwdPresets) : base.cwdPresets,
-    soundFile: body.soundFile !== undefined ? sanitizeSoundFile(body.soundFile) : base.soundFile,
-    prRepos: body.prRepos !== undefined ? sanitizeRepos(body.prRepos) : base.prRepos,
-    launchers: body.launchers !== undefined ? sanitizeLaunchers(body.launchers) : base.launchers,
-    quickCommands: body.quickCommands !== undefined ? sanitizeQuickCommands(body.quickCommands) : base.quickCommands,
-    userMcpServers: body.userMcpServers !== undefined ? sanitizeUserMcpServers(body.userMcpServers) : base.userMcpServers,
-    buttons: body.buttons !== undefined ? sanitizeButtons(body.buttons) : base.buttons,
-    chips: body.chips !== undefined ? sanitizeChips(body.chips) : base.chips,
-    pushEnabled: body.pushEnabled !== undefined ? sanitizePushEnabled(body.pushEnabled) : base.pushEnabled,
-    pushKinds: body.pushKinds !== undefined ? sanitizePushKinds(body.pushKinds) : base.pushKinds,
-    worklogEnabled: body.worklogEnabled !== undefined ? sanitizeWorklogEnabled(body.worklogEnabled) : base.worklogEnabled,
-    worklogIntervalHours: body.worklogIntervalHours !== undefined ? sanitizeWorklogIntervalHours(body.worklogIntervalHours) : base.worklogIntervalHours,
-    providers: body.providers !== undefined ? sanitizeProviders(body.providers) : base.providers,
-    terminalSubmit: body.terminalSubmit !== undefined ? sanitizeTerminalSubmit(body.terminalSubmit) : base.terminalSubmit,
-    keymap: body.keymap !== undefined ? sanitizeKeymap(body.keymap) : base.keymap,
+    cwdPresets: updated("cwdPresets", sanitizePresets, base.cwdPresets),
+    soundFile: updated("soundFile", sanitizeSoundFile, base.soundFile),
+    prRepos: updated("prRepos", sanitizeRepos, base.prRepos),
+    launchers: updated("launchers", sanitizeLaunchers, base.launchers),
+    quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
+    userMcpServers: updated("userMcpServers", sanitizeUserMcpServers, base.userMcpServers),
+    buttons: updated("buttons", sanitizeButtons, base.buttons),
+    chips: updated("chips", sanitizeChips, base.chips),
+    pushEnabled: updated("pushEnabled", sanitizePushEnabled, base.pushEnabled),
+    pushKinds: updated("pushKinds", sanitizePushKinds, base.pushKinds),
+    worklogEnabled: updated("worklogEnabled", sanitizeWorklogEnabled, base.worklogEnabled),
+    worklogIntervalHours: updated("worklogIntervalHours", sanitizeWorklogIntervalHours, base.worklogIntervalHours),
+    providers: updated("providers", sanitizeProviders, base.providers),
+    terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
+    keymap: updated("keymap", sanitizeKeymap, base.keymap),
+    prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
   };
 }
 
@@ -345,6 +362,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
+    prWorkdirFooter: config.prWorkdirFooter,
   };
 }
 
