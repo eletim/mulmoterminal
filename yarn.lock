@@ -1438,35 +1438,35 @@
   resolved "https://registry.yarnpkg.com/@inquirer/type/-/type-4.0.7.tgz#9c6f0d857fe6ad549a3a932343b64e76acb34b10"
   integrity sha512-t28inv14nMQ1PhKpsJPY+kEs/c00qzeCOS2gTNRyTjG5d6qsVA2fItxW4hkvGZ5lvanGLdtCzVIx5dwdRpN1+g==
 
-"@intlify/core-base@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/core-base/-/core-base-11.4.7.tgz#2392ba421ae32275c2d8ce1d6f21833029dbfd10"
-  integrity sha512-MSB/sBKwEWJTILvQIhg2rnIcwPpLayo3wGwvVA+dJTNeUBD9GoqQgAaSOLdI9iOPDHCm9YoVnLqpfzza98MpkQ==
+"@intlify/core-base@11.4.8":
+  version "11.4.8"
+  resolved "https://registry.yarnpkg.com/@intlify/core-base/-/core-base-11.4.8.tgz#1cbb60e2cad25a88a7db8896f6d5652c9792c16e"
+  integrity sha512-A+Q7SKm5oEcy1E/cghqd7n/St4XjTqLhiiyDuieNcMrJcrHlkY5n0jp7Q9dD3txvVHzvsmBVV5M9wD5/s1zfzw==
   dependencies:
-    "@intlify/devtools-types" "11.4.7"
-    "@intlify/message-compiler" "11.4.7"
-    "@intlify/shared" "11.4.7"
+    "@intlify/devtools-types" "11.4.8"
+    "@intlify/message-compiler" "11.4.8"
+    "@intlify/shared" "11.4.8"
 
-"@intlify/devtools-types@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/devtools-types/-/devtools-types-11.4.7.tgz#2ebb66cb801476f1bcd18dec432af4d1a0e0aa3f"
-  integrity sha512-GSz+J+hqH+AEpAHIYya6fSufS30OaMnG39HiZX7DmGKi3+aaLvassCfsXENEc4Wr4m68q2YP0QdMdB3D9UeAXg==
+"@intlify/devtools-types@11.4.8":
+  version "11.4.8"
+  resolved "https://registry.yarnpkg.com/@intlify/devtools-types/-/devtools-types-11.4.8.tgz#c71d284e218159aa11eaae4ec9166f15fc21fb37"
+  integrity sha512-MGpID+rlfzGUbNcnC20bm5NMSBHPrvx0atLTfv9dftn3kjXw1hGKDcIcwrO99tSrZEc2i+hczRL7ks8qXsHPkQ==
   dependencies:
-    "@intlify/core-base" "11.4.7"
-    "@intlify/shared" "11.4.7"
+    "@intlify/core-base" "11.4.8"
+    "@intlify/shared" "11.4.8"
 
-"@intlify/message-compiler@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/message-compiler/-/message-compiler-11.4.7.tgz#9a6236c3aa063331a09381ea08c9c0aaea879534"
-  integrity sha512-bHxmh7n94N4N1evADeb7XTkc3jTw6Ki5biMFZVSX6Jmk+iehy8/maeH2XUsBI27rtKIK+Hzc6QnVAKggUwylKw==
+"@intlify/message-compiler@11.4.8":
+  version "11.4.8"
+  resolved "https://registry.yarnpkg.com/@intlify/message-compiler/-/message-compiler-11.4.8.tgz#4f8ef43a1076899102335d456f8309d3c1666510"
+  integrity sha512-vbzk17dYwduYiv52EK61+FDCyhfVg1uPUtPmiD/d45W99uJIcXywrweOBcHv7n9/iEqmXiMGT52bgJbZDQqK3w==
   dependencies:
-    "@intlify/shared" "11.4.7"
+    "@intlify/shared" "11.4.8"
     source-map-js "^1.0.2"
 
-"@intlify/shared@11.4.7":
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/@intlify/shared/-/shared-11.4.7.tgz#795a8101cab827845e5c3f0694fd9d9dc95351c8"
-  integrity sha512-OtjPZan3No2OZZFnMUiCVsXC6+j+XRwEywaFDk0AoayAbLuPesyDloXhJZLl9JUl5vHZeQUkYSbEA8VX+CWMjg==
+"@intlify/shared@11.4.8":
+  version "11.4.8"
+  resolved "https://registry.yarnpkg.com/@intlify/shared/-/shared-11.4.8.tgz#3c62c7882d07f4ab0f909760308accdc1465ea3d"
+  integrity sha512-XbRgrv+XEuvDr7UCY55oibVrh+o4u+A0VB6nSL0F5Z8LcZxE/8j573LYG6bCrOigIcHdGpSNI7Rh5UpC5/B/eg==
 
 "@isaacs/cliui@^8.0.2":
   version "8.0.2"
@@ -1705,13 +1705,13 @@
   resolved "https://registry.yarnpkg.com/@mulmochat-plugin/ui-image/-/ui-image-0.4.1.tgz#8fd3b1c4ffe21e6bc22761ff48eac03306e0d345"
   integrity sha512-I3AqTIuQPsSMNxDON9UTxT2KO57HV6uUVotCIFskV0UqBMQrQ3FUu8J+qXRWDdjPyYaHoC8AJsi91TbNrOMwng==
 
-"@mulmoclaude/accounting-plugin@^1.0.3":
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/accounting-plugin/-/accounting-plugin-1.0.3.tgz#2fb5aba9140c19fc2385879189e0684684f6ce87"
-  integrity sha512-Z42ehJwyi7BeEUE4dVkG1bqDc8MPbXxuLsrjkD8yXmUG3lPZkHbDeR5mPnGUzsmC+K8rvaAQxevjzZWswOtMAA==
+"@mulmoclaude/accounting-plugin@^1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/accounting-plugin/-/accounting-plugin-1.1.0.tgz#4842e9883d9935a921db7ad5bb4df8d168cbfc1c"
+  integrity sha512-S0VOvlRbAhyEICiHfBcMb72PELEBMFbXl2MfuySuWk3EKxdW9Nw78lSv69n2q14Qa4eEU7QQ/iYCToAdywbDNw==
   dependencies:
     "@mulmoclaude/common" "^1.1.1"
-    "@mulmoclaude/core" "^1.5.0"
+    "@mulmoclaude/core" "^1.7.0"
 
 "@mulmoclaude/chart-plugin@^1.0.3":
   version "1.0.3"
@@ -1720,10 +1720,10 @@
   dependencies:
     "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/collection-plugin@^1.1.1":
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/collection-plugin/-/collection-plugin-1.1.1.tgz#18eb0ded20844ac55cf737e0c367b72b72f5e44f"
-  integrity sha512-5r18FEgGFwae3y2S7rmhN+WpVzM/LsRMOI5fqJ8cALQJp2Q5Oqopq7qnhwqDrOAOxR7UlIPEAx3WaCPTi1pWqA==
+"@mulmoclaude/collection-plugin@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/collection-plugin/-/collection-plugin-1.2.0.tgz#0ef16044005a1c4069c3b30d3feedc6e7297e035"
+  integrity sha512-ivcD5WTOmceuxcIEucLMkMJU5pA3uFbrO5hM1ltgP+hC35T5IW+thsk+mGJxzrSAHDrJylKjVoSsHKVdxbAktQ==
   dependencies:
     vuedraggable "^4.1.0"
     zod "^4.4.3"
@@ -1733,10 +1733,10 @@
   resolved "https://registry.yarnpkg.com/@mulmoclaude/common/-/common-1.1.1.tgz#38c57cb4d6530679996e9ce2732d3be207ad3872"
   integrity sha512-bq47GoDVsKFraKrvRpzhkRJHQ6/omXCIRYrMNch7mq8eXU/kRNHFU7e+rfdoNaoDnLt1S/lZY5nZu7RVoPx9CA==
 
-"@mulmoclaude/core@^1.5.0", "@mulmoclaude/core@^1.6.0":
-  version "1.6.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.6.0.tgz#1951b11edae4554210f8091a811fb52d48cdf4aa"
-  integrity sha512-XR/wCIniHx0t1GCb6/bD0DLzRBsHXHTuGCcgyrDmoObl611EECCfaqycebQdzI80kwdADRA9r38aUWwHTxq5eg==
+"@mulmoclaude/core@^1.5.0", "@mulmoclaude/core@^1.7.0":
+  version "1.7.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.7.0.tgz#7e78be5208ca0c7c93b4836856c8b8f0d81cd4ca"
+  integrity sha512-Z5awn/ygkfSrZu9WDwO/6fklC+mwV+3qvmEbsSQ/fa5iZxByGUeTHl0s08FlVxxnfOsbjttfCEG2uIq8oQwv2g==
   dependencies:
     "@duckdb/node-api" "^1.5.5-r.1"
     "@mulmoclaude/common" "^1.1.1"
@@ -1759,18 +1759,18 @@
   dependencies:
     "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/html-plugin@^1.0.3":
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/html-plugin/-/html-plugin-1.0.3.tgz#75b2f1431528ee18044a4542531964519a22c4f5"
-  integrity sha512-+tgBif7heiX9BZf1D5KzIs2aEJq9/HXexBa4X73FIlkH5PWEvEi4noWg0RBP4h70QnjWD0JQU0UIkni6iLVUzQ==
+"@mulmoclaude/html-plugin@^1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/html-plugin/-/html-plugin-1.1.0.tgz#69ad9808888a4804d0f2c157a96e6f735228585c"
+  integrity sha512-slPinvHSpF/x4uar4iSJzUGBVbo3kY5l+EsiEnEIB0wFY7fMZQnTwYdKFKX7ruINwL1XQe+DuK46J14CNliigw==
   dependencies:
     "@mulmoclaude/common" "^1.1.1"
-    "@mulmoclaude/core" "^1.5.0"
+    "@mulmoclaude/core" "^1.7.0"
 
-"@mulmoclaude/markdown-plugin@^1.0.3":
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/markdown-plugin/-/markdown-plugin-1.0.3.tgz#caf453c72f04ea1e910cc9005a3039d7332eb9e5"
-  integrity sha512-gTjf0gAWgXIC90j7UXtyA8REU8evo2//xBhcjh5qX2FD2QVyOXicWeNxpjdlA6zDvPTEdGQf8Ws4fY95dCB4Pw==
+"@mulmoclaude/markdown-plugin@^1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/markdown-plugin/-/markdown-plugin-1.1.0.tgz#8c0c05096d8832683ef1c35278d7bd0cdd101a56"
+  integrity sha512-kfi6e2P/vBXJy+CwRp8fXmOKPFdG8zRC9VM7VHcBVWl4zGrWAbQoT+EobjxXT5sKNV0Dsn7v6ROlkCN70hoRag==
   dependencies:
     "@marp-team/marp-core" "^4.4.0"
     "@mulmoclaude/common" "^1.1.1"
@@ -5052,10 +5052,10 @@ glob@^10.3.7, glob@^10.4.2:
     package-json-from-dist "^1.0.0"
     path-scurry "^1.11.1"
 
-globals@^17.7.0:
-  version "17.7.0"
-  resolved "https://npm.flatt.tech/globals/-/globals-17.7.0.tgz#553d55090b4dde8209ec2da42580d6e7e7d8b10d"
-  integrity sha512-Czmyns5dUsq4seFBR/Kdydhmo8y9kC79hiSkPn0YcGtNnYWnrgt0vjrSjx9tspoDGWm2CMarffRuLjM4xUz8xg==
+globals@^17.7.0, globals@^17.8.0:
+  version "17.8.0"
+  resolved "https://registry.yarnpkg.com/globals/-/globals-17.8.0.tgz#a1f213a06adcd0eec38004c5cd39fef7af7e0830"
+  integrity sha512-Zz/LMDZScFmkakeL2cTHzf+PbWKdpU3uclqkZT7TjDG58j5WPt0PpA+n9uPI24fZtlw07q0OtEi84K+umsRzqQ==
 
 google-auth-library@10.5.0:
   version "10.5.0"
@@ -7693,14 +7693,14 @@ vue-eslint-parser@^10.4.1:
     esquery "^1.6.0"
     semver "^7.6.3"
 
-vue-i18n@^11.4.7:
-  version "11.4.7"
-  resolved "https://registry.yarnpkg.com/vue-i18n/-/vue-i18n-11.4.7.tgz#b20dda80ed81924ea068c539ad915f79feed54c2"
-  integrity sha512-j6RyshdPPzqLiMAUpnpvZGFPM+rRoWi14Sl5yTsquvoW0/56DWyvhAj2o9TO2YXGvb6teg8T0xrYO9jR3urvdw==
+vue-i18n@^11.4.8:
+  version "11.4.8"
+  resolved "https://registry.yarnpkg.com/vue-i18n/-/vue-i18n-11.4.8.tgz#2f2d9fa43d668dcafdc20875d5d15073bdc64ead"
+  integrity sha512-0ULeHP6Z9CGvAm67S77ZEp41cfGXIREGL8qfhos2BMgcQQewtQcDKuojt6jjasAD/S8GwfTp2ySPmDSpwvrCMQ==
   dependencies:
-    "@intlify/core-base" "11.4.7"
-    "@intlify/devtools-types" "11.4.7"
-    "@intlify/shared" "11.4.7"
+    "@intlify/core-base" "11.4.8"
+    "@intlify/devtools-types" "11.4.8"
+    "@intlify/shared" "11.4.8"
     "@vue/devtools-api" "^6.5.0"
 
 vue-router@^5.2.0:
