@@ -51,9 +51,12 @@ feature **the day it ships**. The changelog explains what changed; it does not t
 turn a thing on, and for something like `keymap` there is otherwise nowhere to look. Write the
 procedure: open this file, paste this, restart what, how to tell it worked, what breaks on a Mac.
 
-- **Both languages**, and `nav_order` must run **newest release first** — the sequence is by
-  release order, not by version number sorted as text, so a patch like 1.11.1 sits above 1.11.0.
-  A new release takes the lowest free number and everything below it shifts down by one.
+- **Both languages**, and `nav_order` must be a **unique** sequence running **newest release
+  first** — ordered by release date, not by version number sorted as text, so 1.11.1 sits above
+  1.11.0. A new release takes the lowest free number and everything below shifts down by one.
+  When renumbering, **enumerate `docs/guide/*/v*.md` rather than typing the list out**: a
+  hand-typed list has silently dropped a page, and the check written from the same list agreed
+  with it, so nothing caught the duplicate until review did.
 - **State the date in the first line and call it a snapshot.** These pages *will* go stale — that
   is accepted, and the date is what makes a stale one readable rather than misleading. Never
   edit an old one to match new behaviour; write the next version's page instead.
