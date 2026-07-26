@@ -22,6 +22,7 @@ import {
   type AppConfig,
 } from "../../../server/config/app-config";
 import { DEFAULT_PUSH_KINDS } from "../../../common/pushKinds.js";
+import { DEFAULT_COCKPIT_LINES } from "../../../common/cockpitLines.js";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-appcfg-"));
 
@@ -242,6 +243,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     terminalSubmit: "cr",
     keymap: {},
     prWorkdirFooter: true,
+    cockpitLines: { ...DEFAULT_COCKPIT_LINES },
   };
   it("round-trips presets + soundFile + prRepos + launchers + userMcpServers through a file", () => {
     const dir = tmp();
@@ -263,6 +265,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
       prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
+      cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
     };
     expect(saveAppConfig(file, cfg)).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
@@ -302,6 +305,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       quickCommands: [],
       userMcpServers: [{ id: "ok", url: "https://x/mcp" }],
       keymap: { "zoom-next": "PageDown" },
+      cockpitLines: { ...DEFAULT_COCKPIT_LINES },
       buttons: null,
       chips: null,
       pushEnabled: false,
@@ -410,6 +414,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     terminalSubmit: "cr" as const,
     keymap: {},
     prWorkdirFooter: true,
+    cockpitLines: { ...DEFAULT_COCKPIT_LINES },
   };
 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
@@ -465,6 +470,7 @@ describe("mergeConfigUpdate", () => {
     terminalSubmit: "cr",
     keymap: {},
     prWorkdirFooter: true,
+    cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     ...over,
   });
 
