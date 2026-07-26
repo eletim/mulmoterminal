@@ -474,8 +474,10 @@ right default because **MulmoTerminal has no login of its own**: anything that c
 to it can read your sessions, browse files under a session's directory, and start terminals.
 
 Set `MULMOTERMINAL_HOST` to widen that deliberately — `0.0.0.0` for every interface, or one
-address (`localhost` is accepted and stays local). The server prints a warning at startup when it
-is not on loopback, because there is no other signal that it happened.
+address. `localhost` is accepted and normally resolves to loopback — though a hosts file can
+point it elsewhere, which is why the warning below is based on **what the server actually bound**
+(`server.address()`) rather than on what you typed. It prints at startup whenever that is not
+loopback, because there is no other signal that it happened.
 
 ```bash
 MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # trusted networks only — see the caveat below

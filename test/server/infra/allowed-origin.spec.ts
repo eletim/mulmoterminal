@@ -52,12 +52,10 @@ describe("isAllowedOrigin", () => {
 
   // A non-browser local client (curl, the CLI, a native app) sends no Origin at all, and it
   // cannot be a cross-site request. Anything a BROWSER sends has one.
-  describe("a missing origin is allowed", () => {
+  // "Allowed" now means allowed FROM A LOCAL PEER — every case here passes one, since that is
+  // what the header-absent path is for. The remote-peer half lives in its own block below.
+  describe("a missing origin is allowed from a local peer", () => {
     it("allows undefined", () => {
-      expect(isAllowedOrigin(undefined, LOCAL_V4)).toBe(true);
-    });
-
-    it("allows a call with no argument", () => {
       expect(isAllowedOrigin(undefined, LOCAL_V4)).toBe(true);
     });
 
