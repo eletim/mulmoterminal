@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
-import { useRoute } from "vue-router";
 import { router } from "./router";
 import Sidebar from "./components/Sidebar.vue";
 import SessionTabBar from "./components/SessionTabBar.vue";
@@ -13,6 +12,7 @@ import WikiBrowseOverlay from "./components/WikiBrowseOverlay.vue";
 import PrsOverlay from "./components/PrsOverlay.vue";
 import FilesOverlay from "./components/FilesOverlay.vue";
 import GridView from "./components/GridView.vue";
+import { viewIsGrid } from "./composables/overlayOrigin";
 import AppSettingsModal from "./components/AppSettingsModal.vue";
 import AppToolbar from "./components/AppToolbar.vue";
 import { useSessions, type Filter } from "./composables/useSessions";
@@ -33,8 +33,11 @@ import { clampTerminalWidth, maxTerminalWidth, MIN_TERMINAL, splitterKeyWidth } 
 
 // View mode is now the URL: the multi-terminal grid is /terminals, everything else
 // (chat + the collection/accounting overlays) lives under the single-view shell.
-const route = useRoute();
-const isGrid = computed(() => route.name === "terminals");
+// An overlay (collections / wiki / PRs / accounting / files) renders BELOW the header, over
+// whichever view opened it — so that view stays mounted underneath. Reading the route alone
+// would swap the shell behind the panel, which for a grid-opened overlay also means mounting
+// the single view and attaching its durable PTY (see main.ts) behind the user's back (#889).
+const isGrid = viewIsGrid;
 
 // The phone asked for a new terminal in a session's directory (#831). The grid is browser
 // state — the host can only ask — so SOMETHING has to be listening for this to be servable,

@@ -6,6 +6,7 @@ import NotificationBell from "./NotificationBell.vue";
 import RemoteHostControl from "./RemoteHostControl.vue";
 import LauncherButton from "./LauncherButton.vue";
 import { useShortcuts } from "../composables/useShortcuts";
+import { viewIsGrid } from "../composables/overlayOrigin";
 import { useCollectionBrowse, browseGotoIndex, browseGotoDetail } from "../composables/useCollectionBrowse";
 import { useAccountingView, accountingViewOpen } from "../composables/useAccountingView";
 import { useWikiBrowse, wikiGotoIndex, wikiGotoTag } from "../composables/useWikiBrowse";
@@ -72,7 +73,10 @@ async function copyUpdateCommand(): Promise<void> {
   }
 }
 
-const inGrid = computed(() => route.name === "terminals");
+// Not `route.name === "terminals"`: an overlay opened FROM the grid keeps the grid's
+// buttons, or clicking Pull requests / Worklog would make the button you just pressed
+// vanish from the header that is still on screen above the panel (#889).
+const inGrid = viewIsGrid;
 const inSingle = computed(() => !inGrid.value);
 const chatActive = computed(() => inSingle.value && browseView.value.mode === "closed" && !accountingOpen.value && !wikiOpen.value && !prsOpen.value);
 const collectionsActive = computed(() => browseView.value.mode === "index" && browseView.value.kind === "collection");

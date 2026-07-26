@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import AppToolbar from "../../../src/components/AppToolbar.vue";
 import { router } from "../../../src/router/index";
+import { prsGotoIndex } from "../../../src/composables/usePrsView";
+import { browseGotoIndex } from "../../../src/composables/useCollectionBrowse";
 
 // The toolbar is ONE component rendered by both views (GridView and App), so which buttons
 // it offers is decided by the route, not by a prop (#886).
@@ -60,5 +62,31 @@ describe("AppToolbar per-view buttons", () => {
     const single = labelsOf(await mountAt("/chat"));
     expect(single).not.toContain("New terminal");
     expect(single).not.toContain("Toggle grid cell ordering");
+  });
+
+  // The overlays render BELOW the header (`top-10`), so the header stays on screen while one
+  // is open. Switching to the other view's buttons there would take away the very button the
+  // user just clicked — and would swap the shell behind the panel (#889).
+  it("keeps the grid buttons while an overlay opened FROM the grid is on screen", async () => {
+    await router.push("/terminals");
+    await settle();
+    prsGotoIndex();
+    await settle();
+
+    const labels = labelsOf(mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } }));
+    expect(labels).toContain("Pull requests");
+    expect(labels).toContain("Worklog");
+    expect(labels).not.toContain("Collections");
+  });
+
+  it("keeps the single-view buttons while an overlay opened from the single view is on screen", async () => {
+    await router.push({ name: "chat" });
+    await settle();
+    browseGotoIndex("collection");
+    await settle();
+
+    const labels = labelsOf(mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } }));
+    expect(labels).toContain("Collections");
+    expect(labels).not.toContain("Pull requests");
   });
 });
