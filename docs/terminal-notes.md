@@ -101,6 +101,30 @@ change one and change the other (#834).
 - xterm exposes no pixel-to-cell mapping, so cell coordinates are derived from `.xterm-screen`'s
   own box. Reaching into `_core._renderService.dimensions` instead would need an `any`.
 
+### A terminal xterm has killed can only be replaced (#846)
+
+`Buffer.resize` in xterm 6.0.0 can finish with fewer lines than the viewport needs
+(upstream [xtermjs/xterm.js#6063](https://github.com/xtermjs/xterm.js/issues/6063), **unfixed**);
+the next write to a bottom row then throws in `lineFeed` / `_eraseInBufferLine`, which dereference
+`lines.get(…)` with no null check. Three things about that failure decide how it is handled here —
+all confirmed against `@xterm/headless@6.0.0` by reproducing the upstream flight-recorder state:
+
+- **The throw is out of reach.** It happens inside the WriteBuffer's own `setTimeout`, not under
+  our `term.write()` call, so no try/catch of ours can see it. The state has to be found by
+  looking, not by catching — hence the probe in `terminalBufferHealth.ts`, run on `fit()` and on
+  each output message.
+- **The write queue stays stuck forever.** `WriteBuffer.write()` only starts the drain when the
+  queue *was* empty, so the entries a throw left behind are never parsed. This is why the cell
+  freezes until a page reload.
+- **`term.reset()` does not clear it.** Reset rebuilds the buffers (so the buffer invariant is
+  restored) but leaves the write queue stuck — a terminal that has thrown never processes input
+  again. `connect()` alone is therefore not a repair: the slot needs a **new `Terminal`**, which
+  is what `rebuildTerminal()` does before re-attaching. The session is server-side, so the replay
+  brings the content back and the user sees the cell blink.
+
+Rendering itself survives: `RenderDebouncer._innerRefresh` clears its animation frame *before*
+calling the render callback, so a renderer that throws still repaints on the next refresh.
+
 ### Renderer (canvas vs DOM)
 
 The **canvas renderer** (`@xterm/addon-canvas`, added to fix CJK glyph drift — long Japanese lines
