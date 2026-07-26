@@ -18,7 +18,7 @@ export function accountingViewOpen(): void {
 
 /** Close the accounting overlay → back to chat. */
 export function accountingViewClose(): void {
-  router.push("/");
+  router.push({ name: "chat" });
 }
 
 export function useAccountingView(): { isOpen: ComputedRef<boolean>; close: () => void } {

@@ -97,7 +97,7 @@ export function browseSetSelectedId(itemId: string | null): void {
 /** Close the browser overlay → back to chat. */
 export function browseClose(): void {
   clearRecord();
-  router.push("/");
+  router.push({ name: "chat" });
 }
 
 /** Derive the legacy BrowseView shape from the current route + record state. */

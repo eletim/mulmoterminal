@@ -464,7 +464,7 @@ useCaptureKeydown(onShortcutKey);
 // (the grid has no single active session). The skill then asks which directory / batch.
 function configureAppearance() {
   closeSettings();
-  router.push("/");
+  router.push({ name: "chat" });
   void startCollectionChat("/mulmoterminal-config");
 }
 </script>

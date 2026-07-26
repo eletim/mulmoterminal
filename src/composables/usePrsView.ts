@@ -11,7 +11,7 @@ export function prsGotoIndex(): void {
 
 /** Close the PR view → back to chat. */
 export function prsClose(): void {
-  router.push("/");
+  router.push({ name: "chat" });
 }
 
 export function usePrsView(): { isOpen: ComputedRef<boolean>; close: () => void } {
