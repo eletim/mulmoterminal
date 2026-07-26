@@ -26,12 +26,33 @@ import { useSoundEnabled } from "./composables/useSoundEnabled";
 import { useAttentionSound } from "./composables/useAttentionSound";
 import { useUnloadGuard, reportActiveTerminals } from "./composables/useUnloadGuard";
 import { browserLocale } from "./utils/browserLocale";
+import { usePubSub } from "./composables/usePubSub";
+import { openTerminalAt } from "./composables/useNewTerminal";
+import { LAUNCH_TERMINAL_CHANNEL, isLaunchAgent, type LaunchAgent } from "../common/launchAgent";
 import { clampTerminalWidth, maxTerminalWidth, MIN_TERMINAL, splitterKeyWidth } from "./components/splitterWidth";
 
 // View mode is now the URL: the multi-terminal grid is /terminals, everything else
 // (chat + the collection/accounting overlays) lives under the single-view shell.
 const route = useRoute();
 const isGrid = computed(() => route.name === "terminals");
+
+// The phone asked for a new terminal in a session's directory (#831). The grid is browser
+// state — the host can only ask — so SOMETHING has to be listening for this to be servable,
+// and the host tells the phone outright when nothing is. Subscribed here rather than in
+// GridView because GridView is `v-if`d on the route and so does not exist until the user has
+// visited /terminals once; openTerminalAt already queues the request and navigates there.
+const launchRequestOf = (data: unknown): { cwd: string; agent: LaunchAgent } | null => {
+  if (typeof data !== "object" || data === null) return null;
+  const { cwd, agent } = data as { cwd?: unknown; agent?: unknown };
+  return typeof cwd === "string" && cwd && isLaunchAgent(agent) ? { cwd, agent } : null;
+};
+// Appended at the end of the grid: the phone has no notion of which desktop cell is
+// "current", and guessing would drop the terminal somewhere arbitrary.
+const unsubscribeLaunch = usePubSub().subscribe(LAUNCH_TERMINAL_CHANNEL, (data) => {
+  const request = launchRequestOf(data);
+  if (request) openTerminalAt(request.cwd, null, request.agent);
+});
+onUnmounted(unsubscribeLaunch);
 
 // A script picked from the terminal header's Run menu runs in the grid (command
 // cells live only there): stash it and switch to the grid, which picks it up.

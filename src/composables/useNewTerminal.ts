@@ -8,10 +8,14 @@
 // app switches to /terminals; GridView drains the queue when it registers on mount — mirroring
 // usePendingScript for the single view's Run menu.
 import { router } from "../router";
+import type { LaunchAgent } from "../../common/launchAgent";
 
 export interface NewTerminalRequest {
   cwd: string;
   afterSlotKey: string | null;
+  // What the new cell runs. Omitted means the OS default shell, which is what the header
+  // button has always opened; the phone can also ask for claude or codex (#831).
+  agent?: LaunchAgent;
 }
 type Handler = (req: NewTerminalRequest) => void;
 
@@ -32,10 +36,10 @@ export function registerNewTerminalHandler(h: Handler): () => void {
   };
 }
 
-// Open a new terminal cell running $SHELL in `cwd`, next to `afterSlotKey`'s cell. If the grid isn't
-// mounted yet, queue the request and switch to it.
-export function openTerminalAt(cwd: string, afterSlotKey: string | null): void {
-  const req: NewTerminalRequest = { cwd, afterSlotKey };
+// Open a new terminal cell in `cwd`, next to `afterSlotKey`'s cell — running `agent`, or the OS
+// default shell when it is omitted. If the grid isn't mounted yet, queue the request and switch to it.
+export function openTerminalAt(cwd: string, afterSlotKey: string | null, agent?: LaunchAgent): void {
+  const req: NewTerminalRequest = { cwd, afterSlotKey, agent };
   if (handler) {
     handler(req);
     return;

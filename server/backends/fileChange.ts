@@ -9,10 +9,10 @@
 // the plugin-scoped channels are published.
 import path from "node:path";
 import { configureFileChangePublisher, publishFileChange } from "@mulmoclaude/core/file-change";
-import type { createPubSub } from "../infra/pubsub.js";
+import type { Publisher } from "../infra/pubsub.js";
 import { isDocPath } from "./docPath.js";
 
-type PubSub = ReturnType<typeof createPubSub>;
+type PubSub = Publisher;
 
 const log = {
   warn: (message: string, data?: Record<string, unknown>) => console.warn(`[file-change] ${message}`, data ?? ""),
