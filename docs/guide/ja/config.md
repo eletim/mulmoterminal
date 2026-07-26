@@ -464,7 +464,7 @@ Anthropic のまま別のモデルを指定できます。→ [OpenRouter で別
 `theme` に `midnight` / `nord` / `daylight` / `solarized` を指定するとプリセットのパレットになり、`colors` はその上へ部分上書き。
 [応用編 6](scenarios.html) の色分けスクショは、ヘッダー色と `colors` を組み合わせて**ヘッダーから端末の中身まで**プロジェクトごとに染めた例です。
 
-### ターミナルのフォントサイズ（`fontSize`）
+### ターミナルのフォントサイズ（`fontSize`） {#font-size}
 
 `fontSize` はこのディレクトリのターミナルのフォントサイズ（px）で、設定モーダルの値を上書きします。
 

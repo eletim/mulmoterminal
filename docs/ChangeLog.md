@@ -4,6 +4,53 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.1.0 — 2026-07-27
+
+> **Setup guide:** [How to use what this release added](https://receptron.github.io/mulmoterminal/guide/en/v2.1.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.1.0.html))
+
+The app opens on the grid now, the terminal font size and the cockpit roster become adjustable, and a PR says which clone it came from. **One behaviour changes without asking**: the screen you get on startup. Everything else is opt-in or purely visual.
+
+### The default view is the grid (#883)
+
+`http://localhost:34567` lands on the grid instead of the single view; the URL settles on `/terminals`. The single view keeps working and now has an address of its own, **`/chat`** — bookmark it to start there instead.
+
+The change is four lines in the router, but the risk was not there. `router.push("/")` meant "back to the single view" in six call sites — including the toolbar's own Chat button, which would have started flying to the grid. All six navigate by route NAME now, which is what makes `/` a one-line decision rather than a fact spread across the codebase. A **seventh** site was found only by the tests: `useFilesView` fell back to the string literal `"/"` when a `/files` entry carried no origin, a shape no `push("/")` grep would surface.
+
+Two consequences worth stating: a mistyped URL now lands on the grid, and opening the app no longer attaches the single view's terminal — that session lives in tmux, so it returns the moment you open `/chat`.
+
+### Terminal font size, globally and per directory (#860, #866)
+
+`fontSize` was hardcoded in the xterm constructor. The Settings modal now has a stepper (remembered **per browser**, so a phone and a desktop on one server keep their own), and a directory's `.mulmoterminal.json` can set `fontSize` to win for its own terminals. Range 8–32, default 14; out-of-range clamps, non-numbers are ignored.
+
+The part that isn't plumbing: a size change alters the cell metrics, so `cols`/`rows` change and the PTY has to be told. Setting the xterm option alone would reproduce exactly what makes browser zoom useless here — xterm's grid and the shell disagreeing about the geometry, so the cursor and the wrap points drift.
+
+### Cockpit roster line counts (#877, #880)
+
+How many lines each roster row gives the AI summary, the last prompt and the latest reply is now `cockpitLines` in `~/.mulmoterminal/config.json`. **Defaults are 2 / 2 / 3 and omitting the key changes nothing.** Raise `summary` to read what an agent is doing without zooming in.
+
+Originally proposed and implemented by @meki-nana in #863.
+
+### A PR says which clone it came from (#872, #879)
+
+With several checkouts of one repo side by side — `myrepo`, `myrepo2`, `myrepo3` — a PR on GitHub said nothing about which produced it. A PR created with **⧉ Open PR** now ends its body with `work in myrepo3`: the name of the MAIN checkout, not the worktree, since the branch is already on the PR.
+
+`--body` on `gh pr create` replaces what `--fill` derived from the commits rather than adding to it, so the line is appended in a second step — and because both steps run after the PR exists, a failure there logs and leaves the PR reported as created. Three guards keep it from stacking: only newly created PRs, an idempotent append, and no write at all when the body would not change. On by default; `prWorkdirFooter: false` opts out, read per PR so no restart is needed.
+
+### The interface uses icons, not emoji (#875)
+
+Every emoji in the UI is a **Material Symbols** glyph now — cell toolbars, overlays, menus, the settings modal — with tooltips and labels unchanged. A header button in config takes `icon` (a Material Symbols name); `emoji` still works and still wins when both are set, so existing configs render exactly as before.
+
+Screen readers were part of this: a Material Symbols span carries its ligature name as real text, so "Run" was announcing as "play_arrow Run expand_more" until every decorative icon span became `aria-hidden`.
+
+### Outside pull requests are closed automatically (#867, #868)
+
+A pull request from outside the development team gets a comment pointing at [CONTRIBUTING.md](https://github.com/receptron/mulmoterminal/blob/main/CONTRIBUTING.md) and is closed, regardless of size. **Issues stay welcome** and are the way in: open one, agree on a plan, a maintainer writes the PR. The rationale — reviewing a large unfamiliar diff costs more than writing it, and this app runs agents against a user's real machine — is in that file.
+
+### Also in this release
+
+- **Windows:** the buffer-health fuzz test no longer fails on a slow runner (#858, #859).
+- Dead types and the two actionable lint warnings are gone (#869); merged plan files moved to `plans/done/` (#871).
+
 ## mulmoterminal@2.0.1 — 2026-07-26
 
 Hardening of the local server's network surface, plus a dated setup guide for each recent release. **Upgrading is recommended.** Nothing changes for an ordinary local install.

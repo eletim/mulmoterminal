@@ -470,7 +470,7 @@ Set `theme` to `midnight` / `nord` / `daylight` / `solarized` for a preset palet
 overrides on top. The color-coding screenshot in [Scenario 6](scenarios.html) combines header colors with `colors` to
 paint each project — **from the header down to the terminal body**.
 
-### Terminal font size (`fontSize`)
+### Terminal font size (`fontSize`) {#font-size}
 
 `fontSize` sets the px size of the terminal font for this directory, overriding the Settings value:
 
