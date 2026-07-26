@@ -369,7 +369,7 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
     // socket.io is entitled to.
     if (!kind) return;
     const target = serverFor[kind];
-    if (!deps.isAllowedOrigin(req.headers.origin)) {
+    if (!deps.isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) {
       console.warn(`[ws] rejected cross-origin upgrade from ${req.headers.origin}`);
       socket.destroy();
       return;

@@ -464,7 +464,25 @@ Your project's scripts that can run in a grid cell (dev server, tests, build, an
 |---|---|---|
 | `CLAUDE_CWD` / `--cwd` | The directory you run `npx mulmoterminal` in (only `~/mulmoclaude` when the server is started directly) | The default working directory (the PTY's cwd); also set via `--cwd` |
 | `PORT` | `34567` | The server port |
+| `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
+
+### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}
+
+The server binds to **loopback only**, so it answers this machine and nothing else. That is the
+right default because **MulmoTerminal has no login of its own**: anything that can open a socket
+to it can read your sessions, browse files under a session's directory, and start terminals.
+
+Set `MULMOTERMINAL_HOST` to widen that deliberately — `0.0.0.0` for every interface, or one
+address. The server prints a warning at startup when it is not on loopback, because there is no
+other signal that it happened.
+
+```bash
+MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # reachable from your network — trusted networks only
+```
+
+You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
+host over Firestore, not over your local network (→ [from your phone](phone.html)).
 
 ---
 

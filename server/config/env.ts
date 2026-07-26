@@ -6,6 +6,19 @@ import path from "node:path";
 
 export const PORT = process.env.PORT || 34567;
 
+// The interface the HTTP server binds to. LOOPBACK BY DEFAULT — this server has no
+// authentication of its own: every /api route, the terminal WebSockets, and the routes that
+// spawn a PTY are reachable by anyone who can open a socket to it. Binding every interface
+// (Node's default when `listen()` is given no host) put all of that on the local network.
+//
+// It is also what several guards silently depend on: `isAllowedOrigin` trusts a request with
+// no Origin header, on the grounds that such a caller is a local CLI or MCP tool rather than
+// a browser. That reasoning only holds while nothing remote can connect at all.
+//
+// Set MULMOTERMINAL_HOST to widen it deliberately — `0.0.0.0` to accept from anywhere, or a
+// specific address. Only on a network you trust, and knowing the above.
+export const BIND_HOST = process.env.MULMOTERMINAL_HOST || "127.0.0.1";
+
 // The workspace used as the PTY cwd and as the root for persisted session state. index.ts
 // creates it at boot before anything spawns into it.
 export const CLAUDE_CWD = process.env.CLAUDE_CWD || path.join(os.homedir(), "mulmoclaude");

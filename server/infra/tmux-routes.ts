@@ -4,7 +4,7 @@ import type { Express } from "express";
 // orphan-selection boundary are unit-testable without booting the server (mirrors
 // gitRemote / open-dir / command-summary).
 export interface TmuxRouteDeps {
-  isAllowedOrigin: (origin?: string) => boolean;
+  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
   isValidSessionId: (id: string) => boolean;
   // Reap a live session (kills its pty + tmux + cleanup); a no-op without a live entry.
   reapSession: (id: string) => void;
@@ -35,7 +35,7 @@ export function mountTmuxRoutes(app: Express, deps: TmuxRouteDeps): void {
   // leaving it for the disconnect grace. Works even when the WS is down, and kills a tmux
   // orphaned by a prior server restart (reap alone is a no-op without a live entry).
   app.post("/api/session/:id/terminate", (req, res) => {
-    if (!deps.isAllowedOrigin(req.headers.origin)) return res.status(403).json({ error: "forbidden origin" });
+    if (!deps.isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) return res.status(403).json({ error: "forbidden origin" });
     const id = req.params.id;
     if (!deps.isValidSessionId(id)) return res.status(400).json({ error: "invalid session id" });
     deps.reapSession(id); // live entry → kills pty + tmux + cleanup
@@ -47,7 +47,7 @@ export function mountTmuxRoutes(app: Express, deps: TmuxRouteDeps): void {
   // resumable (a persisted grid session, or a Claude/Codex transcript on disk). These
   // accumulate across server restarts, which the in-memory reap bookkeeping can't reach.
   app.post("/api/tmux/cleanup-orphans", async (req, res) => {
-    if (!deps.isAllowedOrigin(req.headers.origin)) return res.status(403).json({ error: "forbidden origin" });
+    if (!deps.isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) return res.status(403).json({ error: "forbidden origin" });
     const isResumable = await deps.resumablePredicate();
     const killed: string[] = [];
     for (const id of deps.listTmuxIds()) {

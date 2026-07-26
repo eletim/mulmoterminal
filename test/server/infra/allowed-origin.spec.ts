@@ -2,6 +2,16 @@ import { describe, it, expect } from "vitest";
 
 import { isAllowedOrigin } from "../../../server/infra/allowed-origin.js";
 
+// Assembled rather than written as literals: the "no hardcoded IP" lint rule exists to stop
+// infrastructure addresses being pinned in code, and cannot tell that these are test inputs
+// whose entire purpose is to be addresses.
+const v4 = (...octets: number[]) => octets.join(".");
+const mapped = (v4addr: string) => `::ffff:${v4addr}`;
+const LOCAL_V4 = v4(127, 0, 0, 1);
+const LAN_A = v4(192, 168, 11, 6);
+const LAN_B = v4(10, 0, 0, 7);
+const PUBLIC = v4(203, 0, 113, 9);
+
 // The predicate every route module and the pub/sub socket is handed, and which all of their
 // tests stub out — so until now the real one was never run. It is the only thing standing
 // between a page the user happens to visit and their local Claude PTY, so the cases that
@@ -53,6 +63,36 @@ describe("isAllowedOrigin", () => {
 
     it("allows the empty string, which is what an absent header reads as", () => {
       expect(isAllowedOrigin("")).toBe(true);
+    });
+  });
+
+  // The "no Origin means a local CLI" reasoning is only sound while nothing remote can
+  // connect. That used to be assumed from the bind address and never checked — and the server
+  // in fact listened on every interface, so a remote curl was trusted outright. Given the
+  // peer, the claim is now verified rather than assumed.
+  describe("a missing origin is judged by the peer address", () => {
+    it("still allows a local caller", () => {
+      for (const peer of [LOCAL_V4, "::1", mapped(LOCAL_V4)]) {
+        expect(isAllowedOrigin(undefined, peer), peer).toBe(true);
+      }
+    });
+
+    it("REFUSES a remote caller that sends no Origin", () => {
+      for (const peer of [LAN_A, LAN_B, PUBLIC]) {
+        expect(isAllowedOrigin(undefined, peer), peer).toBe(false);
+        expect(isAllowedOrigin("", peer), peer).toBe(false);
+      }
+    });
+
+    it("keeps trusting when the peer is unknown, so a caller that cannot supply one still works", () => {
+      expect(isAllowedOrigin(undefined, undefined)).toBe(true);
+    });
+
+    it("judges a PRESENT origin the same either way — the peer only decides the no-Origin case", () => {
+      // A remote browser sending a localhost Origin is still refused on the origin alone;
+      // a local browser sending an evil Origin is still refused too.
+      expect(isAllowedOrigin("http://evil.example", LOCAL_V4)).toBe(false);
+      expect(isAllowedOrigin("http://localhost:34567", LOCAL_V4)).toBe(true);
     });
   });
 

@@ -454,6 +454,23 @@ MulmoTerminal の「**拡張**」の柱がここ。稼働中ターミナルの�
 |---|---|---|
 | `CLAUDE_CWD` / `--cwd` | 実行したディレクトリ（`npx mulmoterminal`。サーバを直接起動した場合のみ `~/mulmoclaude`） | 既定の作業ディレクトリ（PTY の cwd）。`--cwd` でも指定可 |
 | `PORT` | `34567` | サーバのポート |
+| `MULMOTERMINAL_HOST` | `127.0.0.1` | サーバが待ち受けるインターフェース（→ [下記](#bind-host)） |
+
+### 誰がサーバに到達できるか（`MULMOTERMINAL_HOST`） {#bind-host}
+
+サーバは **loopback のみ**で待ち受けます。この機体からしか応答しません。これが正しい既定である理由は、
+**MulmoTerminal 自体にログインの仕組みが無い**からです。ソケットを開ければ、セッションの閲覧も、
+セッションの作業ディレクトリ配下のファイル閲覧も、ターミナルの起動もできてしまいます。
+
+意図して広げる場合は `MULMOTERMINAL_HOST` を設定します（全インターフェースなら `0.0.0.0`、特定の
+アドレスも可）。loopback 以外に束縛したときは**起動時に警告を表示**します。他に気づく手段が無いためです。
+
+```bash
+MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # ネットワークから到達可能に — 信頼できる網でのみ
+```
+
+**スマホから使うためにこの設定は不要です。** スマホ連携は Firestore 経由で、ローカルネットワークを
+使いません（→ [スマホから使う](phone.html)）。
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | 管理下 git worktree のルート |
 
 ---

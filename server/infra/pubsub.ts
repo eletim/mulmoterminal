@@ -19,8 +19,9 @@ export function createPubSub(server: HttpServer, isAllowedOrigin: (origin?: stri
     // Reject cross-origin connections so an untrusted website can't subscribe to
     // session activity. allowRequest covers the websocket handshake; cors covers
     // any polling/preflight.
-    allowRequest: (req, cb) => cb(null, isAllowedOrigin(req.headers.origin)),
+    allowRequest: (req, cb) => cb(null, isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)),
     cors: {
+      // No request here, so no peer address — allowRequest above is the check that sees it.
       origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
       credentials: true,
     },
