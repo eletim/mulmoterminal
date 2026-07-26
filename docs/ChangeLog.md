@@ -4,6 +4,28 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.0.1 — 2026-07-26
+
+Hardening of the local server's network surface, plus a dated setup guide for each recent release. **Upgrading is recommended.** Nothing changes for an ordinary local install.
+
+### The server listens on loopback by default (#856)
+
+`server.listen()` was called with no host, so Express bound every interface — and this server has no authentication of its own, so `/api` routes, the terminal WebSockets and the routes that spawn a PTY answered whoever could open a socket. It binds `127.0.0.1` now.
+
+`MULMOTERMINAL_HOST` widens it deliberately, which is what a container or WSL forwarding a port needs. The startup warning that fires when the binding is not loopback is classified from `server.address()` — what the OS actually bound — rather than from the string that was requested: `localhost`, `127.1` and `127.000.000.001` are all ways to ask for loopback, and a hosts file can point `localhost` somewhere else entirely. A warning that fires on a safe setting teaches people to ignore the one that matters.
+
+The same-origin predicate also stopped inferring that a caller must be local. It had trusted any request without an `Origin` header on the grounds that the server "binds to 127.0.0.1 so remote traffic can't reach us" — an assumption nothing enforced. It takes the peer address now and checks it, so that trust is verified rather than assumed, and the argument is required so a call site cannot omit it silently.
+
+### One same-origin gate for state-changing requests (#857)
+
+Loopback is still reachable from the user's own browser, so a site they visit can `POST` to `localhost`. It cannot read the reply, but the side effect lands. A cross-origin JSON body is already stopped by the failing preflight, and a simple request arrives with a body `express.json` does not parse — so the exposure was small. The shape was the problem: of 46 state-changing routes the origin check was on some and not others, and a route added later inherits whatever the author remembers.
+
+The gate sits ahead of every route. Safe methods pass — gating them would not stop a cross-site `<img src=localhost>`, which sends no `Origin` at all, and would break the media loads that cannot send a header. The `view-data` endpoints are exempt: a custom collection view is sandboxed HTML with an opaque origin by construction, carrying an HMAC capability token scoped to one slug, which is both stronger than an origin check and incompatible with one.
+
+### Dated setup guides for recent releases (#854)
+
+The changelog records what changed; it does not say how to turn a thing on, and for something like `keymap` there was nowhere obvious to look. Each release now ships `docs/guide/{en,ja}/v<version>.md` — open this file, paste this, restart what, how to tell it worked, what breaks on a Mac — written as a snapshot of that moment, with the date in the first line and links out to the living guide for whatever changes later. Eleven releases, both languages, linked from the top of each changelog entry. A fix-only release gets one too, answering the question an upgrader actually has: nothing to configure, here is what was broken, here is how to tell you have the fix.
+
 ## mulmoterminal@2.0.0 — 2026-07-26
 
 > 📘 **[How to use what this release added](https://receptron.github.io/mulmoterminal/guide/en/v2.0.0.html)** — step-by-step setup for the keymap, Push kinds and the phone features, written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.0.0.html))
