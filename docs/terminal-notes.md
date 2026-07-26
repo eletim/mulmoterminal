@@ -74,13 +74,56 @@ the Files view, not to this stack, and nothing in it breaks when xterm or tmux i
 It lives in [README → Clicking a file path](https://github.com/receptron/mulmoterminal#clicking-a-file-path);
 change one and change the other (#834).
 
-### Mouse tracking & selection — `guardMouseTracking` (#729/#737)
+### Mouse tracking & selection — `guardMouseTracking` (#729/#737/#845)
 
 - SET of a mouse-tracking mode (`CSI ? … h`, e.g. 1000/1002/1003/1006) is **swallowed** so a drag
   stays a text selection instead of the app's coordinate reports landing in the prompt (#729).
-- In the alternate buffer, xterm's fallback turns the wheel into ↑/↓ arrows — which a TUI binds to
-  input history, so scrolling spun the prompt. The wheel handler synthesizes the SGR report the
-  app asked for instead (#737). The swallowed modes are per-session and cleared on `term.reset()`.
+- The swallow takes the whole mouse away from the app, so **the wheel and clicks are synthesized
+  back** (`src/composables/terminalMouseInput.ts`; the rules are pure in `mouseReports.ts`). Both
+  fire only in the alternate buffer, and only for an app that asked for tracking + SGR (1006):
+  - **Wheel** (#737) — xterm's fallback turns it into ↑/↓ arrows, which a TUI binds to input
+    history, so scrolling spun the prompt. That fallback is still what an app which never asked
+    for tracking gets (and the spec pins it) — the report only replaces it for one that did.
+  - **Click** (#845) — a press and release that stayed put becomes an SGR press/release pair, so
+    the app's own click targets ("Jump to bottom", "1 new message") respond. Nothing is
+    `preventDefault()`ed, so xterm's selection is untouched.
+- **The browser side wins every gesture the app's click would compete with.** No report is sent
+  when:
+  - the pointer moved (a drag is a selection — the reason the swallow exists);
+  - the pointer **left** the screen element between press and release. The pending press is
+    dropped there, or a later release landing back inside would be measured against it and report
+    a click that never happened;
+  - the gesture **left a selection behind** — a double-click's word, a triple-click's line. (The
+    first click of a double-click still reports: nothing is selected yet.);
+  - a **link is under the pointer** — xterm marks the screen element `xterm-cursor-pointer` while
+    a link is hovered, and that click already has an owner (the link's activate handler).
+- The swallowed modes are per-session and cleared on `term.reset()`.
+- xterm exposes no pixel-to-cell mapping, so cell coordinates are derived from `.xterm-screen`'s
+  own box. Reaching into `_core._renderService.dimensions` instead would need an `any`.
+
+### A terminal xterm has killed can only be replaced (#846)
+
+`Buffer.resize` in xterm 6.0.0 can finish with fewer lines than the viewport needs
+(upstream [xtermjs/xterm.js#6063](https://github.com/xtermjs/xterm.js/issues/6063), **unfixed**);
+the next write to a bottom row then throws in `lineFeed` / `_eraseInBufferLine`, which dereference
+`lines.get(…)` with no null check. Three things about that failure decide how it is handled here —
+all confirmed against `@xterm/headless@6.0.0` by reproducing the upstream flight-recorder state:
+
+- **The throw is out of reach.** It happens inside the WriteBuffer's own `setTimeout`, not under
+  our `term.write()` call, so no try/catch of ours can see it. The state has to be found by
+  looking, not by catching — hence the probe in `terminalBufferHealth.ts`, run on `fit()` and on
+  each output message.
+- **The write queue stays stuck forever.** `WriteBuffer.write()` only starts the drain when the
+  queue *was* empty, so the entries a throw left behind are never parsed. This is why the cell
+  freezes until a page reload.
+- **`term.reset()` does not clear it.** Reset rebuilds the buffers (so the buffer invariant is
+  restored) but leaves the write queue stuck — a terminal that has thrown never processes input
+  again. `connect()` alone is therefore not a repair: the slot needs a **new `Terminal`**, which
+  is what `rebuildTerminal()` does before re-attaching. The session is server-side, so the replay
+  brings the content back and the user sees the cell blink.
+
+Rendering itself survives: `RenderDebouncer._innerRefresh` clears its animation frame *before*
+calling the render callback, so a renderer that throws still repaints on the next refresh.
 
 ### Renderer (canvas vs DOM)
 
@@ -161,5 +204,6 @@ looking) — flag them for QA on the release.
 ## Related
 
 `docs/spawn-architecture.md` (session lifecycle), `docs/gui-protocol-spike.md`,
+`docs/remote-host-protocol.md` (what the phone can ask of a session),
 `src/composables/useTerminalConnections.ts`, `server/infra/tmux.ts`, `server/session/*.ts`.
 Issues: #206, #263/#264/#293, #265/#266, #434, #445, #572, #729, #737, #772/#780, #776, #778, #782, #783/#785.

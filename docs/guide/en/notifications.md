@@ -72,10 +72,12 @@ Android (Chrome) can enable push straight from the browser tab.
 
 ## Not just notifications: watch and reply from the phone
 
-The mulmoserver PWA is a **remote control**, not just an inbox. From your phone you can browse
-the host's sessions, watch a session's **live screen**, and answer on the spot — type a command
-or tap a quick reply (**yes / no / ok / continue / stop**). Get pinged, glance at the screen,
-send one word, and the agent keeps going — all without a laptop.
+The mulmoserver PWA is a **remote control**, not just an inbox. Get pinged, glance at the live
+screen, send one word, and the agent keeps going — all without a laptop. You can also start a
+new terminal in the session's directory, and give yourself one-tap chips for the sentences you
+send most.
+
+→ **[From your phone](phone.html)** covers all of it.
 
 ![The terminal viewed from a phone — live screen plus yes / no / ok / continue / stop quick replies](../images/remote-phone-terminal.jpg)
 

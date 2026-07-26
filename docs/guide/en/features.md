@@ -26,7 +26,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Add / close / reorder cells | `New terminal ＋`, each cell's `✕`, and `◀ ▶` in reorder mode |
 | Worktree isolation | Git worktrees so many agents can run on the same repo without colliding |
 | Session persistence (tmux) | If tmux is available, each session runs inside tmux and **reconnects** across reloads and server restarts |
-| Phone companion (RemoteHost) | **Web Push to your phone** on finished / input-waiting turns, plus **watch & quick-reply from the phone** (→ [Mobile notifications](notifications.html)) |
+| Phone companion (RemoteHost) | **Web Push to your phone** on finished / input-waiting turns, plus **watch, reply, and start a new terminal** from the phone — with your own one-tap chips (→ [From your phone](phone.html)) |
 
 ## 2. See — what each agent is doing and where
 
