@@ -4,6 +4,7 @@ import { nextTick } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
 import type { RunCommand } from "../../../src/components/runCommand.js";
+import { setCockpitLines } from "../../../src/composables/cockpitLines";
 
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
@@ -267,6 +268,30 @@ describe("grid cockpit (list view)", () => {
     const lines = w.findAll('[data-testid="cockpit-line"]').map((l) => l.text());
     expect(lines.some((t) => t.includes("summary"))).toBe(false); // no summary line
     expect(lines.some((t) => t.includes("prompt") && t.includes("bash"))).toBe(true); // fallback in the prompt line
+  });
+
+  // The clamp is a runtime value, so it reaches the DOM as a CSS variable the Tailwind utility
+  // reads. Asserting the variable (not a class) is what tells us config.json actually lands.
+  it("clamps each roster line to the configured count, and reacts when the config arrives", async () => {
+    setCockpitLines(undefined); // an unconfigured install
+    const w = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { summary: "s", prompt: "p", response: "r" })]);
+    await nextTick();
+    const clampsOf = (wrapper: typeof w) => wrapper.findAll('[data-testid="cockpit-line"]').map((l) => l.attributes("style"));
+    expect(clampsOf(w)).toEqual(["--cockpit-lines: 2;", "--cockpit-lines: 2;", "--cockpit-lines: 3;"]);
+    for (const line of w.findAll('[data-testid="cockpit-line"]')) expect(line.classes()).toContain("line-clamp-[var(--cockpit-lines)]");
+
+    // Hydration is async, so the already-mounted roster has to pick the new values up.
+    setCockpitLines({ summary: 6, prompt: 1, response: 9 });
+    await nextTick();
+    expect(clampsOf(w)).toEqual(["--cockpit-lines: 6;", "--cockpit-lines: 1;", "--cockpit-lines: 9;"]);
+    setCockpitLines(undefined); // leave the singleton as the next test expects to find it
+  });
+
+  // Truncation must never be the only way the text exists — the full line is one hover away.
+  it("carries the untruncated text in a title", async () => {
+    const w = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { summary: "a long summary", prompt: "the prompt", response: "the reply" })]);
+    await nextTick();
+    expect(w.findAll('[data-testid="cockpit-line"]').map((l) => l.attributes("title"))).toEqual(["a long summary", "the prompt", "the reply"]);
   });
 
   it("renders a PR-phase badge with the phase label and class", async () => {

@@ -22,6 +22,7 @@ import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmit
 import type { QuickCommand } from "../../common/quickCommands.js";
 import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
+import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "../../common/cockpitLines.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 
@@ -70,6 +71,9 @@ export interface AppConfig {
   // which of several side-by-side clones produced it. ON unless explicitly disabled — the
   // line is the whole point of the feature, and a reader who doesn't want it sets `false`.
   prWorkdirFooter: boolean;
+  // How many lines each cockpit-roster row shows before clamping (#877). Defaults keep the
+  // previous 2/2/3; raising `summary` trades roster length for reading a long one in place.
+  cockpitLines: CockpitLines;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -233,6 +237,7 @@ export const emptyConfig = (): AppConfig => ({
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
   prWorkdirFooter: true,
+  cockpitLines: { ...DEFAULT_COCKPIT_LINES },
 });
 
 // Drop malformed entries rather than rejecting the whole config: one bad provider must
@@ -267,6 +272,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
+    cockpitLines: sanitizeCockpitLines(o.cockpitLines),
   };
 }
 
@@ -339,6 +345,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
+    cockpitLines: updated("cockpitLines", sanitizeCockpitLines, base.cockpitLines),
   };
 }
 
@@ -363,6 +370,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
     prWorkdirFooter: config.prWorkdirFooter,
+    cockpitLines: config.cockpitLines,
   };
 }
 
