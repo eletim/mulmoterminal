@@ -557,7 +557,11 @@ malformed file is ignored.
 **Security.** `sound` is a directory-relative path only — absolute paths and any
 `../` that escapes the directory are rejected, and the path is never taken from the
 HTTP request, so an opened project can't point the player at arbitrary files.
-Changes take effect when the terminal is next opened (no live file watch).
+**When changes take effect.** A write made *through Claude's tools* — which includes the
+`mulmoterminal-config` skill — applies **live**: the tool hook that reports the write doubles
+as the reload signal, so colors, palette, font size and grid order update without reopening
+anything. There is no filesystem watcher, so an edit made **outside** a session (your own
+editor) is picked up when the terminal is next opened.
 
 ---
 

@@ -124,12 +124,18 @@ describe("useDirPriorities", () => {
     await flush();
     expect(priorities?.value).toEqual({ "/g/x": 1, "/g/y": 2 });
 
+    expect(boundDirCount()).toBe(before + 2);
+
     cwds.value = ["/g/x"]; // the cell in /g/y was closed
     await flush();
     expect(priorities?.value).toEqual({ "/g/x": 1 });
+    // Asserted HERE, not only after scope.stop(): disposal releases everything anyway, so a
+    // check that ran only at the end would pass even if leaving the set released nothing —
+    // which is the very thing this test is named for.
+    expect(boundDirCount()).toBe(before + 1);
 
     scope.stop();
-    expect(boundDirCount()).toBe(before); // no directory left subscribed
+    expect(boundDirCount()).toBe(before); // and the survivor goes on disposal
   });
 });
 
