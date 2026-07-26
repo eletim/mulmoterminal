@@ -117,20 +117,36 @@ function showPrs(): void {
   <header class="flex h-10 flex-none items-center border-b border-border bg-panel px-4">
     <span class="font-sans text-[14px] font-semibold tracking-[0.02em] text-fg">MulmoTerminal</span>
     <nav class="ml-4 flex min-w-0 items-center gap-[3px] overflow-x-auto" aria-label="Views">
+      <!-- Both views: the pair that switches between them. -->
       <LauncherButton icon="chat" title="Chat" label="Chat" :active="chatActive" @click="showChat" />
       <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="inGrid" @click="showGrid" />
-      <LauncherButton icon="apps" title="Collections" label="Collections" :active="collectionsActive" @click="showCollections" />
-      <LauncherButton icon="account_balance" title="Accounting" label="Accounting" :active="accountingActive" @click="showAccounting" />
-      <LauncherButton icon="call_merge" title="Pull requests" label="Pull requests" :active="prsActive" @click="showPrs" />
-      <LauncherButton icon="menu_book" title="Wiki" label="Wiki" :active="wikiActive" @click="showWiki" />
+      <!-- Single view only (#886): the content surfaces. The grid is for supervising agents,
+           and every one of these replaces the whole screen anyway. -->
+      <LauncherButton v-if="!inGrid" icon="apps" title="Collections" label="Collections" :active="collectionsActive" @click="showCollections" />
+      <LauncherButton v-if="!inGrid" icon="account_balance" title="Accounting" label="Accounting" :active="accountingActive" @click="showAccounting" />
+      <LauncherButton v-if="!inGrid" icon="menu_book" title="Wiki" label="Wiki" :active="wikiActive" @click="showWiki" />
+      <!-- `template` wrapper rather than v-if on the v-for: the two directives on one element
+           is a Vue anti-pattern (v-if wins and is evaluated per item). -->
+      <template v-if="!inGrid">
+        <LauncherButton
+          v-for="s in shortcuts"
+          :key="`${s.kind}:${s.slug}`"
+          :icon="s.icon || 'bookmark'"
+          :title="s.title"
+          :label="s.title"
+          :active="favActive(s)"
+          @click="showFavorite(s)"
+        />
+      </template>
+      <!-- Grid only (#886): branches under supervision are a grid concern. -->
+      <LauncherButton v-if="inGrid" icon="call_merge" title="Pull requests" label="Pull requests" :active="prsActive" @click="showPrs" />
       <LauncherButton
-        v-for="s in shortcuts"
-        :key="`${s.kind}:${s.slug}`"
-        :icon="s.icon || 'bookmark'"
-        :title="s.title"
-        :label="s.title"
-        :active="favActive(s)"
-        @click="showFavorite(s)"
+        v-if="inGrid"
+        icon="history_edu"
+        title="Worklog — the dev work log in the wiki (#worklog)"
+        label="Worklog"
+        :active="worklogActive"
+        @click="showWorklog"
       />
       <LauncherButton
         v-if="inGrid"
@@ -206,14 +222,6 @@ function showPrs(): void {
         <p v-else class="text-muted">{{ updateBadge.text }}</p>
       </div>
     </div>
-    <LauncherButton
-      v-if="inGrid"
-      icon="history_edu"
-      title="Worklog — the dev work log in the wiki (#worklog)"
-      label="Worklog"
-      :active="worklogActive"
-      @click="showWorklog"
-    />
     <LauncherButton
       :icon="soundEnabled ? 'notifications_active' : 'notifications_off'"
       :title="soundEnabled ? 'Attention sound on' : 'Attention sound off'"
