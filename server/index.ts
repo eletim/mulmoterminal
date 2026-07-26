@@ -48,7 +48,7 @@ import { renderScreen } from "./session/headlessScreen.js";
 import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
-import { decideLaunchTerminal } from "./backends/remoteHost/launchTerminal.js";
+import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
 import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
 import { currentBranch } from "./git/git-status.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
@@ -443,8 +443,11 @@ const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
     listenerCount: pubsub?.subscriberCount(LAUNCH_TERMINAL_CHANNEL) ?? 0,
   });
   if (!decision.ok) return decision;
-  pubsub?.publish(LAUNCH_TERMINAL_CHANNEL, decision.request);
-  return { ok: true as const };
+  // ONE tab, not every tab: this asks for a terminal to be opened, so a broadcast would open
+  // one per connected browser. Delivery is also the authority on whether anyone was there —
+  // the count above was read a moment earlier and that tab may have closed since.
+  const delivered = pubsub?.publishToOne(LAUNCH_TERMINAL_CHANNEL, decision.request) ?? false;
+  return delivered ? { ok: true as const } : { ok: false as const, error: NO_BROWSER_ERROR };
 };
 
 initRemoteHostBackend({

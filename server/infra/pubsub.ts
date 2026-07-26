@@ -46,5 +46,18 @@ export function createPubSub(server: HttpServer, isAllowedOrigin: (origin?: stri
     subscriberCount(channel: string): number {
       return io.sockets.adapter.rooms.get(channel)?.size ?? 0;
     },
+    // Deliver to exactly ONE subscriber, and say whether anyone got it.
+    //
+    // `publish` broadcasts, which is right for the channels that announce a fact — a dir's
+    // config changed, a session became active — since every tab reacting is the point and
+    // reacting twice costs nothing. A message that asks for an ACTION is the opposite: with
+    // two MulmoTerminal tabs open, a broadcast would have each of them open a terminal, so
+    // one tap on the phone spawns as many PTYs as there are tabs.
+    publishToOne(channel: string, data: unknown): boolean {
+      const [first] = io.sockets.adapter.rooms.get(channel) ?? [];
+      if (!first) return false;
+      io.to(first).emit("data", { channel, data });
+      return true;
+    },
   };
 }
