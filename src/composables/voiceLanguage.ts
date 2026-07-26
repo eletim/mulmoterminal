@@ -1,4 +1,5 @@
 import { ref, watch } from "vue";
+import { localeToWhisperLanguage } from "@mulmoclaude/core/whisper/client";
 
 // Which language voice input tells whisper to expect.
 //
@@ -22,7 +23,7 @@ const STORAGE_KEY = "voice_language";
  *  as UI locales rather than whisper's full ~99 — every extra row is one more thing to
  *  scroll past, and the codes are plain ISO-639-1, so adding one here is a one-line
  *  change if someone needs it. */
-export const VOICE_LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
+export const VOICE_LANGUAGES = [
   { code: "en", label: "English" },
   { code: "ja", label: "Japanese" },
   { code: "zh", label: "Chinese" },
@@ -31,26 +32,47 @@ export const VOICE_LANGUAGES: ReadonlyArray<{ code: string; label: string }> = [
   { code: "pt", label: "Portuguese" },
   { code: "fr", label: "French" },
   { code: "de", label: "German" },
-];
+] as const;
 
 export const VOICE_LANGUAGE_LOCALE = "locale";
 export const VOICE_LANGUAGE_AUTO = "auto";
 
+export type VoiceLanguageCode = (typeof VOICE_LANGUAGES)[number]["code"];
+export type VoiceLanguage = typeof VOICE_LANGUAGE_LOCALE | typeof VOICE_LANGUAGE_AUTO | VoiceLanguageCode;
+
+export function isVoiceLanguageCode(raw: string): raw is VoiceLanguageCode {
+  return VOICE_LANGUAGES.some((l) => l.code === raw);
+}
+
 /** Stored values are validated on the way in, not trusted: an unknown code would otherwise
- *  reach whisper as a language token and quietly mistranscribe every clip. */
-export function parseVoiceLanguage(raw: string | null): string {
+ *  reach whisper as a language token and quietly mistranscribe every clip. The union type
+ *  keeps this code from writing a bad value; it says nothing about what is already on disk. */
+export function parseVoiceLanguage(raw: string | null): VoiceLanguage {
   if (raw === VOICE_LANGUAGE_AUTO) return VOICE_LANGUAGE_AUTO;
-  if (raw && VOICE_LANGUAGES.some((l) => l.code === raw)) return raw;
+  if (raw && isVoiceLanguageCode(raw)) return raw;
   return VOICE_LANGUAGE_LOCALE;
+}
+
+/** The browser locale as a whisper language code.
+ *
+ *  `browserLocale()` drops the region (`en-GB` and `en-US` want one translation bundle),
+ *  but core's table keys Portuguese as `pt-BR` — its only region-qualified entry — so a
+ *  bare `pt` misses it and every Portuguese browser silently falls through to detection.
+ *  Where core gives up, take the locale itself if the picker offers it, so the same gap in
+ *  a future entry is covered too. */
+export function browserVoiceLanguage(locale: string): string {
+  const mapped = localeToWhisperLanguage(locale);
+  if (mapped !== VOICE_LANGUAGE_AUTO) return mapped;
+  return isVoiceLanguageCode(locale) ? locale : VOICE_LANGUAGE_AUTO;
 }
 
 /** The `language` value for `/api/transcribe`. `localeLanguage` is the browser locale
  *  already mapped to a whisper code, so this stays free of the locale table. */
-export function resolveVoiceLanguage(setting: string, localeLanguage: string): string {
+export function resolveVoiceLanguage(setting: VoiceLanguage, localeLanguage: string): string {
   return setting === VOICE_LANGUAGE_LOCALE ? localeLanguage : setting;
 }
 
 /** A singleton so the settings modal and every terminal's mic read the same value; the
  *  language is re-read per audio segment, so a change applies without restarting. */
-export const voiceLanguage = ref<string>(parseVoiceLanguage(localStorage.getItem(STORAGE_KEY)));
+export const voiceLanguage = ref<VoiceLanguage>(parseVoiceLanguage(localStorage.getItem(STORAGE_KEY)));
 watch(voiceLanguage, (setting) => localStorage.setItem(STORAGE_KEY, setting));

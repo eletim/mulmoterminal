@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { trapTabKey } from "../utils/focusTrap";
+import { MODAL_FOCUSABLE, trapTabKey } from "../utils/focusTrap";
 import { useTheme } from "../composables/useTheme";
 import { useTerminalFontSize } from "../composables/useTerminalFontSize";
 import { previewAttention } from "../composables/useAttentionSound";
@@ -9,6 +9,8 @@ import { activeKeymap } from "../composables/activeKeymap";
 import { keymapRows } from "./keymapLabels";
 import { useGoogleLink } from "../composables/useGoogleLink";
 import { VOICE_LANGUAGES, voiceLanguage } from "../composables/voiceLanguage";
+import { fetchVoiceInputStatus } from "../composables/voiceModelStatus";
+import { SELECT_CONTROL } from "./selectClasses";
 import SettingsButton from "./SettingsButton.vue";
 import SettingsField from "./SettingsField.vue";
 import GuideLinks from "./GuideLinks.vue";
@@ -270,12 +272,7 @@ function onThemeKey(e: KeyboardEvent, index: number) {
 // that will never appear.
 const voiceCapable = ref(false);
 async function refreshVoiceCapable() {
-  try {
-    const res = await fetch("/api/transcribe/model");
-    voiceCapable.value = res.ok && (((await res.json()) as { capable?: boolean }).capable ?? false);
-  } catch {
-    voiceCapable.value = false;
-  }
+  voiceCapable.value = (await fetchVoiceInputStatus())?.capable ?? false;
 }
 
 // Read-only estimated cost (Session / Today / Month), loaded when the modal opens.
@@ -294,7 +291,7 @@ function onKeydown(e: KeyboardEvent) {
     return;
   }
   if (e.key !== "Tab" || !modalEl.value) return;
-  trapTabKey(e, modalEl.value, 'button, input, [tabindex]:not([tabindex="-1"])');
+  trapTabKey(e, modalEl.value, MODAL_FOCUSABLE);
 }
 
 // Load cost unconditionally — the server falls back to the workspace when no cwd is
@@ -422,11 +419,7 @@ onUnmounted(() => {
           The language you dictate in. Speaking a language the mic is not expecting comes back <strong>translated</strong> into the expected one — so pick the
           one you actually speak rather than leaving it on your browser's.
         </p>
-        <select
-          v-model="voiceLanguage"
-          aria-label="Language for voice input"
-          class="box-border w-full rounded-md border border-border bg-input px-2.5 py-[7px] text-[12px] text-fg focus:border-accent focus:outline-none"
-        >
+        <select v-model="voiceLanguage" aria-label="Language for voice input" :class="SELECT_CONTROL">
           <option value="locale">My browser's language</option>
           <option value="auto">Detect from what I say</option>
           <optgroup label="Always this language">

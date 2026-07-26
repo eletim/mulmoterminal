@@ -1,0 +1,28 @@
+import type { VoiceInputStatus } from "../../common/voiceInputStatus";
+
+// One reader for `GET /api/transcribe/model`. Two callers want it for different reasons —
+// the mic polls it for readiness, the settings modal asks once whether to show the voice
+// section at all — and they had drifted into two fetches with two different notions of the
+// response shape.
+//
+// Null for anything short of a parsed OK response, so both callers degrade to "no voice
+// input" instead of having to tell a network blip from a machine without whisper.
+
+// The route only reads memoized flags and a status object, so a response this slow means
+// the server is wedged, not busy. Bounded because the mic polls this every 2s while a model
+// downloads — an unanswered GET per tick would pile up.
+const STATUS_TIMEOUT_MS = 5000;
+
+export async function fetchVoiceInputStatus(): Promise<VoiceInputStatus | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/transcribe/model", { signal: controller.signal });
+    if (!res.ok) return null;
+    return (await res.json()) as VoiceInputStatus;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
