@@ -381,6 +381,23 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     expect(nextAttentionUid(make(running(3), { expanded: 2 }), [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }))).toBe(0);
   });
 
+  // The bug this parameter exists for: without an origin the rotation always restarts at index
+  // 0, so a second press picks the same cell and the key looks dead on a plain grid.
+  it("rotates from the FOCUSED cell when nothing is zoomed", () => {
+    const s = make(running(4));
+    const st = status({ 0: "idle", 1: "idle", 2: "idle", 3: "idle" });
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, null)).toBe(0);
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 0)).toBe(1);
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 1)).toBe(2);
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 3)).toBe(0); // wraps
+  });
+
+  it("prefers the zoomed cell over the focused one as the origin", () => {
+    const s = make(running(4), { expanded: 2 });
+    const st = status({ 0: "idle", 1: "idle", 2: "idle", 3: "idle" });
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 0)).toBe(3); // after the ZOOMED cell, not 1
+  });
+
   it("reports null when there is nowhere to move", () => {
     expect(nextAttentionUid(make(running(2)), [0, 1], status({ 0: "working", 1: "working" }))).toBeNull();
     expect(nextAttentionUid(make(running(2)), [], {})).toBeNull();

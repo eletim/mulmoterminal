@@ -57,7 +57,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: "session" | "cwd", uid: number, value: string): void;
-  (e: "close" | "toggle-expand", uid: number): void;
+  (e: "close" | "toggle-expand" | "focus-cell", uid: number): void;
   (e: "run" | "runSpare", uid: number, command: RunCommand): void;
   (e: "launch", uid: number, pick: LaunchPick): void;
   (e: "move", uid: number, dir: -1 | 1): void;
@@ -77,7 +77,11 @@ function onFocusIn(e: FocusEvent) {
   const target = e.target;
   if (!(target instanceof HTMLElement)) return;
   const el = target.closest<HTMLElement>("[data-uid]");
-  if (el?.dataset.uid) focusedUid.value = Number(el.dataset.uid);
+  if (!el?.dataset.uid) return;
+  focusedUid.value = Number(el.dataset.uid);
+  // GridView needs it too: un-zoomed it is the only "which terminal am I on" there is, and the
+  // keyboard shortcuts rotate from it.
+  emit("focus-cell", focusedUid.value);
 }
 
 // Returning to the grid via a top-tab switch reactivates it under <KeepAlive>, which does

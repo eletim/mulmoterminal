@@ -244,8 +244,8 @@ const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done", "idle"];
 //
 // Wraps deliberately: this is a round of pending cells, not a list with ends, so pressing it
 // repeatedly walks all of them and comes back rather than stopping on the last.
-export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): GridState {
-  const at = nextCandidate(state, order, statusByUid);
+export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null = null): GridState {
+  const at = nextCandidate(order, statusByUid, zoomedUid(state) ?? fromUid);
   if (at === undefined) return state;
   // NEVER enlarges or collapses — that is toggleZoom's job alone. Zoomed, this moves which
   // terminal is enlarged; un-zoomed, it brings the candidate's page on screen and leaves the
@@ -255,16 +255,26 @@ export function nextAttention(state: GridState, order: readonly number[], status
 
 /** The uid of the terminal `nextAttention` would move to, or null. Exported so the caller can
  *  also put the cursor there — in a plain grid that focus IS the visible "you are here". */
-export function nextAttentionUid(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): number | null {
-  const at = nextCandidate(state, order, statusByUid);
+export function nextAttentionUid(
+  state: GridState,
+  order: readonly number[],
+  statusByUid: Record<number, CellStatus>,
+  fromUid: number | null = null,
+): number | null {
+  const at = nextCandidate(order, statusByUid, zoomedUid(state) ?? fromUid);
   return at === undefined ? null : order[at];
 }
 
-// The index in `order` of the next terminal worth going to, starting after wherever the zoom
-// is now, or undefined when there is none.
-function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): number | undefined {
+// The index in `order` of the next terminal worth going to, starting after `from`, or undefined
+// when there is none.
+//
+// `from` matters more than it looks: without it the rotation always begins at index 0, so every
+// press picks the same first candidate and the key appears dead after the first one. Zoomed,
+// that origin is the enlarged cell; un-zoomed it has to be the focused one, which only the
+// caller knows.
+function nextCandidate(order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null): number | undefined {
   if (order.length === 0) return undefined;
-  const from = order.indexOf(zoomedUid(state) ?? -1); // -1 when un-zoomed => search starts at 0
+  const from = order.indexOf(fromUid ?? -1); // -1 when nothing is current => search starts at 0
   const rotated = order.map((_, i) => (from + 1 + i) % order.length);
   for (const status of ATTENTION_ORDER) {
     // Absent = idle, the convention CellStatus documents: a cell whose status has not been

@@ -102,6 +102,9 @@ const cellSessionIds = computed(() => state.value.cells.map((c) => c.session).fi
 const { activity: gridActivity } = useGridActivity(cellSessionIds);
 const statusByUid = reactive<Record<number, CellStatus>>({});
 const onStatus = (uid: number, s: CellStatus) => (statusByUid[uid] = s);
+// Which cell the cursor is in, reported up from the grid. Un-zoomed this is the only notion of
+// "the terminal I am on", so the keyboard shortcuts rotate from it.
+const focusedCellUid = ref<number | null>(null);
 const sessionStatus = computed(() => {
   const m = new Map<string, CellStatus>();
   for (const [id, a] of gridActivity) m.set(id, activityStatus(a.working, a.waiting, a.event));
@@ -427,8 +430,8 @@ function runShortcut(shortcut: GridShortcut) {
     // Focus the terminal it moves to, not just the state. In a plain grid nothing else shows
     // WHICH cell was picked — the focused cell lifts, and the cursor lands where the user is
     // being sent, so the next thing they type goes to the terminal that called them.
-    const target = nextAttentionUid(state.value, order, statusForSort.value);
-    state.value = nextAttention(state.value, order, statusForSort.value);
+    const target = nextAttentionUid(state.value, order, statusForSort.value, focusedCellUid.value);
+    state.value = nextAttention(state.value, order, statusForSort.value, focusedCellUid.value);
     if (target !== null) void nextTick(() => conn.focus(`cell-${target}`));
   } else if (shortcut === "terminal-new") {
     onAddTerminal();
@@ -509,6 +512,7 @@ function configureAppearance() {
       @remove-preset="removePreset"
       @close="onClose"
       @toggle-expand="onToggleExpand"
+      @focus-cell="focusedCellUid = $event"
       @run="onRun"
       @run-spare="onRunSpare"
       @launch="onLaunch"
