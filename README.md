@@ -70,7 +70,7 @@ output you haven't seen) — driven by Claude/Codex activity hooks the server in
 
 ![Single view — one agent in focus, terminal on the left and a GUI panel on the right](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/single-view.png)
 
-*Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar.*
+*Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar. **The app opens on the grid** (`/`); the single view has its own URL, `/chat`, so you can bookmark either.*
 
 **Inserting a file path** — like a native terminal, you can put a file's absolute path into
 the prompt: **drag a file** onto the terminal (works where the browser exposes the path via

@@ -4,7 +4,7 @@ import { router, routes } from "../../../src/router/index";
 
 describe("router route table", () => {
   it("resolves the top-level surfaces to their names", () => {
-    expect(router.resolve("/").name).toBe("chat");
+    expect(router.resolve("/chat").name).toBe("chat");
     expect(router.resolve("/terminals").name).toBe("terminals");
     expect(router.resolve("/collections").name).toBe("collections");
     expect(router.resolve("/feeds").name).toBe("feeds");
@@ -21,12 +21,27 @@ describe("router route table", () => {
     expect(f.params.slug).toBe("tech-news");
   });
 
-  it("redirects unknown paths to chat (/)", async () => {
+  // `/` is the default-view entry, not a screen: what it lands on is the one line that
+  // decides which view the app opens on (#883).
+  it("opens the grid at the root", async () => {
+    const mem = createRouter({ history: createMemoryHistory(), routes });
+    await mem.push("/");
+    expect(mem.currentRoute.value.name).toBe("terminals");
+  });
+
+  it("redirects unknown paths through the root, so they follow the default view", async () => {
     // Use an isolated memory-history router so navigation (which follows redirects)
     // doesn't touch the shared singleton / jsdom history.
     const mem = createRouter({ history: createMemoryHistory(), routes });
     await mem.push("/this/does/not/exist");
-    expect(mem.currentRoute.value.name).toBe("chat");
-    expect(mem.currentRoute.value.path).toBe("/");
+    expect(mem.currentRoute.value.name).toBe("terminals");
+  });
+
+  // The single view has a URL of its own, so nothing has to spell "/" to reach it — the
+  // six call sites that did are what made the default impossible to move before #883.
+  it("gives the single view its own route", async () => {
+    const mem = createRouter({ history: createMemoryHistory(), routes });
+    await mem.push({ name: "chat" });
+    expect(mem.currentRoute.value.path).toBe("/chat");
   });
 });

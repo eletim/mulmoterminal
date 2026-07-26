@@ -45,7 +45,7 @@ export function wikiGotoLint(): void {
 
 /** Close the wiki overlay → back to chat. */
 export function wikiClose(): void {
-  router.push("/");
+  router.push({ name: "chat" });
 }
 
 /** Current page slug when on a page route, else undefined. */

@@ -84,7 +84,7 @@ function favActive(s: Shortcut): boolean {
 }
 
 function showChat(): void {
-  router.push("/");
+  router.push({ name: "chat" });
 }
 function showGrid(): void {
   router.push("/terminals");

@@ -11,7 +11,10 @@ import { router } from "../router";
 // carries the same origin forward.
 const originFromHistory = (): string => {
   const origin = router.options.history.state.returnPath;
-  return typeof origin === "string" ? origin : "/";
+  // Resolved from the NAME, not written as "/": that path is the default-view entry and
+  // now lands on the grid (#883). A string is still what comes back, because this value
+  // is also stored in history state, which the check above reads back as a string.
+  return typeof origin === "string" ? origin : router.resolve({ name: "chat" }).fullPath;
 };
 
 /** Open the Files view rooted at `cwd` (the terminal's project dir). */
