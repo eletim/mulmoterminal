@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isLoopbackAddress } from "../../../server/infra/loopback.js";
+import { isLoopbackAddress, isLoopbackBindHost } from "../../../server/infra/loopback.js";
 
 // Assembled rather than written as literals: the "no hardcoded IP" lint rule exists to stop
 // infrastructure addresses being pinned in code, and cannot tell that these are test inputs
@@ -47,5 +47,36 @@ describe("isLoopbackAddress", () => {
     expect(isLoopbackAddress(undefined)).toBe(false);
     expect(isLoopbackAddress(null)).toBe(false);
     expect(isLoopbackAddress("")).toBe(false);
+  });
+
+  it("rejects an out-of-range octet — 127.999.0.1 is not an address", () => {
+    expect(isLoopbackAddress("127.999.0.1")).toBe(false);
+    expect(isLoopbackAddress("127.0.0.256")).toBe(false);
+  });
+});
+
+describe("isLoopbackBindHost", () => {
+  // The startup warning runs over a value the operator typed, where `localhost` is the most
+  // likely spelling. Warning on it would be crying wolf, which trains people to ignore the
+  // warning that matters.
+  it("accepts the NAME localhost, in any case", () => {
+    expect(isLoopbackBindHost("localhost")).toBe(true);
+    expect(isLoopbackBindHost("LOCALHOST")).toBe(true);
+  });
+
+  it("accepts the loopback addresses too", () => {
+    expect(isLoopbackBindHost(LOCAL_V4)).toBe(true);
+    expect(isLoopbackBindHost("::1")).toBe(true);
+  });
+
+  it("REFUSES the wildcard and any real interface — these are what must warn", () => {
+    expect(isLoopbackBindHost(v4(0, 0, 0, 0))).toBe(false);
+    expect(isLoopbackBindHost("::")).toBe(false);
+    expect(isLoopbackBindHost(LAN_A)).toBe(false);
+  });
+
+  it("is not fooled by a hostname that merely contains localhost", () => {
+    expect(isLoopbackBindHost("localhost.evil.com")).toBe(false);
+    expect(isLoopbackBindHost("notlocalhost")).toBe(false);
   });
 });

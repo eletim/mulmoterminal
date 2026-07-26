@@ -474,12 +474,19 @@ right default because **MulmoTerminal has no login of its own**: anything that c
 to it can read your sessions, browse files under a session's directory, and start terminals.
 
 Set `MULMOTERMINAL_HOST` to widen that deliberately — `0.0.0.0` for every interface, or one
-address. The server prints a warning at startup when it is not on loopback, because there is no
-other signal that it happened.
+address (`localhost` is accepted and stays local). The server prints a warning at startup when it
+is not on loopback, because there is no other signal that it happened.
 
 ```bash
-MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # reachable from your network — trusted networks only
+MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # trusted networks only — see the caveat below
 ```
+
+**This is for port-forwarding, not for browsing from another machine.** The same-origin checks
+that protect the terminal WebSockets accept only a *localhost* origin, so a browser opening
+`http://<this-machine>:34567` from elsewhere on the network loads the page and then fails to
+attach a terminal. Where the opt-in does help is when something forwards a local port to the
+server — a **Docker container** or **WSL**, where the process must bind `0.0.0.0` inside for the
+mapping to reach it while the browser still connects to `localhost` on the outside.
 
 You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
 host over Firestore, not over your local network (→ [from your phone](phone.html)).
