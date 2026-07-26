@@ -1,4 +1,3 @@
-import { isRecord } from "../../common/isRecord.js";
 // The user-configurable terminal header: action buttons + display chips. Read from the global
 // AppConfig (~/.mulmoterminal/config.json) and the per-dir DirConfig (<cwd>/.mulmoterminal.json),
 // merged, then RESOLVED per session (evaluate `when`, substitute ${vars}) before the client renders.
@@ -10,6 +9,8 @@ import { isRecord } from "../../common/isRecord.js";
 // Hard rule: absent config == today's header. `sanitizeChips` returns null when unconfigured, and the
 // resolver passes that through so the client keeps its hardcoded default chips; empty `buttons` means
 // only the built-in buttons show.
+
+import { isRecord } from "../../common/isRecord.js";
 
 import {
   RUN_TYPES,

@@ -1,4 +1,3 @@
-import { isRecord } from "./isRecord.js";
 // Health of the remote-host command channel, as reported by the server's resilient
 // runner and rendered by the toolbar control. Shared across the build boundary so the
 // two sides cannot drift on the state names.
@@ -7,6 +6,8 @@ import { isRecord } from "./isRecord.js";
 //   reconnecting — it died and is being re-subscribed with backoff (self-healing)
 //   offline      — re-subscribing stopped helping, or nothing is connected at all;
 //                  recovering needs a re-auth from the browser's parked session
+
+import { isRecord } from "./isRecord.js";
 export const RUNNER_HEALTH_STATES = ["online", "reconnecting", "offline"] as const;
 export type RunnerHealthState = (typeof RUNNER_HEALTH_STATES)[number];
 

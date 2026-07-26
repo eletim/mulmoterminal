@@ -1,10 +1,11 @@
-import { isRecord } from "../../common/isRecord.js";
 // Pure transforms for the restart-persisted attention state (see ACTIVITY_STATE_FILE in
 // index.ts). Split out so the snapshot/restore rules are unit-testable. BOTH `working` and
 // `waiting` (blocked/done) are persisted so a server restart (e.g. a --watch hot reload)
 // doesn't drop a live session to idle. A restored `working` self-corrects: the session's
 // next Stop hook clears it (the only stale case is a turn that finished during the restart
 // window, whose Stop was lost — corrected on the user's next turn).
+
+import { isRecord } from "../../common/isRecord.js";
 
 export interface RestartActivity {
   working?: boolean;
