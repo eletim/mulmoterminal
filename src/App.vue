@@ -12,7 +12,7 @@ import WikiBrowseOverlay from "./components/WikiBrowseOverlay.vue";
 import PrsOverlay from "./components/PrsOverlay.vue";
 import FilesOverlay from "./components/FilesOverlay.vue";
 import GridView from "./components/GridView.vue";
-import { viewIsGrid } from "./composables/overlayOrigin";
+import { useRoute } from "vue-router";
 import AppSettingsModal from "./components/AppSettingsModal.vue";
 import AppToolbar from "./components/AppToolbar.vue";
 import { useSessions, type Filter } from "./composables/useSessions";
@@ -33,11 +33,12 @@ import { clampTerminalWidth, maxTerminalWidth, MIN_TERMINAL, splitterKeyWidth } 
 
 // View mode is now the URL: the multi-terminal grid is /terminals, everything else
 // (chat + the collection/accounting overlays) lives under the single-view shell.
-// An overlay (collections / wiki / PRs / accounting / files) renders BELOW the header, over
-// whichever view opened it — so that view stays mounted underneath. Reading the route alone
-// would swap the shell behind the panel, which for a grid-opened overlay also means mounting
-// the single view and attaching its durable PTY (see main.ts) behind the user's back (#889).
-const isGrid = viewIsGrid;
+// Route-based on purpose: the OVERLAYS live inside the `!isGrid` block below, so widening
+// this to "the view underneath an overlay" stops them rendering at all — the URL changes and
+// the grid just stays on screen. Which BUTTONS the header offers is a separate question, and
+// the one that follows the underlying view (AppToolbar).
+const route = useRoute();
+const isGrid = computed(() => route.name === "terminals");
 
 // The phone asked for a new terminal in a session's directory (#831). The grid is browser
 // state — the host can only ask — so SOMETHING has to be listening for this to be servable,

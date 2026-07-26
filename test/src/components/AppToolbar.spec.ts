@@ -89,4 +89,26 @@ describe("AppToolbar per-view buttons", () => {
     expect(labels).toContain("Collections");
     expect(labels).not.toContain("Pull requests");
   });
+
+  // Regression: the button SET follows the view underneath, but the HIGHLIGHT follows the
+  // route. Answering both with one flag lit up Grid view AND Pull requests at once — and,
+  // because the overlays live inside App.vue's `!isGrid` block, also stopped the panel
+  // rendering at all: the URL changed and the grid just stayed on screen (#889).
+  const activeLabels = (wrapper: ReturnType<typeof mount>): string[] =>
+    wrapper
+      .findAll("nav[aria-label='Views'] button")
+      .filter((b) => b.classes().includes("bg-accent-bg"))
+      .map((b) => b.attributes("aria-label") ?? b.attributes("title") ?? "");
+
+  it("highlights exactly one view, even with a grid-opened overlay on screen", async () => {
+    await router.push("/terminals");
+    await settle();
+    const onGrid = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+    expect(activeLabels(onGrid)).toEqual(["Grid view"]);
+
+    prsGotoIndex();
+    await settle();
+    const onPrs = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+    expect(activeLabels(onPrs)).toEqual(["Pull requests"]);
+  });
 });
