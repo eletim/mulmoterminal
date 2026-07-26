@@ -91,4 +91,34 @@ describe("overlay return-to-origin", () => {
     await settle();
     expect(router.currentRoute.value.name).toBe("terminals");
   });
+
+  // Hopping straight from one overlay to another (grid → PRs → Worklog) must keep the view
+  // UNDERNEATH as the return target. Recording the previous overlay instead is what made the
+  // header follow Worklog back to the single view (#889) — and only a real click-through
+  // found it, because every earlier case opened exactly one overlay.
+  it("carries the underlying view across an overlay-to-overlay hop", async () => {
+    await router.push("/terminals");
+    await settle();
+
+    prsGotoIndex();
+    await settle();
+    wikiGotoIndex();
+    await settle();
+    expect(router.currentRoute.value.name).toBe("wiki");
+
+    wikiClose();
+    await settle();
+    expect(router.currentRoute.value.name).toBe("terminals");
+  });
+
+  it("carries the single view across an overlay-to-overlay hop", async () => {
+    browseGotoIndex("collection");
+    await settle();
+    accountingViewOpen();
+    await settle();
+
+    accountingViewClose();
+    await settle();
+    expect(router.currentRoute.value.name).toBe("chat");
+  });
 });

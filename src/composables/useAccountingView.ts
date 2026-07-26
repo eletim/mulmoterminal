@@ -14,7 +14,7 @@ import { overlayOriginState, overlayReturnPath } from "./overlayOrigin";
 
 /** Open the accounting overlay. */
 export function accountingViewOpen(): void {
-  router.push({ path: "/accounting", state: overlayOriginState(router.currentRoute.value.name === "accounting") });
+  router.push({ path: "/accounting", state: overlayOriginState() });
 }
 
 /** Close the accounting overlay → back to the view it was opened from. */

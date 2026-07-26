@@ -6,6 +6,7 @@ import NotificationBell from "./NotificationBell.vue";
 import RemoteHostControl from "./RemoteHostControl.vue";
 import LauncherButton from "./LauncherButton.vue";
 import { useShortcuts } from "../composables/useShortcuts";
+import { viewIsGrid } from "../composables/overlayOrigin";
 import { useCollectionBrowse, browseGotoIndex, browseGotoDetail } from "../composables/useCollectionBrowse";
 import { useAccountingView, accountingViewOpen } from "../composables/useAccountingView";
 import { useWikiBrowse, wikiGotoIndex, wikiGotoTag } from "../composables/useWikiBrowse";
@@ -72,8 +73,14 @@ async function copyUpdateCommand(): Promise<void> {
   }
 }
 
-const inGrid = computed(() => route.name === "terminals");
-const inSingle = computed(() => !inGrid.value);
+// TWO different questions, and answering both with one flag is what broke #889.
+//   - which buttons the header OFFERS: the view underneath, so an overlay opened from the
+//     grid keeps the grid's buttons instead of hiding the one just clicked
+//   - which button is HIGHLIGHTED, and whether the grid is the screen: the route itself,
+//     because an open overlay is not the grid even when the grid is underneath
+const inGrid = viewIsGrid;
+const onGridRoute = computed(() => route.name === "terminals");
+const inSingle = computed(() => !onGridRoute.value);
 const chatActive = computed(() => inSingle.value && browseView.value.mode === "closed" && !accountingOpen.value && !wikiOpen.value && !prsOpen.value);
 const collectionsActive = computed(() => browseView.value.mode === "index" && browseView.value.kind === "collection");
 const accountingActive = computed(() => accountingOpen.value);
@@ -119,7 +126,7 @@ function showPrs(): void {
     <nav class="ml-4 flex min-w-0 items-center gap-[3px] overflow-x-auto" aria-label="Views">
       <!-- Both views: the pair that switches between them. -->
       <LauncherButton icon="chat" title="Chat" label="Chat" :active="chatActive" @click="showChat" />
-      <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="inGrid" @click="showGrid" />
+      <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
       <!-- Single view only (#886): the content surfaces. The grid is for supervising agents,
            and every one of these replaces the whole screen anyway. -->
       <LauncherButton v-if="!inGrid" icon="apps" title="Collections" label="Collections" :active="collectionsActive" @click="showCollections" />
