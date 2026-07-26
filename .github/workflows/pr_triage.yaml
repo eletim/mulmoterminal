@@ -64,6 +64,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
           DOC_LINK: https://github.com/${{ github.repository }}/blob/main/CONTRIBUTING.md
         run: |
           set -euo pipefail
@@ -85,8 +86,22 @@ jobs:
             exit 0
           fi
 
-          if gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" --jq '.[].body' | grep -qF "${TRIAGE_MARKER}"; then
-            echo "already triaged — not commenting twice"
+          # Collect first, match second. `gh ... | grep -qF` would look equivalent,
+          # but `grep -q` exits on the first match and `gh` then dies of SIGPIPE
+          # (141); `pipefail` propagates that, the `if` reads it as "no marker",
+          # and the guard posts the duplicate comment it exists to prevent. It
+          # only misfires once the comment list is big enough to still be
+          # streaming — i.e. never in a small test, always on a busy PR.
+          COMMENTS=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" --jq '.[].body')
+          if grep -qF "${TRIAGE_MARKER}" <<< "${COMMENTS}"; then
+            # Already triaged but open again, so somebody reopened it. A
+            # maintainer doing that is overriding this workflow on purpose —
+            # leave it alone. Anyone else gets the close re-applied.
+            if echo "${MAINTAINERS}" | grep -Fxq "${SENDER}"; then
+              echo "reopened by ${SENDER} (maintainer) — standing down"
+              exit 0
+            fi
+            echo "already triaged — closing again without commenting twice"
             gh pr close "${PR_NUMBER}" --repo "${REPO}"
             exit 0
           fi
