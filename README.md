@@ -434,7 +434,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 
 ![The Settings modal — theme, notification sound, PR repos, launch commands, and MCP servers](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/settings.png)
 
-*Open it from the ⚙ button in the toolbar. Pick a **theme**, set the **terminal font size**, set a custom **attention sound**, list the repos the cross-repo **PRs & Issues** view should aggregate, add **launch commands** for grid cells, and register your own **MCP servers** — no need to hand-edit the config file.*
+*Open it from the ⚙ button in the toolbar. Pick a **theme**, set the **terminal font size**, set a custom **attention sound**, list the repos the cross-repo **PRs & Issues** view should aggregate, add **launch commands** for grid cells, and register your own **MCP servers** — no need to hand-edit the config file. Note that **theme and font size are stored per browser** (they're display preferences, so a phone and a desktop keep their own); the rest live in `~/.mulmoterminal/config.json` and are shared by every client.*
 
 | Field        | Meaning |
 | ------------ | ------- |

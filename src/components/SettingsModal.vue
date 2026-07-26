@@ -361,7 +361,7 @@ onUnmounted(() => {
           aria-label="Increase terminal font size"
           @click="nudgeFontSize(fontSizeStep)"
         >
-          ＋
+          +
         </button>
       </div>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">

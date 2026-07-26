@@ -18,7 +18,10 @@ const STORAGE_KEY = "terminalFontSize";
 function loadFontSize(): number {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return normalizeFontSize(stored === null ? null : Number(stored)) ?? TERMINAL_FONT_SIZE_DEFAULT;
+    // Blank has to be screened out BEFORE Number(): `Number("")` is 0, which is a finite number,
+    // so it would clamp to the minimum and start the app at 8px. Every other unusable value
+    // ("abc" -> NaN) already falls through to the default, and blank means the same thing.
+    return normalizeFontSize(stored?.trim() ? Number(stored) : null) ?? TERMINAL_FONT_SIZE_DEFAULT;
   } catch {
     return TERMINAL_FONT_SIZE_DEFAULT;
   }
