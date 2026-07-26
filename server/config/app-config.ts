@@ -22,6 +22,7 @@ import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmit
 import type { QuickCommand } from "../../common/quickCommands.js";
 import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
+import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "../../common/cockpitLines.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 
@@ -66,6 +67,9 @@ export interface AppConfig {
   // User-defined keyboard shortcuts (#829). NO defaults: an empty map means the shortcuts
   // are off, because every binding takes that key away from the terminal underneath.
   keymap: Keymap;
+  // How many lines each cockpit-roster row shows before clamping (#877). Defaults keep the
+  // previous 2/2/3; raising `summary` trades roster length for reading a long one in place.
+  cockpitLines: CockpitLines;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -221,6 +225,7 @@ export const emptyConfig = (): AppConfig => ({
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
+  cockpitLines: { ...DEFAULT_COCKPIT_LINES },
 });
 
 // Drop malformed entries rather than rejecting the whole config: one bad provider must
@@ -254,6 +259,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
+    cockpitLines: sanitizeCockpitLines(o.cockpitLines),
   };
 }
 
@@ -306,22 +312,28 @@ export function backupCorruptConfig(file: string): string | null {
 // stale in-memory copy would otherwise write back its boot-time values for the omitted
 // fields, clobbering whatever another instance persisted since (e.g. wiping buttons).
 export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>): AppConfig {
+  // One field of the update, spelled once: present in the body => sanitize it, absent => keep the
+  // base's. Every field below is that same shape, and repeating the ternary sixteen times both
+  // hides the table and costs a `body.x`/`base.x` pair that can silently disagree.
+  const merged = <K extends keyof AppConfig>(key: K, sanitize: (input: unknown) => AppConfig[K]): AppConfig[K] =>
+    body[key] !== undefined ? sanitize(body[key]) : base[key];
   return {
-    cwdPresets: body.cwdPresets !== undefined ? sanitizePresets(body.cwdPresets) : base.cwdPresets,
-    soundFile: body.soundFile !== undefined ? sanitizeSoundFile(body.soundFile) : base.soundFile,
-    prRepos: body.prRepos !== undefined ? sanitizeRepos(body.prRepos) : base.prRepos,
-    launchers: body.launchers !== undefined ? sanitizeLaunchers(body.launchers) : base.launchers,
-    quickCommands: body.quickCommands !== undefined ? sanitizeQuickCommands(body.quickCommands) : base.quickCommands,
-    userMcpServers: body.userMcpServers !== undefined ? sanitizeUserMcpServers(body.userMcpServers) : base.userMcpServers,
-    buttons: body.buttons !== undefined ? sanitizeButtons(body.buttons) : base.buttons,
-    chips: body.chips !== undefined ? sanitizeChips(body.chips) : base.chips,
-    pushEnabled: body.pushEnabled !== undefined ? sanitizePushEnabled(body.pushEnabled) : base.pushEnabled,
-    pushKinds: body.pushKinds !== undefined ? sanitizePushKinds(body.pushKinds) : base.pushKinds,
-    worklogEnabled: body.worklogEnabled !== undefined ? sanitizeWorklogEnabled(body.worklogEnabled) : base.worklogEnabled,
-    worklogIntervalHours: body.worklogIntervalHours !== undefined ? sanitizeWorklogIntervalHours(body.worklogIntervalHours) : base.worklogIntervalHours,
-    providers: body.providers !== undefined ? sanitizeProviders(body.providers) : base.providers,
-    terminalSubmit: body.terminalSubmit !== undefined ? sanitizeTerminalSubmit(body.terminalSubmit) : base.terminalSubmit,
-    keymap: body.keymap !== undefined ? sanitizeKeymap(body.keymap) : base.keymap,
+    cwdPresets: merged("cwdPresets", sanitizePresets),
+    soundFile: merged("soundFile", sanitizeSoundFile),
+    prRepos: merged("prRepos", sanitizeRepos),
+    launchers: merged("launchers", sanitizeLaunchers),
+    quickCommands: merged("quickCommands", sanitizeQuickCommands),
+    userMcpServers: merged("userMcpServers", sanitizeUserMcpServers),
+    buttons: merged("buttons", sanitizeButtons),
+    chips: merged("chips", sanitizeChips),
+    pushEnabled: merged("pushEnabled", sanitizePushEnabled),
+    pushKinds: merged("pushKinds", sanitizePushKinds),
+    worklogEnabled: merged("worklogEnabled", sanitizeWorklogEnabled),
+    worklogIntervalHours: merged("worklogIntervalHours", sanitizeWorklogIntervalHours),
+    providers: merged("providers", sanitizeProviders),
+    terminalSubmit: merged("terminalSubmit", sanitizeTerminalSubmit),
+    keymap: merged("keymap", sanitizeKeymap),
+    cockpitLines: merged("cockpitLines", sanitizeCockpitLines),
   };
 }
 
@@ -345,6 +357,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
+    cockpitLines: config.cockpitLines,
   };
 }
 

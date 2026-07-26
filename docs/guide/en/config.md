@@ -84,6 +84,7 @@ Open it from the ⚙ in the toolbar.
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
+| `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 
 ## Running on another model (providers) {#providers}
 
@@ -348,6 +349,38 @@ before committing to one.
 > An **unknown action name only warns** and the app still starts — that is what a config written for a newer
 > MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
 > navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
+
+## Cockpit roster line counts (`cockpitLines`) {#cockpit-lines}
+
+Enlarge a terminal and the others line up beside it as a **roster**, three lines each: **summary**
+(what that session is doing now), **prompt**, and **reply**. Each is clamped so a long roster still
+fits on screen.
+
+That clamp is a trade, not a bug: more lines each means fewer sessions visible at once. A summary
+written as a full sentence is the one that gets cut mid-thought — so the summary is usually the one
+worth raising.
+
+```json
+{ "cockpitLines": { "summary": 6, "prompt": 2, "response": 3 } }
+```
+
+| Field | Clamps | Default |
+|---|---|---|
+| `summary` | What the session is doing now | `2` |
+| `prompt` | The prompt you sent | `2` |
+| `response` | The agent's reply | `3` |
+
+- Each field is a whole number in **1–20**.
+- Out of range, fractional, or non-numeric falls back to **that field's** default — one typo doesn't
+  discard the other two.
+- Omit `cockpitLines` entirely and the roster looks exactly as it always has.
+- **Hovering a line shows the full text**, whatever the clamp — raising it saves a hover, it isn't
+  the only way to read a long summary.
+- Takes effect after a **tab reload**.
+
+{: .note }
+> This is a **global** setting, not a per-directory one. The roster mixes sessions from every
+> directory, so a per-directory value would leave neighbouring rows disagreeing about their height.
 
 ## Per-project `.mulmoterminal.json` {#per-dir}
 
