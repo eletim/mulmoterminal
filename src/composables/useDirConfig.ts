@@ -6,6 +6,7 @@ import { isThemeId, type ThemeId } from "./useTheme";
 import { THEME_COLOR_KEYS } from "../../common/themeColors";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
 import { normalizeFontSize } from "../../common/terminalFontSize";
+import { normalizeOrderPriority } from "../../common/orderPriority";
 import { isRecord } from "../../common/isRecord";
 
 // The per-directory overrides a terminal adopts when its cwd holds a
@@ -67,7 +68,7 @@ function parse(c: unknown): DirConfig {
     // Re-clamped here rather than trusted: the server validates, but this parser is the
     // boundary, and an out-of-range size reaches the canvas renderer if nothing checks.
     fontSize: normalizeFontSize(c.fontSize),
-    orderPriority: typeof c.orderPriority === "number" && Number.isFinite(c.orderPriority) ? c.orderPriority : null,
+    orderPriority: normalizeOrderPriority(c.orderPriority),
     theme: isThemeId(c.theme) ? c.theme : null,
     colors: parseColors(c.colors),
     hasSound: c.hasSound === true,

@@ -16,6 +16,7 @@ import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
 import { THEME_IDS } from "../../common/themeIds.js";
 import { isUsableModelId } from "../../common/modelIds.js";
 import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
+import { normalizeOrderPriority } from "../../common/orderPriority.js";
 import { SESSION_AGENTS } from "../../common/sessionAgent.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 
@@ -128,11 +129,15 @@ export const dirThemeField = themeIdSchema.nullable().catch(null);
 // usable size instead of discarding it, so `fontSize: 99` reads as "as big as allowed" rather
 // than silently falling back to the global size. writableDirConfigSchema below is the strict
 // one, so an out-of-range value is still reported where it can be fixed — at authoring time.
-// Not clamped like the font size: every finite number is a usable rank, so there is no
-// "unusable value" to pull back into range. Non-numeric stays null, which the grid reads as
-// "unset" and sorts last. Integers only — a rank is an ordering, and allowing 1.5 invites
-// float-comparison surprises for no gain.
-export const dirOrderPriorityField = z.number().int().nullable().catch(null);
+// Not clamped like the font size: every integer is a usable rank, so there is nothing to pull
+// back into range. Anything else (a fraction, a string, absent) becomes null, which the grid
+// reads as "unset" and sorts last. Shares normalizeOrderPriority with the client's own parser
+// so the two boundaries can't disagree about what a rank is.
+export const dirOrderPriorityField = z
+  .unknown()
+  .transform((value) => normalizeOrderPriority(value))
+  .nullable()
+  .catch(null);
 
 export const dirFontSizeField = z
   .unknown()

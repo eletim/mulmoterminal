@@ -90,6 +90,17 @@ describe("useDirPriorities", () => {
     scope.stop();
   });
 
+  // The server already rejects a fraction, but this parser is its own trust boundary — and the
+  // two disagreeing (finite here, integer there) is what Codex caught on this PR.
+  it("reads a fractional rank off the wire as unset, matching the server", async () => {
+    serveByCwd({ "/g/frac": { orderPriority: 1.5 }, "/g/int": { orderPriority: 2 } });
+    const scope = effectScope();
+    const priorities = scope.run(() => useDirPriorities(ref(["/g/frac", "/g/int"])).priorities);
+    await flush();
+    expect(priorities?.value).toEqual({ "/g/int": 2 });
+    scope.stop();
+  });
+
   it("re-reads a directory when the server announces a config write", async () => {
     serveByCwd({ "/g/live": { orderPriority: 5 } });
     const scope = effectScope();
