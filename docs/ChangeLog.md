@@ -4,6 +4,30 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.1.1 — 2026-07-27
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.1.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.1.1.html))
+
+A follow-up to 2.1.0's grid-first startup: the header now carries different buttons in each view, and a full-screen panel returns you where you opened it. Nothing to configure.
+
+### The toolbar differs between the two views (#886)
+
+With the grid as the startup screen, the screen for **supervising agents** was leading with buttons for **reading content**. The grid now keeps New terminal, cell ordering and the status tally, plus **Pull requests** and **Worklog** — the two things you consult *while* supervising. Collections, Accounting, Wiki and pinned favourites moved to the single view, where those surfaces belong. Both views keep the chat / grid pair, or a user could get stranded in whichever view they were in.
+
+Worklog also moved out of the right-hand end of the header into the grid's own row, next to Pull requests.
+
+### Closing a panel returns you where you opened it (#886, #889)
+
+Collections, Wiki, PRs, Accounting and Files each render below the header. Closing one pushed to the single view unconditionally, so opening Pull requests from the grid and closing it moved you off the grid. The origin now rides the **history entry**, so browser back/forward restores that entry's own origin rather than a stale one, and a direct load — which has no origin — still falls back to the single view.
+
+Three things had to line up, and getting them from one flag is what made the first attempt worse rather than better:
+
+- **Which buttons the header offers** follows the view *underneath*, so an overlay opened from the grid keeps the grid's buttons instead of hiding the one just clicked.
+- **Which button is highlighted** follows the route — an open panel is not the grid even when the grid is underneath. Sharing the first flag lit up Grid view and Pull requests at once.
+- **Which shell renders** follows the route too. The overlays live inside the single view's block, so widening that check stopped them rendering at all: the URL changed and the grid simply stayed on screen.
+
+A second defect only a real click-through found: hopping from one panel straight to another (grid → PRs → Worklog) recorded the *previous panel* as the return target, because each surface tested "am I already inside **my** overlay?". Capturing the origin only when the current screen is not itself a panel collapses entering, moving around inside, and hopping between panels into one rule — and removes the per-surface route lists that had to agree with each other.
+
 ## mulmoterminal@2.1.0 — 2026-07-27
 
 > **Setup guide:** [How to use what this release added](https://receptron.github.io/mulmoterminal/guide/en/v2.1.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.1.0.html))
