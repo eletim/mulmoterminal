@@ -235,6 +235,8 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
   });
 
   it("enlarges the FIRST cell in the on-screen order when nothing is zoomed", () => {
+    // Page 0, so the page offset is 0 and the order's own first entry wins — this is what makes
+    // the "auto" sort put the most-wanting-attention cell under the key.
     expect(toggleZoom(make(running(3)), [2, 0, 1]).expanded).toBe(2);
   });
 
@@ -252,20 +254,28 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
     expect(toggleZoom(s, [])).toBe(s);
   });
 
-  // Regression: entering the zoom from a later page must not send the user back to page 0.
-  // That is what happens if the caller passes the visible page slice instead of the full list.
-  it("keeps the page of the cell it enlarges when given the full ordered list", () => {
+  // Regression (caught on a real grid, not by the unit tests or the bots): entering the zoom
+  // from page 2 enlarged a cell from page 1 and dragged the page back to 0 with it, so ⤡ then
+  // dropped the user on the wrong tab. `order` is the whole un-paged list, so the entry index
+  // has to be derived from the page being looked at.
+  it("enlarges a cell ON THE CURRENT PAGE, not the first of the whole list", () => {
     const s = make(running(12), { page: 1 });
-    const order = s.cells.map((c) => c.uid);
-    const after = toggleZoom(s, order.slice(9).concat(order.slice(0, 9))); // page 1's cells first
-    expect(after.expanded).toBe(9);
-    expect(after.page).toBe(0); // index 0 of the order it was given — the caller controls this
+    const after = toggleZoom(
+      s,
+      s.cells.map((c) => c.uid),
+    );
+    expect(after.expanded).toBe(9); // first cell of page 1, not uid 0
+    expect(after.page).toBe(1); // and the user stays on the tab they were on
   });
 
-  it("follows the page to the cell it enlarges", () => {
-    const s = make(running(12));
-    const order = s.cells.map((c) => c.uid);
-    expect(toggleZoom(s, order.slice(9)).page).toBe(0); // order[0] is index 0 of what it was given
+  it("enlarges the first cell of the list when on the first page", () => {
+    const s = make(running(12), { page: 0 });
+    const after = toggleZoom(
+      s,
+      s.cells.map((c) => c.uid),
+    );
+    expect(after.expanded).toBe(0);
+    expect(after.page).toBe(0);
   });
 });
 

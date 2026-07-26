@@ -205,10 +205,11 @@ function zoomAt(state: GridState, order: readonly number[], at: number): GridSta
 // already enlarged, so without this one a keymap cannot be used at all without first reaching
 // for the ⤢ button.
 //
-// Un-zoomed there is no "current" cell to enlarge, so it takes the FIRST in the on-screen
-// order — which under the "auto" sort is the one most wanting attention.
+// Un-zoomed there is no "current" cell to enlarge, so it takes the first one ON THE PAGE THE
+// USER IS LOOKING AT — `order` is the whole un-paged list, so index 0 would be a cell from the
+// first tab, enlarging something off-screen and dragging the page back to 0 with it.
 export function toggleZoom(state: GridState, order: readonly number[]): GridState {
-  return zoomedUid(state) !== null ? { ...state, expanded: null } : zoomAt(state, order, 0);
+  return zoomedUid(state) !== null ? { ...state, expanded: null } : zoomAt(state, order, state.page * PAGE_SIZE);
 }
 
 // Cells the user is being called by: `blocked` (needs an answer now) before `done` (finished,
