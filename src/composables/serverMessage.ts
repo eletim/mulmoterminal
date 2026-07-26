@@ -7,14 +7,6 @@
 // cell offers to re-run a session that is alive in another tab — and if it were treated as
 // retryable, the two tabs would evict each other forever. This is exactly why it wants a test.
 
-export interface ParsedServerMessage {
-  type?: string;
-  data?: unknown;
-  id?: unknown;
-  cwd?: unknown;
-  message?: unknown;
-}
-
 // The non-output effects of a message. `output` is handled directly (a hot path, just a
 // write) and is not modelled here.
 export interface MessageEffect {

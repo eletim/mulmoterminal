@@ -102,6 +102,11 @@ export default [
     rules: {
       "max-lines-per-function": "off",
       "max-nested-callbacks": "off",
+      // Same reasoning for components: a spec defines throwaway stubs next to the case that
+      // uses them (useCaptureKeydown, useNewTerminal). Splitting one-line stubs into their own
+      // files would put the fixture further from the assertion, which is the opposite of what
+      // the rule is for — it exists to keep SHIPPED components findable.
+      "vue/one-component-per-file": "off",
     },
   },
   {
