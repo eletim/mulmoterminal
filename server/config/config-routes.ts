@@ -90,10 +90,17 @@ export function getTerminalSubmit(): TerminalSubmitMode {
   return config.terminalSubmit;
 }
 
-// Whether a PR this app creates says which clone it came from (#872) — read live so
-// turning it off applies to the next PR button press without a restart.
+// Whether a PR this app creates says which clone it came from (#872).
+//
+// Read from DISK, unlike every other accessor here, because this setting has no Settings
+// control: the only way to set it is to hand-edit config.json, and the in-memory copy is
+// refreshed only by POST /api/config. Served from memory it would need a server restart to
+// take effect — i.e. a user sets `false`, presses the button, still gets the line, and
+// concludes the switch is broken. One JSON read per PR creation, next to a push and three
+// gh calls, costs nothing. A missing or corrupt file yields the default (on), which is the
+// safe direction for a switch whose off state is invisible.
 export function getPrWorkdirFooter(): boolean {
-  return config.prWorkdirFooter;
+  return loadAppConfig(CONFIG_FILE).prWorkdirFooter;
 }
 
 export function mountConfigRoutes(app: Express, claudeCwd: string): void {

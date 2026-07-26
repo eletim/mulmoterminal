@@ -129,6 +129,9 @@ the branch, which the PR already shows.
 }
 ```
 
+The next PR you create honours it — **no restart needed**. This setting has no Settings-modal
+control, so it is read from the file each time a PR is created.
+
 Notes:
 
 - Only PRs **this app creates** get the line. Pressing ⧉ Open PR again on a branch that already
