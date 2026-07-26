@@ -9,6 +9,7 @@
 // What arrives as deps is what index.ts owns: the spawners, the session lifecycle, the title
 // manager, the tool stores, and `publish` (pub/sub exists only once the HTTP server does).
 import path from "node:path";
+import { sameOriginGuard } from "./same-origin-guard.js";
 import express, { type Express } from "express";
 import { mountAllRoutes } from "../infra/plugins-registry.js";
 import { mountConfigRoutes } from "../config/config-routes.js";
@@ -74,6 +75,11 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   const clientDir = deps.clientDir;
   app.use(express.json({ limit: "25mb" }));
+
+  // Before any route: one same-origin gate for every state-changing request, so a site the
+  // user visits cannot drive this server through their browser. Individual routes keep their
+  // own checks — this is the floor, not a replacement.
+  app.use(sameOriginGuard(deps.isAllowedOrigin));
 
   // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat,
   // manageAccounting, manageCollection (routes/plugin-routes.ts). ALL of them must precede
