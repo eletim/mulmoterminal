@@ -189,9 +189,37 @@ export function moveZoom(state: GridState, order: readonly number[], dir: -1 | 1
   return { ...state, expanded: next };
 }
 
-// Zoom `order[at]`, following the page so collapsing lands on it. Shared by every keyboard
-// action that ENTERS the zoom, all of which must respect the same "zoom needs a second cell"
-// rule toggleExpand enforces (see below).
+// ---------------------------------------------------------------------------------------
+// ZOOM INVARIANTS (#829). Every one of these was broken at least once while building this,
+// and each break looked like a different symptom, so they are written down rather than left
+// to be re-derived. Anything added here must keep all five; the tests named "zoom invariants"
+// in gridTabs.spec.ts and GridView.spec.ts fail loudly if not.
+//
+//  1. ONLY `toggleZoom` changes WHETHER the grid is zoomed. The movement actions (moveZoom,
+//     nextAttention) relocate the enlargement or the page and never enter or leave the zoom.
+//     A key that sometimes rearranges the whole layout is unpredictable to use.
+//     (`closeCell` is the deliberate exception — closing the enlarged cell has to do
+//     something about it, and it walks the zoom to a neighbour.)
+//
+//  2. `order` is ALWAYS the whole un-paged ordered list. Un-zoomed the grid renders only a
+//     page of it, so passing that slice hides cells on other pages from the search AND makes
+//     every index-to-page calculation below wrong.
+//
+//  3. `page` is decided at exactly ONE moment: releasing the zoom, from where the enlarged
+//     cell sits. It is unused while zoomed (every cell renders, the tab bar is hidden), and
+//     the page someone zoomed in FROM stops being true as soon as they walk the filmstrip.
+//
+//  4. There is ONE notion of "the current terminal": the enlarged cell while zoomed, the
+//     focused cell otherwise. Never a second stored copy — a remembered uid and the live
+//     focus disagree the moment the selection moves, and then expanding jumps somewhere the
+//     user was not.
+//
+//  5. Entering the zoom needs two running cells (toggleExpand's rule, #374); LEAVING it is
+//     never refused, whatever state the grid got into.
+// ---------------------------------------------------------------------------------------
+
+// Zoom `order[at]`, honouring invariant 5. Shared by every action that ENTERS the zoom so the
+// rule cannot be forgotten at one entry point.
 function zoomAt(state: GridState, order: readonly number[], at: number): GridState {
   const uid = order[at];
   if (uid === undefined || runningCount(state.cells) < 2) return state;

@@ -858,3 +858,75 @@ describe("gridStatusSummary", () => {
     expect(gridStatusSummary(counts({ blocked: 2, working: 1 })).title).toBe("2 need input · 1 working");
   });
 });
+
+// The rules written at the top of the zoom section in gridTabs.ts. Each was broken at least
+// once while building #829, so they are pinned as rules rather than as one-off cases: a future
+// action that quietly violates one fails here instead of in someone's grid.
+describe("zoom invariants (#829)", () => {
+  const order12 = Array.from({ length: 12 }, (_, i) => i);
+  const allIdle: Record<number, CellStatus> = {};
+
+  // Invariant 1 — only toggleZoom changes WHETHER the grid is zoomed.
+  const movements: Array<[string, (s: GridState) => GridState]> = [
+    ["moveZoom(+1)", (s) => moveZoom(s, order12, 1)],
+    ["moveZoom(-1)", (s) => moveZoom(s, order12, -1)],
+    ["nextAttention", (s) => nextAttention(s, order12, allIdle, 3)],
+  ];
+
+  it.each(movements)("%s leaves an un-zoomed grid un-zoomed", (_label, apply) => {
+    expect(apply(make(running(12), { page: 0 })).expanded).toBeNull();
+  });
+
+  it.each(movements)("%s leaves a zoomed grid zoomed", (_label, apply) => {
+    expect(apply(make(running(12), { expanded: 5 })).expanded).not.toBeNull();
+  });
+
+  it.each(movements)("%s never adds or removes a terminal", (_label, apply) => {
+    const s = make(running(12), { expanded: 5 });
+    expect(apply(s).cells).toHaveLength(s.cells.length);
+  });
+
+  it("toggleZoom is the one action that flips it, in both directions", () => {
+    const s = make(running(12), { page: 0 });
+    const zoomed = toggleZoom(s, order12, 4);
+    expect(zoomed.expanded).toBe(4);
+    expect(toggleZoom(zoomed, order12, 4).expanded).toBeNull();
+  });
+
+  // Invariant 3 — page is decided only on release, and only from the enlarged cell.
+  it.each(movements)("%s does not touch the page", (_label, apply) => {
+    const s = make(running(12), { expanded: 5, page: 1 });
+    expect(apply(s).page).toBe(1);
+  });
+
+  it("releasing the zoom sets the page from the enlarged cell, ignoring where it started", () => {
+    for (const [uid, expected] of [
+      [0, 0],
+      [8, 0],
+      [9, 1],
+      [11, 1],
+    ]) {
+      const s = make(running(12), { expanded: uid, page: 0 });
+      expect(toggleZoom(s, order12, uid).page).toBe(expected);
+    }
+  });
+
+  // Invariant 5 — entry needs a second running cell; leaving never refuses.
+  it("refuses to ENTER the zoom with one running cell", () => {
+    const lonely = make([cell(0, U(0)), cell(1)]); // one running + an empty launcher
+    expect(toggleZoom(lonely, [0, 1], 0)).toBe(lonely);
+  });
+
+  // nextAttention needs no such guard: by invariant 1 it never enters the zoom in the first
+  // place, so on a one-cell grid there is nothing for it to refuse.
+  it("nextAttention still does not zoom a lone cell", () => {
+    const lonely = make([cell(0, U(0)), cell(1)]);
+    expect(nextAttention(lonely, [0, 1], { 0: "blocked" }, null).expanded).toBeNull();
+  });
+
+  it("always allows LEAVING the zoom, even in a state that could not be entered", () => {
+    const lonely = make([cell(0, U(0))], { expanded: 0 });
+    expect(toggleZoom(lonely, [0], 0).expanded).toBeNull();
+    expect(toggleExpand(lonely, 0, [0]).expanded).toBeNull();
+  });
+});
