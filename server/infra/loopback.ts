@@ -22,11 +22,19 @@ export function isLoopbackAddress(address: string | undefined | null): boolean {
 const OCTET = "(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
 const LOOPBACK_V4 = new RegExp(`^127\\.${OCTET}\\.${OCTET}\\.${OCTET}$`);
 
-// Whether a BIND host keeps the server on this machine. Same question as isLoopbackAddress but
-// over a listen() host rather than a peer, so it also accepts the name `localhost` — which
-// resolves to loopback and is what an operator is most likely to type. Without this the startup
-// warning fires on a perfectly safe `MULMOTERMINAL_HOST=localhost`, and a security warning that
-// cries wolf is worse than none.
-export function isLoopbackBindHost(host: string): boolean {
-  return host.toLowerCase() === "localhost" || isLoopbackAddress(host);
+// Whether the server ended up listening only on this machine, from what the OS says it bound —
+// `server.address()` — rather than from the string that was requested.
+//
+// Classifying the requested string cannot be made right: `localhost`, `127.1`, `127.0.1` and
+// `127.000.000.001` are all valid ways to ask for loopback, and `localhost` can be pointed
+// somewhere else entirely by a hosts file. Asking after the fact answers all of them, because
+// the kernel has already resolved whatever was typed. A warning that fires on a safe setting
+// trains people to ignore the one that matters, so it has to be exact.
+//
+// A string address is a pipe or UNIX socket — no network exposure. A null means the server is
+// not listening, so there is nothing to warn about yet.
+export function isLoopbackBinding(address: string | { address: string } | null): boolean {
+  if (address === null) return true;
+  if (typeof address === "string") return true;
+  return isLoopbackAddress(address.address);
 }

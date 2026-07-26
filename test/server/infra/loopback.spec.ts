@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isLoopbackAddress, isLoopbackBindHost } from "../../../server/infra/loopback.js";
+import { isLoopbackAddress, isLoopbackBinding } from "../../../server/infra/loopback.js";
 
 // Assembled rather than written as literals: the "no hardcoded IP" lint rule exists to stop
 // infrastructure addresses being pinned in code, and cannot tell that these are test inputs
@@ -55,28 +55,31 @@ describe("isLoopbackAddress", () => {
   });
 });
 
-describe("isLoopbackBindHost", () => {
-  // The startup warning runs over a value the operator typed, where `localhost` is the most
-  // likely spelling. Warning on it would be crying wolf, which trains people to ignore the
-  // warning that matters.
-  it("accepts the NAME localhost, in any case", () => {
-    expect(isLoopbackBindHost("localhost")).toBe(true);
-    expect(isLoopbackBindHost("LOCALHOST")).toBe(true);
-  });
-
-  it("accepts the loopback addresses too", () => {
-    expect(isLoopbackBindHost(LOCAL_V4)).toBe(true);
-    expect(isLoopbackBindHost("::1")).toBe(true);
+describe("isLoopbackBinding", () => {
+  // Judged from what the OS reports it bound, so every spelling of loopback that Node accepts
+  // — localhost, 127.1, 127.000.000.001 — resolves to the same answer without being enumerated.
+  it("accepts a loopback binding", () => {
+    expect(isLoopbackBinding({ address: LOCAL_V4 })).toBe(true);
+    expect(isLoopbackBinding({ address: "::1" })).toBe(true);
   });
 
   it("REFUSES the wildcard and any real interface — these are what must warn", () => {
-    expect(isLoopbackBindHost(v4(0, 0, 0, 0))).toBe(false);
-    expect(isLoopbackBindHost("::")).toBe(false);
-    expect(isLoopbackBindHost(LAN_A)).toBe(false);
+    expect(isLoopbackBinding({ address: v4(0, 0, 0, 0) })).toBe(false);
+    expect(isLoopbackBinding({ address: "::" })).toBe(false);
+    expect(isLoopbackBinding({ address: LAN_A })).toBe(false);
   });
 
-  it("is not fooled by a hostname that merely contains localhost", () => {
-    expect(isLoopbackBindHost("localhost.evil.com")).toBe(false);
-    expect(isLoopbackBindHost("notlocalhost")).toBe(false);
+  // A hosts file can point `localhost` at a real interface. Asking the OS catches that; matching
+  // the name would have called it safe.
+  it("warns when a loopback NAME actually resolved somewhere else", () => {
+    expect(isLoopbackBinding({ address: LAN_A })).toBe(false);
+  });
+
+  it("treats a pipe or UNIX socket as local — there is no network to expose", () => {
+    expect(isLoopbackBinding("/run/mulmoterminal.sock")).toBe(true);
+  });
+
+  it("says nothing when the server is not listening yet", () => {
+    expect(isLoopbackBinding(null)).toBe(true);
   });
 });

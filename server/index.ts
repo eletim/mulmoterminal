@@ -26,7 +26,7 @@ import { sandboxEnabled, sandboxPlatformSupported, dockerAvailable, ensureSandbo
 import { isAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
 import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE } from "./config/env.js";
-import { isLoopbackBindHost } from "./infra/loopback.js";
+import { isLoopbackBinding } from "./infra/loopback.js";
 import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
 import { mcpConfigJson } from "./session/mcp-config.js";
@@ -561,7 +561,7 @@ server.on("error", (err) => {
 // takes a number — the (port, cb) form we used before accepted either.
 server.listen(Number(PORT), BIND_HOST, () => {
   console.log(`mulmoterminal running at http://localhost:${PORT}`);
-  if (!isLoopbackBindHost(BIND_HOST)) {
+  if (!isLoopbackBinding(server.address())) {
     console.warn(
       `\x1b[33m[security]\x1b[0m bound to ${BIND_HOST}, not loopback — this server has no authentication, ` +
         `so anyone who can reach ${BIND_HOST}:${PORT} can read your sessions and start terminals. Unset MULMOTERMINAL_HOST to bind 127.0.0.1.`,
