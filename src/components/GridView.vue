@@ -393,7 +393,11 @@ function onShortcutKey(e: KeyboardEvent) {
 // un-zoomed. The ones that reach here un-zoomed are the ways IN: `terminal-new`, plus
 // `zoom-toggle` / `next-attention`, which pick the cell to enlarge themselves.
 function runShortcut(shortcut: GridShortcut) {
-  const order = displayCells.value.map((c) => c.uid);
+  // The FULL ordered list, not `displayCells` — which un-zoomed is only the current page.
+  // Both matter: these helpers derive `page` from the index, so a page slice would send an
+  // entry action to page 0 from any other tab, and `next-attention` could not reach a cell
+  // calling from another page even though the toolbar counts those.
+  const order = orderedCells.value.map((c) => c.uid);
   const uid = expandedUid.value;
   if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
     state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);

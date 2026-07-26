@@ -252,6 +252,16 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
     expect(toggleZoom(s, [])).toBe(s);
   });
 
+  // Regression: entering the zoom from a later page must not send the user back to page 0.
+  // That is what happens if the caller passes the visible page slice instead of the full list.
+  it("keeps the page of the cell it enlarges when given the full ordered list", () => {
+    const s = make(running(12), { page: 1 });
+    const order = s.cells.map((c) => c.uid);
+    const after = toggleZoom(s, order.slice(9).concat(order.slice(0, 9))); // page 1's cells first
+    expect(after.expanded).toBe(9);
+    expect(after.page).toBe(0); // index 0 of the order it was given — the caller controls this
+  });
+
   it("follows the page to the cell it enlarges", () => {
     const s = make(running(12));
     const order = s.cells.map((c) => c.uid);
@@ -313,6 +323,20 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     const order = s.cells.map((c) => c.uid);
     const after = nextAttention(s, order, status({ 10: "blocked" }));
     expect(after.expanded).toBe(10);
+    expect(after.page).toBe(1);
+  });
+
+  // Regression: the caller must hand over the WHOLE ordered list, not the visible page. Given a
+  // page slice, a cell calling from another page is invisible here and the page math below is
+  // computed against the wrong origin.
+  it("reaches a calling cell on ANOTHER page while un-zoomed", () => {
+    const s = make(running(12), { page: 0 });
+    const after = nextAttention(
+      s,
+      s.cells.map((c) => c.uid),
+      status({ 11: "blocked" }),
+    );
+    expect(after.expanded).toBe(11);
     expect(after.page).toBe(1);
   });
 });
