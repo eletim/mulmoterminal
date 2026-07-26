@@ -26,10 +26,13 @@ export const DEFAULT_COCKPIT_LINES: CockpitLines = { summary: 2, prompt: 2, resp
 export const COCKPIT_LINES_MIN = 1;
 export const COCKPIT_LINES_MAX = 20;
 
+// Clamp an out-of-range number and round a fractional one — the contract normalizeFontSize
+// states for the font size, for the same reason: on a bounded number the user asked for a
+// DIRECTION, so honouring it reads as working where falling back to the default reads as
+// ignored. Non-numeric is a different thing — "nothing configured here" — and falls back.
 const oneField = (input: unknown, fallback: number): number => {
   if (typeof input !== "number" || !Number.isFinite(input)) return fallback;
-  const whole = Math.floor(input);
-  return whole < COCKPIT_LINES_MIN || whole > COCKPIT_LINES_MAX ? fallback : whole;
+  return Math.min(COCKPIT_LINES_MAX, Math.max(COCKPIT_LINES_MIN, Math.round(input)));
 };
 
 /** Per field, so one typo can't discard the two the user set correctly. */

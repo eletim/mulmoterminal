@@ -377,8 +377,10 @@ setting existed.
 { "cockpitLines": { "summary": 6, "prompt": 2, "response": 3 } }
 ```
 
-- Each field is a whole number in **1–20**. Out of range, fractional, or non-numeric falls back to
-  that field's default — **per field**, so one typo doesn't discard the others.
+- Each field is a whole number in **1–20**. A number outside that range is **clamped** into it and
+  a fractional one is **rounded** — the same contract as `fontSize`, because on a bounded number
+  the user asked for a direction. Non-numeric falls back to that field's default, **per field**,
+  so one typo doesn't discard the others.
 - Hovering a line shows the full text regardless, so raising the clamp is a convenience.
 - **Global** (`~/.mulmoterminal/config.json`), not per-directory: the roster mixes sessions from
   every directory, so a per-directory value would make neighbouring rows disagree.

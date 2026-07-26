@@ -370,9 +370,9 @@ worth raising.
 | `prompt` | The prompt you sent | `2` |
 | `response` | The agent's reply | `3` |
 
-- Each field is a whole number in **1–20**.
-- Out of range, fractional, or non-numeric falls back to **that field's** default — one typo doesn't
-  discard the other two.
+- Each field is a whole number in **1–20**. A number outside that range is **clamped** into it, and
+  a fractional one is **rounded** — you get the direction you asked for rather than a silent reset.
+- Non-numeric falls back to **that field's** default — one typo doesn't discard the other two.
 - Omit `cockpitLines` entirely and the roster looks exactly as it always has.
 - **Hovering a line shows the full text**, whatever the clamp — raising it saves a hover, it isn't
   the only way to read a long summary.
