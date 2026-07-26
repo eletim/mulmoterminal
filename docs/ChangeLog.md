@@ -2,7 +2,11 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
+
 ## mulmoterminal@2.0.0 — 2026-07-26
+
+> 📘 **[How to use what this release added](https://receptron.github.io/mulmoterminal/guide/en/v2.0.0.html)** — step-by-step setup for the keymap, Push kinds and the phone features, written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.0.0.html))
 
 Keyboard shortcuts arrive, Web Push becomes selective, and the phone companion gains three abilities. Nothing here changes an existing install's behaviour: the keymap is empty until you write one, and Push keeps notifying exactly as before unless you narrow it.
 
@@ -43,6 +47,8 @@ Push fired on both finished turns and permission prompts, with one global on/off
 - Documentation: how a clicked file path routes by extension (#835), the docs-site link at the top of the README (#838), and the fact that `yarn typecheck` does not compile the specs — only `typecheck:test` does (#842).
 
 ## mulmoterminal@1.12.0 — 2026-07-26
+
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.12.0.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.12.0.html))
 
 No new features — this release is entirely durability and correctness work, plus a dependency refresh. Every item below is a failure a 1.11.1 user can hit today without being told why.
 
@@ -94,6 +100,8 @@ All of these are invisible from POSIX.
 
 ## mulmoterminal@1.11.1 — 2026-07-26
 
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.11.1.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.11.1.html))
+
 ### Windows
 
 - **A session on an npm-installed Claude Code starts again** (#813, #814): the `--settings` JSON arrived at `claude` with nearly every quote gone — `Error: Settings file not found: {"hooks:{UserPromptSubmit:[{hooks:[{type:command,command:curl` — and the session exited immediately. `--settings` and `--mcp-config` are now written to a file and only the *path* is passed, so nothing claude is launched with contains a quote at all. There is a test asserting exactly that over the argv a real spawn builds. POSIX is untouched and stays inline.
@@ -112,6 +120,8 @@ All of these are invisible from POSIX.
 
 ## mulmoterminal@1.11.0 — 2026-07-25
 
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.11.0.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.11.0.html))
+
 ### Clicking a file path in terminal output
 
 Terminal output is full of file paths, and clicking one used to do the same thing whatever it was: serve the bytes. A `.md` opened as markdown source, a `.csv` as a wall of commas, a `.ts` as text. Each kind now opens as the thing it is (#808).
@@ -128,6 +138,8 @@ Images, PDFs, SVGs and HTML keep opening in a tab — the browser renders those 
 - **One gate for both file entry points**: the raw route and the browse routes had written the same containment out separately and drifted — the raw one expanded a leading `~`, the browse ones did not. It never mattered while every clicked path went to the raw route; sending source files to the browse routes made it reachable, so a line printing `~/proj/src/main.ts` would have opened onto a 403. `resolveContained()` in `files/pathContainment.ts` is now that gate, and both call it. Containment itself is unchanged: a tilde expanding outside the base is still refused, as are `..`, an absolute path, and a symlink leaving the base.
 
 ## mulmoterminal@1.10.0 — 2026-07-25
+
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.10.0.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.10.0.html))
 
 ### Configuration
 
@@ -152,6 +164,8 @@ Images, PDFs, SVGs and HTML keep opening in a tab — the browser renders those 
 
 ## mulmoterminal@1.9.2 — 2026-07-25
 
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.9.2.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.9.2.html))
+
 ### Windows
 
 - **npm-global installs spawn too** (#798, #801): 1.9.1 fixed the Claude Code installer's shape (`claude.exe` on PATH). This covers the other one — `npm i -g` leaves only `claude` (a shell shim), `claude.cmd` and `claude.ps1`, with no `.exe` at all. `CreateProcessW`, which node-pty ultimately calls, runs PE images only, so both variants of that install failed: the `.cmd` alone never satisfies node-pty's existence gate (`File not found: `, empty), and with the extensionless shim the gate passes but `CreateProcess` then looks for a `claude.exe` that isn't there (`Cannot create process`). A batch target now runs under `cmd.exe /d /s /c`, decided in the same single place as 1.9.1's fix, so `claude`, `codex`, `tmux` and the launcher all inherit it. Setting `CLAUDE_BIN` to an explicit `.cmd` path — the workaround #794 documented — is wrapped as well.
@@ -161,6 +175,8 @@ Images, PDFs, SVGs and HTML keep opening in a tab — the browser renders those 
   The escaping is verified empirically, not on paper: the Windows CI job builds a shim shaped like npm's (`node "…cli.js" %*`) and asserts the child's `process.argv` matches what was passed — JSON payloads (the real `--settings` / `--mcp-config` shape), `& | > ^ ( )`, embedded quotes, a trailing backslash, CJK, `50% done` — plus exit-code propagation through the extra cmd.exe process. Off Windows the resolution is inert: the same name, the same argv array, and no filesystem probe at all, pinned by its own test.
 
 ## mulmoterminal@1.9.1 — 2026-07-25
+
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.9.1.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.9.1.html))
 
 ### Windows
 
@@ -182,6 +198,8 @@ Images, PDFs, SVGs and HTML keep opening in a tab — the browser renders those 
 - `concurrently` 10.0.3 → 10.0.4, `eslint` 10.7.0 → 10.8.0 (#800).
 
 ## mulmoterminal@1.9.0 — 2026-07-25
+
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.9.0.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.9.0.html))
 
 ### Phone / remote host
 
@@ -225,6 +243,8 @@ Images, PDFs, SVGs and HTML keep opening in a tab — the browser renders those 
 
 ## mulmoterminal@1.7.2 — 2026-07-24
 
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.7.2.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.7.2.html))
+
 A hardening release: a repo-wide code review turned up a family of real bugs across the server, the plugin runtime, the remote-host (phone) channel, and the git/worktree tooling. Each fix ships with a regression test.
 
 ### Server / backend
@@ -253,6 +273,8 @@ A hardening release: a repo-wide code review turned up a family of real bugs acr
 - **file drop no longer navigates away** (#752, #750): dropping a file anywhere in the window no longer replaces the page with the file.
 
 ## mulmoterminal@1.7.1 — 2026-07-24
+
+> 📘 **[Setup guide for this release](https://receptron.github.io/mulmoterminal/guide/en/v1.7.1.html)** — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v1.7.1.html))
 
 A same-day patch undoing two 1.7.0 regressions and fixing a couple of terminal bugs.
 
