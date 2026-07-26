@@ -57,7 +57,11 @@ function isFontName(entry: string): boolean {
   return entry.length >= 3 && entry.endsWith(quote) && FONT_NAME_RE.test(entry.slice(1, -1));
 }
 
-const unquote = (entry: string): string => (entry[0] === "'" || entry[0] === '"' ? entry.slice(1, -1) : entry);
+// Deliberately unquoted-only. In CSS a generic family is a KEYWORD: quoting it turns it into a
+// lookup for a font literally named "monospace", which resolves nowhere and provides no fallback.
+// Counting a quoted one as satisfying the rule below would skip the append in precisely the case
+// the append exists to catch.
+const isGenericFamily = (entry: string): boolean => GENERIC_FAMILIES.has(entry.toLowerCase());
 
 // Reject the whole stack on a bad entry, where normalizeFontSize clamps: a size is a continuous
 // quantity, so honouring the direction the user asked for beats ignoring it, but a stack is one
@@ -69,6 +73,5 @@ export function normalizeFontFamily(input: unknown): string | null {
   if (!stack || stack.length > TERMINAL_FONT_FAMILY_MAX_CHARS) return null;
   const names = stack.split(",").map((name) => name.trim());
   if (!names.every(isFontName)) return null;
-  const hasGeneric = names.some((name) => GENERIC_FAMILIES.has(unquote(name).toLowerCase()));
-  return [...names, ...(hasGeneric ? [] : ["monospace"])].join(", ");
+  return [...names, ...(names.some(isGenericFamily) ? [] : ["monospace"])].join(", ");
 }

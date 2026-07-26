@@ -35,9 +35,17 @@ describe("normalizeFontFamily", () => {
 
   it("leaves a stack that already names a generic family alone", () => {
     expect(normalizeFontFamily("Cica, monospace")).toBe("Cica, monospace");
-    expect(normalizeFontFamily("'Menlo', 'monospace'")).toBe("'Menlo', 'monospace'");
+    expect(normalizeFontFamily("Cica, MONOSPACE")).toBe("Cica, MONOSPACE");
     // An author who deliberately asked for a proportional tail keeps it — we don't second-guess it.
     expect(normalizeFontFamily("Cica, sans-serif")).toBe("Cica, sans-serif");
+  });
+
+  // In CSS a generic family is a KEYWORD — quoting it asks for a font literally NAMED "monospace",
+  // which resolves nowhere and falls back to the browser's proportional default. Treating it as a
+  // real generic would skip the append in exactly the case the append exists to catch.
+  it("does not count a QUOTED generic keyword as a generic family", () => {
+    expect(normalizeFontFamily("'Menlo', 'monospace'")).toBe("'Menlo', 'monospace', monospace");
+    expect(normalizeFontFamily('"monospace"')).toBe('"monospace", monospace');
   });
 
   // Rejected whole, where normalizeFontSize clamps: a stack is one intent, so keeping the half
