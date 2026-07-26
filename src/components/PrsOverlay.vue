@@ -82,7 +82,7 @@ useEscapeToClose(isOpen, close);
         aria-label="Reload PR and issue list"
         @click="load"
       >
-        <span class="material-symbols-outlined">refresh</span>
+        <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
       </button>
       <span v-if="loading" class="text-[12px] text-muted">Loading…</span>
     </header>

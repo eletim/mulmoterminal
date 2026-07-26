@@ -310,7 +310,7 @@ onUnmounted(() => {
           aria-label="Close settings"
           @click="emit('close')"
         >
-          <span class="material-symbols-outlined">close</span>
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
 
@@ -342,7 +342,9 @@ onUnmounted(() => {
         Launch the <code>mulmoterminal-config</code> skill to style a directory — name badge, colors, terminal palette, header buttons. It configures the
         focused session's directory, or lets you pick from your recent directories.
       </p>
-      <SettingsButton @click="emit('configure-appearance')"><span class="material-symbols-outlined">palette</span> Configure appearance…</SettingsButton>
+      <SettingsButton @click="emit('configure-appearance')"
+        ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton
+      >
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Notification sound</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
@@ -360,7 +362,9 @@ onUnmounted(() => {
         <SettingsButton @click="browseSound">Browse…</SettingsButton>
       </div>
       <div class="mt-2 flex gap-2">
-        <SettingsButton title="Play the current sound" @click="testSound"><span class="material-symbols-outlined">play_arrow</span> Test</SettingsButton>
+        <SettingsButton title="Play the current sound" @click="testSound"
+          ><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> Test</SettingsButton
+        >
         <SettingsButton :disabled="!soundPath" title="Use the built-in chime" @click="clearSound">Use chime</SettingsButton>
       </div>
 
@@ -424,7 +428,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${r}`"
             @click="removeRepo(r)"
           >
-            <span class="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -456,7 +460,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${l.label}`"
             @click="removeLauncher(l.label)"
           >
-            <span class="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -498,7 +502,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${c.label}`"
             @click="removeQuickCommand(c.label)"
           >
-            <span class="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -553,7 +557,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${s.id}`"
             @click="removeMcpServer(s.id)"
           >
-            <span class="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>

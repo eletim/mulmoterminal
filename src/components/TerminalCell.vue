@@ -1191,7 +1191,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               :aria-expanded="askMenuOpen"
               @click="openAskMenu"
             >
-              <span class="material-symbols-outlined">forum</span>
+              <span class="material-symbols-outlined" aria-hidden="true">forum</span>
             </button>
             <div
               v-if="askMenuOpen"
@@ -1218,7 +1218,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                   title="Send this cell's turn there and bring the answer back, both submitted"
                   @click="exchangeWith(target)"
                 >
-                  <span class="material-symbols-outlined">swap_horiz</span>
+                  <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
                 </button>
               </div>
               <p v-if="!askTargets.length" class="m-0 px-2 py-1.5 font-sans text-[12px] text-dim">No other terminal to read</p>
@@ -1231,7 +1231,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               class="absolute right-0 top-full z-20 mt-1 cursor-pointer whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:text-fg"
               @click="stopExchange"
             >
-              <span class="material-symbols-outlined">swap_horiz</span> exchanging — stop
+              <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span> exchanging — stop
             </button>
             <p
               v-else-if="askMsg"
@@ -1250,13 +1250,13 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Show activity timeline"
             @click="timelineOpen = true"
           >
-            <span class="material-symbols-outlined">history</span>
+            <span class="material-symbols-outlined" aria-hidden="true">history</span>
           </button>
           <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">
-            <span class="material-symbols-outlined">chevron_left</span>
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
           </button>
           <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">
-            <span class="material-symbols-outlined">chevron_right</span>
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
           </button>
         </template>
       </TerminalView>
@@ -1269,7 +1269,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           <span class="font-sans text-[12px] font-semibold text-fg">Changes vs {{ diff?.base ?? "base" }}</span>
           <span class="flex-auto font-sans text-[11px] text-dim">{{ diff?.ahead ?? 0 }} ahead · {{ diff?.dirty ?? 0 }} uncommitted</span>
           <button class="cell-btn" :class="CELL_BTN" title="Close diff" aria-label="Close diff" @click="diffOpen = false">
-            <span class="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </div>
         <div v-if="diff && diff.files.length" class="max-h-[35%] flex-none overflow-y-auto border-b border-b-border px-2 py-1">
@@ -1297,7 +1297,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :title="(diff?.dirty ?? 0) === 0 ? 'No uncommitted changes' : working ? 'Wait for the session to finish' : 'Ask Claude to commit the changes'"
             @click="commitViaClaude"
           >
-            <span class="material-symbols-outlined">check</span> Commit
+            <span class="material-symbols-outlined" aria-hidden="true">check</span> Commit
           </button>
           <button
             data-testid="cell-diff-btn"
@@ -1306,7 +1306,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes first' : 'git push -u origin'"
             @click="pushBranch"
           >
-            <span class="material-symbols-outlined">arrow_upward</span> Push
+            <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span> Push
           </button>
           <button
             data-testid="cell-diff-btn"
@@ -1315,7 +1315,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes in the terminal first' : 'Push and open a pull request'"
             @click="openPR"
           >
-            <span class="material-symbols-outlined">open_in_new</span> Open PR
+            <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span> Open PR
           </button>
           <span v-if="prMsg" data-testid="cell-diff-msg" class="min-w-0 flex-auto truncate font-sans text-[11px] text-dim">{{ prMsg }}</span>
         </div>
@@ -1391,7 +1391,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         aria-label="Cancel new terminal"
         @click="emit('close')"
       >
-        <span class="material-symbols-outlined">close</span>
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
       </button>
       <div v-if="presets.length" class="flex max-w-[360px] flex-wrap justify-center gap-1.5">
         <span
@@ -1432,7 +1432,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             "
             @click="selectPreset(p)"
           >
-            <span class="material-symbols-outlined text-[14px]">play_arrow</span>
+            <span class="material-symbols-outlined text-[14px]" aria-hidden="true">play_arrow</span>
           </button>
           <button
             type="button"
@@ -1442,7 +1442,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :aria-label="`Remove ${p.path} from the list`"
             @click="emit('remove-preset', p.path)"
           >
-            <span class="material-symbols-outlined">close</span>
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </span>
       </div>
@@ -1488,7 +1488,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Choose the working directory"
             @click="pickDir"
           >
-            <span class="material-symbols-outlined text-[18px]">folder_open</span>
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">folder_open</span>
           </button>
           <button
             type="button"
@@ -1499,7 +1499,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Start a new terminal here"
             @click="launch"
           >
-            <span class="material-symbols-outlined text-[18px]">play_arrow</span>
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">play_arrow</span>
           </button>
         </span>
       </label>
@@ -1524,7 +1524,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :disabled="!worktreeTask.trim()"
             @click="createWorktreeAndLaunch"
           >
-            <span class="material-symbols-outlined">add</span> New worktree
+            <span class="material-symbols-outlined" aria-hidden="true">add</span> New worktree
           </button>
         </div>
         <div v-for="w in worktrees" :key="w.path" class="flex items-center gap-1.5">
@@ -1543,7 +1543,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             aria-label="Remove worktree"
             @click="removeWorktree(w)"
           >
-            <span class="material-symbols-outlined">delete</span>
+            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
           </button>
         </div>
       </div>
@@ -1558,7 +1558,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :title="s.command"
             @click="runScript(s)"
           >
-            <span class="material-symbols-outlined">play_arrow</span> {{ s.label }}
+            <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ s.label }}
           </button>
         </div>
       </div>
@@ -1573,7 +1573,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :title="l.command"
             @click="launchProgram(i, l)"
           >
-            <span class="material-symbols-outlined">rocket_launch</span> {{ l.label }}
+            <span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ l.label }}
           </button>
         </div>
       </div>

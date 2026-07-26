@@ -118,7 +118,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           aria-label="Close timeline"
           @click="emit('close')"
         >
-          <span class="material-symbols-outlined">close</span>
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
       <div class="overflow-y-auto py-1.5">

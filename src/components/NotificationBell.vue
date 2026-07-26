@@ -94,7 +94,7 @@ function bellColorClass(severity: NotifierSeverity): string {
           aria-label="Dismiss notification"
           @click.stop="dismiss(entry.id)"
         >
-          <span class="material-symbols-outlined text-[16px] leading-none">close</span>
+          <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">close</span>
         </button>
       </li>
     </ul>

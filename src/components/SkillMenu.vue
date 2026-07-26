@@ -61,8 +61,8 @@ function pick(s: DiscoveredSkill) {
       title="Run a skill in the current session"
       @click="toggle"
     >
-      <span class="material-symbols-outlined">bolt</span> Skill
-      <span class="material-symbols-outlined">{{ open ? "expand_less" : "expand_more" }}</span>
+      <span class="material-symbols-outlined" aria-hidden="true">bolt</span> Skill
+      <span class="material-symbols-outlined" aria-hidden="true">{{ open ? "expand_less" : "expand_more" }}</span>
     </button>
     <div
       v-if="open"
@@ -77,7 +77,7 @@ function pick(s: DiscoveredSkill) {
         :title="s.description"
         @click="pick(s)"
       >
-        <span class="material-symbols-outlined">bolt</span> {{ s.slug }}
+        <span class="material-symbols-outlined" aria-hidden="true">bolt</span> {{ s.slug }}
       </button>
     </div>
   </div>

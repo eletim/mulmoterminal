@@ -390,7 +390,7 @@ onUnmounted(() => {
           @click="onHeaderButton(b)"
         >
           <span v-if="b.emoji" class="text-[15px] leading-none">{{ b.emoji }}</span>
-          <span v-else class="material-symbols-outlined text-[18px]">{{ b.icon || "bolt" }}</span>
+          <span v-else class="material-symbols-outlined text-[18px]" aria-hidden="true">{{ b.icon || "bolt" }}</span>
         </button>
         <button
           v-if="voice.capable.value"
@@ -401,7 +401,7 @@ onUnmounted(() => {
           :aria-label="voiceTitle()"
           @click="voice.toggle()"
         >
-          <span class="material-symbols-outlined text-[18px]">{{ voiceIcon() }}</span>
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">{{ voiceIcon() }}</span>
         </button>
         <!-- The file-path picker and file explorer are now DEFAULT_BUTTONS (server-resolved into
              headerButtons above), so the user can drop/reorder/replace them via config. -->

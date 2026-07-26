@@ -69,8 +69,8 @@ function pick(s: RunnableScript) {
       title="Run a script in a spare terminal"
       @click="toggle"
     >
-      <span class="material-symbols-outlined">play_arrow</span> Run
-      <span class="material-symbols-outlined">{{ open ? "expand_less" : "expand_more" }}</span>
+      <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> Run
+      <span class="material-symbols-outlined" aria-hidden="true">{{ open ? "expand_less" : "expand_more" }}</span>
     </button>
     <div
       v-if="open"
@@ -85,7 +85,7 @@ function pick(s: RunnableScript) {
         :title="s.command"
         @click="pick(s)"
       >
-        <span class="material-symbols-outlined">play_arrow</span> {{ s.label }}
+        <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ s.label }}
       </button>
     </div>
   </div>

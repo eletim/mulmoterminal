@@ -68,7 +68,7 @@ onBeforeUnmount(close);
       title="並べ替え"
       @click="toggle"
     >
-      <span class="material-symbols-outlined">more_vert</span>
+      <span class="material-symbols-outlined" aria-hidden="true">more_vert</span>
     </button>
     <Teleport to="body">
       <div
@@ -88,7 +88,7 @@ onBeforeUnmount(close);
           :disabled="!canUp"
           @click="pick(-1)"
         >
-          <span class="material-symbols-outlined w-3.5 text-center text-[#4a9eff]">arrow_upward</span> 上へ移動
+          <span class="material-symbols-outlined w-3.5 text-center text-[#4a9eff]" aria-hidden="true">arrow_upward</span> 上へ移動
         </button>
         <button
           type="button"
@@ -98,7 +98,7 @@ onBeforeUnmount(close);
           :disabled="!canDown"
           @click="pick(1)"
         >
-          <span class="material-symbols-outlined w-3.5 text-center text-[#4a9eff]">arrow_downward</span> 下へ移動
+          <span class="material-symbols-outlined w-3.5 text-center text-[#4a9eff]" aria-hidden="true">arrow_downward</span> 下へ移動
         </button>
       </div>
     </Teleport>

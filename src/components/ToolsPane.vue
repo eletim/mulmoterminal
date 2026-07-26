@@ -120,7 +120,7 @@ onUnmounted(() => window.clearTimeout(historyCopyTimer));
         aria-label="Close tools pane"
         @click="emit('close')"
       >
-        <span class="material-symbols-outlined">close</span>
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
       </button>
     </div>
     <div class="flex-1 overflow-y-auto font-sans text-[13px] text-fg">
@@ -139,7 +139,7 @@ onUnmounted(() => window.clearTimeout(historyCopyTimer));
               class="rounded-[4px] bg-subtle px-1.5 py-0.5 font-['JetBrains_Mono',_monospace] text-[12px] break-all text-secondary"
               >{{ tool.toolName }}</code
             >
-            <span v-if="tool.description" class="material-symbols-outlined text-[18px] text-dim">{{
+            <span v-if="tool.description" class="material-symbols-outlined text-[18px] text-dim" aria-hidden="true">{{
               expandedTools.has(tool.toolName) ? "expand_less" : "expand_more"
             }}</span>
           </button>
@@ -161,7 +161,7 @@ onUnmounted(() => window.clearTimeout(historyCopyTimer));
             :aria-label="historyCopied ? 'Copied!' : 'Copy all call history'"
             @click="copyHistory"
           >
-            <span class="material-symbols-outlined text-[14px] transition-[color,background] duration-150 ease-[ease]">{{
+            <span class="material-symbols-outlined text-[14px] transition-[color,background] duration-150 ease-[ease]" aria-hidden="true">{{
               historyCopied ? "check" : "content_copy"
             }}</span>
             {{ historyCopied ? "Copied" : "Copy all" }}
