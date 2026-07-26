@@ -4,7 +4,7 @@ import { trapTabKey } from "../utils/focusTrap";
 import { useTheme } from "../composables/useTheme";
 import { previewAttention } from "../composables/useAttentionSound";
 import { useCost } from "../composables/useCost";
-import { getActiveKeymap } from "../composables/activeKeymap";
+import { activeKeymap } from "../composables/activeKeymap";
 import { keymapRows } from "./keymapLabels";
 import { useGoogleLink } from "../composables/useGoogleLink";
 import SettingsButton from "./SettingsButton.vue";
@@ -237,10 +237,9 @@ function onThemeKey(e: KeyboardEvent, index: number) {
 // Read-only estimated cost (Session / Today / Month), loaded when the modal opens.
 const { cost, error: costError, load: loadCost } = useCost();
 
-// The keymap is hydrated from /api/config at page load and cannot change while the tab is
-// open (config.json is hand-edited and the browser re-reads it only on reload), so this is a
-// plain value rather than a live ref.
-const shortcutRows = keymapRows(getActiveKeymap());
+// Reactive, not a snapshot: /api/config is fetched asynchronously, so a modal opened before it
+// lands would otherwise sit on "Not set" for every action until it is closed and reopened.
+const shortcutRows = computed(() => keymapRows(activeKeymap.value));
 
 const modalEl = ref<HTMLElement>();
 
