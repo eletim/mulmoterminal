@@ -54,6 +54,10 @@ export interface RemoteHostHandlerDeps {
   // sends only text; which byte commits it is the host's Claude binding — but only for a
   // Claude session, so this is resolved per session id (shell/codex stay on plain CR).
   submitSequence: (sessionId: string) => string;
+  // Open a new grid terminal in the directory of the session the phone is looking at
+  // (#831). Answered in server/index.ts, which owns the PTY table and the pub/sub the
+  // grid listens on. Resolves to an error string when it could not be started.
+  launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string };
 }
 
 // Parse the optional `attachments` param ([{ storage_id }]) into storage ids. A
@@ -152,7 +156,10 @@ const mutateRemoteViewItem: CommandHandlers["mutateRemoteViewItem"] = async (par
 // since #445 — type into it. Screens are bounded by the terminal's own geometry
 // (rows x cols), so unlike collections they need no paging to stay under the 1 MiB
 // command-doc ceiling.
-type TerminalScreenDeps = Pick<RemoteHostHandlerDeps, "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence">;
+type TerminalScreenDeps = Pick<
+  RemoteHostHandlerDeps,
+  "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "launchTerminal"
+>;
 
 const terminalScreenHandlers = ({
   listTerminalSessions,
@@ -160,6 +167,7 @@ const terminalScreenHandlers = ({
   writeToSession,
   canClearBox,
   submitSequence,
+  launchTerminal,
 }: TerminalScreenDeps): CommandHandlers => {
   // One sender per host, so its per-session ordering actually spans every command.
   const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence });
@@ -185,6 +193,19 @@ const terminalScreenHandlers = ({
       if (!sessionId) throw new Error("sessionId is required");
       const text = typeof params.text === "string" ? params.text : "";
       return (await sendInput(sessionId, text)) as unknown as JsonObject;
+    },
+
+    // Open a NEW grid terminal in the directory of the session the phone is viewing (#831).
+    // The phone names the session, never a path: the host looks the directory up, so a
+    // remote client cannot choose where a process starts.
+    //
+    // Throwing rather than returning the error is what puts the reason on the phone's
+    // screen — the command layer turns a rejection into the message it shows, and the
+    // most likely failure ("no browser is open") is one the user can act on.
+    launchTerminal: async (params: JsonObject) => {
+      const result = launchTerminal(params.agent, params.sessionId);
+      if (!result.ok) throw new Error(result.error);
+      return { ok: true } as unknown as JsonObject;
     },
   };
 };

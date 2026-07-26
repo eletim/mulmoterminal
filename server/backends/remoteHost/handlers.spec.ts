@@ -14,6 +14,7 @@ const unusedTerminalDeps = {
   writeToSession: () => false,
   canClearBox: () => false,
   submitSequence: () => "\r",
+  launchTerminal: () => ({ ok: true }) as const,
 };
 
 describe("createRemoteHostHandlers", () => {

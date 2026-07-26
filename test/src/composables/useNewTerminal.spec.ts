@@ -77,4 +77,41 @@ describe("useNewTerminal", () => {
     expect(handler).toHaveBeenCalledWith({ cwd: "/b", afterSlotKey: "single" });
     wrapper.unmount();
   });
+
+  // The phone drives this over pub/sub (#831) and the host answers each command with success,
+  // so a request dropped here is a launch reported as done that never happened. One slot was
+  // enough only while a person pressing a button was the sole caller.
+  it("drains EVERY request queued while the grid was away, in arrival order", () => {
+    openTerminalAt("/first", null, "shell");
+    openTerminalAt("/second", null, "claude");
+    openTerminalAt("/third", null, "codex");
+    const h = vi.fn();
+    const off = registerNewTerminalHandler(h);
+    expect(h).toHaveBeenCalledTimes(3);
+    expect(h.mock.calls.map(([req]) => [req.cwd, req.agent])).toEqual([
+      ["/first", "shell"],
+      ["/second", "claude"],
+      ["/third", "codex"],
+    ]);
+    off();
+  });
+
+  it("carries the agent through to a live handler, and leaves it unset for the shell button", () => {
+    const h = vi.fn();
+    const off = registerNewTerminalHandler(h);
+    openTerminalAt("/proj", null, "codex");
+    expect(h).toHaveBeenCalledWith({ cwd: "/proj", afterSlotKey: null, agent: "codex" });
+    openTerminalAt("/proj", null);
+    expect(h).toHaveBeenLastCalledWith({ cwd: "/proj", afterSlotKey: null, agent: undefined });
+    off();
+  });
+
+  it("empties the queue once drained, so a later register replays nothing", () => {
+    openTerminalAt("/once", null);
+    registerNewTerminalHandler(vi.fn())();
+    const second = vi.fn();
+    const off = registerNewTerminalHandler(second);
+    expect(second).not.toHaveBeenCalled();
+    off();
+  });
 });

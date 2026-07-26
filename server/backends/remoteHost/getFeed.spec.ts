@@ -62,6 +62,7 @@ describe("createRemoteHostHandlers · getFeed", () => {
       writeToSession: () => false,
       canClearBox: () => false,
       submitSequence: () => "\r",
+      launchTerminal: () => ({ ok: true }) as const,
     });
   });
   afterEach(() => vi.mocked(listFeeds).mockReset());
