@@ -400,8 +400,13 @@ export const visibleCells = (state: GridState): Cell[] => (zoomedUid(state) !== 
 // covers EVERY cell (incl. unmounted pages), or a status change on an off-screen page
 // would (mis)read as idle; GridView feeds it the server's full session status. While
 // zoomed the whole ordered list is shown (the filmstrip).
-export const visibleOrdered = (state: GridState, statusByUid: Record<number, CellStatus>): Cell[] => {
-  const ordered = orderCells(state.cells, statusByUid, state.sortMode);
+//
+// `priorityByCwd` is the same requirement for the "priority" mode, and it is a parameter
+// rather than an omission for a reason: defaulted to {} every directory reads as unset, so a
+// caller that forgot it would order priority mode differently from the grid — the exact drift
+// #720 exists to prevent.
+export const visibleOrdered = (state: GridState, statusByUid: Record<number, CellStatus>, priorityByCwd: Record<string, number> = {}): Cell[] => {
+  const ordered = orderCells(state.cells, statusByUid, state.sortMode, priorityByCwd);
   return zoomedUid(state) !== null ? ordered : pageSlice(ordered, state.page);
 };
 

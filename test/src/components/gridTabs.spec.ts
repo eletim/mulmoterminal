@@ -774,6 +774,15 @@ describe("visibleOrdered (attention-sort the whole list, then page)", () => {
     const s = make(running(12), { page: 0, expanded: 11, sortMode: "auto" });
     expect(visibleOrdered(s, { 11: "blocked" }).map((c) => c.uid)[0]).toBe(11);
   });
+  // Pins that the priority map reaches the sort THROUGH this function: with it the ranked
+  // directory leads, and dropping it silently ranks everything as unset — which would have
+  // this disagree with the grid rather than fail loudly.
+  it("applies the priority map, and reads every directory as unset without one", () => {
+    const cells = [cell(0, U(0), "/x"), cell(1, U(1), "/y")];
+    const s = make(cells, { sortMode: "priority" });
+    expect(visibleOrdered(s, {}, { "/y": 1 }).map((c) => c.uid)).toEqual([1, 0]);
+    expect(visibleOrdered(s, {}).map((c) => c.uid)).toEqual([0, 1]);
+  });
 });
 
 describe("zoomedUid / visibleCells", () => {
