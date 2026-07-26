@@ -6,6 +6,7 @@ import { terminalManagesAttention, terminalViewActive } from "./terminalViewActi
 import { dragCarriesFiles, dropTextFromUriList } from "./dropPaths";
 import { translateUiSentence } from "../utils/translateUi";
 import { useTheme, currentTermTheme, termThemeFor, type ThemeId } from "../composables/useTheme";
+import { useTerminalFontSize } from "../composables/useTerminalFontSize";
 import { badgeStyleFor } from "./dirBadge";
 import { terminalHeaderStyleFor } from "./cellHeaderStyle";
 import { useVoiceInput } from "../composables/useVoiceInput";
@@ -68,6 +69,8 @@ const props = defineProps<{
   // `dirBadgeColor` render a project badge in the header.
   dirTheme?: ThemeId | null;
   dirColors?: Partial<ITheme> | null;
+  // Pins this terminal's xterm font size, overriding the app-wide Settings value.
+  dirFontSize?: number | null;
   dirName?: string | null;
   dirBadgeColor?: string | null;
   // The header row's own colors (matches the grid cell's row-1 header): background,
@@ -158,6 +161,7 @@ const gitCwd = computed(() => (props.devTerminal ? null : serverCwd.value));
 const { status: gitStatus } = useGitStatus(gitCwd);
 const dragOver = ref(false);
 const { themeId } = useTheme();
+const { fontSize } = useTerminalFontSize();
 
 // A dir-pinned theme wins over the app-wide selection for this terminal's canvas,
 // then per-key `dirColors` override on top (so a dir can tweak just the background
@@ -165,6 +169,11 @@ const { themeId } = useTheme();
 function effectiveTermTheme(): ITheme {
   const base = props.dirTheme ? termThemeFor(props.dirTheme) : currentTermTheme();
   return props.dirColors ? { ...base, ...props.dirColors } : base;
+}
+
+// Same precedence as the theme: a dir-pinned size wins, otherwise the app-wide setting.
+function effectiveFontSize(): number {
+  return props.dirFontSize ?? fontSize.value;
 }
 const dirBadgeStyle = computed(() => badgeStyleFor(props.dirBadgeColor));
 const headerStyle = computed(() => terminalHeaderStyleFor(props.dirHeaderColor, props.dirHeaderTextColor, props.dirButtonColor));
@@ -209,6 +218,7 @@ onMounted(() => {
     },
     container,
     effectiveTermTheme(),
+    effectiveFontSize(),
   );
 
   // Auto-resize: fit the slot's xterm to this container and push the size to the PTY.
@@ -264,6 +274,13 @@ onUnmounted(() => pushView(false));
 // dir-pinned theme ignores the app-wide change; a change to the pin itself repaints.
 watch([themeId, () => props.dirTheme, () => props.dirColors], () => {
   conn.setTheme(slotKey, effectiveTermTheme());
+});
+
+// The size, unlike the palette, changes the cell metrics — conn.setFontSize re-fits and pushes
+// the new cols/rows to the PTY, so the ResizeObserver above is not what reacts here (the host
+// element never resized; only what fits inside it did).
+watch([fontSize, () => props.dirFontSize], () => {
+  conn.setFontSize(slotKey, effectiveFontSize());
 });
 
 // Expanding/collapsing a grid cell teleports it in the DOM, which blurs the xterm textarea — so the

@@ -359,6 +359,7 @@ function onSession(id: string) {
           :connect-key="connectKey"
           :dir-theme="singleDirConfig.theme"
           :dir-colors="singleDirConfig.colors"
+          :dir-font-size="singleDirConfig.fontSize"
           :dir-name="singleDirConfig.name"
           :dir-badge-color="singleDirConfig.badgeColor"
           :dir-header-color="singleDirConfig.headerColor"

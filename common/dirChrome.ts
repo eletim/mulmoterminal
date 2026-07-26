@@ -1,4 +1,4 @@
-// The name + fixed-color fields a `.mulmoterminal.json` may set. Shared across the
+// The `.mulmoterminal.json` fields whose type is the SAME on both sides. Shared across the
 // build boundary: the server's DirConfig/PublicDirConfig and the client's DirConfig
 // all extend this, so a field added on one side can't go missing on the other.
 // `theme` and `colors` stay out of it — each side declares them with its own type
@@ -17,6 +17,10 @@ export interface DirChrome {
   cellBorderColor: string | null;
   dotColor: string | null;
   buttonColor: string | null;
+  // xterm font size in px for terminals opened here, or null to use the global setting.
+  // Unlike the colors above, this changes the cell metrics — every path that applies it has
+  // to re-fit and push the new cols/rows to the PTY, or the grid drifts from the canvas.
+  fontSize: number | null;
 }
 
 // "Nothing configured" — the base every DirConfig/PublicDirConfig empty spreads, so adding
@@ -32,4 +36,5 @@ export const EMPTY_DIR_CHROME: Readonly<DirChrome> = {
   cellBorderColor: null,
   dotColor: null,
   buttonColor: null,
+  fontSize: null,
 };

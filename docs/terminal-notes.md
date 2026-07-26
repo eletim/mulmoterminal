@@ -52,6 +52,16 @@ server   ── node-pty  ── tmux (persistence)  ── agent (claude / code
 - `linkHandler` (#783/#785) — opens OSC 8 hyperlinks (e.g. Claude's statusline `PR #123`) on
   click, restricted to `http(s)://` (a program could emit a `javascript:` link). Without it xterm
   falls back to a `confirm()` dialog. **Necessary but not sufficient** — see the tmux rule.
+- `fontSize` (#860) — no longer a constant. Resolved per terminal as **dir pin
+  (`.mulmoterminal.json` `fontSize`) → app-wide Settings value (`localStorage.terminalFontSize`) →
+  `TERMINAL_FONT_SIZE_DEFAULT`**, and clamped to 8–32 by `normalizeFontSize`
+  (`common/terminalFontSize.ts`), which both sides share.
+  **Anything that changes it MUST re-fit.** The size changes the cell metrics, so `cols`/`rows`
+  change and the PTY has to be told — `setFontSize()` therefore calls `fitAndSyncSize()`, and
+  `attach()` applies a changed size *before* its own fit. Setting the option alone reproduces the
+  bug that made browser zoom useless as a workaround in #860: xterm's grid and the PTY disagree,
+  so the cursor and the wrap points drift. `Conn.fontSize` remembers the applied value so a
+  rebuilt terminal (#846) doesn't snap back to the default.
 
 ### Submit vs newline — `terminalSubmit` (#772/#780)
 

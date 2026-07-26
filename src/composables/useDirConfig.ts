@@ -5,6 +5,7 @@ import { isThemeId, type ThemeId } from "./useTheme";
 // Shared with the server config schema so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
+import { normalizeFontSize } from "../../common/terminalFontSize";
 import { isRecord } from "../../common/isRecord";
 
 // The per-directory overrides a terminal adopts when its cwd holds a
@@ -63,6 +64,9 @@ function parse(c: unknown): DirConfig {
     cellBorderColor: typeof c.cellBorderColor === "string" ? c.cellBorderColor : null,
     dotColor: typeof c.dotColor === "string" ? c.dotColor : null,
     buttonColor: typeof c.buttonColor === "string" ? c.buttonColor : null,
+    // Re-clamped here rather than trusted: the server validates, but this parser is the
+    // boundary, and an out-of-range size reaches the canvas renderer if nothing checks.
+    fontSize: normalizeFontSize(c.fontSize),
     theme: isThemeId(c.theme) ? c.theme : null,
     colors: parseColors(c.colors),
     hasSound: c.hasSound === true,

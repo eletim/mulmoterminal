@@ -37,6 +37,7 @@ nav_order: 4
 | 項目 | 内容 |
 |---|---|
 | **THEME** | Midnight / Nord / Daylight / Solarized Light |
+| **TERMINAL FONT SIZE** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
 | **DIRECTORY APPEARANCE** | 「🎨 Configure appearance…」— ディレクトリの名前バッジ・色・ヘッダーを対話的に設定 |
 | **NOTIFICATION SOUND** | 要対応時に鳴らす音（空なら内蔵チャイム、または任意の音声ファイル） |
 | **WEB PUSH NOTIFICATIONS** | 「Notify my devices when a task finishes」トグル（既定 OFF → [スマホ通知](notifications.html)） |
@@ -393,6 +394,21 @@ Anthropic のまま別のモデルを指定できます。→ [OpenRouter で別
 
 `theme` に `midnight` / `nord` / `daylight` / `solarized` を指定するとプリセットのパレットになり、`colors` はその上へ部分上書き。
 [応用編 6](scenarios.html) の色分けスクショは、ヘッダー色と `colors` を組み合わせて**ヘッダーから端末の中身まで**プロジェクトごとに染めた例です。
+
+### ターミナルのフォントサイズ（`fontSize`）
+
+`fontSize` はこのディレクトリのターミナルのフォントサイズ（px）で、設定モーダルの値を上書きします。
+
+```json
+{ "fontSize": 16 }
+```
+
+有効範囲は **8〜32**。範囲外の値は近い端に丸められます（`99` は無視されず 32 になります）。数値でない値は無視され、
+設定モーダルの値が使われます。
+
+ブラウザのズーム（Ctrl +/−）ではなくこちらを使ってください。ズームはターミナルに知らせずページを拡大するため、
+xterm の文字グリッドとシェルが認識しているウィンドウサイズがずれ、カーソル位置や折り返し位置が崩れます。
+`fontSize` はターミナルを再フィットして新しい桁数・行数をプロセスに送るので、ずれが起きません。
 
 ### ヘッダーのカスタマイズ（ボタン / チップ） {#header}
 

@@ -37,6 +37,7 @@ Open it from the ⚙ in the toolbar.
 | Item | Description |
 |---|---|
 | **THEME** | Midnight / Nord / Daylight / Solarized Light |
+| **TERMINAL FONT SIZE** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
 | **DIRECTORY APPEARANCE** | "🎨 Configure appearance…" — set a directory's name badge, colors, and header interactively |
 | **NOTIFICATION SOUND** | The sound played when a cell needs you (empty for the built-in chime, or any audio file) |
 | **WEB PUSH NOTIFICATIONS** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
@@ -399,6 +400,22 @@ itself (xterm)**. `colors` overrides xterm's ITheme — `background` / `foregrou
 Set `theme` to `midnight` / `nord` / `daylight` / `solarized` for a preset palette; `colors` layers per-key
 overrides on top. The color-coding screenshot in [Scenario 6](scenarios.html) combines header colors with `colors` to
 paint each project — **from the header down to the terminal body**.
+
+### Terminal font size (`fontSize`)
+
+`fontSize` sets the px size of the terminal font for this directory, overriding the Settings value:
+
+```json
+{ "fontSize": 16 }
+```
+
+Valid range is **8–32**. A size outside it is clamped to the nearest end (so `99` becomes 32 rather than
+being ignored); a non-number is ignored and the Settings value applies.
+
+Use this rather than the browser's zoom (Ctrl +/−). Zoom scales the page without telling the terminal, so
+xterm's character grid stops matching what the shell believes the window to be, and the cursor and line
+wraps drift. Setting `fontSize` re-fits the terminal and sends the new width/height to the process, so
+everything stays aligned.
 
 ### Customizing the header (buttons / chips) {#header}
 

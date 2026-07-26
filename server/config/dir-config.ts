@@ -16,6 +16,7 @@ import {
   dirColorField,
   dirThemeField,
   dirColorsField,
+  dirFontSizeField,
   dirSkillsField,
   dirProviderField,
   dirModelField,
@@ -124,6 +125,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       cellBorderColor: dirColorField.parse(raw.cellBorderColor),
       dotColor: dirColorField.parse(raw.dotColor),
       buttonColor: dirColorField.parse(raw.buttonColor),
+      fontSize: dirFontSizeField.parse(raw.fontSize),
       theme: dirThemeField.parse(raw.theme),
       colors: dirColorsField.parse(raw.colors),
       sound: resolveDirSound(base, raw.sound),
@@ -139,8 +141,22 @@ export function loadDirConfig(cwd: string): DirConfig {
 }
 
 export function publicDirConfig(cwd: string): PublicDirConfig {
-  const { name, badgeColor, headerColor, headerTextColor, cellColor, cellBorderColor, dotColor, buttonColor, theme, colors, sound } = loadDirConfig(cwd);
-  return { name, badgeColor, headerColor, headerTextColor, cellColor, cellBorderColor, dotColor, buttonColor, theme, colors, hasSound: sound !== null };
+  const { name, badgeColor, headerColor, headerTextColor, cellColor, cellBorderColor, dotColor, buttonColor, fontSize, theme, colors, sound } =
+    loadDirConfig(cwd);
+  return {
+    name,
+    badgeColor,
+    headerColor,
+    headerTextColor,
+    cellColor,
+    cellBorderColor,
+    dotColor,
+    buttonColor,
+    fontSize,
+    theme,
+    colors,
+    hasSound: sound !== null,
+  };
 }
 
 export function dirSoundFile(cwd: string): string | null {

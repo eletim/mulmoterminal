@@ -70,6 +70,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Name badge / colors | Per-directory name and per-element colors in `.mulmoterminal.json` |
 | Launchers / cwd presets / PR repos | Extend launch commands, working-directory suggestions, and cross-repo PR targets in settings |
 | Themes | Midnight / Nord / Daylight / Solarized Light |
+| Terminal font size | Adjustable in settings (per browser), or pinned per directory with `fontSize` in `.mulmoterminal.json` |
 
 > **Do nothing and it works as before** — buttons/chips/colors only take effect for what you add, and the default look is unchanged.
 > For details, see [Configuration](config.html).
