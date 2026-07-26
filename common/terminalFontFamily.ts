@@ -2,17 +2,17 @@
 // `.mulmoterminal.json` and `config.json`, and the client re-validates what comes off the wire
 // and supplies the fallback when neither file names one.
 
-// Latin comes first, so an existing install's ASCII rendering is unchanged. The CJK block after it
-// is named explicitly rather than left to the generic `monospace` fallback: the face a browser picks
-// for an unnamed glyph is not required to be em-square, and xterm reserves exactly TWO cells for a
-// fullwidth character — a face whose fullwidth advance isn't exactly twice the Latin one tears every
-// box-drawing frame, which is most of what an agent TUI draws. Japanese precedes the other CJK
-// locales because a stack that reached `…CJK SC` first would draw kanji with mainland glyph shapes.
-export const TERMINAL_FONT_FAMILY_DEFAULT = [
-  "'JetBrains Mono'",
-  "'Fira Code'",
-  "Menlo",
-  "Consolas",
+// The CJK tail every monospace stack in the app ends with, Japanese before the other locales — a
+// stack that reached `…CJK SC` first would draw kanji with mainland glyph shapes. Named explicitly
+// rather than left to the generic `monospace` fallback: the face a browser picks for an unnamed
+// glyph is not required to be em-square, and a terminal reserves exactly TWO cells for a fullwidth
+// character, so a face whose fullwidth advance isn't exactly twice the Latin one tears every
+// box-drawing frame — which is most of what an agent TUI draws.
+//
+// Exported because the app chrome needs the same tail: Tailwind's `font-mono` (`--font-mono` in
+// src/tailwind.css) had no CJK either, so a Japanese header or diff line fell to the browser's
+// pick. CSS can't import this, so that file restates it and a spec pins the two together.
+export const TERMINAL_CJK_FAMILIES = [
   "'Noto Sans Mono CJK JP'",
   "'Hiragino Sans'",
   "'BIZ UDGothic'",
@@ -24,8 +24,10 @@ export const TERMINAL_FONT_FAMILY_DEFAULT = [
   "'Microsoft YaHei'",
   "'Noto Sans Mono CJK TC'",
   "'Microsoft JhengHei'",
-  "monospace",
-].join(", ");
+];
+
+// Latin first, so an existing install's ASCII rendering is unchanged.
+export const TERMINAL_FONT_FAMILY_DEFAULT = ["'JetBrains Mono'", "'Fira Code'", "Menlo", "Consolas", ...TERMINAL_CJK_FAMILIES, "monospace"].join(", ");
 
 // Long enough for a hand-written stack of a dozen names, short enough that the value stays a font
 // list rather than a place to park arbitrary text.
