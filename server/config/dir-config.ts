@@ -10,6 +10,7 @@ import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
+import { isRecord } from "../../common/isRecord.js";
 import {
   dirNameField,
   dirColorField,
@@ -56,8 +57,6 @@ export interface PublicDirConfig extends DirChrome {
   colors: Record<string, string> | null;
   hasSound: boolean;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 // Claude's tool hooks already report every write, so they double as the live-reload signal — no
 // filesystem watchers (cwds are scattered, so a watcher can't be shared across terminals).

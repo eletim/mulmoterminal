@@ -24,6 +24,7 @@ vi.mock("@mulmoclaude/core/collection/registry/server", () => ({
 // exist on disk (the schema refine rejects it), yet the route's defensive 400
 // must still be covered.
 import { buildWorkspaceOntology, deleteCollection, deleteCustomView, loadCollection } from "@mulmoclaude/core/collection/server";
+import { isRecord } from "../../../common/isRecord.js";
 vi.mock("@mulmoclaude/core/collection/server", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@mulmoclaude/core/collection/server")>();
   return {
@@ -672,8 +673,6 @@ describe("collection / view delete routes", () => {
     expect((await fetch(`${base}/api/collections/testcol/views/v1`, { method: "DELETE" })).status).toBe(404);
   });
 });
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const readJson = async <T>(res: Response, isBody: (value: unknown) => value is T): Promise<T> => {
   const body: unknown = await res.json();

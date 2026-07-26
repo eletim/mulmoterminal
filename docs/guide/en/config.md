@@ -78,7 +78,8 @@ Open it from the ⚙ in the toolbar.
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
 | `providers` | Anthropic-compatible backends (→ [Using another model via OpenRouter](providers.html)) |
 | `soundFile` | Custom notification sound (absolute path to an audio file; also settable from the modal) |
-| `pushEnabled` | Where the Web Push toggle is stored (default `false` → [Mobile notifications](notifications.html)) |
+| `pushEnabled` | The Web Push master switch (default `false` → [Mobile notifications](notifications.html)) |
+| `pushKinds` | Which moments push: `"finished"` (a turn ended) and/or `"waiting"` (the agent stopped to ask). Omit to keep both; `[]` for none (→ [Which moments push](notifications.html#kinds)) |
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |

@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { isRecord } from "../../common/isRecord";
 
 // The /api/google/status payload. `linked` reflects a stored refresh token — the
 // token itself never leaves the host. `pending` is true while a consent flow is
@@ -16,8 +17,6 @@ export interface GoogleStatus {
 const REQUEST_TIMEOUT_MS = 8000;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const MAX_POLL_BACKOFF_MS = 30_000;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 const isPresence = (v: unknown): v is ClientSecretPresence => v === "found" || v === "missing" || v === "ambiguous";
 

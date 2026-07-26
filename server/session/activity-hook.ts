@@ -1,3 +1,5 @@
+import type { PushKind } from "../../common/pushKinds.js";
+
 // Pure decision for a Claude activity hook (UserPromptSubmit / Stop / Notification).
 //
 // `active` = this session is the user's actively-viewed pane: the single-view open
@@ -45,7 +47,6 @@ export function activityHookEffects(event: string, active: boolean): ActivityEff
 // (they cannot know a session is stuck otherwise). Unlike the attention beep, both
 // fire regardless of `active` — the phone is elsewhere. pushEnabled / hidden /
 // translation gates stay with the caller.
-export type PushKind = "finished" | "waiting";
 
 export function pushKindFor(event: string): PushKind | null {
   if (event === "Stop") return "finished";

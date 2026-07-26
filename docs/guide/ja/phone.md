@@ -91,4 +91,4 @@ MulmoTerminal の**リモコン**です。セッションの画面をライブ�
 ## 通知
 
 タスク完了時に通知を受け取る設定（iOS / Android の手順）は別ページです：
-**[スマホ通知](notifications.html)**。
+**[スマホ通知](notifications.html)**。通知が頻繁すぎると感じる場合は[どの瞬間に飛ぶか](notifications.html#kinds)も参照してください。

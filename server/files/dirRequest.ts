@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { statSync } from "node:fs";
 import path from "node:path";
-import { isRecord } from "../session/transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 
 // Validate a POST { path } request that names a local directory: same-origin,
 // absolute, existing. Returns the directory, or null after sending the matching

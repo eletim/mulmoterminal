@@ -6,6 +6,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { readJsonFile } from "../infra/read-text-file.js";
+import { isRecord } from "../../common/isRecord.js";
 
 export interface ScriptDef {
   label: string;
@@ -16,8 +17,6 @@ export interface ScriptDef {
 }
 
 const SCRIPTS_FILE = "script.json";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const isScriptDef = (v: unknown): v is ScriptDef =>
   isRecord(v) && typeof v.label === "string" && typeof v.command === "string" && (v.cwd === undefined || typeof v.cwd === "string");
 

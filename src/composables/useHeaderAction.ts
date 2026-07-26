@@ -11,10 +11,9 @@ import { submitText, insertText } from "./useTerminalConnections";
 import { openTerminalAt } from "./useNewTerminal";
 import { toInsertText } from "../components/dropPaths";
 import type { HeaderButton, OpenTarget } from "./useHeaderButtons";
+import { isRecord } from "../../common/isRecord";
 
 const OPEN_URL_SCHEMES: ReadonlySet<string> = new Set(["http:", "https:"]);
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 // Open the OS file dialog (server-side, since the browser can't read a real path) and insert the chosen
 // path(s) at the session's cursor. slotKey identifies which terminal receives the text.

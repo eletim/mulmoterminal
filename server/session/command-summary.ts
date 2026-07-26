@@ -6,6 +6,7 @@
 import type { Express, Request } from "express";
 import { spawn } from "node:child_process";
 import { claudeAdapter } from "../agents/claude.js";
+import { isRecord } from "../../common/isRecord.js";
 
 const BYTES_PER_KB = 1024;
 // Cap the log we send to claude. The tail is what matters (errors + the exit line
@@ -13,8 +14,6 @@ const BYTES_PER_KB = 1024;
 export const MAX_LOG_KB = 32;
 const SUMMARY_TIMEOUT_MS = 60_000;
 const EMPTY_OUTPUT_SUMMARY = "No command output to summarize yet.";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export interface TruncatedLog {

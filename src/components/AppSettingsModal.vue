@@ -20,6 +20,8 @@ const {
   saveSound,
   pushEnabled,
   savePushEnabled,
+  pushKinds,
+  savePushKinds,
   prRepos,
   savePrRepos,
   launchers,
@@ -35,6 +37,7 @@ const {
   <SettingsModal
     :sound-file="soundFile"
     :push-enabled="pushEnabled"
+    :push-kinds="pushKinds"
     :pr-repos="prRepos"
     :launchers="launchers"
     :quick-commands="quickCommands"
@@ -43,6 +46,7 @@ const {
     :session-id="sessionId"
     @update-sound="saveSound"
     @update-push-enabled="savePushEnabled"
+    @update-push-kinds="savePushKinds"
     @update-repos="savePrRepos"
     @update-launchers="saveLaunchers"
     @update-quick-commands="saveQuickCommands"

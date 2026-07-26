@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { buildPushDetail, pushWhere, shouldSuppressPush, NO_CWD_LABEL } from "../../../server/session/taskPushRules.js";
+import { buildPushDetail, pushWhere, shouldSuppressPush, wantsPushKind, NO_CWD_LABEL } from "../../../server/session/taskPushRules.js";
 
 describe("buildPushDetail", () => {
   it("prefers the reply over the last prompt and the AI title", () => {
@@ -61,5 +61,27 @@ describe("pushWhere", () => {
   it("falls back to the sentinel label when there is no cwd", () => {
     expect(pushWhere(null)).toBe(NO_CWD_LABEL);
     expect(pushWhere(null)).toBe("session");
+  });
+});
+
+// The setting exists because "waiting" fires once per permission prompt, which on a long task
+// is most of the pushes — a user has to be able to keep the finished-turn ones (#850).
+describe("wantsPushKind", () => {
+  it("sends only a kind the user picked", () => {
+    expect(wantsPushKind(true, ["finished"], "finished")).toBe(true);
+    expect(wantsPushKind(true, ["finished"], "waiting")).toBe(false);
+    expect(wantsPushKind(true, ["waiting"], "waiting")).toBe(true);
+  });
+
+  it("sends nothing while the master switch is off, whatever the kinds say", () => {
+    expect(wantsPushKind(false, ["finished", "waiting"], "finished")).toBe(false);
+    expect(wantsPushKind(false, ["finished", "waiting"], "waiting")).toBe(false);
+  });
+
+  // Distinct from the master switch being off: the user kept "notify me" on and unticked every
+  // moment. Same silence, but the two are stored separately so neither erases the other.
+  it("sends nothing when no kind is picked", () => {
+    expect(wantsPushKind(true, [], "finished")).toBe(false);
+    expect(wantsPushKind(true, [], "waiting")).toBe(false);
   });
 });
