@@ -10,15 +10,16 @@
 // first-run "New book" form on an empty workspace — so no openBook payload is needed.
 import { computed, type ComputedRef } from "vue";
 import { router } from "../router";
+import { overlayOriginState, overlayReturnPath } from "./overlayOrigin";
 
 /** Open the accounting overlay. */
 export function accountingViewOpen(): void {
-  router.push("/accounting");
+  router.push({ path: "/accounting", state: overlayOriginState(router.currentRoute.value.name === "accounting") });
 }
 
-/** Close the accounting overlay → back to chat. */
+/** Close the accounting overlay → back to the view it was opened from. */
 export function accountingViewClose(): void {
-  router.push({ name: "chat" });
+  router.push(overlayReturnPath());
 }
 
 export function useAccountingView(): { isOpen: ComputedRef<boolean>; close: () => void } {

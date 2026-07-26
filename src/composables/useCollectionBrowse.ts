@@ -9,6 +9,7 @@
 import { computed, reactive, watch, type ComputedRef } from "vue";
 import type { ShortcutKind } from "../../common/shortcuts";
 import { router } from "../router";
+import { overlayOriginState, overlayReturnPath } from "./overlayOrigin";
 
 type BrowseView = { mode: "closed" } | { mode: "index"; kind: ShortcutKind } | { mode: "detail"; kind: ShortcutKind; slug: string; selectedId: string | null };
 
@@ -41,6 +42,12 @@ function recordOnCurrentPage(): string | null {
   return state.recordPath !== null && state.recordPath === router.currentRoute.value.path ? state.selectedId : null;
 }
 
+// Which routes count as "already inside this overlay", so index → detail and a ref hop keep
+// the origin the browser was first entered with rather than recording the overlay itself.
+const BROWSE_ROUTES = new Set(["collections", "collectionDetail", "feeds", "feedDetail"]);
+const inBrowse = (): boolean => BROWSE_ROUTES.has(String(router.currentRoute.value.name));
+const browseState = () => overlayOriginState(inBrowse());
+
 function pathFor(kind: ShortcutKind, slug?: string): string {
   const base = kind === "feed" ? "/feeds" : "/collections";
   return slug ? `${base}/${encodeURIComponent(slug)}` : base;
@@ -49,13 +56,13 @@ function pathFor(kind: ShortcutKind, slug?: string): string {
 /** Open the index for a kind (collections / feeds). */
 export function browseGotoIndex(kind: ShortcutKind): void {
   clearRecord();
-  router.push(pathFor(kind));
+  router.push({ path: pathFor(kind), state: browseState() });
 }
 
 /** Open one collection / feed's detail page. */
 export function browseGotoDetail(kind: ShortcutKind, slug: string): void {
   clearRecord();
-  router.push(pathFor(kind, slug));
+  router.push({ path: pathFor(kind, slug), state: browseState() });
 }
 
 /** A ref/embed hop into another collection, optionally deep-linking a record. */
@@ -65,7 +72,7 @@ export function browseNavigateToRecord(targetSlug: string, recordId?: string): v
   // path. Always assign — a hop to the CURRENT page (no path change → no watcher
   // fire) with no recordId must still close any stale modal, not reuse it.
   const targetPath = pathFor("collection", targetSlug);
-  router.push(targetPath).then(() => {
+  router.push({ path: targetPath, state: browseState() }).then(() => {
     state.recordPath = recordId ? targetPath : null;
     state.selectedId = recordId ?? null;
   });
@@ -94,10 +101,10 @@ export function browseSetSelectedId(itemId: string | null): void {
   state.selectedId = itemId;
 }
 
-/** Close the browser overlay → back to chat. */
+/** Close the browser overlay → back to the view it was opened from. */
 export function browseClose(): void {
   clearRecord();
-  router.push({ name: "chat" });
+  router.push(overlayReturnPath());
 }
 
 /** Derive the legacy BrowseView shape from the current route + record state. */

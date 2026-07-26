@@ -9,43 +9,51 @@
 import { computed, type ComputedRef } from "vue";
 import { isSafeWikiSlug } from "@mulmoclaude/core/wiki";
 import { router } from "../router";
+import { overlayOriginState, overlayReturnPath } from "./overlayOrigin";
 
 export type WikiView = { mode: "closed" } | { mode: "index" } | { mode: "page"; slug: string } | { mode: "graph" } | { mode: "lint" };
 
+// Which routes count as "already inside this overlay", so moving between the wiki's own
+// tabs keeps the origin it was first entered with rather than recording the wiki itself.
+const WIKI_ROUTES = new Set(["wiki", "wikiPage", "wikiGraph", "wikiLint"]);
+const inWiki = (): boolean => WIKI_ROUTES.has(String(router.currentRoute.value.name));
+const wikiState = () => overlayOriginState(inWiki());
+
 /** Open the wiki index (the page catalog). */
 export function wikiGotoIndex(): void {
-  router.push("/wiki");
+  router.push({ path: "/wiki", state: wikiState() });
 }
 
 /** Open the wiki index pre-filtered to a tag (e.g. the Worklog shortcut → `#worklog`).
  *  WikiIndexView reads `?tag=` into its initial selection. */
 export function wikiGotoTag(tag: string): void {
-  router.push({ path: "/wiki", query: { tag } });
+  router.push({ path: "/wiki", query: { tag }, state: wikiState() });
 }
 
 /** Open one page by slug. Unsafe slugs are coerced to the index rather than pushing a
  *  route the API would reject — the guard mirrors the server's isSafeWikiSlug. */
 export function wikiGotoPage(slug: string): void {
+  const state = wikiState();
   if (!isSafeWikiSlug(slug)) {
-    router.push("/wiki");
+    router.push({ path: "/wiki", state });
     return;
   }
-  router.push(`/wiki/pages/${encodeURIComponent(slug)}`);
+  router.push({ path: `/wiki/pages/${encodeURIComponent(slug)}`, state });
 }
 
 /** Open the link graph. */
 export function wikiGotoGraph(): void {
-  router.push("/wiki/graph");
+  router.push({ path: "/wiki/graph", state: wikiState() });
 }
 
 /** Open the lint report. */
 export function wikiGotoLint(): void {
-  router.push("/wiki/lint");
+  router.push({ path: "/wiki/lint", state: wikiState() });
 }
 
-/** Close the wiki overlay → back to chat. */
+/** Close the wiki overlay → back to the view it was opened from. */
 export function wikiClose(): void {
-  router.push({ name: "chat" });
+  router.push(overlayReturnPath());
 }
 
 /** Current page slug when on a page route, else undefined. */
