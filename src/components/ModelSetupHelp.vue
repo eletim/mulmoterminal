@@ -7,7 +7,7 @@
 // walkthrough moves below it. Setup instructions that bury the one broken line are how a
 // user ends up re-doing the parts that already worked.
 import { computed, onMounted, onUnmounted, nextTick, ref } from "vue";
-import { trapTabKey } from "../utils/focusTrap";
+import { MODAL_FOCUSABLE, trapTabKey } from "../utils/focusTrap";
 import type { LaunchProviderOption } from "../../common/launchOptions";
 
 const props = defineProps<{ providers: LaunchProviderOption[] }>();
@@ -40,7 +40,7 @@ const modalEl = ref<HTMLElement>();
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape") return emit("close");
   if (e.key !== "Tab" || !modalEl.value) return;
-  trapTabKey(e, modalEl.value, 'button, input, [tabindex]:not([tabindex="-1"])');
+  trapTabKey(e, modalEl.value, MODAL_FOCUSABLE);
 }
 
 onMounted(() => {
