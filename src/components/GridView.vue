@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated } from "vue";
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick } from "vue";
 import TerminalGrid from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
@@ -23,6 +23,9 @@ import {
   setSortMode,
   moveCell,
   moveZoom,
+  toggleZoom,
+  nextAttention,
+  nextAttentionUid,
   orderCells,
   pageSlice,
   activityStatus,
@@ -43,6 +46,7 @@ import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composa
 import { useCaptureKeydown } from "../composables/useCaptureKeydown";
 import { getActiveKeymap } from "../composables/activeKeymap";
 import { preferredLaunchDir } from "./launchDir";
+import * as conn from "../composables/useTerminalConnections";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
 import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
@@ -98,6 +102,9 @@ const cellSessionIds = computed(() => state.value.cells.map((c) => c.session).fi
 const { activity: gridActivity } = useGridActivity(cellSessionIds);
 const statusByUid = reactive<Record<number, CellStatus>>({});
 const onStatus = (uid: number, s: CellStatus) => (statusByUid[uid] = s);
+// Which cell the cursor is in, reported up from the grid. Un-zoomed this is the only notion of
+// "the terminal I am on", so the keyboard shortcuts rotate from it.
+const focusedCellUid = ref<number | null>(null);
 const sessionStatus = computed(() => {
   const m = new Map<string, CellStatus>();
   for (const [id, a] of gridActivity) m.set(id, activityStatus(a.working, a.waiting, a.event));
@@ -325,7 +332,15 @@ const onClose = (uid: number) =>
     uid,
     displayCells.value.map((c) => c.uid),
   ));
-const onToggleExpand = (uid: number) => (state.value = toggleExpand(state.value, uid));
+// Pass the on-screen order so releasing the zoom lands on the page holding the cell that was
+// enlarged — including when the user got there by clicking a roster row or filmstrip thumbnail,
+// which changes what is zoomed without touching the page.
+const onToggleExpand = (uid: number) =>
+  (state.value = toggleExpand(
+    state.value,
+    uid,
+    orderedCells.value.map((c) => c.uid),
+  ));
 const onRun = (uid: number, command: RunCommand) => (state.value = runCommand(state.value, uid, command));
 // A running cell's header Run menu: launch in a spare cell (next to it) so the session survives.
 const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScriptInNewCell(state.value, uid, command));
@@ -397,13 +412,33 @@ function onShortcutKey(e: KeyboardEvent) {
   runShortcut(shortcut);
 }
 
-// Every action but `terminal-new` needs a terminal to act ON, and the zoomed cell is the
-// only one the grid can name — gridShortcutFor has already refused those while un-zoomed.
+// gridShortcutFor has already refused the actions that need a terminal to act ON while
+// un-zoomed. The ones that reach here un-zoomed are the ways IN: `terminal-new`, plus
+// `zoom-toggle` / `next-attention`, which pick the cell to enlarge themselves.
 function runShortcut(shortcut: GridShortcut) {
-  const order = displayCells.value.map((c) => c.uid);
+  // The FULL ordered list, not `displayCells` — which un-zoomed is only the current page.
+  // Both matter: these helpers derive `page` from the index, so a page slice would send an
+  // entry action to page 0 from any other tab, and `next-attention` could not reach a cell
+  // calling from another page even though the toolbar counts those.
+  const order = orderedCells.value.map((c) => c.uid);
   const uid = expandedUid.value;
   if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
     state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
+  } else if (shortcut === "zoom-toggle") {
+    const wasZoomed = expandedUid.value;
+    state.value = toggleZoom(state.value, order, focusedCellUid.value);
+    // Keep the cursor on the same terminal through both directions: enlarging focuses the cell
+    // that was selected, collapsing focuses the one that WAS enlarged, so the grid selection is
+    // where the user just was instead of wherever focus happened to be before.
+    const target = expandedUid.value ?? wasZoomed;
+    if (target !== null) void nextTick(() => conn.focus(`cell-${target}`));
+  } else if (shortcut === "next-attention") {
+    // Focus the terminal it moves to, not just the state. In a plain grid nothing else shows
+    // WHICH cell was picked — the focused cell lifts, and the cursor lands where the user is
+    // being sent, so the next thing they type goes to the terminal that called them.
+    const target = nextAttentionUid(state.value, order, statusForSort.value, focusedCellUid.value);
+    state.value = nextAttention(state.value, order, statusForSort.value, focusedCellUid.value);
+    if (target !== null) void nextTick(() => conn.focus(`cell-${target}`));
   } else if (shortcut === "terminal-new") {
     onAddTerminal();
   } else if (shortcut === "terminal-new-adjacent" && uid !== null) {
@@ -483,6 +518,7 @@ function configureAppearance() {
       @remove-preset="removePreset"
       @close="onClose"
       @toggle-expand="onToggleExpand"
+      @focus-cell="focusedCellUid = $event"
       @run="onRun"
       @run-spare="onRunSpare"
       @launch="onLaunch"

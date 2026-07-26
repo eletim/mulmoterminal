@@ -1,15 +1,24 @@
+import { computed, ref, type ComputedRef } from "vue";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap";
 
-// The active keyboard shortcut map, hydrated once from /api/config and read by the grid's
-// key handler at keydown time. A plain module value, not a ref, for the same reasons as
-// terminalSubmitMode: the handler reads it imperatively, one map applies app-wide, and
-// keeping it here lets useAppConfig set it without importing the grid.
+// The active keyboard shortcut map, hydrated from /api/config and read by the grid's key
+// handler at keydown time.
 //
-// Starts EMPTY, and stays empty when config.json has no `keymap` — the shortcuts are
-// opt-in, so an unconfigured install must never claim a key from the terminal.
-let current: Keymap = {};
+// Starts EMPTY, and stays empty when config.json has no `keymap` — the shortcuts are opt-in,
+// so an unconfigured install must never claim a key from the terminal.
+//
+// A ref rather than a plain module value (unlike terminalSubmitMode, which nothing displays):
+// hydration is ASYNC, and the settings screen renders this map. Opening settings before
+// /api/config resolves would otherwise freeze that screen on "Not set" for its whole lifetime,
+// telling the user they have no shortcuts when they do.
+const current = ref<Keymap>({});
 
-export const getActiveKeymap = (): Keymap => current;
+/** For reactive consumers — anything that RENDERS the keymap. */
+export const activeKeymap: ComputedRef<Keymap> = computed(() => current.value);
+
+/** For the keydown handler, which reads imperatively and wants no ref ceremony. */
+export const getActiveKeymap = (): Keymap => current.value;
+
 export const setActiveKeymap = (keymap: unknown): void => {
-  current = sanitizeKeymap(keymap);
+  current.value = sanitizeKeymap(keymap);
 };

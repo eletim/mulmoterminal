@@ -28,6 +28,9 @@ export interface ShortcutKeyEvent {
 // only such state the grid has — un-zoomed there is no "current terminal", so these do
 // nothing rather than guessing which cell the user meant. `terminal-new` is exempt: appending
 // a cell needs no subject.
+//
+// `zoom-toggle` and `next-attention` are exempt alongside `terminal-new`: they choose the cell
+// to enlarge themselves, which is exactly what makes them the keyboard's way INTO the zoom.
 const NEEDS_A_CURRENT_TERMINAL: readonly GridShortcut[] = ["zoom-next", "zoom-prev", "terminal-new-adjacent", "terminal-close"];
 
 export function gridShortcutFor(keymap: Keymap, e: ShortcutKeyEvent, zoomed: boolean): GridShortcut | null {
