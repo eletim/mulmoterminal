@@ -102,6 +102,20 @@ Spacing/radius use Tailwind's scale on a 4px base: `px-2` = 8px, `px-2.5` = 10px
 - **Verify that a utility *wins*, not just that it exists.** Grepping the built CSS for
   `.px-2\.5{…}` only proves it was generated. Confirm the rendered `getComputedStyle`
   matches the original declaration — that is what catches a cascade-layer loss.
+- **An icon name that isn't in the font renders as its own text.** `<span
+  class="material-symbols-outlined">folder_opne</span>` shows the literal word — a typo is a
+  visible bug, not a blank. The list to check a name against is the **font**, not the
+  package's TypeScript names: `material-symbols@0.45.9`'s `index.d.ts` union omits
+  `auto_awesome` even though the shipped `material-symbols-outlined.woff2` carries the
+  ligature, so validating against the types reports working icons as broken. Read the font —
+  the fiddly part is finding where the brotli stream starts, so scan for it:
+
+  ```bash
+  node -e 'const z=require("node:zlib"),f=require("node:fs");
+  const b=f.readFileSync("node_modules/material-symbols/material-symbols-outlined.woff2");
+  for(let o=48;o<4000;o++){try{const d=z.brotliDecompressSync(b.subarray(o));
+  if(d.length>1e5){console.log(d.toString("latin1").includes(process.argv[1]));break;}}catch{}}' auto_awesome
+  ```
 
 ## Migrating an existing component
 
