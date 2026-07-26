@@ -10,7 +10,7 @@
 //   "keymap": { "zoom-next": "PageDown", "zoom-prev": "Shift+PageUp" }
 
 // Actions a key can be bound to. Adding one here is all it takes for the config to accept it.
-export const KEYMAP_ACTIONS = ["zoom-next", "zoom-prev", "terminal-new", "terminal-new-adjacent", "terminal-close"] as const;
+export const KEYMAP_ACTIONS = ["zoom-toggle", "zoom-next", "zoom-prev", "next-attention", "terminal-new", "terminal-new-adjacent", "terminal-close"] as const;
 export type KeymapAction = (typeof KEYMAP_ACTIONS)[number];
 
 export const isKeymapAction = (value: unknown): value is KeymapAction => typeof value === "string" && (KEYMAP_ACTIONS as readonly string[]).includes(value);

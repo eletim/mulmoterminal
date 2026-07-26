@@ -23,6 +23,8 @@ import {
   setSortMode,
   moveCell,
   moveZoom,
+  toggleZoom,
+  nextAttention,
   orderCells,
   pageSlice,
   activityStatus,
@@ -387,13 +389,18 @@ function onShortcutKey(e: KeyboardEvent) {
   runShortcut(shortcut);
 }
 
-// Every action but `terminal-new` needs a terminal to act ON, and the zoomed cell is the
-// only one the grid can name — gridShortcutFor has already refused those while un-zoomed.
+// gridShortcutFor has already refused the actions that need a terminal to act ON while
+// un-zoomed. The ones that reach here un-zoomed are the ways IN: `terminal-new`, plus
+// `zoom-toggle` / `next-attention`, which pick the cell to enlarge themselves.
 function runShortcut(shortcut: GridShortcut) {
   const order = displayCells.value.map((c) => c.uid);
   const uid = expandedUid.value;
   if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
     state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
+  } else if (shortcut === "zoom-toggle") {
+    state.value = toggleZoom(state.value, order);
+  } else if (shortcut === "next-attention") {
+    state.value = nextAttention(state.value, order, statusForSort.value);
   } else if (shortcut === "terminal-new") {
     onAddTerminal();
   } else if (shortcut === "terminal-new-adjacent" && uid !== null) {

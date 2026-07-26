@@ -191,6 +191,45 @@ export function moveZoom(state: GridState, order: readonly number[], dir: -1 | 1
   return { ...state, expanded: next, page: Math.floor(at / PAGE_SIZE) };
 }
 
+// Zoom `order[at]`, following the page so collapsing lands on it. Shared by every keyboard
+// action that ENTERS the zoom, all of which must respect the same "zoom needs a second cell"
+// rule toggleExpand enforces (see below).
+function zoomAt(state: GridState, order: readonly number[], at: number): GridState {
+  const uid = order[at];
+  if (uid === undefined || runningCount(state.cells) < 2) return state;
+  if (!state.cells.some((c) => c.uid === uid)) return state;
+  return { ...state, expanded: uid, page: Math.floor(at / PAGE_SIZE) };
+}
+
+// The keyboard's way in and out of the zoom (#829). Every other zoom action needs something
+// already enlarged, so without this one a keymap cannot be used at all without first reaching
+// for the ⤢ button.
+//
+// Un-zoomed there is no "current" cell to enlarge, so it takes the FIRST in the on-screen
+// order — which under the "auto" sort is the one most wanting attention.
+export function toggleZoom(state: GridState, order: readonly number[]): GridState {
+  return zoomedUid(state) !== null ? { ...state, expanded: null } : zoomAt(state, order, 0);
+}
+
+// Cells the user is being called by: `blocked` (needs an answer now) before `done` (finished,
+// unreviewed). Anything else is not asking for them.
+const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done"];
+
+// Jump to the next terminal that wants the user, cycling from wherever the zoom is now — the
+// "take me to whoever called" key. Also works un-zoomed, where it doubles as a way in.
+//
+// Wraps deliberately: this is a round of pending cells, not a list with ends, so pressing it
+// repeatedly walks all of them and comes back rather than stopping on the last.
+export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): GridState {
+  const from = order.indexOf(zoomedUid(state) ?? -1); // -1 when un-zoomed => search starts at 0
+  const rotated = order.map((_, i) => (from + 1 + i) % order.length);
+  for (const status of ATTENTION_ORDER) {
+    const at = rotated.find((i) => statusByUid[order[i]] === status);
+    if (at !== undefined) return zoomAt(state, order, at);
+  }
+  return state;
+}
+
 // Zooming shows one cell big with the others as a filmstrip beside it, so it only means
 // anything when there IS another cell to switch to. With a single occupied cell the ⤢ button
 // used to swap a working layout for a filmstrip containing nothing, and squeeze the

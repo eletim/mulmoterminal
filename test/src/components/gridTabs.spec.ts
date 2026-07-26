@@ -20,6 +20,8 @@ import {
   setSortMode,
   moveCell,
   moveZoom,
+  toggleZoom,
+  nextAttention,
   orderCells,
   visibleOrdered,
   activityStatus,
@@ -224,6 +226,94 @@ describe("moveZoom (Page Up / Page Down walk the zoom along the filmstrip)", () 
     const after = moveZoom(s, reversed, 1);
     expect(after.expanded).toBe(10); // the next one in the ON-SCREEN order
     expect(after.page).toBe(0);
+  });
+});
+
+describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
+  it("collapses when something is zoomed", () => {
+    expect(toggleZoom(make(running(3), { expanded: 1 }), [0, 1, 2]).expanded).toBeNull();
+  });
+
+  it("enlarges the FIRST cell in the on-screen order when nothing is zoomed", () => {
+    expect(toggleZoom(make(running(3)), [2, 0, 1]).expanded).toBe(2);
+  });
+
+  it("refuses to zoom with fewer than two running cells (same rule as toggleExpand)", () => {
+    const s = make([cell(0, U(0)), cell(1)]); // one running + one empty launcher
+    expect(toggleZoom(s, [0, 1])).toBe(s);
+  });
+
+  it("still collapses even with one running cell — ⤡ must always get you out", () => {
+    expect(toggleZoom(make([cell(0, U(0))], { expanded: 0 }), [0]).expanded).toBeNull();
+  });
+
+  it("does nothing with an empty order", () => {
+    const s = make(running(3));
+    expect(toggleZoom(s, [])).toBe(s);
+  });
+
+  it("follows the page to the cell it enlarges", () => {
+    const s = make(running(12));
+    const order = s.cells.map((c) => c.uid);
+    expect(toggleZoom(s, order.slice(9)).page).toBe(0); // order[0] is index 0 of what it was given
+  });
+});
+
+describe("nextAttention (jump to a terminal that needs you)", () => {
+  const status = (m: Record<number, CellStatus>): Record<number, CellStatus> => m;
+
+  it("jumps to a blocked cell from un-zoomed — doubling as a way into the zoom", () => {
+    const after = nextAttention(make(running(3)), [0, 1, 2], status({ 0: "working", 1: "idle", 2: "blocked" }));
+    expect(after.expanded).toBe(2);
+  });
+
+  it("prefers blocked over done, even when done is nearer", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 0: "idle", 1: "done", 2: "blocked" }));
+    expect(after.expanded).toBe(2);
+  });
+
+  it("starts from the cell AFTER the zoomed one", () => {
+    const st = status({ 0: "done", 1: "done", 2: "done" });
+    expect(nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], st).expanded).toBe(1);
+    expect(nextAttention(make(running(3), { expanded: 1 }), [0, 1, 2], st).expanded).toBe(2);
+  });
+
+  it("wraps around, so repeated presses cycle instead of stopping at the end", () => {
+    const st = status({ 0: "done", 1: "idle", 2: "done" });
+    expect(nextAttention(make(running(3), { expanded: 2 }), [0, 1, 2], st).expanded).toBe(0);
+  });
+
+  it("stays put when the zoomed cell is the ONLY one wanting attention", () => {
+    const st = status({ 0: "idle", 1: "blocked", 2: "idle" });
+    expect(nextAttention(make(running(3), { expanded: 1 }), [0, 1, 2], st).expanded).toBe(1);
+  });
+
+  it("does nothing when nothing needs attention", () => {
+    const s = make(running(3), { expanded: 0 });
+    expect(nextAttention(s, [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }))).toBe(s);
+  });
+
+  it("treats working and idle as NOT calling — only blocked/done are", () => {
+    const s = make(running(2));
+    expect(nextAttention(s, [0, 1], status({ 0: "working", 1: "working" }))).toBe(s);
+  });
+
+  it("does nothing with an empty order", () => {
+    const s = make(running(3));
+    expect(nextAttention(s, [], {})).toBe(s);
+  });
+
+  it("respects the two-running-cells rule when entering the zoom", () => {
+    const s = make([cell(0, U(0)), cell(1)]);
+    expect(nextAttention(s, [0, 1], status({ 0: "blocked" }))).toBe(s);
+  });
+
+  it("follows the page to the cell it jumps to", () => {
+    const s = make(running(12));
+    const order = s.cells.map((c) => c.uid);
+    const after = nextAttention(s, order, status({ 10: "blocked" }));
+    expect(after.expanded).toBe(10);
+    expect(after.page).toBe(1);
   });
 });
 

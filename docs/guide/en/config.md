@@ -183,14 +183,18 @@ terminal stops receiving**, and only you know whether that trade is worth it for
 
 | Action | What it does | Needs a zoomed cell |
 |---|---|---|
+| `zoom-toggle` | **Enlarge / collapse.** Un-zoomed it enlarges the first terminal in the on-screen order | no |
 | `zoom-next` | Move the enlargement to the **next** terminal in the on-screen order | yes |
 | `zoom-prev` | Same, to the **previous** one | yes |
+| `next-attention` | **Jump to a terminal that needs you** — awaiting input first, then finished-and-unreviewed. Cycles, and enlarges the terminal it lands on | no |
 | `terminal-new` | Add a terminal at the **end** (same as the toolbar's `New terminal ＋`) | no |
 | `terminal-new-adjacent` | Add a terminal **right after the current one**, inheriting its working directory — the closest thing to "split this terminal" | yes |
 | `terminal-close` | **Close** the current terminal (same as its `✕`) | yes |
 
 Most actions need a terminal to act *on*, and the zoomed cell is the only one the grid can name — an
-un-zoomed grid has no "current terminal", so those do nothing rather than guessing. The zoom moves **stop at
+un-zoomed grid has no "current terminal", so those do nothing rather than guessing. **Bind at least one
+of `zoom-toggle` / `next-attention`**: without a way in, every "needs a zoomed cell" action stays out of
+reach until you click `⤢` with the mouse. The zoom moves **stop at
 both ends** instead of wrapping. See [Basics → switching the enlarged terminal](basics.html#keyboard-zoom-switch).
 
 {: .warning }
