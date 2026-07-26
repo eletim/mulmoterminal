@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated } from "vue";
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick } from "vue";
 import TerminalGrid from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
@@ -25,6 +25,7 @@ import {
   moveZoom,
   toggleZoom,
   nextAttention,
+  nextAttentionUid,
   orderCells,
   pageSlice,
   activityStatus,
@@ -45,6 +46,7 @@ import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composa
 import { useCaptureKeydown } from "../composables/useCaptureKeydown";
 import { getActiveKeymap } from "../composables/activeKeymap";
 import { preferredLaunchDir } from "./launchDir";
+import * as conn from "../composables/useTerminalConnections";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
 import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
@@ -422,7 +424,12 @@ function runShortcut(shortcut: GridShortcut) {
   } else if (shortcut === "zoom-toggle") {
     state.value = toggleZoom(state.value, order);
   } else if (shortcut === "next-attention") {
+    // Focus the terminal it moves to, not just the state. In a plain grid nothing else shows
+    // WHICH cell was picked — the focused cell lifts, and the cursor lands where the user is
+    // being sent, so the next thing they type goes to the terminal that called them.
+    const target = nextAttentionUid(state.value, order, statusForSort.value);
     state.value = nextAttention(state.value, order, statusForSort.value);
+    if (target !== null) void nextTick(() => conn.focus(`cell-${target}`));
   } else if (shortcut === "terminal-new") {
     onAddTerminal();
   } else if (shortcut === "terminal-new-adjacent" && uid !== null) {

@@ -253,6 +253,13 @@ export function nextAttention(state: GridState, order: readonly number[], status
   return zoomedUid(state) !== null ? { ...state, expanded: order[at] } : { ...state, page: Math.floor(at / PAGE_SIZE) };
 }
 
+/** The uid of the terminal `nextAttention` would move to, or null. Exported so the caller can
+ *  also put the cursor there — in a plain grid that focus IS the visible "you are here". */
+export function nextAttentionUid(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): number | null {
+  const at = nextCandidate(state, order, statusByUid);
+  return at === undefined ? null : order[at];
+}
+
 // The index in `order` of the next terminal worth going to, starting after wherever the zoom
 // is now, or undefined when there is none.
 function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): number | undefined {

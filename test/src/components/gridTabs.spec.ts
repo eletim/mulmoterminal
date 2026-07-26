@@ -22,6 +22,7 @@ import {
   moveZoom,
   toggleZoom,
   nextAttention,
+  nextAttentionUid,
   orderCells,
   visibleOrdered,
   activityStatus,
@@ -370,6 +371,19 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
   it("does nothing with an empty order", () => {
     const s = make(running(3));
     expect(nextAttention(s, [], {})).toBe(s);
+  });
+
+  it("reports the uid it would move to, so the caller can focus that terminal", () => {
+    const st = status({ 0: "idle", 1: "working", 2: "blocked" });
+    expect(nextAttentionUid(make(running(3)), [0, 1, 2], st)).toBe(2);
+    // Same rotation as nextAttention: starts after the zoomed cell. Here every remaining cell
+    // is idle or working, so it settles on the idle one rather than the mid-turn cell.
+    expect(nextAttentionUid(make(running(3), { expanded: 2 }), [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }))).toBe(0);
+  });
+
+  it("reports null when there is nowhere to move", () => {
+    expect(nextAttentionUid(make(running(2)), [0, 1], status({ 0: "working", 1: "working" }))).toBeNull();
+    expect(nextAttentionUid(make(running(2)), [], {})).toBeNull();
   });
 
   it("leaves an un-zoomed grid alone when the candidate is already on screen", () => {
