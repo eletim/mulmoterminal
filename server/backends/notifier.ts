@@ -8,9 +8,9 @@ import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import { configureNotifier, setNotifierFilePaths, listAll, listHistory, clear } from "@mulmoclaude/core/notifier";
-import type { createPubSub } from "../infra/pubsub.js";
+import type { Publisher } from "../infra/pubsub.js";
 
-type PubSub = ReturnType<typeof createPubSub>;
+type PubSub = Publisher;
 
 /** Pubsub channel the engine fans out on; the frontend bell subscribes to the same
  *  string (mirrored in src/composables/useNotifications.ts). */

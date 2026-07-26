@@ -55,6 +55,7 @@ import { reportActiveTerminals } from "../composables/useUnloadGuard";
 import { useAppConfig } from "../composables/useAppConfig";
 import { fetchDirConfig, invalidateDirConfig } from "../composables/useDirConfig";
 import { usePubSub } from "../composables/usePubSub";
+import type { LaunchAgent } from "../../common/launchAgent";
 
 // The multi-terminal grid view, shown at /terminals. Leaving the grid is just a
 // route push from the shared toolbar (Chat / Collections / a favorite), so there's
@@ -353,10 +354,19 @@ onMounted(() => {
 // grid instead of routing here. openTerminalAt then queues + navigates while we're deactivated.
 const SLOT_UID_RE = /^cell-(\d+)$/;
 let offNewTerminal: (() => void) | null = null;
-const openNewTerminal = ({ cwd, afterSlotKey }: NewTerminalRequest) => {
+// Each kind is already expressible as a cell: a shell is a shell launcher, codex is marked
+// with `agent`, and Claude is the plain default. The session id arrives from the server once
+// the cell opens its socket, so all three persist and reconnect like any other cell.
+const cellForAgent = (cwd: string, agent: LaunchAgent | undefined): Omit<Cell, "uid"> => {
+  if (agent === "claude") return { session: null, cwd };
+  if (agent === "codex") return { session: null, cwd, agent: "codex" };
+  return shellCell(cwd);
+};
+
+const openNewTerminal = ({ cwd, afterSlotKey, agent }: NewTerminalRequest) => {
   const match = afterSlotKey?.match(SLOT_UID_RE);
   const afterUid = match ? Number(match[1]) : NO_ORIGIN_UID;
-  state.value = insertCellAfter(state.value, afterUid, shellCell(cwd));
+  state.value = insertCellAfter(state.value, afterUid, cellForAgent(cwd, agent));
 };
 const detachNewTerminal = () => {
   offNewTerminal?.();
