@@ -271,7 +271,7 @@ const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done", "idle"];
 // Wraps deliberately: this is a round of pending cells, not a list with ends, so pressing it
 // repeatedly walks all of them and comes back rather than stopping on the last.
 export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null = null): GridState {
-  const at = nextCandidate(order, statusByUid, zoomedUid(state) ?? fromUid);
+  const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
   if (at === undefined) return state;
   // NEVER enlarges or collapses — that is toggleZoom's job alone. Zoomed, this moves which
   // terminal is enlarged; un-zoomed, it brings the candidate's page on screen and leaves the
@@ -287,7 +287,7 @@ export function nextAttentionUid(
   statusByUid: Record<number, CellStatus>,
   fromUid: number | null = null,
 ): number | null {
-  const at = nextCandidate(order, statusByUid, zoomedUid(state) ?? fromUid);
+  const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
   return at === undefined ? null : order[at];
 }
 
@@ -298,14 +298,18 @@ export function nextAttentionUid(
 // press picks the same first candidate and the key appears dead after the first one. Zoomed,
 // that origin is the enlarged cell; un-zoomed it has to be the focused one, which only the
 // caller knows.
-function nextCandidate(order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null): number | undefined {
+function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null): number | undefined {
   if (order.length === 0) return undefined;
   const from = order.indexOf(fromUid ?? -1); // -1 when nothing is current => search starts at 0
   const rotated = order.map((_, i) => (from + 1 + i) % order.length);
+  // The empty launch cell is not a terminal, so it is never somewhere to send anyone — and it
+  // would otherwise be picked constantly, since a cell with no reported status reads as `idle`
+  // below and a launcher never reports one. countByStatus skips it for the same reason.
+  const occupied = new Set(state.cells.filter(isOccupied).map((c) => c.uid));
   for (const status of ATTENTION_ORDER) {
     // Absent = idle, the convention CellStatus documents: a cell whose status has not been
     // reported yet must not fall out of the search entirely.
-    const at = rotated.find((i) => (statusByUid[order[i]] ?? "idle") === status);
+    const at = rotated.find((i) => occupied.has(order[i]) && (statusByUid[order[i]] ?? "idle") === status);
     if (at !== undefined) return at;
   }
   return undefined;

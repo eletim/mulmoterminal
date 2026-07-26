@@ -378,6 +378,31 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     expect(nextAttention(s, [], {})).toBe(s);
   });
 
+  // The trailing launch cell is not a terminal. It also never reports a status, so without an
+  // explicit skip it reads as `idle` and gets picked constantly — including as the cell to
+  // ENLARGE while zoomed. `ensureEntry`/`addCell` mean one is almost always present.
+  it("never picks the empty launch cell, even when it is the only idle thing left", () => {
+    const s = make([cell(0, U(0)), cell(1)]); // one running terminal + the trailing launcher
+    expect(nextAttentionUid(s, [0, 1], { 0: "working" }, null)).toBeNull();
+  });
+
+  it("picks the idle TERMINAL and skips the launcher beside it", () => {
+    const s = make([cell(0, U(0)), cell(1, U(1)), cell(2)]); // two terminals + a launcher
+    expect(nextAttentionUid(s, [0, 1, 2], { 0: "working" }, null)).toBe(1);
+  });
+
+  it("does not enlarge a launcher when zoomed and nothing else is idle", () => {
+    const s = make([cell(0, U(0)), cell(1, U(1)), cell(2)], { expanded: 1 });
+    const after = nextAttention(s, [0, 1, 2], { 0: "working", 1: "working" }, null);
+    expect(after.expanded).toBe(1); // unchanged — never the launcher at uid 2
+  });
+
+  it("still counts a command or launcher-backed cell as a real terminal", () => {
+    // Occupied means session OR command OR launcher — a shell cell is somewhere worth going.
+    const s = make([cell(0, U(0)), { uid: 1, session: null, cwd: "/w", launcher: { shell: true, label: "shell" } }]);
+    expect(nextAttentionUid(s, [0, 1], { 0: "working" }, null)).toBe(1);
+  });
+
   it("reports the uid it would move to, so the caller can focus that terminal", () => {
     const st = status({ 0: "idle", 1: "working", 2: "blocked" });
     expect(nextAttentionUid(make(running(3)), [0, 1, 2], st)).toBe(2);
