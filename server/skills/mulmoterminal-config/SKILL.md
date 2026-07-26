@@ -287,11 +287,27 @@ never add one they did not request.
 
 | Action | What it does | Needs a zoomed cell |
 |---|---|---|
+| `zoom-toggle` | Enlarge / collapse — the only action that changes that; it enlarges whichever terminal the cursor is in | no |
 | `zoom-next` / `zoom-prev` | Move the enlargement along the on-screen order | yes |
+| `next-attention` | Move to the next terminal awaiting input, then finished-unreviewed, then idle — skipping cells mid-turn. Never enlarges or collapses | no |
 | `terminal-new` | Add a terminal at the end (the toolbar's `＋`) | no |
 | `terminal-new-adjacent` | Add one right after the current terminal, inheriting its cwd | yes |
 | `terminal-close` | Close the current terminal | yes |
 
+**Offer one of these starter sets rather than inventing keys** — each is checked against the traps
+below, and the guide documents them at
+[Configuration → Keyboard shortcuts](https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap):
+
+| Set | Keys | Suits |
+|---|---|---|
+| Minimal | `zoom-toggle: F8`, `next-attention: F9` | Anyone starting out — the two that open the feature up |
+| Arrows | `Alt+ArrowUp/Left/Right/Down` | **The safe cross-platform default; the only one to offer a Mac user unprompted** |
+| tmux-flavoured | `Alt+z / n / p / a / c / x` | Someone with tmux muscle memory — but NOT on macOS (Alt+letter is dead there) |
+| iTerm2-flavoured | `Cmd+Enter`, `Cmd+[` / `]`, `Cmd+d` | Mac users who think in iTerm2 panes |
+
+- **Always bind `zoom-toggle` or `next-attention`.** Everything marked "yes" above needs something
+  already enlarged, so a keymap without one of these two cannot be used without a mouse click first.
+  Offer `next-attention` to anyone running several agents — it is the "take me to whoever called" key.
 - Syntax is `Modifier+Modifier+Key`; modifiers are `Shift` / `Ctrl` (`Control`) / `Alt` (`Option`) /
   `Cmd` (`Command`, `Meta`), case-insensitive. The key is matched against the browser's
   `KeyboardEvent.key` — `PageDown`, `Home`, `ArrowUp`, `a` — and is **case-sensitive** for letters.
@@ -312,6 +328,8 @@ never add one they did not request.
 - **`terminal-close` ends the session with no confirmation.** Only bind it if the user asks, and
   suggest a combination they will not hit by accident.
 - This is a partial `POST /api/config` merge — write only `keymap`, so their other settings survive.
+- After writing, tell the user they can check the result in **⚙ Settings → Keyboard shortcuts**, which
+  lists every action and its binding (read-only).
 - The browser reads the keymap on page load: **reload the tab** after writing. A hand-edit made while
   the server is running also needs a server restart before it reaches the page.
 

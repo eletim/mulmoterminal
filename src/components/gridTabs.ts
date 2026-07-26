@@ -186,9 +186,133 @@ export function moveZoom(state: GridState, order: readonly number[], dir: -1 | 1
   const at = from + dir;
   const next = at >= 0 ? order[at] : undefined;
   if (next === undefined || !state.cells.some((c) => c.uid === next)) return state;
-  // Follow the zoom with the page, so collapsing lands on the cell the user was just
-  // looking at instead of wherever they zoomed in from (insertCellAfter does the same).
-  return { ...state, expanded: next, page: Math.floor(at / PAGE_SIZE) };
+  return { ...state, expanded: next };
+}
+
+// ---------------------------------------------------------------------------------------
+// ZOOM INVARIANTS (#829). Every one of these was broken at least once while building this,
+// and each break looked like a different symptom, so they are written down rather than left
+// to be re-derived. Anything added here must keep all five; the tests named "zoom invariants"
+// in gridTabs.spec.ts and GridView.spec.ts fail loudly if not.
+//
+//  1. ONLY `toggleZoom` changes WHETHER the grid is zoomed. The movement actions (moveZoom,
+//     nextAttention) relocate the enlargement or the page and never enter or leave the zoom.
+//     A key that sometimes rearranges the whole layout is unpredictable to use.
+//     (`closeCell` is the deliberate exception — closing the enlarged cell has to do
+//     something about it, and it walks the zoom to a neighbour.)
+//
+//  2. `order` is ALWAYS the whole un-paged ordered list. Un-zoomed the grid renders only a
+//     page of it, so passing that slice hides cells on other pages from the search AND makes
+//     every index-to-page calculation below wrong.
+//
+//  3. `page` is decided at exactly ONE moment: releasing the zoom, from where the enlarged
+//     cell sits. It is unused while zoomed (every cell renders, the tab bar is hidden), and
+//     the page someone zoomed in FROM stops being true as soon as they walk the filmstrip.
+//
+//  4. There is ONE notion of "the current terminal": the enlarged cell while zoomed, the
+//     focused cell otherwise. Never a second stored copy — a remembered uid and the live
+//     focus disagree the moment the selection moves, and then expanding jumps somewhere the
+//     user was not.
+//
+//  5. Entering the zoom needs two running cells (toggleExpand's rule, #374); LEAVING it is
+//     never refused, whatever state the grid got into.
+// ---------------------------------------------------------------------------------------
+
+// Zoom `order[at]`, honouring invariant 5. Shared by every action that ENTERS the zoom so the
+// rule cannot be forgotten at one entry point.
+function zoomAt(state: GridState, order: readonly number[], at: number): GridState {
+  const uid = order[at];
+  if (uid === undefined || runningCount(state.cells) < 2) return state;
+  if (!state.cells.some((c) => c.uid === uid)) return state;
+  return { ...state, expanded: uid };
+}
+
+// Which page to show once the zoom is released: the one holding the cell that was enlarged.
+//
+// Derived HERE rather than carried along, because the page someone zoomed in from stops being
+// true the moment they walk the filmstrip — after paging through terminals, "go back to where
+// you started" lands them nowhere near what they were just reading. `page` is unused while
+// zoomed (the grid renders every cell and the tab bar is hidden), so this is the only moment
+// it has to be right.
+const pageHolding = (order: readonly number[], uid: number, fallback: number): number => {
+  const at = order.indexOf(uid);
+  return at < 0 ? fallback : Math.floor(at / PAGE_SIZE);
+};
+
+// The keyboard's way in and out of the zoom (#829). Every other zoom action needs something
+// already enlarged, so without this one a keymap cannot be used at all without first reaching
+// for the ⤢ button.
+//
+// Un-zoomed there is no "current" cell to enlarge, so it takes the first one ON THE PAGE THE
+// USER IS LOOKING AT — `order` is the whole un-paged list, so index 0 would be a cell from the
+// first tab, enlarging something off-screen and dragging the page back to 0 with it.
+export function toggleZoom(state: GridState, order: readonly number[], fromUid: number | null = null): GridState {
+  const uid = zoomedUid(state);
+  if (uid !== null) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
+  // Enlarge whatever is SELECTED — the focused cell, which the caller supplies because only it
+  // knows where the cursor is. There is deliberately no separate "last enlarged" memory: it
+  // would fight the live selection, so collapsing and re-expanding would jump somewhere else.
+  const at = fromUid !== null ? order.indexOf(fromUid) : -1;
+  return zoomAt(state, order, at >= 0 ? at : state.page * PAGE_SIZE);
+}
+
+// Search order for "somewhere worth going": the two states that are actually calling —
+// `blocked` (needs an answer now) then `done` (finished, unreviewed) — and `idle` as a
+// fallback, so the key still moves on a board where nothing happens to be waiting.
+//
+// `working` is deliberately absent: a cell mid-turn is the one place the user has no reason to
+// be, and skipping it is what stops this from being a plain "next cell". This mirrors the
+// attention RANK the "auto" sort already uses, where idle likewise outranks working.
+const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done", "idle"];
+
+// Jump to the next terminal that wants the user, cycling from wherever the zoom is now — the
+// "take me to whoever called" key. Also works un-zoomed, where it doubles as a way in.
+//
+// Wraps deliberately: this is a round of pending cells, not a list with ends, so pressing it
+// repeatedly walks all of them and comes back rather than stopping on the last.
+export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null = null): GridState {
+  const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
+  if (at === undefined) return state;
+  // NEVER enlarges or collapses — that is toggleZoom's job alone. Zoomed, this moves which
+  // terminal is enlarged; un-zoomed, it brings the candidate's page on screen and leaves the
+  // grid a grid. A key that sometimes changed the whole layout would be unpredictable.
+  return zoomedUid(state) !== null ? { ...state, expanded: order[at] } : { ...state, page: Math.floor(at / PAGE_SIZE) };
+}
+
+/** The uid of the terminal `nextAttention` would move to, or null. Exported so the caller can
+ *  also put the cursor there — in a plain grid that focus IS the visible "you are here". */
+export function nextAttentionUid(
+  state: GridState,
+  order: readonly number[],
+  statusByUid: Record<number, CellStatus>,
+  fromUid: number | null = null,
+): number | null {
+  const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
+  return at === undefined ? null : order[at];
+}
+
+// The index in `order` of the next terminal worth going to, starting after `from`, or undefined
+// when there is none.
+//
+// `from` matters more than it looks: without it the rotation always begins at index 0, so every
+// press picks the same first candidate and the key appears dead after the first one. Zoomed,
+// that origin is the enlarged cell; un-zoomed it has to be the focused one, which only the
+// caller knows.
+function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null): number | undefined {
+  if (order.length === 0) return undefined;
+  const from = order.indexOf(fromUid ?? -1); // -1 when nothing is current => search starts at 0
+  const rotated = order.map((_, i) => (from + 1 + i) % order.length);
+  // The empty launch cell is not a terminal, so it is never somewhere to send anyone — and it
+  // would otherwise be picked constantly, since a cell with no reported status reads as `idle`
+  // below and a launcher never reports one. countByStatus skips it for the same reason.
+  const occupied = new Set(state.cells.filter(isOccupied).map((c) => c.uid));
+  for (const status of ATTENTION_ORDER) {
+    // Absent = idle, the convention CellStatus documents: a cell whose status has not been
+    // reported yet must not fall out of the search entirely.
+    const at = rotated.find((i) => occupied.has(order[i]) && (statusByUid[order[i]] ?? "idle") === status);
+    if (at !== undefined) return at;
+  }
+  return undefined;
 }
 
 // Zooming shows one cell big with the others as a filmstrip beside it, so it only means
@@ -197,8 +321,8 @@ export function moveZoom(state: GridState, order: readonly number[], dir: -1 | 1
 // terminal's status bar and input off the bottom of the viewport for no gain (#374).
 //
 // Collapsing is never refused: whatever a state got into, ⤡ has to get out of it.
-export function toggleExpand(state: GridState, uid: number): GridState {
-  if (state.expanded === uid) return { ...state, expanded: null };
+export function toggleExpand(state: GridState, uid: number, order: readonly number[] = []): GridState {
+  if (state.expanded === uid) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
   if (runningCount(state.cells) < 2) return state;
   return { ...state, expanded: uid };
 }

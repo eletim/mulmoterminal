@@ -184,19 +184,100 @@ terminal stops receiving**, and only you know whether that trade is worth it for
 
 | Action | What it does | Needs a zoomed cell |
 |---|---|---|
+| `zoom-toggle` | **Enlarge / collapse** — the only action that does. Enlarges the terminal the cursor is in, and collapsing leaves the cursor there | no |
 | `zoom-next` | Move the enlargement to the **next** terminal in the on-screen order | yes |
 | `zoom-prev` | Same, to the **previous** one | yes |
+| `next-attention` | **Move to the next terminal worth looking at** — awaiting input first, then finished-and-unreviewed, then idle; cells mid-turn are skipped. Cycles. **Never enlarges or collapses**: zoomed it moves which terminal is enlarged, un-zoomed it moves the keyboard focus there (the focused cell lifts), switching page if needed | no |
 | `terminal-new` | Add a terminal at the **end** (same as the toolbar's `New terminal ＋`) | no |
 | `terminal-new-adjacent` | Add a terminal **right after the current one**, inheriting its working directory — the closest thing to "split this terminal" | yes |
 | `terminal-close` | **Close** the current terminal (same as its `✕`) | yes |
 
 Most actions need a terminal to act *on*, and the zoomed cell is the only one the grid can name — an
-un-zoomed grid has no "current terminal", so those do nothing rather than guessing. The zoom moves **stop at
+un-zoomed grid has no "current terminal", so those do nothing rather than guessing. **Bind at least one
+of `zoom-toggle` / `next-attention`**: without a way in, every "needs a zoomed cell" action stays out of
+reach until you click `⤢` with the mouse. The zoom moves **stop at
 both ends** instead of wrapping. See [Basics → switching the enlarged terminal](basics.html#keyboard-zoom-switch).
 
 {: .warning }
 > **`terminal-close` closes immediately, with no confirmation** — the same as clicking the cell's `✕`, which
 > ends that session. Bind it to something you won't hit by accident.
+
+### Ready-made keymaps
+
+Nothing is bound by default, so start from whichever of these matches the muscle memory you
+already have and edit from there. Every key below is checked against the traps in
+[Combinations that cannot be bound](#macos-keys).
+
+**Minimal — just get into the zoom and back**
+
+The two that matter most: without one of these, every "needs a zoomed cell" action is out of
+reach until you click `⤢`.
+
+```json
+{ "keymap": { "zoom-toggle": "F8", "next-attention": "F9" } }
+```
+
+**tmux-flavoured** — if `Ctrl`+`B` is already in your fingers, note that binding it here takes it
+away from tmux itself. These use `Alt` instead, which tmux leaves alone.
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Alt+z",
+    "zoom-next": "Alt+n",
+    "zoom-prev": "Alt+p",
+    "next-attention": "Alt+a",
+    "terminal-new": "Alt+c",
+    "terminal-close": "Alt+x"
+  }
+}
+```
+
+{: .warning }
+> On **macOS** `Alt`+letter does not work — `Option` types an alternate character, so the letter
+> never arrives (see [above](#macos-keys)). Mac users want the arrows version below.
+
+**iTerm2-flavoured** — closest to `Cmd`+`D` splitting a pane. `terminal-new-adjacent` opens the
+new terminal next to the current one, inheriting its directory, which is the nearest thing the
+grid has to a split.
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Cmd+Enter",
+    "zoom-next": "Cmd+]",
+    "zoom-prev": "Cmd+[",
+    "next-attention": "Cmd+Shift+A",
+    "terminal-new-adjacent": "Cmd+d"
+  }
+}
+```
+
+{: .note }
+> `Cmd`+`W` is **not** here on purpose — the browser reserves it, so a close binding cannot use it.
+> `Cmd`+`Shift`+`W` works if you want one.
+
+**Arrow keys — the safest cross-platform set.** Arrows are unaffected by the macOS `Option`
+problem and are not browser-reserved, so this one behaves the same everywhere.
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Alt+ArrowUp",
+    "zoom-next": "Alt+ArrowRight",
+    "zoom-prev": "Alt+ArrowLeft",
+    "next-attention": "Alt+ArrowDown",
+    "terminal-new-adjacent": "Alt+Shift+ArrowRight"
+  }
+}
+```
+
+**Supervising many agents** — one key, pressed repeatedly, to walk everything that wants you:
+awaiting input first, then finished-and-unreviewed, then idle, skipping whatever is mid-turn.
+
+```json
+{ "keymap": { "next-attention": "F9", "zoom-toggle": "F8" } }
+```
 
 ### Binding syntax
 

@@ -20,6 +20,9 @@ import {
   setSortMode,
   moveCell,
   moveZoom,
+  toggleZoom,
+  nextAttention,
+  nextAttentionUid,
   orderCells,
   visibleOrdered,
   activityStatus,
@@ -192,28 +195,22 @@ describe("moveZoom (Page Up / Page Down walk the zoom along the filmstrip)", () 
     expect(moveZoom(s, [0, 1, 42], 1)).toBe(s);
   });
 
-  it("follows the zoom with the page, so collapsing lands on the cell just viewed", () => {
+  it("collapsing after walking forward lands on the page holding the cell just viewed", () => {
     // 12 terminals = 2 pages. Zoomed on the last cell of page 0, stepping forward
     // crosses onto page 1.
     const s = make(running(12), { expanded: 8, page: 0 });
-    const after = moveZoom(
-      s,
-      s.cells.map((c) => c.uid),
-      1,
-    );
-    expect(after.expanded).toBe(9);
-    expect(after.page).toBe(1);
+    const order = s.cells.map((c) => c.uid);
+    const moved = moveZoom(s, order, 1);
+    expect(moved.expanded).toBe(9);
+    expect(toggleZoom(moved, order).page).toBe(1);
   });
 
-  it("walks the page back when stepping backwards across the boundary", () => {
+  it("collapsing after walking backwards lands on the earlier page", () => {
     const s = make(running(12), { expanded: 9, page: 1 });
-    const after = moveZoom(
-      s,
-      s.cells.map((c) => c.uid),
-      -1,
-    );
-    expect(after.expanded).toBe(8);
-    expect(after.page).toBe(0);
+    const order = s.cells.map((c) => c.uid);
+    const moved = moveZoom(s, order, -1);
+    expect(moved.expanded).toBe(8);
+    expect(toggleZoom(moved, order).page).toBe(0);
   });
 
   it("uses the ORDER's index for the page, not the cell's position in state.cells", () => {
@@ -224,6 +221,242 @@ describe("moveZoom (Page Up / Page Down walk the zoom along the filmstrip)", () 
     const after = moveZoom(s, reversed, 1);
     expect(after.expanded).toBe(10); // the next one in the ON-SCREEN order
     expect(after.page).toBe(0);
+  });
+});
+
+describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
+  it("collapses when something is zoomed", () => {
+    expect(toggleZoom(make(running(3), { expanded: 1 }), [0, 1, 2]).expanded).toBeNull();
+  });
+
+  it("enlarges the FIRST cell in the on-screen order when nothing is zoomed", () => {
+    // Page 0, so the page offset is 0 and the order's own first entry wins — this is what makes
+    // the "auto" sort put the most-wanting-attention cell under the key.
+    expect(toggleZoom(make(running(3)), [2, 0, 1]).expanded).toBe(2);
+  });
+
+  it("refuses to zoom with fewer than two running cells (same rule as toggleExpand)", () => {
+    const s = make([cell(0, U(0)), cell(1)]); // one running + one empty launcher
+    expect(toggleZoom(s, [0, 1])).toBe(s);
+  });
+
+  it("still collapses even with one running cell — ⤡ must always get you out", () => {
+    expect(toggleZoom(make([cell(0, U(0))], { expanded: 0 }), [0]).expanded).toBeNull();
+  });
+
+  it("does nothing with an empty order", () => {
+    const s = make(running(3));
+    expect(toggleZoom(s, [])).toBe(s);
+  });
+
+  // The selection is the focused cell — one notion, not a second "last enlarged" memory that
+  // could disagree with it. Collapse then re-expand keeps you on the same terminal because the
+  // caller keeps the cursor there.
+  it("enlarges the SELECTED cell, not the first of the page", () => {
+    const s = make(running(12), { page: 0 });
+    const order = s.cells.map((c) => c.uid);
+    expect(toggleZoom(s, order, 5).expanded).toBe(5);
+  });
+
+  it("round-trips: collapsing then re-expanding the same selection returns to it", () => {
+    const s = make(running(12), { page: 0, expanded: 5 });
+    const order = s.cells.map((c) => c.uid);
+    const collapsed = toggleZoom(s, order, 5);
+    expect(collapsed.expanded).toBeNull();
+    expect(toggleZoom(collapsed, order, 5).expanded).toBe(5);
+  });
+
+  it("falls back to the page's first cell when the selection is gone", () => {
+    const s = make(running(12), { page: 1 });
+    const order = s.cells.map((c) => c.uid);
+    expect(toggleZoom(s, order, 99).expanded).toBe(9);
+  });
+
+  // Regression (caught on a real grid, not by the unit tests or the bots): entering the zoom
+  // from page 2 enlarged a cell from page 1 and dragged the page back to 0 with it, so ⤡ then
+  // dropped the user on the wrong tab. `order` is the whole un-paged list, so the entry index
+  // has to be derived from the page being looked at.
+  it("enlarges a cell ON THE CURRENT PAGE, not the first of the whole list", () => {
+    const s = make(running(12), { page: 1 });
+    const order = s.cells.map((c) => c.uid);
+    const after = toggleZoom(s, order);
+    expect(after.expanded).toBe(9); // first cell of page 1, not uid 0
+    expect(toggleZoom(after, order).page).toBe(1); // and releasing stays on that tab
+  });
+
+  it("enlarges the first cell of the list when on the first page", () => {
+    const s = make(running(12), { page: 0 });
+    const order = s.cells.map((c) => c.uid);
+    const after = toggleZoom(s, order);
+    expect(after.expanded).toBe(0);
+    expect(toggleZoom(after, order).page).toBe(0);
+  });
+
+  // The rule as the user stated it: the tab shown on release is decided by WHERE THE ENLARGED
+  // CELL IS, not by remembering the page they zoomed in from. Reaching a page-1 cell (via the
+  // filmstrip, a roster row, or a jump) and releasing must show page 1.
+  it("decides the page from the enlarged cell, whatever page the zoom started on", () => {
+    const s = make(running(12), { expanded: 10, page: 0 });
+    expect(
+      toggleZoom(
+        s,
+        s.cells.map((c) => c.uid),
+      ).page,
+    ).toBe(1);
+  });
+
+  it("keeps the current page when the enlarged cell is no longer in the order", () => {
+    const s = make(running(12), { expanded: 10, page: 1 });
+    expect(toggleZoom(s, [0, 1, 2]).page).toBe(1);
+  });
+});
+
+describe("nextAttention (jump to a terminal that needs you)", () => {
+  const status = (m: Record<number, CellStatus>): Record<number, CellStatus> => m;
+
+  // F8 alone enlarges and collapses. This key only moves, so pressing it on a plain grid must
+  // leave a plain grid — it brings the candidate's page on screen instead.
+  it("NEVER enters the zoom from an un-zoomed grid", () => {
+    const s = make(running(12), { page: 0 });
+    const after = nextAttention(
+      s,
+      s.cells.map((c) => c.uid),
+      status({ 10: "blocked" }),
+    );
+    expect(after.expanded).toBeNull();
+    expect(after.page).toBe(1); // but the calling cell is now on screen
+  });
+
+  it("NEVER collapses the zoom either — it only moves which cell is enlarged", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 2: "blocked" }));
+    expect(after.expanded).toBe(2);
+  });
+
+  it("prefers blocked over done, even when done is nearer", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 0: "idle", 1: "done", 2: "blocked" }));
+    expect(after.expanded).toBe(2);
+  });
+
+  it("starts from the cell AFTER the zoomed one", () => {
+    const st = status({ 0: "done", 1: "done", 2: "done" });
+    expect(nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], st).expanded).toBe(1);
+    expect(nextAttention(make(running(3), { expanded: 1 }), [0, 1, 2], st).expanded).toBe(2);
+  });
+
+  it("wraps around, so repeated presses cycle instead of stopping at the end", () => {
+    const st = status({ 0: "done", 1: "idle", 2: "done" });
+    expect(nextAttention(make(running(3), { expanded: 2 }), [0, 1, 2], st).expanded).toBe(0);
+  });
+
+  it("stays put when the zoomed cell is the ONLY one wanting attention", () => {
+    const st = status({ 0: "idle", 1: "blocked", 2: "idle" });
+    expect(nextAttention(make(running(3), { expanded: 1 }), [0, 1, 2], st).expanded).toBe(1);
+  });
+
+  it("falls back to an idle cell when nothing is calling, so the key still moves", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }));
+    expect(after.expanded).toBe(2); // skips the working cell at index 1
+  });
+
+  it("still prefers a calling cell over a nearer idle one", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 0: "idle", 1: "idle", 2: "done" }));
+    expect(after.expanded).toBe(2);
+  });
+
+  it("does nothing when every other cell is mid-turn — working is the one place not to go", () => {
+    const s = make(running(2));
+    expect(nextAttention(s, [0, 1], status({ 0: "working", 1: "working" }))).toBe(s);
+  });
+
+  it("treats a cell with no reported status as idle, so a fresh grid still moves", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({}));
+    expect(after.expanded).toBe(1);
+  });
+
+  it("does nothing with an empty order", () => {
+    const s = make(running(3));
+    expect(nextAttention(s, [], {})).toBe(s);
+  });
+
+  // The trailing launch cell is not a terminal. It also never reports a status, so without an
+  // explicit skip it reads as `idle` and gets picked constantly — including as the cell to
+  // ENLARGE while zoomed. `ensureEntry`/`addCell` mean one is almost always present.
+  it("never picks the empty launch cell, even when it is the only idle thing left", () => {
+    const s = make([cell(0, U(0)), cell(1)]); // one running terminal + the trailing launcher
+    expect(nextAttentionUid(s, [0, 1], { 0: "working" }, null)).toBeNull();
+  });
+
+  it("picks the idle TERMINAL and skips the launcher beside it", () => {
+    const s = make([cell(0, U(0)), cell(1, U(1)), cell(2)]); // two terminals + a launcher
+    expect(nextAttentionUid(s, [0, 1, 2], { 0: "working" }, null)).toBe(1);
+  });
+
+  it("does not enlarge a launcher when zoomed and nothing else is idle", () => {
+    const s = make([cell(0, U(0)), cell(1, U(1)), cell(2)], { expanded: 1 });
+    const after = nextAttention(s, [0, 1, 2], { 0: "working", 1: "working" }, null);
+    expect(after.expanded).toBe(1); // unchanged — never the launcher at uid 2
+  });
+
+  it("still counts a command or launcher-backed cell as a real terminal", () => {
+    // Occupied means session OR command OR launcher — a shell cell is somewhere worth going.
+    const s = make([cell(0, U(0)), { uid: 1, session: null, cwd: "/w", launcher: { shell: true, label: "shell" } }]);
+    expect(nextAttentionUid(s, [0, 1], { 0: "working" }, null)).toBe(1);
+  });
+
+  it("reports the uid it would move to, so the caller can focus that terminal", () => {
+    const st = status({ 0: "idle", 1: "working", 2: "blocked" });
+    expect(nextAttentionUid(make(running(3)), [0, 1, 2], st)).toBe(2);
+    // Same rotation as nextAttention: starts after the zoomed cell. Here every remaining cell
+    // is idle or working, so it settles on the idle one rather than the mid-turn cell.
+    expect(nextAttentionUid(make(running(3), { expanded: 2 }), [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }))).toBe(0);
+  });
+
+  // The bug this parameter exists for: without an origin the rotation always restarts at index
+  // 0, so a second press picks the same cell and the key looks dead on a plain grid.
+  it("rotates from the FOCUSED cell when nothing is zoomed", () => {
+    const s = make(running(4));
+    const st = status({ 0: "idle", 1: "idle", 2: "idle", 3: "idle" });
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, null)).toBe(0);
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 0)).toBe(1);
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 1)).toBe(2);
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 3)).toBe(0); // wraps
+  });
+
+  it("prefers the zoomed cell over the focused one as the origin", () => {
+    const s = make(running(4), { expanded: 2 });
+    const st = status({ 0: "idle", 1: "idle", 2: "idle", 3: "idle" });
+    expect(nextAttentionUid(s, [0, 1, 2, 3], st, 0)).toBe(3); // after the ZOOMED cell, not 1
+  });
+
+  it("reports null when there is nowhere to move", () => {
+    expect(nextAttentionUid(make(running(2)), [0, 1], status({ 0: "working", 1: "working" }))).toBeNull();
+    expect(nextAttentionUid(make(running(2)), [], {})).toBeNull();
+  });
+
+  it("leaves an un-zoomed grid alone when the candidate is already on screen", () => {
+    const s = make(running(3), { page: 0 });
+    const after = nextAttention(s, [0, 1, 2], status({ 1: "blocked" }));
+    expect(after.expanded).toBeNull();
+    expect(after.page).toBe(0);
+  });
+
+  it("collapsing after a jump made WHILE ZOOMED lands on that cell's page", () => {
+    const s = make(running(12), { expanded: 0 });
+    const order = s.cells.map((c) => c.uid);
+    const after = nextAttention(s, order, status({ 10: "blocked" }));
+    expect(after.expanded).toBe(10);
+    expect(toggleZoom(after, order).page).toBe(1);
+  });
+
+  // Regression: the caller must hand over the WHOLE ordered list, not the visible page. Given a
+  // page slice, a cell calling from another page is invisible here and the page math below is
+  // computed against the wrong origin.
+  it("reaches a calling cell on ANOTHER page while un-zoomed", () => {
+    const s = make(running(12), { page: 0 });
+    const order = s.cells.map((c) => c.uid);
+    const after = nextAttention(s, order, status({ 11: "blocked" }));
+    expect(after.expanded).toBeNull(); // still a grid
+    expect(after.page).toBe(1); // showing the page that was calling
   });
 });
 
@@ -648,5 +881,77 @@ describe("gridStatusSummary", () => {
 
   it("omits a zero count from the title", () => {
     expect(gridStatusSummary(counts({ blocked: 2, working: 1 })).title).toBe("2 need input · 1 working");
+  });
+});
+
+// The rules written at the top of the zoom section in gridTabs.ts. Each was broken at least
+// once while building #829, so they are pinned as rules rather than as one-off cases: a future
+// action that quietly violates one fails here instead of in someone's grid.
+describe("zoom invariants (#829)", () => {
+  const order12 = Array.from({ length: 12 }, (_, i) => i);
+  const allIdle: Record<number, CellStatus> = {};
+
+  // Invariant 1 — only toggleZoom changes WHETHER the grid is zoomed.
+  const movements: Array<[string, (s: GridState) => GridState]> = [
+    ["moveZoom(+1)", (s) => moveZoom(s, order12, 1)],
+    ["moveZoom(-1)", (s) => moveZoom(s, order12, -1)],
+    ["nextAttention", (s) => nextAttention(s, order12, allIdle, 3)],
+  ];
+
+  it.each(movements)("%s leaves an un-zoomed grid un-zoomed", (_label, apply) => {
+    expect(apply(make(running(12), { page: 0 })).expanded).toBeNull();
+  });
+
+  it.each(movements)("%s leaves a zoomed grid zoomed", (_label, apply) => {
+    expect(apply(make(running(12), { expanded: 5 })).expanded).not.toBeNull();
+  });
+
+  it.each(movements)("%s never adds or removes a terminal", (_label, apply) => {
+    const s = make(running(12), { expanded: 5 });
+    expect(apply(s).cells).toHaveLength(s.cells.length);
+  });
+
+  it("toggleZoom is the one action that flips it, in both directions", () => {
+    const s = make(running(12), { page: 0 });
+    const zoomed = toggleZoom(s, order12, 4);
+    expect(zoomed.expanded).toBe(4);
+    expect(toggleZoom(zoomed, order12, 4).expanded).toBeNull();
+  });
+
+  // Invariant 3 — page is decided only on release, and only from the enlarged cell.
+  it.each(movements)("%s does not touch the page", (_label, apply) => {
+    const s = make(running(12), { expanded: 5, page: 1 });
+    expect(apply(s).page).toBe(1);
+  });
+
+  it("releasing the zoom sets the page from the enlarged cell, ignoring where it started", () => {
+    for (const [uid, expected] of [
+      [0, 0],
+      [8, 0],
+      [9, 1],
+      [11, 1],
+    ]) {
+      const s = make(running(12), { expanded: uid, page: 0 });
+      expect(toggleZoom(s, order12, uid).page).toBe(expected);
+    }
+  });
+
+  // Invariant 5 — entry needs a second running cell; leaving never refuses.
+  it("refuses to ENTER the zoom with one running cell", () => {
+    const lonely = make([cell(0, U(0)), cell(1)]); // one running + an empty launcher
+    expect(toggleZoom(lonely, [0, 1], 0)).toBe(lonely);
+  });
+
+  // nextAttention needs no such guard: by invariant 1 it never enters the zoom in the first
+  // place, so on a one-cell grid there is nothing for it to refuse.
+  it("nextAttention still does not zoom a lone cell", () => {
+    const lonely = make([cell(0, U(0)), cell(1)]);
+    expect(nextAttention(lonely, [0, 1], { 0: "blocked" }, null).expanded).toBeNull();
+  });
+
+  it("always allows LEAVING the zoom, even in a state that could not be entered", () => {
+    const lonely = make([cell(0, U(0))], { expanded: 0 });
+    expect(toggleZoom(lonely, [0], 0).expanded).toBeNull();
+    expect(toggleExpand(lonely, 0, [0]).expanded).toBeNull();
   });
 });
