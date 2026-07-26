@@ -2,6 +2,46 @@
 
 Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://github.com/receptron/mulmoterminal/releases). Newest first. Versions before `0.6.0` are on GitHub Releases only.
 
+## mulmoterminal@2.0.0 — 2026-07-26
+
+Keyboard shortcuts arrive, Web Push becomes selective, and the phone companion gains three abilities. Nothing here changes an existing install's behaviour: the keymap is empty until you write one, and Push keeps notifying exactly as before unless you narrow it.
+
+### Keyboard shortcuts — a user-defined keymap (#837, #843, #841)
+
+Drive the grid without reaching for the mouse. **There are no defaults**, deliberately: every key you bind is one the program inside the terminal stops receiving, and only you know whether that trade is worth it. Bindings live in `~/.mulmoterminal/config.json` under `keymap`.
+
+- **`zoom-toggle`** — enlarge / collapse, and the ONLY action that changes that. It enlarges whichever terminal the cursor is in, and collapsing leaves the cursor there, so a round trip never loses your place.
+- **`next-attention`** — move to the next terminal worth looking at: awaiting input, then finished-and-unreviewed, then idle, skipping anything mid-turn. Cycles rather than stopping at the end. Zoomed it moves the enlargement; un-zoomed it moves the keyboard focus, switching page if the terminal is on another one.
+- **`zoom-next` / `zoom-prev`** — walk the enlargement along the on-screen order.
+- **`terminal-new`**, **`terminal-new-adjacent`** (beside the current terminal, inheriting its directory — the nearest thing the grid has to a split), **`terminal-close`**.
+
+Modifiers match exactly, so binding a bare key leaves `Shift`+key to xterm's scrollback. A **malformed binding stops the server from starting** and prints the offending line: a silently dropped typo looks identical to a shortcut that simply does not work, which sends people hunting in the app for a one-character problem in a file. An unknown action name only warns, so a config written for a newer version still loads. Two actions on one keystroke warn, naming the one that actually fires. **Settings → Keyboard shortcuts** lists every action and its binding — including the unbound ones, since that is how the actions are discovered at all.
+
+The guide carries five ready-made keymaps (minimal, arrow-keys, tmux-flavoured, iTerm2-flavoured, supervising-many-agents) and the platform traps, documented from Apple and MDN: on macOS the top-row keys are media keys and deliver no keydown at all without `Fn`, `Option`+letter arrives as the composed character rather than the letter, and `Cmd`/`Ctrl`+`W`/`T`/`N` are reserved by the browser and can never be bound.
+
+### Web Push, per kind (#851)
+
+Push fired on both finished turns and permission prompts, with one global on/off as the only control — so asking to be told when a task finishes also meant a notification on every permission request during it. `pushKinds` chooses which moments notify, from Settings. An unset value keeps both, so upgrading loses no notifications; an explicit empty list silences every kind while leaving the toggle on.
+
+### Phone companion (#836, #840, #844, #849)
+
+- **Launch a terminal from the phone**, in the working directory of the session on screen.
+- **Quick-reply chips you define yourself**, tapped to drop your own phrases into the input box.
+- **A link to GitHub** from the session screen when the directory is a GitHub repository.
+- A guide page describing what the phone can ask this host to do.
+
+### Fixes
+
+- **A terminal killed by xterm recovers in place** instead of demanding a page reload (xterm 6.0.0 buffer corruption, #846 / #848).
+- **Clicks reach clickable elements inside a TUI again**: the click reports that disappeared when #729 was reverted are synthesised (#847).
+- The phone's GitHub link points at the repository root — the `tree` form 404s on some repositories (#839).
+
+### Maintenance
+
+- `@mulmoclaude/core` → `^1.6.0` and `material-symbols` → `^0.45.9`, with the lockfile deduped. A nested copy of core 1.5.0 was genuinely installed alongside 1.6.0, so its module state was not shared and its native bindings initialised twice (#853).
+- `isRecord` is one implementation in `common/` instead of 29 local copies, and it rejects arrays (#828 / #852).
+- Documentation: how a clicked file path routes by extension (#835), the docs-site link at the top of the README (#838), and the fact that `yarn typecheck` does not compile the specs — only `typecheck:test` does (#842).
+
 ## mulmoterminal@1.12.0 — 2026-07-26
 
 No new features — this release is entirely durability and correctness work, plus a dependency refresh. Every item below is a failure a 1.11.1 user can hit today without being told why.
