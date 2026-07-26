@@ -4,6 +4,7 @@
 // 🕘 button so you can see "what did it do?" without scrolling the raw transcript.
 import { ref, watch, onUnmounted, nextTick } from "vue";
 import { trapTabKey } from "../utils/focusTrap";
+import { isRecord } from "../../common/isRecord";
 
 interface TimelineEvent {
   ts: string;
@@ -18,8 +19,6 @@ const events = ref<TimelineEvent[]>([]);
 const truncated = ref(false);
 const loading = ref(false);
 const error = ref(false);
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const isTimeline = (v: unknown): v is { events: TimelineEvent[]; truncated: boolean } => isRecord(v) && Array.isArray(v.events);
 
 // Bumped per load so a slow fetch for a previously-opened session can't overwrite the

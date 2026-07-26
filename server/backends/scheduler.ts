@@ -21,6 +21,7 @@ import { SCHEDULE_TYPES } from "@receptron/task-scheduler";
 import { createTaskManager } from "@mulmoclaude/core/scheduler";
 import type { TaskDefinition, TaskSchedule } from "@mulmoclaude/core/scheduler";
 import { readTextFile } from "../infra/read-text-file.js";
+import { isRecord } from "../../common/isRecord.js";
 
 const log = {
   info: (message: string, data?: Record<string, unknown>) => console.log(`[scheduler] ${message}`, data ?? ""),
@@ -38,10 +39,6 @@ export interface PersistedUserTask {
   enabled?: boolean;
   roleId?: string;
   prompt: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function allDigits(value: string): boolean {

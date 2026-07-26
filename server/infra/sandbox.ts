@@ -18,8 +18,7 @@ import os from "node:os";
 import pty from "node-pty";
 import { spawnCapture } from "./spawnCapture.js";
 import { removeQuietly } from "./fs-cleanup.js";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+import { isRecord } from "../../common/isRecord.js";
 
 const IMAGE = process.env.MULMOTERMINAL_SANDBOX_IMAGE || "mulmoterminal-sandbox";
 const CONTAINER_HOME = "/home/node";

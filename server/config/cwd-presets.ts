@@ -5,8 +5,7 @@ import path from "node:path";
 import { type CwdPreset } from "./config-schema.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+import { isRecord } from "../../common/isRecord.js";
 const isPreset = (v: unknown): v is CwdPreset => isRecord(v) && typeof v.label === "string" && typeof v.path === "string";
 
 // Normalize arbitrary input into clean presets: keep only {label,path} objects,

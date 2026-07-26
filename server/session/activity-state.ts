@@ -1,3 +1,4 @@
+import { isRecord } from "../../common/isRecord.js";
 // Pure transforms for the restart-persisted attention state (see ACTIVITY_STATE_FILE in
 // index.ts). Split out so the snapshot/restore rules are unit-testable. BOTH `working` and
 // `waiting` (blocked/done) are persisted so a server restart (e.g. a --watch hot reload)
@@ -16,8 +17,6 @@ export interface PersistedActivity {
   waiting: boolean;
   event: string | null;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 // The sessions to persist across a restart: those that are working OR waiting (blocked/done),
 // minus hidden translation workers (they flag waiting internally but must never surface, and

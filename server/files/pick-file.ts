@@ -1,8 +1,7 @@
 import type { Express, Request } from "express";
 import { spawn } from "node:child_process";
 import path from "node:path";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+import { isRecord } from "../../common/isRecord.js";
 
 // A native "open file/folder" dialog per platform whose stdout is the selection's
 // absolute path(s), newline-separated. Browsers can't hand the terminal a real

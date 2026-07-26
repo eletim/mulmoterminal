@@ -7,6 +7,7 @@ import { formatCwd } from "./cwdDisplay";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { browserLocale } from "../utils/browserLocale";
+import { isRecord } from "../../common/isRecord";
 import {
   CELL_ACTIONS,
   CELL_BTN,
@@ -77,10 +78,6 @@ const showSummary = ref(false);
 const SUMMARY_FETCH_TIMEOUT_MS = 90_000;
 // Client-side cap on the bytes sent (the server re-caps to its own tail limit).
 const MAX_SEND_CHARS = 64 * 1024;
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
 
 // The summary language follows the browser's base language — MulmoTerminal has no
 // locale picker (same signal as useVoiceInput / accountingUi / App.vue).

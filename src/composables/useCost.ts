@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { isRecord } from "../../common/isRecord";
 
 // The /api/cost payload: estimated $ spend for the current session plus today /
 // month roll-ups. `session` is absent when no session id was requested.
@@ -12,8 +13,6 @@ export interface CostRollup {
 }
 
 const COST_FETCH_TIMEOUT_MS = 8000;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const finiteNumber = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 function parseCost(data: unknown): CostRollup | null {

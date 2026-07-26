@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { writeFileAtomic } from "../files/atomic-write.js";
+import { isRecord } from "../../common/isRecord.js";
 
 export interface ScheduledSessionRecord {
   id: string;
@@ -51,8 +52,6 @@ export function selectExpiredScheduledSessions(
   });
   return { keep, expire };
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 /** Read one session's entry, or null when it is malformed — a corrupt or hand-edited file
  *  must not smuggle a bad id into a `tmux kill-session` argument. */

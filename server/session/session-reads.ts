@@ -12,8 +12,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isRecord } from "../../common/isRecord.js";
 import {
-  isRecord,
   parseJsonl,
   userPromptText,
   aiTitleFromParsed,

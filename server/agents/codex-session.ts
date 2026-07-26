@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { isRecord } from "../../common/isRecord.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ROLLOUT_RE = /^rollout-.*\.jsonl$/;
@@ -19,8 +20,6 @@ export function codexSessionsRoot(): string {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   return path.join(home, "sessions");
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 // The first line of every rollout is a `session_meta` record carrying the id codex minted for
 // itself (mulmoterminal can't force one) and the cwd it resolved.

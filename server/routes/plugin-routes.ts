@@ -9,7 +9,7 @@ import type { Express } from "express";
 
 import { CLAUDE_CWD, PORT } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { isRecord } from "../session/transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 import { hiddenSessions } from "../session/registry.js";
 import { runWithHiddenMarker } from "../session/hiddenMarker.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";

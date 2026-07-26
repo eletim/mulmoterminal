@@ -29,10 +29,10 @@ import { randomUUID } from "node:crypto";
 import { toolDefinitions } from "../infra/plugins-registry.js";
 import { offeredTools, routeToolCall, SUBMIT_TRANSLATION_TOOL_NAME } from "./tool-gate.js";
 import { interpretToolEnvelope } from "./tool-envelope.js";
+import { isRecord } from "../../common/isRecord.js";
 
 // Shape of the dispatch route's response (POST /api/plugin/<tool>). `data` gates
 // whether a toolResult is published to the GUI; the rest is narration/metadata.
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 async function postJson(url: string, body: unknown) {
   const res = await fetch(url, {

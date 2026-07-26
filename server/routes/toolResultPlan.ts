@@ -2,7 +2,7 @@
 // without booting the server (#676). The route keeps the store write and the publish; this
 // only validates the body and decides what to store and whether to publish.
 import { SESSION_ID_RE } from "../config/env.js";
-import { isRecord } from "../session/transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 import type { ToolResult } from "../session/types.js";
 
 export type ToolResultPlan = { ok: false; error: string } | { ok: true; stored: ToolResult; publish: boolean; sessionId: string; toolName: string };

@@ -1,3 +1,4 @@
+import { isRecord } from "../../common/isRecord.js";
 // The user-configurable terminal header: action buttons + display chips. Read from the global
 // AppConfig (~/.mulmoterminal/config.json) and the per-dir DirConfig (<cwd>/.mulmoterminal.json),
 // merged, then RESOLVED per session (evaluate `when`, substitute ${vars}) before the client renders.
@@ -85,8 +86,6 @@ export interface ResolvedHeader {
 const RUN_TYPE_SET = new Set<string>(RUN_TYPES);
 const VIEW_SET = new Set<string>(VIEW_TARGETS);
 const BUILTIN_SET = new Set<string>(BUILTIN_CHIPS);
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const isRunType = (s: string): s is RunType => RUN_TYPE_SET.has(s);
 const isViewTarget = (s: string): s is ViewTarget => VIEW_SET.has(s);

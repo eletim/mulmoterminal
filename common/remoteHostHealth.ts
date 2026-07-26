@@ -1,3 +1,4 @@
+import { isRecord } from "./isRecord.js";
 // Health of the remote-host command channel, as reported by the server's resilient
 // runner and rendered by the toolbar control. Shared across the build boundary so the
 // two sides cannot drift on the state names.
@@ -16,8 +17,6 @@ export interface RunnerHealth {
   /** ms epoch of the last state change, so the UI can say how long it has been down. */
   changedAt: number;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 export const isRunnerHealthState = (value: unknown): value is RunnerHealthState => RUNNER_HEALTH_STATES.some((state) => state === value);
 

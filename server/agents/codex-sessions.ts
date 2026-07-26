@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
+import { isRecord } from "../../common/isRecord.js";
 
 const ROLLOUT_RE = /^rollout-.*\.jsonl$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,8 +20,6 @@ interface RolloutHead {
   cwd: string | null;
   title: string;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 function parseJsonRecord(line: string): Record<string, unknown> | null {
   if (!line) return null;

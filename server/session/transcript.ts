@@ -1,8 +1,7 @@
+import { isRecord } from "../../common/isRecord.js";
 // Pure helpers for reading Claude session transcripts (the per-project .jsonl
 // files). Kept separate from index.ts so they're unit-testable without the server's
 // startup side effects.
-
-export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 // A real user prompt from a JSONL "user" line's content, or null if it's a
 // slash-/local-command wrapper rather than a typed prompt. Content may be a plain
