@@ -7,6 +7,11 @@
 // When the grid isn't mounted (the button pressed from the single view), the request is QUEUED and the
 // app switches to /terminals; GridView drains the queue when it registers on mount — mirroring
 // usePendingScript for the single view's Run menu.
+//
+// The queue holds EVERY waiting request, not just the newest. One slot was enough while the only
+// caller was a button — a person cannot press it twice before the route changes — but the phone
+// asks over pub/sub (#831) and the host answers each command with success, so a dropped request
+// would be a launch reported as done that never happened.
 import { router } from "../router";
 import type { LaunchAgent } from "../../common/launchAgent";
 
@@ -20,17 +25,18 @@ export interface NewTerminalRequest {
 type Handler = (req: NewTerminalRequest) => void;
 
 let handler: Handler | null = null;
-let pending: NewTerminalRequest | null = null;
+let pending: NewTerminalRequest[] = [];
 
-// GridView registers its opener; a queued request (from before it mounted) drains immediately.
-// The returned function unregisters it (call in onBeforeUnmount).
+// GridView registers its opener; every request queued before it mounted drains immediately, in
+// arrival order. The returned function unregisters it (call in onBeforeUnmount).
 export function registerNewTerminalHandler(h: Handler): () => void {
   handler = h;
-  if (pending) {
-    const req = pending;
-    pending = null;
-    h(req);
-  }
+  // Taken before dispatching: a handler that itself queues (it can reach openTerminalAt through
+  // the grid) would otherwise have its request dropped by the clear below.
+  const queued = pending;
+  pending = [];
+  // Not `queued.forEach(h)`: forEach would hand the handler the index and the array too.
+  queued.forEach((req) => h(req));
   return () => {
     if (handler === h) handler = null;
   };
@@ -44,6 +50,6 @@ export function openTerminalAt(cwd: string, afterSlotKey: string | null, agent?:
     handler(req);
     return;
   }
-  pending = req;
+  pending.push(req);
   router.push("/terminals").catch(() => {});
 }
