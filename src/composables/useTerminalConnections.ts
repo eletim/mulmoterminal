@@ -34,6 +34,7 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { swallowsMouseTracking } from "./mouseTrackingModes";
 import { clearResetModes, recordSwallowedModes } from "./mouseReports";
 import { guardMouseClicks, guardMouseWheel } from "./terminalMouseInput";
+import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
@@ -130,7 +131,13 @@ interface Conn {
   // dies without sending DECRST must not leave the next one looking like it asked for mouse
   // reports, or its wheel would get synthesized reports it never wanted.
   swallowedMouseModes: Set<number>;
+  theme: ITheme | undefined; // last applied, so a rebuilt terminal keeps the cell's colours
+  lastRebuildMs: number; // rate-limits the #846 recovery so a stuck reading can't spin
 }
+
+// A rebuild costs a re-attach and the client-side scrollback, so a slot gets at most one per
+// window — enough for a real recovery, not enough to loop if the reading never clears.
+const REBUILD_COOLDOWN_MS = 10_000;
 
 // The heavy per-slot runtime (non-reactive — Vue never needs to track these).
 const conns = new Map<string, Conn>();
@@ -235,12 +242,16 @@ function registerFilePathLinks(term: Terminal, c: Conn): void {
   );
 }
 
-function ensure(key: string, target: ConnTarget): Conn {
-  const existing = conns.get(key);
-  if (existing) {
-    existing.target = target;
-    return existing;
-  }
+interface TerminalRuntime {
+  term: Terminal;
+  fitAddon: FitAddon;
+  host: HTMLDivElement;
+}
+
+// Everything a slot's xterm is made of. Built here rather than inline in ensure() because a
+// terminal that xterm has killed can only be replaced, never revived (see rebuildTerminal).
+// The mouse-mode record is passed in: it belongs to the connection and outlives any one terminal.
+function buildTerminal(swallowedMouseModes: Set<number>): TerminalRuntime {
   const term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
@@ -265,7 +276,6 @@ function ensure(key: string, target: ConnTarget): Conn {
       },
     },
   });
-  const swallowedMouseModes = new Set<number>();
   guardMouseTracking(term, swallowedMouseModes);
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
@@ -296,7 +306,24 @@ function ensure(key: string, target: ConnTarget): Conn {
   } catch (err) {
     console.warn("[terminal] canvas renderer unavailable — falling back to the DOM renderer", err);
   }
+  return { term, fitAddon, host };
+}
 
+// The wiring that needs the connection itself, so it is re-applied to every terminal a slot owns.
+function wireTerminalToConn(term: Terminal, c: Conn): void {
+  registerFilePathLinks(term, c);
+  wireTerminalInput(term, c);
+  if (c.theme) term.options.theme = c.theme;
+}
+
+function ensure(key: string, target: ConnTarget): Conn {
+  const existing = conns.get(key);
+  if (existing) {
+    existing.target = target;
+    return existing;
+  }
+  const swallowedMouseModes = new Set<number>();
+  const { term, fitAddon, host } = buildTerminal(swallowedMouseModes);
   const c: Conn = {
     key,
     term,
@@ -313,12 +340,51 @@ function ensure(key: string, target: ConnTarget): Conn {
     reconnectTimer: null,
     attachedEl: null,
     swallowedMouseModes,
+    theme: undefined,
+    lastRebuildMs: 0,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
-  registerFilePathLinks(term, c);
-  wireTerminalInput(term, c);
+  wireTerminalToConn(term, c);
   return c;
+}
+
+// A terminal xterm has killed cannot be revived, so the slot gets a new one (#846). The upstream
+// buffer bug (xtermjs/xterm.js#6063) throws inside xterm's own write task, which leaves the write
+// queue permanently stuck — nothing written afterwards is ever parsed, and term.reset() does not
+// clear it. The session itself is fine: it lives on the server, and re-attaching replays its tail
+// into the fresh terminal, so the user sees the cell blink rather than a dead panel.
+function rebuildTerminal(c: Conn): void {
+  const deadTerm = c.term;
+  const deadHost = c.host;
+  const hadFocus = deadHost.contains(document.activeElement);
+  console.warn(`[terminal] slot ${c.key}: xterm buffer corrupted (xtermjs/xterm.js#6063) — rebuilding the terminal and re-attaching`);
+  const { term, fitAddon, host } = buildTerminal(c.swallowedMouseModes);
+  c.term = term;
+  c.fitAddon = fitAddon;
+  c.host = host;
+  c.lastRebuildMs = Date.now();
+  wireTerminalToConn(term, c);
+  c.attachedEl?.appendChild(host);
+  deadHost.remove();
+  deadTerm.dispose();
+  connect(c);
+  fitAndSyncSize(c);
+  if (hadFocus) term.focus();
+}
+
+// A slot whose buffer went short is on its way to freezing, so it is replaced — but only once the
+// state survives a task. Mid-parse the app can observe a buffer that xterm is still growing, and
+// the repair costs the session's client-side scrollback, so a single sighting is not enough.
+// A terminal that is genuinely dead cannot recover on its own: the reading will not change.
+function guardBufferHealth(c: Conn): void {
+  if (c.released || c.sawExit || Date.now() - c.lastRebuildMs < REBUILD_COOLDOWN_MS) return;
+  if (!bufferIsShort(readBufferShape(c.term))) return;
+  const suspect = c.term;
+  setTimeout(() => {
+    if (c.term !== suspect || c.released || c.sawExit) return;
+    if (bufferIsShort(readBufferShape(c.term))) rebuildTerminal(c);
+  });
 }
 
 function scheduleReconnect(c: Conn) {
@@ -383,6 +449,9 @@ function connect(c: Conn) {
 function handleMessage(c: Conn, event: MessageEvent) {
   const msg = JSON.parse(event.data);
   if (msg.type === "output") {
+    // Checked here as well as on fit() because a slot that is only receiving output would
+    // otherwise sit frozen until something happened to resize it (#846).
+    guardBufferHealth(c);
     c.term.write(msg.data);
   } else if (msg.type === "session") {
     // Server reports the live session id — remember it so a later reconnect resumes
@@ -425,7 +494,10 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   if (c.knownSessionId) handlers.onSession?.(c.knownSessionId);
   if (c.knownCwd) handlers.onCwd?.(c.knownCwd);
   el.appendChild(c.host);
-  if (theme) c.term.options.theme = theme;
+  if (theme) {
+    c.theme = theme;
+    c.term.options.theme = theme;
+  }
   if (created) connect(c);
   fitAndSyncSize(c);
   c.term.focus();
@@ -613,6 +685,9 @@ export function fit(key: string) {
   const c = conns.get(key);
   if (!c || !c.attachedEl) return;
   fitAndSyncSize(c);
+  // A resize is what trips the upstream buffer bug, so this is where a short buffer shows up
+  // first — usually while the terminal is still alive (#846).
+  guardBufferHealth(c);
   // Force the canvas renderer to repaint. `fit()` only redraws when cols/rows actually change, so a
   // re-parent / KeepAlive reactivation with the SAME size (attach, onActivated) would otherwise leave
   // the viewport blank until a scroll. The buffer is intact — this just repaints it.
@@ -621,5 +696,7 @@ export function fit(key: string) {
 
 export function setTheme(key: string, theme: ITheme) {
   const c = conns.get(key);
-  if (c) c.term.options.theme = theme;
+  if (!c) return;
+  c.theme = theme;
+  c.term.options.theme = theme;
 }
