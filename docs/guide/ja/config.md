@@ -200,6 +200,81 @@ Shift+Enter が改行ではなく*送信*になってしまう場合だけ**で�
 > **`terminal-close` は確認なしで即座に閉じます**——セルの `✕` と同じで、そのセッションは終了します。
 > 誤爆しないキーに割り当ててください。
 
+### すぐ使えるキーマップ例
+
+既定では何も割り当てられていないので、**自分の指が既に覚えている操作系**に近いものを選んで、そこから
+編集するのが早いです。以下のキーはいずれも[割り当てできない組み合わせ](#macos-keys)を避けてあります。
+
+**最小構成 — 拡大に入って戻るだけ**
+
+いちばん重要な2つです。どちらかが無いと、「拡大が必要」なアクションは `⤢` をクリックするまで一切
+使えません。
+
+```json
+{ "keymap": { "zoom-toggle": "F8", "next-attention": "F9" } }
+```
+
+**tmux 風** — `Ctrl`+`B` が指に染みついている場合、それをここに割り当てると **tmux 自身から奪う**点に
+注意してください。以下は tmux が使わない `Alt` を使っています。
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Alt+z",
+    "zoom-next": "Alt+n",
+    "zoom-prev": "Alt+p",
+    "next-attention": "Alt+a",
+    "terminal-new": "Alt+c",
+    "terminal-close": "Alt+x"
+  }
+}
+```
+
+{: .warning }
+> **macOS では `Alt`+英字は動きません**。`Option` が別の文字を入力するため、英字として届きません
+> （[上の節](#macos-keys)参照）。Mac の方は下の矢印キー版をどうぞ。
+
+**iTerm2 風** — `Cmd`+`D` のペイン分割に最も近い形です。`terminal-new-adjacent` は今のターミナルの隣に
+作業ディレクトリを引き継いで開くので、グリッドにおける「分割」に相当します。
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Cmd+Enter",
+    "zoom-next": "Cmd+]",
+    "zoom-prev": "Cmd+[",
+    "next-attention": "Cmd+Shift+A",
+    "terminal-new-adjacent": "Cmd+d"
+  }
+}
+```
+
+{: .note }
+> `Cmd`+`W` を**あえて入れていません**。ブラウザの予約キーなので、閉じる操作には使えないためです。
+> `Cmd`+`Shift`+`W` なら使えます。
+
+**矢印キー — 最も安全なクロスプラットフォーム構成。** 矢印キーは macOS の `Option` 問題の影響を受けず、
+ブラウザ予約でもないので、どの環境でも同じように動きます。
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Alt+ArrowUp",
+    "zoom-next": "Alt+ArrowRight",
+    "zoom-prev": "Alt+ArrowLeft",
+    "next-attention": "Alt+ArrowDown",
+    "terminal-new-adjacent": "Alt+Shift+ArrowRight"
+  }
+}
+```
+
+**多数のエージェントを見張る用途** — 1つのキーを連打して、呼んでいるものを順に巡る構成です。入力待ち →
+完了・未レビュー → idle の順に辿り、作業中のものは飛ばします。
+
+```json
+{ "keymap": { "next-attention": "F9", "zoom-toggle": "F8" } }
+```
+
 ### 記法
 
 `修飾キー+修飾キー+キー`。キーはブラウザの `KeyboardEvent.key` の値と照合されます。

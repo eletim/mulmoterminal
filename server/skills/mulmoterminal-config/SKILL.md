@@ -294,6 +294,17 @@ never add one they did not request.
 | `terminal-new-adjacent` | Add one right after the current terminal, inheriting its cwd | yes |
 | `terminal-close` | Close the current terminal | yes |
 
+**Offer one of these starter sets rather than inventing keys** — each is checked against the traps
+below, and the guide documents them at
+[Configuration → Keyboard shortcuts](https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap):
+
+| Set | Keys | Suits |
+|---|---|---|
+| Minimal | `zoom-toggle: F8`, `next-attention: F9` | Anyone starting out — the two that open the feature up |
+| Arrows | `Alt+ArrowUp/Left/Right/Down` | **The safe cross-platform default; the only one to offer a Mac user unprompted** |
+| tmux-flavoured | `Alt+z / n / p / a / c / x` | Someone with tmux muscle memory — but NOT on macOS (Alt+letter is dead there) |
+| iTerm2-flavoured | `Cmd+Enter`, `Cmd+[` / `]`, `Cmd+d` | Mac users who think in iTerm2 panes |
+
 - **Always bind `zoom-toggle` or `next-attention`.** Everything marked "yes" above needs something
   already enlarged, so a keymap without one of these two cannot be used without a mouse click first.
   Offer `next-attention` to anyone running several agents — it is the "take me to whoever called" key.

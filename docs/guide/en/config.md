@@ -201,6 +201,83 @@ both ends** instead of wrapping. See [Basics → switching the enlarged terminal
 > **`terminal-close` closes immediately, with no confirmation** — the same as clicking the cell's `✕`, which
 > ends that session. Bind it to something you won't hit by accident.
 
+### Ready-made keymaps
+
+Nothing is bound by default, so start from whichever of these matches the muscle memory you
+already have and edit from there. Every key below is checked against the traps in
+[Combinations that cannot be bound](#macos-keys).
+
+**Minimal — just get into the zoom and back**
+
+The two that matter most: without one of these, every "needs a zoomed cell" action is out of
+reach until you click `⤢`.
+
+```json
+{ "keymap": { "zoom-toggle": "F8", "next-attention": "F9" } }
+```
+
+**tmux-flavoured** — if `Ctrl`+`B` is already in your fingers, note that binding it here takes it
+away from tmux itself. These use `Alt` instead, which tmux leaves alone.
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Alt+z",
+    "zoom-next": "Alt+n",
+    "zoom-prev": "Alt+p",
+    "next-attention": "Alt+a",
+    "terminal-new": "Alt+c",
+    "terminal-close": "Alt+x"
+  }
+}
+```
+
+{: .warning }
+> On **macOS** `Alt`+letter does not work — `Option` types an alternate character, so the letter
+> never arrives (see [above](#macos-keys)). Mac users want the arrows version below.
+
+**iTerm2-flavoured** — closest to `Cmd`+`D` splitting a pane. `terminal-new-adjacent` opens the
+new terminal next to the current one, inheriting its directory, which is the nearest thing the
+grid has to a split.
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Cmd+Enter",
+    "zoom-next": "Cmd+]",
+    "zoom-prev": "Cmd+[",
+    "next-attention": "Cmd+Shift+A",
+    "terminal-new-adjacent": "Cmd+d"
+  }
+}
+```
+
+{: .note }
+> `Cmd`+`W` is **not** here on purpose — the browser reserves it, so a close binding cannot use it.
+> `Cmd`+`Shift`+`W` works if you want one.
+
+**Arrow keys — the safest cross-platform set.** Arrows are unaffected by the macOS `Option`
+problem and are not browser-reserved, so this one behaves the same everywhere.
+
+```json
+{
+  "keymap": {
+    "zoom-toggle": "Alt+ArrowUp",
+    "zoom-next": "Alt+ArrowRight",
+    "zoom-prev": "Alt+ArrowLeft",
+    "next-attention": "Alt+ArrowDown",
+    "terminal-new-adjacent": "Alt+Shift+ArrowRight"
+  }
+}
+```
+
+**Supervising many agents** — one key, pressed repeatedly, to walk everything that wants you:
+awaiting input first, then finished-and-unreviewed, then idle, skipping whatever is mid-turn.
+
+```json
+{ "keymap": { "next-attention": "F9", "zoom-toggle": "F8" } }
+```
+
 ### Binding syntax
 
 `Modifier+Modifier+Key`. The key is matched against the browser's `KeyboardEvent.key` value.
