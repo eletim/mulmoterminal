@@ -65,7 +65,7 @@
     "@mulmochat-plugin/ui-image": "^0.4.1",
     "@mulmoclaude/accounting-plugin": "^1.1.0",
     "@mulmoclaude/chart-plugin": "^1.0.3",
-    "@mulmoclaude/collection-plugin": "^1.2.0",
+    "@mulmoclaude/collection-plugin": "^1.1.1",
     "@mulmoclaude/core": "^1.7.0",
     "@mulmoclaude/form-plugin": "^1.0.2",
     "@mulmoclaude/google-plugin": "^1.2.0",
