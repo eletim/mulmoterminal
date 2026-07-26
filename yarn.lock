@@ -1733,21 +1733,7 @@
   resolved "https://registry.yarnpkg.com/@mulmoclaude/common/-/common-1.1.1.tgz#38c57cb4d6530679996e9ce2732d3be207ad3872"
   integrity sha512-bq47GoDVsKFraKrvRpzhkRJHQ6/omXCIRYrMNch7mq8eXU/kRNHFU7e+rfdoNaoDnLt1S/lZY5nZu7RVoPx9CA==
 
-"@mulmoclaude/core@^1.5.0":
-  version "1.5.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.5.0.tgz#6ebdb13498ed2b90a2ca129319bc86b26b88103c"
-  integrity sha512-AaIJOde/CVO3vPPv08RSM8HUhjknjNdIYR89Xp68w97HnOizykpjIn5pe1ScbLCZs2NVJxLRol6+zW8sH4azRw==
-  dependencies:
-    "@duckdb/node-api" "^1.5.5-r.1"
-    "@mulmoclaude/common" "^1.1.1"
-    "@mulmoclaude/markdown-utils" "^1.3.1"
-    fast-xml-parser "^5.10.1"
-    google-auth-library "^10.9.1"
-    iconv-lite "^0.7.3"
-    js-yaml "^5.2.2"
-    zod "^4.4.3"
-
-"@mulmoclaude/core@^1.6.0":
+"@mulmoclaude/core@^1.5.0", "@mulmoclaude/core@^1.6.0":
   version "1.6.0"
   resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.6.0.tgz#1951b11edae4554210f8091a811fb52d48cdf4aa"
   integrity sha512-XR/wCIniHx0t1GCb6/bD0DLzRBsHXHTuGCcgyrDmoObl611EECCfaqycebQdzI80kwdADRA9r38aUWwHTxq5eg==
