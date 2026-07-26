@@ -1,6 +1,6 @@
 ---
 name: mulmoterminal-config
-description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, terminal font size, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, resize the terminal font, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal, or the terminal text is too small/large (browser zoom is not the fix — it breaks xterm's grid alignment).
+description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, terminal font size, position in the grid, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, resize the terminal font, control where a project sits in the grid, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal, or the terminal text is too small/large (browser zoom is not the fix — it breaks xterm's grid alignment).
 ---
 
 # Configure a MulmoTerminal directory
@@ -179,6 +179,19 @@ Settings value is the normal case.
 Reach for this when the user says the terminal text is too small or too big, and especially if
 they mention trying browser zoom: zoom desynchronises xterm's cell grid from the PTY (drifting
 cursor, wrong wrap points), while `fontSize` re-fits and tells the process its new size.
+
+### Grid position — `orderPriority`
+
+An integer rank for the grid's **priority** sort mode (the toolbar's ordering button cycles
+auto → manual → priority). **Lowest first**; negatives allowed. Directories that set nothing
+sort last, keeping their existing order, so adding it to one project doesn't shuffle the rest.
+
+Only that one mode reads it — a user who never switches the button sees no change. Say so when
+you set it, or they will write the key and wonder why nothing moved.
+
+Setting this across several directories at once is the natural case ("keep my main repos at the
+top of the grid"), so ask for the whole list and assign spaced ranks (10, 20, 30 …) rather than
+1, 2, 3 — it leaves room to slot a project in later without renumbering everything.
 
 ### Attention sound — `sound`
 

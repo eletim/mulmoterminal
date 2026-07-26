@@ -17,6 +17,7 @@ import {
   dirThemeField,
   dirColorsField,
   dirFontSizeField,
+  dirOrderPriorityField,
   dirSkillsField,
   dirProviderField,
   dirModelField,
@@ -126,6 +127,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       dotColor: dirColorField.parse(raw.dotColor),
       buttonColor: dirColorField.parse(raw.buttonColor),
       fontSize: dirFontSizeField.parse(raw.fontSize),
+      orderPriority: dirOrderPriorityField.parse(raw.orderPriority),
       theme: dirThemeField.parse(raw.theme),
       colors: dirColorsField.parse(raw.colors),
       sound: resolveDirSound(base, raw.sound),
@@ -141,7 +143,7 @@ export function loadDirConfig(cwd: string): DirConfig {
 }
 
 export function publicDirConfig(cwd: string): PublicDirConfig {
-  const { name, badgeColor, headerColor, headerTextColor, cellColor, cellBorderColor, dotColor, buttonColor, fontSize, theme, colors, sound } =
+  const { name, badgeColor, headerColor, headerTextColor, cellColor, cellBorderColor, dotColor, buttonColor, fontSize, orderPriority, theme, colors, sound } =
     loadDirConfig(cwd);
   return {
     name,
@@ -153,6 +155,7 @@ export function publicDirConfig(cwd: string): PublicDirConfig {
     dotColor,
     buttonColor,
     fontSize,
+    orderPriority,
     theme,
     colors,
     hasSound: sound !== null,

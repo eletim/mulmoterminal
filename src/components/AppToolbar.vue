@@ -15,25 +15,27 @@ import { useUpdateStatus } from "../composables/useUpdateStatus";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
 import { parseTagQuery } from "./wikiTagFilter";
 import type { Shortcut } from "../../common/shortcuts";
-import type { StatusCounts } from "./gridTabs";
+import type { SortMode, StatusCounts } from "./gridTabs";
 import { gridStatusSummary } from "./gridTabs";
+import { sortModeButton } from "./sortModeButton";
 
 // The standard header, shared by the single (App.vue) and grid (GridView.vue) views so
 // both show one identical toolbar. Every launcher button now just pushes a route — the
 // surface (single shell vs grid, which overlay) is derived from the URL — so navigating
 // to a single-view surface (collections / accounting) inherently leaves the grid. The
 // active states re-derive from route.name (via the route-backed browse/accounting
-// stores). Grid-only state (`addTerminalActive`, `autoSort`) is still passed in, and
+// stores). Grid-only state (`addTerminalActive`, `sortMode`) is still passed in, and
 // the grid-only actions (add-terminal / toggle-sort) and settings stay emits.
 const props = defineProps<{
   addTerminalActive?: boolean;
-  autoSort?: boolean;
+  sortMode?: SortMode;
   statusCounts?: StatusCounts;
   // Grid zoom state, so the header can host the roster ⇄ strip toggle (shown only while zoomed).
   showViewToggle?: boolean;
   listMode?: boolean;
 }>();
 const emit = defineEmits<{ (e: "add-terminal" | "toggle-sort" | "toggle-view" | "settings"): void }>();
+const sortButton = computed(() => sortModeButton(props.sortMode ?? "manual"));
 
 const route = useRoute();
 // Grid-wide, at-a-glance tally: how many cells are blocked (need input) / done
@@ -142,15 +144,10 @@ function showPrs(): void {
       />
       <LauncherButton
         v-if="inGrid"
-        :icon="autoSort ? 'sort' : 'swap_horiz'"
-        :title="
-          autoSort
-            ? 'Auto order: attention-first — needs-attention cells float up (click for manual ◀▶ ordering)'
-            : 'Manual order: reorder cells with ◀▶ (click for auto attention-sort)'
-        "
-        label="Toggle grid cell ordering"
-        :active="autoSort"
-        :aria-pressed="autoSort"
+        :icon="sortButton.icon"
+        :title="sortButton.title"
+        :label="sortButton.label"
+        :active="sortButton.active"
         @click="emit('toggle-sort')"
       />
       <span

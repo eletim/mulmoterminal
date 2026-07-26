@@ -15,6 +15,7 @@ const EMPTY = {
   dotColor: null,
   buttonColor: null,
   fontSize: null,
+  orderPriority: null,
   theme: null,
   colors: null,
   sound: null,
@@ -115,6 +116,7 @@ describe("loadDirConfig", () => {
       dotColor: "#00E676",
       buttonColor: "#C7CDF0",
       fontSize: 17,
+      orderPriority: 5,
       theme: "nord",
       sound: "./a.mp3",
       skills: ["  review  ", "commit", "review", ""],
@@ -130,6 +132,7 @@ describe("loadDirConfig", () => {
       dotColor: "#00e676",
       buttonColor: "#c7cdf0",
       fontSize: 17,
+      orderPriority: 5,
       theme: "nord",
       colors: null,
       sound: path.join(dir, "a.mp3"),
@@ -252,7 +255,7 @@ describe("dirConfigWriteTarget", () => {
 
 describe("publicDirConfig / dirSoundFile", () => {
   it("exposes hasSound but not the raw path", () => {
-    const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20 });
+    const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20, orderPriority: -3 });
     writeFileSync(path.join(dir, "a.mp3"), "x");
     expect(publicDirConfig(dir)).toEqual({
       name: "x",
@@ -266,6 +269,9 @@ describe("publicDirConfig / dirSoundFile", () => {
       // On the wire on purpose: the browser needs it to size the terminal, and unlike `sound`
       // there is nothing sensitive about it.
       fontSize: 20,
+      // Negative on purpose: a rank is an ordering, not a size, so "before everything at 0"
+      // has to survive the wire rather than be normalised away.
+      orderPriority: -3,
       theme: null,
       colors: null,
       hasSound: true,

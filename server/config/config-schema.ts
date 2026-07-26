@@ -128,6 +128,12 @@ export const dirThemeField = themeIdSchema.nullable().catch(null);
 // usable size instead of discarding it, so `fontSize: 99` reads as "as big as allowed" rather
 // than silently falling back to the global size. writableDirConfigSchema below is the strict
 // one, so an out-of-range value is still reported where it can be fixed — at authoring time.
+// Not clamped like the font size: every finite number is a usable rank, so there is no
+// "unusable value" to pull back into range. Non-numeric stays null, which the grid reads as
+// "unset" and sorts last. Integers only — a rank is an ordering, and allowing 1.5 invites
+// float-comparison surprises for no gain.
+export const dirOrderPriorityField = z.number().int().nullable().catch(null);
+
 export const dirFontSizeField = z
   .unknown()
   .transform((value) => normalizeFontSize(value))
@@ -277,6 +283,8 @@ const writableDirConfigSchema = z.object({
   colors: z.partialRecord(z.enum(THEME_COLOR_KEYS), z.string().regex(PALETTE_COLOR_RE)).optional(),
   // xterm font size in px for this directory's terminals. Omit to follow the Settings value.
   fontSize: z.number().int().min(TERMINAL_FONT_SIZE_MIN).max(TERMINAL_FONT_SIZE_MAX).optional(),
+  // Rank in the grid's "priority" sort mode, ascending. Omit to sort after everything that sets it.
+  orderPriority: z.number().int().optional(),
   sound: nonEmptyText.optional(),
   buttons: z.array(writableHeaderButtonSchema).max(MAX_BUTTONS).optional(),
   chips: z.array(writableHeaderChipSchema).max(MAX_CHIPS).optional(),

@@ -12,7 +12,7 @@ vi.mock("../../../src/composables/usePubSub", () => ({
   }),
 }));
 
-import { useDirConfig, boundDirCount, invalidateDirConfig } from "../../../src/composables/useDirConfig";
+import { useDirConfig, useDirPriorities, boundDirCount, invalidateDirConfig } from "../../../src/composables/useDirConfig";
 import { TERMINAL_FONT_SIZE_MAX } from "../../../common/terminalFontSize";
 
 let served = "first";
@@ -64,6 +64,61 @@ describe("useDirConfig fontSize", () => {
   it("stays null for a non-numeric size rather than guessing", async () => {
     serve({ fontSize: "18" });
     expect(await read("/proj/font-garbage")).toBeNull();
+  });
+});
+
+// The grid's "priority" sort needs a rank for cells on pages that aren't mounted, so this
+// subscribes to a whole SET of directories rather than one per mounted cell.
+describe("useDirPriorities", () => {
+  const serveByCwd = (byCwd: Record<string, unknown>) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        // Base only so a relative /api path parses; nothing is ever requested over it.
+        const cwd = decodeURIComponent(new URL(url, "https://test.invalid").searchParams.get("cwd") ?? "");
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(byCwd[cwd] ?? {}) });
+      }),
+    );
+
+  it("collects the ranks of every directory it is given, mounted or not", async () => {
+    serveByCwd({ "/g/a": { orderPriority: 2 }, "/g/b": { orderPriority: 1 }, "/g/c": { name: "no rank" } });
+    const scope = effectScope();
+    const priorities = scope.run(() => useDirPriorities(ref(["/g/a", "/g/b", "/g/c"])).priorities);
+    await flush();
+    // /g/c is absent rather than null — "unset" is a lookup miss, which is what the sort reads.
+    expect(priorities?.value).toEqual({ "/g/a": 2, "/g/b": 1 });
+    scope.stop();
+  });
+
+  it("re-reads a directory when the server announces a config write", async () => {
+    serveByCwd({ "/g/live": { orderPriority: 5 } });
+    const scope = effectScope();
+    const priorities = scope.run(() => useDirPriorities(ref(["/g/live"])).priorities);
+    await flush();
+    expect(priorities?.value["/g/live"]).toBe(5);
+
+    serveByCwd({ "/g/live": { orderPriority: 9 } });
+    publish?.({ cwd: "/g/live" });
+    await flush();
+    expect(priorities?.value["/g/live"]).toBe(9); // re-sorted live, no remount
+    scope.stop();
+  });
+
+  it("drops a directory that leaves the set, and releases its binding", async () => {
+    serveByCwd({ "/g/x": { orderPriority: 1 }, "/g/y": { orderPriority: 2 } });
+    const before = boundDirCount();
+    const cwds = ref(["/g/x", "/g/y"]);
+    const scope = effectScope();
+    const priorities = scope.run(() => useDirPriorities(cwds).priorities);
+    await flush();
+    expect(priorities?.value).toEqual({ "/g/x": 1, "/g/y": 2 });
+
+    cwds.value = ["/g/x"]; // the cell in /g/y was closed
+    await flush();
+    expect(priorities?.value).toEqual({ "/g/x": 1 });
+
+    scope.stop();
+    expect(boundDirCount()).toBe(before); // no directory left subscribed
   });
 });
 

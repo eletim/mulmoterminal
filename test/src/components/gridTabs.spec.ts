@@ -703,6 +703,58 @@ describe("orderCells (auto attention sort)", () => {
   });
 });
 
+// The rank comes from the DIRECTORY (.mulmoterminal.json orderPriority), so it is keyed by cwd
+// and several cells in one directory necessarily share it.
+describe("orderCells (priority sort)", () => {
+  const NO_STATUS = {};
+  // uid n lives in /p<n>, so a cell's uid and its directory line up in the expectations.
+  const inDirs = (count: number): Cell[] => Array.from({ length: count }, (_, i) => cell(i, U(i), `/p${i}`));
+
+  it("sorts ascending by the directory's priority", () => {
+    const ordered = orderCells(inDirs(3), NO_STATUS, "priority", { "/p0": 30, "/p1": 10, "/p2": 20 });
+    expect(ordered.map((c) => c.uid)).toEqual([1, 2, 0]);
+  });
+
+  // Adding the key to ONE project must not displace the others relative to each other.
+  it("puts directories with no priority last, in their existing order", () => {
+    const ordered = orderCells(inDirs(4), NO_STATUS, "priority", { "/p2": 1 });
+    expect(ordered.map((c) => c.uid)).toEqual([2, 0, 1, 3]);
+  });
+
+  it("keeps the manual order among equal priorities, including cells sharing one directory", () => {
+    const cells = [cell(0, U(0), "/a"), cell(1, U(1), "/b"), cell(2, U(2), "/a")];
+    const ordered = orderCells(cells, NO_STATUS, "priority", { "/a": 5, "/b": 5 });
+    expect(ordered.map((c) => c.uid)).toEqual([0, 1, 2]);
+  });
+
+  it("is a no-op ordering when nothing sets a priority", () => {
+    const ordered = orderCells(inDirs(3), NO_STATUS, "priority", {});
+    expect(ordered.map((c) => c.uid)).toEqual([0, 1, 2]);
+  });
+
+  // An empty slot is never what you want first — and it can't be held back by its key alone,
+  // since every unset directory already ranks at Infinity.
+  it("keeps an empty launch cell last even behind unset directories", () => {
+    // The launch cell starts FIRST, and /p0 sets nothing — so only the launch-last level can
+    // separate them; both rank at Infinity on the key alone.
+    const cells = [cell(9), cell(0, U(0), "/p0"), cell(1, U(1), "/p1")];
+    const ordered = orderCells(cells, NO_STATUS, "priority", { "/p1": 7 });
+    expect(ordered.map((c) => c.uid)).toEqual([1, 0, 9]);
+  });
+
+  it("honours negative ranks, so a project can sort ahead of everything at 0", () => {
+    const ordered = orderCells(inDirs(3), NO_STATUS, "priority", { "/p0": 0, "/p1": -5, "/p2": 3 });
+    expect(ordered.map((c) => c.uid)).toEqual([1, 0, 2]);
+  });
+
+  it("ignores the priority map entirely in the other two modes", () => {
+    const cells = inDirs(3);
+    const priorities = { "/p2": -100 };
+    expect(orderCells(cells, NO_STATUS, "manual", priorities)).toBe(cells);
+    expect(orderCells(cells, { 0: "blocked" }, "auto", priorities).map((c) => c.uid)).toEqual([0, 1, 2]);
+  });
+});
+
 describe("visibleOrdered (attention-sort the whole list, then page)", () => {
   it("floats a blocked cell from any page onto the first page", () => {
     // 12 cells over 2 pages. uid 10 starts on page 2; once blocked it sorts to the

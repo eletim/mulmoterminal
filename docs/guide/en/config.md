@@ -417,6 +417,24 @@ xterm's character grid stops matching what the shell believes the window to be, 
 wraps drift. Setting `fontSize` re-fits the terminal and sends the new width/height to the process, so
 everything stays aligned.
 
+### Where this project sits in the grid (`orderPriority`) {#order-priority}
+
+`orderPriority` gives the directory a rank in the grid's **priority** ordering — the third mode on the
+toolbar's ordering button, alongside auto (attention-first) and manual (`◀ ▶`):
+
+```json
+{ "orderPriority": 10 }
+```
+
+- **Lowest first.** Any integer, including negative ones, so a project can sort ahead of everything at `0`.
+- **Directories that set nothing come last**, keeping their existing order — adding the key to one project
+  doesn't shuffle the rest.
+- Equal ranks keep their current order, which is also what happens when several cells share one directory
+  (the rank belongs to the *directory*, not the cell).
+
+Only the **priority** mode reads it. Leave the button on auto or manual and nothing changes, whatever
+your projects declare.
+
 ### Customizing the header (buttons / chips) {#header}
 
 This is where MulmoTerminal's **Extend** pillar lives. Shape the header of a running terminal to fit your workflow with **a small DSL**.
