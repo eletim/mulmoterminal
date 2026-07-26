@@ -4,7 +4,8 @@
 // the whole view. The pure normalize/rollup helpers are unit-tested without gh.
 import type { CiState, PrItem, RepoPrs } from "../../common/ghItems.js";
 import { runGh } from "./gh";
-import { isRecord, normalizeGhItemBase } from "./ghItem";
+import { normalizeGhItemBase } from "./ghItem";
+import { isRecord } from "../../common/isRecord.js";
 
 // Per-repo cap. High enough for a review dashboard; a repo that hits it is flagged
 // `truncated` rather than silently cut.

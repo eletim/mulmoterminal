@@ -5,7 +5,7 @@
 //
 // Everything here is pure: the tailing itself lives in session/codex-activity-watch.ts.
 
-import { isRecord } from "../session/transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 import { activityHookEffects, pushKindFor, type ActivityEffect } from "../session/activity-hook.js";
 import type { PushKind } from "../../common/pushKinds.js";
 

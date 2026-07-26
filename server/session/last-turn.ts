@@ -4,7 +4,8 @@
 // flight is skipped: codex writes its rollout lazily, so "what it is saying right now"
 // simply isn't on disk (#254).
 
-import { conversationTurnsFromParsed, parseJsonl, isRecord } from "./transcript.js";
+import { conversationTurnsFromParsed, parseJsonl } from "./transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 
 export interface LastTurn {
   prompt: string | null;

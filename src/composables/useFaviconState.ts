@@ -9,6 +9,7 @@ import { computed, onUnmounted, ref, watch, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import { useDynamicFavicon } from "./useDynamicFavicon";
 import type { Session } from "./useSessions";
+import { isRecord } from "../../common/isRecord";
 
 export type FaviconState = "idle" | "working" | "attention";
 
@@ -22,7 +23,6 @@ interface ActivityMsg {
   waiting?: boolean;
   event?: string | null;
 }
-const isRecord = (d: unknown): d is Record<string, unknown> => typeof d === "object" && d !== null;
 const isActivityMsg = (d: unknown): d is ActivityMsg => isRecord(d) && "id" in d;
 
 // attention(waiting) wins over working wins over idle — matching the grid cell's own

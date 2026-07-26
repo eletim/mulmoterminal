@@ -4,10 +4,9 @@
 // exposed so a caller can force an update right after a turn finishes.
 import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
 import type { GitStatus } from "../../common/gitStatus";
+import { isRecord } from "../../common/isRecord";
 
 const POLL_MS = 10_000;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const isGitStatus = (v: unknown): v is GitStatus => isRecord(v) && typeof v.repo === "boolean";
 
 export function useGitStatus(cwd: Ref<string | null>) {

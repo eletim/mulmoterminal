@@ -5,6 +5,7 @@ import { isThemeId, type ThemeId } from "./useTheme";
 // Shared with the server config schema so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
+import { isRecord } from "../../common/isRecord";
 
 // The per-directory overrides a terminal adopts when its cwd holds a
 // `.mulmoterminal.json` (served by GET /api/dir-config). The raw sound path stays
@@ -50,8 +51,6 @@ const bound = new Map<string, Set<(config: DirConfig) => void>>();
 // overwrite a newer config, so a fetch only applies while its generation is current.
 const generation = new Map<string, number>();
 const generationOf = (cwd: string): number => generation.get(cwd) ?? 0;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 function parse(c: unknown): DirConfig {
   if (!isRecord(c)) return EMPTY;

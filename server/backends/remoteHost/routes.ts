@@ -15,6 +15,7 @@
 import type { Express, Request, Response } from "express";
 import type { RemoteHostLifecycle, RemoteHostStatus } from "@mulmoclaude/core/remote-host/server";
 import type { RunnerHealth } from "../../../common/remoteHostHealth.js";
+import { isRecord } from "../../../common/isRecord.js";
 
 interface StatusResponse {
   status: RemoteHostStatus;
@@ -35,8 +36,6 @@ export interface RemoteHostRouteDeps {
   reconnectErrorStatus: (err: unknown) => number;
   currentHealth: () => RunnerHealth;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export function mountRemoteHostRoutes(app: Express, deps: RemoteHostRouteDeps): void {
