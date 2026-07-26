@@ -153,7 +153,7 @@ useEscapeToClose(isOpen, close);
         <WikiPageView v-else-if="view.mode === 'page' && page" :slug="view.slug" :page="page" :graph="graph" />
         <WikiGraphView v-else-if="view.mode === 'graph' && graph" :graph="graph" />
         <!-- eslint-disable-next-line vue/no-v-html -- sanitized in renderWikiHtml -->
-        <div class="wiki-lint mx-auto max-w-[820px] px-7 pt-6 pb-16 text-[14px] leading-[1.6] text-fg" v-else-if="view.mode === 'lint'" v-html="lintHtml"></div>
+        <div v-else-if="view.mode === 'lint'" class="wiki-lint mx-auto max-w-[820px] px-7 pt-6 pb-16 text-[14px] leading-[1.6] text-fg" v-html="lintHtml"></div>
       </template>
     </div>
   </div>
