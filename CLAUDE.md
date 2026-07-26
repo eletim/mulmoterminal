@@ -51,7 +51,9 @@ feature **the day it ships**. The changelog explains what changed; it does not t
 turn a thing on, and for something like `keymap` there is otherwise nowhere to look. Write the
 procedure: open this file, paste this, restart what, how to tell it worked, what breaks on a Mac.
 
-- **Both languages**, `nav_order` descending from the newest (2.0.0 = 9, then 10, 11 …).
+- **Both languages**, and `nav_order` must run **newest release first** — the sequence is by
+  release order, not by version number sorted as text, so a patch like 1.11.1 sits above 1.11.0.
+  A new release takes the lowest free number and everything below it shifts down by one.
 - **State the date in the first line and call it a snapshot.** These pages *will* go stale — that
   is accepted, and the date is what makes a stale one readable rather than misleading. Never
   edit an old one to match new behaviour; write the next version's page instead.
