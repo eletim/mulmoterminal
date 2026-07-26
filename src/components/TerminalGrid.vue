@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, watch, nextTick } from "vue";
+import { ref, computed, onMounted, onActivated, watch, nextTick, useTemplateRef } from "vue";
 import TerminalCell from "./TerminalCell.vue";
 import CommandCell from "./CommandCell.vue";
 import LauncherCell from "./LauncherCell.vue";
@@ -172,16 +172,39 @@ watch(
     nextTick(() => flipCells(before));
   },
 );
+
+// Keep the roster scrolled to whichever terminal is enlarged. Without this, moving the zoom
+// from the keyboard highlights a row that is off-screen in a list of every session, so the
+// one list meant to say "here is where you are" says nothing.
+const rosterRoot = useTemplateRef<HTMLElement>("roster");
+watch(
+  () => props.expandedUid,
+  (uid) => {
+    if (uid === null) return;
+    nextTick(() => {
+      const row = rosterRoot.value?.querySelector(`[data-uid="${uid}"]`);
+      // `nearest` so a row already in view is left alone — re-centring on every step would
+      // make the list jump under a user who can already see what they picked.
+      row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  },
+);
 </script>
 
 <template>
   <div ref="stage" class="stage" :class="{ zoomed, listmode: listMode, flipping: flippingUids.size > 0 }" :style="flipVars" @focusin="onFocusIn">
     <!-- Cockpit roster: a tall text row per cell (status / dir / summary / prompt / latest
          reply). Click a row to swap which terminal is enlarged. -->
-    <aside v-if="zoomed && listMode" data-testid="cockpit" class="flex min-w-0 shrink-0 grow-0 basis-[360px] flex-col gap-[5px] overflow-y-auto bg-deep p-1.5">
+    <aside
+      v-if="zoomed && listMode"
+      ref="roster"
+      data-testid="cockpit"
+      class="flex min-w-0 shrink-0 grow-0 basis-[360px] flex-col gap-[5px] overflow-y-auto bg-deep p-1.5"
+    >
       <div
         v-for="row in listRows"
         :key="row.uid"
+        :data-uid="row.uid"
         role="button"
         :tabindex="0"
         data-testid="cockpit-row"

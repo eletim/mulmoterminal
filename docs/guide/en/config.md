@@ -183,10 +183,10 @@ terminal stops receiving**, and only you know whether that trade is worth it for
 
 | Action | What it does | Needs a zoomed cell |
 |---|---|---|
-| `zoom-toggle` | **Enlarge / collapse.** Un-zoomed it enlarges the first terminal in the on-screen order | no |
+| `zoom-toggle` | **Enlarge / collapse** — the only action that does. Re-enlarging returns to the terminal you were last reading | no |
 | `zoom-next` | Move the enlargement to the **next** terminal in the on-screen order | yes |
 | `zoom-prev` | Same, to the **previous** one | yes |
-| `next-attention` | **Jump to a terminal worth looking at** — awaiting input first, then finished-and-unreviewed, then idle. Skips cells mid-turn. Cycles, and enlarges the one it lands on | no |
+| `next-attention` | **Move to the next terminal worth looking at** — awaiting input first, then finished-and-unreviewed, then idle; cells mid-turn are skipped. Cycles. **Never enlarges or collapses**: zoomed it moves which terminal is enlarged, un-zoomed it brings that terminal's page on screen | no |
 | `terminal-new` | Add a terminal at the **end** (same as the toolbar's `New terminal ＋`) | no |
 | `terminal-new-adjacent` | Add a terminal **right after the current one**, inheriting its working directory — the closest thing to "split this terminal" | yes |
 | `terminal-close` | **Close** the current terminal (same as its `✕`) | yes |

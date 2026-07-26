@@ -50,6 +50,9 @@ export function activityStatus(working: boolean, waiting: boolean, event: string
 export interface GridState {
   cells: Cell[];
   expanded: number | null; // uid of the zoomed cell, or null
+  // The uid last enlarged, kept after collapsing so re-entering the zoom returns to the
+  // terminal the user was reading rather than restarting at the top of the page.
+  lastExpanded: number | null;
   page: number;
   nextUid: number;
   sortMode: SortMode;
@@ -220,8 +223,11 @@ const pageHolding = (order: readonly number[], uid: number, fallback: number): n
 // first tab, enlarging something off-screen and dragging the page back to 0 with it.
 export function toggleZoom(state: GridState, order: readonly number[]): GridState {
   const uid = zoomedUid(state);
-  if (uid !== null) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
-  return zoomAt(state, order, state.page * PAGE_SIZE);
+  if (uid !== null) return { ...state, expanded: null, lastExpanded: uid, page: pageHolding(order, uid, state.page) };
+  // Re-entering returns to the terminal last read; only when that cell is gone does it fall
+  // back to the top of the page being looked at.
+  const resume = state.lastExpanded !== null ? order.indexOf(state.lastExpanded) : -1;
+  return zoomAt(state, order, resume >= 0 ? resume : state.page * PAGE_SIZE);
 }
 
 // Search order for "somewhere worth going": the two states that are actually calling —
@@ -239,15 +245,27 @@ const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done", "idle"];
 // Wraps deliberately: this is a round of pending cells, not a list with ends, so pressing it
 // repeatedly walks all of them and comes back rather than stopping on the last.
 export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): GridState {
+  const at = nextCandidate(state, order, statusByUid);
+  if (at === undefined) return state;
+  // NEVER enlarges or collapses — that is toggleZoom's job alone. Zoomed, this moves which
+  // terminal is enlarged; un-zoomed, it brings the candidate's page on screen and leaves the
+  // grid a grid. A key that sometimes changed the whole layout would be unpredictable.
+  return zoomedUid(state) !== null ? { ...state, expanded: order[at] } : { ...state, page: Math.floor(at / PAGE_SIZE) };
+}
+
+// The index in `order` of the next terminal worth going to, starting after wherever the zoom
+// is now, or undefined when there is none.
+function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>): number | undefined {
+  if (order.length === 0) return undefined;
   const from = order.indexOf(zoomedUid(state) ?? -1); // -1 when un-zoomed => search starts at 0
   const rotated = order.map((_, i) => (from + 1 + i) % order.length);
   for (const status of ATTENTION_ORDER) {
     // Absent = idle, the convention CellStatus documents: a cell whose status has not been
     // reported yet must not fall out of the search entirely.
     const at = rotated.find((i) => (statusByUid[order[i]] ?? "idle") === status);
-    if (at !== undefined) return zoomAt(state, order, at);
+    if (at !== undefined) return at;
   }
-  return state;
+  return undefined;
 }
 
 // Zooming shows one cell big with the others as a filmstrip beside it, so it only means
@@ -257,7 +275,7 @@ export function nextAttention(state: GridState, order: readonly number[], status
 //
 // Collapsing is never refused: whatever a state got into, ⤡ has to get out of it.
 export function toggleExpand(state: GridState, uid: number, order: readonly number[] = []): GridState {
-  if (state.expanded === uid) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
+  if (state.expanded === uid) return { ...state, expanded: null, lastExpanded: uid, page: pageHolding(order, uid, state.page) };
   if (runningCount(state.cells) < 2) return state;
   return { ...state, expanded: uid };
 }
@@ -386,8 +404,12 @@ export function parseGridState(raw: string | null): GridState | null {
     }));
     const expandedIdx = running.findIndex((c: Cell) => c.uid === parsed.expanded);
     const expanded = typeof parsed.expanded === "number" && expandedIdx >= 0 ? expandedIdx : null;
+    // Same remap: persisted uids are renumbered above, so a raw lastExpanded would point at
+    // whatever cell now happens to hold that number.
+    const lastIdx = running.findIndex((c: Cell) => c.uid === parsed.lastExpanded);
+    const lastExpanded = typeof parsed.lastExpanded === "number" && lastIdx >= 0 ? lastIdx : null;
     const page = Number.isSafeInteger(parsed.page) && parsed.page >= 0 ? parsed.page : 0;
-    return clampPage(ensureEntry({ cells, expanded, page, nextUid: cells.length, sortMode: asSortMode(parsed.sortMode) }));
+    return clampPage(ensureEntry({ cells, expanded, lastExpanded, page, nextUid: cells.length, sortMode: asSortMode(parsed.sortMode) }));
   } catch {
     return null;
   }
@@ -403,7 +425,7 @@ export function migrateLegacy(raw: string | null): GridState | null {
       if (isUuid(s)) cells.push({ uid: cells.length, session: s, cwd: typeof parsed.cwds?.[i] === "string" ? parsed.cwds[i] : null });
     });
     const expanded = typeof parsed.expanded === "number" && parsed.expanded >= 0 && parsed.expanded < cells.length ? cells[parsed.expanded].uid : null;
-    return clampPage(ensureEntry({ cells, expanded, page: 0, nextUid: cells.length, sortMode: "manual" }));
+    return clampPage(ensureEntry({ cells, expanded, lastExpanded: null, page: 0, nextUid: cells.length, sortMode: "manual" }));
   } catch {
     return null;
   }
@@ -414,7 +436,7 @@ export function initialState(curRaw: string | null, legacyRaw: string | null): {
   if (cur) return { state: cur, migrated: false };
   const migrated = migrateLegacy(legacyRaw);
   if (migrated) return { state: migrated, migrated: true };
-  return { state: ensureEntry({ cells: [], expanded: null, page: 0, nextUid: 0, sortMode: "manual" }), migrated: false };
+  return { state: ensureEntry({ cells: [], expanded: null, lastExpanded: null, page: 0, nextUid: 0, sortMode: "manual" }), migrated: false };
 }
 
 // Which status a cell sorts and tallies by.

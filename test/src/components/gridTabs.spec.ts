@@ -44,6 +44,7 @@ const running = (count: number): Cell[] => Array.from({ length: count }, (_, i) 
 const make = (cells: Cell[], extra: Partial<GridState> = {}): GridState => ({
   cells,
   expanded: null,
+  lastExpanded: null,
   page: 0,
   nextUid: cells.length,
   sortMode: "manual",
@@ -248,6 +249,23 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
     expect(toggleZoom(s, [])).toBe(s);
   });
 
+  // Re-entering should return the user to what they were reading, not restart at the top.
+  it("resumes the terminal that was last enlarged", () => {
+    const s = make(running(12), { page: 0 });
+    const order = s.cells.map((c) => c.uid);
+    const zoomed = { ...s, expanded: 5 };
+    const collapsed = toggleZoom(zoomed, order);
+    expect(collapsed.expanded).toBeNull();
+    expect(collapsed.lastExpanded).toBe(5);
+    expect(toggleZoom(collapsed, order).expanded).toBe(5);
+  });
+
+  it("falls back to the page's first cell when the remembered terminal is gone", () => {
+    const s = make(running(12), { page: 1, lastExpanded: 99 });
+    const order = s.cells.map((c) => c.uid);
+    expect(toggleZoom(s, order).expanded).toBe(9);
+  });
+
   // Regression (caught on a real grid, not by the unit tests or the bots): entering the zoom
   // from page 2 enlarged a cell from page 1 and dragged the page back to 0 with it, so ⤡ then
   // dropped the user on the wrong tab. `order` is the whole un-paged list, so the entry index
@@ -290,8 +308,21 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
 describe("nextAttention (jump to a terminal that needs you)", () => {
   const status = (m: Record<number, CellStatus>): Record<number, CellStatus> => m;
 
-  it("jumps to a blocked cell from un-zoomed — doubling as a way into the zoom", () => {
-    const after = nextAttention(make(running(3)), [0, 1, 2], status({ 0: "working", 1: "idle", 2: "blocked" }));
+  // F8 alone enlarges and collapses. This key only moves, so pressing it on a plain grid must
+  // leave a plain grid — it brings the candidate's page on screen instead.
+  it("NEVER enters the zoom from an un-zoomed grid", () => {
+    const s = make(running(12), { page: 0 });
+    const after = nextAttention(
+      s,
+      s.cells.map((c) => c.uid),
+      status({ 10: "blocked" }),
+    );
+    expect(after.expanded).toBeNull();
+    expect(after.page).toBe(1); // but the calling cell is now on screen
+  });
+
+  it("NEVER collapses the zoom either — it only moves which cell is enlarged", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 2: "blocked" }));
     expect(after.expanded).toBe(2);
   });
 
@@ -341,13 +372,15 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     expect(nextAttention(s, [], {})).toBe(s);
   });
 
-  it("respects the two-running-cells rule when entering the zoom", () => {
-    const s = make([cell(0, U(0)), cell(1)]);
-    expect(nextAttention(s, [0, 1], status({ 0: "blocked" }))).toBe(s);
+  it("leaves an un-zoomed grid alone when the candidate is already on screen", () => {
+    const s = make(running(3), { page: 0 });
+    const after = nextAttention(s, [0, 1, 2], status({ 1: "blocked" }));
+    expect(after.expanded).toBeNull();
+    expect(after.page).toBe(0);
   });
 
-  it("collapsing after a jump lands on the page holding the cell it jumped to", () => {
-    const s = make(running(12));
+  it("collapsing after a jump made WHILE ZOOMED lands on that cell's page", () => {
+    const s = make(running(12), { expanded: 0 });
     const order = s.cells.map((c) => c.uid);
     const after = nextAttention(s, order, status({ 10: "blocked" }));
     expect(after.expanded).toBe(10);
@@ -361,8 +394,8 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     const s = make(running(12), { page: 0 });
     const order = s.cells.map((c) => c.uid);
     const after = nextAttention(s, order, status({ 11: "blocked" }));
-    expect(after.expanded).toBe(11);
-    expect(toggleZoom(after, order).page).toBe(1);
+    expect(after.expanded).toBeNull(); // still a grid
+    expect(after.page).toBe(1); // showing the page that was calling
   });
 });
 
