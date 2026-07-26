@@ -204,5 +204,6 @@ looking) — flag them for QA on the release.
 ## Related
 
 `docs/spawn-architecture.md` (session lifecycle), `docs/gui-protocol-spike.md`,
+`docs/remote-host-protocol.md` (what the phone can ask of a session),
 `src/composables/useTerminalConnections.ts`, `server/infra/tmux.ts`, `server/session/*.ts`.
 Issues: #206, #263/#264/#293, #265/#266, #434, #445, #572, #729, #737, #772/#780, #776, #778, #782, #783/#785.

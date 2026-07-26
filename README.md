@@ -1040,6 +1040,10 @@ same-origin-guarded.
 | `GET /api/remote-host/status` · `POST /api/remote-host/{connect,disconnect}` | Companion phone-client link. Each response carries the command channel's `health` (`online` / `reconnecting` / `offline`, plus the last listener error), so the toolbar shows a dropped channel instead of the last state it happened to fetch. |
 | `POST /api/open-dir` · `POST /api/pick-file` | Reveal a dir in Finder/Explorer; OS file-picker → path (`{ directory: true }` opens the folder picker — used by the launcher's Working-directory 📁 button). |
 
+The phone itself uses **none** of these routes — it reaches the host over Firestore command
+docs, not HTTP. Every command it can send, and the shapes it gets back, are in
+[`docs/remote-host-protocol.md`](docs/remote-host-protocol.md).
+
 ### WebSocket: `/ws` (terminal)
 
 A raw WebSocket carrying the terminal stream for one session. One PTY per

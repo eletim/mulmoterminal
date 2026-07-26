@@ -7,6 +7,14 @@
 //
 // Covers read-only lists, startChat (text + image attachments), and mobile
 // custom views (getRemoteView / getRemoteViewItems / mutateRemoteViewItem).
+//
+// ── DOCS ──────────────────────────────────────────────────────────────────────
+// The command surface and its wire shapes are documented for the phone's authors
+// in docs/remote-host-protocol.md. Add or change a command and update it in the
+// same commit, then file the matching issue on receptron/mulmoserver — the phone
+// ignores a field it was never taught about, so a host-only change ships as
+// silence rather than as a feature.
+// ──────────────────────────────────────────────────────────────────────────────
 import { discoverCollections, listItems, loadCollection, toDetail, toSummary } from "@mulmoclaude/core/collection/server";
 import { listFeeds, readFeedState } from "@mulmoclaude/core/feeds/server";
 import { normalizeFields, normalizeMutate } from "@mulmoclaude/core/remote-view";
