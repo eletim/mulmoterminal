@@ -212,9 +212,14 @@ export function toggleZoom(state: GridState, order: readonly number[]): GridStat
   return zoomedUid(state) !== null ? { ...state, expanded: null } : zoomAt(state, order, state.page * PAGE_SIZE);
 }
 
-// Cells the user is being called by: `blocked` (needs an answer now) before `done` (finished,
-// unreviewed). Anything else is not asking for them.
-const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done"];
+// Search order for "somewhere worth going": the two states that are actually calling —
+// `blocked` (needs an answer now) then `done` (finished, unreviewed) — and `idle` as a
+// fallback, so the key still moves on a board where nothing happens to be waiting.
+//
+// `working` is deliberately absent: a cell mid-turn is the one place the user has no reason to
+// be, and skipping it is what stops this from being a plain "next cell". This mirrors the
+// attention RANK the "auto" sort already uses, where idle likewise outranks working.
+const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done", "idle"];
 
 // Jump to the next terminal that wants the user, cycling from wherever the zoom is now — the
 // "take me to whoever called" key. Also works un-zoomed, where it doubles as a way in.
@@ -225,7 +230,9 @@ export function nextAttention(state: GridState, order: readonly number[], status
   const from = order.indexOf(zoomedUid(state) ?? -1); // -1 when un-zoomed => search starts at 0
   const rotated = order.map((_, i) => (from + 1 + i) % order.length);
   for (const status of ATTENTION_ORDER) {
-    const at = rotated.find((i) => statusByUid[order[i]] === status);
+    // Absent = idle, the convention CellStatus documents: a cell whose status has not been
+    // reported yet must not fall out of the search entirely.
+    const at = rotated.find((i) => (statusByUid[order[i]] ?? "idle") === status);
     if (at !== undefined) return zoomAt(state, order, at);
   }
   return state;

@@ -289,7 +289,7 @@ never add one they did not request.
 |---|---|---|
 | `zoom-toggle` | Enlarge / collapse; un-zoomed it enlarges the first terminal on screen | no |
 | `zoom-next` / `zoom-prev` | Move the enlargement along the on-screen order | yes |
-| `next-attention` | Jump to a terminal awaiting input (then finished-unreviewed), enlarging it | no |
+| `next-attention` | Jump to a terminal awaiting input, then finished-unreviewed, then idle — skipping cells mid-turn | no |
 | `terminal-new` | Add a terminal at the end (the toolbar's `＋`) | no |
 | `terminal-new-adjacent` | Add one right after the current terminal, inheriting its cwd | yes |
 | `terminal-close` | Close the current terminal | yes |

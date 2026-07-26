@@ -308,14 +308,24 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     expect(nextAttention(make(running(3), { expanded: 1 }), [0, 1, 2], st).expanded).toBe(1);
   });
 
-  it("does nothing when nothing needs attention", () => {
-    const s = make(running(3), { expanded: 0 });
-    expect(nextAttention(s, [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }))).toBe(s);
+  it("falls back to an idle cell when nothing is calling, so the key still moves", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 0: "idle", 1: "working", 2: "idle" }));
+    expect(after.expanded).toBe(2); // skips the working cell at index 1
   });
 
-  it("treats working and idle as NOT calling — only blocked/done are", () => {
+  it("still prefers a calling cell over a nearer idle one", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({ 0: "idle", 1: "idle", 2: "done" }));
+    expect(after.expanded).toBe(2);
+  });
+
+  it("does nothing when every other cell is mid-turn — working is the one place not to go", () => {
     const s = make(running(2));
     expect(nextAttention(s, [0, 1], status({ 0: "working", 1: "working" }))).toBe(s);
+  });
+
+  it("treats a cell with no reported status as idle, so a fresh grid still moves", () => {
+    const after = nextAttention(make(running(3), { expanded: 0 }), [0, 1, 2], status({}));
+    expect(after.expanded).toBe(1);
   });
 
   it("does nothing with an empty order", () => {
