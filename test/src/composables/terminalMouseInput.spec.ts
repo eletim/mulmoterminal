@@ -5,7 +5,7 @@
 // alone would pass just as happily with the listeners on the wrong element or the wrong gate.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { Terminal } from "@xterm/xterm";
-import { guardMouseClicks } from "../../../src/composables/terminalMouseInput";
+import { guardMouseClicks, guardMouseWheel } from "../../../src/composables/terminalMouseInput";
 import { recordSwallowedModes } from "../../../src/composables/mouseReports";
 import { swallowsMouseTracking } from "../../../src/composables/mouseTrackingModes";
 
@@ -70,6 +70,7 @@ async function openWiredTerminal(options: { tracked?: boolean } = {}): Promise<W
   const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
   if (!screen) throw new Error("xterm did not create .xterm-screen — the click guard has nothing to bind to");
   screen.getBoundingClientRect = () => new DOMRect(0, 0, COLS * CELL_WIDTH_PX, ROWS * CELL_HEIGHT_PX);
+  guardMouseWheel(term, swallowedMouseModes);
   guardMouseClicks(term, swallowedMouseModes);
   const sent: string[] = [];
   term.onData((data) => sent.push(data));
@@ -136,5 +137,67 @@ describe("guardMouseClicks on a real terminal", () => {
     mouse(screen, "mousedown", 115, 250, SECONDARY_BUTTON);
     mouse(screen, "mouseup", 115, 250, SECONDARY_BUTTON);
     expect(sent).toEqual([]);
+  });
+
+  // A press that left the element is a drag, and the browser delivers its release elsewhere. The
+  // press must not stay pending: the next release to land inside would be measured against it.
+  it("forgets a press once the pointer leaves, so a later release reports nothing", async () => {
+    const { screen, sent } = await openWiredTerminal();
+    mouse(screen, "mousedown", 115, 250);
+    screen.dispatchEvent(new MouseEvent("mouseleave"));
+    mouse(screen, "mouseup", 115, 250);
+    expect(sent).toEqual([]);
+  });
+
+  // xterm selects a word on double-click; that gesture is the user selecting text, not pressing
+  // the app's button. (The first click of the pair reports — nothing is selected yet.)
+  it("stays silent for a click that left a selection behind", async () => {
+    const { term, screen, sent } = await openWiredTerminal();
+    await write(term, "hello world");
+    term.selectLines(0, 0);
+    expect(term.hasSelection()).toBe(true);
+    click(screen, 115, 250);
+    expect(sent).toEqual([]);
+  });
+
+  // The plain-click case above must not be silently riding on this same guard.
+  it("leaves no selection behind for a plain click", async () => {
+    const { term, screen } = await openWiredTerminal();
+    click(screen, 115, 250);
+    expect(term.hasSelection()).toBe(false);
+  });
+});
+
+describe("guardMouseWheel on a real terminal", () => {
+  const wheel = (screen: HTMLElement, deltaY: number, clientX: number, clientY: number) =>
+    screen.dispatchEvent(new WheelEvent("wheel", { deltaY, clientX, clientY, bubbles: true, cancelable: true }));
+
+  it("reports the wheel at the cell under the pointer, not a fixed 1;1", async () => {
+    const { screen, sent } = await openWiredTerminal();
+    wheel(screen, 120, 115, 250);
+    expect(sent).toEqual(["\x1b[<65;12;13M"]);
+  });
+
+  it("encodes direction: up is button 64, down is 65", async () => {
+    const { screen, sent } = await openWiredTerminal();
+    wheel(screen, -120, 5, 10);
+    expect(sent).toEqual(["\x1b[<64;1;1M"]);
+  });
+
+  it("stays silent in the normal buffer, where the wheel is xterm's own scrollback", async () => {
+    const { term, screen, sent } = await openWiredTerminal();
+    await write(term, ALT_BUFFER_OFF);
+    wheel(screen, 120, 115, 250);
+    expect(sent).toEqual([]);
+  });
+
+  // Not silence but deference: for an app that asked for nothing, xterm's own alt-buffer fallback
+  // turns the wheel into ↓. That fallback is exactly what #737 is about — a TUI binds the arrows
+  // to input history, so scrolling spun the prompt. It is only tolerable for an app that never
+  // asked for the mouse; the case above shows the report replacing it for one that did.
+  it("leaves xterm's arrow-key fallback alone for an app that never asked for tracking", async () => {
+    const { screen, sent } = await openWiredTerminal({ tracked: false });
+    wheel(screen, 120, 115, 250);
+    expect(sent).toEqual(["\x1b[B"]);
   });
 });

@@ -82,12 +82,21 @@ change one and change the other (#834).
   back** (`src/composables/terminalMouseInput.ts`; the rules are pure in `mouseReports.ts`). Both
   fire only in the alternate buffer, and only for an app that asked for tracking + SGR (1006):
   - **Wheel** (#737) — xterm's fallback turns it into ↑/↓ arrows, which a TUI binds to input
-    history, so scrolling spun the prompt.
+    history, so scrolling spun the prompt. That fallback is still what an app which never asked
+    for tracking gets (and the spec pins it) — the report only replaces it for one that did.
   - **Click** (#845) — a press and release that stayed put becomes an SGR press/release pair, so
-    the app's own click targets ("Jump to bottom", "1 new message") respond. A drag reports
-    nothing (it is still a selection), and a click on a link reports nothing either — xterm marks
-    the screen element `xterm-cursor-pointer` while a link is hovered, and that click already has
-    an owner. Nothing is `preventDefault()`ed, so xterm's selection is untouched.
+    the app's own click targets ("Jump to bottom", "1 new message") respond. Nothing is
+    `preventDefault()`ed, so xterm's selection is untouched.
+- **The browser side wins every gesture the app's click would compete with.** No report is sent
+  when:
+  - the pointer moved (a drag is a selection — the reason the swallow exists);
+  - the pointer **left** the screen element between press and release. The pending press is
+    dropped there, or a later release landing back inside would be measured against it and report
+    a click that never happened;
+  - the gesture **left a selection behind** — a double-click's word, a triple-click's line. (The
+    first click of a double-click still reports: nothing is selected yet.);
+  - a **link is under the pointer** — xterm marks the screen element `xterm-cursor-pointer` while
+    a link is hovered, and that click already has an owner (the link's activate handler).
 - The swallowed modes are per-session and cleared on `term.reset()`.
 - xterm exposes no pixel-to-cell mapping, so cell coordinates are derived from `.xterm-screen`'s
   own box. Reaching into `_core._renderService.dimensions` instead would need an `any`.

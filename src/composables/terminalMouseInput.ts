@@ -43,6 +43,15 @@ export function guardMouseWheel(term: Terminal, swallowedMouseModes: ReadonlySet
   });
 }
 
+// Which gestures are the app's to hear. Everything rejected here belongs to the browser side of
+// the split the swallow draws: selecting text, or following a link.
+function isReportableClick(term: Terminal, screen: HTMLElement, from: PointerPosition, release: MouseEvent): boolean {
+  if (release.button !== MAIN_BUTTON || !isClickGesture(from, release)) return false;
+  // A gesture that left a selection behind (a double-click's word, a triple-click's line) was the
+  // user selecting text, not pressing the app's button — selection wins, as it does for a drag.
+  return !term.hasSelection() && !screen.classList.contains(LINK_HOVER_CLASS);
+}
+
 /** Click -> the SGR press/release pair, so a TUI's own click targets ("Jump to bottom", "1 new
  *  message") respond (#845). Only a press and release that stayed put reports: a drag is still a
  *  text selection, which is what the swallow exists to protect. Nothing is preventDefault()ed,
@@ -54,14 +63,20 @@ export function guardMouseClicks(term: Terminal, swallowedMouseModes: ReadonlySe
   const screen = screenElementOf(term);
   if (!screen) return;
   let pressedAt: PointerPosition | null = null;
+  const forgetPress = (): void => {
+    pressedAt = null;
+  };
   screen.addEventListener("mousedown", (ev) => {
     pressedAt = ev.button === MAIN_BUTTON ? { clientX: ev.clientX, clientY: ev.clientY } : null;
   });
+  // Leaving settles the gesture as a drag. Without this the press stays pending, and an unrelated
+  // release landing back inside would be measured against it — reporting a click that never was.
+  screen.addEventListener("mouseleave", forgetPress);
   screen.addEventListener("mouseup", (ev) => {
     const from = pressedAt;
-    pressedAt = null;
-    if (!from || ev.button !== MAIN_BUTTON || !isClickGesture(from, ev)) return;
-    if (!reportsMouseToApp(term, swallowedMouseModes) || screen.classList.contains(LINK_HOVER_CLASS)) return;
+    forgetPress();
+    if (!from || !isReportableClick(term, screen, from, ev)) return;
+    if (!reportsMouseToApp(term, swallowedMouseModes)) return;
     const cell = cellUnderPointer(term, ev);
     clickReportSequences(cell.col, cell.row).forEach((seq) => term.input(seq, false));
   });
