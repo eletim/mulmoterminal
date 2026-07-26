@@ -327,7 +327,15 @@ const onClose = (uid: number) =>
     uid,
     displayCells.value.map((c) => c.uid),
   ));
-const onToggleExpand = (uid: number) => (state.value = toggleExpand(state.value, uid));
+// Pass the on-screen order so releasing the zoom lands on the page holding the cell that was
+// enlarged — including when the user got there by clicking a roster row or filmstrip thumbnail,
+// which changes what is zoomed without touching the page.
+const onToggleExpand = (uid: number) =>
+  (state.value = toggleExpand(
+    state.value,
+    uid,
+    orderedCells.value.map((c) => c.uid),
+  ));
 const onRun = (uid: number, command: RunCommand) => (state.value = runCommand(state.value, uid, command));
 // A running cell's header Run menu: launch in a spare cell (next to it) so the session survives.
 const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScriptInNewCell(state.value, uid, command));

@@ -186,9 +186,7 @@ export function moveZoom(state: GridState, order: readonly number[], dir: -1 | 1
   const at = from + dir;
   const next = at >= 0 ? order[at] : undefined;
   if (next === undefined || !state.cells.some((c) => c.uid === next)) return state;
-  // Follow the zoom with the page, so collapsing lands on the cell the user was just
-  // looking at instead of wherever they zoomed in from (insertCellAfter does the same).
-  return { ...state, expanded: next, page: Math.floor(at / PAGE_SIZE) };
+  return { ...state, expanded: next };
 }
 
 // Zoom `order[at]`, following the page so collapsing lands on it. Shared by every keyboard
@@ -198,8 +196,20 @@ function zoomAt(state: GridState, order: readonly number[], at: number): GridSta
   const uid = order[at];
   if (uid === undefined || runningCount(state.cells) < 2) return state;
   if (!state.cells.some((c) => c.uid === uid)) return state;
-  return { ...state, expanded: uid, page: Math.floor(at / PAGE_SIZE) };
+  return { ...state, expanded: uid };
 }
+
+// Which page to show once the zoom is released: the one holding the cell that was enlarged.
+//
+// Derived HERE rather than carried along, because the page someone zoomed in from stops being
+// true the moment they walk the filmstrip — after paging through terminals, "go back to where
+// you started" lands them nowhere near what they were just reading. `page` is unused while
+// zoomed (the grid renders every cell and the tab bar is hidden), so this is the only moment
+// it has to be right.
+const pageHolding = (order: readonly number[], uid: number, fallback: number): number => {
+  const at = order.indexOf(uid);
+  return at < 0 ? fallback : Math.floor(at / PAGE_SIZE);
+};
 
 // The keyboard's way in and out of the zoom (#829). Every other zoom action needs something
 // already enlarged, so without this one a keymap cannot be used at all without first reaching
@@ -209,7 +219,9 @@ function zoomAt(state: GridState, order: readonly number[], at: number): GridSta
 // USER IS LOOKING AT — `order` is the whole un-paged list, so index 0 would be a cell from the
 // first tab, enlarging something off-screen and dragging the page back to 0 with it.
 export function toggleZoom(state: GridState, order: readonly number[]): GridState {
-  return zoomedUid(state) !== null ? { ...state, expanded: null } : zoomAt(state, order, state.page * PAGE_SIZE);
+  const uid = zoomedUid(state);
+  if (uid !== null) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
+  return zoomAt(state, order, state.page * PAGE_SIZE);
 }
 
 // Search order for "somewhere worth going": the two states that are actually calling —
@@ -244,8 +256,8 @@ export function nextAttention(state: GridState, order: readonly number[], status
 // terminal's status bar and input off the bottom of the viewport for no gain (#374).
 //
 // Collapsing is never refused: whatever a state got into, ⤡ has to get out of it.
-export function toggleExpand(state: GridState, uid: number): GridState {
-  if (state.expanded === uid) return { ...state, expanded: null };
+export function toggleExpand(state: GridState, uid: number, order: readonly number[] = []): GridState {
+  if (state.expanded === uid) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
   if (runningCount(state.cells) < 2) return state;
   return { ...state, expanded: uid };
 }

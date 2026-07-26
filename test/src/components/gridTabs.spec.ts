@@ -194,28 +194,22 @@ describe("moveZoom (Page Up / Page Down walk the zoom along the filmstrip)", () 
     expect(moveZoom(s, [0, 1, 42], 1)).toBe(s);
   });
 
-  it("follows the zoom with the page, so collapsing lands on the cell just viewed", () => {
+  it("collapsing after walking forward lands on the page holding the cell just viewed", () => {
     // 12 terminals = 2 pages. Zoomed on the last cell of page 0, stepping forward
     // crosses onto page 1.
     const s = make(running(12), { expanded: 8, page: 0 });
-    const after = moveZoom(
-      s,
-      s.cells.map((c) => c.uid),
-      1,
-    );
-    expect(after.expanded).toBe(9);
-    expect(after.page).toBe(1);
+    const order = s.cells.map((c) => c.uid);
+    const moved = moveZoom(s, order, 1);
+    expect(moved.expanded).toBe(9);
+    expect(toggleZoom(moved, order).page).toBe(1);
   });
 
-  it("walks the page back when stepping backwards across the boundary", () => {
+  it("collapsing after walking backwards lands on the earlier page", () => {
     const s = make(running(12), { expanded: 9, page: 1 });
-    const after = moveZoom(
-      s,
-      s.cells.map((c) => c.uid),
-      -1,
-    );
-    expect(after.expanded).toBe(8);
-    expect(after.page).toBe(0);
+    const order = s.cells.map((c) => c.uid);
+    const moved = moveZoom(s, order, -1);
+    expect(moved.expanded).toBe(8);
+    expect(toggleZoom(moved, order).page).toBe(0);
   });
 
   it("uses the ORDER's index for the page, not the cell's position in state.cells", () => {
@@ -260,22 +254,36 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
   // has to be derived from the page being looked at.
   it("enlarges a cell ON THE CURRENT PAGE, not the first of the whole list", () => {
     const s = make(running(12), { page: 1 });
-    const after = toggleZoom(
-      s,
-      s.cells.map((c) => c.uid),
-    );
+    const order = s.cells.map((c) => c.uid);
+    const after = toggleZoom(s, order);
     expect(after.expanded).toBe(9); // first cell of page 1, not uid 0
-    expect(after.page).toBe(1); // and the user stays on the tab they were on
+    expect(toggleZoom(after, order).page).toBe(1); // and releasing stays on that tab
   });
 
   it("enlarges the first cell of the list when on the first page", () => {
     const s = make(running(12), { page: 0 });
-    const after = toggleZoom(
-      s,
-      s.cells.map((c) => c.uid),
-    );
+    const order = s.cells.map((c) => c.uid);
+    const after = toggleZoom(s, order);
     expect(after.expanded).toBe(0);
-    expect(after.page).toBe(0);
+    expect(toggleZoom(after, order).page).toBe(0);
+  });
+
+  // The rule as the user stated it: the tab shown on release is decided by WHERE THE ENLARGED
+  // CELL IS, not by remembering the page they zoomed in from. Reaching a page-1 cell (via the
+  // filmstrip, a roster row, or a jump) and releasing must show page 1.
+  it("decides the page from the enlarged cell, whatever page the zoom started on", () => {
+    const s = make(running(12), { expanded: 10, page: 0 });
+    expect(
+      toggleZoom(
+        s,
+        s.cells.map((c) => c.uid),
+      ).page,
+    ).toBe(1);
+  });
+
+  it("keeps the current page when the enlarged cell is no longer in the order", () => {
+    const s = make(running(12), { expanded: 10, page: 1 });
+    expect(toggleZoom(s, [0, 1, 2]).page).toBe(1);
   });
 });
 
@@ -338,12 +346,12 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
     expect(nextAttention(s, [0, 1], status({ 0: "blocked" }))).toBe(s);
   });
 
-  it("follows the page to the cell it jumps to", () => {
+  it("collapsing after a jump lands on the page holding the cell it jumped to", () => {
     const s = make(running(12));
     const order = s.cells.map((c) => c.uid);
     const after = nextAttention(s, order, status({ 10: "blocked" }));
     expect(after.expanded).toBe(10);
-    expect(after.page).toBe(1);
+    expect(toggleZoom(after, order).page).toBe(1);
   });
 
   // Regression: the caller must hand over the WHOLE ordered list, not the visible page. Given a
@@ -351,13 +359,10 @@ describe("nextAttention (jump to a terminal that needs you)", () => {
   // computed against the wrong origin.
   it("reaches a calling cell on ANOTHER page while un-zoomed", () => {
     const s = make(running(12), { page: 0 });
-    const after = nextAttention(
-      s,
-      s.cells.map((c) => c.uid),
-      status({ 11: "blocked" }),
-    );
+    const order = s.cells.map((c) => c.uid);
+    const after = nextAttention(s, order, status({ 11: "blocked" }));
     expect(after.expanded).toBe(11);
-    expect(after.page).toBe(1);
+    expect(toggleZoom(after, order).page).toBe(1);
   });
 });
 
