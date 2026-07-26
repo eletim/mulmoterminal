@@ -451,6 +451,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `worklogEnabled` | `true` to run the built-in **dev worklog** batch (see below). Off by default (each run spawns an LLM session, so it costs tokens). |
 | `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
+| `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out. Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
 
 #### Header buttons
 

@@ -90,6 +90,12 @@ export function getTerminalSubmit(): TerminalSubmitMode {
   return config.terminalSubmit;
 }
 
+// Whether a PR this app creates says which clone it came from (#872) — read live so
+// turning it off applies to the next PR button press without a restart.
+export function getPrWorkdirFooter(): boolean {
+  return config.prWorkdirFooter;
+}
+
 export function mountConfigRoutes(app: Express, claudeCwd: string): void {
   // The live config as the API exposes it, so a client (e.g. a settings UI) can read back
   // everything it can write — buttons/chips included — and round-trip it.
