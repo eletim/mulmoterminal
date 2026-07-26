@@ -3,6 +3,7 @@
 // a config read, or a transcript on disk. All pure — the caller keeps the I/O.
 
 import path from "node:path";
+import type { PushKind } from "../../common/pushKinds.js";
 
 export interface PushDetailInput {
   reply: string | null;
@@ -24,6 +25,13 @@ export function buildPushDetail(input: PushDetailInput): string {
 // on one must never reach the phone.
 export function shouldSuppressPush(hidden: boolean, translationWorker: boolean): boolean {
   return hidden || translationWorker;
+}
+
+// Whether the user asked to hear about THIS moment (#850). Two independent answers: the master
+// switch says whether to notify at all, and the kind list says which moments qualify — so
+// silencing the pushes a blocked agent raises never costs the finished-turn ones.
+export function wantsPushKind(enabled: boolean, wanted: readonly PushKind[], kind: PushKind): boolean {
+  return enabled && wanted.includes(kind);
 }
 
 // Where the turn happened, for the notification: the working directory's basename, or a

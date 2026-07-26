@@ -85,11 +85,48 @@ send most.
 
 ## When a push is sent
 
+All four have to hold:
+
 - ✅ RemoteHost is **connected** on the terminal side
-- ✅ the **"Notify my devices…" toggle is ON**
+- ✅ the **"Notify my devices" toggle is ON**
 - ✅ at least one **device has notifications enabled** on the phone side
-- ✅ a regular session's turn **finished** or **blocked on input** (the pane you're viewing
-  counts too; internal workers don't)
+- ✅ the moment is **a kind you asked for** — see below
+
+The pane you're currently looking at counts too (your phone is elsewhere). Internal workers —
+hidden background sessions, the translation worker — never push.
+
+## Which moments push, and how to choose {#kinds}
+
+Two moments raise a push, and **Settings (⚙) → Web Push notifications** has a checkbox for
+each. Untick one and that moment stops notifying, while the other keeps working.
+
+| Setting | Fires when | Looks like | How often |
+|---|---|---|---|
+| **Turn finished** | the agent finished replying and the output is unread | ✅ `<dir>` — the reply | once per turn |
+| **Waiting for you** | the agent **stopped to ask** — a permission prompt or a question | ❓ `<dir>` — what it's asking | **once per prompt** |
+
+{: .warning }
+> **"Waiting for you" is the one that can feel frequent.** It fires every time the agent stops
+> to ask, so a long task that asks permission repeatedly sends a push each time. Each one is
+> accurate — the session really is blocked — but if you only want to hear about finished work,
+> untick it and keep **Turn finished**.
+
+Turning the master toggle off silences everything without losing which kinds you picked.
+
+A kind added in a future version stays **off** until you tick it, so an upgrade can't start
+notifying you about something you never asked for.
+
+### In `config.json`
+
+The checkboxes write [`pushEnabled` and `pushKinds`](config.html):
+
+```json
+{ "pushEnabled": true, "pushKinds": ["finished"] }
+```
+
+`pushKinds: []` means no kind qualifies — the same silence as turning the toggle off, but it
+remembers nothing. Leaving `pushKinds` out entirely keeps both kinds, which is what a config
+written before this setting existed does.
 
 ## If nothing arrives
 

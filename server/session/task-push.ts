@@ -3,13 +3,14 @@
 // boundaries off its rollout (no hooks exist to POST for it), and a codex turn has to
 // reach the same notification, or the phone stays silent for half the grid.
 
-import { getPushEnabled } from "../config/config-routes.js";
+import { getPushEnabled, getPushKinds } from "../config/config-routes.js";
 import { sendWebPush } from "../infra/web-push.js";
 import { HOST_ID as REMOTE_HOST_ID } from "../backends/remoteHost/index.js";
-import { buildPushText, type PushKind } from "./activity-hook.js";
+import { buildPushText } from "./activity-hook.js";
+import type { PushKind } from "../../common/pushKinds.js";
 import { aiTitles, hiddenSessions, lastPrompts, lastResponses, ptys, translationWorkerIds } from "./registry.js";
 import { sessionLastTurn, LAST_RESPONSE_MAX } from "./session-reads.js";
-import { buildPushDetail, pushWhere, shouldSuppressPush } from "./taskPushRules.js";
+import { buildPushDetail, pushWhere, shouldSuppressPush, wantsPushKind } from "./taskPushRules.js";
 
 const PUSH_TITLE_MAX = 80;
 const PUSH_BODY_MAX = 160;
@@ -33,7 +34,7 @@ async function latestReply(sessionId: string, cwd: string): Promise<string | nul
 // Notify the user's devices that a turn finished or is blocked, when Web Push is enabled.
 // Fire-and-forget; sendWebPush no-ops when RemoteHost (its Firebase auth) isn't connected.
 export async function notifyTaskFinished(sessionId: string, kind: PushKind, message: string, uiPort: string): Promise<void> {
-  if (!getPushEnabled()) return;
+  if (!wantsPushKind(getPushEnabled(), getPushKinds(), kind)) return;
   // Internal helper turns flow through /api/hook with active=false too — the suppression gate
   // keeps those (hidden background workers, translation workers) from ever reaching the phone.
   if (shouldSuppressPush(hiddenSessions.has(sessionId), translationWorkerIds.has(sessionId))) return;

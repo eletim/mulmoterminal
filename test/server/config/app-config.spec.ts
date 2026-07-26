@@ -7,6 +7,7 @@ import {
   sanitizeRepos,
   sanitizeLaunchers,
   sanitizeQuickCommands,
+  sanitizePushKinds,
   sanitizeUserMcpServers,
   sanitizePushEnabled,
   sanitizeWorklogIntervalHours,
@@ -19,6 +20,7 @@ import {
   mergeConfigUpdate,
   type AppConfig,
 } from "../../../server/config/app-config";
+import { DEFAULT_PUSH_KINDS } from "../../../common/pushKinds.js";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-appcfg-"));
 
@@ -127,6 +129,38 @@ describe("sanitizeQuickCommands", () => {
   });
 });
 
+describe("sanitizePushKinds", () => {
+  it("keeps the kinds that exist and drops anything else", () => {
+    expect(sanitizePushKinds(["finished", "nope", 7, null])).toEqual(["finished"]);
+    expect(sanitizePushKinds(["waiting"])).toEqual(["waiting"]);
+  });
+
+  // The stored file should read the same however the checkboxes were clicked.
+  it("normalises to the canonical order and de-duplicates", () => {
+    expect(sanitizePushKinds(["waiting", "finished", "waiting"])).toEqual(["finished", "waiting"]);
+  });
+
+  // A config written before the setting existed has no `pushKinds` — an upgrading user must not
+  // silently lose the notifications they already had.
+  it("falls back to the defaults when the field is absent or not an array", () => {
+    expect(sanitizePushKinds(undefined)).toEqual(["finished", "waiting"]);
+    expect(sanitizePushKinds("finished")).toEqual(["finished", "waiting"]);
+    expect(sanitizePushKinds({ finished: true })).toEqual(["finished", "waiting"]);
+  });
+
+  // Distinct from "absent": the user turned every kind off but left the master switch alone.
+  // Collapsing this to the defaults would make that choice impossible to express.
+  it("keeps an explicit empty list", () => {
+    expect(sanitizePushKinds([])).toEqual([]);
+  });
+
+  it("returns a fresh array, so a caller mutating it cannot corrupt the defaults", () => {
+    const first = sanitizePushKinds(undefined);
+    first.pop();
+    expect(sanitizePushKinds(undefined)).toEqual(["finished", "waiting"]);
+  });
+});
+
 describe("sanitizeUserMcpServers", () => {
   it("keeps valid id + http(s) url, drops bad id/url/dup", () => {
     expect(
@@ -186,6 +220,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     buttons: null,
     chips: null,
     pushEnabled: false,
+    pushKinds: [...DEFAULT_PUSH_KINDS],
     worklogEnabled: false,
     worklogIntervalHours: 6,
     providers: [],
@@ -205,6 +240,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       buttons: [{ id: "pr", label: "PR", run: "shell" as const, cmd: "gh pr create" }],
       chips: ["dir", "git"],
       pushEnabled: true,
+      pushKinds: [...DEFAULT_PUSH_KINDS],
       worklogEnabled: true,
       worklogIntervalHours: 12,
       providers: [],
@@ -252,6 +288,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       buttons: null,
       chips: null,
       pushEnabled: false,
+      pushKinds: [...DEFAULT_PUSH_KINDS],
       worklogEnabled: false,
       worklogIntervalHours: 6,
       providers: [],
@@ -348,6 +385,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     buttons: null,
     chips: null,
     pushEnabled: false,
+    pushKinds: [...DEFAULT_PUSH_KINDS],
     worklogEnabled: false,
     worklogIntervalHours: 6,
     providers: [],
@@ -401,6 +439,7 @@ describe("mergeConfigUpdate", () => {
     buttons: [{ id: "reveal", label: "Reveal in the file manager", run: "open", emoji: "📂", open: { reveal: "${dir}" } }],
     chips: ["git", "diff", "ctx", "usage"],
     pushEnabled: false,
+    pushKinds: [...DEFAULT_PUSH_KINDS],
     worklogEnabled: false,
     worklogIntervalHours: 6,
     providers: [],

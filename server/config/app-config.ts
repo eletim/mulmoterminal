@@ -20,6 +20,7 @@ import {
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
+import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
@@ -43,9 +44,14 @@ export interface AppConfig {
   buttons: HeaderButton[] | null;
   // Global header display chips, or null when unconfigured (the client keeps its default set).
   chips: HeaderChip[] | null;
-  // Send a Web Push (sendPush Cloud Function) when a task finishes. Off by default; only
-  // fires while the RemoteHost channel is connected (that's what supplies the Firebase auth).
+  // Send a Web Push (sendPush Cloud Function). Off by default; only fires while the RemoteHost
+  // channel is connected (that's what supplies the Firebase auth). The master switch — which
+  // KINDS it sends is `pushKinds`.
   pushEnabled: boolean;
+  // Which kinds of push are wanted (#850). A push needs `pushEnabled` AND its kind here, so a
+  // user who only wants finished turns can decline the ones a blocked agent raises — which on
+  // a task that asks permission repeatedly is most of them.
+  pushKinds: PushKind[];
   // Periodic dev-work log: a built-in scheduled task that summarizes recent work across
   // the saved working dirs into weekly wiki pages. Off by default (it spawns an LLM
   // session on each run, so it costs tokens). `worklogIntervalHours` is the cadence.
@@ -164,6 +170,16 @@ export function sanitizePushEnabled(input: unknown): boolean {
   return input === true;
 }
 
+// Keep the kinds that exist, de-duplicated and in the canonical order so the stored file reads
+// the same whatever order the UI sent. A NON-ARRAY (missing, or a config written before #850)
+// falls back to the defaults — an upgrading user must not silently lose their notifications.
+// An explicit `[]` is a real answer and is kept: it means "none", which is how the user turns
+// every kind off while leaving the master switch alone.
+export function sanitizePushKinds(input: unknown): PushKind[] {
+  if (!Array.isArray(input)) return [...DEFAULT_PUSH_KINDS];
+  return PUSH_KINDS.filter((kind) => input.includes(kind));
+}
+
 // The Enter-key submit/newline byte mapping. Anything that isn't a known mode (missing,
 // typo, wrong type) falls back to the standard binding, so a bad value never changes how
 // Enter behaves.
@@ -199,6 +215,7 @@ export const emptyConfig = (): AppConfig => ({
   buttons: null,
   chips: null,
   pushEnabled: false,
+  pushKinds: [...DEFAULT_PUSH_KINDS],
   worklogEnabled: false,
   worklogIntervalHours: DEFAULT_WORKLOG_INTERVAL_HOURS,
   providers: [],
@@ -231,6 +248,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     buttons: sanitizeButtons(o.buttons),
     chips: sanitizeChips(o.chips),
     pushEnabled: sanitizePushEnabled(o.pushEnabled),
+    pushKinds: sanitizePushKinds(o.pushKinds),
     worklogEnabled: sanitizeWorklogEnabled(o.worklogEnabled),
     worklogIntervalHours: sanitizeWorklogIntervalHours(o.worklogIntervalHours),
     providers: sanitizeProviders(o.providers),
@@ -298,6 +316,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     buttons: body.buttons !== undefined ? sanitizeButtons(body.buttons) : base.buttons,
     chips: body.chips !== undefined ? sanitizeChips(body.chips) : base.chips,
     pushEnabled: body.pushEnabled !== undefined ? sanitizePushEnabled(body.pushEnabled) : base.pushEnabled,
+    pushKinds: body.pushKinds !== undefined ? sanitizePushKinds(body.pushKinds) : base.pushKinds,
     worklogEnabled: body.worklogEnabled !== undefined ? sanitizeWorklogEnabled(body.worklogEnabled) : base.worklogEnabled,
     worklogIntervalHours: body.worklogIntervalHours !== undefined ? sanitizeWorklogIntervalHours(body.worklogIntervalHours) : base.worklogIntervalHours,
     providers: body.providers !== undefined ? sanitizeProviders(body.providers) : base.providers,
@@ -321,6 +340,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     buttons: config.buttons,
     chips: config.chips,
     pushEnabled: config.pushEnabled,
+    pushKinds: config.pushKinds,
     worklogEnabled: config.worklogEnabled,
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
