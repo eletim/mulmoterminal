@@ -21,6 +21,22 @@ anything not covered here.
 - `yarn test` — **Vitest** (`test/**/*.spec.ts`). Mock external APIs; tests must run without API keys.
 - `yarn dev` — server + Vite together (local development).
 
+## No emojis
+**Never use emojis anywhere in this project** — UI, source comments, docs, changelog, commit
+messages, skills, CLI output. Icons are **Material Symbols (outlined)**, self-hosted via the
+`material-symbols` npm package: `<span class="material-symbols-outlined">icon_name</span>`.
+A global rule in `src/style.css` gives them `font-size: inherit`, so size them on the parent.
+
+- A header button in config (`server/config/header-config.ts`) takes **`icon`**, not `emoji`.
+  The `emoji` field still exists for end-user configs and wins over `icon` when both are set —
+  don't use it in anything this repo ships.
+- Three deliberate exceptions, all functional. Don't "fix" them:
+  - `server/session/screen-rows.ts` — `/^\s*[❯›]\s/u` parses Claude Code's real terminal output.
+  - `src/composables/useDynamicFavicon.ts` — the `❯` chevron drawn on canvas as the favicon mark.
+  - `bin/mulmoterminal.js` — the CLI doctor's `✓ / ✗ / ○` (a terminal can't render an icon font).
+- Compact status **notation** stays text, not icons: `⎇ main ●3 ↑2`, `●` unsaved dots, `−12` diff
+  counts. Icons there are bigger and slower to scan.
+
 ## Layout
 - `server/` — backend (PTY sessions, config, agents, backends). Ships user-facing skills in `server/skills/`.
 - `src/` — Vue web UI (App.vue, components, composables, router).
@@ -64,7 +80,8 @@ procedure: open this file, paste this, restart what, how to tell it worked, what
   guide holds the reference — do not duplicate the reference.
 - A fix-only release still gets a page: "nothing to configure", what was broken, and **how to
   tell you have the fix**. That is what an upgrader actually wants to know.
-- **Link it from the changelog entry** (a `> 📘` line right under the heading). Before this
+- **Link it from the changelog entry** (a `> **Setup guide:**` blockquote line right under the
+  heading — the old convention used a book emoji, dropped per **No emojis** above). Before this
   existed the changelog had one link into the guide in 717 lines, which is why nobody found the
   manual.
 - **Verify before committing**: every internal link resolves to a real page *and anchor*, and any

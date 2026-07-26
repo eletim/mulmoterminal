@@ -173,8 +173,8 @@ function onPushToggle(e: Event) {
 // a blocked agent raises. Editable list mirroring the saved value, like the other lists here.
 const PUSH_KIND_LABEL: Record<PushKind, string> = { finished: "Turn finished", waiting: "Waiting for you" };
 const PUSH_KIND_HELP: Record<PushKind, string> = {
-  finished: "the agent replied and the output is unread (✅)",
-  waiting: "it stopped to ask — a permission prompt or a question (❓). Fires once per prompt, so a task that asks a lot pushes a lot",
+  finished: "the agent replied and the output is unread",
+  waiting: "it stopped to ask — a permission prompt or a question. Fires once per prompt, so a task that asks a lot pushes a lot",
 };
 const pushKindList = ref<PushKind[]>([...(props.pushKinds ?? [])]);
 watch(
@@ -315,7 +315,7 @@ onUnmounted(() => {
           aria-label="Close settings"
           @click="emit('close')"
         >
-          ✕
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
 
@@ -373,7 +373,9 @@ onUnmounted(() => {
         Launch the <code>mulmoterminal-config</code> skill to style a directory — name badge, colors, terminal palette, header buttons. It configures the
         focused session's directory, or lets you pick from your recent directories.
       </p>
-      <SettingsButton @click="emit('configure-appearance')">🎨 Configure appearance…</SettingsButton>
+      <SettingsButton @click="emit('configure-appearance')"
+        ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton
+      >
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Notification sound</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
@@ -391,7 +393,9 @@ onUnmounted(() => {
         <SettingsButton @click="browseSound">Browse…</SettingsButton>
       </div>
       <div class="mt-2 flex gap-2">
-        <SettingsButton title="Play the current sound" @click="testSound">▶ Test</SettingsButton>
+        <SettingsButton title="Play the current sound" @click="testSound"
+          ><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> Test</SettingsButton
+        >
         <SettingsButton :disabled="!soundPath" title="Use the built-in chime" @click="clearSound">Use chime</SettingsButton>
       </div>
 
@@ -455,7 +459,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${r}`"
             @click="removeRepo(r)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -487,7 +491,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${l.label}`"
             @click="removeLauncher(l.label)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -529,7 +533,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${c.label}`"
             @click="removeQuickCommand(c.label)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -584,7 +588,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${s.id}`"
             @click="removeMcpServer(s.id)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>

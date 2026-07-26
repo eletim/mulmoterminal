@@ -51,7 +51,7 @@ Mention them when the user's complaint matches one (see each section below).
 
 Read `palettes.json`. Ask for the **vibe** first (four options, one question):
 
-**☀️ Warm** · **❄️ Cool** · **🎨 Bold** · **⚪ Neutral**
+**Warm** · **Cool** · **Bold** · **Neutral**
 
 Describe each preset in that vibe (below), ask which one they want, then apply it. That's the
 big-picture decision; the details come after.
@@ -65,8 +65,8 @@ the user sees nothing. Verified — don't waste a turn on it.
 What to do instead:
 
 1. **Name the colours.** For each candidate give its hex values and one line on how it feels
-   ("terracotta on near-black — cosy, low glare"). Optionally add a rough emoji swatch (🟫 🟦 🟩 ⬛)
-   so there's something to look at.
+   ("terracotta on near-black — cosy, low glare"). Don't try to draw a swatch — apply it (step 2)
+   and let them look at the real cell, which is the only accurate preview anyway.
 2. **Apply, then look at the real thing.** Write the config — the cells for that directory recolour
    **immediately**, no page reload and no server restart. (Writing the file with your Write/Edit tool
    is what tells MulmoTerminal to re-read it, so always write it rather than asking the user to.)
@@ -203,7 +203,7 @@ Absolute paths and `../` escapes are rejected. Omit for the built-in chime.
 An array (≤ 32) of action buttons for a running session's header. Each:
 
 ```json
-{ "id": "build", "emoji": "🔨", "label": "Build", "run": "shell", "cmd": "yarn build", "when": "isGitRepo", "order": 10 }
+{ "id": "build", "icon": "build", "label": "Build", "run": "shell", "cmd": "yarn build", "when": "isGitRepo", "order": 10 }
 ```
 
 **Omit `buttons` entirely** to keep the built-in defaults (a file-path picker + an OS file-manager
@@ -212,7 +212,8 @@ array you write is the whole button row; re-add the file picker with `{ "run": "
 or the in-app file explorer with `{ "run": "open", "open": { "files": "${dir}" } }` if you want them.
 
 - `id` (required, unique), `label` (required), `run` (required): one of `"shell"` / `"input"` / `"open"`.
-- `emoji` or `icon` (a material-symbol name) — optional.
+- `icon` — optional: a [Material Symbols](https://fonts.google.com/icons) name (`build`, `folder`, `bar_chart`).
+  Prefer it. An `emoji` field also exists and wins when both are set, but this project uses icons only.
 - Payload by `run`:
   - `"shell"` → `cmd`: run this command in a command cell (server-resolved by id; never sent to the browser).
   - `"input"` → `text`: send this text to the running Claude/Codex (e.g. `"/compact"`).
@@ -235,7 +236,7 @@ An array (≤ 16) of display chips, or **omit** the key entirely to keep the def
 
 ### Skill menu — `skills`
 
-The header's **⚡ Skill ▾** dropdown lists this directory's Claude skills (`.claude/skills`,
+The header's **Skill** dropdown lists this directory's Claude skills (`.claude/skills`,
 user + project scope) and runs the picked one in the session. `skills` is an **allowlist
 that also sets the order**: an array (≤ 100) of skill slugs — only these appear, in this
 order. **Omit `skills`** to show every discovered skill (working-dir skills first). Slugs
@@ -352,7 +353,7 @@ below, and the guide documents them at
 - **`terminal-close` ends the session with no confirmation.** Only bind it if the user asks, and
   suggest a combination they will not hit by accident.
 - This is a partial `POST /api/config` merge — write only `keymap`, so their other settings survive.
-- After writing, tell the user they can check the result in **⚙ Settings → Keyboard shortcuts**, which
+- After writing, tell the user they can check the result in **Settings → Keyboard shortcuts**, which
   lists every action and its binding (read-only).
 - The browser reads the keymap on page load: **reload the tab** after writing. A hand-edit made while
   the server is running also needs a server restart before it reaches the page.
@@ -425,16 +426,16 @@ A warm-clay project with buttons chosen to match what the directory supports:
 
 ```json
 {
-  "name": "✳ my-project",
+  "name": "my-project",
   "badgeColor": "#d97757",
   "headerColor": "#2b1a12",
   "headerTextColor": "#f7e6dc",
   "theme": "midnight",
   "colors": { "background": "#171210", "foreground": "#ece2dc", "cursor": "#d97757" },
   "buttons": [
-    { "id": "compact", "emoji": "🗜️", "label": "Compact", "run": "input", "text": "/compact", "when": "agent == claude" },
-    { "id": "diff", "emoji": "📊", "label": "Diff", "run": "open", "open": { "view": "diff" }, "when": "isGitRepo" },
-    { "id": "reveal", "emoji": "📁", "label": "Reveal", "run": "open", "open": { "reveal": "${dir}" } }
+    { "id": "compact", "icon": "compress", "label": "Compact", "run": "input", "text": "/compact", "when": "agent == claude" },
+    { "id": "diff", "icon": "difference", "label": "Diff", "run": "open", "open": { "view": "diff" }, "when": "isGitRepo" },
+    { "id": "reveal", "icon": "folder", "label": "Reveal", "run": "open", "open": { "reveal": "${dir}" } }
   ]
 }
 ```

@@ -32,9 +32,9 @@ import type { LaunchChoice } from "./wsUrl";
 // `command` switches the terminal to a plain shell command (the grid's Run menu):
 // it connects to /ws/run with the script index instead of resuming a Claude
 // session, and never auto-reconnects (the ephemeral process can't be resumed).
-// `runMenu` adds a ▶ Run dropdown to the header (the single view) that lists the
+// `runMenu` adds a Run dropdown to the header (the single view) that lists the
 // open project's script.json and emits the picked command for the parent to run,
-// plus a ⚡ Skill dropdown that lists the project's .claude/skills and invokes the
+// plus a Skill dropdown that lists the project's .claude/skills and invokes the
 // picked one in this session (types its /<slug>).
 // `persistKey` opts this terminal into a durable connection (kept alive across
 // unmount via useTerminalConnections, keyed by this stable slot id — the grid cell's
@@ -304,7 +304,7 @@ watch(
 onUnmounted(() => clearTimeout(refocusTimer));
 
 // Submit a GUI-originated message into the PTY (the GUI->LLM feedback path) and the
-// explicit ✕ close. Both delegate to the slot's durable runtime.
+// explicit close-button close. Both delegate to the slot's durable runtime.
 function submitText(text: string): boolean {
   return conn.submitText(slotKey, text);
 }
@@ -328,7 +328,7 @@ function insertText(text: string) {
 // terminal. Browsers expose the real path only via the drag's file:// URIs
 // (text/uri-list); the File object hides it. Browsers that withhold the path
 // (e.g. Chrome) yield no URIs — instead of silently inserting nothing, point the
-// user at the 📎 file-picker button, which is the path-in-Chrome route.
+// user at the file-picker button, which is the path-in-Chrome route.
 function onDrop(e: DragEvent) {
   dragOver.value = false;
   const dt = e.dataTransfer;
@@ -347,10 +347,10 @@ function onDragOver(e: DragEvent) {
 
 // Shown when a file was dropped but the browser withheld its path — the drop can't do
 // anything, so tell the user how to insert the path rather than leaving the failed drop
-// looking like nothing happened. The guidance depends on the header: point at the 📎 picker
+// looking like nothing happened. The guidance depends on the header: point at the file picker
 // only when it's actually present (buttons are configurable and it can be removed), otherwise
 // fall back to advice that always holds.
-const DROP_HINT_PICKER_EN = "This browser doesn't share a dropped file's path. Use the 📎 button in the header (Insert a file path) instead.";
+const DROP_HINT_PICKER_EN = "This browser doesn't share a dropped file's path. Use the paperclip button in the header (Insert a file path) instead.";
 const DROP_HINT_TYPE_EN = "This browser doesn't share a dropped file's path — type or paste the path instead.";
 const dropHint = ref(false);
 const dropHintText = ref("");
@@ -407,7 +407,7 @@ onUnmounted(() => {
           @click="onHeaderButton(b)"
         >
           <span v-if="b.emoji" class="text-[15px] leading-none">{{ b.emoji }}</span>
-          <span v-else class="material-symbols-outlined text-[18px]">{{ b.icon || "bolt" }}</span>
+          <span v-else class="material-symbols-outlined text-[18px]" aria-hidden="true">{{ b.icon || "bolt" }}</span>
         </button>
         <button
           v-if="voice.capable.value"
@@ -418,7 +418,7 @@ onUnmounted(() => {
           :aria-label="voiceTitle()"
           @click="voice.toggle()"
         >
-          <span class="material-symbols-outlined text-[18px]">{{ voiceIcon() }}</span>
+          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">{{ voiceIcon() }}</span>
         </button>
         <!-- The file-path picker and file explorer are now DEFAULT_BUTTONS (server-resolved into
              headerButtons above), so the user can drop/reorder/replace them via config. -->

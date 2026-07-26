@@ -21,6 +21,6 @@ defineEmits<{ (e: "click"): void }>();
     :aria-pressed="ariaPressed"
     @click="$emit('click')"
   >
-    <span class="material-symbols-outlined text-[19px] leading-none">{{ icon }}</span>
+    <span class="material-symbols-outlined text-[19px] leading-none" aria-hidden="true">{{ icon }}</span>
   </button>
 </template>

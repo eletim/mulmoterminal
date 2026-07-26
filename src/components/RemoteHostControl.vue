@@ -167,7 +167,7 @@ onUnmounted(() => stopSelfHeal?.());
     @open="onPopoverOpen"
   >
     <div class="flex items-center gap-1.5">
-      <span class="material-symbols-outlined text-[16px] leading-none" :class="view.toneClass">
+      <span class="material-symbols-outlined text-[16px] leading-none" :class="view.toneClass" aria-hidden="true">
         {{ view.icon }}
       </span>
       <span class="text-[12px] font-semibold text-fg">{{ view.label }}</span>
@@ -186,7 +186,7 @@ onUnmounted(() => stopSelfHeal?.());
       :disabled="busy"
       @click="onConnect"
     >
-      <span class="material-symbols-outlined text-[16px] leading-none">login</span>
+      <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">login</span>
       {{ busy ? "Connecting…" : "Connect (Google sign-in)" }}
     </button>
     <button
@@ -196,7 +196,7 @@ onUnmounted(() => stopSelfHeal?.());
       :disabled="busy"
       @click="onDisconnect"
     >
-      <span class="material-symbols-outlined text-[16px] leading-none">logout</span>
+      <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">logout</span>
       {{ busy ? "Disconnecting…" : "Disconnect" }}
     </button>
 

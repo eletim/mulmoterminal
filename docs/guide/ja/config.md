@@ -482,7 +482,7 @@ xterm の文字グリッドとシェルが認識しているウィンドウサ�
 ### グリッドでの並び位置（`orderPriority`） {#order-priority}
 
 `orderPriority` は、グリッドの **priority** 並び順における順位です。ツールバーの並び順ボタンの3つ目のモードで、
-auto（注目度順）と manual（`◀ ▶` で手動）と並びます。
+auto（注目度順）と manual（移動ボタンで手動）と並びます。
 
 ```json
 { "orderPriority": 10 }

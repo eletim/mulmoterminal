@@ -60,7 +60,7 @@ MulmoTerminal には 2 つの表示モードがあり、上部ツールバーの
 ## たくさん並べる・ページ・並べ替え
 
 - ツールバーの **New terminal（＋）** でセルを追加。1 ページ **9 セル**まで、あふれると次のページ（タブ）へ。
-- 並び順ボタンは3つのモードを切り替えます — **auto**（注目度順：呼んでいるセルが上に浮く）、**manual**（各セルの `◀ ▶` で自分で並べる）、**priority**（各プロジェクトが `.mulmoterminal.json` の `orderPriority` で宣言した順。[設定](config.html#order-priority)）。
+- 並び順ボタンは3つのモードを切り替えます — **auto**（注目度順：呼んでいるセルが上に浮く）、**manual**（各セルの移動ボタンで自分で並べる）、**priority**（各プロジェクトが `.mulmoterminal.json` の `orderPriority` で宣言した順。[設定](config.html#order-priority)）。
 
 ![並行するエージェント](../images/grid-2x2.png)
 

@@ -79,7 +79,7 @@ const hasContent = computed(() => results.value.length > 0);
         aria-label="Open tools pane"
         @click="emit('toggleTools')"
       >
-        <span class="material-symbols-outlined">build</span>
+        <span class="material-symbols-outlined" aria-hidden="true">build</span>
       </button>
     </div>
     <div class="flex-1 overflow-y-auto px-4 py-3 font-sans text-[14px] leading-normal text-fg">

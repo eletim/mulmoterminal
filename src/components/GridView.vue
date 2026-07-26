@@ -273,7 +273,7 @@ const syncPoll = () => (rosterVisible() ? startPoll() : stopPoll());
 // immediate: a reload that restores a zoomed grid sets expandedUid up front (no "change"
 // to react to), so start here too, or the roster would freeze at its first snapshot.
 watch(expandedUid, syncPoll, { immediate: true });
-// The header's view toggle (shown only while zoomed) flips roster ⇄ thumbnail strip; the poll
+// The header's view toggle (shown only while zoomed) flips roster / thumbnail strip; the poll
 // follows since the roster is its sole consumer.
 const toggleListMode = () => {
   listModeOn.value = !listModeOn.value;
@@ -307,7 +307,7 @@ const listRows = computed(() =>
   }),
 );
 // The cancelable trailing launch cell's uid (null when there's nothing to cancel):
-// drives both the toolbar's cancel state and the launcher's in-cell ✕.
+// drives both the toolbar's cancel state and the launcher's in-cell close button.
 const cancelUid = computed(() => cancelableLaunchUid(state.value));
 const launchOpen = computed(() => cancelUid.value !== null);
 // Session ids currently held by cells (across all pages — off-page cells stay

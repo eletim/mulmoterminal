@@ -28,7 +28,7 @@ const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
         aria-label="Switch to horizontal tabs"
         @click="emit('toggle-layout')"
       >
-        <span class="material-symbols-outlined">toolbar</span>
+        <span class="material-symbols-outlined" aria-hidden="true">toolbar</span>
       </button>
     </div>
 
@@ -37,14 +37,14 @@ const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
         class="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 bg-selected p-2 text-[13px] text-secondary hover:bg-selected-hover"
         @click="emit('new')"
       >
-        <span class="material-symbols-outlined text-[18px]">add</span> New session
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">add</span> New session
       </button>
       <button
         class="flex cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 bg-selected p-2 text-[13px] text-secondary hover:bg-selected-hover"
         title="New Codex session"
         @click="emit('new-codex')"
       >
-        <span class="material-symbols-outlined text-[18px]">add</span> Codex
+        <span class="material-symbols-outlined text-[18px]" aria-hidden="true">add</span> Codex
       </button>
     </div>
 

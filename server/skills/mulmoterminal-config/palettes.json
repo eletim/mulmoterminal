@@ -4,7 +4,7 @@
     {
       "id": "warm-clay",
       "vibe": "warm",
-      "label": "☀️ Warm clay",
+      "label": "Warm clay",
       "description": "Terracotta on near-black. Cosy, low-glare, easy on long sessions.",
       "badgeColor": "#d97757",
       "headerColor": "#2b1a12",
@@ -31,7 +31,7 @@
     {
       "id": "tropical",
       "vibe": "warm",
-      "label": "🌴 Tropical",
+      "label": "Tropical",
       "description": "Teal lagoon with coral and sand. Vivid without being harsh.",
       "badgeColor": "#ff6f5e",
       "headerColor": "#06373d",
@@ -58,7 +58,7 @@
     {
       "id": "deep-sea",
       "vibe": "cool",
-      "label": "🌌 Deep sea",
+      "label": "Deep sea",
       "description": "Midnight navy with a clear blue accent. Calm and focused.",
       "badgeColor": "#5aa9e6",
       "headerColor": "#0b1a33",
@@ -85,7 +85,7 @@
     {
       "id": "nordic-frost",
       "vibe": "cool",
-      "label": "❄️ Nordic frost",
+      "label": "Nordic frost",
       "description": "Muted slate blues. Soft contrast, the gentlest on the eyes.",
       "badgeColor": "#88c0d0",
       "headerColor": "#2e3440",
@@ -112,7 +112,7 @@
     {
       "id": "mondrian",
       "vibe": "bold",
-      "label": "🎨 Bold primaries",
+      "label": "Bold primaries",
       "description": "Black, white and primary blocks. Maximum tell-apart in a crowded grid.",
       "badgeColor": "#f5d90a",
       "headerColor": "#0a0a0a",
@@ -139,7 +139,7 @@
     {
       "id": "mono-slate",
       "vibe": "neutral",
-      "label": "⚪ Mono slate",
+      "label": "Mono slate",
       "description": "Greys with barely-there colour. Stays out of the way.",
       "badgeColor": "#9aa4b2",
       "headerColor": "#1b1f24",

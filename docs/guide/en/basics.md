@@ -60,7 +60,7 @@ The header of a running cell has two rows. Together they capture that agent's **
 ## Tiling many, pages, and reordering
 
 - Add cells with **New terminal (＋)** in the toolbar. Up to **9 cells** per page; overflow moves to the next page (tab).
-- The ordering button cycles three modes — **auto** (attention-first: cells needing you float up), **manual** (arrange them yourself with each cell's `◀ ▶`), and **priority** (the order each project declares as `orderPriority` in its `.mulmoterminal.json`, see [Configuration](config.html#order-priority)).
+- The ordering button cycles three modes — **auto** (attention-first: cells needing you float up), **manual** (arrange them yourself with each cell's move buttons), and **priority** (the order each project declares as `orderPriority` in its `.mulmoterminal.json`, see [Configuration](config.html#order-priority)).
 
 ![Agents running in parallel](../images/grid-2x2.png)
 

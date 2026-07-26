@@ -489,7 +489,7 @@ everything stays aligned.
 ### Where this project sits in the grid (`orderPriority`) {#order-priority}
 
 `orderPriority` gives the directory a rank in the grid's **priority** ordering — the third mode on the
-toolbar's ordering button, alongside auto (attention-first) and manual (`◀ ▶`):
+toolbar's ordering button, alongside auto (attention-first) and manual (the move buttons):
 
 ```json
 { "orderPriority": 10 }

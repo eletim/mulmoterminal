@@ -86,7 +86,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     }
     try {
       if (msg.type === "terminate") {
-        // Explicit close (the cell's ✕) — reap now instead of waiting out the
+        // Explicit close (the cell's close button) — reap now instead of waiting out the
         // disconnect grace window, so the session slot frees immediately.
         deps.reap(sessionId);
       } else if (msg.type === "view" && typeof msg.active === "boolean") {

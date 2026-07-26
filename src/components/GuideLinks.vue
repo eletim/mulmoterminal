@@ -11,7 +11,7 @@ const LINK_CLASS = "font-medium text-accent hover:underline";
 
 <template>
   <p class="m-0 font-sans text-[12px] text-dim">
-    📖 Not sure how to use MulmoTerminal? Read the guide —
+    <span class="material-symbols-outlined" aria-hidden="true">menu_book</span> Not sure how to use MulmoTerminal? Read the guide —
     <a :class="LINK_CLASS" :href="GUIDE_JA" target="_blank" rel="noopener noreferrer">日本語</a>
     <span aria-hidden="true"> · </span>
     <a :class="LINK_CLASS" :href="GUIDE_EN" target="_blank" rel="noopener noreferrer">English</a>

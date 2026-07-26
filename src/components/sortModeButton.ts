@@ -21,11 +21,11 @@ export const nextSortMode = (mode: SortMode): SortMode => NEXT[mode];
 const PRESENTATION: Record<SortMode, { icon: string; title: string }> = {
   auto: {
     icon: "sort",
-    title: "Auto order: attention-first — needs-attention cells float up (click for manual ◀▶ ordering)",
+    title: "Auto order: attention-first — needs-attention cells float up (click for manual ordering with the move buttons)",
   },
   manual: {
     icon: "swap_horiz",
-    title: "Manual order: reorder cells with ◀▶ (click to order by each directory's orderPriority)",
+    title: "Manual order: reorder cells with the move buttons (click to order by each directory's orderPriority)",
   },
   priority: {
     icon: "format_list_numbered",

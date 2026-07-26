@@ -30,7 +30,7 @@ const props = defineProps<{
   addTerminalActive?: boolean;
   sortMode?: SortMode;
   statusCounts?: StatusCounts;
-  // Grid zoom state, so the header can host the roster ⇄ strip toggle (shown only while zoomed).
+  // Grid zoom state, so the header can host the roster / strip toggle (shown only while zoomed).
   showViewToggle?: boolean;
   listMode?: boolean;
 }>();
