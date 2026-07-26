@@ -51,7 +51,7 @@ Mention them when the user's complaint matches one (see each section below).
 
 Read `palettes.json`. Ask for the **vibe** first (four options, one question):
 
-**☀️ Warm** · **❄️ Cool** · **🎨 Bold** · **⚪ Neutral**
+**Warm** · **Cool** · **Bold** · **Neutral**
 
 Describe each preset in that vibe (below), ask which one they want, then apply it. That's the
 big-picture decision; the details come after.
@@ -211,7 +211,7 @@ An array (≤ 16) of display chips, or **omit** the key entirely to keep the def
 
 ### Skill menu — `skills`
 
-The header's **⚡ Skill ▾** dropdown lists this directory's Claude skills (`.claude/skills`,
+The header's **Skill** dropdown lists this directory's Claude skills (`.claude/skills`,
 user + project scope) and runs the picked one in the session. `skills` is an **allowlist
 that also sets the order**: an array (≤ 100) of skill slugs — only these appear, in this
 order. **Omit `skills`** to show every discovered skill (working-dir skills first). Slugs

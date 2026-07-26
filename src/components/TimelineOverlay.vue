@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // A read-only activity timeline for one session: the tools the agent ran (newest
 // first), fetched from GET /api/transcript/timeline. Opened from the cell header's
-// 🕘 button so you can see "what did it do?" without scrolling the raw transcript.
+// history button so you can see "what did it do?" without scrolling the raw transcript.
 import { ref, watch, onUnmounted, nextTick } from "vue";
 import { trapTabKey } from "../utils/focusTrap";
 import { isRecord } from "../../common/isRecord";
@@ -118,7 +118,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           aria-label="Close timeline"
           @click="emit('close')"
         >
-          ✕
+          <span class="material-symbols-outlined">close</span>
         </button>
       </div>
       <div class="overflow-y-auto py-1.5">

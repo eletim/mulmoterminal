@@ -1,5 +1,5 @@
 // Registry of the sessions the scheduler spawned (worklog / config/scheduler/tasks.json).
-// Nobody watches these — no ✕ is ever pressed, and a background session blocked on a
+// Nobody watches these — no close button is ever pressed, and a background session blocked on a
 // permission prompt never finishes a turn — so the hook-driven reap machinery can miss
 // them entirely and their tmux sessions pile up (#541: 76 sessions / 41.8 GB).
 //
@@ -146,7 +146,7 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
   };
 
   // The expired session may be live (kill the pty + its tmux), or a tmux left behind by a
-  // previous server run (kill it directly) — the same two-step the ✕ / terminate route uses.
+  // previous server run (kill it directly) — the same two-step the close button / terminate route uses.
   // Reports whether it actually went, since the in-use check can spare it.
   const evict = async (record: ScheduledSessionRecord): Promise<boolean> => {
     // Checked HERE rather than over the whole set first: sweeping several sessions costs a

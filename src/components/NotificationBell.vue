@@ -10,7 +10,7 @@ import { shortPkg } from "./shortPkg";
 // per row, title + lifecycle tag, a "relative-time · source" meta line, an
 // "Active (N)" header) in MulmoTerminal's dark palette. A row click navigates to the
 // entry's target (a completion bell's pending record) WITHOUT clearing it — the
-// watcher clears it when the record is done; the ✕ dismisses it explicitly.
+// watcher clears it when the record is done; the close button dismisses it explicitly.
 const { count, topSeverity, sorted, dismiss, activate } = useNotifications();
 
 const popoverRef = useTemplateRef<InstanceType<typeof ToolbarPopover>>("popover");

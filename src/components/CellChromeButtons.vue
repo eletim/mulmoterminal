@@ -23,7 +23,9 @@ const emit = defineEmits<{ (e: "toggle-expand" | "close"): void }>();
     :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
     @click="emit('toggle-expand')"
   >
-    {{ expanded ? "⤡" : "⤢" }}
+    <span class="material-symbols-outlined">{{ expanded ? "close_fullscreen" : "open_in_full" }}</span>
   </button>
-  <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click="emit('close')">✕</button>
+  <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click="emit('close')">
+    <span class="material-symbols-outlined">close</span>
+  </button>
 </template>

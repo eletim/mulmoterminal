@@ -565,7 +565,7 @@ export function release(key: string) {
   connView.delete(key);
 }
 
-// Explicit close (the cell's ✕): tell the server to reap this session NOW instead
+// Explicit close (the cell's close button): tell the server to reap this session NOW instead
 // of holding it through the disconnect grace window, then tear the slot down.
 export function terminate(key: string) {
   const c = conns.get(key);

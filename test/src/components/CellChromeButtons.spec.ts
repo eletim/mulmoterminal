@@ -28,9 +28,9 @@ describe("CellChromeButtons", () => {
   });
 
   it("offers expand while tiled and restore while expanded", () => {
-    expect(mountButtons(false).find(".cell-btn").text()).toBe("⤢");
+    expect(mountButtons(false).find(".cell-btn").text()).toBe("open_in_full");
     const expanded = mountButtons(true);
-    expect(expanded.find(".cell-btn").text()).toBe("⤡");
+    expect(expanded.find(".cell-btn").text()).toBe("close_fullscreen");
     expect(expanded.find(".cell-btn").attributes("title")).toBe("Restore");
     expect(expanded.find('[aria-label="Restore terminal"]').exists()).toBe(true);
   });

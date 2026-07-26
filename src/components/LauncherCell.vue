@@ -33,7 +33,7 @@ const props = defineProps<
     launcher: CellLauncher;
     session: string | null;
     cwd: string | null;
-    // Manual sort mode: show ◀▶ to swap this cell with its neighbour.
+    // Manual sort mode: show move buttons to swap this cell with its neighbour.
     reorderable?: boolean;
   }
 >();
@@ -83,11 +83,17 @@ function relaunch() {
       <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="cwd ?? ''"
         ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
-      <span class="cell-cmd" :class="CELL_CMD">⌘ {{ launcher.label }}</span>
+      <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined">rocket_launch</span> {{ launcher.label }}</span>
       <span class="cell-actions" :class="CELL_ACTIONS">
-        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">◀</button>
-        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move launcher right" @click="emit('move', 1)">▶</button>
-        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">↻</button>
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">
+          <span class="material-symbols-outlined">chevron_left</span>
+        </button>
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move launcher right" @click="emit('move', 1)">
+          <span class="material-symbols-outlined">chevron_right</span>
+        </button>
+        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">
+          <span class="material-symbols-outlined">refresh</span>
+        </button>
         <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
       </span>
     </div>

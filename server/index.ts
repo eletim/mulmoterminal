@@ -478,7 +478,7 @@ startCollectionCompletionWatchers().catch((err) => {
 // nudge). The run-binding spawns a VISIBLE session so the user sees the result.
 // Non-fatal: a scheduler failure must never abort startup.
 //
-// Nobody ever presses ✕ on a scheduled session, and one blocked on a permission prompt
+// Nobody ever presses close on a scheduled session, and one blocked on a permission prompt
 // never finishes a turn, so the hook-driven reap can miss it entirely — hence the
 // registry, which bounds them by count and age whatever their hooks did (#541).
 
