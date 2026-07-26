@@ -11,6 +11,9 @@ describe("needsSameOrigin", () => {
 
   // Safe methods change nothing, and gating them would break the <img>/<video> loads that
   // cannot send an Authorization header.
+  // Pinned so the reason survives: gating GETs would not stop a cross-site <img>, which sends
+  // no Origin at all, and would break the media loads that cannot send a header. The guarantee
+  // that a GET is harmless has to come from the routes, not from here.
   it("leaves safe methods alone", () => {
     for (const m of ["GET", "HEAD", "OPTIONS"]) {
       expect(needsSameOrigin(m, "/api/config"), m).toBe(false);
