@@ -95,4 +95,4 @@ The new terminal appears on the Mac's grid and in the phone's session list.
 ## Notifications
 
 Getting pinged when a task finishes — and the iOS/Android setup — is its own page:
-**[Mobile notifications](notifications.html)**.
+**[Mobile notifications](notifications.html)** — including [which moments push](notifications.html#kinds), if they feel too frequent.

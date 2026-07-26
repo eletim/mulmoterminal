@@ -11,7 +11,7 @@
 // guard exists so a malformed field is rejected instead of applied as a deletion.
 
 // Must be an array when present. A partial POST may omit any of them.
-export const ARRAY_FIELDS = ["cwdPresets", "prRepos", "launchers", "quickCommands", "userMcpServers", "providers"] as const;
+export const ARRAY_FIELDS = ["cwdPresets", "prRepos", "launchers", "quickCommands", "pushKinds", "userMcpServers", "providers"] as const;
 
 // `buttons`/`chips` are nullable (null = unconfigured), so they can't join ARRAY_FIELDS:
 // reject any present value that is neither an array nor null instead of letting the

@@ -20,6 +20,7 @@ import {
 import { type HeaderConfig } from "./header-config.js";
 import { type Launcher, type Provider, type UserMcpServer } from "./config-schema.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
+import type { PushKind } from "../../common/pushKinds.js";
 import { type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import { launchOptions } from "./launch-options.js";
 import { badArrayField, badNullableArrayField } from "./config-body.js";
@@ -69,6 +70,12 @@ export function getHeaderConfig(): HeaderConfig {
 // settings toggle takes effect without a restart.
 export function getPushEnabled(): boolean {
   return config.pushEnabled;
+}
+
+// Which kinds of push the user wants (#850). Read live so unticking one in Settings takes
+// effect on the very next hook, without a restart.
+export function getPushKinds(): PushKind[] {
+  return config.pushKinds;
 }
 
 // The periodic dev-work-log settings — read live so a toggle takes effect on the next

@@ -3,6 +3,7 @@ import { presetLabel, type CwdPreset } from "../components/presets";
 import type { Launcher } from "../components/launchers";
 import type { UserMcpServer } from "../components/userMcp";
 import type { QuickCommand } from "../../common/quickCommands";
+import type { PushKind } from "../../common/pushKinds";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setActiveKeymap } from "./activeKeymap";
@@ -17,6 +18,9 @@ const soundFile = ref<string | null>(null);
 // others so the settings toggle (openable from either view) reflects the saved state.
 // The actual sending is server-side; the client only reads/writes this flag.
 const pushEnabled = ref(false);
+
+// Which kinds of push the server sends (#850) — SINGLETON like the others.
+const pushKinds = ref<PushKind[]>([]);
 
 // Cross-repo PR list's repos — also a SINGLETON, so the settings modal (openable from
 // either view) and any future reader share one list; a save in one view is seen by the
@@ -192,6 +196,12 @@ async function saveLaunchers(next: Launcher[]): Promise<boolean> {
   if (r.ok) launchers.value = r.value ?? [];
   return r.ok;
 }
+// Persist which kinds of push to send (partial update).
+async function savePushKinds(next: PushKind[]): Promise<boolean> {
+  const r = await postConfigField<PushKind[]>("pushKinds", next);
+  if (r.ok) pushKinds.value = r.value ?? [];
+  return r.ok;
+}
 // Persist the phone quick commands (partial update).
 async function saveQuickCommands(next: QuickCommand[]): Promise<boolean> {
   const r = await postConfigField<QuickCommand[]>("quickCommands", next);
@@ -228,6 +238,7 @@ export function useAppConfig() {
       adoptServerPresets(c.cwdPresets, version);
       soundFile.value = typeof c.soundFile === "string" ? c.soundFile : null;
       pushEnabled.value = c.pushEnabled === true;
+      pushKinds.value = Array.isArray(c.pushKinds) ? c.pushKinds : [];
       prRepos.value = Array.isArray(c.prRepos) ? c.prRepos : [];
       launchers.value = Array.isArray(c.launchers) ? c.launchers : [];
       quickCommands.value = Array.isArray(c.quickCommands) ? c.quickCommands : [];
@@ -254,6 +265,7 @@ export function useAppConfig() {
     userMcpServers,
     soundFile,
     pushEnabled,
+    pushKinds,
     saving,
     error,
     loadConfig,
@@ -262,6 +274,7 @@ export function useAppConfig() {
     removePreset,
     saveSound,
     savePushEnabled,
+    savePushKinds,
     savePrRepos,
     saveLaunchers,
     saveQuickCommands,
