@@ -5,6 +5,7 @@ import {
   dirColorField,
   dirThemeField,
   dirColorsField,
+  dirFontSizeField,
   headerButtonSchema,
   headerChipSchema,
   cwdPresetSchema,
@@ -14,6 +15,7 @@ import {
   MAX_CHIPS,
   MAX_SKILL_FILTER,
 } from "../../../server/config/config-schema";
+import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../../common/terminalFontSize.js";
 
 describe("dirNameField", () => {
   it("trims and caps at NAME_MAX_CHARS", () => {
@@ -80,6 +82,27 @@ describe("item schemas (strict shape)", () => {
   });
 });
 
+describe("dirFontSizeField", () => {
+  it("keeps a usable size and rounds a fractional one", () => {
+    expect(dirFontSizeField.parse(18)).toBe(18);
+    expect(dirFontSizeField.parse(17.6)).toBe(18);
+  });
+
+  // The lenient path clamps where the strict schema (writableDirConfigSchema) rejects, so a
+  // hand-edited `fontSize: 99` still enlarges the terminal instead of silently doing nothing.
+  it("clamps an out-of-range size", () => {
+    expect(dirFontSizeField.parse(99)).toBe(TERMINAL_FONT_SIZE_MAX);
+    expect(dirFontSizeField.parse(2)).toBe(TERMINAL_FONT_SIZE_MIN);
+  });
+
+  it("nulls a missing or non-numeric size so the global setting wins", () => {
+    expect(dirFontSizeField.parse(undefined)).toBeNull();
+    expect(dirFontSizeField.parse(null)).toBeNull();
+    expect(dirFontSizeField.parse("16")).toBeNull();
+    expect(dirFontSizeField.parse({})).toBeNull();
+  });
+});
+
 describe("dirConfigJsonSchema", () => {
   it("emits an object schema with every writable property", () => {
     const schema = dirConfigJsonSchema();
@@ -95,6 +118,16 @@ describe("dirConfigJsonSchema", () => {
   it("includes the keys that choose a backend, so the config skill can write them", () => {
     const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
     expect(Object.keys(isRecord(props) ? props : {})).toEqual(expect.arrayContaining(["provider", "model"]));
+  });
+
+  // Same reasoning as provider/model above: the config skill writes from this schema, so
+  // `fontSize` has to appear here or the skill refuses to write a key the runtime honours.
+  // The bounds come along so an editor flags an unusable size while it can still be fixed.
+  it("includes fontSize with its bounds, so the config skill can write it", () => {
+    const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
+    const fontSize = isRecord(props) && isRecord(props.fontSize) ? props.fontSize : {};
+    expect(fontSize.minimum).toBe(TERMINAL_FONT_SIZE_MIN);
+    expect(fontSize.maximum).toBe(TERMINAL_FONT_SIZE_MAX);
   });
 
   it("caps the skills allowlist at MAX_SKILL_FILTER", () => {

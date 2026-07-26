@@ -434,7 +434,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 
 ![The Settings modal — theme, notification sound, PR repos, launch commands, and MCP servers](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/settings.png)
 
-*Open it from the ⚙ button in the toolbar. Pick a **theme**, set a custom **attention sound**, list the repos the cross-repo **PRs & Issues** view should aggregate, add **launch commands** for grid cells, and register your own **MCP servers** — no need to hand-edit the config file.*
+*Open it from the ⚙ button in the toolbar. Pick a **theme**, set the **terminal font size**, set a custom **attention sound**, list the repos the cross-repo **PRs & Issues** view should aggregate, add **launch commands** for grid cells, and register your own **MCP servers** — no need to hand-edit the config file. Note that **theme and font size are stored per browser** (they're display preferences, so a phone and a desktop keep their own); the rest live in `~/.mulmoterminal/config.json` and are shared by every client.*
 
 | Field        | Meaning |
 | ------------ | ------- |
@@ -527,6 +527,7 @@ malformed file is ignored.
   "buttonColor": "#c7cdf0",             // header icon buttons (hex #rrggbb)
   "theme": "nord",                      // terminal palette: midnight | nord | daylight | solarized
   "colors": { "background": "#190a23", "cursor": "#ff2e63" }, // per-key palette overrides
+  "fontSize": 16,                       // terminal font size in px (8–32); overrides Settings
   "sound": "./.mulmoterminal/alert.mp3" // attention sound, RELATIVE to this directory
 }
 ```
@@ -547,6 +548,7 @@ malformed file is ignored.
 | `buttonColor` | Header **icon button** color (`#rrggbb`) — expand / close / attach / folder / etc., across both header rows. |
 | `theme`      | xterm palette for terminals in this directory (one of the built-in theme ids). |
 | `colors`     | Per-key xterm palette overrides applied on top of `theme` (or the app theme when `theme` is unset). Keys are xterm `ITheme` names (`background`, `foreground`, `cursor`, `selectionBackground`, the 16 ANSI colors, …); values are hex (`#rgb` / `#rrggbb` / `#rrggbbaa`). Unknown keys / bad values are dropped. |
+| `fontSize`   | Terminal font size in px for this directory (8–32), overriding the Settings value. A size outside the range is clamped; a non-number is ignored. Changing it re-fits the terminal, so the PTY learns the new width — unlike browser zoom, which leaves the two disagreeing. |
 | `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). |
 
 **Security.** `sound` is a directory-relative path only — absolute paths and any

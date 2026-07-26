@@ -1115,6 +1115,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         :launch="launchChoice"
         :dir-theme="dirConfig.theme"
         :dir-colors="dirConfig.colors"
+        :dir-font-size="dirConfig.fontSize"
         :dir-header-color="dirConfig.headerColor"
         :dir-header-text-color="dirConfig.headerTextColor"
         :dir-button-color="dirConfig.buttonColor"

@@ -15,6 +15,7 @@ import { z } from "zod";
 import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
 import { THEME_IDS } from "../../common/themeIds.js";
 import { isUsableModelId } from "../../common/modelIds.js";
+import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
 import { SESSION_AGENTS } from "../../common/sessionAgent.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 
@@ -123,6 +124,15 @@ export type UserMcpServer = z.infer<typeof userMcpServerSchema>;
 
 export const dirColorField = hexColor.nullable().catch(null);
 export const dirThemeField = themeIdSchema.nullable().catch(null);
+// Clamped, not range-checked: normalizeFontSize keeps an out-of-range number at the nearest
+// usable size instead of discarding it, so `fontSize: 99` reads as "as big as allowed" rather
+// than silently falling back to the global size. writableDirConfigSchema below is the strict
+// one, so an out-of-range value is still reported where it can be fixed — at authoring time.
+export const dirFontSizeField = z
+  .unknown()
+  .transform((value) => normalizeFontSize(value))
+  .nullable()
+  .catch(null);
 export const dirNameField = z
   .string()
   .trim()
@@ -265,6 +275,8 @@ const writableDirConfigSchema = z.object({
   // one color) with 22 missing-key errors. partialRecord keeps the same runtime key + value
   // validation but leaves the keys optional in the generated schema.
   colors: z.partialRecord(z.enum(THEME_COLOR_KEYS), z.string().regex(PALETTE_COLOR_RE)).optional(),
+  // xterm font size in px for this directory's terminals. Omit to follow the Settings value.
+  fontSize: z.number().int().min(TERMINAL_FONT_SIZE_MIN).max(TERMINAL_FONT_SIZE_MAX).optional(),
   sound: nonEmptyText.optional(),
   buttons: z.array(writableHeaderButtonSchema).max(MAX_BUTTONS).optional(),
   chips: z.array(writableHeaderChipSchema).max(MAX_CHIPS).optional(),

@@ -43,6 +43,7 @@ import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { messageEffect } from "./serverMessage";
 import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
+import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
 import { filesGotoFile } from "./useFilesView";
@@ -132,6 +133,7 @@ interface Conn {
   // reports, or its wheel would get synthesized reports it never wanted.
   swallowedMouseModes: Set<number>;
   theme: ITheme | undefined; // last applied, so a rebuilt terminal keeps the cell's colours
+  fontSize: number; // same reason as `theme` — a rebuilt terminal must not snap back to the default
   lastRebuildMs: number; // rate-limits the #846 recovery so a stuck reading can't spin
 }
 
@@ -251,10 +253,10 @@ interface TerminalRuntime {
 // Everything a slot's xterm is made of. Built here rather than inline in ensure() because a
 // terminal that xterm has killed can only be replaced, never revived (see rebuildTerminal).
 // The mouse-mode record is passed in: it belongs to the connection and outlives any one terminal.
-function buildTerminal(swallowedMouseModes: Set<number>): TerminalRuntime {
+function buildTerminal(swallowedMouseModes: Set<number>, fontSize: number): TerminalRuntime {
   const term = new Terminal({
     cursorBlink: true,
-    fontSize: 14,
+    fontSize,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Menlo', monospace",
     // Treat macOS Option as Meta so Claude's Alt bindings reach the PTY — Alt+Enter
     // (newline), Alt+B/F (word nav), Alt+Backspace (delete word). The cost is Option
@@ -316,14 +318,14 @@ function wireTerminalToConn(term: Terminal, c: Conn): void {
   if (c.theme) term.options.theme = c.theme;
 }
 
-function ensure(key: string, target: ConnTarget): Conn {
+function ensure(key: string, target: ConnTarget, fontSize: number): Conn {
   const existing = conns.get(key);
   if (existing) {
     existing.target = target;
     return existing;
   }
   const swallowedMouseModes = new Set<number>();
-  const { term, fitAddon, host } = buildTerminal(swallowedMouseModes);
+  const { term, fitAddon, host } = buildTerminal(swallowedMouseModes, fontSize);
   const c: Conn = {
     key,
     term,
@@ -341,6 +343,7 @@ function ensure(key: string, target: ConnTarget): Conn {
     attachedEl: null,
     swallowedMouseModes,
     theme: undefined,
+    fontSize,
     lastRebuildMs: 0,
   };
   conns.set(key, c);
@@ -359,7 +362,7 @@ function rebuildTerminal(c: Conn): void {
   const deadHost = c.host;
   const hadFocus = deadHost.contains(document.activeElement);
   console.warn(`[terminal] slot ${c.key}: xterm buffer corrupted (xtermjs/xterm.js#6063) — rebuilding the terminal and re-attaching`);
-  const { term, fitAddon, host } = buildTerminal(c.swallowedMouseModes);
+  const { term, fitAddon, host } = buildTerminal(c.swallowedMouseModes, c.fontSize);
   c.term = term;
   c.fitAddon = fitAddon;
   c.host = host;
@@ -480,9 +483,16 @@ function handleMessage(c: Conn, event: MessageEvent) {
 // Mount a view onto a slot: create the runtime on first acquire (and connect),
 // otherwise reattach the persisted xterm to the new DOM host. Never reconnects an
 // already-live slot — that's the whole point (no cold resume on remount).
-export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, el: HTMLElement, theme?: ITheme) {
+export function attach(
+  key: string,
+  target: ConnTarget,
+  handlers: ConnHandlers,
+  el: HTMLElement,
+  theme?: ITheme,
+  fontSize: number = TERMINAL_FONT_SIZE_DEFAULT,
+) {
   const created = !conns.has(key);
-  const c = ensure(key, target);
+  const c = ensure(key, target, fontSize);
   c.released = false;
   c.handlers = handlers;
   c.attachedEl = el;
@@ -497,6 +507,13 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   if (theme) {
     c.theme = theme;
     c.term.options.theme = theme;
+  }
+  // A slot that was detached while the size changed (Settings edited from another view, or a
+  // different dir config) still holds the old metrics. The fitAndSyncSize below re-derives
+  // cols/rows from the new cell size, so this must land before it, not after.
+  if (c.fontSize !== fontSize) {
+    c.fontSize = fontSize;
+    c.term.options.fontSize = fontSize;
   }
   if (created) connect(c);
   fitAndSyncSize(c);
@@ -699,4 +716,16 @@ export function setTheme(key: string, theme: ITheme) {
   if (!c) return;
   c.theme = theme;
   c.term.options.theme = theme;
+}
+
+// Unlike setTheme, this changes the CELL SIZE, so the terminal's cols/rows no longer match the
+// host and the PTY still believes the old geometry. Without the re-fit the canvas grid and the
+// PTY disagree — the same misalignment (drifting cursor, wrong wrap points) that made browser
+// zoom useless as a workaround in #860.
+export function setFontSize(key: string, fontSize: number) {
+  const c = conns.get(key);
+  if (!c || c.fontSize === fontSize) return;
+  c.fontSize = fontSize;
+  c.term.options.fontSize = fontSize;
+  fitAndSyncSize(c);
 }

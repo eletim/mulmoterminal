@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { trapTabKey } from "../utils/focusTrap";
 import { useTheme } from "../composables/useTheme";
+import { useTerminalFontSize } from "../composables/useTerminalFontSize";
 import { previewAttention } from "../composables/useAttentionSound";
 import { useCost } from "../composables/useCost";
 import { activeKeymap } from "../composables/activeKeymap";
@@ -210,6 +211,10 @@ function testSound() {
 const { themeId, themes, setTheme } = useTheme();
 const themesEl = ref<HTMLElement>();
 
+// Terminal font size, applied immediately (like the theme). Per-browser, so a phone and a
+// desktop on the same server keep their own; a directory can pin its own in .mulmoterminal.json.
+const { fontSize, nudgeFontSize, min: fontSizeMin, max: fontSizeMax, step: fontSizeStep } = useTerminalFontSize();
+
 // Google account link. The modal is v-if'd, so a fresh load on mount also picks up
 // out-of-band changes (`mulmoterminal google login`, a deleted token file).
 const {
@@ -336,6 +341,32 @@ onUnmounted(() => {
           <span class="text-[12px]">{{ t.label }}</span>
         </button>
       </div>
+
+      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Terminal font size</h3>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border bg-elevated text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="fontSize <= fontSizeMin"
+          aria-label="Decrease terminal font size"
+          @click="nudgeFontSize(-fontSizeStep)"
+        >
+          −
+        </button>
+        <span class="min-w-[56px] text-center text-[13px] text-fg" aria-live="polite">{{ fontSize }} px</span>
+        <button
+          type="button"
+          class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border bg-elevated text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="fontSize >= fontSizeMax"
+          aria-label="Increase terminal font size"
+          @click="nudgeFontSize(fontSizeStep)"
+        >
+          +
+        </button>
+      </div>
+      <p class="mb-3 mt-1.5 text-[12px] text-dim">
+        Applies to every terminal on this browser. A directory can pin its own with <code>fontSize</code> in its <code>.mulmoterminal.json</code>.
+      </p>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory appearance</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">

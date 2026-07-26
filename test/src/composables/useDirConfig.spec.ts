@@ -13,6 +13,7 @@ vi.mock("../../../src/composables/usePubSub", () => ({
 }));
 
 import { useDirConfig, boundDirCount, invalidateDirConfig } from "../../../src/composables/useDirConfig";
+import { TERMINAL_FONT_SIZE_MAX } from "../../../common/terminalFontSize";
 
 let served = "first";
 const flush = async () => {
@@ -26,6 +27,44 @@ beforeEach(() => {
     "fetch",
     vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ name: served }) })),
   );
+});
+
+describe("useDirConfig fontSize", () => {
+  const serve = (body: unknown) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(body) })),
+    );
+  const read = async (cwd: string) => {
+    const scope = effectScope();
+    const config = scope.run(() => useDirConfig(ref(cwd)).config);
+    await flush();
+    const size = config?.value.fontSize;
+    scope.stop();
+    return size;
+  };
+
+  it("adopts the size the directory pins", async () => {
+    serve({ fontSize: 18 });
+    expect(await read("/proj/font-pinned")).toBe(18);
+  });
+
+  // The server already clamps, but this parser is the trust boundary — an out-of-range size
+  // that slipped through would otherwise reach the canvas renderer unchecked.
+  it("re-clamps an out-of-range size off the wire", async () => {
+    serve({ fontSize: 999 });
+    expect(await read("/proj/font-clamped")).toBe(TERMINAL_FONT_SIZE_MAX);
+  });
+
+  it("stays null when the directory pins nothing, so the Settings value wins", async () => {
+    serve({ name: "x" });
+    expect(await read("/proj/font-absent")).toBeNull();
+  });
+
+  it("stays null for a non-numeric size rather than guessing", async () => {
+    serve({ fontSize: "18" });
+    expect(await read("/proj/font-garbage")).toBeNull();
+  });
 });
 
 describe("useDirConfig live reload", () => {
