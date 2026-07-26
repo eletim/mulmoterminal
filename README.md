@@ -111,11 +111,23 @@ dotfiles are server-only. The 45 extensions both sides agree on live in
 
 ## Install & run
 
-Requires the [`claude`](https://claude.com/claude-code) CLI on your `PATH` and
-**Node ≥ 22.9**. Optional but recommended: **`tmux`** so terminals survive a server
-restart (see [Session persistence (tmux)](#session-persistence-tmux)), the **`gh`** CLI
-logged in for the PRs/Issues view and one-click PR creation, and — for Codex sessions —
-the **`codex`** CLI on your `PATH`.
+Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
+
+| | Tool | What it gives you | Install |
+| --- | --- | --- | --- |
+| **Required** | [`claude`](https://claude.com/claude-code) | every Claude session — this app is a cockpit for it | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in |
+| **Required** | `git` | [worktree isolation](#git-worktrees--pull-requests), each cell's branch / unsaved-dot / diff readout, the PR footer | `brew install git` · `sudo apt install git` · `sudo dnf install git` · Windows: [git-scm.com](https://git-scm.com/download/win) |
+| **Required** | `gh` | the cross-repo **PRs & Issues** view and one-click PR creation — it uses your `gh` login, so no token is stored | [cli.github.com](https://cli.github.com), then `gh auth login` |
+| Recommended | `tmux` | [session persistence](#session-persistence-tmux) — terminals survive a server restart | `brew install tmux` · `sudo apt install tmux` · `sudo dnf install tmux` · no native Windows build (falls back to plain PTYs) |
+| Optional | `codex` | [Codex sessions](#agents-claude--codex) in a cell, alongside Claude | `npm i -g @openai/codex` |
+| Optional | `docker` | the experimental [Docker sandbox](#docker-sandbox-experimental-single-view) | [docs.docker.com](https://docs.docker.com/get-started/get-docker/) |
+| Optional | `ffmpeg` | video rendering from the [mulmo-script panel](#wiki-collections--the-gui-panel) (its plugin ships enabled) | `brew install ffmpeg` · `sudo apt install ffmpeg` · `sudo dnf install ffmpeg` |
+| Optional | `ollama` | [`claude-ollama`](https://receptron.github.io/mulmoterminal/guide/en/claude-ollama.html) — Claude Code against a fully local model | [ollama.com/download](https://ollama.com/download) |
+
+The server starts without any of the non-required rows; you just lose that row's feature,
+and the header/panel for it says so. `git` and `gh` are marked required because losing them
+costs whole views rather than one button. `npx mulmoterminal init` (below) reports which of
+these it can find.
 
 ```bash
 npx mulmoterminal           # start on http://localhost:34567 and open the browser
@@ -124,8 +136,8 @@ npm install -g mulmoterminal
 mulmoterminal
 ```
 
-**First-run setup (optional).** `npx mulmoterminal init` checks your environment (Node ≥ 22.9,
-the `claude` CLI, plus optional `tmux` / `gh` / `codex`), seeds the launcher's **directory
+**First-run setup (optional).** `npx mulmoterminal init` checks your environment (Node ≥ 22.9
+and every CLI in the table above), seeds the launcher's **directory
 presets** from the projects in your Claude Code history, and writes `~/.mulmoterminal/config.json`.
 It's **idempotent** — re-run it any time to refresh the presets; it overwrites the managed parts
 and keeps your other settings. When `claude` is installed it can hand off to the

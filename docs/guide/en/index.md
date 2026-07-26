@@ -90,11 +90,32 @@ The bottleneck isn't the CPU or the terminal — it's **your attention**.
 ## 🚀 Get started
 
 If the [`claude`](https://claude.com/claude-code) CLI (Claude Code) runs on your machine and you have **Node ≥ 22.9**,
-one command starts it (`tmux` is ideal for persistent sessions):
+one command starts it:
 
 ```bash
 npx mulmoterminal@latest    # opens http://localhost:34567
 ```
+
+### The CLIs it drives {#cli-tools}
+
+MulmoTerminal is a cockpit over the tools you already develop with, so what you have on your
+`PATH` decides how much of it lights up. `claude`, `git` and `gh` carry the core grid; each
+remaining row unlocks one feature.
+
+| | Tool | What it gives you | Install |
+| --- | --- | --- | --- |
+| **Required** | `claude` | every Claude session | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in |
+| **Required** | `git` | [worktree isolation](features.html), each cell's branch / unsaved-dot / diff readout, the PR footer | `brew install git` · `sudo apt install git` · Windows: [git-scm.com](https://git-scm.com/download/win) |
+| **Required** | `gh` | the [cross-repo PRs & Issues view](github.html) and one-click PR creation | [cli.github.com](https://cli.github.com), then `gh auth login` |
+| Recommended | `tmux` | [session persistence](features.html) — terminals survive a server restart | `brew install tmux` · `sudo apt install tmux` · no native Windows build (plain terminals instead) |
+| Optional | `codex` | [Codex sessions](basics.html#claude-and-codex) in a cell, alongside Claude | `npm i -g @openai/codex` |
+| Optional | `ffmpeg` | video rendering from the [GUI panel](features.html)'s mulmo-script plugin | `brew install ffmpeg` · `sudo apt install ffmpeg` |
+| Optional | `ollama` | [claude-ollama](claude-ollama.html) — Claude Code against a fully local model | [ollama.com/download](https://ollama.com/download) |
+| Optional | `docker` | the experimental Docker sandbox (single view; can't be combined with [OpenRouter](providers.html)) | [docs.docker.com](https://docs.docker.com/get-started/get-docker/) |
+
+The server starts without the non-required ones — you only lose that row's feature. To see
+what's missing on this machine, run **`npx mulmoterminal init`**: it reports every tool above,
+then seeds the launcher's directory presets from your Claude Code history.
 
 ## How to read this guide
 

@@ -134,7 +134,7 @@ originally zoomed in from.
 
 On a Mac laptop keyboard there are no dedicated Page Up / Page Down keys; use **`Fn`+`↑`** and **`Fn`+`↓`**.
 
-## Mixing Claude and Codex
+## Mixing Claude and Codex {#claude-and-codex}
 
 In the same grid, you can launch **Claude** or **Codex** per cell. Both share the same terminal experience,
 persistence, GUI panel, and visibility machinery. Use each for its strengths, or throw the same task at both and compare.

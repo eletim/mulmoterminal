@@ -67,17 +67,18 @@ Several agents on one repo without collisions — diff, commit, push, and **⧉ 
 
 ## 🚀 起動 / Quick start
 
-**必要なもの:** [`claude`](https://claude.com/claude-code) CLI（Claude Code）が PATH にあること + **Node ≥ 22.9**。
-Claude Code が動く環境なら、あとはコマンド 1 つ。
-**あると便利:** `tmux`（セッション永続化）· `gh`（PR/Issue ビュー）· `codex`（Codex セッション）。
+**必要なもの:** [`claude`](https://claude.com/claude-code) CLI（Claude Code）· `git` · `gh` が PATH にあること + **Node ≥ 22.9**。
+**あると便利:** `tmux`（セッション永続化）· `codex`（Codex セッション）· `ffmpeg`（動画生成）· `ollama`（ローカルモデル）· `docker`（サンドボックス）。
+→ 各コマンドが何に効くかは [一緒に入れておくコマンド](guide/ja/#cli-tools)。
 
 ```bash
 npx mulmoterminal@latest                       # → http://localhost:34567 が開く
 npx mulmoterminal@latest --cwd ./my-project    # 作業ディレクトリを指定（--port <n> も可）
 ```
 
-**Prerequisites:** the [`claude`](https://claude.com/claude-code) CLI on your PATH + **Node ≥ 22.9** — if Claude Code
-runs, you're ready. **Recommended:** `tmux` (session persistence) · `gh` (PRs/Issues) · `codex` (Codex sessions).
+**Prerequisites:** the [`claude`](https://claude.com/claude-code) CLI · `git` · `gh` on your PATH + **Node ≥ 22.9**.
+**Also useful:** `tmux` (session persistence) · `codex` (Codex sessions) · `ffmpeg` (video rendering) ·
+`ollama` (local models) · `docker` (sandbox). → what each one unlocks: [The CLIs it drives](guide/en/#cli-tools).
 
 ```bash
 npx mulmoterminal@latest                        # opens http://localhost:34567

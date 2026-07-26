@@ -87,12 +87,32 @@ AI エージェントは 1 タスクに数分かかります。1 体を見張る
 
 ## 🚀 まずは起動
 
-[`claude`](https://claude.com/claude-code)（Claude Code）が動く環境 + **Node ≥ 22.9** があれば、コマンド 1 つで始められます
-（`tmux` があるとセッションが永続化されて理想的）。
+[`claude`](https://claude.com/claude-code)（Claude Code）が動く環境 + **Node ≥ 22.9** があれば、コマンド 1 つで始められます。
 
 ```bash
 npx mulmoterminal@latest    # → http://localhost:34567 が開く
 ```
+
+### 一緒に入れておくコマンド {#cli-tools}
+
+MulmoTerminal は普段の開発ツールを操縦するコックピットなので、`PATH` に何があるかで
+使える範囲が決まります。`claude` / `git` / `gh` がグリッドの土台で、残りは 1 行につき
+1 機能ぶんです。
+
+| | コマンド | 効いてくる機能 | インストール |
+| --- | --- | --- | --- |
+| **必須** | `claude` | Claude セッションそのもの | `npm i -g @anthropic-ai/claude-code` のあと `claude` を 1 回起動してログイン |
+| **必須** | `git` | [worktree 分離](features.html)、セルのブランチ / 未保存ドット / 差分表示、PR フッター | `brew install git` · `sudo apt install git` · Windows は [git-scm.com](https://git-scm.com/download/win) |
+| **必須** | `gh` | [PR / Issue 横断ビュー](github.html)とワンクリック PR 作成 | [cli.github.com](https://cli.github.com) のあと `gh auth login` |
+| 推奨 | `tmux` | [セッション永続化](features.html) — サーバ再起動でもターミナルが生き残る | `brew install tmux` · `sudo apt install tmux` · Windows ネイティブ版は無し（通常ターミナルにフォールバック） |
+| 任意 | `codex` | セルで [Codex セッション](basics.html#claude-and-codex)を Claude と並べて動かす | `npm i -g @openai/codex` |
+| 任意 | `ffmpeg` | [GUI パネル](features.html)の mulmo-script プラグインからの動画生成 | `brew install ffmpeg` · `sudo apt install ffmpeg` |
+| 任意 | `ollama` | [claude-ollama](claude-ollama.html) — 完全ローカルのモデルで Claude Code を動かす | [ollama.com/download](https://ollama.com/download) |
+| 任意 | `docker` | 実験的な Docker サンドボックス（単一ビュー・[OpenRouter](providers.html) とは併用不可） | [docs.docker.com](https://docs.docker.com/get-started/get-docker/) |
+
+必須以外が無くてもサーバは起動します（その行の機能が使えないだけ）。今のマシンに何が
+足りないかは **`npx mulmoterminal init`** で確認できます。上の全コマンドをチェックしたうえで、
+Claude Code の履歴からランチャのディレクトリプリセットを作ってくれます。
 
 ## このガイドの読み方
 
