@@ -89,5 +89,10 @@ describe("bufferIsShort on a real terminal", () => {
       }
       term.dispose();
     }
-  });
+    // A per-test timeout, not the 15s baseline: the floor here is SEEDS * OPS_PER_SEED sequential
+    // timer yields, and a yield costs latency rather than work — 1500 of them are already ~1.7s of
+    // this file's ~2.3s on macOS, and enough more on a Windows runner to cross 15s with the
+    // assertions barely started. Trimming the seeds would buy the time back out of the fuzz
+    // coverage, which is the one thing this test exists for.
+  }, 60_000);
 });
