@@ -8,7 +8,7 @@ import { worktreeDiff } from "./worktree-diff.js";
 import { pushWorktree, createOrOpenPR } from "./worktree-pr.js";
 
 interface WorktreeRouteOptions {
-  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 // A failed git/gh command is a 500; a precondition the user can fix (no remote, not

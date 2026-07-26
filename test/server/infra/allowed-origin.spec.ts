@@ -19,25 +19,25 @@ const PUBLIC = v4(203, 0, 113, 9);
 describe("isAllowedOrigin", () => {
   describe("same-machine origins are allowed", () => {
     it.each(["http://localhost:34567", "http://localhost", "https://localhost:5173", "http://127.0.0.1:34567", "http://127.0.0.1"])("allows %s", (origin) => {
-      expect(isAllowedOrigin(origin)).toBe(true);
+      expect(isAllowedOrigin(origin, LOCAL_V4)).toBe(true);
     });
 
     // Any port: the Vite dev server proxies from its own.
     it("allows localhost on a port nobody configured", () => {
-      expect(isAllowedOrigin("http://localhost:61234")).toBe(true);
+      expect(isAllowedOrigin("http://localhost:61234", LOCAL_V4)).toBe(true);
     });
 
     it("allows the bracketed IPv6 loopback", () => {
-      expect(isAllowedOrigin("http://[::1]:34567")).toBe(true);
+      expect(isAllowedOrigin("http://[::1]:34567", LOCAL_V4)).toBe(true);
     });
 
     // `new URL` normalises the long form, so the check never sees the expanded spelling.
     it("allows the expanded IPv6 loopback, which normalises to [::1]", () => {
-      expect(isAllowedOrigin("http://[0:0:0:0:0:0:0:1]:34567")).toBe(true);
+      expect(isAllowedOrigin("http://[0:0:0:0:0:0:0:1]:34567", LOCAL_V4)).toBe(true);
     });
 
     it("allows an upper-cased origin, which normalises to lower case", () => {
-      expect(isAllowedOrigin("HTTP://LOCALHOST:34567")).toBe(true);
+      expect(isAllowedOrigin("HTTP://LOCALHOST:34567", LOCAL_V4)).toBe(true);
     });
 
     // The accepted set reaches further than its four literals suggest: `new URL` expands
@@ -45,7 +45,7 @@ describe("isAllowedOrigin", () => {
     // of these IS 127.0.0.1, so allowing them is right — worth pinning so the normalisation
     // is a decision on the record rather than a surprise found later.
     it.each(["http://127.1", "http://127.0.1", "http://2130706433", "http://0x7f.0.0.1"])("allows %s, which normalises to 127.0.0.1", (origin) => {
-      expect(isAllowedOrigin(origin)).toBe(true);
+      expect(isAllowedOrigin(origin, LOCAL_V4)).toBe(true);
       expect(new URL(origin).hostname).toBe("127.0.0.1");
     });
   });
@@ -54,15 +54,15 @@ describe("isAllowedOrigin", () => {
   // cannot be a cross-site request. Anything a BROWSER sends has one.
   describe("a missing origin is allowed", () => {
     it("allows undefined", () => {
-      expect(isAllowedOrigin(undefined)).toBe(true);
+      expect(isAllowedOrigin(undefined, LOCAL_V4)).toBe(true);
     });
 
     it("allows a call with no argument", () => {
-      expect(isAllowedOrigin()).toBe(true);
+      expect(isAllowedOrigin(undefined, LOCAL_V4)).toBe(true);
     });
 
     it("allows the empty string, which is what an absent header reads as", () => {
-      expect(isAllowedOrigin("")).toBe(true);
+      expect(isAllowedOrigin("", LOCAL_V4)).toBe(true);
     });
   });
 
@@ -88,6 +88,19 @@ describe("isAllowedOrigin", () => {
       expect(isAllowedOrigin(undefined, undefined)).toBe(true);
     });
 
+    // Pinned because it is a DECISION, not an oversight: a remote peer presenting a localhost
+    // Origin is accepted. The origin rule exists to stop a browser being driven cross-site, and
+    // a browser cannot forge the header; a non-browser that forges it had to reach the port
+    // first, which only happens once the operator widened the bind. Refusing here instead would
+    // break the container/WSL forwarding that opt-in exists for, where the peer IS the bridge.
+    it("accepts a localhost origin even from a remote peer — deliberate, see MULMOTERMINAL_HOST", () => {
+      expect(isAllowedOrigin("http://localhost:34567", LAN_A)).toBe(true);
+    });
+
+    it("still refuses a foreign origin from a remote peer", () => {
+      expect(isAllowedOrigin("http://evil.example", LAN_A)).toBe(false);
+    });
+
     it("judges a PRESENT origin the same either way — the peer only decides the no-Origin case", () => {
       // A remote browser sending a localhost Origin is still refused on the origin alone;
       // a local browser sending an evil Origin is still refused too.
@@ -100,7 +113,7 @@ describe("isAllowedOrigin", () => {
   // over — the hostname is the whole decision.
   describe("a remote origin is refused", () => {
     it.each(["https://evil.com", "https://evil.com:34567", "https://claude.ai", "https://192.168.1.10:34567", "https://10.0.0.5"])("refuses %s", (origin) => {
-      expect(isAllowedOrigin(origin)).toBe(false);
+      expect(isAllowedOrigin(origin, LOCAL_V4)).toBe(false);
     });
   });
 
@@ -108,40 +121,40 @@ describe("isAllowedOrigin", () => {
   // "localhost" or "127.0.0.1" somewhere a substring check would accept.
   describe("hosts that merely look local are refused", () => {
     it("refuses a subdomain of an attacker's domain", () => {
-      expect(isAllowedOrigin("https://localhost.evil.com")).toBe(false);
+      expect(isAllowedOrigin("https://localhost.evil.com", LOCAL_V4)).toBe(false);
     });
 
     it("refuses an attacker's domain prefixed with the loopback address", () => {
-      expect(isAllowedOrigin("https://127.0.0.1.evil.com")).toBe(false);
+      expect(isAllowedOrigin("https://127.0.0.1.evil.com", LOCAL_V4)).toBe(false);
     });
 
     it("refuses a host that merely ends in localhost", () => {
-      expect(isAllowedOrigin("https://notlocalhost")).toBe(false);
+      expect(isAllowedOrigin("https://notlocalhost", LOCAL_V4)).toBe(false);
     });
 
     // The userinfo trick: everything before @ is credentials, and the real host is evil.com.
     it("refuses an origin where localhost is only the userinfo", () => {
-      expect(isAllowedOrigin("https://localhost@evil.com")).toBe(false);
+      expect(isAllowedOrigin("https://localhost@evil.com", LOCAL_V4)).toBe(false);
     });
 
     it("refuses an origin where the loopback address is only the userinfo", () => {
-      expect(isAllowedOrigin("https://127.0.0.1@evil.com")).toBe(false);
+      expect(isAllowedOrigin("https://127.0.0.1@evil.com", LOCAL_V4)).toBe(false);
     });
   });
 
   describe("anything unparseable is refused", () => {
     // What a file:// page and a sandboxed iframe send. It must not be read as "no origin".
     it("refuses the literal string null", () => {
-      expect(isAllowedOrigin("null")).toBe(false);
+      expect(isAllowedOrigin("null", LOCAL_V4)).toBe(false);
     });
 
     it.each(["not a url", "//localhost", "localhost:34567", "http://", " "])("refuses %o", (origin) => {
-      expect(isAllowedOrigin(origin)).toBe(false);
+      expect(isAllowedOrigin(origin, LOCAL_V4)).toBe(false);
     });
 
     // A scheme with no host at all parses, but its hostname is empty.
     it("refuses a file URL", () => {
-      expect(isAllowedOrigin("file:///Users/me/page.html")).toBe(false);
+      expect(isAllowedOrigin("file:///Users/me/page.html", LOCAL_V4)).toBe(false);
     });
   });
 
@@ -150,7 +163,7 @@ describe("isAllowedOrigin", () => {
   // uses the rest, and widening the set should have to be argued for rather than inherited.
   describe("loopback addresses other than 127.0.0.1 are refused", () => {
     it.each(["https://127.0.0.2", "https://127.0.0.53", "https://[::ffff:127.0.0.1]", "https://0.0.0.0"])("refuses %s", (origin) => {
-      expect(isAllowedOrigin(origin)).toBe(false);
+      expect(isAllowedOrigin(origin, LOCAL_V4)).toBe(false);
     });
   });
 });

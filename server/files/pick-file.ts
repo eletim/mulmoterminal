@@ -55,7 +55,7 @@ export function parsePickerOutput(stdout: string): string[] {
 }
 
 interface PickFileOptions {
-  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 // POST /api/pick-file — open the OS file dialog and return the chosen absolute

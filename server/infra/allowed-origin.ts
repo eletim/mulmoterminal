@@ -21,11 +21,19 @@ import { isLoopbackAddress } from "./loopback.js";
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
-// `remoteAddress` is the socket's peer. It is optional so existing callers keep compiling, but
-// pass it wherever it is available: without it a missing Origin is trusted on the old
-// assumption alone, which is exactly what stops being true the moment the server is bound
-// wider than loopback.
-export function isAllowedOrigin(origin?: string, remoteAddress?: string): boolean {
+// `remoteAddress` is the socket's peer, and it is REQUIRED — not because every caller has one,
+// but because a caller that forgets it silently falls back to trusting a missing Origin, which
+// is the whole defect this parameter exists to close. A caller that genuinely cannot know (the
+// socket.io CORS callback, which is handed no request) writes `undefined` at the call site,
+// where the reader can see the gap instead of inferring it from an absent argument.
+//
+// A PRESENT Origin is still judged on the origin alone, peer or not. That is deliberate: the
+// origin check defends against a BROWSER being driven cross-site, and a browser cannot forge
+// the header. A non-browser that forges it must already be able to reach the port, which only
+// happens when the operator widened the bind — an explicit decision to trust whoever can
+// connect. Making a non-loopback peer fail outright here would break the one setup that opt-in
+// exists for (a container or WSL forwarding a port, where the peer is the bridge).
+export function isAllowedOrigin(origin: string | undefined, remoteAddress: string | undefined): boolean {
   // No Origin means a non-browser caller — a CLI, an MCP tool, curl. Trustworthy only because
   // it is on this machine; a remote one is precisely what this must not wave through.
   if (!origin) return remoteAddress === undefined || isLoopbackAddress(remoteAddress);

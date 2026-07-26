@@ -7,7 +7,11 @@ import { isRecord } from "../../common/isRecord.js";
 // absolute, existing. Returns the directory, or null after sending the matching
 // error response — so the caller just does `const dir = resolveDirRequest(...); if (!dir) return;`.
 // Shared by the local-only /api/open-dir and /api/git-remote routes.
-export function resolveDirRequest(req: Request, res: Response, isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean): string | null {
+export function resolveDirRequest(
+  req: Request,
+  res: Response,
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean,
+): string | null {
   if (!isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) {
     res.status(403).json({ error: "forbidden origin" });
     return null;

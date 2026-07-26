@@ -28,7 +28,7 @@ interface ErrorResponse {
 type RemoteHostResponse = StatusResponse | ErrorResponse;
 
 export interface RemoteHostRouteDeps {
-  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   getLifecycle: () => RemoteHostLifecycle | null;
   exportSession: () => string | null;
   // 401 for a genuinely expired/invalid blob (client drops it), 5xx for a transient

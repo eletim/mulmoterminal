@@ -54,7 +54,7 @@ const liveDeps: GoogleRouteDeps = {
 };
 
 interface GoogleRouteOptions {
-  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 const failed = (res: Response, cause: unknown, fallback: string): void => {

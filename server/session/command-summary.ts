@@ -136,7 +136,7 @@ export async function summarizeLog(log: string, deps: SummarizeDeps = {}): Promi
 }
 
 interface CommandSummaryDeps {
-  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
 // POST /api/command/summarize { log } -> { summary, truncated }. Same-origin guarded

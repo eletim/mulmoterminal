@@ -4,7 +4,7 @@ import type { Express } from "express";
 // orphan-selection boundary are unit-testable without booting the server (mirrors
 // gitRemote / open-dir / command-summary).
 export interface TmuxRouteDeps {
-  isAllowedOrigin: (origin?: string, remoteAddress?: string) => boolean;
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   isValidSessionId: (id: string) => boolean;
   // Reap a live session (kills its pty + tmux + cleanup); a no-op without a live entry.
   reapSession: (id: string) => void;
