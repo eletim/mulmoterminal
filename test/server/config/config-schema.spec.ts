@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { isRecord } from "../../../common/isRecord.js";
 import {
   dirNameField,
   dirColorField,
@@ -78,8 +79,6 @@ describe("item schemas (strict shape)", () => {
     expect(cwdPresetSchema.safeParse({ label: "x" }).success).toBe(false);
   });
 });
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 describe("dirConfigJsonSchema", () => {
   it("emits an object schema with every writable property", () => {

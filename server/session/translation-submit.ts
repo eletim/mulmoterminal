@@ -7,7 +7,7 @@
 //
 // The hand-off is passed in rather than imported so the decision can be tested without a
 // worker in flight; it is the one thing here that is not a decision (#548).
-import { isRecord } from "./transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 
 export type TranslationSubmitOutcome = { status: 200; body: { ok: true } } | { status: 400 | 404; body: { error: string } };
 

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { BUNDLED_SKILL_NAMES, installOwnedSkill, SCHEMA_ASSET_FILE } from "../../../server/infra/install-bundled-skills";
 import { loadDirConfig } from "../../../server/config/dir-config";
+import { isRecord } from "../../../common/isRecord.js";
 
 const NAME = "mulmoterminal-config";
 const MARKER = ".mt-owned";
@@ -86,8 +87,6 @@ describe("installOwnedSkill", () => {
     expect(SCHEMA_ASSET_FILE).not.toBe("schema.json");
   });
 });
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const CHROME_KEYS = ["badgeColor", "headerColor", "headerTextColor", "cellColor", "cellBorderColor", "dotColor", "buttonColor"] as const;
 const META_KEYS = ["id", "vibe", "label", "description"];
 

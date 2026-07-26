@@ -5,7 +5,8 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { Express } from "express";
-import { isRecord, parseJsonl } from "./transcript.js";
+import { parseJsonl } from "./transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 import { projectSessionsDir } from "./project-dir.js";
 
 const TOKENS_PER_MILLION = 1_000_000;

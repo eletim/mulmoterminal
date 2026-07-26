@@ -12,6 +12,7 @@ import { runGh } from "./gh.js";
 import { rollupCiState } from "./prs.js";
 import { createTtlCache } from "./ttl-cache.js";
 import { branchQuery, type BranchQueryDeps } from "./branch-query.js";
+import { isRecord } from "../../common/isRecord.js";
 
 // Ordered roughly along the lifecycle so the client can pick a colour/label per phase.
 // `none` = no PR for this branch yet (still local work); `ready` = open, CI green, no
@@ -25,8 +26,6 @@ export interface ParsedPr {
   ci: CiState; // passing | failing | pending | none
   url: string | null;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 const toParsedPr = (o: Record<string, unknown>): ParsedPr => ({
   state: typeof o.state === "string" ? o.state : "",

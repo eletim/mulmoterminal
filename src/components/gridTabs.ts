@@ -1,4 +1,5 @@
 import type { RunCommand } from "./runCommand";
+import { isRecord } from "../../common/isRecord";
 
 // The grid is ONE flat, ordered list of terminal cells, split into pages of 9
 // (the tabs). Closing a cell reflows the whole list so later pages pack forward
@@ -416,7 +417,6 @@ const isUuid = (s: unknown): s is string => typeof s === "string" && UUID_RE.tes
 const asSortMode = (v: unknown): SortMode => (v === "auto" ? "auto" : "manual");
 // Keep a persisted launcher only if well-formed; anything else drops to null so a
 // reloaded cell reconnects as a plain (Claude) session instead of a broken launcher.
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const asLauncher = (v: unknown): CellLauncher | null => {
   if (!isRecord(v) || typeof v.label !== "string") return null;
   if (v.shell === true) return { shell: true, label: v.label };

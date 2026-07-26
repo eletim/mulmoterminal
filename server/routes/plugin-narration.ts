@@ -8,7 +8,7 @@
 // Each route keeps its own wording, since that sentence is what the agent reads; only the
 // rule for reading an upstream router's error is shared, and it lives here because it is the
 // part with a decision in it (#548).
-import { isRecord } from "../session/transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 
 // The routers 4xx their domain errors as `{ error }` — prefer that sentence, which names the
 // actual problem, over anything this side could invent. The status-only fallback covers a

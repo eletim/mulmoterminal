@@ -5,6 +5,8 @@
 // next Stop hook clears it (the only stale case is a turn that finished during the restart
 // window, whose Stop was lost — corrected on the user's next turn).
 
+import { isRecord } from "../../common/isRecord.js";
+
 export interface RestartActivity {
   working?: boolean;
   waiting?: boolean;
@@ -16,8 +18,6 @@ export interface PersistedActivity {
   waiting: boolean;
   event: string | null;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 // The sessions to persist across a restart: those that are working OR waiting (blocked/done),
 // minus hidden translation workers (they flag waiting internally but must never surface, and

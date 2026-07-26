@@ -16,6 +16,7 @@ import type { QuickCommand } from "../../common/quickCommands";
 import { SESSION_AGENTS, type SessionAgent } from "../../common/sessionAgent";
 import { canAddLauncher, canAddMcpServer, canAddQuickCommand, canAddRepo } from "./settingsValidators";
 import { formatUsd } from "./formatUsd";
+import { isRecord } from "../../common/isRecord";
 
 const props = defineProps<{
   soundFile?: string | null;
@@ -150,7 +151,6 @@ watch(
   () => props.soundFile,
   (f) => (soundPath.value = f ?? ""),
 );
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
 function applySound() {
   emit("update-sound", soundPath.value.trim() || null);
