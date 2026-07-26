@@ -287,7 +287,7 @@ never add one they did not request.
 
 | Action | What it does | Needs a zoomed cell |
 |---|---|---|
-| `zoom-toggle` | Enlarge / collapse — the only action that changes that, and it resumes the last-enlarged terminal | no |
+| `zoom-toggle` | Enlarge / collapse — the only action that changes that; it enlarges whichever terminal the cursor is in | no |
 | `zoom-next` / `zoom-prev` | Move the enlargement along the on-screen order | yes |
 | `next-attention` | Move to the next terminal awaiting input, then finished-unreviewed, then idle — skipping cells mid-turn. Never enlarges or collapses | no |
 | `terminal-new` | Add a terminal at the end (the toolbar's `＋`) | no |

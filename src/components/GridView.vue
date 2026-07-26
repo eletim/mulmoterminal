@@ -425,7 +425,13 @@ function runShortcut(shortcut: GridShortcut) {
   if (shortcut === "zoom-next" || shortcut === "zoom-prev") {
     state.value = moveZoom(state.value, order, shortcut === "zoom-next" ? 1 : -1);
   } else if (shortcut === "zoom-toggle") {
-    state.value = toggleZoom(state.value, order);
+    const wasZoomed = expandedUid.value;
+    state.value = toggleZoom(state.value, order, focusedCellUid.value);
+    // Keep the cursor on the same terminal through both directions: enlarging focuses the cell
+    // that was selected, collapsing focuses the one that WAS enlarged, so the grid selection is
+    // where the user just was instead of wherever focus happened to be before.
+    const target = expandedUid.value ?? wasZoomed;
+    if (target !== null) void nextTick(() => conn.focus(`cell-${target}`));
   } else if (shortcut === "next-attention") {
     // Focus the terminal it moves to, not just the state. In a plain grid nothing else shows
     // WHICH cell was picked — the focused cell lifts, and the cursor lands where the user is

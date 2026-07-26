@@ -183,7 +183,7 @@ terminal stops receiving**, and only you know whether that trade is worth it for
 
 | Action | What it does | Needs a zoomed cell |
 |---|---|---|
-| `zoom-toggle` | **Enlarge / collapse** — the only action that does. Re-enlarging returns to the terminal you were last reading | no |
+| `zoom-toggle` | **Enlarge / collapse** — the only action that does. Enlarges the terminal the cursor is in, and collapsing leaves the cursor there | no |
 | `zoom-next` | Move the enlargement to the **next** terminal in the on-screen order | yes |
 | `zoom-prev` | Same, to the **previous** one | yes |
 | `next-attention` | **Move to the next terminal worth looking at** — awaiting input first, then finished-and-unreviewed, then idle; cells mid-turn are skipped. Cycles. **Never enlarges or collapses**: zoomed it moves which terminal is enlarged, un-zoomed it moves the keyboard focus there (the focused cell lifts), switching page if needed | no |

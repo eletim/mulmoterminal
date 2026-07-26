@@ -50,9 +50,6 @@ export function activityStatus(working: boolean, waiting: boolean, event: string
 export interface GridState {
   cells: Cell[];
   expanded: number | null; // uid of the zoomed cell, or null
-  // The uid last enlarged, kept after collapsing so re-entering the zoom returns to the
-  // terminal the user was reading rather than restarting at the top of the page.
-  lastExpanded: number | null;
   page: number;
   nextUid: number;
   sortMode: SortMode;
@@ -221,13 +218,14 @@ const pageHolding = (order: readonly number[], uid: number, fallback: number): n
 // Un-zoomed there is no "current" cell to enlarge, so it takes the first one ON THE PAGE THE
 // USER IS LOOKING AT — `order` is the whole un-paged list, so index 0 would be a cell from the
 // first tab, enlarging something off-screen and dragging the page back to 0 with it.
-export function toggleZoom(state: GridState, order: readonly number[]): GridState {
+export function toggleZoom(state: GridState, order: readonly number[], fromUid: number | null = null): GridState {
   const uid = zoomedUid(state);
-  if (uid !== null) return { ...state, expanded: null, lastExpanded: uid, page: pageHolding(order, uid, state.page) };
-  // Re-entering returns to the terminal last read; only when that cell is gone does it fall
-  // back to the top of the page being looked at.
-  const resume = state.lastExpanded !== null ? order.indexOf(state.lastExpanded) : -1;
-  return zoomAt(state, order, resume >= 0 ? resume : state.page * PAGE_SIZE);
+  if (uid !== null) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
+  // Enlarge whatever is SELECTED — the focused cell, which the caller supplies because only it
+  // knows where the cursor is. There is deliberately no separate "last enlarged" memory: it
+  // would fight the live selection, so collapsing and re-expanding would jump somewhere else.
+  const at = fromUid !== null ? order.indexOf(fromUid) : -1;
+  return zoomAt(state, order, at >= 0 ? at : state.page * PAGE_SIZE);
 }
 
 // Search order for "somewhere worth going": the two states that are actually calling —
@@ -292,7 +290,7 @@ function nextCandidate(order: readonly number[], statusByUid: Record<number, Cel
 //
 // Collapsing is never refused: whatever a state got into, ⤡ has to get out of it.
 export function toggleExpand(state: GridState, uid: number, order: readonly number[] = []): GridState {
-  if (state.expanded === uid) return { ...state, expanded: null, lastExpanded: uid, page: pageHolding(order, uid, state.page) };
+  if (state.expanded === uid) return { ...state, expanded: null, page: pageHolding(order, uid, state.page) };
   if (runningCount(state.cells) < 2) return state;
   return { ...state, expanded: uid };
 }
@@ -421,12 +419,8 @@ export function parseGridState(raw: string | null): GridState | null {
     }));
     const expandedIdx = running.findIndex((c: Cell) => c.uid === parsed.expanded);
     const expanded = typeof parsed.expanded === "number" && expandedIdx >= 0 ? expandedIdx : null;
-    // Same remap: persisted uids are renumbered above, so a raw lastExpanded would point at
-    // whatever cell now happens to hold that number.
-    const lastIdx = running.findIndex((c: Cell) => c.uid === parsed.lastExpanded);
-    const lastExpanded = typeof parsed.lastExpanded === "number" && lastIdx >= 0 ? lastIdx : null;
     const page = Number.isSafeInteger(parsed.page) && parsed.page >= 0 ? parsed.page : 0;
-    return clampPage(ensureEntry({ cells, expanded, lastExpanded, page, nextUid: cells.length, sortMode: asSortMode(parsed.sortMode) }));
+    return clampPage(ensureEntry({ cells, expanded, page, nextUid: cells.length, sortMode: asSortMode(parsed.sortMode) }));
   } catch {
     return null;
   }
@@ -442,7 +436,7 @@ export function migrateLegacy(raw: string | null): GridState | null {
       if (isUuid(s)) cells.push({ uid: cells.length, session: s, cwd: typeof parsed.cwds?.[i] === "string" ? parsed.cwds[i] : null });
     });
     const expanded = typeof parsed.expanded === "number" && parsed.expanded >= 0 && parsed.expanded < cells.length ? cells[parsed.expanded].uid : null;
-    return clampPage(ensureEntry({ cells, expanded, lastExpanded: null, page: 0, nextUid: cells.length, sortMode: "manual" }));
+    return clampPage(ensureEntry({ cells, expanded, page: 0, nextUid: cells.length, sortMode: "manual" }));
   } catch {
     return null;
   }
@@ -453,7 +447,7 @@ export function initialState(curRaw: string | null, legacyRaw: string | null): {
   if (cur) return { state: cur, migrated: false };
   const migrated = migrateLegacy(legacyRaw);
   if (migrated) return { state: migrated, migrated: true };
-  return { state: ensureEntry({ cells: [], expanded: null, lastExpanded: null, page: 0, nextUid: 0, sortMode: "manual" }), migrated: false };
+  return { state: ensureEntry({ cells: [], expanded: null, page: 0, nextUid: 0, sortMode: "manual" }), migrated: false };
 }
 
 // Which status a cell sorts and tallies by.

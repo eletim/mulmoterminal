@@ -45,7 +45,6 @@ const running = (count: number): Cell[] => Array.from({ length: count }, (_, i) 
 const make = (cells: Cell[], extra: Partial<GridState> = {}): GridState => ({
   cells,
   expanded: null,
-  lastExpanded: null,
   page: 0,
   nextUid: cells.length,
   sortMode: "manual",
@@ -250,21 +249,27 @@ describe("toggleZoom (the keyboard's way in and out of the zoom)", () => {
     expect(toggleZoom(s, [])).toBe(s);
   });
 
-  // Re-entering should return the user to what they were reading, not restart at the top.
-  it("resumes the terminal that was last enlarged", () => {
+  // The selection is the focused cell — one notion, not a second "last enlarged" memory that
+  // could disagree with it. Collapse then re-expand keeps you on the same terminal because the
+  // caller keeps the cursor there.
+  it("enlarges the SELECTED cell, not the first of the page", () => {
     const s = make(running(12), { page: 0 });
     const order = s.cells.map((c) => c.uid);
-    const zoomed = { ...s, expanded: 5 };
-    const collapsed = toggleZoom(zoomed, order);
-    expect(collapsed.expanded).toBeNull();
-    expect(collapsed.lastExpanded).toBe(5);
-    expect(toggleZoom(collapsed, order).expanded).toBe(5);
+    expect(toggleZoom(s, order, 5).expanded).toBe(5);
   });
 
-  it("falls back to the page's first cell when the remembered terminal is gone", () => {
-    const s = make(running(12), { page: 1, lastExpanded: 99 });
+  it("round-trips: collapsing then re-expanding the same selection returns to it", () => {
+    const s = make(running(12), { page: 0, expanded: 5 });
     const order = s.cells.map((c) => c.uid);
-    expect(toggleZoom(s, order).expanded).toBe(9);
+    const collapsed = toggleZoom(s, order, 5);
+    expect(collapsed.expanded).toBeNull();
+    expect(toggleZoom(collapsed, order, 5).expanded).toBe(5);
+  });
+
+  it("falls back to the page's first cell when the selection is gone", () => {
+    const s = make(running(12), { page: 1 });
+    const order = s.cells.map((c) => c.uid);
+    expect(toggleZoom(s, order, 99).expanded).toBe(9);
   });
 
   // Regression (caught on a real grid, not by the unit tests or the bots): entering the zoom
