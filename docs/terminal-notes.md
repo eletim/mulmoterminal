@@ -60,8 +60,21 @@ server   ── node-pty  ── tmux (persistence)  ── agent (claude / code
   change and the PTY has to be told — `setFontSize()` therefore calls `fitAndSyncSize()`, and
   `attach()` applies a changed size *before* its own fit. Setting the option alone reproduces the
   bug that made browser zoom useless as a workaround in #860: xterm's grid and the PTY disagree,
-  so the cursor and the wrap points drift. `Conn.fontSize` remembers the applied value so a
+  so the cursor and the wrap points drift. `Conn.font` remembers the applied value so a
   rebuilt terminal (#846) doesn't snap back to the default.
+- `fontFamily` (#864) — also no longer a constant, and it travels WITH the size as one
+  `TerminalFont { size, family }`, because both decide the cell metrics and both therefore have to
+  re-fit: `setFont()` is the single path, and a change to both costs one fit rather than two.
+  Resolved per terminal as **dir pin (`.mulmoterminal.json` `fontFamily`) → global config
+  (`fontFamily` in `~/.mulmoterminal/config.json`) → `TERMINAL_FONT_FAMILY_DEFAULT`**, validated by
+  `normalizeFontFamily` (`common/terminalFontFamily.ts`), which both sides share.
+  Global rather than per-browser (which is where the SIZE lives) because it names fonts, and which
+  fonts are installed is a property of the host, not of the phone or laptop looking at it. That
+  makes hydration async — `/api/config` can land after a terminal mounts — so `globalFontFamily` is
+  a ref that `Terminal.vue` watches, and the late value re-fits rather than being missed.
+  The default stack ends in CJK faces (JP first, then KR/SC/TC): xterm reserves exactly two cells
+  for a fullwidth character, and the face a browser picks for an unnamed glyph is not required to
+  be em-square, so leaving CJK to the generic `monospace` fallback tears box-drawing frames.
 
 ### Submit vs newline — `terminalSubmit` (#772/#780)
 

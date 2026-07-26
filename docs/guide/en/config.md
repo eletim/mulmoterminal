@@ -22,7 +22,8 @@ Settings live in three places: the **settings modal (⚙)**, the **global config
 > It is also how you find the settings that have **no UI at all** and exist only in
 > `~/.mulmoterminal/config.json`: [`providers`](#providers) (another model),
 > [`keymap`](#keymap) (keyboard shortcuts), [`terminalSubmit`](#terminal-submit) (the fix for
-> "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Hand-editing works
+> "Shift+Enter submits instead of adding a line"), [`fontFamily`](#font-family) (the terminal
+> font), and the periodic dev-work log. Hand-editing works
 > too — this page documents every field — but the skill validates as it writes, which matters for
 > `keymap`, where a malformed binding stops the server from starting.
 
@@ -84,6 +85,7 @@ Open it from the ⚙ in the toolbar.
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
+| `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
 
 ## Running on another model (providers) {#providers}
 
@@ -103,6 +105,46 @@ Note that `baseUrl` must not end in `/v1`, and `tokenEnv` is the **name** of a v
 
 → **Full walkthrough, the measured model list, how to add your own models, and troubleshooting:
 [Using another model via OpenRouter](providers.html).**
+
+## Terminal font (`fontFamily`) {#font-family}
+
+The font every terminal renders in. There is **no Settings UI** — put a CSS font-family stack in
+`~/.mulmoterminal/config.json`:
+
+```json
+{ "fontFamily": "'Cica', 'MS Gothic', monospace" }
+```
+
+Restart nothing: reload the browser tab and the terminals re-fit to the new font.
+
+Name the fonts **as your OS lists them**, most-wanted first, and the browser uses the first one that
+is installed. Unset (the normal case) you get the built-in stack: **JetBrains Mono → Fira Code →
+Menlo → Consolas**, followed by CJK faces for Japanese, Korean, and Chinese, ending in `monospace`.
+
+A **directory** can pin its own with `fontFamily` in its `.mulmoterminal.json` ([below](#per-dir)),
+which wins over this one. Unlike the font **size** — a display preference the Settings modal keeps
+**per browser** — this is a single value for the whole host, because it names *fonts*, and which
+fonts exist belongs to the machine rather than to the phone or laptop looking at it.
+
+### Choosing a font for CJK
+
+Pick one whose **fullwidth glyphs are exactly twice the width of its Latin ones**. The terminal
+reserves exactly two columns for a fullwidth character, so a face that disagrees tears every
+box-drawing frame — which is most of what an agent TUI draws. Fonts built for this include
+**Cica**, **HackGen**, **Sarasa Mono J**, **Noto Sans Mono CJK JP**, **MS Gothic**, and
+**BIZ UDGothic**.
+
+### If it doesn't take
+
+- **Nothing changed.** The font isn't installed under that exact name, so the browser skipped it and
+  fell through to the next one. Check the spelling against your font book.
+- **The whole value was ignored.** A stack is validated as one unit — if any entry is unusable, the
+  whole thing is dropped and the built-in stack applies, rather than half of it taking effect.
+  Characters CSS treats as syntax (`;` `{` `}` `(` `)` `<` `>` `\` `/` `@` `!`) are rejected, and
+  quotes must be a matching pair around a whole name.
+- **Everything went proportional.** That is the browser's default font, which means no name in the
+  stack matched. MulmoTerminal appends `monospace` when you name no generic family, so this should
+  only happen if you ended the stack with a proportional one yourself.
 
 ## Enter — submit vs. newline (`terminalSubmit`) {#terminal-submit}
 
@@ -416,6 +458,19 @@ Use this rather than the browser's zoom (Ctrl +/−). Zoom scales the page witho
 xterm's character grid stops matching what the shell believes the window to be, and the cursor and line
 wraps drift. Setting `fontSize` re-fits the terminal and sends the new width/height to the process, so
 everything stays aligned.
+
+### Terminal font (`fontFamily`)
+
+`fontFamily` pins the font stack for this directory's terminals, overriding the global
+[`fontFamily`](#font-family):
+
+```json
+{ "fontFamily": "'Cica', 'MS Gothic', monospace" }
+```
+
+Same rules as the global key — see [Terminal font](#font-family) for how to choose one, what happens
+to an invalid stack, and why a CJK face has to be em-square. Handy for a repo whose logs are full of
+Japanese while the rest of your work is ASCII.
 
 ### Customizing the header (buttons / chips) {#header}
 

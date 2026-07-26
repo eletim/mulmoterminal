@@ -22,6 +22,7 @@ import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmit
 import type { QuickCommand } from "../../common/quickCommands.js";
 import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
+import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 
@@ -66,6 +67,11 @@ export interface AppConfig {
   // User-defined keyboard shortcuts (#829). NO defaults: an empty map means the shortcuts
   // are off, because every binding takes that key away from the terminal underneath.
   keymap: Keymap;
+  // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
+  // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
+  // exist is a property of the machine the browser runs on — the same answer for every client
+  // of one host. A directory's `.mulmoterminal.json` fontFamily overrides it.
+  fontFamily: string | null;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -221,6 +227,7 @@ export const emptyConfig = (): AppConfig => ({
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
+  fontFamily: null,
 });
 
 // Drop malformed entries rather than rejecting the whole config: one bad provider must
@@ -254,6 +261,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
+    fontFamily: normalizeFontFamily(o.fontFamily),
   };
 }
 
@@ -306,22 +314,28 @@ export function backupCorruptConfig(file: string): string | null {
 // stale in-memory copy would otherwise write back its boot-time values for the omitted
 // fields, clobbering whatever another instance persisted since (e.g. wiping buttons).
 export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>): AppConfig {
+  // Every field obeys the same rule, so it is written once: a body that CARRIES the key wins
+  // (even as null/garbage — the sanitizer decides what that means), and a body that omits it
+  // keeps the base's value. Note `!== undefined`, not truthiness: `chips: []` and `soundFile:
+  // null` are real edits meaning "none", and must not read as "field absent".
+  const merge = <T>(value: unknown, sanitize: (input: unknown) => T, kept: T): T => (value !== undefined ? sanitize(value) : kept);
   return {
-    cwdPresets: body.cwdPresets !== undefined ? sanitizePresets(body.cwdPresets) : base.cwdPresets,
-    soundFile: body.soundFile !== undefined ? sanitizeSoundFile(body.soundFile) : base.soundFile,
-    prRepos: body.prRepos !== undefined ? sanitizeRepos(body.prRepos) : base.prRepos,
-    launchers: body.launchers !== undefined ? sanitizeLaunchers(body.launchers) : base.launchers,
-    quickCommands: body.quickCommands !== undefined ? sanitizeQuickCommands(body.quickCommands) : base.quickCommands,
-    userMcpServers: body.userMcpServers !== undefined ? sanitizeUserMcpServers(body.userMcpServers) : base.userMcpServers,
-    buttons: body.buttons !== undefined ? sanitizeButtons(body.buttons) : base.buttons,
-    chips: body.chips !== undefined ? sanitizeChips(body.chips) : base.chips,
-    pushEnabled: body.pushEnabled !== undefined ? sanitizePushEnabled(body.pushEnabled) : base.pushEnabled,
-    pushKinds: body.pushKinds !== undefined ? sanitizePushKinds(body.pushKinds) : base.pushKinds,
-    worklogEnabled: body.worklogEnabled !== undefined ? sanitizeWorklogEnabled(body.worklogEnabled) : base.worklogEnabled,
-    worklogIntervalHours: body.worklogIntervalHours !== undefined ? sanitizeWorklogIntervalHours(body.worklogIntervalHours) : base.worklogIntervalHours,
-    providers: body.providers !== undefined ? sanitizeProviders(body.providers) : base.providers,
-    terminalSubmit: body.terminalSubmit !== undefined ? sanitizeTerminalSubmit(body.terminalSubmit) : base.terminalSubmit,
-    keymap: body.keymap !== undefined ? sanitizeKeymap(body.keymap) : base.keymap,
+    cwdPresets: merge(body.cwdPresets, sanitizePresets, base.cwdPresets),
+    soundFile: merge(body.soundFile, sanitizeSoundFile, base.soundFile),
+    prRepos: merge(body.prRepos, sanitizeRepos, base.prRepos),
+    launchers: merge(body.launchers, sanitizeLaunchers, base.launchers),
+    quickCommands: merge(body.quickCommands, sanitizeQuickCommands, base.quickCommands),
+    userMcpServers: merge(body.userMcpServers, sanitizeUserMcpServers, base.userMcpServers),
+    buttons: merge(body.buttons, sanitizeButtons, base.buttons),
+    chips: merge(body.chips, sanitizeChips, base.chips),
+    pushEnabled: merge(body.pushEnabled, sanitizePushEnabled, base.pushEnabled),
+    pushKinds: merge(body.pushKinds, sanitizePushKinds, base.pushKinds),
+    worklogEnabled: merge(body.worklogEnabled, sanitizeWorklogEnabled, base.worklogEnabled),
+    worklogIntervalHours: merge(body.worklogIntervalHours, sanitizeWorklogIntervalHours, base.worklogIntervalHours),
+    providers: merge(body.providers, sanitizeProviders, base.providers),
+    terminalSubmit: merge(body.terminalSubmit, sanitizeTerminalSubmit, base.terminalSubmit),
+    keymap: merge(body.keymap, sanitizeKeymap, base.keymap),
+    fontFamily: merge(body.fontFamily, normalizeFontFamily, base.fontFamily),
   };
 }
 
@@ -345,6 +359,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
+    fontFamily: config.fontFamily,
   };
 }
 

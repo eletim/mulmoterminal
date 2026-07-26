@@ -6,6 +6,7 @@ import type { QuickCommand } from "../../common/quickCommands";
 import type { PushKind } from "../../common/pushKinds";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
+import { setGlobalFontFamily } from "./terminalFontFamily";
 import { setActiveKeymap } from "./activeKeymap";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
@@ -249,6 +250,9 @@ export function useAppConfig() {
       // Keyboard shortcuts are opt-in: no `keymap` in config.json leaves this empty and
       // every shortcut stays off.
       setActiveKeymap(c.keymap);
+      // The terminal font stack (config.json-only, no Settings UI). Terminals already open
+      // re-fit when this lands — a different face means different cell metrics.
+      setGlobalFontFamily(c.fontFamily);
       await migrateLegacyRecents();
     } catch {
       // the app still works; presets are just unavailable

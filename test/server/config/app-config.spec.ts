@@ -226,6 +226,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     providers: [],
     terminalSubmit: "cr",
     keymap: {},
+    fontFamily: null,
   };
   it("round-trips presets + soundFile + prRepos + launchers + userMcpServers through a file", () => {
     const dir = tmp();
@@ -246,6 +247,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
+      fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
     };
     expect(saveAppConfig(file, cfg)).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
@@ -274,6 +276,7 @@ describe("loadAppConfig / saveAppConfig", () => {
           { id: "bad url", url: "nope" },
         ],
         terminalSubmit: "bogus", // unknown mode => standard 'cr'
+        fontFamily: "Cica; color: red", // CSS syntax => dropped, not passed to the browser
         keymap: { "zoom-next": "PageDown", "warp-drive": "F1", "zoom-prev": "Shift+" }, // unknown action + bad binding are dropped
       }),
     );
@@ -293,6 +296,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       worklogIntervalHours: 6,
       providers: [],
       terminalSubmit: "cr",
+      fontFamily: null,
     });
     rmSync(dir, { recursive: true, force: true });
   });
@@ -391,6 +395,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     providers: [],
     terminalSubmit: "cr" as const,
     keymap: {},
+    fontFamily: null,
   };
 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
@@ -445,6 +450,7 @@ describe("mergeConfigUpdate", () => {
     providers: [],
     terminalSubmit: "cr",
     keymap: {},
+    fontFamily: null,
     ...over,
   });
 
@@ -475,6 +481,14 @@ describe("mergeConfigUpdate", () => {
     expect(mergeConfigUpdate(baseConfig(), { terminalSubmit: "bogus" }).terminalSubmit).toBe("cr"); // invalid => default
     // a chips-only update must not reset the mapping
     expect(mergeConfigUpdate(baseConfig({ terminalSubmit: "esc-cr" }), { chips: ["git"] }).terminalSubmit).toBe("esc-cr");
+  });
+
+  // No Settings UI writes this one, so the merge path is the only thing standing between a
+  // POST that omits it and the user's configured font disappearing.
+  it("applies fontFamily from the body (normalized) and keeps it when omitted", () => {
+    expect(mergeConfigUpdate(baseConfig(), { fontFamily: "Cica" }).fontFamily).toBe("Cica, monospace");
+    expect(mergeConfigUpdate(baseConfig(), { fontFamily: "Cica; color: red" }).fontFamily).toBeNull(); // invalid => unset
+    expect(mergeConfigUpdate(baseConfig({ fontFamily: "Cica, monospace" }), { chips: ["git"] }).fontFamily).toBe("Cica, monospace");
   });
 
   it("merging on a RE-READ disk base preserves another instance's write (the clobber fix)", () => {
