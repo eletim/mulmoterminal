@@ -18,8 +18,9 @@ function pasteEvent(types: string[], file: File | null): ClipboardEvent {
 
 const jsonResponse = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
 
-// One microtask turn is enough for FileReader + the mocked fetch to settle.
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+// The handler is fire-and-forget by design (it must claim the event synchronously), so the
+// assertion has to wait for FileReader + fetch rather than for a fixed number of ticks — a
+// fixed wait passes alone and fails in a loaded full-suite run.
 
 describe("createImagePasteHandler", () => {
   beforeEach(() => vi.restoreAllMocks());
@@ -39,8 +40,7 @@ describe("createImagePasteHandler", () => {
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
 
-    await settle();
-    expect(insertText).toHaveBeenCalledWith("/Users/me/.mulmoterminal/tmp/pasted/pasted-20260727-090503-007.png");
+    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("/Users/me/.mulmoterminal/tmp/pasted/pasted-20260727-090503-007.png"));
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -51,8 +51,7 @@ describe("createImagePasteHandler", () => {
     );
     const insertText = vi.fn();
     createImagePasteHandler({ insertText, onError: vi.fn() })(pasteEvent(["image/png"], png()));
-    await settle();
-    expect(insertText).toHaveBeenCalledWith("'/Users/me/My Dir/pasted-1.png'");
+    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("'/Users/me/My Dir/pasted-1.png'"));
   });
 
   // The whole point of the type check: a text paste must reach xterm untouched.
@@ -77,9 +76,8 @@ describe("createImagePasteHandler", () => {
     const insertText = vi.fn();
     const onError = vi.fn();
     createImagePasteHandler({ insertText, onError })(pasteEvent(["image/png"], png()));
-    await settle();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("image too large"));
     expect(insertText).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith("image too large");
   });
 });
 

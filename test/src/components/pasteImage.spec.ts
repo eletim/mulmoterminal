@@ -7,12 +7,25 @@ describe("shouldInterceptImagePaste", () => {
     expect(shouldInterceptImagePaste(["Files", "image/png"])).toBe(true);
   });
 
-  // Copying from a web page puts text/html AND an image on the clipboard. Taking those
-  // would break pasting text, which is what a terminal is pasted into all day.
+  // An image copied from a web page carries text/html but no text/plain. Saving it is the
+  // useful reading of that paste — there is no text to lose.
+  it("intercepts an image that came with markup but no text", () => {
+    expect(shouldInterceptImagePaste(["text/html", "image/png"])).toBe(true);
+  });
+
+  // Copying rich text puts text/plain alongside. Taking those would break pasting text,
+  // which is what a terminal is pasted into all day.
   it("leaves a paste that carries text to xterm", () => {
     expect(shouldInterceptImagePaste(["text/plain"])).toBe(false);
     expect(shouldInterceptImagePaste(["text/plain", "text/html", "image/png"])).toBe(false);
     expect(shouldInterceptImagePaste([])).toBe(false);
+  });
+
+  // Swallowing a paste the server would then refuse leaves the user with nothing happening
+  // at all — worse than letting it through as an ordinary paste.
+  it("declines an image type the server cannot save", () => {
+    expect(shouldInterceptImagePaste(["image/svg+xml"])).toBe(false);
+    expect(shouldInterceptImagePaste(["image/tiff"])).toBe(false);
   });
 });
 
@@ -39,5 +52,10 @@ describe("pastedImageFile", () => {
   // getAsFile() can hand back null even for a file item (a drag that ended, a revoked entry).
   it("returns null when the item yields no file", () => {
     expect(pastedImageFile(clipboard(["image/png"], [{ kind: "file", type: "image/png", file: null }]))).toBeNull();
+  });
+
+  it("returns null for an image type the server cannot save", () => {
+    const svg = new File(["<svg/>"], "a.svg", { type: "image/svg+xml" });
+    expect(pastedImageFile(clipboard(["image/svg+xml"], [{ kind: "file", type: "image/svg+xml", file: svg }]))).toBeNull();
   });
 });

@@ -81,7 +81,7 @@ so a very large unsaved buffer may not get out.
 | 💬 / ⇄ Cross-terminal talk | 💬 brings another cell's last turn into this one; **⇄ Exchange** does an **automatic round-trip** — send, wait for the other agent's answer, bring it back (great for Claude ↔ Codex mutual review) |
 | Git actions | One click from a worktree cell: **commit (ask Claude) / push / ⧉ Open PR** |
 | File attach | **Drag & drop** a file onto the terminal, or use 📎 to pick one in the OS dialog — the **absolute path is inserted** |
-| Screenshot paste | **Paste an image** into the terminal: it is saved to `~/.mulmoterminal/tmp/pasted/` and its **absolute path is inserted**. Works in Chrome too; pasting text is unchanged |
+| Screenshot paste | **Paste an image** into the terminal: it is saved to `~/.mulmoterminal/tmp/pasted/` and its **absolute path is inserted**. Needs no path from the browser, so it covers Chrome, where a file drop can't insert one. PNG / JPEG / GIF / WebP; pasting text is unchanged |
 | Voice input | Dictate into the prompt via microphone transcription. Settings picks **the language you dictate in** (per browser) — your browser's, per-clip detection, or a fixed one; speaking a language the mic isn't expecting comes back **translated** into the one it is |
 | MCP servers | Join your own HTTP MCP servers to sessions via the MCP SERVERS setting |
 | Launch commands | Start something other than Claude (`Shell` / `codex` / anything) as a **persistent terminal** |

@@ -1,9 +1,9 @@
 # feat(#938): ターミナルに画像を貼り付けて絶対パスを挿入する
 
-Chrome でスクリーンショットをエージェントに渡すのが「撮る → 保存する → 📎 → ダイアログで探す」の
+Chrome でスクリーンショットをエージェントに渡すのが「撮る → 保存する → ファイルボタン → ダイアログで探す」の
 4手になっている。貼ったら保存され、絶対パスがカーソル位置に入る（送信はしない）を目指す。
 
-挿入の作法は既存と同じ: D&D (#75) も 📎 ボタンも `insertText()` + `toShellArg()` に合流している。
+挿入の作法は既存と同じ: D&D (#75) もファイルボタンも `insertText()` + `toShellArg()` に合流している。
 画像 paste もそこへ合流させる。
 
 ## MulmoClaude との違い（これが設計の芯）
@@ -16,7 +16,7 @@ MulmoClaude にも同種の経路がある — `POST /api/attachments` が `{ da
 | 目的 | 添付を**資産として管理**する（チャットが後から参照する） | エージェントに**渡すだけ**（パスしか受け取れないから） |
 | 保存先 | `data/attachments/YYYY/MM/` | `~/.mulmoterminal/tmp/pasted/` |
 | 返す値 | ワークスペース相対パス | **絶対パス**（ターミナルに入る文字列そのもの） |
-| 寿命 | 永続 | 使い捨て（サーバ起動時に全消し + 件数上限） |
+| 寿命 | 永続 | 使い捨て（起動時に 24h 超を削除 + 件数上限 200） |
 | ルート | `POST /api/attachments` | `POST /api/paste-image` |
 
 同じルート名に寄せると「管理された添付ストア」という意味まで持ち込んでしまう。意図的に分ける。
@@ -53,8 +53,10 @@ MulmoClaude にも同種の経路がある — `POST /api/attachments` が `{ da
 
 1. `server/files/paste-image-store.ts` — 保存先の決定と純粋なヘルパ
    - `PASTE_IMAGE_DIR` = `<MULMOTERMINAL_HOME>/tmp/pasted`
-   - `resetPasteImageDir()` — 起動時に全消し + `mkdir -p`。**docker の bind-mount より先に存在させる**
-     必要がある（無いと docker が root 所有で作る）
+   - `preparePasteImageDir()` — 起動時に `mkdir -p` + 24h 超を削除。**docker の bind-mount より先に**
+     **存在させる**必要がある（無いと docker が root 所有で作る）。
+     全消しにしない理由: tmux セッションはサーバ再起動を生き延びるので、再起動前に渡したパスを
+     まだ会話が持っている。2つ目のサーバ（`yarn dev` と併用）も同じディレクトリを共有する
    - `decodeImageDataUrl()` / `extensionForImageMime()` / `pasteImageFilename()` / `prunePasteImages()`
    - `withPasteImageDir()` — ユーザー設定の `addDirs` に paste ディレクトリを**足す**（後述）
 2. `server/files/paste-image.ts` — `POST /api/paste-image`

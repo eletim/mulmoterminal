@@ -8,10 +8,10 @@ import { mountPasteImageRoute, MAX_PASTE_IMAGE_BYTES } from "../../../server/fil
 
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-function appWith(dir: string, now = () => new Date(2026, 6, 27, 9, 5, 3, 7)) {
+function appWith(dir: string, token = () => "ab12cd34") {
   const app = express();
   app.use(express.json({ limit: "25mb" }));
-  mountPasteImageRoute(app, { dir, now });
+  mountPasteImageRoute(app, { dir, now: () => new Date(2026, 6, 27, 9, 5, 3, 7), token });
   return app;
 }
 
@@ -24,9 +24,26 @@ describe("POST /api/paste-image", () => {
       .post("/api/paste-image")
       .send({ dataUrl: `data:image/png;base64,${PNG_BASE64}` });
     expect(res.status).toBe(200);
-    expect(res.body.path).toBe(path.join(dir, "pasted-20260727-090503-007.png"));
+    expect(res.body.path).toBe(path.join(dir, "pasted-20260727-090503-007-ab12cd34.png"));
     expect(path.isAbsolute(res.body.path)).toBe(true);
     expect(readFileSync(res.body.path).subarray(1, 4).toString()).toBe("PNG");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Codex review: the millisecond alone is not unique, and the second write's rename would
+  // silently take over the first path — the first terminal then points at the wrong image.
+  it("keeps two pastes that land in the same millisecond apart", async () => {
+    const dir = tmp();
+    const tokens = ["aaaaaaaa", "bbbbbbbb"];
+    const app = appWith(dir, () => tokens.shift() ?? "cccccccc");
+    const first = await request(app)
+      .post("/api/paste-image")
+      .send({ dataUrl: `data:image/png;base64,${PNG_BASE64}` });
+    const second = await request(app)
+      .post("/api/paste-image")
+      .send({ dataUrl: `data:image/png;base64,${PNG_BASE64}` });
+    expect(first.body.path).not.toBe(second.body.path);
+    expect(readdirSync(dir).sort()).toEqual(["pasted-20260727-090503-007-aaaaaaaa.png", "pasted-20260727-090503-007-bbbbbbbb.png"]);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -57,8 +74,8 @@ describe("POST /api/paste-image", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // The directory is wiped at startup and lives under a temp-ish home, so it can be gone by
-  // the time someone pastes. Re-creating it beats failing the paste.
+  // The directory is housekept and lives under the app's home, so it can be gone by the time
+  // someone pastes. Re-creating it beats failing the paste.
   it("recreates the directory when it has disappeared", async () => {
     const dir = tmp();
     rmSync(dir, { recursive: true, force: true });
@@ -66,7 +83,7 @@ describe("POST /api/paste-image", () => {
       .post("/api/paste-image")
       .send({ dataUrl: `data:image/png;base64,${PNG_BASE64}` });
     expect(res.status).toBe(200);
-    expect(readdirSync(dir)).toEqual(["pasted-20260727-090503-007.png"]);
+    expect(readdirSync(dir)).toEqual(["pasted-20260727-090503-007-ab12cd34.png"]);
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -6,31 +6,23 @@
 // it again every time the conversation is reopened, so it is kept, sharded by month, and
 // addressed workspace-relative. Here the file exists only because an agent reads paths and
 // not clipboards — nothing ever looks at it twice. So it is a throwaway under the app's own
-// home, addressed absolutely (that string goes straight into the terminal), and wiped on
-// startup. Same gesture, different object; sharing the route would import the wrong meaning.
+// home, addressed absolutely (that string goes straight into the terminal), and aged out
+// rather than kept. Same gesture, different object; sharing the route would import the
+// wrong meaning.
 
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { MULMOTERMINAL_HOME } from "../config/env.js";
+import { extensionForImageMime } from "../../common/pastedImageTypes.js";
 
 export const PASTE_IMAGE_DIR = path.join(MULMOTERMINAL_HOME, "tmp", "pasted");
 
-// Bounded so a server left running for weeks can't grow the directory without limit —
-// startup is the only other thing that empties it.
+// Two bounds, because either one alone leaves a hole: age catches the server that is
+// restarted daily and would otherwise keep every screenshot forever, count catches the one
+// left running for weeks.
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const KEEP_RECENT_FILES = 200;
-
-// Formats Claude and codex both read. SVG is excluded on purpose: it is a script-bearing
-// document, not a screenshot, and nothing puts one on the clipboard as an image.
-const EXTENSION_BY_MIME: ReadonlyMap<string, string> = new Map([
-  ["image/png", ".png"],
-  ["image/jpeg", ".jpg"],
-  ["image/gif", ".gif"],
-  ["image/webp", ".webp"],
-]);
-
-export function extensionForImageMime(mime: string): string | null {
-  return EXTENSION_BY_MIME.get(mime.toLowerCase().trim()) ?? null;
-}
 
 const DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([\s\S]*)$/i;
 // Buffer.from("...", "base64") is lenient — it drops whatever isn't base64 and returns the
@@ -52,9 +44,11 @@ export function decodeImageDataUrl(dataUrl: string): { mime: string; bytes: Buff
 
 const pad = (value: number, width = 2): string => String(value).padStart(width, "0");
 
-/** A screenshot arrives with no filename, so the timestamp is the name. Milliseconds are
- *  included because two pastes within the same second are one impatient user, not a rarity. */
-export function pasteImageFilename(now: Date, mime: string): string | null {
+/** A screenshot arrives with no filename, so the timestamp is the name. `token` disambiguates
+ *  it: the millisecond alone is not unique — two terminals (or two browser tabs) can paste
+ *  into the same one, and the second write would then rename over the first, leaving the
+ *  first terminal's inserted path pointing at someone else's screenshot. */
+export function pasteImageFilename(now: Date, mime: string, token: string): string | null {
   const extension = extensionForImageMime(mime);
   if (!extension) return null;
   const stamp = [
@@ -68,29 +62,30 @@ export function pasteImageFilename(now: Date, mime: string): string | null {
     "-",
     pad(now.getMilliseconds(), 3),
   ].join("");
-  return `pasted-${stamp}${extension}`;
+  return `pasted-${stamp}-${token}${extension}`;
 }
 
-/** Empty the directory and recreate it. Called at startup — every path handed out by a
- *  previous run has already been read (or abandoned) by the session that asked for it.
- *  Creating it eagerly also matters for the sandbox: `docker run -v` on a missing host
- *  path creates it root-owned, and the container then writes where the user cannot. */
-export function resetPasteImageDir(dir: string = PASTE_IMAGE_DIR): void {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
+/** The disambiguating half of a pasted image's name. Short because the name is read by a
+ *  human in a terminal, random because the timestamp is what it has to survive a tie with. */
+export function pasteImageToken(): string {
+  return randomUUID().slice(0, 8);
 }
 
-/** Drop all but the newest `keep` files. Best-effort: a file that vanished under us (or
- *  that we may not delete) must not fail the paste that triggered the prune. */
-export function prunePasteImages(dir: string, keep: number = KEEP_RECENT_FILES): void {
+interface StoredImage {
+  full: string;
+  mtimeMs: number;
+}
+
+/** What is in the directory, newest first. An unreadable entry is skipped rather than
+ *  thrown: pruning is housekeeping and must never fail the paste that triggered it. */
+function storedImages(dir: string): StoredImage[] {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
   } catch {
-    return;
+    return [];
   }
-  if (names.length <= keep) return;
-  const byNewest = names
+  return names
     .map((name) => {
       const full = path.join(dir, name);
       try {
@@ -99,15 +94,39 @@ export function prunePasteImages(dir: string, keep: number = KEEP_RECENT_FILES):
         return null;
       }
     })
-    .filter((entry): entry is { full: string; mtimeMs: number } => entry !== null)
+    .filter((entry): entry is StoredImage => entry !== null)
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  byNewest.slice(keep).forEach(({ full }) => {
-    try {
-      fs.rmSync(full, { force: true });
-    } catch {
-      /* another writer got there first */
-    }
-  });
+}
+
+function removeQuietly(full: string): void {
+  try {
+    fs.rmSync(full, { force: true });
+  } catch {
+    /* another writer got there first */
+  }
+}
+
+/** Create the directory and drop what has aged out. Called at startup.
+ *
+ *  By AGE, not by emptying it: a tmux-backed session survives a server restart, so a
+ *  conversation on the other side of one can still hold a path handed out before it — and a
+ *  second server (a `yarn dev` beside the installed app) shares this directory. A wipe would
+ *  delete files those sessions are still entitled to read.
+ *
+ *  Creating it eagerly matters for the sandbox: `docker run -v` on a missing host path
+ *  creates it root-owned, and the container then writes where the user cannot. */
+export function preparePasteImageDir(dir: string = PASTE_IMAGE_DIR, now_ms: number = Date.now(), maxAge_ms: number = MAX_AGE_MS): void {
+  fs.mkdirSync(dir, { recursive: true });
+  storedImages(dir)
+    .filter(({ mtimeMs }) => now_ms - mtimeMs > maxAge_ms)
+    .forEach(({ full }) => removeQuietly(full));
+}
+
+/** Drop all but the newest `keep` files — the bound on a server nobody restarts. */
+export function prunePasteImages(dir: string, keep: number = KEEP_RECENT_FILES): void {
+  storedImages(dir)
+    .slice(keep)
+    .forEach(({ full }) => removeQuietly(full));
 }
 
 /** The session's `--add-dir` list with the paste directory appended (#908 + #938).

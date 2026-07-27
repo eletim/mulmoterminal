@@ -81,10 +81,13 @@ can review it first.
 
 **Pasting a screenshot** — take a screenshot and paste it straight into the terminal
 (`Cmd`/`Ctrl`+`V`). The image is saved to `~/.mulmoterminal/tmp/pasted/` and its **absolute
-path** is inserted at the cursor, so the agent can read it. Works in every browser, Chrome
-included, because the bytes are on the clipboard — no path needs to be exposed. Pasting text
-is untouched. The directory is emptied each time the server starts: these files exist to be
-handed over once, not kept.
+path** is inserted at the cursor, so the agent can read it. Unlike a drop, this does not need
+the browser to expose a path — the bytes are on the clipboard — so it also covers Chrome,
+where dropping a file cannot insert a path. It works wherever the browser puts the image on
+the clipboard as `image/png`, `image/jpeg`, `image/gif`, or `image/webp`; anything else
+(including a copy that carries text alongside the image) pastes as text, exactly as before.
+These files exist to be handed over, not kept: anything older than a day is dropped at
+startup, and only the most recent 200 are retained.
 
 <a id="clicking-a-file-path"></a>
 

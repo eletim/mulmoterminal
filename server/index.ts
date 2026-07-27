@@ -66,7 +66,7 @@ import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
 import { feedRefreshTaskDef, type AgentWorkerRunner } from "@mulmoclaude/core/feeds/server";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
 import { installBundledSkills } from "./infra/install-bundled-skills.js";
-import { PASTE_IMAGE_DIR, resetPasteImageDir } from "./files/paste-image-store.js";
+import { PASTE_IMAGE_DIR, preparePasteImageDir } from "./files/paste-image-store.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
 import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
@@ -549,12 +549,10 @@ mountTerminalWebSockets({
   resolveLauncher,
 });
 
-// Pasted screenshots are handed to an agent and never looked at again, so a previous run's
-// are only clutter. Emptied BEFORE the first session can spawn: the directory reaches a
-// sandboxed session as a bind-mount, and `docker run -v` on a missing host path creates it
-// root-owned.
+// Prepared BEFORE the first session can spawn: the directory reaches a sandboxed session as
+// a bind-mount, and `docker run -v` on a missing host path creates it root-owned.
 try {
-  resetPasteImageDir();
+  preparePasteImageDir();
 } catch (err) {
   console.warn(`[paste-image] could not prepare ${PASTE_IMAGE_DIR} — pasting an image into a terminal will fail: ${messageOf(err)}`);
 }

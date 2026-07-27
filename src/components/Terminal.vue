@@ -380,13 +380,17 @@ const dropHint = ref(false);
 const dropHintText = ref("");
 const DROP_HINT_MS = 6000;
 let dropHintTimer: ReturnType<typeof setTimeout> | undefined;
+// Two hints can now overlap (a failed drop, a failed paste), and a translation that resolves
+// after the next hint has replaced the text would otherwise put the OLD sentence back.
+let hintRequest = 0;
 async function showHint(english: string) {
+  const request = ++hintRequest;
   dropHintText.value = english; // show immediately; the translation (server-cached) swaps in
   dropHint.value = true;
   clearTimeout(dropHintTimer);
   dropHintTimer = setTimeout(() => (dropHint.value = false), DROP_HINT_MS);
   const translated = await translateUiSentence(english, "mulmoterminal-ui");
-  if (dropHint.value) dropHintText.value = translated; // ignore if it resolved after the hint hid
+  if (request === hintRequest && dropHint.value) dropHintText.value = translated;
 }
 function showDropHint() {
   void showHint(hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN);

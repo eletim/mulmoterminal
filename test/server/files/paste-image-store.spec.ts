@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   decodeImageDataUrl,
-  extensionForImageMime,
   pasteImageFilename,
+  pasteImageToken,
+  preparePasteImageDir,
   prunePasteImages,
-  resetPasteImageDir,
   withPasteImageDir,
 } from "../../../server/files/paste-image-store";
 
@@ -15,26 +15,6 @@ const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-paste-"));
 
 // A 1x1 PNG, the smallest thing that is genuinely an image file.
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-describe("extensionForImageMime", () => {
-  it("maps the formats both agents read", () => {
-    expect(extensionForImageMime("image/png")).toBe(".png");
-    expect(extensionForImageMime("image/jpeg")).toBe(".jpg");
-    expect(extensionForImageMime("image/gif")).toBe(".gif");
-    expect(extensionForImageMime("image/webp")).toBe(".webp");
-  });
-
-  it("is case- and whitespace-insensitive (a clipboard type arrives as the source wrote it)", () => {
-    expect(extensionForImageMime(" IMAGE/PNG ")).toBe(".png");
-  });
-
-  // SVG is a script-bearing document, not a screenshot.
-  it("refuses svg and non-images", () => {
-    expect(extensionForImageMime("image/svg+xml")).toBeNull();
-    expect(extensionForImageMime("text/plain")).toBeNull();
-    expect(extensionForImageMime("")).toBeNull();
-  });
-});
 
 describe("decodeImageDataUrl", () => {
   it("decodes a png data URL to its bytes", () => {
@@ -57,24 +37,53 @@ describe("decodeImageDataUrl", () => {
 
 describe("pasteImageFilename", () => {
   it("names the file after the moment it was pasted, including milliseconds", () => {
-    expect(pasteImageFilename(new Date(2026, 6, 27, 9, 5, 3, 7), "image/png")).toBe("pasted-20260727-090503-007.png");
+    expect(pasteImageFilename(new Date(2026, 6, 27, 9, 5, 3, 7), "image/png", "ab12cd34")).toBe("pasted-20260727-090503-007-ab12cd34.png");
+  });
+
+  // Two terminals can paste in the same millisecond; without the token the second write
+  // renames over the first, and the first terminal's inserted path then points at the
+  // wrong screenshot.
+  it("distinguishes two pastes that share a millisecond", () => {
+    const at = new Date(2026, 6, 27, 9, 5, 3, 7);
+    expect(pasteImageFilename(at, "image/png", "aaaaaaaa")).not.toBe(pasteImageFilename(at, "image/png", "bbbbbbbb"));
   });
 
   it("returns null for a type it cannot name", () => {
-    expect(pasteImageFilename(new Date(), "image/svg+xml")).toBeNull();
+    expect(pasteImageFilename(new Date(), "image/svg+xml", "ab12cd34")).toBeNull();
   });
 });
 
-describe("resetPasteImageDir", () => {
-  it("empties an existing directory and creates a missing one", () => {
+describe("pasteImageToken", () => {
+  it("is short and does not repeat", () => {
+    const tokens = new Set(Array.from({ length: 50 }, () => pasteImageToken()));
+    expect(tokens.size).toBe(50);
+    [...tokens].forEach((token) => expect(token).toMatch(/^[0-9a-f]{8}$/));
+  });
+});
+
+describe("preparePasteImageDir", () => {
+  const HOUR_MS = 60 * 60 * 1000;
+
+  it("creates a missing directory", () => {
     const root = tmp();
     const dir = path.join(root, "pasted");
-    resetPasteImageDir(dir);
+    preparePasteImageDir(dir);
     expect(existsSync(dir)).toBe(true);
-    writeFileSync(path.join(dir, "old.png"), "x");
-    resetPasteImageDir(dir);
-    expect(readdirSync(dir)).toEqual([]);
     rmSync(root, { recursive: true, force: true });
+  });
+
+  // A tmux-backed session outlives a server restart, so a conversation can still hold a path
+  // handed out by the previous run. Emptying the directory would break exactly those.
+  it("drops what has aged out and keeps what a surviving session may still read", () => {
+    const dir = tmp();
+    const now_ms = 100 * HOUR_MS;
+    writeFileSync(path.join(dir, "old.png"), "x");
+    utimesSync(path.join(dir, "old.png"), (now_ms - 30 * HOUR_MS) / 1000, (now_ms - 30 * HOUR_MS) / 1000);
+    writeFileSync(path.join(dir, "recent.png"), "x");
+    utimesSync(path.join(dir, "recent.png"), (now_ms - HOUR_MS) / 1000, (now_ms - HOUR_MS) / 1000);
+    preparePasteImageDir(dir, now_ms, 24 * HOUR_MS);
+    expect(readdirSync(dir)).toEqual(["recent.png"]);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
