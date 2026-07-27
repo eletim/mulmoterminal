@@ -15,6 +15,12 @@
 //     then skipped a finished one-file task too, which is exactly the moment worth summarizing.
 //   - The request to state is the conversation's, not the last message's. Refining details
 //     over several turns must not overwrite what was asked in the first place.
+//
+// One constraint on the CHARACTERS, not the wording: no ASCII double quote. This text rides in
+// the argv of a Windows spawn, where the whole point of moving the JSON payloads to files was
+// that nothing claude is launched with contains a quote for a `.cmd` parser to trip over
+// (#813). Typographic quotes are fine — they are not parser-significant — so quoting a phrase
+// is still available; it just cannot be done with `"`.
 export const SESSION_SUMMARY_PROMPT = `## Closing summary
 
 Close your reply with a short session summary whenever you hand control back to the user after
@@ -24,8 +30,8 @@ stands without scrolling back.
 
 Two things disqualify a reply, and only these two. You are still working — more tool calls
 coming, a plan half executed. Or there was no work to speak of: a factual question you answered
-from knowledge, a greeting, an acknowledgement. A small task still gets a summary; "it was only
-one file" is not a reason to skip it.
+from knowledge, a greeting, an acknowledgement. A small task still gets a summary; “it was only
+one file” is not a reason to skip it.
 
 What it says, one or two sentences each:
 

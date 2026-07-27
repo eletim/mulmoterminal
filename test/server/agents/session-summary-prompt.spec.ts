@@ -27,4 +27,14 @@ describe("SESSION_SUMMARY_PROMPT", () => {
     expect(SESSION_SUMMARY_PROMPT).not.toContain("\0");
     expect(SESSION_SUMMARY_PROMPT).toBe(SESSION_SUMMARY_PROMPT.trim());
   });
+
+  // The Windows argv invariant (#813): the JSON payloads were moved to files precisely so that
+  // nothing claude is launched with carries a quote for a `.cmd` parser to trip over, and this
+  // prompt now rides in that same argv. session-settings.spec asserts the property over a whole
+  // spawn, which is the real guard — but it names the argv, not the sentence that broke it. This
+  // one fails where the wording is edited. Typographic quotes are not parser-significant and
+  // stay allowed.
+  it("carries no ASCII double quote, which a Windows spawn's argv must not contain", () => {
+    expect(SESSION_SUMMARY_PROMPT).not.toContain('"');
+  });
 });
