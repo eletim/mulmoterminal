@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPrPhase, phaseDisplay, type PrPhase, mergeSessionMeta, EMPTY_SESSION_META } from "../../../src/components/rosterPhase";
+import { becameCiFailing, isPrPhase, phaseDisplay, type PrPhase, mergeSessionMeta, EMPTY_SESSION_META } from "../../../src/components/rosterPhase";
 
 describe("isPrPhase", () => {
   it.each(["none", "draft", "ci-failing", "changes-requested", "ci-running", "ready", "merged", "closed"])("accepts %s", (v) => {
@@ -74,5 +74,29 @@ describe("mergeSessionMeta", () => {
     const previous = { ...shown };
     mergeSessionMeta(previous, { lastPrompt: "new" });
     expect(previous).toEqual(shown);
+  });
+});
+
+describe("becameCiFailing", () => {
+  it("fires on the transition into a red CI", () => {
+    expect(becameCiFailing("ci-running", "ci-failing")).toBe(true);
+    expect(becameCiFailing("ready", "ci-failing")).toBe(true);
+  });
+
+  // The roster re-polls every few seconds while it is open. Without this, one red branch would
+  // notify on every round for as long as the grid stayed on screen.
+  it("stays quiet while it REMAINS failing", () => {
+    expect(becameCiFailing("ci-failing", "ci-failing")).toBe(false);
+  });
+
+  // Opening the roster on a branch that was already red is not news — the same baseline-only
+  // rule the activity stream uses on first sight of a session.
+  it("stays quiet on first sight", () => {
+    expect(becameCiFailing(undefined, "ci-failing")).toBe(false);
+  });
+
+  it("stays quiet for every other phase", () => {
+    const others: PrPhase[] = ["none", "draft", "changes-requested", "ci-running", "ready", "merged", "closed"];
+    for (const phase of others) expect(becameCiFailing("ci-failing", phase)).toBe(false);
   });
 });

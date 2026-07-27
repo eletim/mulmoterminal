@@ -21,6 +21,9 @@ import {
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
+import { DEFAULT_SOUND_KINDS, NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds.js";
+import { parsePresetRef } from "../../common/notifySounds.js";
+import { isRecord } from "../../common/isRecord.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
 import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "../../common/cockpitLines.js";
 import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
@@ -31,7 +34,14 @@ export interface AppConfig {
   cwdPresets: CwdPreset[];
   // Absolute path to a user-supplied audio file played as the attention sound, or
   // null to use the built-in synthesized chime (the default — no bundled asset).
+  // The fallback for EVERY kind; `sounds` overrides it per kind.
   soundFile: string | null;
+  // Which moments beep at all (#873). The sound half of `pushKinds`: a user drowning in
+  // beeps at eight parallel sessions can keep "it stopped to ask" and drop the rest.
+  soundKinds: NotifyKind[];
+  // Per-kind sound: a `preset:<id>` reference or an absolute path to the user's own file.
+  // A kind with no entry falls back to `soundFile`, then to the built-in chime.
+  sounds: Partial<Record<NotifyKind, string>>;
   // GitHub repos ("owner/repo") whose open PRs the cross-repo PR view aggregates.
   prRepos: string[];
   // User-defined launch commands offered in the grid cell launcher (label + command).
@@ -184,6 +194,34 @@ export function sanitizePushEnabled(input: unknown): boolean {
   return input === true;
 }
 
+// A per-kind sound value: a known `preset:<id>`, or an absolute path to the user's own file
+// under the same rule as `soundFile`. Anything else drops that ENTRY, not the whole map — a
+// typo in one kind must not cost the user the sounds they set on the others.
+export function sanitizeSoundValue(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  if (parsePresetRef(trimmed)) return trimmed;
+  return sanitizeSoundFile(trimmed);
+}
+
+export function sanitizeSounds(input: unknown): Partial<Record<NotifyKind, string>> {
+  if (!isRecord(input)) return {};
+  const out: Partial<Record<NotifyKind, string>> = {};
+  NOTIFY_KINDS.forEach((kind) => {
+    const value = sanitizeSoundValue(input[kind]);
+    if (value) out[kind] = value;
+  });
+  return out;
+}
+
+// Same shape as sanitizePushKinds, and for the same reason: a NON-ARRAY (missing, or a
+// config written before #873) means "never chose", so it gets the defaults, while an
+// explicit `[]` is the user saying "no sounds at all" and is kept.
+export function sanitizeSoundKinds(input: unknown): NotifyKind[] {
+  if (!Array.isArray(input)) return [...DEFAULT_SOUND_KINDS];
+  return NOTIFY_KINDS.filter((kind) => input.includes(kind));
+}
+
 // Keep the kinds that exist, de-duplicated and in the canonical order so the stored file reads
 // the same whatever order the UI sent. A NON-ARRAY (missing, or a config written before #850)
 // falls back to the defaults — an upgrading user must not silently lose their notifications.
@@ -229,6 +267,8 @@ export function sanitizeWorklogIntervalHours(input: unknown): number {
 export const emptyConfig = (): AppConfig => ({
   cwdPresets: [],
   soundFile: null,
+  soundKinds: [...DEFAULT_SOUND_KINDS],
+  sounds: {},
   prRepos: [],
   launchers: [],
   quickCommands: [],
@@ -265,6 +305,8 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
   return {
     cwdPresets: sanitizePresets(o.cwdPresets),
     soundFile: sanitizeSoundFile(o.soundFile),
+    soundKinds: sanitizeSoundKinds(o.soundKinds),
+    sounds: sanitizeSounds(o.sounds),
     prRepos: sanitizeRepos(o.prRepos),
     launchers: sanitizeLaunchers(o.launchers),
     quickCommands: sanitizeQuickCommands(o.quickCommands),
@@ -339,6 +381,8 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
   return {
     cwdPresets: updated("cwdPresets", sanitizePresets, base.cwdPresets),
     soundFile: updated("soundFile", sanitizeSoundFile, base.soundFile),
+    soundKinds: updated("soundKinds", sanitizeSoundKinds, base.soundKinds),
+    sounds: updated("sounds", sanitizeSounds, base.sounds),
     prRepos: updated("prRepos", sanitizeRepos, base.prRepos),
     launchers: updated("launchers", sanitizeLaunchers, base.launchers),
     quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
@@ -366,6 +410,8 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     cwdPresets: config.cwdPresets,
     providers: config.providers,
     soundFile: config.soundFile,
+    soundKinds: config.soundKinds,
+    sounds: config.sounds,
     prRepos: config.prRepos,
     launchers: config.launchers,
     quickCommands: config.quickCommands,

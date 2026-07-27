@@ -40,3 +40,9 @@ export function messageEffect(type: string | undefined, isCommand: boolean, erro
       return { terminal: false, callsOnExit: false, banner: null };
   }
 }
+
+/** The status the server reported for a finished PTY, or null when it named none — a command
+ *  that never started, or a session that ended without one. Pure and here rather than inline in
+ *  the socket handler because a Run cell turns it into "done" vs "failed", and answering 0 for
+ *  a missing code would call a broken build a success. */
+export const exitCodeOf = (msg: { exitCode?: unknown }): number | null => (typeof msg.exitCode === "number" ? msg.exitCode : null);

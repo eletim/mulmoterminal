@@ -21,6 +21,7 @@ import {
   mergeConfigUpdate,
   type AppConfig,
 } from "../../../server/config/app-config";
+import { DEFAULT_SOUND_KINDS } from "../../../common/notifyKinds.js";
 import { DEFAULT_PUSH_KINDS } from "../../../common/pushKinds.js";
 import { DEFAULT_COCKPIT_LINES } from "../../../common/cockpitLines.js";
 
@@ -229,6 +230,8 @@ describe("loadAppConfig / saveAppConfig", () => {
   const base = {
     cwdPresets: [],
     soundFile: null,
+    soundKinds: [...DEFAULT_SOUND_KINDS],
+    sounds: {},
     prRepos: [],
     launchers: [],
     quickCommands: [],
@@ -252,6 +255,8 @@ describe("loadAppConfig / saveAppConfig", () => {
     const cfg = {
       cwdPresets: [{ label: "x", path: "/x" }],
       soundFile: "/s.wav",
+      soundKinds: [...DEFAULT_SOUND_KINDS],
+      sounds: {},
       prRepos: ["o/r"],
       launchers: [{ label: "Shell", command: "$SHELL" }],
       quickCommands: [],
@@ -303,6 +308,8 @@ describe("loadAppConfig / saveAppConfig", () => {
     expect(loadAppConfig(file)).toEqual({
       cwdPresets: [{ label: "a", path: "/a" }],
       soundFile: null,
+      soundKinds: [...DEFAULT_SOUND_KINDS],
+      sounds: {},
       prRepos: ["o/r"],
       launchers: [{ label: "S", command: "sh" }],
       quickCommands: [],
@@ -404,6 +411,8 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   const richConfig = {
     cwdPresets: [{ label: "proj", path: "/proj" }],
     soundFile: null,
+    soundKinds: [...DEFAULT_SOUND_KINDS],
+    sounds: {},
     prRepos: ["o/r"],
     launchers: [{ label: "Shell", command: "$SHELL" }],
     quickCommands: [],
@@ -461,6 +470,8 @@ describe("mergeConfigUpdate", () => {
   const baseConfig = (over: Partial<AppConfig> = {}): AppConfig => ({
     cwdPresets: [],
     soundFile: null,
+    soundKinds: [...DEFAULT_SOUND_KINDS],
+    sounds: {},
     prRepos: [],
     launchers: [],
     quickCommands: [],

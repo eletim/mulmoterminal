@@ -23,7 +23,7 @@ import { useDirConfig } from "./composables/useDirConfig";
 import { useFaviconState } from "./composables/useFaviconState";
 import { usePendingScript, type PendingCommand } from "./composables/usePendingScript";
 import { useSoundEnabled } from "./composables/useSoundEnabled";
-import { useAttentionSound } from "./composables/useAttentionSound";
+import { useAttentionSound, type SoundConfig } from "./composables/useAttentionSound";
 import { useUnloadGuard, reportActiveTerminals } from "./composables/useUnloadGuard";
 import { browserLocale } from "./utils/browserLocale";
 import { usePubSub } from "./composables/usePubSub";
@@ -101,10 +101,11 @@ const filter = ref<Filter>("all");
 // activity stream directly (same source as the cell status), independent of the
 // fetched list above.
 const { enabled: soundEnabled } = useSoundEnabled();
-// soundFile is a shared singleton in useAppConfig, so the player here sees changes
-// made from either view's settings modal (and loadConfig below hydrates it).
-const { soundFile } = useAppConfig();
-useAttentionSound(soundEnabled, soundFile);
+// The sound settings are shared singletons in useAppConfig, so the player here sees changes
+// made from either view's settings modal (and loadConfig below hydrates them).
+const { soundFile, soundKinds, sounds } = useAppConfig();
+const soundConfig = computed<SoundConfig>(() => ({ kinds: soundKinds.value, sounds: sounds.value, soundFile: soundFile.value }));
+useAttentionSound(soundEnabled, soundConfig);
 
 // Reflect session activity in the tab's favicon (idle / working / attention).
 useFaviconState(sessions);

@@ -40,7 +40,7 @@ nav_order: 4
 | **THEME** | Midnight / Nord / Daylight / Solarized Light |
 | **TERMINAL FONT SIZE** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
 | **DIRECTORY APPEARANCE** | 「🎨 Configure appearance…」— ディレクトリの名前バッジ・色・ヘッダーを対話的に設定 |
-| **NOTIFICATION SOUND** | 要対応時に鳴らす音（空なら内蔵チャイム、または任意の音声ファイル） |
+| **NOTIFICATION SOUNDS** | どの瞬間に鳴らすか＋それぞれ何を鳴らすか。種類ごとに1行、プリセット選択と試聴ボタン付き（→ [通知音](#sounds)） |
 | **WEB PUSH NOTIFICATIONS** | 「Notify my devices when a task finishes」トグル（既定 OFF → [スマホ通知](notifications.html)） |
 | **GOOGLE ACCOUNT** | Calendar 連携用の Google サインイン（RemoteHost の Connect とは別物） |
 | **PULL REQUEST REPOS** | 横断 PR/Issue ビューが集約するリポ（`owner/repo`） |
@@ -79,7 +79,9 @@ nav_order: 4
 | `prRepos` | 横断 PR/Issue ビューの対象リポ |
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |
 | `providers` | Anthropic 互換の接続先（→ [OpenRouter で別のモデルを使う](providers.html)） |
-| `soundFile` | カスタム通知音（音声ファイルの絶対パス。設定モーダルからも変更可） |
+| `soundFile` | 全種類共通のフォールバック通知音（音声ファイルの絶対パス。設定モーダルからも変更可） |
+| `soundKinds` | どの瞬間に鳴らすか。**書かなければ** `["finished","waiting"]`、2.2 で増えた4種は opt-in、`[]` で無音（→ [通知音](#sounds)） |
+| `sounds` | 種類ごとの音。例 `{ "waiting": "preset:coin" }` — `preset:<id>` か絶対パス。未指定の種類は `soundFile` を使う（→ [通知音](#sounds)） |
 | `pushEnabled` | Web Push の master スイッチ（既定 `false` → [スマホ通知](notifications.html)） |
 | `pushKinds` | どの瞬間に飛ばすか：`"finished"`（ターン完了）と `"waiting"`（質問して停止）。**書かなければ両方**、`[]` でどれも飛ばさない（→ [どの瞬間に飛ぶか](notifications.html#kinds)） |
 | `worklogEnabled` / `worklogIntervalHours` | 定期 dev-work ログ（既定 OFF / 6 時間） |
@@ -88,6 +90,50 @@ nav_order: 4
 | `prWorkdirFooter` | 作成した PR の本文末尾に `work in <クローン名>` を書く（→ [この PR はどのクローンの作業か](#pr-workdir-footer)）。**既定 ON**、`false` で無効 |
 | `cockpitLines` | コックピットのロスター各行を何行で打ち切るか（既定 `2 / 2 / 3` → [ロスターの表示行数](#cockpit-lines)） |
 | `fontFamily` | 全ターミナルのフォント（CSS の font-family スタック）（→ [ターミナルのフォント](#font-family)） |
+
+## 通知音（`soundKinds` / `sounds`） {#sounds}
+
+鳴る瞬間は6種類あり、それぞれ別の音・別の ON/OFF を持ちます。並列数を上げたときに通知が
+うるさくなるのが本題なので、**既定で ON なのは最初の2つだけ**。残りは
+**設定 → NOTIFICATION SOUNDS** か設定ファイルから opt-in します。
+
+| 種類 | いつ | 既定 |
+| --- | --- | --- |
+| `finished` | ターンが終わって出力が未読 | **ON** |
+| `waiting` | 許可プロンプトや質問で停止した | **ON** |
+| `command-done` | Run セルのコマンドが正常終了（exit 0） | OFF |
+| `command-failed` | Run セルのコマンドが異常終了、または起動に失敗 | OFF |
+| `session-exited` | セッションの端末が終了。**自分でセルを閉じた場合も含む** | OFF |
+| `pr-ci-failed` | そのディレクトリの PR が赤くなった。フェーズを取りに行くのはロスターなので、**ロスターが画面に出ている間だけ**拾えます | OFF |
+
+```jsonc
+{
+  "soundKinds": ["waiting", "command-failed"], // 呼ばれた時とビルドが壊れた時だけ鳴らす
+  "sounds": {
+    "waiting": "preset:coin",
+    "command-failed": "preset:gong"
+  }
+}
+```
+
+ここでいう **Run セル**は、`script.json` のエントリやヘッダーの `run:"shell"` ボタンが開く
+**1コマンド専用の使い捨てセル**です。shell ランチャセルは対話シェルが生き続けるため、その中の
+コマンドがいつ終わったかを誰も知りません（この2種類は鳴りません）。
+
+8本並列で通知に疲れたときにまず触るのは `"soundKinds": ["waiting"]` です。呼ばれたことは
+分かるまま、それ以外で作業が中断されなくなります。
+
+### 何を鳴らすか
+
+- **プリセット** — `preset:<id>`。`chime` `coin` `cheep` `door` `gong` `magic` `meow` の7種。
+  初回だけ `~/.mulmoterminal/sounds/` に取得し、以降はそこから読むのでオフラインでも鳴ります。
+  選ぶまで何もダウンロードしません。
+- **自分のファイル** — 絶対パス。種類ごとに `sounds`、全種類共通なら `soundFile`。
+- **未設定** — ブラウザで合成する内蔵チャイム。種類ごとに2音の形が違います（呼ばれている時は
+  上昇、終わった時は下降）。
+
+`sounds` に無い種類は `soundFile` にフォールバックし、プロジェクトの `.mulmoterminal.json`
+はその両方より優先されます（→ [プロジェクト単位](#per-dir)）。
 
 ## 別のモデルで動かす（プロバイダ） {#providers}
 
@@ -511,6 +557,20 @@ Anthropic のまま別のモデルを指定できます。→ [OpenRouter で別
 ```
 
 すべて `#rrggbb`。作業中/要対応の状態色は、これらの背景色より優先されます（アイドル時に反映）。
+
+### このディレクトリの通知音
+
+```jsonc
+{
+  "sound": "./.mulmoterminal/alert.mp3", // 全種類共通（下で上書きしない限り）
+  "sounds": { "command-failed": "preset:gong" } // 特定の種類だけ
+}
+```
+
+ここで開いたターミナルでは、どちらもグローバル設定より優先されます。プロジェクトごとに音を
+変えれば、耳だけで区別できます。ファイルパスは**このディレクトリからの相対**で、絶対パスや
+`../` で外に出るものは拒否されます。`preset:<id>` もここで使えるので、プロジェクト側に音声
+ファイルを置く必要はありません。→ [通知音](#sounds)
 
 ### ターミナル自体の色（xterm パレット）
 

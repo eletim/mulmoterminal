@@ -40,7 +40,7 @@ Open it from the ⚙ in the toolbar.
 | **THEME** | Midnight / Nord / Daylight / Solarized Light |
 | **TERMINAL FONT SIZE** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
 | **DIRECTORY APPEARANCE** | "🎨 Configure appearance…" — set a directory's name badge, colors, and header interactively |
-| **NOTIFICATION SOUND** | The sound played when a cell needs you (empty for the built-in chime, or any audio file) |
+| **NOTIFICATION SOUNDS** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button (→ [Notification sounds](#sounds)) |
 | **WEB PUSH NOTIFICATIONS** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
 | **GOOGLE ACCOUNT** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
 | **PULL REQUEST REPOS** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
@@ -79,7 +79,9 @@ Open it from the ⚙ in the toolbar.
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
 | `providers` | Anthropic-compatible backends (→ [Using another model via OpenRouter](providers.html)) |
-| `soundFile` | Custom notification sound (absolute path to an audio file; also settable from the modal) |
+| `soundFile` | The fallback notification sound for every kind (absolute path to an audio file; also settable from the modal) |
+| `soundKinds` | Which moments beep. Omit to keep `["finished","waiting"]`; the four added in 2.2 are opt-in, `[]` for silence (→ [Notification sounds](#sounds)) |
+| `sounds` | Per-kind sound, e.g. `{ "waiting": "preset:coin" }` — a `preset:<id>` or an absolute path. A kind with no entry uses `soundFile` (→ [Notification sounds](#sounds)) |
 | `pushEnabled` | The Web Push master switch (default `false` → [Mobile notifications](notifications.html)) |
 | `pushKinds` | Which moments push: `"finished"` (a turn ended) and/or `"waiting"` (the agent stopped to ask). Omit to keep both; `[]` for none (→ [Which moments push](notifications.html#kinds)) |
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
@@ -88,6 +90,51 @@ Open it from the ⚙ in the toolbar.
 | `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |
 | `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 | `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
+
+## Notification sounds (`soundKinds` / `sounds`) {#sounds}
+
+Six moments can beep, each with its own sound and its own switch. Running many agents at once
+is what turns notifications into noise, so **only the first two are on by default** — the rest
+are opt-in, from **Settings → NOTIFICATION SOUNDS** or the config file.
+
+| Kind | When | Default |
+| --- | --- | --- |
+| `finished` | the turn ended and the output is unread | **on** |
+| `waiting` | it stopped to ask — a permission prompt or a question | **on** |
+| `command-done` | a Run cell's command exited 0 | off |
+| `command-failed` | a Run cell's command exited non-zero, or never started | off |
+
+| `session-exited` | a session's terminal ended — **including when you close the cell yourself** | off |
+| `pr-ci-failed` | a directory's PR went red. Only seen **while the roster is on screen**, since that is what polls the phase | off |
+
+```jsonc
+{
+  "soundKinds": ["waiting", "command-failed"], // beep ONLY when called, or when a build breaks
+  "sounds": {
+    "waiting": "preset:coin",
+    "command-failed": "preset:gong"
+  }
+}
+```
+
+A **Run cell** is the one-shot cell a `script.json` entry or a `run:"shell"` header button
+opens. A shell launcher cell keeps an interactive shell alive, so nothing marks where a command
+inside it ended — those two kinds never fire there.
+
+`"soundKinds": ["waiting"]` is the setting to reach for first if eight parallel sessions are
+wearing you out: you still get called, and nothing else interrupts.
+
+### What each one plays
+
+- **A preset** — `preset:<id>`, one of `chime` `coin` `cheep` `door` `gong` `magic` `meow`.
+  They are fetched once into `~/.mulmoterminal/sounds/` and read from there afterwards, so a
+  preset keeps working offline. Nothing is downloaded until you pick one.
+- **Your own file** — an absolute path, per kind in `sounds` or as the all-kind `soundFile`.
+- **Nothing configured** — a built-in chime, synthesized in the browser, with a different
+  two-note figure per kind (rising when you are being called, falling when something ended).
+
+A kind with no `sounds` entry falls back to `soundFile`, and a project's own
+`.mulmoterminal.json` wins over both — see [Per-project](#per-dir).
 
 ## Running on another model (providers) {#providers}
 
@@ -523,6 +570,20 @@ pick a different model on Anthropic itself. → [Using another model via OpenRou
 ```
 
 All values are `#rrggbb`. The working / needs-you status colors take priority over these background colors (which show when idle).
+
+### Sound for this directory
+
+```jsonc
+{
+  "sound": "./.mulmoterminal/alert.mp3", // every kind, unless overridden below
+  "sounds": { "command-failed": "preset:gong" } // one kind only
+}
+```
+
+Both beat the global settings for terminals opened here, so one project can be told apart from
+another by ear. A file path is **relative to this directory** — an absolute path, or a `../`
+that escapes it, is rejected. `preset:<id>` works here too, so a project needs no audio file of
+its own. → [Notification sounds](#sounds)
 
 ### The terminal itself (xterm palette)
 

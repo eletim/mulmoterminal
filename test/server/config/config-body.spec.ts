@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { ARRAY_FIELDS, badArrayField, badNullableArrayField } from "../../../server/config/config-body.js";
+import { ARRAY_FIELDS, OBJECT_FIELDS, badArrayField, badNullableArrayField, badObjectField } from "../../../server/config/config-body.js";
 import { loadAppConfig, mergeConfigUpdate, sanitizeProviders } from "../../../server/config/app-config.js";
 
 describe("badArrayField", () => {
@@ -31,7 +31,7 @@ describe("badArrayField", () => {
   // caught by review rather than by a test. Adding a field means updating this line, which is
   // the point: it is a decision, not an oversight.
   it("guards exactly these fields — a removal here is a field that can be silently wiped", () => {
-    expect([...ARRAY_FIELDS]).toEqual(["cwdPresets", "prRepos", "launchers", "quickCommands", "pushKinds", "userMcpServers", "providers"]);
+    expect([...ARRAY_FIELDS]).toEqual(["cwdPresets", "prRepos", "launchers", "quickCommands", "pushKinds", "soundKinds", "userMcpServers", "providers"]);
   });
 
   it("names only the first offender — the response reports one field", () => {
@@ -74,5 +74,24 @@ describe("the deletion the guard prevents", () => {
   it("keeps saved providers when the body simply omits them", () => {
     const base = { ...loadAppConfig("/nonexistent/config.json"), providers: sanitizeProviders([PROVIDER]) };
     expect(mergeConfigUpdate(base, { soundFile: null }).providers).toHaveLength(1);
+  });
+});
+
+describe("badObjectField", () => {
+  it("passes a body that omits it — a partial POST is the normal case", () => {
+    expect(badObjectField({ soundKinds: ["finished"] })).toBeNull();
+  });
+
+  it("passes an object, including an empty one (clearing every per-kind sound is a real edit)", () => {
+    expect(badObjectField({ sounds: {} })).toBeNull();
+    expect(badObjectField({ sounds: { finished: "preset:coin" } })).toBeNull();
+  });
+
+  // The trap this guards: the sanitizer answers a non-object with `{}`, so without the check a
+  // malformed body would be applied as "the user cleared every per-kind sound".
+  it.each(OBJECT_FIELDS)("rejects %s when it is present but not an object", (field) => {
+    for (const bad of [[], "preset:coin", 42, true, null]) {
+      expect(badObjectField({ [field]: bad })).toBe(field);
+    }
   });
 });

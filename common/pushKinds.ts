@@ -1,12 +1,16 @@
 // The kinds of Web Push a session can raise. The server decides which one a hook warrants and
 // the settings UI offers them as checkboxes, so the list is a value both sides read.
 
-// Every kind that exists.
+import type { NotifyKind } from "./notifyKinds.js";
+
+// Every kind that exists — a SUBSET of NOTIFY_KINDS, since a push can only report what the
+// server itself observes. The rest of the notify kinds are browser-side signals (a Run cell's
+// exit, a PR phase poll) that never reach the process holding the Firebase auth.
 //   finished — the turn ended, output is waiting to be reviewed.
 //   waiting  — the agent is blocked on input (a permission prompt or a question), so answering
 //              from the phone unblocks real work. Fires once per prompt, which on a long task
 //              that asks repeatedly is what makes pushes feel frequent (#850).
-export const PUSH_KINDS = ["finished", "waiting"] as const;
+export const PUSH_KINDS = ["finished", "waiting"] as const satisfies readonly NotifyKind[];
 
 export type PushKind = (typeof PUSH_KINDS)[number];
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveDirSound, loadDirConfig, publicDirConfig, dirSoundFile, dirConfigWriteTarget } from "../../../server/config/dir-config";
+import { resolveDirSound, loadDirConfig, publicDirConfig, dirSoundFor, dirConfigWriteTarget } from "../../../server/config/dir-config";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
 const EMPTY = {
@@ -19,6 +19,7 @@ const EMPTY = {
   theme: null,
   colors: null,
   sound: null,
+  sounds: {},
   buttons: null,
   chips: null,
   skills: null,
@@ -137,6 +138,7 @@ describe("loadDirConfig", () => {
       theme: "nord",
       colors: null,
       sound: path.join(dir, "a.mp3"),
+      sounds: {},
       buttons: null,
       chips: null,
       skills: ["review", "commit"], // trimmed, deduped, empties dropped
@@ -255,7 +257,7 @@ describe("dirConfigWriteTarget", () => {
   });
 });
 
-describe("publicDirConfig / dirSoundFile", () => {
+describe("publicDirConfig / dirSoundFor", () => {
   it("exposes hasSound but not the raw path", () => {
     const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20, fontFamily: "Cica" });
     writeFileSync(path.join(dir, "a.mp3"), "x");
@@ -278,14 +280,49 @@ describe("publicDirConfig / dirSoundFile", () => {
       colors: null,
       hasSound: true,
     });
-    expect(dirSoundFile(dir)).toBe(path.join(dir, "a.mp3"));
+    expect(dirSoundFor(dir, null)).toEqual({ source: "file", path: path.join(dir, "a.mp3") });
     cleanup();
   });
 
   it("reports hasSound false when the sound is missing", () => {
     const { dir, cleanup } = withConfig({ sound: "./gone.mp3" });
     expect(publicDirConfig(dir).hasSound).toBe(false);
-    expect(dirSoundFile(dir)).toBeNull();
+    expect(dirSoundFor(dir, null)).toBeNull();
+    cleanup();
+  });
+});
+
+describe("per-kind directory sounds", () => {
+  it("overrides the all-kind sound for the kind it names", () => {
+    const { dir, cleanup } = withConfig({ sound: "./all.mp3", sounds: { waiting: "./ask.mp3" } });
+    writeFileSync(path.join(dir, "all.mp3"), "x");
+    writeFileSync(path.join(dir, "ask.mp3"), "x");
+    expect(dirSoundFor(dir, "waiting")).toEqual({ source: "file", path: path.join(dir, "ask.mp3") });
+    // A kind with no entry of its own still gets the directory's all-kind sound.
+    expect(dirSoundFor(dir, "finished")).toEqual({ source: "file", path: path.join(dir, "all.mp3") });
+    cleanup();
+  });
+
+  it("accepts a preset, so a project needs no audio file of its own", () => {
+    const { dir, cleanup } = withConfig({ sounds: { "command-failed": "preset:gong" } });
+    expect(dirSoundFor(dir, "command-failed")).toEqual({ source: "preset", id: "gong" });
+    expect(dirSoundFor(dir, "finished")).toBeNull();
+    cleanup();
+  });
+
+  // The confinement that makes `sound` safe has to hold for every entry here too — otherwise
+  // opening someone's project would let it read any file on the machine.
+  it("confines a per-kind file to the directory", () => {
+    const { dir, cleanup } = withConfig({ sounds: { finished: "../escape.mp3", waiting: "/etc/passwd", "command-done": "preset:nope" } });
+    writeFileSync(path.join(dir, "..", "escape.mp3"), "x");
+    expect(loadDirConfig(dir).sounds).toEqual({});
+    rmSync(path.join(dir, "..", "escape.mp3"), { force: true });
+    cleanup();
+  });
+
+  it("counts a per-kind sound towards hasSound", () => {
+    const { dir, cleanup } = withConfig({ sounds: { waiting: "preset:coin" } });
+    expect(publicDirConfig(dir).hasSound).toBe(true);
     cleanup();
   });
 });
