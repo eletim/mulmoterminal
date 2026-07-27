@@ -464,6 +464,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
 | `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out — read from the file per PR, so no restart is needed (there is no Settings control for it). Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
+| `fontFamily` | The **terminal font** every session renders in — a CSS font-family stack, e.g. `"'Cica', 'MS Gothic', monospace"`. No Settings UI: edit the file, then **restart** (this config is read once at startup). Unset uses the built-in stack (JetBrains Mono / Fira Code / Menlo / Consolas, then CJK faces for Japanese, Korean and Chinese). Unlike the per-browser font **size**, this is one value for the whole host — it names fonts, and which fonts exist is a property of the machine. A directory can override it. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#font-family). |
 
 #### Header buttons
 
@@ -541,6 +542,7 @@ malformed file is ignored.
   "theme": "nord",                      // terminal palette: midnight | nord | daylight | solarized
   "colors": { "background": "#190a23", "cursor": "#ff2e63" }, // per-key palette overrides
   "fontSize": 16,                       // terminal font size in px (8–32); overrides Settings
+  "fontFamily": "'Cica', monospace",    // terminal font stack; overrides the global config
   "sound": "./.mulmoterminal/alert.mp3" // attention sound, RELATIVE to this directory
 }
 ```
@@ -562,6 +564,7 @@ malformed file is ignored.
 | `theme`      | xterm palette for terminals in this directory (one of the built-in theme ids). |
 | `colors`     | Per-key xterm palette overrides applied on top of `theme` (or the app theme when `theme` is unset). Keys are xterm `ITheme` names (`background`, `foreground`, `cursor`, `selectionBackground`, the 16 ANSI colors, …); values are hex (`#rgb` / `#rrggbb` / `#rrggbbaa`). Unknown keys / bad values are dropped. |
 | `fontSize`   | Terminal font size in px for this directory (8–32), overriding the Settings value. A size outside the range is clamped; a non-number is ignored. Changing it re-fits the terminal, so the PTY learns the new width — unlike browser zoom, which leaves the two disagreeing. |
+| `fontFamily` | CSS font-family stack for this directory's terminals, overriding the global `fontFamily`. Use the names as your OS lists them (`"'Cica', 'MS Gothic', monospace"`). An unusable stack is ignored whole rather than half-applied; `monospace` is appended if you name no generic family. Prefer fonts whose fullwidth glyphs are exactly twice the Latin width, or box-drawing frames tear. |
 | `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). |
 
 **Security.** `sound` is a directory-relative path only — absolute paths and any

@@ -22,7 +22,8 @@ Settings live in three places: the **settings modal (⚙)**, the **global config
 > It is also how you find the settings that have **no UI at all** and exist only in
 > `~/.mulmoterminal/config.json`: [`providers`](#providers) (another model),
 > [`keymap`](#keymap) (keyboard shortcuts), [`terminalSubmit`](#terminal-submit) (the fix for
-> "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Hand-editing works
+> "Shift+Enter submits instead of adding a line"), [`fontFamily`](#font-family) (the terminal
+> font), and the periodic dev-work log. Hand-editing works
 > too — this page documents every field — but the skill validates as it writes, which matters for
 > `keymap`, where a malformed binding stops the server from starting.
 
@@ -86,6 +87,7 @@ Open it from the ⚙ in the toolbar.
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
 | `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |
 | `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
+| `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
 
 ## Running on another model (providers) {#providers}
 
@@ -140,6 +142,52 @@ Notes:
 - Editing the PR body on GitHub afterwards is fine; nothing rewrites it later.
 - If the line can't be added (no `gh`, a network error), the PR is still created and opened —
   you just don't get the line.
+## Terminal font (`fontFamily`) {#font-family}
+
+The font every terminal renders in. There is **no Settings UI** — put a CSS font-family stack in
+`~/.mulmoterminal/config.json`:
+
+```json
+{ "fontFamily": "'Cica', 'MS Gothic', monospace" }
+```
+
+Then **restart `mulmoterminal`** and reload the browser tab. The global config is read once at
+server startup, so a hand-edit doesn't reach the browser until it restarts — the same caveat as
+[`keymap`](#keymap) and [`terminalSubmit`](#terminal-submit), and the usual reason a new key looks
+like it "didn't work". The **per-directory** key ([below](#per-dir)) needs no restart, but it is not
+picked up by a file watcher either — see [below](#per-dir-font) for when it re-reads.
+
+Name the fonts **as your OS lists them**, most-wanted first, and the browser uses the first one that
+is installed. Unset (the normal case) you get the built-in stack: **JetBrains Mono → Fira Code →
+Menlo → Consolas**, followed by CJK faces for Japanese, Korean, and Chinese, ending in `monospace`.
+
+A **directory** can pin its own with `fontFamily` in its `.mulmoterminal.json` ([below](#per-dir)),
+which wins over this one. Unlike the font **size** — a display preference the Settings modal keeps
+**per browser** — this is a single value for the whole host, because it names *fonts*, and which
+fonts exist belongs to the machine rather than to the phone or laptop looking at it.
+
+### Choosing a font for CJK
+
+Pick one whose **fullwidth glyphs are exactly twice the width of its Latin ones**. The terminal
+reserves exactly two columns for a fullwidth character, so a face that disagrees tears every
+box-drawing frame — which is most of what an agent TUI draws. Fonts built for this include
+**Cica**, **HackGen**, **Sarasa Mono J**, **Noto Sans Mono CJK JP**, **MS Gothic**, and
+**BIZ UDGothic**.
+
+### If it doesn't take
+
+- **Nothing changed at all, for any font.** You probably haven't restarted the server. The global
+  config is only read at startup — see above. (A per-directory `fontFamily` needs no restart, but a
+  hand edit still needs a browser reload — see [Terminal font](#per-dir-font).)
+- **Nothing changed for one font.** It isn't installed under that exact name, so the browser skipped
+  it and fell through to the next one. Check the spelling against your font book.
+- **The whole value was ignored.** A stack is validated as one unit — if any entry is unusable, the
+  whole thing is dropped and the built-in stack applies, rather than half of it taking effect.
+  Characters CSS treats as syntax (`;` `{` `}` `(` `)` `<` `>` `\` `/` `@` `!`) are rejected, and
+  quotes must be a matching pair around a whole name.
+- **Everything went proportional.** That is the browser's default font, which means no name in the
+  stack matched. MulmoTerminal appends `monospace` when you name no generic family, so this should
+  only happen if you ended the stack with a proportional one yourself.
 
 ## Enter — submit vs. newline (`terminalSubmit`) {#terminal-submit}
 
@@ -485,6 +533,25 @@ Use this rather than the browser's zoom (Ctrl +/−). Zoom scales the page witho
 xterm's character grid stops matching what the shell believes the window to be, and the cursor and line
 wraps drift. Setting `fontSize` re-fits the terminal and sends the new width/height to the process, so
 everything stays aligned.
+
+### Terminal font (`fontFamily`) {#per-dir-font}
+
+`fontFamily` pins the font stack for this directory's terminals, overriding the global
+[`fontFamily`](#font-family):
+
+```json
+{ "fontFamily": "'Cica', 'MS Gothic', monospace" }
+```
+
+Same rules as the global key — see [Terminal font](#font-family) for how to choose one, what happens
+to an invalid stack, and why a CJK face has to be em-square. Handy for a repo whose logs are full of
+Japanese while the rest of your work is ASCII.
+
+Unlike the global key, this one needs **no server restart**. It is not filesystem-watched either,
+though: MulmoTerminal re-reads a `.mulmoterminal.json` when **Claude's own Write/Edit tools** report
+having written it — which is why `/mulmoterminal-config` recolours the cell as you watch. Edit the
+file **by hand, from outside**, and an already-open terminal keeps the old font until you reload the
+browser tab.
 
 ### Customizing the header (buttons / chips) {#header}
 

@@ -364,6 +364,7 @@ function onSession(id: string) {
           :dir-theme="singleDirConfig.theme"
           :dir-colors="singleDirConfig.colors"
           :dir-font-size="singleDirConfig.fontSize"
+          :dir-font-family="singleDirConfig.fontFamily"
           :dir-name="singleDirConfig.name"
           :dir-badge-color="singleDirConfig.badgeColor"
           :dir-header-color="singleDirConfig.headerColor"

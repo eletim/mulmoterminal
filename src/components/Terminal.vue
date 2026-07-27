@@ -7,6 +7,7 @@ import { dragCarriesFiles, dropTextFromUriList } from "./dropPaths";
 import { translateUiSentence } from "../utils/translateUi";
 import { useTheme, currentTermTheme, termThemeFor, type ThemeId } from "../composables/useTheme";
 import { useTerminalFontSize } from "../composables/useTerminalFontSize";
+import { globalFontFamily } from "../composables/terminalFontFamily";
 import { badgeStyleFor } from "./dirBadge";
 import { terminalHeaderStyleFor } from "./cellHeaderStyle";
 import { useVoiceInput } from "../composables/useVoiceInput";
@@ -71,6 +72,8 @@ const props = defineProps<{
   dirColors?: Partial<ITheme> | null;
   // Pins this terminal's xterm font size, overriding the app-wide Settings value.
   dirFontSize?: number | null;
+  // Pins this terminal's font-family stack, overriding the global config.json value.
+  dirFontFamily?: string | null;
   dirName?: string | null;
   dirBadgeColor?: string | null;
   // The header row's own colors (matches the grid cell's row-1 header): background,
@@ -171,9 +174,10 @@ function effectiveTermTheme(): ITheme {
   return props.dirColors ? { ...base, ...props.dirColors } : base;
 }
 
-// Same precedence as the theme: a dir-pinned size wins, otherwise the app-wide setting.
-function effectiveFontSize(): number {
-  return props.dirFontSize ?? fontSize.value;
+// Same precedence as the theme: a dir pin wins, otherwise the app-wide value — per-browser for
+// the size (Settings), from config.json for the family.
+function effectiveFont(): conn.TerminalFont {
+  return { size: props.dirFontSize ?? fontSize.value, family: props.dirFontFamily ?? globalFontFamily.value };
 }
 const dirBadgeStyle = computed(() => badgeStyleFor(props.dirBadgeColor));
 const headerStyle = computed(() => terminalHeaderStyleFor(props.dirHeaderColor, props.dirHeaderTextColor, props.dirButtonColor));
@@ -218,7 +222,7 @@ onMounted(() => {
     },
     container,
     effectiveTermTheme(),
-    effectiveFontSize(),
+    effectiveFont(),
   );
 
   // Auto-resize: fit the slot's xterm to this container and push the size to the PTY.
@@ -276,11 +280,13 @@ watch([themeId, () => props.dirTheme, () => props.dirColors], () => {
   conn.setTheme(slotKey, effectiveTermTheme());
 });
 
-// The size, unlike the palette, changes the cell metrics — conn.setFontSize re-fits and pushes
-// the new cols/rows to the PTY, so the ResizeObserver above is not what reacts here (the host
-// element never resized; only what fits inside it did).
-watch([fontSize, () => props.dirFontSize], () => {
-  conn.setFontSize(slotKey, effectiveFontSize());
+// The font, unlike the palette, changes the cell metrics — conn.setFont re-fits and pushes the
+// new cols/rows to the PTY, so the ResizeObserver above is not what reacts here (the host element
+// never resized; only what fits inside it did). `globalFontFamily` is in the list because it
+// hydrates from /api/config asynchronously, so a terminal mounted before that lands is corrected
+// here rather than staying on the built-in stack.
+watch([fontSize, globalFontFamily, () => props.dirFontSize, () => props.dirFontFamily], () => {
+  conn.setFont(slotKey, effectiveFont());
 });
 
 // Expanding/collapsing a grid cell teleports it in the DOM, which blurs the xterm textarea — so the

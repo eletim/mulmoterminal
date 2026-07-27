@@ -21,6 +21,10 @@ export interface DirChrome {
   // Unlike the colors above, this changes the cell metrics — every path that applies it has
   // to re-fit and push the new cols/rows to the PTY, or the grid drifts from the canvas.
   fontSize: number | null;
+  // The CSS font-family stack for terminals opened here, or null to use the global setting.
+  // Changes the cell metrics for the same reason `fontSize` does — a different face has a
+  // different advance width — so it re-fits on the same path.
+  fontFamily: string | null;
 }
 
 // "Nothing configured" — the base every DirConfig/PublicDirConfig empty spreads, so adding
@@ -37,4 +41,5 @@ export const EMPTY_DIR_CHROME: Readonly<DirChrome> = {
   dotColor: null,
   buttonColor: null,
   fontSize: null,
+  fontFamily: null,
 };
