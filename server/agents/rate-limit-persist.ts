@@ -11,25 +11,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { MULMOTERMINAL_HOME } from "../config/env.js";
 import type { RateLimitSnapshot } from "./rate-limit-store.js";
-import type { RateLimits } from "./statusline.js";
+import { parseRateLimits } from "../../common/rateLimits.js";
 
 export const rateLimitCacheFile = (): string => path.join(MULMOTERMINAL_HOME, "rate-limits.json");
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-
-function parseWindow(raw: unknown) {
-  if (!isRecord(raw)) return null;
-  const used = finite(raw.usedPercentage);
-  return used === null ? null : { usedPercentage: used, resetsAt_sec: finite(raw.resetsAt_sec) };
-}
-
-function parseLimits(raw: unknown): RateLimits | null {
-  if (!isRecord(raw)) return null;
-  const fiveHour = parseWindow(raw.fiveHour);
-  const sevenDay = parseWindow(raw.sevenDay);
-  return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
-}
 
 /**
  * What was cached, as the store's own shape. Every field is re-validated rather than trusted: this
@@ -43,7 +30,7 @@ export function parseRateLimitCache(text: string): RateLimitSnapshot {
     const entries = (["claude", "codex"] as const).flatMap((agent) => {
       const entry = parsed[agent];
       if (!isRecord(entry)) return [];
-      const limits = parseLimits(entry.limits);
+      const limits = parseRateLimits(entry.limits);
       const reportedAt_ms = finite(entry.reportedAt_ms);
       return limits && reportedAt_ms !== null ? [[agent, { limits, reportedAt_ms }] as const] : [];
     });

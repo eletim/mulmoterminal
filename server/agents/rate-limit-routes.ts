@@ -35,7 +35,14 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
     deps.refreshCodex();
     if (deps.store.wantsProbe(now)) {
       deps.store.setProbeInFlight(true);
-      deps.startProbe();
+      // Belt and braces. `startRateLimitProbe` reports its own setup failures rather than
+      // throwing, but the flag it would strand is set HERE — so this route does not get to
+      // depend on that promise being kept by whatever is wired in next.
+      try {
+        deps.startProbe();
+      } catch {
+        deps.store.setProbeInFlight(false);
+      }
     }
     res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing()));
   });

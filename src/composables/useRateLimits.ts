@@ -8,6 +8,7 @@
 // leaving safe methods open — so a GET that triggered a probe could be fired by any page the user
 // happens to visit, at their expense.
 import { ref } from "vue";
+import { parseRateLimits } from "../../common/rateLimits";
 import type { RateLimitSnapshot } from "./rateLimitGauge";
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -25,20 +26,6 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let watchers = 0;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
-const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-
-function parseWindow(raw: unknown) {
-  if (!isRecord(raw)) return null;
-  const used = finite(raw.usedPercentage);
-  return used === null ? null : { usedPercentage: used, resetsAt_sec: finite(raw.resetsAt_sec) };
-}
-
-function parseLimits(raw: unknown) {
-  if (!isRecord(raw)) return null;
-  const fiveHour = parseWindow(raw.fiveHour);
-  const sevenDay = parseWindow(raw.sevenDay);
-  return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
-}
 
 // A failure leaves the last known windows in place. Blanking them would read as "0% used", which
 // is the opposite of the truth we just failed to fetch.
@@ -50,7 +37,7 @@ async function load(): Promise<boolean> {
     if (!res.ok) return false;
     const data: unknown = await res.json();
     if (!isRecord(data)) return false;
-    snapshot.value = { claude: parseLimits(data.claude), codex: parseLimits(data.codex) };
+    snapshot.value = { claude: parseRateLimits(data.claude), codex: parseRateLimits(data.codex) };
     return data.probing === true;
   } catch {
     // offline, aborted, or the route is not there — keep what we had
@@ -76,7 +63,11 @@ export function useRateLimits() {
     snapshot,
     start(): void {
       watchers++;
-      if (timer) return;
+      // The watcher count, not the timer handle, is what says a chain is already running. `timer`
+      // stays null across the first request, so two headers mounting together would both have got
+      // past a `if (timer) return` and run their own chain from then on — each request spending a
+      // probe's worth of the budget this is supposed to be reporting.
+      if (watchers > 1) return;
       void load().then((probing) => scheduleNext(probing ? AWAITING_PROBE_MS : REFRESH_MS));
     },
     stop(): void {

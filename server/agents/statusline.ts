@@ -15,18 +15,12 @@
 // unfixed) before it came back. So nothing here may treat a missing field as a zero: absent means
 // "show nothing", and a gauge reading 0% when the truth is 83% is the worst thing this could do.
 
+import type { RateLimits, RateLimitWindow } from "../../common/rateLimits.js";
+
+export type { RateLimits, RateLimitWindow };
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const finiteNumber = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-
-export interface RateLimitWindow {
-  usedPercentage: number; // 0-100, fractional
-  resetsAt_sec: number | null; // Unix epoch seconds
-}
-
-export interface RateLimits {
-  fiveHour: RateLimitWindow | null;
-  sevenDay: RateLimitWindow | null;
-}
 
 function windowFrom(raw: unknown): RateLimitWindow | null {
   if (!isRecord(raw)) return null;

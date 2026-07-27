@@ -15,9 +15,24 @@ const TAIL_BYTES = 256 * 1024;
 
 export const codexSessionsDir = (): string => path.join(os.homedir(), ".codex", "sessions");
 
+// The walk below is synchronous and covers the whole sessions tree — hundreds of files on a
+// long-standing install — while the refresh route calls it on every poll. Unthrottled, that blocks
+// the event loop (every terminal socket with it) on a schedule. Which file is newest changes only
+// when Codex starts one, so re-walking within this window can only produce the same answer.
+const NEWEST_FILE_CACHE_MS = 30_000;
+let cached: { root: string; file: string | null; at_ms: number } | null = null;
+
 /** The most recently modified `*.jsonl` under the sessions tree, or null. Codex nests them by
  * date (`2026/07/28/rollout-….jsonl`), so this walks rather than reading one directory. */
 export function newestRolloutFile(root: string, now_ms: number): string | null {
+  if (cached && cached.root === root && now_ms - cached.at_ms < NEWEST_FILE_CACHE_MS) return cached.file;
+  const file = walkForNewest(root, now_ms);
+  cached = { root, file, at_ms: now_ms };
+  return file;
+}
+
+/** Uncached, so a test can exercise the walk itself without reaching through the cache. */
+export function walkForNewest(root: string, now_ms: number): string | null {
   if (!existsSync(root)) return null;
   const found: { file: string; stamp_ms: number }[] = [];
   const walk = (dir: string, depth: number): void => {

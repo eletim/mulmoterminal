@@ -4,7 +4,7 @@ Issue: #387 (PR #388 built this once as an opt-in toolbar chip and was closed un
 
 ## What is different this time
 
-#388 put the numbers in a `title` attribute — a **tip**, visible only on hover — and made the whole
+PR #388 put the numbers in a `title` attribute — a **tip**, visible only on hover — and made the whole
 feature opt-in. The ask now is the opposite: **both windows, always on screen**, in the grid's
 global header, because the alternative is typing `/usage` every time. Codex is in scope too.
 
@@ -60,10 +60,14 @@ rollout costs nothing, so Codex is always live regardless of what Claude's probe
 The gauge measures a budget, and the probe spends that budget to measure it. That is acceptable
 only if it stops when nobody benefits.
 
-So the probe is **demand-driven, not scheduled**: the browser polls `GET /api/rate-limits`, and a
-probe is triggered only when a client has asked AND the stored value is older than the staleness
-window. Nobody with the app open → no queries overnight, no cost for a user who never opens the
-grid.
+So the probe is **demand-driven, not scheduled**: the browser polls `POST /api/rate-limits/refresh`,
+and a probe is triggered only when a client has asked AND the stored value is older than the
+staleness window. Nobody with the app open → no queries overnight, no cost for a user who never
+opens the grid.
+
+The poll is a POST rather than a side effect on the GET because `same-origin-guard.ts` says so
+outright: safe methods are not gated, so a GET that started a probe could be fired by any page the
+user happens to visit, at their expense.
 
 One probe serves everything: the windows are account-wide, so cell count is irrelevant.
 
@@ -74,7 +78,7 @@ One probe serves everything: the windows are account-wide, so cell count is irre
 | `server/agents/statusline.ts` | `extractRateLimits` (from #388) + the injected command. **No `statusLineConfigured` this time** — we inject only into our own probe, so there is no user statusLine to clobber, which is a whole class of risk (a) had and (b) does not |
 | `server/agents/codex-rate-limits.ts` | newest rollout → the same shape, keyed off `window_minutes` |
 | `server/agents/rate-limit-store.ts` | last-known per agent, with the staleness rule that decides whether to probe |
-| routes | `POST /api/rate-limits` (the probe reports), `GET /api/rate-limits` (the UI reads, and asking is what schedules the next probe) |
+| routes | `POST /api/rate-limits` (the probe reports), `POST /api/rate-limits/refresh` (the UI polls; asking is what permits the next probe), `GET /api/rate-limits` (a pure read) |
 | `src/components/…` | both windows, always rendered, in the grid header |
 
 ## Verification

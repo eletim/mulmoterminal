@@ -6,14 +6,10 @@
 // left at the exact moment we cannot see how much they have — and upstream has dropped the field
 // before (anthropics/claude-code#40094). Missing renders nothing at all.
 
-export interface RateLimitWindow {
-  usedPercentage: number;
-  resetsAt_sec: number | null;
-}
-export interface RateLimits {
-  fiveHour: RateLimitWindow | null;
-  sevenDay: RateLimitWindow | null;
-}
+import type { RateLimits, RateLimitWindow } from "../../common/rateLimits";
+
+export type { RateLimits, RateLimitWindow };
+
 export interface RateLimitSnapshot {
   claude: RateLimits | null;
   codex: RateLimits | null;

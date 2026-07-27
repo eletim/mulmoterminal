@@ -46,11 +46,23 @@ export interface ProbeDeps {
  * all of them want the same response, which is to stop and leave the gauge showing what it had.
  */
 export function startRateLimitProbe(deps: ProbeDeps): () => void {
-  const dir = mkdtempSync(path.join(tmpdir(), "mt-ratelimit-"));
-  const settingsFile = path.join(dir, "settings.json");
-  writeFileSync(settingsFile, JSON.stringify({ statusLine: { type: "command", command: statusLineCommand(deps.host, deps.port, deps.sessionId) } }), {
-    mode: 0o600,
-  });
+  // Setup is inside the guard, not before it. It reaches the disk — a full or read-only tmp throws
+  // — and the caller has ALREADY marked a probe in flight by the time this runs. An escape here
+  // would leave that flag set with nothing to clear it, so the gauge would stop refreshing for the
+  // life of the process. Every failure has to arrive as "this probe reported nothing".
+  let settings: { dir: string; file: string };
+  try {
+    const dir = mkdtempSync(path.join(tmpdir(), "mt-ratelimit-"));
+    const file = path.join(dir, "settings.json");
+    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command: statusLineCommand(deps.host, deps.port, deps.sessionId) } }), {
+      mode: 0o600,
+    });
+    settings = { dir, file };
+  } catch {
+    deps.onSettled();
+    return () => {};
+  }
+  const { dir, file: settingsFile } = settings;
 
   let stopped = false;
   let pty: ProbePty | null = null;
@@ -73,9 +85,21 @@ export function startRateLimitProbe(deps: ProbeDeps): () => void {
     // The prompt has to arrive after the TUI is listening; there is no readiness signal to wait
     // for that is worth parsing, and sending early costs only this probe.
     setTimeout(() => {
-      if (stopped) return;
-      pty?.write(PROBE_PROMPT);
-      setTimeout(() => !stopped && pty?.write("\r"), TYPE_TO_SUBMIT_MS);
+      // Guarded like kill() is: the PTY may have exited between the timer being set and it firing,
+      // and a throw here lands in a bare timer callback where there is nobody to catch it.
+      try {
+        if (stopped) return;
+        pty?.write(PROBE_PROMPT);
+        setTimeout(() => {
+          try {
+            if (!stopped) pty?.write("\r");
+          } catch {
+            stop();
+          }
+        }, TYPE_TO_SUBMIT_MS);
+      } catch {
+        stop();
+      }
     }, BOOT_MS);
   } catch {
     // `claude` is not installed, or cannot be launched at all. Same outcome as any other failure.
