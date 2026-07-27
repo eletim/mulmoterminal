@@ -56,6 +56,18 @@ your version is **banked** and the file left as the other writer left it. If nei
 nor the backup lands (server down, disk full), anything that *can* stay does: the file doesn't
 switch, the pane doesn't close, the tree doesn't re-read.
 
+### An open file that changes on disk says so, before you save (#910)
+
+The 409 tells you at the moment you save. Now you usually know sooner: Claude's write hook
+already reports every tool call, so a write to the file you have open reaches the editor
+**immediately** — and a **30-second** version check covers everyone the hook cannot speak for
+(Codex reports through a different channel; git, builds and other editors through none).
+
+A **clean** buffer simply takes the new content, so the pane reads as a live view of what the
+agent is doing. A **dirty** one raises the banner instead of choosing for you. No filesystem
+watchers: each terminal's directory is somewhere else, and on Windows a watch on an 8.3 short
+path can abort the process outright.
+
 **Two paths remain unguarded**, both noted in the code:
 
 - Closing the **full-screen** view outright unmounts the editor, so if the backup store is also

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import FilesPane from "../../../src/components/FilesPane.vue";
 
@@ -349,5 +349,67 @@ describe("FilesPane restoring a remembered tree", () => {
     const w = mount(FilesPane, { props: { cwd: "/proj", initialState: { openPath: "README.md", expanded: ["src"] } } });
     await flushPromises();
     expect((w.vm as unknown as { snapshot: () => unknown }).snapshot()).toEqual({ openPath: "README.md", expanded: ["src"] });
+  });
+});
+
+// The file moves under the editor as a matter of course here: the agent working in this
+// directory edits the same files. The 409 on save is the hard guarantee; these two paths only
+// get the news out before the user has typed into a file that already moved.
+describe("FilesPane noticing an external change", () => {
+  const serveVersion = (version: string | null, text = "# from the agent") => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/version")) return { ok: true, json: async () => ({ version }) };
+      if (url.includes("/list")) return { ok: true, json: async () => ({ entries: [{ name: "README.md", dir: false, size: 10 }] }) };
+      if (url.includes("/text")) return { ok: true, json: async () => ({ text, version }) };
+      return { ok: true, json: async () => ({ ok: true, version: "v2" }) };
+    }) as unknown as typeof fetch;
+  };
+  const check = async (w: ReturnType<typeof mount>) => {
+    await (w.vm as unknown as { checkForExternalChange?: () => Promise<void> }).checkForExternalChange?.();
+    vi.advanceTimersByTime(30_000);
+    await flushPromises();
+  };
+
+  beforeEach(() => {
+    fakeEditor.setDoc.mockClear();
+    mockFs();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("silently takes the new content when nothing is being edited", async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
+    await flushPromises();
+    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
+    await flushPromises();
+    fakeEditor.setDoc.mockClear();
+
+    serveVersion("v9");
+    await check(w);
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# from the agent", "README.md");
+    expect(w.find('[data-testid="files-conflict"]').exists()).toBe(false); // nothing to ask about
+  });
+
+  it("raises the banner instead of overwriting what is being edited", async () => {
+    const w = await openFileAndEdit();
+    fakeEditor.setDoc.mockClear();
+
+    serveVersion("v9");
+    await check(w);
+    expect(w.find('[data-testid="files-conflict"]').exists()).toBe(true);
+    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // the buffer is untouched
+  });
+
+  it("does nothing while the version still matches", async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
+    await flushPromises();
+    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
+    await flushPromises();
+    fakeEditor.setDoc.mockClear();
+
+    serveVersion("v1"); // the version it was loaded at
+    await check(w);
+    expect(fakeEditor.setDoc).not.toHaveBeenCalled();
   });
 });

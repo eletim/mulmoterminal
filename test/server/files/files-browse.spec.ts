@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
 import request from "supertest";
-import { currentVersion, listEntries, mdToHtmlDoc, mountFilesBrowseRoutes } from "../../../server/files/files-browse";
+import { currentVersion, listEntries, mdToHtmlDoc, mountFilesBrowseRoutes, MAX_EDIT_BYTES } from "../../../server/files/files-browse";
 import { backupDirFor } from "../../../server/files/backup-store";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-files-"));
@@ -69,6 +69,40 @@ describe("conditional write", () => {
     }
   };
   const query = (dir: string, file = "a.md") => `cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent(file)}`;
+
+  // The editor asks this every 30 seconds per open file; answering with the whole file would
+  // ship it all to answer a 16-character question.
+  it("answers the version alone, matching the one served with the text", async () => {
+    await withProject(async (app, dir) => {
+      const { body: read } = await request(app).get(`/api/files/browse/text?${query(dir)}`);
+      const res = await request(app).get(`/api/files/browse/version?${query(dir)}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ version: read.version });
+
+      writeFileSync(path.join(dir, "a.md"), "the agent's version");
+      const after = await request(app).get(`/api/files/browse/version?${query(dir)}`);
+      expect(after.body.version).not.toBe(read.version);
+    });
+  });
+
+  // The poll runs every 30 seconds per open file. Hashing whatever it finds would turn "the
+  // file was replaced by a huge one" into repeated full reads, for a file the editor could no
+  // longer open or save anyway.
+  it("refuses to hash a file past the edit cap", async () => {
+    await withProject(async (app, dir) => {
+      writeFileSync(path.join(dir, "a.md"), "x".repeat(MAX_EDIT_BYTES + 1));
+      const res = await request(app).get(`/api/files/browse/version?${query(dir)}`);
+      expect(res.status).toBe(413);
+    });
+  });
+
+  it("reports a missing file as no version, rather than failing", async () => {
+    await withProject(async (app, dir) => {
+      const res = await request(app).get(`/api/files/browse/version?${query(dir, "nope.md")}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ version: null });
+    });
+  });
 
   it("hands the editor a version with the text", async () => {
     await withProject(async (app, dir) => {

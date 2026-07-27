@@ -165,6 +165,23 @@ export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
     }
   });
 
+  // Just the version, for the editor's periodic "did this move under me?" check. The full
+  // /text response would ship the whole file every poll to answer a 16-character question.
+  app.get("/api/files/browse/version", (req, res) => {
+    const abs = containedFor(req, res, defaultCwd);
+    if (!abs) return;
+    try {
+      // The same cap as /text and /write. Without it, a file replaced on disk by a huge one
+      // would be read and hashed in full on every poll — for a file the editor could no longer
+      // open or save anyway.
+      const stat = fs.statSync(abs, { throwIfNoEntry: false });
+      if (stat && stat.size > MAX_EDIT_BYTES) return res.status(413).json({ error: "file too large" });
+      res.json({ version: currentVersion(abs) });
+    } catch {
+      res.status(500).json({ error: "failed to read file" });
+    }
+  });
+
   const serveRendered = (routePath: string, render: RenderDoc) => mountRenderedRoute(app, routePath, defaultCwd, render);
 
   serveRendered("/api/files/browse/md", async (text, title) => htmlDoc(await marked.parse(text), title));

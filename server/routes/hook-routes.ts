@@ -5,6 +5,7 @@
 import type { Express, Request, Response } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
 import { dirConfigWriteTarget } from "../config/dir-config.js";
+import { writtenFilePath } from "../files/tool-writes.js";
 import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId } from "../session/activity-hook.js";
 import { headerHookEffect } from "../session/header-hook.js";
 import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
@@ -25,6 +26,7 @@ export interface HookDeps extends SessionActivityDeps {
   ) => Promise<void>;
   /** Tell clients watching that directory to re-read its .mulmoterminal.json. */
   publishDirConfig: (cwd: string) => void;
+  publishFileWrite: (file: string) => void;
   /** Which port this host's UI answers on, so a receiver can open it instead of guessing. */
   uiPort: string;
 }
@@ -67,6 +69,10 @@ async function handleToolHook(deps: HookDeps, sessionId: string, event: string, 
   if (publishesDirConfig(event)) {
     const target = dirConfigWriteTarget(p.tool_name, p.tool_input, cwd ?? null);
     if (target) deps.publishDirConfig(target);
+    // The same hook is the editor's change feed: a file open in the Files pane may be the one
+    // this call just rewrote, and the pane would otherwise not find out until it tried to save.
+    const written = writtenFilePath(p.tool_name, p.tool_input, cwd ?? null);
+    if (written) deps.publishFileWrite(written);
   }
 }
 
