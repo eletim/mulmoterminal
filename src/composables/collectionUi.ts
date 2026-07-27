@@ -34,8 +34,8 @@ import type { RegistryListResponse, RegistryImportResponse } from "@mulmoclaude/
 import type { TranslateRequest, TranslateResponse } from "@mulmoclaude/core/translation/client";
 import type { CollectionPushResult } from "../../common/collectionPush";
 import { buildCustomViewSrcdoc } from "../utils/customViewSrcdoc";
-import { fetchJson } from "../utils/fetchJson";
-import { htmlPreviewUrl, remoteViewItemsQuery, deleteErrorMessage } from "./collectionUiRules";
+import { fetchJson, errorMessage, readErrorBody } from "../utils/fetchJson";
+import { htmlPreviewUrl, remoteViewItemsQuery } from "./collectionUiRules";
 import { useShortcuts } from "./useShortcuts";
 import {
   browseGotoIndex,
@@ -83,8 +83,7 @@ async function apiDelete(url: string): Promise<{ ok: true } | { ok: false; error
   try {
     const res = await fetch(url, { method: "DELETE" });
     if (res.ok) return { ok: true };
-    const body = await res.json().catch(() => null);
-    return { ok: false, error: deleteErrorMessage(body, res.status) };
+    return { ok: false, error: errorMessage(await readErrorBody(res), res.status) };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
