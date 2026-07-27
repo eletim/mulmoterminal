@@ -14,7 +14,18 @@ const mockTermState: {
   input: string[];
   bufferType: "normal" | "alternate";
   hasSelection: boolean;
-} = vi.hoisted(() => ({ options: {}, csiHandlers: [], wheelHandler: () => true, input: [], bufferType: "normal", hasSelection: false }));
+  selection: string;
+  onSelectionChange: () => void;
+} = vi.hoisted(() => ({
+  options: {},
+  csiHandlers: [],
+  wheelHandler: () => true,
+  input: [],
+  bufferType: "normal",
+  hasSelection: false,
+  selection: "",
+  onSelectionChange: () => {},
+}));
 
 // Mock xterm + addons so the manager runs headless (no real DOM terminal / canvas).
 // Factories are hoisted above imports, so the fakes are declared INSIDE them.
@@ -50,6 +61,14 @@ vi.mock("@xterm/xterm", () => ({
     // double has to answer. Selection-specific behaviour is covered in terminalClipboard.spec.
     hasSelection() {
       return mockTermState.hasSelection;
+    }
+    // Copy-on-select rides this pair (#900): xterm reports that the selection moved, and the
+    // manager reads what it now is.
+    onSelectionChange(fn: () => void) {
+      mockTermState.onSelectionChange = fn;
+    }
+    getSelection() {
+      return mockTermState.selection;
     }
     input(data: string) {
       mockTermState.input.push(data);
@@ -108,6 +127,7 @@ class FakeWebSocket {
 import * as conn from "../../../src/composables/useTerminalConnections";
 import { newlineSequence, submitSequence } from "../../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "../../../src/composables/terminalSubmitMode";
+import { setCopyOnSelect } from "../../../src/composables/copyOnSelect";
 
 const target = (sessionId: string | null) => ({ sessionId, cwd: "/typed", devTerminal: false, command: null, launcher: null });
 
@@ -363,6 +383,95 @@ describe("isSystemClipboard", () => {
 
   it("ignores primary / select / cut-buffer selections", () => {
     for (const sel of ["p", "s", "0", "7"]) expect(conn.isSystemClipboard(sel)).toBe(false);
+  });
+});
+
+// Copy-on-select (#900). The decision itself is unit-tested in terminalClipboard.spec; what is
+// asserted here is the WIRING — that the drag's flood of events becomes at most one clipboard
+// write, and that the setting is what gates it.
+describe("copy-on-select wiring", () => {
+  const writeText = vi.fn<(text: string) => Promise<void>>();
+
+  beforeEach(() => {
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    mockTermState.onSelectionChange = () => {};
+    mockTermState.selection = "";
+    mockTermState.hasSelection = false;
+    writeText.mockReset();
+    writeText.mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    setCopyOnSelect(false);
+    conn.release("cell-select");
+  });
+
+  // xterm fires on every coordinate change, so a drag is a burst. Writing each one would fill the
+  // OS clipboard history (Win+V) with partial selections — only the settled text may land.
+  // The selection as the terminal would report it — both halves, since the wiring reads each for a
+  // different job (hasSelection per event, getSelection once it settles).
+  const select = (text: string): void => {
+    mockTermState.selection = text;
+    mockTermState.hasSelection = text !== "";
+    mockTermState.onSelectionChange();
+  };
+
+  it("writes once for a whole drag, with the text the selection settled on", async () => {
+    setCopyOnSelect(true);
+    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+
+    for (const partial of ["npm", "npm run", "npm run build"]) {
+      select(partial);
+      await vi.advanceTimersByTimeAsync(20); // still mid-drag: under the settle window
+    }
+    expect(writeText).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith("npm run build");
+  });
+
+  // The default. Highlighting must not touch the clipboard for anyone who did not ask for this.
+  // The default. Highlighting must not touch the clipboard for anyone who did not ask for this.
+  it("writes nothing while the setting is off", async () => {
+    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  // A selection can settle again unchanged (a drag that runs past the end of a line moves the
+  // coordinates without moving the text). A second write buys nothing and costs a duplicate entry
+  // in the OS clipboard history.
+  it("does not write the same selection twice while it stands", async () => {
+    setCopyOnSelect(true);
+    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+
+  // But once the selection is gone, selecting the same text is a fresh intent — the user may have
+  // copied something else in between, and "you already copied that" would leave them holding the
+  // wrong thing with nothing to show for it.
+  it("copies the same text again after the selection was cleared", async () => {
+    setCopyOnSelect(true);
+    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    select(""); // a click elsewhere in the terminal
+    select("npm run build"); // re-dragged inside the same settle window as the clear
+    await vi.advanceTimersByTimeAsync(500);
+    expect(writeText).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -85,6 +85,11 @@ export interface AppConfig {
   // How many lines each cockpit-roster row shows before clamping (#877). Defaults keep the
   // previous 2/2/3; raising `summary` trades roster length for reading a long one in place.
   cockpitLines: CockpitLines;
+  // Put a mouse selection on the clipboard the moment it settles, with no key pressed (#900).
+  // Off unless asked for: it is the one setting that changes the clipboard when the user only
+  // meant to highlight, and it is also the only place in the app that writes the clipboard on
+  // its own — the `copy` keymap action merely stands back and lets the browser do it.
+  copyOnSelect: boolean;
   // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
   // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
   // exist is a property of the machine the browser runs on — the same answer for every client
@@ -247,6 +252,10 @@ export function sanitizeWorklogEnabled(input: unknown): boolean {
   return input === true;
 }
 
+export function sanitizeCopyOnSelect(input: unknown): boolean {
+  return input === true;
+}
+
 // Inverted against every other boolean here: this one defaults ON, so anything that is not
 // an explicit `false` — including a missing key, which is what every existing config file
 // has — leaves it enabled.
@@ -282,6 +291,7 @@ export const emptyConfig = (): AppConfig => ({
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
+  copyOnSelect: false,
   prWorkdirFooter: true,
   cockpitLines: { ...DEFAULT_COCKPIT_LINES },
   fontFamily: null,
@@ -320,6 +330,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
+    copyOnSelect: sanitizeCopyOnSelect(o.copyOnSelect),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
     cockpitLines: sanitizeCockpitLines(o.cockpitLines),
     fontFamily: normalizeFontFamily(o.fontFamily),
@@ -396,6 +407,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     providers: updated("providers", sanitizeProviders, base.providers),
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
+    copyOnSelect: updated("copyOnSelect", sanitizeCopyOnSelect, base.copyOnSelect),
     fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
     cockpitLines: updated("cockpitLines", sanitizeCockpitLines, base.cockpitLines),
@@ -424,6 +436,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
+    copyOnSelect: config.copyOnSelect,
     prWorkdirFooter: config.prWorkdirFooter,
     cockpitLines: config.cockpitLines,
     fontFamily: config.fontFamily,
