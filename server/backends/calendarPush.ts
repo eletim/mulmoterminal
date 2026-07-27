@@ -25,10 +25,12 @@ import { hostLogger } from "./hostLogger.js";
  *  it must not be reachable only through a real push. */
 export interface CalendarPushRouteDeps {
   /** Existence only — the engine's own lookup is calendar-scoped and so cannot tell a
-   *  missing collection from one that simply declares no calendar. Narrowed to a
-   *  presence check: a full `LoadedCollection` is a Zod-derived giant, and a route that
-   *  needs one built to be tested is a route nobody tests. `loadCollection` satisfies this. */
-  findCollection: (slug: string) => Promise<unknown | null>;
+   *  missing collection from one that simply declares no calendar. Narrowed to a presence
+   *  check: a full `LoadedCollection` is a Zod-derived giant, and a route that needs one
+   *  built to be tested is a route nobody tests. `object` rather than `unknown` because
+   *  `unknown | null` collapses to `unknown`, which would drop "or null" from the contract
+   *  the route reads. `loadCollection` satisfies this. */
+  findCollection: (slug: string) => Promise<object | null>;
   push: typeof pushCalendarForCollection;
   workspaceRoot: () => string;
 }
