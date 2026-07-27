@@ -4,6 +4,65 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## Unreleased
+
+The in-app file explorer moved next to the terminal, and editing it stopped being able to lose
+your work — or the agent's. Four changes that only make sense together.
+
+### The explorer and editor open beside an enlarged terminal (#910, #925)
+
+Until now the file explorer was a **full-screen** view: to read a file you covered the terminal
+you were reading it for. Enlarge a grid cell (**⤢**) and its header now carries a **folder**
+toggle that splits the enlarged area — terminal on the left, the same explorer + editor on the
+right, rooted at that cell's directory. Drag the divider, or focus it and use ←/→, Home, End.
+
+It works in **both** zoomed layouts (cockpit roster and thumbnail filmstrip). The pane re-roots
+as you walk the zoom between terminals, and whether it is open plus how wide it is are
+remembered per browser. The terminal keeps a minimum width, so a squeeze shrinks the pane
+rather than reflowing xterm into garbage.
+
+Nothing was rebuilt for this: the full-screen view and the pane are the same component, so
+Markdown preview, syntax highlighting and everything else came along unchanged.
+
+### A save can no longer overwrite the agent that edited the same file (#910, #916)
+
+The editor sits in a directory where **an agent is writing the same files**. Saving used to
+send the buffer and let the last writer win, so "open a file, let Claude rewrite it, press
+⌘S" silently threw away what Claude wrote.
+
+Reading a file now returns a **version** alongside its text, and saving sends that version
+back. If the file changed meanwhile the write is **refused (409)** and nothing is written; a
+banner offers to reload the disk's copy or to overwrite deliberately. The version is a content
+hash rather than a timestamp — a one-second-resolution filesystem, or two writes inside a
+clock tick, would report "unchanged" for exactly the race this guards.
+
+### Three generations of every file the editor touches (#910, #926)
+
+Opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/`. **Outside the
+project**, so a `.bak` never shows up in `git status` or in the agent's view of its own repo.
+Re-opening unchanged content doesn't rotate a generation in, and a backup that can't be written
+never blocks the read or the save it was taken for.
+
+### Leaving an open file saves it, instead of asking (#910, #928)
+
+The editor sits beside a terminal you are working in, and the enlargement moves from keys and
+filmstrip clicks — so `Discard unsaved changes?` interrupted the very flow the pane exists to
+sit beside. Switching files, moving the zoom, closing the pane, navigating away and closing the
+tab now **save** instead of prompting. What a save replaces is in the backup store, which is
+what makes not asking defensible.
+
+A parting save that loses the version race can't raise a banner — you are already leaving — so
+your version is **banked** and the file left as the other writer left it. If neither the save
+nor the backup lands (server down, disk full), anything that *can* stay does: the file doesn't
+switch, the pane doesn't close, the tree doesn't re-read.
+
+**Two paths remain unguarded**, both noted in the code:
+
+- Closing the **full-screen** view outright unmounts the editor, so if the backup store is also
+  refusing writes at that moment, the buffer is gone.
+- On tab close the browser caps a `keepalive` request at **64 KB**, so a very large unsaved
+  buffer may not make it out.
+
 ## mulmoterminal@2.1.1 — 2026-07-27
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.1.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.1.1.html))

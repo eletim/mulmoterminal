@@ -45,6 +45,30 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Wiki / Collections / Accounting / Files | In-app views from the toolbar: a Wiki (with a graph view), collections, accounting, and a **file explorer + editor** |
 | Update notice | When a new version ships, the header shows an **update badge**; click it for the update command that fits your install (npm / git clone) |
 
+### Editing files beside a terminal
+
+Enlarging a grid cell (**⤢**) puts a **folder** toggle in its header. It splits the enlarged
+area in two: terminal on the left, the file explorer + editor on the right, rooted at that
+cell's directory and unable to reach above it. Drag the divider to resize, or focus it and use
+←/→, Home, End. It works in both zoomed layouts, follows the enlargement as you move between
+terminals, and remembers whether it was open and how wide.
+
+The same editor still opens full-screen from a **Files** header button or by clicking a file
+path an agent printed.
+
+**Editing is safe against the agent working in the same directory.**
+
+| What happens | Why |
+|---|---|
+| **Leaving an open file saves it** — switching files, moving the zoom, closing the pane, navigating away, closing the tab | The editor sits beside a terminal you are working in; a `Discard unsaved changes?` dialog would interrupt that flow every time the enlargement moved |
+| A save is **refused (409)** if the file changed on disk since you opened it | An agent rewriting the file you have open is normal here. A banner then offers to reload the disk's copy or to overwrite deliberately |
+| Opening a file, and replacing one, keep **three generations** under `~/.mulmoterminal/backups/` | Not asking is only defensible if what a save replaced can be fetched back. Outside the project, so no `.bak` reaches `git status` or the agent |
+| If neither the save nor the backup can be written, nothing moves on | With no copy anywhere, walking away is the one outcome that loses what you typed |
+
+Two gaps are worth knowing: closing the **full-screen** view outright cannot keep the buffer if
+the backup store is also failing, and on tab close the browser caps the request at **64 KB**,
+so a very large unsaved buffer may not get out.
+
 ## 3. Automate & investigate
 
 | Feature | Description |
