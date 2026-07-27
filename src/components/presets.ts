@@ -2,7 +2,7 @@ import { worktreeLabel } from "./cwdDisplay";
 
 // A directory preset offered as a one-click chip in the cell launch form.
 // The list is auto-populated from the dirs the user launches in (see
-// useAppConfig.recordPreset) and pruned with the chip's ✕.
+// useAppConfig.recordPreset) and pruned with the chip's close button.
 export interface CwdPreset {
   label: string;
   path: string;

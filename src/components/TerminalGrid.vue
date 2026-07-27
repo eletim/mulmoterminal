@@ -7,6 +7,7 @@ import CockpitRowMenu from "./CockpitRowMenu.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import * as conn from "../composables/useTerminalConnections";
 import { trackStyle, layoutForCount } from "./gridLayout";
+import { cockpitLines } from "../composables/cockpitLines";
 import { flipKeyframes, flipPairs, onScreen, FLIP_MS, FLIP_EASING } from "./cellFlip";
 import { canMoveCell, type Cell, type CellStatus } from "./gridTabs";
 import type { RunCommand } from "./runCommand";
@@ -47,7 +48,7 @@ const props = defineProps<{
   presets: CwdPreset[];
   launchers: Launcher[];
   home: string | null;
-  // Manual sort mode: each cell shows ◀▶ to reorder.
+  // Manual sort mode: each cell shows move buttons to reorder.
   reorderable?: boolean;
   openSessionIds: string[];
   openCwds: string[];
@@ -239,13 +240,30 @@ watch(
             @move="(dir) => emit('move', row.uid, dir)"
           />
         </CockpitHeader>
-        <span v-if="row.summary" data-testid="cockpit-line" class="line-clamp-2 overflow-hidden text-[12px] leading-[1.35]"
+        <!-- The clamp is a runtime value, so the utility reads a CSS variable each line sets for
+             itself — `line-clamp-N` only exists for the literals Tailwind found in the source.
+             `title` carries the rest, so a low clamp hides nothing you can't get at. -->
+        <span
+          v-if="row.summary"
+          data-testid="cockpit-line"
+          class="line-clamp-[var(--cockpit-lines)] overflow-hidden text-[12px] leading-[1.35]"
+          :style="{ '--cockpit-lines': cockpitLines.summary }"
+          :title="row.summary"
           ><b class="mr-1 text-[10px] font-bold text-[#7a8aa0]">summary</b> {{ row.summary }}</span
         >
-        <span data-testid="cockpit-line" class="line-clamp-2 overflow-hidden text-[12px] leading-[1.35]"
+        <span
+          data-testid="cockpit-line"
+          class="line-clamp-[var(--cockpit-lines)] overflow-hidden text-[12px] leading-[1.35]"
+          :style="{ '--cockpit-lines': cockpitLines.prompt }"
+          :title="row.prompt || row.fallback || undefined"
           ><b class="mr-1 text-[10px] font-bold text-[#7a8aa0]">prompt</b> {{ row.prompt || row.fallback || "—" }}</span
         >
-        <span v-if="row.response" data-testid="cockpit-line" class="line-clamp-3 overflow-hidden text-[12px] leading-[1.35] text-dim"
+        <span
+          v-if="row.response"
+          data-testid="cockpit-line"
+          class="line-clamp-[var(--cockpit-lines)] overflow-hidden text-[12px] leading-[1.35] text-dim"
+          :style="{ '--cockpit-lines': cockpitLines.response }"
+          :title="row.response"
           ><b class="mr-1 text-[10px] font-bold text-[#7a8aa0]">reply</b> {{ row.response }}</span
         >
       </div>

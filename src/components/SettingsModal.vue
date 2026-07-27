@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { trapTabKey } from "../utils/focusTrap";
+import { MODAL_FOCUSABLE, trapTabKey } from "../utils/focusTrap";
 import { useTheme } from "../composables/useTheme";
 import { useTerminalFontSize } from "../composables/useTerminalFontSize";
 import { previewAttention } from "../composables/useAttentionSound";
@@ -8,6 +8,9 @@ import { useCost } from "../composables/useCost";
 import { activeKeymap } from "../composables/activeKeymap";
 import { keymapRows } from "./keymapLabels";
 import { useGoogleLink } from "../composables/useGoogleLink";
+import { VOICE_LANGUAGES, voiceLanguage } from "../composables/voiceLanguage";
+import { fetchVoiceInputStatus } from "../composables/voiceModelStatus";
+import { SELECT_CONTROL } from "./selectClasses";
 import SettingsButton from "./SettingsButton.vue";
 import SettingsField from "./SettingsField.vue";
 import GuideLinks from "./GuideLinks.vue";
@@ -173,8 +176,8 @@ function onPushToggle(e: Event) {
 // a blocked agent raises. Editable list mirroring the saved value, like the other lists here.
 const PUSH_KIND_LABEL: Record<PushKind, string> = { finished: "Turn finished", waiting: "Waiting for you" };
 const PUSH_KIND_HELP: Record<PushKind, string> = {
-  finished: "the agent replied and the output is unread (✅)",
-  waiting: "it stopped to ask — a permission prompt or a question (❓). Fires once per prompt, so a task that asks a lot pushes a lot",
+  finished: "the agent replied and the output is unread",
+  waiting: "it stopped to ask — a permission prompt or a question. Fires once per prompt, so a task that asks a lot pushes a lot",
 };
 const pushKindList = ref<PushKind[]>([...(props.pushKinds ?? [])]);
 watch(
@@ -262,6 +265,16 @@ function onThemeKey(e: KeyboardEvent, index: number) {
   themesEl.value?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
 }
 
+// Voice input's language mode. The setting is a singleton ref (localStorage-backed), so it
+// needs no prop/emit plumbing — but the section is only worth showing on a machine that can
+// transcribe at all, and capability lives on the server. One cheap GET when the modal opens;
+// a failed/absent probe leaves the section hidden rather than offering a setting for a mic
+// that will never appear.
+const voiceCapable = ref(false);
+async function refreshVoiceCapable() {
+  voiceCapable.value = (await fetchVoiceInputStatus())?.capable ?? false;
+}
+
 // Read-only estimated cost (Session / Today / Month), loaded when the modal opens.
 const { cost, error: costError, load: loadCost } = useCost();
 
@@ -278,7 +291,7 @@ function onKeydown(e: KeyboardEvent) {
     return;
   }
   if (e.key !== "Tab" || !modalEl.value) return;
-  trapTabKey(e, modalEl.value, 'button, input, [tabindex]:not([tabindex="-1"])');
+  trapTabKey(e, modalEl.value, MODAL_FOCUSABLE);
 }
 
 // Load cost unconditionally — the server falls back to the workspace when no cwd is
@@ -290,6 +303,7 @@ onMounted(() => {
   nextTick(() => modalEl.value?.querySelector<HTMLElement>("input, button")?.focus());
   refreshCost();
   refreshGoogle();
+  refreshVoiceCapable();
 });
 watch([() => props.cwd, () => props.sessionId], refreshCost);
 onUnmounted(() => {
@@ -315,7 +329,7 @@ onUnmounted(() => {
           aria-label="Close settings"
           @click="emit('close')"
         >
-          ✕
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
 
@@ -373,7 +387,9 @@ onUnmounted(() => {
         Launch the <code>mulmoterminal-config</code> skill to style a directory — name badge, colors, terminal palette, header buttons. It configures the
         focused session's directory, or lets you pick from your recent directories.
       </p>
-      <SettingsButton @click="emit('configure-appearance')">🎨 Configure appearance…</SettingsButton>
+      <SettingsButton @click="emit('configure-appearance')"
+        ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton
+      >
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Notification sound</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
@@ -391,9 +407,26 @@ onUnmounted(() => {
         <SettingsButton @click="browseSound">Browse…</SettingsButton>
       </div>
       <div class="mt-2 flex gap-2">
-        <SettingsButton title="Play the current sound" @click="testSound">▶ Test</SettingsButton>
+        <SettingsButton title="Play the current sound" @click="testSound"
+          ><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> Test</SettingsButton
+        >
         <SettingsButton :disabled="!soundPath" title="Use the built-in chime" @click="clearSound">Use chime</SettingsButton>
       </div>
+
+      <template v-if="voiceCapable">
+        <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Voice input</h3>
+        <p class="mb-3 mt-1.5 text-[12px] text-dim">
+          The language you dictate in. Speaking a language the mic is not expecting comes back <strong>translated</strong> into the expected one — so pick the
+          one you actually speak rather than leaving it on your browser's.
+        </p>
+        <select v-model="voiceLanguage" aria-label="Language for voice input" :class="SELECT_CONTROL">
+          <option value="locale">My browser's language</option>
+          <option value="auto">Detect from what I say</option>
+          <optgroup label="Always this language">
+            <option v-for="lang in VOICE_LANGUAGES" :key="lang.code" :value="lang.code">{{ lang.label }}</option>
+          </optgroup>
+        </select>
+      </template>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Web Push notifications</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
@@ -455,7 +488,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${r}`"
             @click="removeRepo(r)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -487,7 +520,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${l.label}`"
             @click="removeLauncher(l.label)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -529,7 +562,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${c.label}`"
             @click="removeQuickCommand(c.label)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>
@@ -584,7 +617,7 @@ onUnmounted(() => {
             :aria-label="`Remove ${s.id}`"
             @click="removeMcpServer(s.id)"
           >
-            ✕
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </li>
       </ul>

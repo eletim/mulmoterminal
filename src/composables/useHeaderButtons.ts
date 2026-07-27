@@ -28,7 +28,7 @@ export type ResolvedChip = { kind: "builtin"; id: string } | { kind: "custom"; l
 
 // Whether the resolved header offers a file-path picker (an `open` button with `pickFile`).
 // Header buttons are user-configurable and the default picker can be removed, so anything that
-// points the user at "the 📎 button" must first confirm it is actually present.
+// points the user at "the file-picker button" must first confirm it is actually present.
 export function hasPickFileButton(buttons: readonly HeaderButton[]): boolean {
   return buttons.some((b) => b.run === "open" && b.open?.pickFile === true);
 }

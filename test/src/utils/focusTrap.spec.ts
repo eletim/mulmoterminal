@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { trapTabKey } from "../../../src/utils/focusTrap";
+import { MODAL_FOCUSABLE, trapTabKey } from "../../../src/utils/focusTrap";
 
 // jsdom's element.focus() only sets document.activeElement for elements attached to
 // the document, so the container is mounted into document.body per test.
@@ -77,5 +77,18 @@ describe("trapTabKey", () => {
     trapTabKey(e, container, 'button, input, [tabindex]:not([tabindex="-1"])');
     expect(document.activeElement).toBe(el(container, "#btn"));
     expect(e.defaultPrevented).toBe(true);
+  });
+
+  // A control the selector can't see is one Tab leaves the dialog through when it happens to
+  // sit first or last, so the modal selector has to cover every form control the modals use.
+  describe("MODAL_FOCUSABLE", () => {
+    it.each(["select", "textarea", "input"])("wraps from a trailing <%s>", (tag) => {
+      container = mount(`<button id="btn">b</button><${tag} id="last"></${tag}>`);
+      el(container, "#last").focus();
+      const e = tab(false);
+      trapTabKey(e, container, MODAL_FOCUSABLE);
+      expect(document.activeElement).toBe(el(container, "#btn"));
+      expect(e.defaultPrevented).toBe(true);
+    });
   });
 });

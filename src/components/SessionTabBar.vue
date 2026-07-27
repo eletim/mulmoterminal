@@ -26,7 +26,7 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
       aria-label="New session"
       @click="emit('new')"
     >
-      <span class="material-symbols-outlined">add</span>
+      <span class="material-symbols-outlined" aria-hidden="true">add</span>
     </button>
     <button
       class="h-[26px] w-[26px] shrink-0 cursor-pointer rounded-md border-0 bg-selected text-[12px] font-semibold uppercase leading-none text-secondary hover:bg-selected-hover"
@@ -69,7 +69,7 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
         aria-label="Switch to vertical sidebar"
         @click="emit('toggle-layout')"
       >
-        <span class="material-symbols-outlined">dock_to_right</span>
+        <span class="material-symbols-outlined" aria-hidden="true">dock_to_right</span>
       </button>
     </div>
   </div>

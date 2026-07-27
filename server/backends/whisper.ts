@@ -16,6 +16,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import type { Express, Request, Response } from "express";
 import { createWhisper, DEFAULT_WHISPER_MODEL, type WhisperLogger, type WhisperModelName } from "@mulmoclaude/core/whisper";
+import type { VoiceInputStatus } from "../../common/voiceInputStatus.js";
 import { admitAudioClip, normalizeLanguage } from "./audioAdmission.js";
 
 const log: WhisperLogger = {
@@ -58,11 +59,8 @@ function selectedModel(): WhisperModelName {
   return DEFAULT_WHISPER_MODEL;
 }
 
-interface VoiceInputStatus {
-  capable: boolean;
-  model: { name: WhisperModelName; state: string; progress?: number; error?: string };
-}
-
+// Annotated with the shared wire type so a change to whisper's own status shape surfaces
+// here as a compile error rather than as a field the UI silently stops finding.
 function getVoiceInputStatus(): VoiceInputStatus {
   const name = selectedModel();
   return { capable: isVoiceInputCapable(), model: { name, ...service().getModelStatus(name) } };

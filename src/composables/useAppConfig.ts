@@ -8,6 +8,7 @@ import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setGlobalFontFamily } from "./terminalFontFamily";
 import { setActiveKeymap } from "./activeKeymap";
+import { setCockpitLines } from "./cockpitLines";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
 // useAppConfig() caller — the beep player lives in the single view while the
@@ -89,7 +90,7 @@ function createPresetMutations(presets: Ref<CwdPreset[]>, savePresets: (next: Cw
   // to the FRONT (most-recently-used) on every launch so the list reflects launch order. A
   // re-launched dir keeps its existing (possibly manual) label; a new dir is prepended with
   // its basename. Already at the front → no write. No cap: the user prunes the list with the
-  // chip's ✕. Called with the server-confirmed (effective) cwd so we only remember dirs that
+  // chip's close button. Called with the server-confirmed (effective) cwd so we only remember dirs that
   // actually ran.
   function recordPreset(path: string | null): Promise<void> {
     if (!path) return Promise.resolve();
@@ -101,7 +102,7 @@ function createPresetMutations(presets: Ref<CwdPreset[]>, savePresets: (next: Cw
     });
   }
 
-  // Drop one preset (the chip's ✕). No-op when the path isn't present.
+  // Drop one preset (the chip's close button). No-op when the path isn't present.
   function removePreset(path: string): Promise<void> {
     return serialize(async () => {
       if (!presets.value.some((p) => p.path === path)) return;
@@ -250,6 +251,8 @@ export function useAppConfig() {
       // Keyboard shortcuts are opt-in: no `keymap` in config.json leaves this empty and
       // every shortcut stays off.
       setActiveKeymap(c.keymap);
+      // How far the cockpit roster clamps each line. Absent `cockpitLines` keeps 2/2/3.
+      setCockpitLines(c.cockpitLines);
       // The terminal font stack (config.json-only, no Settings UI). Terminals already open
       // re-fit when this lands — a different face means different cell metrics.
       setGlobalFontFamily(c.fontFamily);

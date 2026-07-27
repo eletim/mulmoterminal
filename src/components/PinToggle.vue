@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The ★ favorite toggle the collection plugin renders (via the binding's
+// The favorite toggle the collection plugin renders (via the binding's
 // `pinToggle`) on index cards + the view header. Talks to the useShortcuts
 // singleton directly — a parent only supplies the target's identity + cached
 // label/icon. Click/keyboard activation are stopped so toggling never also opens

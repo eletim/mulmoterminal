@@ -22,8 +22,20 @@ awaits review — the goal is to run many agents solo instead of babysitting the
 
 MulmoTerminal has two display modes; switch between them with the **chat / grid** icons in the top toolbar.
 
-- **Single view** — the screen for **focusing** on one agent (conversation on the left, a GUI panel on the right for diagrams, forms, images, documents, video, and more).
-- **Grid view** — the screen for **supervising many agents at once**, tiled side by side. This is the star of this guide.
+- **Single view** — the screen for **focusing** on one agent (conversation on the left, a GUI panel on the right for diagrams, forms, images, documents, video, and more). Its URL is **`/chat`**.
+- **Grid view** — the screen for **supervising many agents at once**, tiled side by side. This is the star of this guide, and **what the app opens on**: `http://localhost:34567/` lands here (the URL settles on `/terminals`).
+
+Bookmark `/chat` if you would rather start on the single view.
+
+**The top toolbar differs between the two**, because the two screens are for different things:
+
+| | Grid | Single view |
+|---|---|---|
+| Running agents | New terminal, cell ordering, the status tally, **Pull requests**, **Worklog** | — |
+| Content | — | **Collections**, **Accounting**, **Wiki**, your pinned favourites |
+| Switching | chat / grid icons | chat / grid icons |
+
+A full-screen surface (Collections, Wiki, PRs, Accounting, Files) now **returns to the view you opened it from** when you close it.
 
 ![Single view — focus on one agent](../images/single-view.png)
 

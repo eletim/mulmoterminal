@@ -85,6 +85,8 @@ Open it from the ⚙ in the toolbar.
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
+| `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |
+| `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 | `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
 
 ## Running on another model (providers) {#providers}
@@ -106,6 +108,40 @@ Note that `baseUrl` must not end in `/v1`, and `tokenEnv` is the **name** of a v
 → **Full walkthrough, the measured model list, how to add your own models, and troubleshooting:
 [Using another model via OpenRouter](providers.html).**
 
+## Which clone made this PR (`prWorkdirFooter`) {#pr-workdir-footer}
+
+If you keep several checkouts of the same repo side by side — `myrepo`, `myrepo2`, `myrepo3` —
+a PR on GitHub says nothing about which one it came from. From a cell you can reach its PR; the
+other direction is a guess.
+
+So a PR created with **⧉ Open PR** ends its body with the name of the clone the work happened in:
+
+```
+work in myrepo3
+```
+
+That is the directory name of the **main checkout**, not of the worktree — MulmoTerminal runs
+each task in a worktree under `~/.mulmoterminal/worktrees/`, and the worktree's own name is just
+the branch, which the PR already shows.
+
+**On by default.** To turn it off, in `~/.mulmoterminal/config.json`:
+
+```json
+{
+  "prWorkdirFooter": false
+}
+```
+
+The next PR you create honours it — **no restart needed**. This setting has no Settings-modal
+control, so it is read from the file each time a PR is created.
+
+Notes:
+
+- Only PRs **this app creates** get the line. Pressing ⧉ Open PR again on a branch that already
+  has a PR just opens it — the line is never appended twice.
+- Editing the PR body on GitHub afterwards is fine; nothing rewrites it later.
+- If the line can't be added (no `gh`, a network error), the PR is still created and opened —
+  you just don't get the line.
 ## Terminal font (`fontFamily`) {#font-family}
 
 The font every terminal renders in. There is **no Settings UI** — put a CSS font-family stack in
@@ -397,6 +433,38 @@ before committing to one.
 > MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
 > navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
 
+## Cockpit roster line counts (`cockpitLines`) {#cockpit-lines}
+
+Enlarge a terminal and the others line up beside it as a **roster**, three lines each: **summary**
+(what that session is doing now), **prompt**, and **reply**. Each is clamped so a long roster still
+fits on screen.
+
+That clamp is a trade, not a bug: more lines each means fewer sessions visible at once. A summary
+written as a full sentence is the one that gets cut mid-thought — so the summary is usually the one
+worth raising.
+
+```json
+{ "cockpitLines": { "summary": 6, "prompt": 2, "response": 3 } }
+```
+
+| Field | Clamps | Default |
+|---|---|---|
+| `summary` | What the session is doing now | `2` |
+| `prompt` | The prompt you sent | `2` |
+| `response` | The agent's reply | `3` |
+
+- Each field is a whole number in **1–20**. A number outside that range is **clamped** into it, and
+  a fractional one is **rounded** — you get the direction you asked for rather than a silent reset.
+- Non-numeric falls back to **that field's** default — one typo doesn't discard the other two.
+- Omit `cockpitLines` entirely and the roster looks exactly as it always has.
+- **Hovering a line shows the full text**, whatever the clamp — raising it saves a hover, it isn't
+  the only way to read a long summary.
+- Takes effect after a **tab reload**.
+
+{: .note }
+> This is a **global** setting, not a per-directory one. The roster mixes sessions from every
+> directory, so a per-directory value would leave neighbouring rows disagreeing about their height.
+
 ## Per-project `.mulmoterminal.json` {#per-dir}
 
 Place this at the project root to change the appearance, sound, and header of **terminals (grid cells) opened in that directory**.
@@ -449,7 +517,7 @@ Set `theme` to `midnight` / `nord` / `daylight` / `solarized` for a preset palet
 overrides on top. The color-coding screenshot in [Scenario 6](scenarios.html) combines header colors with `colors` to
 paint each project — **from the header down to the terminal body**.
 
-### Terminal font size (`fontSize`)
+### Terminal font size (`fontSize`) {#font-size}
 
 `fontSize` sets the px size of the terminal font for this directory, overriding the Settings value:
 

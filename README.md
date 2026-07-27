@@ -70,7 +70,7 @@ output you haven't seen) — driven by Claude/Codex activity hooks the server in
 
 ![Single view — one agent in focus, terminal on the left and a GUI panel on the right](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/single-view.png)
 
-*Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar.*
+*Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar. **The app opens on the grid** (`/`); the single view has its own URL, `/chat`, so you can bookmark either.*
 
 **Inserting a file path** — like a native terminal, you can put a file's absolute path into
 the prompt: **drag a file** onto the terminal (works where the browser exposes the path via
@@ -451,6 +451,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `worklogEnabled` | `true` to run the built-in **dev worklog** batch (see below). Off by default (each run spawns an LLM session, so it costs tokens). |
 | `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
+| `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out — read from the file per PR, so no restart is needed (there is no Settings control for it). Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
 | `fontFamily` | The **terminal font** every session renders in — a CSS font-family stack, e.g. `"'Cica', 'MS Gothic', monospace"`. No Settings UI: edit the file, then **restart** (this config is read once at startup). Unset uses the built-in stack (JetBrains Mono / Fira Code / Menlo / Consolas, then CJK faces for Japanese, Korean and Chinese). Unlike the per-browser font **size**, this is one value for the whole host — it names fonts, and which fonts exist is a property of the machine. A directory can override it. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#font-family). |
 
 #### Header buttons
@@ -840,7 +841,10 @@ Favorited collections get their own toolbar buttons.
 - **Notifications** (🔔) — a toolbar bell with an unread badge and a dropdown of active
   notifications; click a row to jump to its session.
 - **Voice input** — dictate a prompt via on-device Whisper (`POST /api/transcribe`, macOS
-  only; the model downloads on first use).
+  only; the model downloads on first use). Settings picks **the language you dictate in**
+  (per browser): your browser's, whisper's own per-clip detection, or a fixed one. Worth
+  setting — speech in a language the mic is not expecting comes back *translated* into the
+  one it is, so an English browser silently turned Japanese dictation into English.
 - **Remote host** — link MulmoTerminal to the companion phone client (Google sign-in) to
   watch and start sessions from your phone.
 - **Themes** — four terminal palettes (midnight / nord / daylight / solarized), your pick

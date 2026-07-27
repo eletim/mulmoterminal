@@ -10,6 +10,7 @@ import {
   sanitizePushKinds,
   sanitizeUserMcpServers,
   sanitizePushEnabled,
+  sanitizePrWorkdirFooter,
   sanitizeWorklogIntervalHours,
   sanitizeTerminalSubmit,
   loadAppConfig,
@@ -21,6 +22,7 @@ import {
   type AppConfig,
 } from "../../../server/config/app-config";
 import { DEFAULT_PUSH_KINDS } from "../../../common/pushKinds.js";
+import { DEFAULT_COCKPIT_LINES } from "../../../common/cockpitLines.js";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-appcfg-"));
 
@@ -48,6 +50,20 @@ describe("sanitizePushEnabled", () => {
     expect(sanitizePushEnabled(1)).toBe(false);
     expect(sanitizePushEnabled(null)).toBe(false);
     expect(sanitizePushEnabled(undefined)).toBe(false);
+  });
+});
+
+describe("sanitizePrWorkdirFooter", () => {
+  it("is false ONLY for the boolean false — the one default-on switch here", () => {
+    expect(sanitizePrWorkdirFooter(false)).toBe(false);
+    expect(sanitizePrWorkdirFooter(true)).toBe(true);
+    // Absent key: every config file written before #872 must keep the feature on.
+    expect(sanitizePrWorkdirFooter(undefined)).toBe(true);
+    // "false" the STRING is not the opt-out — a hand-edited config that quotes it stays on,
+    // which is the safe direction for a switch whose off state is silent.
+    expect(sanitizePrWorkdirFooter("false")).toBe(true);
+    expect(sanitizePrWorkdirFooter(0)).toBe(true);
+    expect(sanitizePrWorkdirFooter(null)).toBe(true);
   });
 });
 
@@ -226,6 +242,8 @@ describe("loadAppConfig / saveAppConfig", () => {
     providers: [],
     terminalSubmit: "cr",
     keymap: {},
+    prWorkdirFooter: true,
+    cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
   };
   it("round-trips presets + soundFile + prRepos + launchers + userMcpServers through a file", () => {
@@ -247,6 +265,8 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
+      prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
+      cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
       fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
     };
     expect(saveAppConfig(file, cfg)).toBe(true);
@@ -288,6 +308,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       quickCommands: [],
       userMcpServers: [{ id: "ok", url: "https://x/mcp" }],
       keymap: { "zoom-next": "PageDown" },
+      cockpitLines: { ...DEFAULT_COCKPIT_LINES },
       buttons: null,
       chips: null,
       pushEnabled: false,
@@ -296,6 +317,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       worklogIntervalHours: 6,
       providers: [],
       terminalSubmit: "cr",
+      prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
       fontFamily: null,
     });
     rmSync(dir, { recursive: true, force: true });
@@ -395,6 +417,8 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     providers: [],
     terminalSubmit: "cr" as const,
     keymap: {},
+    prWorkdirFooter: true,
+    cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
   };
 
@@ -450,6 +474,8 @@ describe("mergeConfigUpdate", () => {
     providers: [],
     terminalSubmit: "cr",
     keymap: {},
+    prWorkdirFooter: true,
+    cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
     ...over,
   });
@@ -481,6 +507,12 @@ describe("mergeConfigUpdate", () => {
     expect(mergeConfigUpdate(baseConfig(), { terminalSubmit: "bogus" }).terminalSubmit).toBe("cr"); // invalid => default
     // a chips-only update must not reset the mapping
     expect(mergeConfigUpdate(baseConfig({ terminalSubmit: "esc-cr" }), { chips: ["git"] }).terminalSubmit).toBe("esc-cr");
+  });
+
+  it("applies prWorkdirFooter from the body and keeps it when omitted", () => {
+    expect(mergeConfigUpdate(baseConfig(), { prWorkdirFooter: false }).prWorkdirFooter).toBe(false);
+    // The opt-out must survive an unrelated update, or the next Settings save re-enables it.
+    expect(mergeConfigUpdate(baseConfig({ prWorkdirFooter: false }), { chips: ["git"] }).prWorkdirFooter).toBe(false);
   });
 
   // No Settings UI writes this one, so the merge path is the only thing standing between a

@@ -7,6 +7,8 @@ import { resolveGithubUrl } from "./gitRemote.js";
 import { spawnCollect, type SpawnResult } from "./spawn-collect.js";
 import { lastGhUrl } from "./git-parse.js";
 import { parsePrUrl } from "./pr-for-branch.js";
+import { getPrWorkdirFooter } from "../config/config-routes.js";
+import { withFooter, workdirFooter } from "./pr-footer.js";
 
 type Reason = "not-worktree" | "no-branch" | "no-remote" | "no-github" | "push-failed" | "failed";
 
@@ -34,9 +36,9 @@ export const NETWORK_MUTATION_TIMEOUT_MS = 300_000;
 
 // worktrees.ts' git() drops stderr and only runs git; push/gh failures report via
 // stderr, so use the stderr-capturing runner, constrained to those two tools.
-function run(cmd: "git" | "gh", args: string[], cwd: string): Promise<SpawnResult> {
-  return spawnCollect(cmd, args, { cwd, errorStderr: "spawn failed", timeoutMs: NETWORK_MUTATION_TIMEOUT_MS });
-}
+export type Runner = (cmd: "git" | "gh", args: string[], cwd: string) => Promise<SpawnResult>;
+
+const run: Runner = (cmd, args, cwd) => spawnCollect(cmd, args, { cwd, errorStderr: "spawn failed", timeoutMs: NETWORK_MUTATION_TIMEOUT_MS });
 
 async function currentBranch(cwd: string): Promise<string | null> {
   const res = await git(["rev-parse", "--abbrev-ref", "HEAD"], cwd);
@@ -72,6 +74,27 @@ export async function pushWorktree(cwd: string): Promise<PushResult> {
   return pushed.ok ? { ok: true, branch } : { ok: false, reason: "push-failed", detail: pushed.stderr.trim().slice(0, DETAIL_LIMIT) };
 }
 
+// Say which clone the work happened in, at the end of the PR body (#872). Two calls rather
+// than one, because `--body` on `gh pr create` REPLACES what `--fill` derived from the
+// commits instead of adding to it — so the body has to be read back and edited.
+//
+// Never fails the PR: the PR exists by the time this runs, and reporting an error for a
+// missing trailing line would tell the user their PR wasn't created when it was.
+export async function appendWorkdirFooter(prUrl: string, repoRootPath: string, cwd: string, runner: Runner = run): Promise<void> {
+  const footer = workdirFooter(repoRootPath);
+  const viewed = await runner("gh", ["pr", "view", prUrl, "--json", "body", "--jq", ".body"], cwd);
+  if (!viewed.ok) {
+    console.warn(`[pr] could not read the body of ${prUrl} to append "${footer}": ${viewed.stderr.trim().slice(0, DETAIL_LIMIT)}`);
+    return;
+  }
+  const body = withFooter(viewed.stdout, footer);
+  // withFooter returns its input unchanged when the line is already there, so this is the
+  // "nothing to say" case — don't spend a write (and a PR-edited event) saying it.
+  if (body === viewed.stdout) return;
+  const edited = await runner("gh", ["pr", "edit", prUrl, "--body", body], cwd);
+  if (!edited.ok) console.warn(`[pr] could not append "${footer}" to ${prUrl}: ${edited.stderr.trim().slice(0, DETAIL_LIMIT)}`);
+}
+
 // Push, then create a PR via gh — falling back to the GitHub compare URL when gh is
 // absent/unauthed/errors. Returns the URL to open and which path produced it.
 export async function createOrOpenPR(cwd: string): Promise<PrResult> {
@@ -84,7 +107,12 @@ export async function createOrOpenPR(cwd: string): Promise<PrResult> {
 
   const gh = await run("gh", ["pr", "create", "--base", base, "--head", branch, "--fill"], cwd);
   const ghUrl = gh.ok ? lastGhUrl(gh.stdout) : null;
-  if (ghUrl) return { ok: true, url: ghUrl, via: "gh" };
+  if (ghUrl) {
+    // Only on the PR we just created: the existing-PR branch below would stack another copy
+    // of the line every time the button is pressed.
+    if (getPrWorkdirFooter()) await appendWorkdirFooter(ghUrl, repo, cwd);
+    return { ok: true, url: ghUrl, via: "gh" };
+  }
 
   // `gh pr create` fails when a PR for this branch ALREADY exists — re-running the button
   // should open that PR, not the "open a new PR" compare page. Look it up before falling back.

@@ -26,7 +26,7 @@ import {
   CELL_TERM,
 } from "./cellChromeClasses";
 
-// The summarize button's own colours, and the smaller ✕ on the summary panel. One complete
+// The summarize button's own colours, and the smaller close button on the summary panel. One complete
 // string per state rather than a base plus an override: two utilities for the same property
 // on one element are resolved by Tailwind's output order, not by the order written here.
 const SUMMARIZE_READY = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[#9db4ff] hover:bg-[#24305c] hover:text-[#cdd8ff]`;
@@ -40,7 +40,7 @@ const SUMMARY_CLOSE_BTN = `${CELL_BTN_BOX} h-[22px] w-[22px] text-[13px] ${CELL_
 const props = defineProps<
   GridCellProps & {
     command: RunCommand;
-    // Manual sort mode: show ◀▶ to swap this cell with its neighbour.
+    // Manual sort mode: show move buttons to swap this cell with its neighbour.
     reorderable?: boolean;
   }
 >();
@@ -163,11 +163,17 @@ function onHeaderClick(event: MouseEvent) {
       <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="command.cwd ?? ''"
         ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
-      <span class="cell-cmd" :class="CELL_CMD">▶ {{ command.label }}</span>
+      <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ command.label }}</span>
       <span class="cell-actions" :class="CELL_ACTIONS">
-        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move command left" @click="emit('move', -1)">◀</button>
-        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move command right" @click="emit('move', 1)">▶</button>
-        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Re-run" aria-label="Re-run command" @click="rerun">↻</button>
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move command left" @click="emit('move', -1)">
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+        </button>
+        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move command right" @click="emit('move', 1)">
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+        </button>
+        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Re-run" aria-label="Re-run command" @click="rerun">
+          <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+        </button>
         <button
           class="cell-btn cell-summarize"
           :class="summaryState === 'loading' ? `is-busy ${SUMMARIZE_BUSY}` : SUMMARIZE_READY"
@@ -176,7 +182,7 @@ function onHeaderClick(event: MouseEvent) {
           :disabled="summaryState === 'loading'"
           @click="summarize"
         >
-          {{ summaryState === "loading" ? "⋯" : "✦" }}
+          <span class="material-symbols-outlined" aria-hidden="true">{{ summaryState === "loading" ? "more_horiz" : "auto_awesome" }}</span>
         </button>
         <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
       </span>
@@ -195,9 +201,11 @@ function onHeaderClick(event: MouseEvent) {
     />
     <div v-if="showSummary" data-testid="cell-summary" class="flex max-h-[40%] min-h-0 flex-none flex-col border-t border-t-[#2a2a4e] bg-[#141b33]">
       <div class="flex flex-none items-center justify-between border-b border-b-[#232a48] py-0.5 pl-2.5 pr-1.5">
-        <span class="font-sans text-[11px] font-semibold text-[#9db4ff]">✦ Summary</span>
+        <span class="inline-flex items-center gap-1 font-sans text-[11px] font-semibold text-[#9db4ff]"
+          ><span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span> Summary</span
+        >
         <button class="cell-btn cell-summary-close" :class="SUMMARY_CLOSE_BTN" title="Dismiss summary" aria-label="Dismiss summary" @click="closeSummary">
-          ✕
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
       <div class="min-h-0 flex-auto overflow-auto px-2.5 pb-2 pt-1.5">
@@ -224,11 +232,12 @@ function onHeaderClick(event: MouseEvent) {
             <button
               type="button"
               data-testid="cell-summary-continue"
-              class="cursor-pointer rounded-md border border-[#3b4a7a] bg-[#232a45] px-2.5 py-1 font-sans text-[12px] text-[#cdd6ff] hover:bg-[#2c355a]"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[#3b4a7a] bg-[#232a45] px-2.5 py-1 font-sans text-[12px] text-[#cdd6ff] hover:bg-[#2c355a]"
               title="Copy this as a prompt to paste into a Claude session"
               @click="copyPrompt"
             >
-              {{ copied ? "✓ Copied" : "⧉ Copy as prompt" }}
+              <span class="material-symbols-outlined" aria-hidden="true">{{ copied ? "check" : "content_copy" }}</span>
+              {{ copied ? "Copied" : "Copy as prompt" }}
             </button>
           </div>
         </template>

@@ -22,6 +22,7 @@ import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmit
 import type { QuickCommand } from "../../common/quickCommands.js";
 import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
+import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "../../common/cockpitLines.js";
 import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
@@ -67,6 +68,13 @@ export interface AppConfig {
   // User-defined keyboard shortcuts (#829). NO defaults: an empty map means the shortcuts
   // are off, because every binding takes that key away from the terminal underneath.
   keymap: Keymap;
+  // Append `work in <clone name>` to the body of PRs this app creates (#872), so a PR says
+  // which of several side-by-side clones produced it. ON unless explicitly disabled — the
+  // line is the whole point of the feature, and a reader who doesn't want it sets `false`.
+  prWorkdirFooter: boolean;
+  // How many lines each cockpit-roster row shows before clamping (#877). Defaults keep the
+  // previous 2/2/3; raising `summary` trades roster length for reading a long one in place.
+  cockpitLines: CockpitLines;
   // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
   // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
   // exist is a property of the machine the browser runs on — the same answer for every client
@@ -201,6 +209,13 @@ export function sanitizeWorklogEnabled(input: unknown): boolean {
   return input === true;
 }
 
+// Inverted against every other boolean here: this one defaults ON, so anything that is not
+// an explicit `false` — including a missing key, which is what every existing config file
+// has — leaves it enabled.
+export function sanitizePrWorkdirFooter(input: unknown): boolean {
+  return input !== false;
+}
+
 // Positive whole hours, clamped to [1, 168]. Anything else falls back to the default.
 export function sanitizeWorklogIntervalHours(input: unknown): number {
   if (typeof input !== "number" || !Number.isFinite(input) || input <= 0) return DEFAULT_WORKLOG_INTERVAL_HOURS;
@@ -227,6 +242,8 @@ export const emptyConfig = (): AppConfig => ({
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
+  prWorkdirFooter: true,
+  cockpitLines: { ...DEFAULT_COCKPIT_LINES },
   fontFamily: null,
 });
 
@@ -261,6 +278,8 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
+    prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
+    cockpitLines: sanitizeCockpitLines(o.cockpitLines),
     fontFamily: normalizeFontFamily(o.fontFamily),
   };
 }
@@ -314,28 +333,28 @@ export function backupCorruptConfig(file: string): string | null {
 // stale in-memory copy would otherwise write back its boot-time values for the omitted
 // fields, clobbering whatever another instance persisted since (e.g. wiping buttons).
 export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>): AppConfig {
-  // Every field obeys the same rule, so it is written once: a body that CARRIES the key wins
-  // (even as null/garbage — the sanitizer decides what that means), and a body that omits it
-  // keeps the base's value. Note `!== undefined`, not truthiness: `chips: []` and `soundFile:
-  // null` are real edits meaning "none", and must not read as "field absent".
-  const merge = <T>(value: unknown, sanitize: (input: unknown) => T, kept: T): T => (value !== undefined ? sanitize(value) : kept);
+  // `undefined` means "the body didn't mention this field", which is NOT the same as a field
+  // sent as null/[] — those are real values the sanitizer decides on.
+  const updated = <T>(key: keyof AppConfig, sanitize: (input: unknown) => T, current: T): T => (body[key] !== undefined ? sanitize(body[key]) : current);
   return {
-    cwdPresets: merge(body.cwdPresets, sanitizePresets, base.cwdPresets),
-    soundFile: merge(body.soundFile, sanitizeSoundFile, base.soundFile),
-    prRepos: merge(body.prRepos, sanitizeRepos, base.prRepos),
-    launchers: merge(body.launchers, sanitizeLaunchers, base.launchers),
-    quickCommands: merge(body.quickCommands, sanitizeQuickCommands, base.quickCommands),
-    userMcpServers: merge(body.userMcpServers, sanitizeUserMcpServers, base.userMcpServers),
-    buttons: merge(body.buttons, sanitizeButtons, base.buttons),
-    chips: merge(body.chips, sanitizeChips, base.chips),
-    pushEnabled: merge(body.pushEnabled, sanitizePushEnabled, base.pushEnabled),
-    pushKinds: merge(body.pushKinds, sanitizePushKinds, base.pushKinds),
-    worklogEnabled: merge(body.worklogEnabled, sanitizeWorklogEnabled, base.worklogEnabled),
-    worklogIntervalHours: merge(body.worklogIntervalHours, sanitizeWorklogIntervalHours, base.worklogIntervalHours),
-    providers: merge(body.providers, sanitizeProviders, base.providers),
-    terminalSubmit: merge(body.terminalSubmit, sanitizeTerminalSubmit, base.terminalSubmit),
-    keymap: merge(body.keymap, sanitizeKeymap, base.keymap),
-    fontFamily: merge(body.fontFamily, normalizeFontFamily, base.fontFamily),
+    cwdPresets: updated("cwdPresets", sanitizePresets, base.cwdPresets),
+    soundFile: updated("soundFile", sanitizeSoundFile, base.soundFile),
+    prRepos: updated("prRepos", sanitizeRepos, base.prRepos),
+    launchers: updated("launchers", sanitizeLaunchers, base.launchers),
+    quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
+    userMcpServers: updated("userMcpServers", sanitizeUserMcpServers, base.userMcpServers),
+    buttons: updated("buttons", sanitizeButtons, base.buttons),
+    chips: updated("chips", sanitizeChips, base.chips),
+    pushEnabled: updated("pushEnabled", sanitizePushEnabled, base.pushEnabled),
+    pushKinds: updated("pushKinds", sanitizePushKinds, base.pushKinds),
+    worklogEnabled: updated("worklogEnabled", sanitizeWorklogEnabled, base.worklogEnabled),
+    worklogIntervalHours: updated("worklogIntervalHours", sanitizeWorklogIntervalHours, base.worklogIntervalHours),
+    providers: updated("providers", sanitizeProviders, base.providers),
+    terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
+    keymap: updated("keymap", sanitizeKeymap, base.keymap),
+    fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
+    prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
+    cockpitLines: updated("cockpitLines", sanitizeCockpitLines, base.cockpitLines),
   };
 }
 
@@ -359,6 +378,8 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
+    prWorkdirFooter: config.prWorkdirFooter,
+    cockpitLines: config.cockpitLines,
     fontFamily: config.fontFamily,
   };
 }

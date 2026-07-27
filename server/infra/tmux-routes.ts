@@ -31,7 +31,7 @@ export function orphanReapable(resumable: boolean, attachedCount: number | null)
 }
 
 export function mountTmuxRoutes(app: Express, deps: TmuxRouteDeps): void {
-  // Explicit close (the cell's ✕): reap NOW — kill the pty AND its tmux — instead of
+  // Explicit close (the cell's close button): reap NOW — kill the pty AND its tmux — instead of
   // leaving it for the disconnect grace. Works even when the WS is down, and kills a tmux
   // orphaned by a prior server restart (reap alone is a no-op without a live entry).
   app.post("/api/session/:id/terminate", (req, res) => {
