@@ -15,6 +15,7 @@ import type { PrPhase, WorkPhase } from "./rosterPhase";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { shouldFlipZoom } from "./cellChromeRules";
+import { formatCwd } from "./cwdDisplay";
 import FilesPane from "./FilesPane.vue";
 import { clampPaneWidth, splitterKeyWidth } from "./splitterWidth";
 
@@ -141,15 +142,47 @@ const rowWidth = () => zoomRow.value?.clientWidth ?? 0;
 
 function toggleFiles(): void {
   filesOpen.value = !filesOpen.value;
+  // Closing drops the root it was on, so re-opening lands on whichever cell is enlarged THEN
+  // rather than resuming a directory the user has since walked away from.
+  if (!filesOpen.value) paneCwd.value = null;
   remember(PANE_OPEN_KEY, filesOpen.value ? "1" : "0");
 }
 
 // The enlarged cell's project dir — what the pane browses. A cell that hasn't reported one yet
 // (a launcher, a session still starting) falls back to the grid's default.
 const expandedCwd = computed(() => props.cells.find((c) => c.uid === props.expandedUid)?.cwd ?? props.defaultCwd);
+const filesPane = ref<InstanceType<typeof FilesPane> | null>(null);
+// The root the pane is ACTUALLY on. Normally `expandedCwd`, but it stays behind when a re-root
+// is declined over unsaved edits — and it, not `expandedCwd`, is what the pane is handed, so a
+// file opened from a tree that stayed put still resolves against the directory it came from.
+const paneCwd = ref<string | null>(null);
+
+// Walking the zoom to another terminal has to re-root the pane: the pane deliberately ignores
+// its `cwd` prop (see its defineExpose contract), so nothing else would move it. Asking first
+// is what keeps an unsaved buffer from vanishing with the enlargement.
+watch(
+  [filesOpen, zoomed, expandedCwd],
+  async ([open, isZoomed]) => {
+    if (!open || !isZoomed || paneCwd.value === expandedCwd.value) return;
+    // First showing: the pane is about to mount against this root, so there is nothing to re-read.
+    if (paneCwd.value === null) {
+      paneCwd.value = expandedCwd.value;
+      return;
+    }
+    if (!filesPane.value?.confirmDiscard()) return; // declined — stay on the old root
+    paneCwd.value = expandedCwd.value;
+    await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
+    filesPane.value?.reload();
+  },
+  { immediate: true },
+);
 
 function setPaneWidth(width: number): void {
-  paneWidth.value = clampPaneWidth(width, rowWidth());
+  const available = rowWidth();
+  // Before the row is laid out there is nothing to clamp against, and clamping against zero
+  // would "correct" the width to a negative one.
+  if (available <= 0) return;
+  paneWidth.value = clampPaneWidth(width, available);
 }
 function onSplitterDown(e: PointerEvent): void {
   const startX = e.clientX;
@@ -179,6 +212,15 @@ function onSplitterKey(e: KeyboardEvent): void {
 const reclampPane = () => filesOpen.value && setPaneWidth(paneWidth.value);
 onMounted(() => window.addEventListener("resize", reclampPane));
 onBeforeUnmount(() => window.removeEventListener("resize", reclampPane));
+
+// A width restored from storage was clamped against WHATEVER row existed when it was stored —
+// a wider window, or the other zoom mode. Re-clamp once the row is actually on screen, or a
+// remembered 900px opens against a 1000px row and leaves the terminal 100px wide.
+watch([filesOpen, zoomed, () => props.listMode], async ([open, isZoomed]) => {
+  if (!open || !isZoomed) return;
+  await nextTick();
+  setPaneWidth(paneWidth.value);
+});
 
 const stage = ref<HTMLElement | null>(null);
 // The cells currently flying between slots. Also gates the stylesheet: the cells not in
@@ -353,7 +395,14 @@ watch(
           @pointerdown.prevent="onSplitterDown"
           @keydown="onSplitterKey"
         />
-        <FilesPane :cwd="expandedCwd" :style="{ flex: `0 0 ${paneWidth}px` }" class="border-l border-border bg-deep" @close="toggleFiles" />
+        <FilesPane ref="filesPane" :cwd="paneCwd" :style="{ flex: `0 0 ${paneWidth}px` }" class="border-l border-border bg-deep" @close="toggleFiles">
+          <!-- Which directory the tree is actually rooted at. It normally follows the enlarged
+               cell, but declining a re-root leaves it behind — and then this is the only thing
+               that says so. -->
+          <template #title>
+            <span class="truncate font-mono text-[11px] text-muted" :title="expandedCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
+          </template>
+        </FilesPane>
       </template>
     </div>
     <div class="grid" :style="gridStyle">

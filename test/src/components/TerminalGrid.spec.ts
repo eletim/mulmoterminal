@@ -1,14 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mount, DOMWrapper } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mount, flushPromises, DOMWrapper } from "@vue/test-utils";
+import { h, nextTick } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
 import type { RunCommand } from "../../../src/components/runCommand.js";
 import { setCockpitLines } from "../../../src/composables/cockpitLines";
 
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
+// The host drives the pane through reload()/confirmDiscard(); spies here are what let the
+// contract be asserted rather than the prop that merely claims it.
+const paneStub = vi.hoisted(() => ({ reload: vi.fn(), confirmDiscard: vi.fn(() => true) }));
 vi.mock("../../../src/components/FilesPane.vue", () => ({
-  default: { name: "FilesPane", props: ["cwd", "requestedPath"], emits: ["close", "dirty"], template: '<div class="stub-files-pane" />' },
+  default: {
+    name: "FilesPane",
+    props: ["cwd", "requestedPath"],
+    emits: ["close", "dirty"],
+    setup: (_p: unknown, { expose }: { expose: (e: Record<string, unknown>) => void }) => {
+      expose({ reload: paneStub.reload, confirmDiscard: paneStub.confirmDiscard });
+      return () => h("div", { class: "stub-files-pane" });
+    },
+  },
 }));
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
@@ -370,6 +381,8 @@ describe("file pane beside the enlarged cell", () => {
   // enlargement, so they trip over it where the older ones never did.
   beforeEach(() => {
     localStorage.clear();
+    paneStub.reload.mockClear();
+    paneStub.confirmDiscard.mockReturnValue(true);
     if (!window.matchMedia) {
       window.matchMedia = ((query: string) => ({
         matches: false,
@@ -416,16 +429,34 @@ describe("file pane beside the enlarged cell", () => {
     expect(paneOf(noCwd).props("cwd")).toBe("/work");
   });
 
-  it("re-roots to whichever cell is enlarged rather than opening a second pane", async () => {
+  // The pane ignores its `cwd` prop by design, so asserting the prop alone would pass while the
+  // tree still showed the previous cell — the host has to re-read, and that is what is checked.
+  it("re-roots the one pane when the zoom moves to another cell", async () => {
     const cells = [cell(1, "s1", "/one"), cell(2, "s2", "/two")];
     const w = mountCockpit(cells, 1, []);
     await openPane(w);
     expect(w.findAllComponents({ name: "FilesPane" })).toHaveLength(1);
+    expect(paneOf(w).props("cwd")).toBe("/one");
+    expect(paneStub.reload).not.toHaveBeenCalled(); // it mounted on /one; nothing to re-read
 
     await w.setProps({ expandedUid: 2 });
-    await nextTick();
+    await flushPromises();
     expect(w.findAllComponents({ name: "FilesPane" })).toHaveLength(1);
     expect(paneOf(w).props("cwd")).toBe("/two");
+    expect(paneStub.reload).toHaveBeenCalledTimes(1);
+  });
+
+  // Declining the prompt has to leave the pane WHOLE — same root, same buffer. Handing it the
+  // new cwd while keeping the old tree would resolve the next file open against the wrong dir.
+  it("keeps the old root, prop and all, when the re-root is refused over unsaved edits", async () => {
+    paneStub.confirmDiscard.mockReturnValueOnce(false);
+    const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
+    await openPane(w);
+
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(paneStub.reload).not.toHaveBeenCalled();
+    expect(paneOf(w).props("cwd")).toBe("/one");
   });
 
   it("remembers being open across a remount, and the pane's own close puts it away", async () => {
@@ -440,5 +471,38 @@ describe("file pane beside the enlarged cell", () => {
     await nextTick();
     expect(paneOf(reopened).exists()).toBe(false);
     expect(localStorage.getItem("files_pane_open")).toBe("0");
+  });
+});
+
+// A remembered width was clamped against WHATEVER row existed when it was stored — a wider
+// window, or the other zoom mode. Without a clamp at open time it is applied as-is, and a
+// remembered 900px against a 1000px row leaves the terminal 100px wide (xterm reflow garbage).
+describe("file pane width restored from storage", () => {
+  const ROW = 1000;
+  let clientWidth: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    localStorage.clear();
+    clientWidth = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "clientWidth");
+    Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => ROW });
+  });
+  afterEach(() => {
+    if (clientWidth) Object.defineProperty(window.HTMLElement.prototype, "clientWidth", clientWidth);
+  });
+
+  it("clamps to the terminal's floor as soon as the pane is on screen", async () => {
+    localStorage.setItem("files_pane_open", "1");
+    localStorage.setItem("files_pane_width", "900");
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    // 1000 wide, terminal keeps MIN_TERMINAL (320) → the pane gets the remaining 680.
+    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("680px");
+  });
+
+  it("leaves a width that already fits alone", async () => {
+    localStorage.setItem("files_pane_open", "1");
+    localStorage.setItem("files_pane_width", "400");
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("400px");
   });
 });
