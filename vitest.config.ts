@@ -5,6 +5,8 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: "jsdom",
+    // Tears down every mounted component after each test — see the file for why.
+    setupFiles: ["./test/setup-auto-unmount.ts"],
     include: ["src/**/*.spec.ts", "test/**/*.spec.ts", "server/**/*.spec.ts", "bin/**/*.spec.ts"],
     // The suite runs files in parallel across all cores. On a machine also running a build
     // (a dev's `yarn build` alongside `yarn test`) the cores are oversubscribed, so an
