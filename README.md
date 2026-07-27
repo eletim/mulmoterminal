@@ -627,6 +627,12 @@ as the reload signal, so colors, palette, font size and grid order update withou
 anything. There is no filesystem watcher, so an edit made **outside** a session (your own
 editor) is picked up when the terminal is next opened.
 
+**Checking what took effect.** Settings → **Directory settings** lists your recent directories
+and expands each one to the values in force, with a swatch per color and the path of the file
+they came from. It also names the keys it **dropped** (a color that isn't `#rrggbb`, a size out
+of range) and the keys it doesn't read at all (`badgeColour`, a global-only setting) — which is
+what tells "I never set that" apart from "I set it and it didn't take".
+
 ---
 
 ## Running
@@ -1148,6 +1154,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `soundKinds`, `sounds`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
 | `GET /api/sound?kind=` · `/api/dir-sound?cwd=&kind=` · `/api/sound-preset/:id` · `/api/dir-config?cwd=` | Custom / per-directory / preset attention sound + per-dir config. `kind` selects a config entry, never a path. |
+| `GET /api/dir-config-detail?cwd=` | The same per-dir config, **plus** the settings a running terminal doesn't need (`provider`, `model`, `skills`, `addDirs`, header button/chip **labels**), **plus** which keys the file set and how each fared (applied / dropped in validation / not a setting at all). Read-only; backs the Settings modal's **Directory settings** preview. Unlike the other `?cwd=` routes this one does **not** fall back to the default workspace — it reports on the directory it was asked about, so a path that no longer exists comes back as `exists:false`. Sound paths and button commands stay server-side. |
 | `GET /api/launch-options` | The Anthropic-compatible backends this server can reach, each with its models and — when it can't — the reason. Reports the **name** of the env var a key is read from, never the key. |
 | `GET /api/notifications`(`/history`) · `POST /api/notifications/:id/clear` | Notification feed. |
 | `POST /api/transcribe`(`/model`…) | Voice-input transcription (Whisper, macOS). |

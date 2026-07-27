@@ -9,10 +9,15 @@
 // useAppConfig's state is a singleton, so reading it here is the same state the shells read.
 // What genuinely differs stays a prop or an event: the chat view knows a cwd and a session,
 // and each shell configures appearance its own way.
+import { computed } from "vue";
 import { useAppConfig } from "../composables/useAppConfig";
 import SettingsModal from "./SettingsModal.vue";
+import type { CwdPreset } from "./presets";
 
-defineProps<{ cwd?: string | null; sessionId?: string | null }>();
+// `presets` comes DOWN from the shell rather than out of useAppConfig() here: unlike the
+// sound/push/launcher state, the preset list is a per-call ref, so the copy this component
+// would get is a second, empty one — the shell that called loadConfig() has the real list.
+const props = defineProps<{ cwd?: string | null; sessionId?: string | null; presets?: CwdPreset[] }>();
 const emit = defineEmits<{ (e: "configure-appearance" | "close"): void }>();
 
 const {
@@ -35,6 +40,13 @@ const {
   userMcpServers,
   saveUserMcpServers,
 } = useAppConfig();
+
+// Which directories the config preview lists: the recent dirs, plus the focused session's own
+// directory when it isn't among them (the chat view knows a cwd; the grid doesn't).
+const dirPaths = computed(() => {
+  const paths = (props.presets ?? []).map((p) => p.path);
+  return props.cwd && !paths.includes(props.cwd) ? [props.cwd, ...paths] : paths;
+});
 </script>
 
 <template>
@@ -50,6 +62,7 @@ const {
     :user-mcp-servers="userMcpServers"
     :cwd="cwd"
     :session-id="sessionId"
+    :dir-paths="dirPaths"
     @update-sound="saveSound"
     @update-sound-kinds="saveSoundKinds"
     @update-sounds="saveSounds"

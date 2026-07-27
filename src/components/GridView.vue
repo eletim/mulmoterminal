@@ -539,6 +539,6 @@ function configureAppearance() {
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
       <GuideLinks />
     </footer>
-    <AppSettingsModal v-if="showSettings" @configure-appearance="configureAppearance" @close="closeSettings" />
+    <AppSettingsModal v-if="showSettings" :presets="presets" @configure-appearance="configureAppearance" @close="closeSettings" />
   </div>
 </template>

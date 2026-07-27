@@ -2,7 +2,16 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveDirSound, loadDirConfig, publicDirConfig, dirSoundFor, dirConfigWriteTarget } from "../../../server/config/dir-config";
+import {
+  resolveDirSound,
+  loadDirConfig,
+  publicDirConfig,
+  dirSoundFor,
+  dirConfigWriteTarget,
+  dirConfigDetail,
+  MISSING_DIR_CONFIG_DETAIL,
+} from "../../../server/config/dir-config";
+import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
 const EMPTY = {
@@ -329,6 +338,101 @@ describe("per-kind directory sounds", () => {
   it("counts a per-kind sound towards hasSound", () => {
     const { dir, cleanup } = withConfig({ sounds: { waiting: "preset:coin" } });
     expect(publicDirConfig(dir).hasSound).toBe(true);
+    cleanup();
+  });
+});
+
+// The settings modal's preview. Its job is to tell "never set" apart from "set and dropped",
+// which is exactly what the resolved config alone cannot say.
+describe("dirConfigDetail", () => {
+  it("reports no file for a directory that has none", () => {
+    const dir = tmp();
+    const detail = dirConfigDetail(dir);
+    expect(detail.file).toBeNull();
+    expect(detail.source).toEqual({ applied: [], ignored: [], unknown: [] });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("separates what applied, what was dropped, and what is not a setting at all", () => {
+    const { dir, cleanup } = withConfig({ name: "proj", headerColor: "#2b3a55", cellColor: "rebeccapurple", badgeColour: "#123456" });
+    const detail = dirConfigDetail(dir);
+    expect(detail.file).toBe(path.join(dir, ".mulmoterminal.json"));
+    expect(detail.source.applied.sort()).toEqual(["headerColor", "name"]);
+    expect(detail.source.ignored).toEqual(["cellColor"]); // a CSS colour name is not #rrggbb
+    expect(detail.source.unknown).toEqual(["badgeColour"]);
+    expect(detail.config.headerColor).toBe("#2b3a55");
+    cleanup();
+  });
+
+  it("says a malformed file set nothing, rather than failing", () => {
+    const { dir, cleanup } = withConfig("{ not json");
+    const detail = dirConfigDetail(dir);
+    expect(detail.file).toBe(path.join(dir, ".mulmoterminal.json"));
+    expect(detail.source).toEqual({ applied: [], ignored: [], unknown: [] });
+    cleanup();
+  });
+
+  it("carries the settings PublicDirConfig leaves out, so the preview can show them", () => {
+    const { dir, cleanup } = withConfig({
+      provider: "openrouter",
+      model: "moonshotai/kimi-k2",
+      skills: ["deploy"],
+      buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy" }],
+      chips: ["git", { label: "Build", text: "yarn build" }],
+    });
+    const { extras } = dirConfigDetail(dir);
+    expect(extras.provider).toBe("openrouter");
+    expect(extras.model).toBe("moonshotai/kimi-k2");
+    expect(extras.skills).toEqual(["deploy"]);
+    expect(extras.buttonLabels).toEqual(["Deploy"]);
+    expect(extras.chipLabels).toEqual(["git", "Build"]);
+    cleanup();
+  });
+
+  // What the button would TYPE into the session is not part of "did my config take effect",
+  // and a settings screenshot should not carry it.
+  it("names a header button without its command", () => {
+    const { dir, cleanup } = withConfig({ buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy --token=hunter2" }] });
+    expect(JSON.stringify(dirConfigDetail(dir).extras)).not.toContain("hunter2");
+    cleanup();
+  });
+
+  // The preview labels the file's path as where every value under it came from, which only
+  // holds because this resolves that ONE file — no global config and no defaults are merged
+  // in. A directory with no file must therefore report nothing, not the app-wide settings.
+  it("reads this directory's file alone, with nothing merged in", () => {
+    const dir = tmp();
+    const { config, extras } = dirConfigDetail(dir);
+    expect(Object.values(config).every((value) => value === null || value === false)).toBe(true);
+    expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, buttonLabels: [], chipLabels: [] });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Codex on #952: the route used to resolve `?cwd=` with the fallback-to-CLAUDE_CWD helper, so
+  // a preset pointing at a deleted project answered with a DIFFERENT directory's settings under
+  // the requested path's name. The route now refuses to fall back; this pins the payload it
+  // sends instead.
+  it("reports a directory that is gone as gone, not as one with no config", () => {
+    expect(MISSING_DIR_CONFIG_DETAIL.exists).toBe(false);
+    expect(MISSING_DIR_CONFIG_DETAIL.file).toBeNull();
+    expect(MISSING_DIR_CONFIG_DETAIL.source).toEqual({ applied: [], ignored: [], unknown: [] });
+    expect(Object.values(MISSING_DIR_CONFIG_DETAIL.config).every((v) => v === null || v === false)).toBe(true);
+  });
+
+  it("marks a real directory as existing, whether or not it has a file", () => {
+    const dir = tmp();
+    expect(dirConfigDetail(dir).exists).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+    const { dir: configured, cleanup } = withConfig({ name: "proj" });
+    expect(dirConfigDetail(configured).exists).toBe(true);
+    cleanup();
+  });
+
+  // The key list the preview labels things with lives in common/ and the loader lives here;
+  // nothing but this test stops a field added to one from going missing in the other.
+  it("documents every key the loader reads", () => {
+    const { dir, cleanup } = withConfig({});
+    expect([...DIR_CONFIG_KEYS].sort()).toEqual(Object.keys(loadDirConfig(dir)).sort());
     cleanup();
   });
 });

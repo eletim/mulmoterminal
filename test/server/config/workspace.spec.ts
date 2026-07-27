@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveWorkspace, workspaceFromQuery } from "../../../server/config/workspace.js";
+import { resolveWorkspace, workspaceFromQuery, existingWorkspace, existingWorkspaceFromQuery } from "../../../server/config/workspace.js";
 import { CLAUDE_CWD } from "../../../server/config/env.js";
 
 // resolveWorkspace guards what becomes a PTY's cwd, so every rejection matters: anything
@@ -59,5 +59,30 @@ describe("workspaceFromQuery", () => {
     expect(workspaceFromQuery(["/tmp", "/etc"])).toBe(CLAUDE_CWD);
     expect(workspaceFromQuery(42)).toBe(CLAUDE_CWD);
     expect(workspaceFromQuery(null)).toBe(CLAUDE_CWD);
+  });
+});
+
+// The fallback in resolveWorkspace is right for a route that RUNS somewhere and wrong for one
+// that REPORTS on the directory it was asked about — that one would answer about a different
+// directory under the requested one's name (Codex, #952).
+describe("existingWorkspace", () => {
+  it("returns a real directory unchanged", () => {
+    expect(existingWorkspace(process.cwd())).toBe(process.cwd());
+  });
+
+  it("returns null instead of a fallback for a path that isn't there", () => {
+    expect(existingWorkspace("/definitely/not/a/directory/here")).toBeNull();
+    expect(existingWorkspace("relative/path")).toBeNull();
+    expect(existingWorkspace(null)).toBeNull();
+  });
+
+  it("returns null for a file, which is not a workspace", () => {
+    expect(existingWorkspace(new URL(import.meta.url).pathname)).toBeNull();
+  });
+
+  it("reads the query param the same way, rejecting a non-string", () => {
+    expect(existingWorkspaceFromQuery(process.cwd())).toBe(process.cwd());
+    expect(existingWorkspaceFromQuery(["/tmp"])).toBeNull();
+    expect(existingWorkspaceFromQuery(undefined)).toBeNull();
   });
 });

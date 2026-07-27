@@ -8,6 +8,14 @@ import { existsSync, statSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
+import {
+  describeDirConfig,
+  keysWithValue,
+  EMPTY_DIR_CONFIG_SOURCE,
+  EMPTY_DIR_CONFIG_EXTRAS,
+  type DirConfigSource,
+  type DirConfigExtras,
+} from "../../common/dirConfigSource.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
@@ -207,6 +215,81 @@ export function publicDirConfig(cwd: string): PublicDirConfig {
     colors,
     hasSound: sound !== null || Object.keys(sounds).length > 0,
   };
+}
+
+// The settings modal's read-only preview of one directory: what the app resolved, plus which
+// keys the file set and how each fared. Separate from publicDirConfig because every cell polls
+// that one — this is fetched only while the modal is open, and it re-reads the file to say what
+// the resolved values alone can't: that a key was written and then dropped, or misspelled.
+export interface DirConfigDetail {
+  // False when the requested directory itself is gone — a preset outliving its project. The
+  // preview must not present that as "no config here", which reads as a working directory.
+  exists: boolean;
+  // Absolute path of the file, or null when the directory has none.
+  file: string | null;
+  config: PublicDirConfig;
+  // Everything else the file can set. Separate from `config` because that shape is what every
+  // cell fetches on mount, and none of this is of any use to a running terminal.
+  extras: DirConfigExtras;
+  source: DirConfigSource;
+}
+
+// A chip is either a builtin's id or a custom { label, text } — either way its label is the
+// string a reader recognises on the header.
+const chipLabel = (chip: HeaderChip): string => (typeof chip === "string" ? chip : chip.label);
+
+function dirConfigExtras(cwd: string): DirConfigExtras {
+  const { provider, model, skills, addDirs, buttons, chips } = loadDirConfig(cwd);
+  return {
+    provider,
+    model,
+    skills,
+    addDirs,
+    buttonLabels: (buttons ?? []).map((button) => button.label),
+    chipLabels: (chips ?? []).map(chipLabel),
+  };
+}
+
+// The file, when the directory has one at all. Null also covers an unreadable path — the
+// preview then says "no file", which is what the app itself concluded.
+function dirConfigFile(cwd: string): string | null {
+  try {
+    const file = path.join(path.resolve(cwd), DIR_CONFIG_FILE);
+    return existsSync(file) ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+// What a directory that isn't there reports: no file, no settings, and `exists: false` so the
+// preview can say "this directory is gone" instead of "it uses the global settings".
+export const MISSING_DIR_CONFIG_DETAIL: DirConfigDetail = {
+  exists: false,
+  file: null,
+  config: { ...EMPTY_DIR_CHROME, theme: null, colors: null, hasSound: false },
+  extras: EMPTY_DIR_CONFIG_EXTRAS,
+  source: EMPTY_DIR_CONFIG_SOURCE,
+};
+
+export function dirConfigDetail(cwd: string): DirConfigDetail {
+  const config = publicDirConfig(cwd);
+  const file = dirConfigFile(cwd);
+  if (!file) return { exists: true, file: null, config, extras: EMPTY_DIR_CONFIG_EXTRAS, source: EMPTY_DIR_CONFIG_SOURCE };
+  const extras = dirConfigExtras(cwd);
+  // Malformed or non-object JSON keeps the FILE in the answer: "there is a file here and none
+  // of it applied" is the single most useful thing this preview can say, and reporting no file
+  // at all would send the reader looking for one that is right there.
+  const raw: unknown = tryReadJson(file);
+  if (!isRecord(raw)) return { exists: true, file, config, extras, source: EMPTY_DIR_CONFIG_SOURCE };
+  return { exists: true, file, config, extras, source: describeDirConfig(raw, keysWithValue(loadDirConfig(cwd))) };
+}
+
+function tryReadJson(file: string): unknown {
+  try {
+    return readJsonFile(file);
+  } catch {
+    return null;
+  }
 }
 
 // The sound this directory wants for one kind: its per-kind entry, else its all-kind

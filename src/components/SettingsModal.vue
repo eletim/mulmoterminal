@@ -14,6 +14,7 @@ import { SELECT_CONTROL } from "./selectClasses";
 import SettingsButton from "./SettingsButton.vue";
 import SettingsField from "./SettingsField.vue";
 import GuideLinks from "./GuideLinks.vue";
+import DirConfigPreview from "./DirConfigPreview.vue";
 import type { Launcher } from "./launchers";
 import type { UserMcpServer } from "./userMcp";
 import type { QuickCommand } from "../../common/quickCommands";
@@ -38,6 +39,9 @@ const props = defineProps<{
   userMcpServers?: UserMcpServer[];
   cwd?: string | null;
   sessionId?: string | null;
+  // Directories to offer a config preview for: the recent-dir presets, plus the focused
+  // session's own directory when it isn't one of them yet.
+  dirPaths?: string[];
 }>();
 const emit = defineEmits<{
   (e: "update-sound", file: string | null): void;
@@ -449,6 +453,13 @@ onUnmounted(() => {
       <SettingsButton @click="emit('configure-appearance')"
         ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton
       >
+
+      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory settings</h3>
+      <p class="mb-1 mt-1.5 text-[12px] text-dim">
+        What each directory's <code>.mulmoterminal.json</code> is actually doing. Expand one to see the values in force, and any key the app dropped or doesn't
+        recognise — a setting that never took effect looks the same as one you never made until you can see this.
+      </p>
+      <DirConfigPreview :paths="dirPaths ?? []" />
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Notification sounds</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
