@@ -117,6 +117,22 @@ procedure: open this file, paste this, restart what, how to tell it worked, what
 - **Verify before committing**: every internal link resolves to a real page *and anchor*, and any
   config sample is run through its real validator — a bad `keymap` sample stops a reader's server
   from starting.
+- **Anything the user SEES gets a screenshot.** A colour, a new panel, a pane opening somewhere —
+  prose describing where a stripe appears is worse than the stripe. Existing images live in
+  `docs/guide/images/`, referenced `../images/foo.png`; name a release's own `v<version>-<thing>.png`.
+  Capture with Playwright against a real running server (`deviceScaleFactor: 2`, then downscale —
+  the repo's images run 60KB–840KB). Three traps, each of which cost a retake:
+  - **Screenshots leak the maintainer's directories.** Settings' Directory-settings list, the
+    launcher chips and the cockpit roster all show real paths. Run the capture with `HOME` pointed
+    at a scratch dir holding its own `.mulmoterminal/config.json` (`cwdPresets`, `launchers`), so
+    **the live config is never touched** and only chosen directories appear. Ask which paths may
+    be shown before publishing any.
+  - **A short shell prompt has to be arranged.** The demo `HOME` needs its own `.zshrc`
+    (`PROMPT='%1~ $ '`), and tmux will re-attach an OLD shell that predates it — use a directory
+    that has no session yet, or the prompt in the shot is not the one configured.
+  - **Never guess where a terminal link is.** Hover across the row and take the x range where the
+    computed `cursor` becomes `pointer`; a coordinate estimated from the image is off by enough to
+    click nothing (and a click that silently misses looks exactly like a broken feature).
 
 ## Filing issues
 - Before filing a **bug / "broken" / "weird behaviour"** issue about MulmoTerminal, run the
