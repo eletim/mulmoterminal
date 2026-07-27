@@ -716,10 +716,20 @@ tree; clicking a file opens it in a **CodeMirror** editor (Markdown / JS-TS / JS
 highlighting, everything else as plain text). Markdown files get a **Preview** toggle
 that renders via the server's sandboxed `…/md` HTML. **Save** (or ⌘/Ctrl-S) writes back.
 
+**Beside an enlarged terminal, not only full-screen.** Expand a grid cell (**⤢**) and its
+header gains a **folder** toggle that splits the enlarged area in two: terminal on the left,
+the same explorer + editor on the right, rooted at that cell's directory. Drag the divider
+(or focus it and use ←/→, Home, End) to resize — the terminal keeps a floor, so a squeeze
+shrinks the pane rather than reflowing xterm into garbage. It works in both zoomed layouts
+(cockpit roster and thumbnail filmstrip), the pane re-roots as you walk the zoom between
+terminals, and whether it's open plus how wide it is are remembered per browser.
+
 All reads and writes go through `GET/PUT /api/files/browse/*?cwd=&path=`, and every
 `path` is **contained within the project root** (server-side) — `..`/absolute escapes
 are rejected for reads and writes alike, so editing can't reach outside the directory
-the terminal is pointed at.
+the terminal is pointed at. A save sends the version the file had when it was opened, so
+it is **refused (409) rather than silently overwriting** an agent that edited the same
+file meanwhile; the editor then offers to reload or to overwrite deliberately.
 
 ---
 

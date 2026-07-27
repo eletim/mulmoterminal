@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 
-import { clampTerminalWidth, maxTerminalWidth, MIN_GUI, MIN_TERMINAL, splitterKeyWidth, SPLITTER_STEP } from "../../../src/components/splitterWidth";
+import {
+  clampPaneWidth,
+  clampTerminalWidth,
+  maxTerminalWidth,
+  MIN_GUI,
+  MIN_TERMINAL,
+  splitterKeyWidth,
+  SPLITTER_STEP,
+} from "../../../src/components/splitterWidth";
 
 const WIDE = 1600;
 
@@ -61,5 +69,29 @@ describe("splitterKeyWidth", () => {
   // separator swallows Tab and Escape whenever it has focus.
   it.each([["Tab"], ["Escape"], ["Enter"], [" "], ["ArrowUp"], ["ArrowDown"], ["a"], ["arrowleft"]])("does not claim %j", (key) => {
     expect(splitterKeyWidth(key, 560, WIDE)).toBeNull();
+  });
+});
+
+// The file pane beside a zoomed grid cell stores ITS width, not the terminal's, so the same
+// rule has to hold read from the other side.
+describe("clampPaneWidth", () => {
+  it("leaves a width alone when both sides fit", () => {
+    expect(clampPaneWidth(500, 1600)).toBe(500);
+  });
+
+  it("stops the pane from pushing the terminal below its floor", () => {
+    // 1000 wide: the terminal keeps MIN_TERMINAL, so the pane can have the rest.
+    expect(clampPaneWidth(900, 1000)).toBe(1000 - MIN_TERMINAL);
+  });
+
+  it("gives the pane its own floor when there is room for both", () => {
+    expect(clampPaneWidth(10, 1600)).toBe(MIN_GUI);
+  });
+
+  // The documented tie-break: too narrow for both floors, and the TERMINAL's wins — a terminal
+  // below its minimum reflows xterm into garbage, a squeezed pane is merely cramped.
+  it("surrenders the pane's floor before the terminal's", () => {
+    const available = MIN_TERMINAL + 100;
+    expect(clampPaneWidth(MIN_GUI, available)).toBe(100);
   });
 });

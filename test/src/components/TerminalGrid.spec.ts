@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, DOMWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
@@ -7,11 +7,14 @@ import type { RunCommand } from "../../../src/components/runCommand.js";
 import { setCockpitLines } from "../../../src/composables/cockpitLines";
 
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
+vi.mock("../../../src/components/FilesPane.vue", () => ({
+  default: { name: "FilesPane", props: ["cwd", "requestedPath"], emits: ["close", "dirty"], template: '<div class="stub-files-pane" />' },
+}));
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
     props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "cancellable", "reorderable"],
-    emits: ["toggle-expand", "session", "cwd", "run", "close", "move", "status"],
+    emits: ["toggle-expand", "toggle-files", "session", "cwd", "run", "close", "move", "status"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -346,5 +349,96 @@ describe("grid cockpit (list view)", () => {
     const w = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { status: "idle", workPhase: "implementing" })]);
     await nextTick();
     expect(w.find('[data-testid="cockpit-badge"]').text()).toBe("idle");
+  });
+});
+
+// The file pane splits the ENLARGED cell's room in two. The zoomed stage has two shapes —
+// roster | terminal (list mode) and terminal / filmstrip (strip mode) — and the pane has to
+// land beside the terminal in both, which is the whole reason it lives in a row wrapper
+// rather than as another child of the stage.
+describe("file pane beside the enlarged cell", () => {
+  const paneOf = (w: ReturnType<typeof mount>) => w.findComponent({ name: "FilesPane" });
+  // Idempotent: the open state persists, so a second mount in the same test may already
+  // have it, and a blind toggle would close it.
+  const openPane = async (w: ReturnType<typeof mount>) => {
+    if (paneOf(w).exists()) return;
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await nextTick();
+  };
+
+  // The zoom FLIP asks for prefers-reduced-motion, which jsdom omits; these tests move the
+  // enlargement, so they trip over it where the older ones never did.
+  beforeEach(() => {
+    localStorage.clear();
+    if (!window.matchMedia) {
+      window.matchMedia = ((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener() {},
+        removeListener() {},
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+    }
+  });
+
+  it("stays hidden until a cell is enlarged", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    expect(paneOf(w).exists()).toBe(false); // closed by default
+    await openPane(w);
+    expect(paneOf(w).exists()).toBe(true);
+
+    // Nothing zoomed: the row it lives in is hidden outright, pane and all.
+    const flat = mountGrid([cell(1, "s1", "/proj")], null);
+    expect(flat.find(".zoom-main").element.parentElement?.className).toContain("hidden");
+  });
+
+  it.each([
+    ["list", true],
+    ["strip", false],
+  ])("puts the pane beside the enlarged terminal in %s mode", async (_name, listMode) => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
+    await openPane(w);
+    const row = w.find(".zoom-main").element.parentElement;
+    expect(row?.contains(paneOf(w).element)).toBe(true);
+  });
+
+  it("browses the enlarged cell's directory, falling back to the grid default", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    expect(paneOf(w).props("cwd")).toBe("/proj");
+
+    // A launcher / still-starting session has reported no cwd yet.
+    const noCwd = mountCockpit([cell(1), cell(2)], 1, []);
+    await openPane(noCwd);
+    expect(paneOf(noCwd).props("cwd")).toBe("/work");
+  });
+
+  it("re-roots to whichever cell is enlarged rather than opening a second pane", async () => {
+    const cells = [cell(1, "s1", "/one"), cell(2, "s2", "/two")];
+    const w = mountCockpit(cells, 1, []);
+    await openPane(w);
+    expect(w.findAllComponents({ name: "FilesPane" })).toHaveLength(1);
+
+    await w.setProps({ expandedUid: 2 });
+    await nextTick();
+    expect(w.findAllComponents({ name: "FilesPane" })).toHaveLength(1);
+    expect(paneOf(w).props("cwd")).toBe("/two");
+  });
+
+  it("remembers being open across a remount, and the pane's own close puts it away", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    expect(localStorage.getItem("files_pane_open")).toBe("1");
+
+    const reopened = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    expect(paneOf(reopened).exists()).toBe(true);
+
+    await paneOf(reopened).vm.$emit("close");
+    await nextTick();
+    expect(paneOf(reopened).exists()).toBe(false);
+    expect(localStorage.getItem("files_pane_open")).toBe("0");
   });
 });
