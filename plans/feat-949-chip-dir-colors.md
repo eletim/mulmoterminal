@@ -54,3 +54,16 @@ reader, so it moves to `hexColor.ts` and both existing copies now import it.
 - `useDirConfig.spec.ts` — a `useDirColors` block: resolve-and-omit, live recolour on a config
   write, and release when a directory leaves the set.
 - `TerminalCell.spec.ts` — the chip actually paints the stripe, and an unconfigured dir has none.
+
+## Review follow-up
+
+**Codex: `useDirField` could apply a stale read.** The first fetch for a directory had no
+freshness check, so a `.mulmoterminal.json` write landing while it was in flight would deliver the
+new value through the invalidation fan-out and then have the older response overwrite it — a chip
+reverting to its previous colour on the second save in a row. The single-directory composable
+already guarded this with a generation counter; the set-subscribing one now snapshots the same
+counter and drops its response if anything invalidated the directory meanwhile. This was inherited
+from `useDirPriorities`, not introduced here, so grid priorities had it too.
+
+The regression test was checked against the unfixed code — it reverts to the stale colour without
+the guard.

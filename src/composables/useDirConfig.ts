@@ -164,7 +164,15 @@ export function useDirField<T>(cwds: Ref<string[]>, pick: (config: DirConfig) =>
     bindDir(cwd, listener);
     const seeded = resolvedConfig.get(cwd); // paint from cache now; the fetch below refreshes
     if (seeded) record(cwd, pick(seeded));
-    void fetchDirConfig(cwd).then((config) => listeners.get(cwd) === listener && record(cwd, pick(config)));
+    // A config write between here and this response starts a NEWER fetch whose result reaches
+    // `listener` through the invalidation fan-out. Without the generation check, this older
+    // response would then land on top of it and revert the value — the same race the single-dir
+    // composable already guards, and it is `.mulmoterminal.json` being saved twice in a row.
+    const seq = generationOf(cwd);
+    void fetchDirConfig(cwd).then((config) => {
+      if (listeners.get(cwd) !== listener || generationOf(cwd) !== seq) return;
+      record(cwd, pick(config));
+    });
   };
 
   const untrack = (cwd: string) => {

@@ -190,6 +190,38 @@ describe("useDirColors", () => {
     scope.stop();
   });
 
+  // Codex on #951: the first read for a directory could land AFTER a config write had already
+  // pushed a newer value through the invalidation fan-out, reverting the colour to the old one.
+  // Saving .mulmoterminal.json twice in a row is all it takes.
+  it("drops a first read that resolves after a config write already delivered a newer value", async () => {
+    // The FIRST read (from track) is held open; the invalidation's read answers immediately.
+    let release!: (body: unknown) => void;
+    const heldFirstRead = new Promise<unknown>((resolve) => {
+      release = (body) => resolve({ ok: true, json: () => Promise.resolve(body) });
+    });
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        call += 1;
+        return call === 1 ? heldFirstRead : Promise.resolve({ ok: true, json: () => Promise.resolve({ headerColor: "#222222" }) });
+      }),
+    );
+
+    const scope = effectScope();
+    const colors = scope.run(() => useDirColors(ref(["/c/race"])).colors);
+    await flush();
+
+    publish?.({ cwd: "/c/race" }); // the server saw a write while the first read was in flight
+    await flush();
+    expect(colors?.value["/c/race"]).toBe("#222222");
+
+    release({ headerColor: "#111111" }); // ...and now the stale first read finally answers
+    await flush();
+    expect(colors?.value["/c/race"]).toBe("#222222"); // not reverted
+    scope.stop();
+  });
+
   // The launch form hands over an empty list once the cell launches, and the chips' fetches
   // must stop with them rather than outliving the form for the rest of the session.
   it("releases a directory that leaves the set", async () => {
