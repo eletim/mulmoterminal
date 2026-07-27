@@ -32,6 +32,11 @@ const openName = computed(() => (openPath.value ? (openPath.value.split("/").pop
 const dirty = ref(false);
 const saving = ref(false);
 const fileError = ref<string | null>(null);
+// The version the open buffer was loaded from; sent back on save so the server can refuse a
+// write that would clobber someone else's (null = the file didn't exist).
+const baseVersion = ref<string | null>(null);
+// Set when a save came back 409, holding the version now on disk — what "Overwrite" re-sends.
+const conflict = ref<{ version: string | null } | null>(null);
 const showPreview = ref(false);
 const isMarkdown = computed(() => langKindForFilename(openName.value) === "markdown");
 
@@ -114,11 +119,16 @@ async function openFile(node: Node): Promise<void> {
 // Open a project-relative path in the editor. Split out from openFile because the other way
 // in has no tree node to hand over: a clicked source path in terminal output arrives as
 // ?path= and opens the same file (#808).
-async function loadFile(pathRel: string): Promise<void> {
-  if (pathRel === openPath.value) return; // already open — no reload, no prompt
-  if (!confirmDiscard()) return;
+// `force` re-reads the file already open and skips the unsaved-edits prompt — the
+// conflict banner's "Reload", where discarding is the button the user just pressed.
+async function loadFile(pathRel: string, force = false): Promise<void> {
+  if (!force) {
+    if (pathRel === openPath.value) return; // already open — no reload, no prompt
+    if (!confirmDiscard()) return;
+  }
   const id = ++reqId;
   fileError.value = null;
+  conflict.value = null;
   showPreview.value = false;
   try {
     const res = await fetch(`/api/files/browse/text?${qs(pathRel)}`);
@@ -126,6 +136,7 @@ async function loadFile(pathRel: string): Promise<void> {
     const data = await res.json();
     if (id !== reqId) return;
     openPath.value = pathRel;
+    baseVersion.value = typeof data.version === "string" ? data.version : null;
     editor?.setDoc(typeof data.text === "string" ? data.text : "", pathRel.split("/").pop() ?? pathRel);
     dirty.value = false;
   } catch (e) {
@@ -141,15 +152,38 @@ async function save(): Promise<void> {
     const res = await fetch(`/api/files/browse/write?${qs(openPath.value)}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: editor.getDoc() }),
+      body: JSON.stringify({ text: editor.getDoc(), baseVersion: baseVersion.value }),
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    // 409: the file moved on under us (the agent working in this very directory is the
+    // likeliest author). Nothing was written — offer the choice instead of picking a loser.
+    if (res.status === 409) {
+      conflict.value = { version: typeof data.version === "string" ? data.version : null };
+      return;
+    }
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    baseVersion.value = typeof data.version === "string" ? data.version : null;
     dirty.value = false;
+    conflict.value = null;
   } catch (e) {
     fileError.value = e instanceof Error ? e.message : String(e);
   } finally {
     saving.value = false;
   }
+}
+
+/** Conflict banner — take the disk's copy, dropping the buffer. */
+function discardAndReload(): void {
+  if (openPath.value) loadFile(openPath.value, true);
+}
+
+/** Conflict banner — keep the buffer, adopting the disk's version as the new baseline so the
+ *  retry is a deliberate overwrite rather than another conflict. */
+function overwrite(): void {
+  if (!conflict.value) return;
+  baseVersion.value = conflict.value.version;
+  conflict.value = null;
+  save();
 }
 
 function requestClose(): void {
@@ -174,6 +208,8 @@ function teardown(): void {
   roots.value = [];
   openPath.value = null;
   dirty.value = false;
+  baseVersion.value = null;
+  conflict.value = null;
   showPreview.value = false;
 }
 watch(
@@ -287,6 +323,29 @@ onBeforeUnmount(() => {
         </button>
       </nav>
       <section class="relative flex min-w-0 flex-auto">
+        <div
+          v-if="conflict"
+          role="alert"
+          data-testid="files-conflict"
+          class="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-2 border-b border-amber bg-[var(--warn-bg-subtle)] px-4 py-2 text-[13px] text-warn"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">warning</span>
+          <span class="flex-auto">This file changed on disk. Nothing was saved.</span>
+          <button
+            type="button"
+            class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"
+            @click="discardAndReload"
+          >
+            Reload (discard your edits)
+          </button>
+          <button
+            type="button"
+            class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"
+            @click="overwrite"
+          >
+            Overwrite anyway
+          </button>
+        </div>
         <p v-if="fileError" class="p-4 text-[13px] text-err">{{ fileError }}</p>
         <p v-if="!openPath" class="m-auto p-4 text-[13px] text-muted">Select a file to view or edit.</p>
         <iframe v-show="openPath && showPreview" class="flex-auto border-0 bg-white" :src="previewSrc" sandbox="" title="Markdown preview" />

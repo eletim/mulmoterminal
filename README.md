@@ -1042,7 +1042,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET /api/wiki` (`?slug=`) · `/api/wiki/graph` · `/api/wiki/lint` | Read-only wiki index / page / graph / lint. |
 | `GET /api/collections/…` · `/api/feeds` · `GET\|PUT /api/shortcuts` | Collections browser, feeds, favorites (see `docs/collection-plugin-integration.md`). |
-| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/write` | File tree / read / Markdown-render / write (contained within the project root). |
+| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/write` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. |
 | `GET /api/files/raw?path=` | Raw asset bytes (workspace-rooted). |
 
 **GUI panel / plugins / MCP**
