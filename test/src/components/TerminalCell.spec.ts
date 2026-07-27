@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
@@ -60,10 +60,22 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// Every cell this file mounts stays alive unless it is torn down: its `dirInput` watcher and
+// its 300ms resume debounce keep running, and the fetch counter these tests read is GLOBAL.
+// A cell left over from an earlier test fires its debounce on the REAL clock, so on a loaded
+// runner it can land inside a later test's measurement window and add an `/api/sessions` call
+// that test never made — which is what made the debounce case flaky (#903).
+const mounted: { unmount: () => void }[] = [];
+
 beforeEach(() => {
   captured = null;
   reconnect = null;
   mockFetch();
+});
+
+afterEach(() => {
+  // onUnmounted clears the pending debounce, so nothing survives into the next test.
+  mounted.splice(0).forEach((w) => w.unmount());
 });
 
 function mountCell(
@@ -80,7 +92,7 @@ function mountCell(
     zoomed?: boolean;
   } = {},
 ) {
-  return mount(TerminalCell, {
+  const wrapper = mount(TerminalCell, {
     props: {
       uid: 1,
       expanded: opts.expanded ?? false,
@@ -95,6 +107,8 @@ function mountCell(
       openCwds: opts.openCwds ?? [],
     },
   });
+  mounted.push(wrapper);
+  return wrapper;
 }
 
 describe("TerminalCell", () => {
