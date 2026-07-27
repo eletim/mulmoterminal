@@ -23,7 +23,7 @@ const title = computed(() => {
   <span
     v-if="status?.repo && (status.branch || status.detached)"
     data-testid="git-chip"
-    class="inline-flex items-center gap-[0.25em] px-[0.4em] h-[1.5em] rounded-[0.75em] text-[0.72rem] leading-[1.5em] bg-[color-mix(in_srgb,currentColor_12%,transparent)] opacity-85 whitespace-nowrap max-w-[16ch] overflow-hidden"
+    class="inline-flex flex-none items-center gap-[0.25em] px-[0.4em] h-[1.5em] rounded-[0.75em] text-[0.72rem] leading-[1.5em] bg-[color-mix(in_srgb,currentColor_12%,transparent)] opacity-85 whitespace-nowrap max-w-[16ch] overflow-hidden"
     :class="status.detached ? 'text-[#d19a66]' : 'text-inherit'"
     :title="title"
   >

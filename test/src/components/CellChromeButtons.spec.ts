@@ -43,3 +43,34 @@ describe("CellChromeButtons", () => {
     expect(w.emitted("close")).toHaveLength(1);
   });
 });
+
+// The file pane splits the ENLARGED cell's room, so its toggle only exists there — a tiled
+// cell or a filmstrip thumbnail has nowhere to put it.
+describe("CellChromeButtons — the file pane toggle", () => {
+  it("is absent until the cell is enlarged", () => {
+    expect(mountButtons(false).find('[aria-label="Show files"]').exists()).toBe(false);
+    expect(mountButtons(true).find('[aria-label="Show files"]').exists()).toBe(true);
+  });
+
+  it("reads as pressed, and renames itself, while the pane is open", () => {
+    const open = mount(CellChromeButtons, { props: { expanded: true, filesOpen: true } });
+    const btn = open.find('[aria-label="Hide files"]');
+    expect(btn.exists()).toBe(true);
+    expect(btn.attributes("aria-pressed")).toBe("true");
+    expect(mountButtons(true).find('[aria-label="Show files"]').attributes("aria-pressed")).toBe("false");
+  });
+
+  it("emits the intent and never acts on it, like its neighbours", async () => {
+    const w = mountButtons(true);
+    await w.find('[aria-label="Show files"]').trigger("click");
+    expect(w.emitted("toggle-files")).toHaveLength(1);
+    expect(w.emitted("toggle-expand")).toBeUndefined();
+  });
+
+  // Expand/restore stays first: several specs and the grid select the first `.cell-btn`.
+  it("sits after expand/restore, not before it", () => {
+    const buttons = mountButtons(true).findAll(".cell-btn");
+    expect(buttons[0].attributes("aria-label")).toBe("Restore terminal");
+    expect(buttons[1].attributes("aria-label")).toBe("Show files");
+  });
+});

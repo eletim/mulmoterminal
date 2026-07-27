@@ -1010,7 +1010,13 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         @click="onHeaderClick"
       >
         <span class="cell-actions" :class="CELL_ACTIONS">
-          <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="close" />
+          <CellChromeButtons
+            :expanded="expanded"
+            :files-open="filesOpen"
+            @toggle-expand="emit('toggle-expand')"
+            @toggle-files="emit('toggle-files')"
+            @close="close"
+          />
         </span>
       </CockpitHeader>
       <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
@@ -1092,7 +1098,13 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              track, so they're always pinned top-right. `.stop` so they don't trigger the
              header's click-to-zoom. -->
         <span class="cell-actions" :class="CELL_ACTIONS">
-          <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="close" />
+          <CellChromeButtons
+            :expanded="expanded"
+            :files-open="filesOpen"
+            @toggle-expand="emit('toggle-expand')"
+            @toggle-files="emit('toggle-files')"
+            @close="close"
+          />
         </span>
       </div>
       <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />

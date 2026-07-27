@@ -4,7 +4,16 @@ import { resolveAddDirs, MAX_ADD_DIRS } from "../../../server/config/config-sche
 import { buildClaudeArgs } from "../../../server/agents/claude-args";
 import { buildDockerRunArgs } from "../../../server/infra/sandbox";
 
-const BASE = "/repo";
+// Built through `path.resolve`, never written as "/repo": the rule resolves with the platform's
+// own path module, so on Windows a literal POSIX string never matches what it produces
+// (`path.resolve("/repo", "../shared-lib")` is `D:\shared-lib` there). The daily Windows job
+// caught this — five cases compared resolved paths against hard-coded POSIX ones.
+const BASE = path.resolve("/repo");
+const SIBLING = path.resolve(BASE, "../shared-lib");
+const DOCS = path.resolve("/abs/docs");
+const MISSING = path.resolve("/gone");
+const DENIED = path.resolve("/denied");
+
 // The existence check is a parameter so the rule is testable without touching a disk.
 const exists = (present: string[]) => (p: string) => present.includes(p);
 
@@ -12,16 +21,16 @@ describe("resolveAddDirs", () => {
   it("resolves a relative entry against the config's own directory, not the process cwd", () => {
     // A managed worktree runs from ~/.mulmoterminal/worktrees/…; "../shared-lib" has to keep
     // meaning the sibling of the repo the config lives in.
-    expect(resolveAddDirs(["../shared-lib"], BASE, exists(["/shared-lib"]))).toEqual(["/shared-lib"]);
+    expect(resolveAddDirs(["../shared-lib"], BASE, exists([SIBLING]))).toEqual([SIBLING]);
   });
 
   it("keeps an absolute entry as-is", () => {
-    expect(resolveAddDirs(["/abs/docs"], BASE, exists(["/abs/docs"]))).toEqual(["/abs/docs"]);
+    expect(resolveAddDirs([DOCS], BASE, exists([DOCS]))).toEqual([DOCS]);
   });
 
   it("drops a path that does not exist rather than passing it on", () => {
     // Passed through, the flag would look applied while the agent sees nothing.
-    expect(resolveAddDirs(["/gone", "/abs/docs"], BASE, exists(["/abs/docs"]))).toEqual(["/abs/docs"]);
+    expect(resolveAddDirs([MISSING, DOCS], BASE, exists([DOCS]))).toEqual([DOCS]);
   });
 
   it("drops the workspace itself — already the cwd, and a duplicate container mount", () => {
@@ -29,7 +38,7 @@ describe("resolveAddDirs", () => {
   });
 
   it("de-duplicates entries that resolve to the same directory", () => {
-    expect(resolveAddDirs(["/abs/docs", "../abs/docs", "/abs/docs/"], BASE, exists(["/abs/docs"]))).toEqual(["/abs/docs"]);
+    expect(resolveAddDirs([DOCS, DOCS, `${DOCS}${path.sep}`], BASE, exists([DOCS]))).toEqual([DOCS]);
   });
 
   it.each([
@@ -47,15 +56,15 @@ describe("resolveAddDirs", () => {
   // unreadable entry.
   it("drops only the entry whose existence check throws", () => {
     const exists = (p: string) => {
-      if (p === "/denied") throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      if (p === DENIED) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
       return true;
     };
-    expect(resolveAddDirs(["/denied", "/abs/docs"], BASE, exists)).toEqual(["/abs/docs"]);
+    expect(resolveAddDirs([DENIED, DOCS], BASE, exists)).toEqual([DOCS]);
   });
 
   it("is null — not a throw — when every entry's check throws", () => {
     expect(
-      resolveAddDirs(["/denied"], BASE, () => {
+      resolveAddDirs([DENIED], BASE, () => {
         throw new Error("EACCES");
       }),
     ).toBeNull();
@@ -139,7 +148,7 @@ describe("path resolution parity", () => {
   // The CLI flag and the container mount must name the SAME string, or the agent is granted
   // one path and the container exposes another.
   it("hands the same absolute paths to the flag and to the mount", () => {
-    const dirs = resolveAddDirs(["../shared-lib"], BASE, exists([path.resolve(BASE, "../shared-lib")]));
+    const dirs = resolveAddDirs(["../shared-lib"], BASE, exists([SIBLING]));
     expect(dirs).not.toBeNull();
     const args = buildClaudeArgs({
       sessionId: "s1",

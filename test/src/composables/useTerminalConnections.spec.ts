@@ -23,6 +23,9 @@ vi.mock("@xterm/xterm", () => ({
     cols = 80;
     rows = 24;
     constructor(opts: Record<string, unknown>) {
+      // The SAME object, not a copy: setFont/setTheme mutate `term.options` after construction,
+      // and a test that only saw the constructor argument could not tell whether they landed.
+      this.options = opts;
       mockTermState.options = opts;
     }
     // ensure() registers the mouse-tracking guards through this (#729); the guards' own behaviour
@@ -547,5 +550,67 @@ describe("isClaudeTarget", () => {
     expect(conn.isClaudeTarget({ ...base, codex: true })).toBe(false);
     expect(conn.isClaudeTarget({ ...base, command: { source: "script", index: 0, label: "dev", cwd: null } })).toBe(false);
     expect(conn.isClaudeTarget({ ...base, devTerminal: true })).toBe(false);
+  });
+});
+
+// The load-bearing half of #860/#864, and the half nothing asserted until now: changing the font
+// changes the CELL METRICS, so cols/rows change and the PTY has to be told. Delete the re-fit from
+// setFont and every other test in this repo still passes, while the bug #860 was filed for — a
+// canvas grid the shell disagrees with, so the cursor and wrap points drift — comes silently back.
+//
+// The observable contract is the resize frame on the wire, not a call count, so that is what these
+// assert.
+describe("setFont — a font change must reach the PTY, not just the canvas", () => {
+  const FONT = { size: 14, family: "'JetBrains Mono', monospace" };
+  const resizes = (ws: FakeWebSocket) => ws.sent.filter((m) => JSON.parse(m).type === "resize");
+
+  function attachOpenSlot(key: string) {
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    conn.attach(key, target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"), undefined, FONT);
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.(); // open, so fitAndSyncSize's readyState guard lets the resize through
+    ws.sent.length = 0; // ignore the frames attach() itself produced
+    return ws;
+  }
+
+  afterEach(() => {
+    conn.release("cell-font");
+  });
+
+  it("applies BOTH options and pushes the new geometry to the PTY", () => {
+    const ws = attachOpenSlot("cell-font");
+
+    conn.setFont("cell-font", { size: 24, family: "'Songti SC', monospace" });
+
+    expect(mockTermState.options.fontSize).toBe(24);
+    expect(mockTermState.options.fontFamily).toBe("'Songti SC', monospace");
+    expect(resizes(ws)).toHaveLength(1);
+  });
+
+  // A family alone moves the advance width just as a size does, so it must re-fit too — the case
+  // #864 added and the one a size-only implementation would quietly miss.
+  it("re-fits for a family change on its own, not only a size change", () => {
+    const ws = attachOpenSlot("cell-font");
+
+    conn.setFont("cell-font", { size: FONT.size, family: "'Songti SC', monospace" });
+
+    expect(mockTermState.options.fontFamily).toBe("'Songti SC', monospace");
+    expect(resizes(ws)).toHaveLength(1);
+  });
+
+  // Terminal.vue's watcher fires on every dir-config resolution, and most directories pin no font
+  // at all. Re-fitting there would churn every terminal on every load for nothing.
+  it("does nothing when the font is unchanged", () => {
+    const ws = attachOpenSlot("cell-font");
+
+    conn.setFont("cell-font", { ...FONT });
+
+    expect(resizes(ws)).toHaveLength(0);
+  });
+
+  it("ignores a slot that does not exist rather than throwing", () => {
+    expect(() => conn.setFont("cell-not-here", { size: 20, family: "monospace" })).not.toThrow();
   });
 });

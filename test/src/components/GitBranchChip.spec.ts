@@ -50,4 +50,15 @@ describe("GitBranchChip", () => {
     const w = render({ ...base, branch: null, detached: true });
     expect(w.find('[data-testid="git-branch"]').text()).toContain("detached");
   });
+
+  // #921: the chip sits in a `flex ... overflow-hidden` header row, where a flex item shrinks by
+  // default. Without this it collapsed in a narrow grid cell and the clipped text left just the
+  // padded, rounded background — reported as "an empty badge", which is a much harder thing to
+  // diagnose than a missing one. Every other item in that row already carried flex-none.
+  //
+  // jsdom does no layout, so the class is the only thing assertable here — and the class IS the
+  // fix. Width capping stays `max-w-[16ch]` + the inner ellipsis, so a long branch still truncates.
+  it("does not shrink in a tight header row", () => {
+    expect(render(base).find('[data-testid="git-chip"]').classes()).toContain("flex-none");
+  });
 });

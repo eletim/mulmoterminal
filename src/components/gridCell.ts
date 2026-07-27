@@ -14,11 +14,14 @@ export interface GridCellProps {
   // True while SOME cell in the grid is zoomed → this cell is a filmstrip thumbnail
   // (unless it's the zoomed one). Only then does a header-background click zoom it.
   zoomed?: boolean;
+  // Whether the file pane is showing beside the enlarged cell, so its toggle can read as
+  // pressed. Grid state, not the cell's: only the expanded cell renders the toggle.
+  filesOpen?: boolean;
   home: string | null;
 }
 
 export interface GridCellEmits {
-  (e: "toggle-expand" | "close"): void;
+  (e: "toggle-expand" | "close" | "toggle-files"): void;
   // Swap this cell left (-1) or right (+1) in manual sort mode.
   (e: "move", dir: -1 | 1): void;
   // Report activity up so the grid can attention-sort in auto mode.

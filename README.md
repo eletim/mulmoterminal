@@ -754,10 +754,20 @@ tree; clicking a file opens it in a **CodeMirror** editor (Markdown / JS-TS / JS
 highlighting, everything else as plain text). Markdown files get a **Preview** toggle
 that renders via the server's sandboxed `…/md` HTML. **Save** (or ⌘/Ctrl-S) writes back.
 
+**Beside an enlarged terminal, not only full-screen.** Expand a grid cell (**⤢**) and its
+header gains a **folder** toggle that splits the enlarged area in two: terminal on the left,
+the same explorer + editor on the right, rooted at that cell's directory. Drag the divider
+(or focus it and use ←/→, Home, End) to resize — the terminal keeps a floor, so a squeeze
+shrinks the pane rather than reflowing xterm into garbage. It works in both zoomed layouts
+(cockpit roster and thumbnail filmstrip), the pane re-roots as you walk the zoom between
+terminals, and whether it's open plus how wide it is are remembered per browser.
+
 All reads and writes go through `GET/PUT /api/files/browse/*?cwd=&path=`, and every
 `path` is **contained within the project root** (server-side) — `..`/absolute escapes
 are rejected for reads and writes alike, so editing can't reach outside the directory
-the terminal is pointed at.
+the terminal is pointed at. A save sends the version the file had when it was opened, so
+it is **refused (409) rather than silently overwriting** an agent that edited the same
+file meanwhile; the editor then offers to reload or to overwrite deliberately.
 
 ---
 
@@ -1080,7 +1090,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET /api/wiki` (`?slug=`) · `/api/wiki/graph` · `/api/wiki/lint` | Read-only wiki index / page / graph / lint. |
 | `GET /api/collections/…` · `/api/feeds` · `GET\|PUT /api/shortcuts` | Collections browser, feeds, favorites (see `docs/collection-plugin-integration.md`). |
-| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/write` | File tree / read / Markdown-render / write (contained within the project root). |
+| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/write` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. |
 | `GET /api/files/raw?path=` | Raw asset bytes (workspace-rooted). |
 
 **GUI panel / plugins / MCP**

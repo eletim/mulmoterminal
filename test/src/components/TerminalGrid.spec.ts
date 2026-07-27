@@ -1,17 +1,31 @@
-import { describe, it, expect, vi } from "vitest";
-import { mount, DOMWrapper } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mount, flushPromises, DOMWrapper } from "@vue/test-utils";
+import { h, nextTick, type VNode } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
 import type { RunCommand } from "../../../src/components/runCommand.js";
 import { setCockpitLines } from "../../../src/composables/cockpitLines";
 
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
+// The host drives the pane through reload()/confirmDiscard(); spies here are what let the
+// contract be asserted rather than the prop that merely claims it.
+const paneStub = vi.hoisted(() => ({ reload: vi.fn(), confirmDiscard: vi.fn(() => true) }));
+vi.mock("../../../src/components/FilesPane.vue", () => ({
+  default: {
+    name: "FilesPane",
+    props: ["cwd", "requestedPath"],
+    emits: ["close", "dirty"],
+    setup: (_p: unknown, { expose, slots }: { expose: (e: Record<string, unknown>) => void; slots: { title?: () => VNode[] } }) => {
+      expose({ reload: paneStub.reload, confirmDiscard: paneStub.confirmDiscard });
+      return () => h("div", { class: "stub-files-pane" }, slots.title?.());
+    },
+  },
+}));
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
     props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "cancellable", "reorderable"],
-    emits: ["toggle-expand", "session", "cwd", "run", "close", "move", "status"],
+    emits: ["toggle-expand", "toggle-files", "session", "cwd", "run", "close", "move", "status"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -346,5 +360,212 @@ describe("grid cockpit (list view)", () => {
     const w = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { status: "idle", workPhase: "implementing" })]);
     await nextTick();
     expect(w.find('[data-testid="cockpit-badge"]').text()).toBe("idle");
+  });
+});
+
+// The file pane splits the ENLARGED cell's room in two. The zoomed stage has two shapes —
+// roster | terminal (list mode) and terminal / filmstrip (strip mode) — and the pane has to
+// land beside the terminal in both, which is the whole reason it lives in a row wrapper
+// rather than as another child of the stage.
+describe("file pane beside the enlarged cell", () => {
+  const paneOf = (w: ReturnType<typeof mount>) => w.findComponent({ name: "FilesPane" });
+  // Idempotent: the open state persists, so a second mount in the same test may already
+  // have it, and a blind toggle would close it.
+  const openPane = async (w: ReturnType<typeof mount>) => {
+    if (paneOf(w).exists()) return;
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await nextTick();
+  };
+
+  // The zoom FLIP asks for prefers-reduced-motion, which jsdom omits; these tests move the
+  // enlargement, so they trip over it where the older ones never did.
+  beforeEach(() => {
+    localStorage.clear();
+    paneStub.reload.mockClear();
+    paneStub.confirmDiscard.mockReturnValue(true);
+    if (!window.matchMedia) {
+      window.matchMedia = ((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener() {},
+        removeListener() {},
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent: () => false,
+      })) as typeof window.matchMedia;
+    }
+  });
+
+  it("stays hidden until a cell is enlarged", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    expect(paneOf(w).exists()).toBe(false); // closed by default
+    await openPane(w);
+    expect(paneOf(w).exists()).toBe(true);
+
+    // Nothing zoomed: the row it lives in is hidden outright, pane and all.
+    const flat = mountGrid([cell(1, "s1", "/proj")], null);
+    expect(flat.find(".zoom-main").element.parentElement?.className).toContain("hidden");
+  });
+
+  it.each([
+    ["list", true],
+    ["strip", false],
+  ])("puts the pane beside the enlarged terminal in %s mode", async (_name, listMode) => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, [], false, listMode);
+    await openPane(w);
+    const row = w.find(".zoom-main").element.parentElement;
+    expect(row?.contains(paneOf(w).element)).toBe(true);
+  });
+
+  it("browses the enlarged cell's directory, falling back to the grid default", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    expect(paneOf(w).props("cwd")).toBe("/proj");
+
+    // A launcher / still-starting session has reported no cwd yet.
+    const noCwd = mountCockpit([cell(1), cell(2)], 1, []);
+    await openPane(noCwd);
+    expect(paneOf(noCwd).props("cwd")).toBe("/work");
+  });
+
+  // The pane ignores its `cwd` prop by design, so asserting the prop alone would pass while the
+  // tree still showed the previous cell — the host has to re-read, and that is what is checked.
+  it("re-roots the one pane when the zoom moves to another cell", async () => {
+    const cells = [cell(1, "s1", "/one"), cell(2, "s2", "/two")];
+    const w = mountCockpit(cells, 1, []);
+    await openPane(w);
+    expect(w.findAllComponents({ name: "FilesPane" })).toHaveLength(1);
+    expect(paneOf(w).props("cwd")).toBe("/one");
+    expect(paneStub.reload).not.toHaveBeenCalled(); // it mounted on /one; nothing to re-read
+
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(w.findAllComponents({ name: "FilesPane" })).toHaveLength(1);
+    expect(paneOf(w).props("cwd")).toBe("/two");
+    expect(paneStub.reload).toHaveBeenCalledTimes(1);
+  });
+
+  // Declining the prompt has to leave the pane WHOLE — same root, same buffer. Handing it the
+  // new cwd while keeping the old tree would resolve the next file open against the wrong dir.
+  it("keeps the old root, prop and all, when the re-root is refused over unsaved edits", async () => {
+    paneStub.confirmDiscard.mockReturnValueOnce(false);
+    const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
+    await openPane(w);
+
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(paneStub.reload).not.toHaveBeenCalled();
+    expect(paneOf(w).props("cwd")).toBe("/one");
+    // The header names the root it stayed on — label AND tooltip, or the tooltip would quietly
+    // claim the directory the pane refused to move to.
+    const label = w.find(".stub-files-pane span");
+    expect(label.text()).toContain("one");
+    expect(label.attributes("title")).toBe("/one");
+  });
+
+  // Closing unmounts the pane, buffer and all — so the toggle asks. The pane's own close button
+  // has already asked by the time it emits, and must not be asked again on the way out.
+  it("asks before the header toggle closes a pane with unsaved edits", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+
+    paneStub.confirmDiscard.mockReturnValueOnce(false);
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await nextTick();
+    expect(paneOf(w).exists()).toBe(true); // refused — the pane and its buffer stay
+
+    paneStub.confirmDiscard.mockReturnValueOnce(true);
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await nextTick();
+    expect(paneOf(w).exists()).toBe(false);
+  });
+
+  it("does not re-ask when the pane itself reports it is closing", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    paneStub.confirmDiscard.mockClear();
+
+    await paneOf(w).vm.$emit("close");
+    await nextTick();
+    expect(paneStub.confirmDiscard).not.toHaveBeenCalled();
+    expect(paneOf(w).exists()).toBe(false);
+  });
+
+  // Collapsing the zoom only HIDES the row; the pane stays mounted, so an unsaved buffer is
+  // still there when the cell is enlarged again. (Codex read this as an unguarded discard.)
+  it("keeps the pane and its buffer mounted while the zoom is collapsed", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    const before = paneOf(w).element;
+
+    await w.setProps({ expandedUid: null });
+    await flushPromises();
+    expect(paneOf(w).exists()).toBe(true);
+    expect(w.find(".zoom-main").element.parentElement?.className).toContain("hidden");
+
+    await w.setProps({ expandedUid: 1 });
+    await flushPromises();
+    expect(paneOf(w).element).toBe(before); // same instance, never torn down
+  });
+
+  it("remembers being open across a remount, and the pane's own close puts it away", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    expect(localStorage.getItem("files_pane_open")).toBe("1");
+
+    const reopened = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    expect(paneOf(reopened).exists()).toBe(true);
+
+    await paneOf(reopened).vm.$emit("close");
+    await nextTick();
+    expect(paneOf(reopened).exists()).toBe(false);
+    expect(localStorage.getItem("files_pane_open")).toBe("0");
+  });
+});
+
+// A remembered width was clamped against WHATEVER row existed when it was stored — a wider
+// window, or the other zoom mode. Without a clamp at open time it is applied as-is, and a
+// remembered 900px against a 1000px row leaves the terminal 100px wide (xterm reflow garbage).
+describe("file pane width restored from storage", () => {
+  const ROW = 1000;
+  let clientWidth: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    localStorage.clear();
+    clientWidth = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "clientWidth");
+    Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => ROW });
+  });
+  afterEach(() => {
+    if (clientWidth) Object.defineProperty(window.HTMLElement.prototype, "clientWidth", clientWidth);
+  });
+
+  it("clamps to the terminal's floor as soon as the pane is on screen", async () => {
+    localStorage.setItem("files_pane_open", "1");
+    localStorage.setItem("files_pane_width", "900");
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    // 1000 wide, terminal keeps MIN_TERMINAL (320) → the pane gets the remaining 680.
+    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("680px");
+  });
+
+  // The single view's splitter announces its range; a screen-reader user resizing this one gets
+  // nothing without the same three attributes.
+  it("announces its value and range on the separator", async () => {
+    localStorage.setItem("files_pane_open", "1");
+    localStorage.setItem("files_pane_width", "400");
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    const sep = w.find('[role="separator"][aria-label="Resize file pane"]');
+    expect(sep.attributes("aria-valuenow")).toBe("400");
+    expect(sep.attributes("aria-valuemin")).toBe("360"); // MIN_GUI, there being room for it
+    expect(sep.attributes("aria-valuemax")).toBe(String(ROW - 320)); // the terminal keeps MIN_TERMINAL
+  });
+
+  it("leaves a width that already fits alone", async () => {
+    localStorage.setItem("files_pane_open", "1");
+    localStorage.setItem("files_pane_width", "400");
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("400px");
   });
 });
