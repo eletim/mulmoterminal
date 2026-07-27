@@ -15,9 +15,9 @@ vi.mock("../../../src/components/FilesPane.vue", () => ({
     name: "FilesPane",
     props: ["cwd", "requestedPath"],
     emits: ["close", "dirty"],
-    setup: (_p: unknown, { expose }: { expose: (e: Record<string, unknown>) => void }) => {
+    setup: (_p: unknown, { expose, slots }: { expose: (e: Record<string, unknown>) => void; slots: Record<string, (() => unknown) | undefined> }) => {
       expose({ reload: paneStub.reload, confirmDiscard: paneStub.confirmDiscard });
-      return () => h("div", { class: "stub-files-pane" });
+      return () => h("div", { class: "stub-files-pane" }, [slots.title?.()]);
     },
   },
 }));
@@ -457,6 +457,11 @@ describe("file pane beside the enlarged cell", () => {
     await flushPromises();
     expect(paneStub.reload).not.toHaveBeenCalled();
     expect(paneOf(w).props("cwd")).toBe("/one");
+    // The header names the root it stayed on — label AND tooltip, or the tooltip would quietly
+    // claim the directory the pane refused to move to.
+    const label = w.find(".stub-files-pane span");
+    expect(label.text()).toContain("one");
+    expect(label.attributes("title")).toBe("/one");
   });
 
   // Closing unmounts the pane, buffer and all — so the toggle asks. The pane's own close button

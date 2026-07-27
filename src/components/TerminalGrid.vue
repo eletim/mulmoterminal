@@ -419,7 +419,7 @@ watch(
                cell, but declining a re-root leaves it behind — and then this is the only thing
                that says so. -->
           <template #title>
-            <span class="truncate font-mono text-[11px] text-muted" :title="expandedCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
+            <span class="truncate font-mono text-[11px] text-muted" :title="paneCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
           </template>
         </FilesPane>
       </template>
