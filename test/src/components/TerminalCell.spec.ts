@@ -386,8 +386,13 @@ describe("TerminalCell", () => {
     try {
       const w = mountCell(null, { defaultCwd: "/def", presets: [{ label: "x", path: "/x" }] });
       await flushPromises();
-      const sessionCalls = () =>
-        (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/api/sessions")).length;
+      // The URLs, not just the count: this assertion fails intermittently on a loaded CI
+      // runner, and "expected 2 to be 1" says nothing about WHY. WHICH dir the extra fetch
+      // asked for separates the two candidates — `/typed` means the pending debounce was
+      // never cancelled, `/x` means something re-scheduled one after the fill.
+      const sessionUrls = () =>
+        (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/api/sessions"));
+      const sessionCalls = () => sessionUrls().length;
 
       await w.find('[data-testid="cell-dir-input"]').setValue("/typed"); // schedules a 300ms debounced load
       const before = sessionCalls();
@@ -402,8 +407,9 @@ describe("TerminalCell", () => {
       await flushPromises();
       const total = sessionCalls() - before;
 
-      expect(afterClick).toBe(1); // the fill's own immediate load
-      expect(total).toBe(1); // the pending typed-dir debounce was cancelled — no second fetch
+      expect(afterClick, `session fetches so far: ${JSON.stringify(sessionUrls())}`).toBe(1); // the fill's own immediate load
+      // The pending typed-dir debounce was cancelled — no second fetch.
+      expect(total, `session fetches after the 400ms advance: ${JSON.stringify(sessionUrls())}`).toBe(1);
     } finally {
       vi.useRealTimers();
     }
