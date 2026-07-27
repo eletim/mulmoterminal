@@ -2,7 +2,8 @@
 import { ref, computed, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
-import { useDirConfig } from "../composables/useDirConfig";
+import { useDirConfig, useDirColors } from "../composables/useDirConfig";
+import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
 import DirBadge from "./DirBadge.vue";
@@ -132,6 +133,11 @@ const filmstrip = computed(() => !!props.zoomed && !props.expanded);
 // load (cold-load / open-before-config) — it never clobbers the user's own edit.
 const dirInput = ref(preferredLaunchDir(props));
 const dirTouched = ref(false); // true once the user types in / picks a dir
+// Each recent-dir chip wears its directory's configured colour, so picking one is the same
+// visual decision as finding its cell in the grid. Dropped once this cell launches: the chips
+// are gone, and their subscriptions would keep fetching for the rest of the session.
+const presetPaths = computed(() => (launched.value ? [] : props.presets.map((p) => p.path)));
+const { colors: presetColors } = useDirColors(presetPaths);
 watch([() => props.presets, () => props.defaultCwd], () => {
   if (cwd.value === null && props.defaultCwd) cwd.value = props.defaultCwd;
   if (!shouldSyncLaunchDir({ hasInitialCwd: !!props.initialCwd, touched: dirTouched.value, launched: launched.value })) return;
@@ -1420,7 +1426,19 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               ? 'border-[color-mix(in_srgb,#3b82f6_55%,var(--border))] bg-[color-mix(in_srgb,#3b82f6_14%,var(--bg-elevated))]'
               : 'border-border bg-elevated',
           ]"
+          :style="dirChipTint(presetColors[p.path] ?? null, isCwdRunning(p.path))"
         >
+          <!-- The directory's colour: a solid stripe down the leading edge, plus a wash over the
+               chip when nothing is running there (dirChipTint). Not a wash while running — that
+               background already means "a session is here", and a dir that configured no colour
+               has to keep looking exactly as it did. -->
+          <span
+            v-if="presetColors[p.path]"
+            data-testid="cell-chip-color"
+            class="w-[6px] flex-none"
+            :style="{ background: presetColors[p.path] }"
+            aria-hidden="true"
+          />
           <button
             type="button"
             data-testid="cell-chip-main"

@@ -1752,4 +1752,54 @@ describe("TerminalCell", () => {
     expect(idle?.find('[data-testid="cell-chip-dot"]').exists()).toBe(false);
     expect(idle?.find('[data-testid="cell-chip-launch"]').attributes("aria-label")).not.toContain("already running");
   });
+
+  // Two facts on one chip: "this is that project" and "a session is already running there".
+  // The wash is dropped while running so the blue keeps meaning only the second one.
+  it("keeps the running chip's blue and carries the dir colour on the stripe alone", async () => {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/dir-config")) return { ok: true, json: async () => ({ headerColor: "#aa1122" }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, { presets: [{ label: "busy", path: "/chip/busy" }], openCwds: ["/chip/busy"] });
+    await flushPromises();
+
+    const chip = w.find('[data-testid="cell-chip"]');
+    expect(chip.classes()).toContain("is-running");
+    expect(chip.attributes("style") ?? "").not.toContain("#aa1122"); // the blue keeps the background
+    expect(chip.find('[data-testid="cell-chip-color"]').attributes("style")).toContain("rgb(170, 17, 34)");
+  });
+
+  it("stripes each recent-dir chip with that directory's configured colour, and leaves the rest bare", async () => {
+    const byCwd: Record<string, unknown> = { "/chip/tinted": { headerColor: "#aa1122" }, "/chip/bare": { name: "no colour" } };
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/dir-config")) {
+        const cwd = decodeURIComponent(new URL(u, "https://test.invalid").searchParams.get("cwd") ?? "");
+        return { ok: true, json: async () => byCwd[cwd] ?? {} };
+      }
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, {
+      presets: [
+        { label: "tinted", path: "/chip/tinted" },
+        { label: "bare", path: "/chip/bare" },
+      ],
+    });
+    await flushPromises();
+
+    const chips = w.findAll('[data-testid="cell-chip"]');
+    const tinted = chips.find((c) => c.text().includes("tinted"));
+    const bare = chips.find((c) => c.text().includes("bare"));
+    expect(tinted?.find('[data-testid="cell-chip-color"]').attributes("style")).toContain("rgb(170, 17, 34)");
+    // The chip itself is washed in the same colour, which is what makes it readable across the form.
+    expect(tinted?.attributes("style")).toContain("#aa1122");
+    // A directory with nothing configured has to look exactly as it did before the stripe existed.
+    expect(bare?.find('[data-testid="cell-chip-color"]').exists()).toBe(false);
+    expect(bare?.attributes("style") ?? "").not.toContain("color-mix");
+  });
 });
