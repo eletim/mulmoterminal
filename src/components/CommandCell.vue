@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import TerminalView from "./Terminal.vue";
-import { useDirConfig } from "../composables/useDirConfig";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { RunCommand } from "./runCommand";
 import { formatCwd } from "./cwdDisplay";
@@ -51,10 +50,6 @@ const emit = defineEmits<GridCellEmits>();
 const connectKey = ref(0);
 const finished = ref(false);
 const termRef = ref<InstanceType<typeof TerminalView>>();
-
-// Same as LauncherCell (#902): a command runs in a directory, so its terminal takes that
-// directory's palette and font. A getter ref because the cwd lives inside the `command` object.
-const { config: dirConfig } = useDirConfig(toRef(() => props.command.cwd));
 
 const dirDisplay = computed(() => formatCwd(props.command.cwd, props.home));
 
@@ -200,10 +195,6 @@ function onHeaderClick(event: MouseEvent) {
       :connect-key="connectKey"
       :cwd="command.cwd"
       :command="command"
-      :dir-theme="dirConfig.theme"
-      :dir-colors="dirConfig.colors"
-      :dir-font-size="dirConfig.fontSize"
-      :dir-font-family="dirConfig.fontFamily"
       :expanded="expanded"
       :zoomed="zoomed"
       @exit="onExit"
