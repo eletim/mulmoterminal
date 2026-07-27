@@ -9,6 +9,7 @@ import "./composables/collectionUi";
 import "./composables/accountingUi";
 import { initTheme } from "./composables/useTheme";
 import { installFileDropGuard } from "./composables/useFileDropGuard";
+import { installPageZoomGuard } from "./composables/usePageZoomGuard";
 import { router } from "./router";
 import App from "./App.vue";
 
@@ -20,6 +21,11 @@ initTheme();
 // page to the file and lose every session. Installed on window, before mount, so it
 // covers both views and any area between them.
 installFileDropGuard();
+
+// A ctrl+wheel or trackpad pinch anywhere in the tab would page-zoom the browser, moving the
+// layout and xterm's fit out from under the user. Same window-level shape as the drop guard;
+// keyboard zoom stays available for anyone who wants it on purpose.
+installPageZoomGuard();
 
 // Mount only AFTER the router's initial (async) navigation resolves. On a hard
 // reload / deep-link to /terminals, mounting eagerly would first render the single

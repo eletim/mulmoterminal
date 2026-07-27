@@ -850,6 +850,11 @@ Favorited collections get their own toolbar buttons.
   **Option** is treated as Meta so Claude's Alt-key bindings work. If your Claude Code is
   rebound so Enter and Shift+Enter behave backwards, flip them with
   [`terminalSubmit`](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit).
+- **No accidental page zoom** — `Ctrl`+wheel and a trackpad pinch would rescale the whole
+  page and drag the layout and the terminal's fit along with it, so both are ignored.
+  Keyboard zoom (`Cmd`/`Ctrl` `+` / `-`) still works when you mean it, and a phone's finger
+  pinch is untouched. To make terminal text bigger for real, use the font size in Settings
+  (or a directory's `fontSize`) — that re-fits the PTY instead of leaving it disagreeing.
 
 ---
 
