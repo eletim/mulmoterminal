@@ -4,10 +4,14 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
-## Unreleased
+## mulmoterminal@2.2.0 — 2026-07-27
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.2.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.2.0.html))
 
 The in-app file explorer moved next to the terminal, and editing it stopped being able to lose
-your work — or the agent's. Four changes that only make sense together.
+your work — or the agent's. Alongside it: the mouse no longer zooms the page out from under
+you, the notification bell can tell "finished" from "waiting", and the terminal gained keyboard
+copy/paste.
 
 ### The explorer and editor open beside an enlarged terminal (#910, #925)
 
@@ -74,6 +78,76 @@ path can abort the process outright.
   refusing writes at that moment, the buffer is gone.
 - On tab close the browser caps a `keepalive` request at **64 KB**, so a very large unsaved
   buffer may not make it out.
+
+### Per-cell memory for the pane (#910, #929)
+
+Walking the zoom between terminals no longer means re-opening the same three directories. Each
+cell remembers which directories were open and which file — **saved state only**: the buffer
+went to disk (or the backup store) on the way out, and the content is re-read from disk on
+return, because the agent has usually rewritten it since. In memory, so a reload starts clean:
+paths remembered from a previous session may not exist any more, and restoring them would only
+mislead.
+
+### The mouse no longer zooms the page (#896, #901)
+
+`Ctrl`+wheel — which is also what a trackpad pinch arrives as — rescaled the whole page,
+dragging the layout and xterm's fit with it. Both are ignored now. Keyboard zoom
+(`Cmd`/`Ctrl` `+` / `-`) still works when meant, and a phone's finger pinch is untouched; the
+in-app font size is the way to make terminal text bigger, since it re-fits the PTY.
+
+### Keyboard copy and paste in the terminal (#900, #933)
+
+Two `keymap` actions, `copy` and `paste`. **Nothing is bound by default** — any key bound here
+is taken from the terminal underneath. They dispatch inside the terminal rather than from the
+grid's handler, which matters twice: the grid ends every match with `preventDefault()`, and for
+paste that would cancel the browser's own paste (which is what actually inserts the text),
+while `copy` has to fall through when there is no selection so `Ctrl+C` still sends `^C`.
+
+### Notification sounds per kind, and one storm fixed (#873, #917, #874, #927)
+
+The bell can sound differently for **finished** and **waiting**, each switchable on its own,
+with presets shipped so no file of your own is needed.
+
+The fix that comes with it matters more: a **subagent** finishing raised the "it wants you"
+notification while the main agent was still working. On a long run with many subagents that was
+a stream of false alarms.
+
+### Ordering the grid by directory (#876, #881)
+
+`orderPriority` in a directory's `.mulmoterminal.json` decides where its cells sit — lower
+first. Directories without one keep the existing behaviour.
+
+### Directory settings reach the cells that were missing them (#906, #911, #915)
+
+Shell (launcher) and Command cells now carry the directory name badge and follow that
+directory's theme and font, which terminal cells always did. The resolution of those settings
+moved into one place (`Terminal.vue`), retiring four separate `dir-*` prop wirings — the reason
+the three cell types had drifted apart in the first place.
+
+### A configurable terminal font, with CJK in the default stack (#864, #870)
+
+`fontFamily` sets the terminal's font. The default stack now carries CJK faces, so Japanese in
+the terminal stops falling through to whatever the browser picked — which is what misaligned
+box-drawing frames.
+
+### Collections push to Google Calendar (#897, #907)
+
+Following `collection-plugin` 1.2.x. The route path and the status-vs-body split were matched
+against MulmoClaude's implementation rather than guessed, which is what made the difference
+between "works" and "works the same way in both hosts".
+
+### `addDirs` (#908, #912)
+
+`.mulmoterminal.json` can pass extra `--add-dir` arguments to the agent.
+
+### Fixes and test debt
+
+- A **git chip** squeezed into a narrow cell collapsed into what looked like an empty badge (#921, #922).
+- `fetchJson` swallowed the server's explanation and showed a generic error instead (#913, #920).
+- Mounted components were left behind by specs, which is how flakes appeared in unrelated files (#903, #904, #918).
+- Font changes reaching the PTY — the point of #860/#864 — had no test (#919).
+- Windows CI: POSIX path literals in specs, and an `add-dirs` test that assumed them (#923, #934, #935).
+- The immediate (hook-driven) half of external-change detection had no test; only the 30-second poll did (#936).
 
 ## mulmoterminal@2.1.1 — 2026-07-27
 
