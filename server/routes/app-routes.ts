@@ -55,7 +55,7 @@ import type { createTitleManager } from "../session/session-title.js";
 import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClientCount } from "../infra/tmux.js";
 import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
-import { SPA_FALLBACK_RE } from "../infra/spa-fallback.js";
+import { mountSpaFallback } from "../infra/spa-fallback.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
@@ -179,7 +179,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // express.static so real asset files win, and after the /artifacts/html preview
   // route (registered above) so it wins too. SPA_FALLBACK_RE reserves the single /api
   // prefix — see server/spa-fallback.ts for why that's sufficient.
-  app.get(SPA_FALLBACK_RE, (_req, res) => res.sendFile(path.join(clientDir, "../dist/index.html")));
+  mountSpaFallback(app, path.join(clientDir, "../dist"));
 
   // The Claude hook endpoint (routes/hook-routes.ts). Session lifecycle, the title
   // bookkeeping and the tool stores stay here; the fan-out that reads them moves out.

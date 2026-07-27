@@ -187,7 +187,12 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
     }
     const file = configured ?? config.soundFile;
     if (!file || !existsSync(file) || !statSync(file).isFile()) return res.status(404).end();
-    res.sendFile(path.resolve(file));
+    // `dotfiles: "allow"`, like the directory sound route does with the same kind of value
+    // (dir-routes.ts): without it `send` runs its dotfile check over the whole absolute path
+    // and 404s a file under any dot directory — `~/.mulmoterminal/chime.mp3` being the obvious
+    // place to keep one (#954). No traversal surface: the path is config's, never the
+    // request's, as the comment above says.
+    res.sendFile(path.resolve(file), { dotfiles: "allow" });
   });
 
   // Stream a preset attention sound, downloading it into ~/.mulmoterminal/sounds/ the first
