@@ -9,6 +9,11 @@
 // and revised on its own — and so there is one place to reach for if this ever becomes
 // opt-out.
 //
+// It must contain NO `"`. On Windows a `.cmd`-installed Claude is launched through cmd.exe,
+// where the command line is parsed by cmd and then by the child's CRT, and the two disagree
+// about quoting — which is why the JSON payloads travel as files (#813). This is prose, so the
+// temptation is to quote a phrase inside it; that would put the only quote back into the argv.
+//
 // Two rules carry most of the weight and should survive any edit:
 //   - The exclusions are CLOSED, and they are about the reply, not its size. An earlier draft
 //     added "when in doubt, leave it out" to hold the noise down; probing it showed the model
@@ -24,8 +29,8 @@ stands without scrolling back.
 
 Two things disqualify a reply, and only these two. You are still working — more tool calls
 coming, a plan half executed. Or there was no work to speak of: a factual question you answered
-from knowledge, a greeting, an acknowledgement. A small task still gets a summary; "it was only
-one file" is not a reason to skip it.
+from knowledge, a greeting, an acknowledgement. A small task still gets a summary; being only
+one file is not a reason to skip it.
 
 What it says, one or two sentences each:
 

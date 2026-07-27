@@ -27,4 +27,12 @@ describe("SESSION_SUMMARY_PROMPT", () => {
     expect(SESSION_SUMMARY_PROMPT).not.toContain("\0");
     expect(SESSION_SUMMARY_PROMPT).toBe(SESSION_SUMMARY_PROMPT.trim());
   });
+
+  // The Windows spawn's no-quote invariant, stated where the prose is EDITED. Breaking it is a
+  // one-character edit — quoting a phrase for emphasis — and the spawn-level test that also
+  // catches it (`session-settings.spec.ts`, "the argv a Windows spawn ends up with") is nowhere
+  // near this file, so an author revising the wording would not think to look for it (#813).
+  it("carries no double quote, which cmd.exe and the CRT parse differently", () => {
+    expect(SESSION_SUMMARY_PROMPT).not.toContain('"');
+  });
 });
