@@ -40,8 +40,11 @@ function provideLinks(
   cwd: string | null,
   open: (url: string) => void,
   openInFiles: (filePath: string, cwd: string) => void = () => {},
+  // Nothing enlarged is the default for these cases, so the pane declines and the routing
+  // below it is what gets exercised.
+  openInPane: (filePath: string, cwd: string) => boolean = () => false,
 ): ILink[] | undefined {
-  const provider = createFilePathLinkProvider(term, () => cwd, open, openInFiles);
+  const provider = createFilePathLinkProvider(term, () => cwd, open, openInFiles, openInPane);
   let result: ILink[] | undefined;
   provider.provideLinks(1, (links) => {
     result = links;
@@ -88,6 +91,33 @@ describe("createFilePathLinkProvider against real xterm", () => {
     link.activate(new MouseEvent("click"), link.text);
     expect(openInFiles).toHaveBeenCalledWith("src/main.ts", "/Users/me/proj");
     expect(open).not.toHaveBeenCalled();
+
+    term.dispose();
+  });
+
+  // The pane gets first refusal (#910). Taking the click has to stop BOTH of the routes
+  // below it — a path that opened in the pane and also in a new tab would be the worst of
+  // each, and the tab is what the pane exists to avoid.
+  it("stops at the pane when it takes the click, opening neither a tab nor the Files view", async () => {
+    const term = new Terminal({ cols: 120, rows: 10, allowProposedApi: true });
+    term.open(document.createElement("div"));
+    await writeLine(term, "see src/main.ts and docs/a.md and dir/a.gif");
+
+    const open = vi.fn();
+    const openInFiles = vi.fn();
+    const openInPane = vi.fn(() => true);
+    const links = provideLinks(term, "/Users/me/proj", open, openInFiles, openInPane);
+    if (!links) throw new Error("expected the provider to return links");
+    expect(links.map((l) => l.text)).toEqual(["src/main.ts", "docs/a.md", "dir/a.gif"]);
+
+    links.forEach((link) => link.activate(new MouseEvent("click"), link.text));
+    expect(openInPane.mock.calls).toEqual([
+      ["src/main.ts", "/Users/me/proj"],
+      ["docs/a.md", "/Users/me/proj"],
+      ["dir/a.gif", "/Users/me/proj"],
+    ]);
+    expect(open).not.toHaveBeenCalled();
+    expect(openInFiles).not.toHaveBeenCalled();
 
     term.dispose();
   });
