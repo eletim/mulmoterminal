@@ -14,10 +14,17 @@ chip's label (a bare basename — `proj`, `web`, `api`) is doing the work alone.
 
 Each chip gets a 3px stripe down its leading edge in that directory's colour.
 
-**A stripe, not a tint.** The chip's background already carries a meaning: blue-tinted with a dot
-means "a session is already running here". A dir colour on the background would collide with it,
-and the two states would fight for the same pixels. The stripe is orthogonal to both, and a
-directory that configured no colour renders exactly as it did before.
+A 6px stripe, plus a wash over the chip's background and border in the same colour.
+
+**The wash is dropped while a session is running there.** That chip's blue means "a session is
+already here" — a state, not an identity. Two meanings on one background is how both stop being
+legible, so the running chip keeps its blue and carries the directory's colour on the stripe
+alone; the two facts stay readable side by side. A directory that configured no colour renders
+exactly as it did before, running or not.
+
+The first cut was the stripe alone at 3px. Seen in the running app that read as too quiet to
+serve its purpose, so the stripe doubled and the wash was added — 14% over the chip, 55% on the
+border, both named constants in `dirChipColor.ts` for the next time that judgement changes.
 
 **Which colour.** `dirChipColor` takes the first that is set: `headerColor`, `badgeColor`,
 `cellColor`, `dotColor` — the order the grid makes them visible in. A chip is too small for more

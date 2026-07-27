@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted, useTemplateRef } from "vu
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
 import { useDirConfig, useDirColors } from "../composables/useDirConfig";
+import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
 import DirBadge from "./DirBadge.vue";
@@ -1425,14 +1426,16 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               ? 'border-[color-mix(in_srgb,#3b82f6_55%,var(--border))] bg-[color-mix(in_srgb,#3b82f6_14%,var(--bg-elevated))]'
               : 'border-border bg-elevated',
           ]"
+          :style="dirChipTint(presetColors[p.path] ?? null, isCwdRunning(p.path))"
         >
-          <!-- The directory's own colour, as the stripe down the chip's leading edge. A stripe and
-               not a tint: the chip's background already means "a session is running here", and a
-               dir that configured no colour has to keep looking exactly as it did. -->
+          <!-- The directory's colour: a solid stripe down the leading edge, plus a wash over the
+               chip when nothing is running there (dirChipTint). Not a wash while running — that
+               background already means "a session is here", and a dir that configured no colour
+               has to keep looking exactly as it did. -->
           <span
             v-if="presetColors[p.path]"
             data-testid="cell-chip-color"
-            class="w-[3px] flex-none"
+            class="w-[6px] flex-none"
             :style="{ background: presetColors[p.path] }"
             aria-hidden="true"
           />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dirChipColor } from "../../../src/components/dirChipColor";
+import { dirChipColor, dirChipTint } from "../../../src/components/dirChipColor";
 
 const chrome = (over: Partial<Parameters<typeof dirChipColor>[0]> = {}) => ({
   headerColor: null,
@@ -31,5 +31,24 @@ describe("dirChipColor", () => {
     expect(dirChipColor(chrome({ headerColor: "#fff" }))).toBeNull();
     expect(dirChipColor(chrome({ headerColor: "#12345g" }))).toBeNull();
     expect(dirChipColor(chrome({ headerColor: "javascript:alert(1)", badgeColor: "#445566" }))).toBe("#445566");
+  });
+});
+
+describe("dirChipTint", () => {
+  it("washes the chip and warms its border in the directory's colour", () => {
+    const style = dirChipTint("#112233", false);
+    expect(style.background).toContain("#112233");
+    expect(style.background).toContain("var(--bg-elevated)"); // a wash, not the raw colour
+    expect(style.borderColor).toContain("#112233");
+  });
+
+  // The running chip's blue means "a session is already here". A second meaning on the same
+  // background is how both stop being readable — the stripe still carries the dir's colour.
+  it("leaves the background alone while a session is running there", () => {
+    expect(dirChipTint("#112233", true)).toEqual({});
+  });
+
+  it("leaves a directory that configured no colour exactly as it was", () => {
+    expect(dirChipTint(null, false)).toEqual({});
   });
 });
