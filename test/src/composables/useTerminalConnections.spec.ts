@@ -16,6 +16,7 @@ const mockTermState: {
   hasSelection: boolean;
   selection: string;
   onSelectionChange: () => void;
+  helperTextarea: HTMLTextAreaElement | null;
 } = vi.hoisted(() => ({
   options: {},
   csiHandlers: [],
@@ -25,6 +26,7 @@ const mockTermState: {
   hasSelection: false,
   selection: "",
   onSelectionChange: () => {},
+  helperTextarea: null,
 }));
 
 // Mock xterm + addons so the manager runs headless (no real DOM terminal / canvas).
@@ -45,7 +47,14 @@ vi.mock("@xterm/xterm", () => ({
     parser = { registerCsiHandler: (...args: unknown[]) => mockTermState.csiHandlers.push(args) };
     loadAddon() {}
     registerLinkProvider() {}
-    open() {}
+    // Real xterm puts a hidden helper textarea inside the host, and the clipboard fallback finds
+    // the copy target through it — a double that skipped it would let that path "pass" untested.
+    open(host: HTMLElement) {
+      const textarea = document.createElement("textarea");
+      textarea.className = "xterm-helper-textarea";
+      host.appendChild(textarea);
+      mockTermState.helperTextarea = textarea;
+    }
     onData() {}
     attachCustomKeyEventHandler(fn: (e: unknown) => boolean) {
       mockKeyState.handler = fn;
@@ -391,6 +400,8 @@ describe("isSystemClipboard", () => {
 // write, and that the setting is what gates it.
 describe("copy-on-select wiring", () => {
   const writeText = vi.fn<(text: string) => Promise<void>>();
+  const execCommand = vi.fn<(commandId: string) => boolean>(() => true);
+  let cellEl: HTMLDivElement;
 
   beforeEach(() => {
     FakeWebSocket.instances.length = 0;
@@ -398,9 +409,17 @@ describe("copy-on-select wiring", () => {
     mockTermState.onSelectionChange = () => {};
     mockTermState.selection = "";
     mockTermState.hasSelection = false;
+    mockTermState.helperTextarea = null;
     writeText.mockReset();
     writeText.mockResolvedValue(undefined);
+    execCommand.mockClear();
     vi.stubGlobal("navigator", { clipboard: { writeText } });
+    // jsdom implements no execCommand at all, and the fallback needs a real one to observe.
+    Object.defineProperty(document, "execCommand", { value: execCommand, configurable: true, writable: true });
+    // In the document, not detached: the fallback's focus check is answered by
+    // document.activeElement, which only follows focus() for an element that is actually attached.
+    cellEl = document.createElement("div");
+    document.body.appendChild(cellEl);
     vi.useFakeTimers();
   });
 
@@ -409,10 +428,13 @@ describe("copy-on-select wiring", () => {
     vi.unstubAllGlobals();
     setCopyOnSelect(false);
     conn.release("cell-select");
+    cellEl.remove();
   });
 
-  // xterm fires on every coordinate change, so a drag is a burst. Writing each one would fill the
-  // OS clipboard history (Win+V) with partial selections — only the settled text may land.
+  const attachTerminal = (): void => {
+    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, cellEl);
+  };
+
   // The selection as the terminal would report it — both halves, since the wiring reads each for a
   // different job (hasSelection per event, getSelection once it settles).
   const select = (text: string): void => {
@@ -421,9 +443,11 @@ describe("copy-on-select wiring", () => {
     mockTermState.onSelectionChange();
   };
 
+  // xterm fires on every coordinate change, so a drag is a burst. Writing each one would fill the
+  // OS clipboard history (Win+V) with partial selections — only the settled text may land.
   it("writes once for a whole drag, with the text the selection settled on", async () => {
     setCopyOnSelect(true);
-    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    attachTerminal();
 
     for (const partial of ["npm", "npm run", "npm run build"]) {
       select(partial);
@@ -437,12 +461,12 @@ describe("copy-on-select wiring", () => {
   });
 
   // The default. Highlighting must not touch the clipboard for anyone who did not ask for this.
-  // The default. Highlighting must not touch the clipboard for anyone who did not ask for this.
   it("writes nothing while the setting is off", async () => {
-    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    attachTerminal();
     select("npm run build");
     await vi.advanceTimersByTimeAsync(500);
     expect(writeText).not.toHaveBeenCalled();
+    expect(execCommand).not.toHaveBeenCalled();
   });
 
   // A selection can settle again unchanged (a drag that runs past the end of a line moves the
@@ -450,7 +474,7 @@ describe("copy-on-select wiring", () => {
   // in the OS clipboard history.
   it("does not write the same selection twice while it stands", async () => {
     setCopyOnSelect(true);
-    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    attachTerminal();
 
     select("npm run build");
     await vi.advanceTimersByTimeAsync(500);
@@ -464,7 +488,7 @@ describe("copy-on-select wiring", () => {
   // wrong thing with nothing to show for it.
   it("copies the same text again after the selection was cleared", async () => {
     setCopyOnSelect(true);
-    conn.attach("cell-select", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    attachTerminal();
 
     select("npm run build");
     await vi.advanceTimersByTimeAsync(500);
@@ -472,6 +496,52 @@ describe("copy-on-select wiring", () => {
     select("npm run build"); // re-dragged inside the same settle window as the clear
     await vi.advanceTimersByTimeAsync(500);
     expect(writeText).toHaveBeenCalledTimes(2);
+  });
+
+  // The whole answer to reaching this app at http://<lan-ip>: browsers restrict the Clipboard API
+  // to secure contexts, so `navigator.clipboard` is not merely blocked there, it is ABSENT. Asking
+  // xterm to copy through its own listener is what still works.
+  it("falls back to xterm's own copy when the browser exposes no clipboard API", async () => {
+    setCopyOnSelect(true);
+    vi.stubGlobal("navigator", {}); // an insecure context
+    attachTerminal();
+    mockTermState.helperTextarea?.focus();
+
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  // Same route when the API exists but refuses (no document focus, permission denied): one failure
+  // must not end the attempt.
+  it("falls back after a rejected clipboard write", async () => {
+    setCopyOnSelect(true);
+    writeText.mockRejectedValue(new Error("not focused"));
+    attachTerminal();
+    mockTermState.helperTextarea?.focus();
+
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(writeText).toHaveBeenCalled();
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  // The fallback needs the terminal's textarea focused, and deliberately does NOT take focus to get
+  // it: if the user has moved on in the settle window, pulling focus back mid-typing would be a
+  // worse outcome than a selection that did not copy.
+  it("gives up rather than stealing focus back from wherever it went", async () => {
+    setCopyOnSelect(true);
+    vi.stubGlobal("navigator", {});
+    attachTerminal();
+    const elsewhere = document.createElement("input");
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+
+    select("npm run build");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
   });
 });
 
