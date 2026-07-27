@@ -214,9 +214,10 @@ configureCollectionUi({
   runCollectionAction: (slug, actionId) =>
     apiPost<CollectionActionResult>(`/api/collections/${encodeURIComponent(slug)}/actions/${encodeURIComponent(actionId)}`, {}),
   refreshCollection: (slug) => apiPost(`/api/collections/${encodeURIComponent(slug)}/refresh`, {}),
-  // The write direction. Answers 200 even when the push could not run — the reason rides in
-  // `errors`, which is what the view shows beside the button (server/backends/calendarPush.ts).
-  pushCalendarCollection: (slug) => apiPost<CollectionPushResult>(`/api/collections/${encodeURIComponent(slug)}/calendar/push`, {}),
+  // The write direction. Path matches MulmoClaude's `API_ROUTES.collections.calendarPush`.
+  // A push that could not run still answers 200 with the reason in `errors`, which is what
+  // the view shows beside the button (server/backends/calendarPush.ts).
+  pushCalendarCollection: (slug) => apiPost<CollectionPushResult>(`/api/collections/${encodeURIComponent(slug)}/calendar-push`, {}),
   deleteView: (slug, viewId) => apiDelete(`/api/collections/${encodeURIComponent(slug)}/views/${encodeURIComponent(viewId)}`),
   listFeeds: () => apiGet<FeedsListResponse>("/api/feeds"),
   // ── Discover/registry tab: the shared @mulmoclaude/core registry engine, wired

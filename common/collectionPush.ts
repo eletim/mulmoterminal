@@ -1,18 +1,18 @@
-// The `POST /api/collections/:slug/calendar/push` response. The server builds it from the
+// The `POST /api/collections/:slug/calendar-push` response. The server builds it from the
 // engine's outcome; the collection view reads it to say what the click did — both sides
 // decide from it, so it lives here.
 //
-// Structurally the plugin's own `CollectionPushResult`, deliberately re-stated rather than
-// imported: that type ships from `@mulmoclaude/collection-plugin/vue`, and the server has
-// no business pulling a Vue package in to describe its own response.
-//
-// Note what is NOT here: an HTTP status. A push that could not run — no linked account, a
-// read-only calendar — still answers 200 with the reason in `errors`, because that is the
-// only path the view renders next to the button that was clicked.
+// The shape (and the route's path) mirrors MulmoClaude's `CollectionPushBody`
+// (server/api/routes/collectionCalendarPush.ts) so the two hosts over the shared workspace
+// answer the same plugin identically. Re-stated rather than imported: the plugin ships its
+// `CollectionPushResult` from `@mulmoclaude/collection-plugin/vue`, and the server has no
+// business pulling a Vue package in to describe its own response.
 
 export interface CollectionPushResult {
-  /** False when nothing reached Google, whatever the reason. */
-  pushed: boolean;
+  /** Always true — "the push ran", not "records moved". The plugin's own type widens this
+   *  to `boolean` but never reads it, and MulmoClaude pins it to `true`; a refusal is told
+   *  through `errors`, so the two hosts stay identical on a field neither of them uses. */
+  pushed: true;
   created: number;
   updated: number;
   /** Edited on both sides; skipped so neither version is destroyed. */

@@ -1,19 +1,28 @@
 import type { CalendarPushOutcome } from "@mulmoclaude/core/google";
 import type { CollectionPushResult } from "../../common/collectionPush.js";
 
-// Turn the engine's outcome into the one shape the collection view reads.
+// Shape the engine's outcome into the response the collection view reports on.
 //
-// Four of the five outcomes are "the push did not run", and all four have to arrive as
-// `errors` on a 200 rather than as an HTTP failure: the view routes `!ok` to the page-level
-// error slot, away from the button that was just pressed, while `errors` reaches the inline
-// banner the plugin built for exactly this. Returning the counts alone would be worse still
-// — "0 created" reads as "nothing to do" when the real answer is "link your account".
+// Ports MulmoClaude's `calendarPushBody` (server/api/routes/collectionCalendarPush.ts),
+// wording included: both hosts drive the same plugin over the same workspace, so a user
+// who runs both must not get two different explanations for one setup problem.
+//
+// Every non-`pushed` outcome becomes an error rather than a quiet zero. The view routes an
+// HTTP failure to the page-level error slot, away from the button that was pressed, and
+// reads `errors` for the banner beside it — and counts alone would render "0 created",
+// which says "nothing to do" when the real answer is "your account isn't linked".
+
+export const PUSH_NOT_LINKED_ERROR = "no Google account is linked on this host — link it in Settings → Google";
+export const PUSH_NOT_DECLARED_ERROR = "this collection does not declare a `googleCalendar` block, so there is no calendar to push to";
+
+/** A `reader` grant fails per event with an opaque 403, so the role is checked once and
+ *  reported as the setup problem it is. */
+export const pushReadOnlyError = (accessRole: string): string =>
+  `you only have ${accessRole || "read"} access to this calendar — pushing needs owner or writer access`;
 
 // Built per call, not shared: a caller that appends to `skipped` on one refusal must not
 // find its entry on the next one.
-const nothingPushed = () => ({ pushed: false, created: 0, updated: 0, conflicts: 0, localDeletes: 0, skipped: [] });
-
-const refused = (reason: string): CollectionPushResult => ({ ...nothingPushed(), errors: [reason] });
+const empty = (errors: string[]): CollectionPushResult => ({ pushed: true, created: 0, updated: 0, conflicts: 0, localDeletes: 0, skipped: [], errors });
 
 export function toCollectionPushResult(outcome: CalendarPushOutcome): CollectionPushResult {
   switch (outcome.kind) {
@@ -21,17 +30,15 @@ export function toCollectionPushResult(outcome: CalendarPushOutcome): Collection
       const { created, updated, conflicts, localDeletes, skipped, errors } = outcome.result;
       return { pushed: true, created, updated, conflicts, localDeletes, skipped, errors };
     }
-    // The view only shows the button for a collection whose schema declares a calendar, so
-    // this is the direct-API path rather than something a click can reach.
-    case "not-a-calendar":
-      return refused("This collection does not declare a Google calendar.");
     case "not-linked":
-      return refused("Google is not linked. Connect your account in Settings, then push again.");
-    // Named rather than generic: "reader" vs "freeBusyReader" is the difference between
-    // asking the owner for write access and having the wrong calendar entirely.
+      return empty([PUSH_NOT_LINKED_ERROR]);
+    // The route rejects an undeclared collection with a 400 before reaching the engine, so
+    // this is the belt to that braces — kept because the engine can still answer it.
+    case "not-a-calendar":
+      return empty([PUSH_NOT_DECLARED_ERROR]);
     case "read-only":
-      return refused(`Your access to this calendar is read-only (${outcome.accessRole}).`);
+      return empty([pushReadOnlyError(outcome.accessRole)]);
     case "failed":
-      return refused(outcome.message);
+      return empty([outcome.message]);
   }
 }
