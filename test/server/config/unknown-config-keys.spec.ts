@@ -74,6 +74,28 @@ describe("serializableAppConfig", () => {
     expect(serializableAppConfig(config, { copyOnSelect: false }).copyOnSelect).toBe(true);
   });
 
+  // `__proto__` is a setter on Object.prototype, so building the output with `out[key] = value`
+  // re-parents the object instead of adding a property — the key then vanishes from the JSON,
+  // which is exactly the deletion this whole change exists to stop (found by Codex review).
+  it("keeps a key named __proto__ as data, and does not re-parent the object", () => {
+    const unknown: Record<string, unknown> = JSON.parse('{ "__proto__": { "polluted": true } }');
+    const out = serializableAppConfig(emptyConfig(), unknown);
+    expect(Object.hasOwn(out, "__proto__")).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(out, "__proto__")?.value).toEqual({ polluted: true });
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(JSON.stringify(out)).toContain('"__proto__"');
+  });
+
+  it("round-trips a __proto__ key through the file", () => {
+    withDir((file) => {
+      writeFileSync(file, '{ "__proto__": { "mode": "fast" } }');
+      const loaded = loadAppConfigResult(file);
+      expect(saveAppConfig(file, emptyConfig(), unknownKeysOf(loaded))).toBe(true);
+      const reread: Record<string, unknown> = JSON.parse(readFileSync(file, "utf8"));
+      expect(Object.getOwnPropertyDescriptor(reread, "__proto__")?.value).toEqual({ mode: "fast" });
+    });
+  });
+
   it("writes exactly today's shape when there is nothing unknown", () => {
     expect(serializableAppConfig(emptyConfig(), {})).toEqual({ ...emptyConfig() });
   });

@@ -472,12 +472,15 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
 // A known field always wins. Membership is `Object.hasOwn`, not `in`: a config key legitimately
 // named `toString` or `constructor` answers `in` through the prototype chain and would be dropped
 // as a collision that never happened.
+//
+// Built with fromEntries rather than `out[key] = value`, because a key named `__proto__` is a
+// setter on Object.prototype: assigning would re-parent this object and drop the key from the
+// JSON entirely — the very deletion this function exists to prevent. fromEntries defines an own
+// property, so the key stays ordinary data.
 export function serializableAppConfig(config: AppConfig, unknownKeys: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...toPublicAppConfig(config) };
-  Object.entries(unknownKeys).forEach(([key, value]) => {
-    if (!Object.hasOwn(out, key)) out[key] = value;
-  });
-  return out;
+  const known = toPublicAppConfig(config);
+  const extras = Object.entries(unknownKeys).filter(([key]) => !Object.hasOwn(known, key));
+  return Object.fromEntries([...Object.entries(known), ...extras]);
 }
 
 // Persist the whole config; returns false on any write failure so the caller can
