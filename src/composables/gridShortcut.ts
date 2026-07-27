@@ -8,7 +8,7 @@
 // Scope for now: moving the zoom between terminals. That is deliberately the only action a
 // key can reach, because the zoomed cell is the ONLY "which terminal is the user on" state
 // the grid actually has — an un-zoomed grid has no selection to act on.
-import { actionForKey, type Keymap, type KeymapAction } from "../../common/keymap";
+import { actionForKey, TERMINAL_SCOPED_ACTIONS, type Keymap, type KeymapAction } from "../../common/keymap";
 
 export type GridShortcut = KeymapAction;
 
@@ -40,6 +40,10 @@ export function gridShortcutFor(keymap: Keymap, e: ShortcutKeyEvent, zoomed: boo
   if (e.isComposing) return null;
   const action = actionForKey(keymap, e);
   if (action === null) return null;
+  // Terminal-scoped actions are decided inside the terminal (common/terminalClipboard.ts) and
+  // must never reach this handler, which ends every match with preventDefault() — fatal for
+  // `paste`, whose whole mechanism is the browser's own default action.
+  if (TERMINAL_SCOPED_ACTIONS.includes(action)) return null;
   return zoomed || !NEEDS_A_CURRENT_TERMINAL.includes(action) ? action : null;
 }
 

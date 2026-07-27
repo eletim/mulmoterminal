@@ -13,6 +13,10 @@ const LABELS: Record<KeymapAction, string> = {
   "terminal-new": "New terminal (at the end)",
   "terminal-new-adjacent": "New terminal next to this one",
   "terminal-close": "Close this terminal",
+  // Only acts when the terminal has a selection; with none, the key reaches the shell as it
+  // always did — which is what makes Ctrl+C a usable binding here without losing interrupt.
+  copy: "Copy the terminal selection",
+  paste: "Paste into the terminal",
 };
 
 export interface KeymapRow {
