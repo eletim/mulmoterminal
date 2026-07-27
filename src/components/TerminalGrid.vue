@@ -16,7 +16,7 @@ import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { shouldFlipZoom } from "./cellChromeRules";
 import { formatCwd } from "./cwdDisplay";
-import FilesPane from "./FilesPane.vue";
+import FilesPane, { type FilesPaneState } from "./FilesPane.vue";
 import { clampPaneWidth, splitterKeyWidth, MIN_GUI, MIN_TERMINAL } from "./splitterWidth";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
@@ -147,6 +147,7 @@ const paneMax = computed(() => Math.max(0, rowWidthNow.value - MIN_TERMINAL));
 const paneMin = computed(() => Math.min(MIN_GUI, paneMax.value));
 
 function setFilesOpen(open: boolean): void {
+  if (!open) rememberPaneState(paneUid.value);
   filesOpen.value = open;
   // Closing drops the root it was on, so re-opening lands on whichever cell is enlarged THEN
   // rather than resuming a directory the user has since walked away from.
@@ -168,10 +169,24 @@ async function toggleFiles(): Promise<void> {
 // (a launcher, a session still starting) falls back to the grid's default.
 const expandedCwd = computed(() => props.cells.find((c) => c.uid === props.expandedUid)?.cwd ?? props.defaultCwd);
 const filesPane = ref<InstanceType<typeof FilesPane> | null>(null);
+// What the pane looked like in each cell, so coming back to a terminal doesn't mean opening
+// the same three directories again. Saved state only — the buffer went to disk on the way out
+// (or to the backup store), so there is nothing unsaved to carry. In memory: a reload starts
+// the grid over anyway, and stale paths from a previous session would only mislead.
+const paneStateByUid = new Map<number, FilesPaneState>();
+const rememberPaneState = (uid: number | null): void => {
+  const snapshot = uid !== null ? filesPane.value?.snapshot() : undefined;
+  if (uid !== null && snapshot) paneStateByUid.set(uid, snapshot);
+};
+const paneState = ref<FilesPaneState | null>(null);
 // The root the pane is ACTUALLY on. Normally `expandedCwd`, but it stays behind when a re-root
 // is declined over unsaved edits — and it, not `expandedCwd`, is what the pane is handed, so a
 // file opened from a tree that stayed put still resolves against the directory it came from.
 const paneCwd = ref<string | null>(null);
+// Which cell the pane is showing. Tracks `paneCwd` rather than `expandedUid`, or a re-root that
+// could not be saved out of would file its snapshot under the cell it never moved to.
+const paneUid = ref<number | null>(null);
+watch(paneCwd, () => (paneUid.value = paneCwd.value === null ? null : (props.expandedUid ?? null)));
 
 // Walking the zoom to another terminal has to re-root the pane: the pane deliberately ignores
 // its `cwd` prop (see its defineExpose contract), so nothing else would move it. The buffer is
@@ -184,12 +199,15 @@ watch(
     // First showing: the pane is about to mount against this root, so there is nothing to re-read.
     if (paneCwd.value === null) {
       paneCwd.value = expandedCwd.value;
+      paneState.value = paneStateByUid.get(props.expandedUid ?? -1) ?? null;
       return;
     }
     // Re-rooting re-reads the tree and drops the buffer with it. Nothing to fall back on means
     // staying put: the pane keeps the old root, which its header names.
     if ((await filesPane.value?.flush()) === false) return;
+    rememberPaneState(paneUid.value);
     paneCwd.value = expandedCwd.value;
+    paneState.value = paneStateByUid.get(props.expandedUid ?? -1) ?? null;
     await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
     filesPane.value?.reload();
   },
@@ -419,7 +437,14 @@ watch(
           @pointerdown.prevent="onSplitterDown"
           @keydown="onSplitterKey"
         />
-        <FilesPane ref="filesPane" :cwd="paneCwd" :style="{ flex: `0 0 ${paneWidth}px` }" class="border-l border-border bg-deep" @close="setFilesOpen(false)">
+        <FilesPane
+          ref="filesPane"
+          :cwd="paneCwd"
+          :initial-state="paneState"
+          :style="{ flex: `0 0 ${paneWidth}px` }"
+          class="border-l border-border bg-deep"
+          @close="setFilesOpen(false)"
+        >
           <!-- Which directory the tree is actually rooted at. It normally follows the enlarged
                cell, but declining a re-root leaves it behind — and then this is the only thing
                that says so. -->

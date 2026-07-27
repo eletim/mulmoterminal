@@ -294,3 +294,60 @@ describe("FilesPane when nothing can be saved or banked", () => {
     expect(w.text()).toContain("could not back up your version");
   });
 });
+
+// Coming back to a directory should look the way it was left. Only saved state is restored —
+// the buffer went to disk (or the backup store) on the way out.
+describe("FilesPane restoring a remembered tree", () => {
+  const nestedFs = () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/list")) {
+        const p = new URL(url, "https://x").searchParams.get("path");
+        if (p === "")
+          return {
+            ok: true,
+            json: async () => ({
+              entries: [
+                { name: "src", dir: true, size: 0 },
+                { name: "README.md", dir: false, size: 10 },
+              ],
+            }),
+          };
+        if (p === "src") return { ok: true, json: async () => ({ entries: [{ name: "deep", dir: true, size: 0 }] }) };
+        return { ok: true, json: async () => ({ entries: [{ name: "app.ts", dir: false, size: 5 }] }) };
+      }
+      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
+      return { ok: true, json: async () => ({ ok: true, version: "v2" }) };
+    }) as unknown as typeof fetch;
+  };
+
+  beforeEach(() => {
+    fakeEditor.setDoc.mockClear();
+    nestedFs();
+  });
+
+  it("re-opens the remembered directories, parents first, and the file", async () => {
+    const w = mount(FilesPane, {
+      props: { cwd: "/proj", initialState: { openPath: "src/deep/app.ts", expanded: ["src/deep", "src"] } },
+    });
+    await flushPromises();
+
+    // The nested directory could only be opened after its parent was fetched.
+    expect(w.text()).toContain("app.ts");
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "app.ts");
+  });
+
+  it("skips anything that has since gone, without failing the rest", async () => {
+    const w = mount(FilesPane, {
+      props: { cwd: "/proj", initialState: { openPath: null, expanded: ["gone", "src"] } },
+    });
+    await flushPromises();
+    expect(w.text()).toContain("deep"); // src still opened
+  });
+
+  it("reports what to remember", async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj", initialState: { openPath: "README.md", expanded: ["src"] } } });
+    await flushPromises();
+    expect((w.vm as unknown as { snapshot: () => unknown }).snapshot()).toEqual({ openPath: "README.md", expanded: ["src"] });
+  });
+});
