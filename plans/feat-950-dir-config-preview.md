@@ -50,3 +50,25 @@ documented here too.
   column of sections; a tab bar would be a bigger change to it than this feature earns.
 - **Sound** is reported as "configured", never as a path — the server deliberately keeps that path
   server-side (it is the confinement boundary for `sound`), and the preview does not widen it.
+
+## Review follow-ups
+
+**The list was empty on a real machine.** `useAppConfig()`'s `presets` is a PER-CALL ref, not one
+of its module-level singletons, so the copy the settings modal read was a second, empty one — the
+shell that ran `loadConfig` had the real list. It now comes down as a prop from each shell, with
+the asymmetry called out where the refs are declared and a spec (`AppSettingsModal.spec.ts`)
+pinning it.
+
+**CodeRabbit: the preview couldn't show `provider` / `model` / `skills` / `addDirs` / buttons /
+chips.** True — `PublicDirConfig` omits them (a running terminal has no use for them), so those
+keys could be named as applied but never read back. `dirConfigDetail` now carries a separate
+`extras` alongside the config. Buttons and chips contribute their LABELS only: a button's `cmd` is
+what it would type into the session, which is neither part of "did my config take effect" nor
+something a settings screenshot should carry.
+
+**CodeRabbit: no per-value provenance (directory file vs global vs default).** Declined, with the
+reasoning posted on the PR: this endpoint resolves ONE file and merges nothing, so every value it
+returns is from the file whose path is printed above them. Per-key origin would only become
+meaningful if the response started carrying merged values, which it deliberately doesn't. The UI
+now says so in a line under the path, and a spec asserts a directory with no file reports nothing
+rather than the app-wide settings.

@@ -8,7 +8,14 @@ import { existsSync, statSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
-import { describeDirConfig, keysWithValue, EMPTY_DIR_CONFIG_SOURCE, type DirConfigSource } from "../../common/dirConfigSource.js";
+import {
+  describeDirConfig,
+  keysWithValue,
+  EMPTY_DIR_CONFIG_SOURCE,
+  EMPTY_DIR_CONFIG_EXTRAS,
+  type DirConfigSource,
+  type DirConfigExtras,
+} from "../../common/dirConfigSource.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
@@ -218,7 +225,26 @@ export interface DirConfigDetail {
   // Absolute path of the file, or null when the directory has none.
   file: string | null;
   config: PublicDirConfig;
+  // Everything else the file can set. Separate from `config` because that shape is what every
+  // cell fetches on mount, and none of this is of any use to a running terminal.
+  extras: DirConfigExtras;
   source: DirConfigSource;
+}
+
+// A chip is either a builtin's id or a custom { label, text } — either way its label is the
+// string a reader recognises on the header.
+const chipLabel = (chip: HeaderChip): string => (typeof chip === "string" ? chip : chip.label);
+
+function dirConfigExtras(cwd: string): DirConfigExtras {
+  const { provider, model, skills, addDirs, buttons, chips } = loadDirConfig(cwd);
+  return {
+    provider,
+    model,
+    skills,
+    addDirs,
+    buttonLabels: (buttons ?? []).map((button) => button.label),
+    chipLabels: (chips ?? []).map(chipLabel),
+  };
 }
 
 // The file, when the directory has one at all. Null also covers an unreadable path — the
@@ -235,13 +261,14 @@ function dirConfigFile(cwd: string): string | null {
 export function dirConfigDetail(cwd: string): DirConfigDetail {
   const config = publicDirConfig(cwd);
   const file = dirConfigFile(cwd);
-  if (!file) return { file: null, config, source: EMPTY_DIR_CONFIG_SOURCE };
+  if (!file) return { file: null, config, extras: EMPTY_DIR_CONFIG_EXTRAS, source: EMPTY_DIR_CONFIG_SOURCE };
+  const extras = dirConfigExtras(cwd);
   // Malformed or non-object JSON keeps the FILE in the answer: "there is a file here and none
   // of it applied" is the single most useful thing this preview can say, and reporting no file
   // at all would send the reader looking for one that is right there.
   const raw: unknown = tryReadJson(file);
-  if (!isRecord(raw)) return { file, config, source: EMPTY_DIR_CONFIG_SOURCE };
-  return { file, config, source: describeDirConfig(raw, keysWithValue(loadDirConfig(cwd))) };
+  if (!isRecord(raw)) return { file, config, extras, source: EMPTY_DIR_CONFIG_SOURCE };
+  return { file, config, extras, source: describeDirConfig(raw, keysWithValue(loadDirConfig(cwd))) };
 }
 
 function tryReadJson(file: string): unknown {

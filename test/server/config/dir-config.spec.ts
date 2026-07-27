@@ -364,6 +364,42 @@ describe("dirConfigDetail", () => {
     cleanup();
   });
 
+  it("carries the settings PublicDirConfig leaves out, so the preview can show them", () => {
+    const { dir, cleanup } = withConfig({
+      provider: "openrouter",
+      model: "moonshotai/kimi-k2",
+      skills: ["deploy"],
+      buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy" }],
+      chips: ["git", { label: "Build", text: "yarn build" }],
+    });
+    const { extras } = dirConfigDetail(dir);
+    expect(extras.provider).toBe("openrouter");
+    expect(extras.model).toBe("moonshotai/kimi-k2");
+    expect(extras.skills).toEqual(["deploy"]);
+    expect(extras.buttonLabels).toEqual(["Deploy"]);
+    expect(extras.chipLabels).toEqual(["git", "Build"]);
+    cleanup();
+  });
+
+  // What the button would TYPE into the session is not part of "did my config take effect",
+  // and a settings screenshot should not carry it.
+  it("names a header button without its command", () => {
+    const { dir, cleanup } = withConfig({ buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy --token=hunter2" }] });
+    expect(JSON.stringify(dirConfigDetail(dir).extras)).not.toContain("hunter2");
+    cleanup();
+  });
+
+  // The preview labels the file's path as where every value under it came from, which only
+  // holds because this resolves that ONE file — no global config and no defaults are merged
+  // in. A directory with no file must therefore report nothing, not the app-wide settings.
+  it("reads this directory's file alone, with nothing merged in", () => {
+    const dir = tmp();
+    const { config, extras } = dirConfigDetail(dir);
+    expect(Object.values(config).every((value) => value === null || value === false)).toBe(true);
+    expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, buttonLabels: [], chipLabels: [] });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   // The key list the preview labels things with lives in common/ and the loader lives here;
   // nothing but this test stops a field added to one from going missing in the other.
   it("documents every key the loader reads", () => {

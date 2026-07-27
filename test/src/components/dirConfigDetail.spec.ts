@@ -41,6 +41,32 @@ describe("dirConfigRows", () => {
     expect(dirConfigRows({ hasSound: true })[0]?.label).toBe("Attention sound");
     expect(dirConfigRows({ hasSound: false })).toEqual([]);
   });
+
+  // Settings the per-cell config deliberately doesn't carry: without these the preview could
+  // name `provider` as applied but never show what it was set to (CodeRabbit, #952).
+  it("shows the settings a running terminal has no use for", () => {
+    const rows = dirConfigRows({}, { provider: "openrouter", model: "kimi-k2", skills: ["deploy", "review"], addDirs: ["/shared/lib"] });
+    expect(rows.map((r) => [r.label, r.value])).toEqual([
+      ["Provider", "openrouter"],
+      ["Model", "kimi-k2"],
+      ["Skill menu", "deploy, review"],
+      ["Extra directories", "/shared/lib"],
+    ]);
+  });
+
+  // Labels only: a button's `cmd` is what it would type into the session, which is neither what
+  // "did my config take effect" needs nor something a settings screenshot should carry.
+  it("names header buttons and chips without their commands", () => {
+    const rows = dirConfigRows({}, { buttonLabels: ["Deploy"], chipLabels: ["git", "Build"] });
+    expect(rows.map((r) => [r.label, r.value])).toEqual([
+      ["Header buttons", "Deploy"],
+      ["Header chips", "git, Build"],
+    ]);
+  });
+
+  it("has no extra rows when the directory sets none of them", () => {
+    expect(dirConfigRows({ name: "proj" }, { provider: null, model: null, skills: null, addDirs: null, buttonLabels: [], chipLabels: [] })).toHaveLength(1);
+  });
 });
 
 describe("parseDirConfigDetail", () => {

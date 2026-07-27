@@ -56,7 +56,10 @@ watch(
           <template v-if="details[path]">
             <p v-if="!details[path].file" class="m-0 text-dim">No <code>.mulmoterminal.json</code> here — this directory uses the global settings.</p>
             <template v-else>
-              <p class="m-0 mb-2 font-mono text-[11px] text-dim">{{ details[path].file }}</p>
+              <p class="m-0 mb-2 font-mono text-[11px] text-dim">
+                {{ details[path].file }}
+              </p>
+              <p class="m-0 mb-2 text-[11px] text-dim">Everything below comes from that file — no global setting or default is mixed in.</p>
 
               <table v-if="details[path].rows.length" class="w-full border-collapse" data-testid="dir-preview-values">
                 <tbody>

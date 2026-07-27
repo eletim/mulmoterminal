@@ -61,20 +61,48 @@ function terminalRows(config: Record<string, unknown>): DirConfigRow[] {
   return rows;
 }
 
-export function dirConfigRows(config: unknown): DirConfigRow[] {
-  if (!isRecord(config)) return [];
-  const name = asString(config.name);
-  return [...(name ? [{ key: "name", label: "Name", value: name, color: null }] : []), ...colorRows(config), ...terminalRows(config)];
+const stringList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
+
+// The settings a running terminal has no use for, which therefore aren't in the per-cell
+// config: what the sessions here run on, and what they may reach. Named rather than counted —
+// "provider: openrouter" is the answer someone came to this screen for.
+function extraRows(extras: Record<string, unknown>): DirConfigRow[] {
+  const rows: DirConfigRow[] = [];
+  const provider = asString(extras.provider);
+  if (provider) rows.push({ key: "provider", label: "Provider", value: provider, color: null });
+  const model = asString(extras.model);
+  if (model) rows.push({ key: "model", label: "Model", value: model, color: null });
+  const skills = stringList(extras.skills);
+  if (skills.length) rows.push({ key: "skills", label: "Skill menu", value: skills.join(", "), color: null });
+  const addDirs = stringList(extras.addDirs);
+  if (addDirs.length) rows.push({ key: "addDirs", label: "Extra directories", value: addDirs.join(", "), color: null });
+  const buttons = stringList(extras.buttonLabels);
+  if (buttons.length) rows.push({ key: "buttons", label: "Header buttons", value: buttons.join(", "), color: null });
+  const chips = stringList(extras.chipLabels);
+  if (chips.length) rows.push({ key: "chips", label: "Header chips", value: chips.join(", "), color: null });
+  return rows;
 }
 
-const stringList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
+// Every row here comes from ONE directory's own file — the server resolves `.mulmoterminal.json`
+// alone, with no global config or defaults merged in. That is what makes the file path shown
+// above the table the provenance of every value under it.
+export function dirConfigRows(config: unknown, extras: unknown = {}): DirConfigRow[] {
+  if (!isRecord(config)) return isRecord(extras) ? extraRows(extras) : [];
+  const name = asString(config.name);
+  return [
+    ...(name ? [{ key: "name", label: "Name", value: name, color: null }] : []),
+    ...colorRows(config),
+    ...terminalRows(config),
+    ...(isRecord(extras) ? extraRows(extras) : []),
+  ];
+}
 
 export function parseDirConfigDetail(data: unknown): DirConfigDetailView {
   if (!isRecord(data)) return { file: null, rows: [], source: EMPTY_DIR_CONFIG_SOURCE };
   const source = isRecord(data.source) ? data.source : {};
   return {
     file: asString(data.file),
-    rows: dirConfigRows(data.config),
+    rows: dirConfigRows(data.config, data.extras),
     source: { applied: stringList(source.applied), ignored: stringList(source.ignored), unknown: stringList(source.unknown) },
   };
 }

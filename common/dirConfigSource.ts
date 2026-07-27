@@ -45,6 +45,32 @@ export interface DirConfigSource {
 
 export const EMPTY_DIR_CONFIG_SOURCE: DirConfigSource = { applied: [], ignored: [], unknown: [] };
 
+// The settings a directory can make that the per-cell config deliberately doesn't carry — the
+// browser has no use for them while running a terminal, but the preview has to SHOW them or a
+// key like `provider` can only be named as applied, never read back.
+//
+// Labels only for buttons and chips: their `cmd` / `text` is what the button would type into
+// the session, which is not what "did my config take effect" needs, and is the sort of thing a
+// screenshot of the settings screen shouldn't carry. Sound paths stay out for the same reason
+// they stay out of the per-cell config — that path is the confinement boundary.
+export interface DirConfigExtras {
+  provider: string | null;
+  model: string | null;
+  skills: string[] | null;
+  addDirs: string[] | null;
+  buttonLabels: string[];
+  chipLabels: string[];
+}
+
+export const EMPTY_DIR_CONFIG_EXTRAS: DirConfigExtras = {
+  provider: null,
+  model: null,
+  skills: null,
+  addDirs: null,
+  buttonLabels: [],
+  chipLabels: [],
+};
+
 // "The loader kept nothing for this key" — null/undefined, but also the empty collections the
 // loader returns when every entry in a map or list was rejected.
 function isEmptyValue(value: unknown): boolean {
