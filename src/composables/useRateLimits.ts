@@ -47,14 +47,26 @@ async function load(): Promise<boolean> {
   }
 }
 
+// Which chain is the live one. A counter alone cannot answer that: `load()` is in flight across
+// the gap where a header unmounts and remounts, so its completion lands AFTER the new chain has
+// started and — knowing only that a watcher exists — schedules a second timer. `timer` then holds
+// the newer handle, stop() clears that one, and the older chain polls on forever. Every request it
+// makes is one the server may answer by spending a Claude query, so a leaked chain quietly doubles
+// the cost of the thing being measured.
+let generation = 0;
+
 // Chained rather than an interval, so the gap can depend on the answer: seconds while a probe is
 // on its way, minutes once the gauge is whole.
-function scheduleNext(delay_ms: number): void {
-  if (watchers === 0) return;
+function scheduleNext(delay_ms: number, chain: number): void {
+  if (watchers === 0 || chain !== generation) return;
   timer = setTimeout(() => {
-    void load().then((probing) => scheduleNext(probing ? AWAITING_PROBE_MS : REFRESH_MS));
+    void load().then((probing) => scheduleNext(probing ? AWAITING_PROBE_MS : REFRESH_MS, chain));
   }, delay_ms);
 }
+
+const runChain = (chain: number): void => {
+  void load().then((probing) => scheduleNext(probing ? AWAITING_PROBE_MS : REFRESH_MS, chain));
+};
 
 /** Reference-counted so two mounted headers do not double the polling — and so the last one
  * leaving actually stops it, which is what keeps the server from probing for nobody. */
@@ -63,16 +75,18 @@ export function useRateLimits() {
     snapshot,
     start(): void {
       watchers++;
-      // The watcher count, not the timer handle, is what says a chain is already running. `timer`
-      // stays null across the first request, so two headers mounting together would both have got
-      // past a `if (timer) return` and run their own chain from then on — each request spending a
-      // probe's worth of the budget this is supposed to be reporting.
+      // Only the zero-to-one transition starts a chain; a second header rides the first one's.
       if (watchers > 1) return;
-      void load().then((probing) => scheduleNext(probing ? AWAITING_PROBE_MS : REFRESH_MS));
+      generation++;
+      runChain(generation);
     },
     stop(): void {
       watchers = Math.max(0, watchers - 1);
-      if (watchers > 0 || !timer) return;
+      if (watchers > 0) return;
+      // Retire the chain even when there is no timer to clear — that is precisely the window where
+      // a `load()` is still in flight and would otherwise schedule one after we stopped caring.
+      generation++;
+      if (!timer) return;
       clearTimeout(timer);
       timer = null;
     },
