@@ -10,6 +10,10 @@
 import { onBeforeUnmount, onMounted, ref, computed, nextTick, watch } from "vue";
 import { createEditor, langKindForFilename, type CmEditor } from "./cmEditor";
 import { expandedPaths, restoreOrder } from "./filesTreeState";
+import { isWriteToOpenFile } from "../composables/fileWriteMatch";
+import { usePubSub } from "../composables/usePubSub";
+import { FILE_WRITE_CHANNEL } from "../../common/fileWriteChannel";
+import { isRecord } from "../../common/isRecord";
 
 interface Node {
   name: string;
@@ -267,6 +271,46 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
+// The file may move under the editor at any moment — the agent working in this directory is
+// editing the same files. Two ways of finding out, because neither alone is enough: the write
+// hook is immediate but only speaks for Claude (Codex reports through a different channel, and
+// git, a build or another editor report through none), while the poll misses nothing and is
+// merely late. The 409 on save is still the hard guarantee; these two only get the news out
+// before the user has typed into a file that already moved.
+const EXTERNAL_CHECK_MS = 30_000;
+let externalTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Re-read the version and react: a clean buffer just takes the new content (the pane reads as
+ *  a live view), a dirty one raises the banner rather than choosing for the user. */
+async function checkForExternalChange(): Promise<void> {
+  if (!openPath.value || saving.value || conflict.value) return;
+  const pathRel = openPath.value;
+  try {
+    const res = await fetch(`/api/files/browse/version?${qs(pathRel)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const onDisk = typeof data.version === "string" ? data.version : null;
+    // Still the version we loaded, or the answer arrived after the user moved on.
+    if (onDisk === baseVersion.value || pathRel !== openPath.value) return;
+    if (dirty.value) conflict.value = { version: onDisk };
+    else loadFile(pathRel, true);
+  } catch {
+    // Offline or the server restarted: the next tick asks again, and the save still can't clobber.
+  }
+}
+
+function watchExternalChanges(): () => void {
+  externalTimer = setInterval(checkForExternalChange, EXTERNAL_CHECK_MS);
+  const unsubscribe = usePubSub().subscribe(FILE_WRITE_CHANNEL, (data) => {
+    if (isRecord(data) && typeof data.file === "string" && isWriteToOpenFile(data.file, props.cwd, openPath.value)) checkForExternalChange();
+  });
+  return () => {
+    if (externalTimer !== null) clearInterval(externalTimer);
+    externalTimer = null;
+    unsubscribe();
+  };
+}
+
 function teardown(): void {
   editor?.destroy();
   editor = null;
@@ -331,12 +375,15 @@ function onPageHide(): void {
   writeBuffer(pathRel, text, baseVersion.value, true);
 }
 
+let stopWatchingExternal: (() => void) | null = null;
 onMounted(() => {
   window.addEventListener("pagehide", onPageHide);
+  stopWatchingExternal = watchExternalChanges();
   start();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("pagehide", onPageHide);
+  stopWatchingExternal?.();
   teardown();
 });
 

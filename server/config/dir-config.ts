@@ -11,6 +11,7 @@ import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
+import { writtenFilePath } from "../files/tool-writes.js";
 import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds.js";
 import { parsePresetRef } from "../../common/notifySounds.js";
 import {
@@ -70,21 +71,12 @@ export interface PublicDirConfig extends DirChrome {
   hasSound: boolean;
 }
 
-// Claude's tool hooks already report every write, so they double as the live-reload signal — no
-// filesystem watchers (cwds are scattered, so a watcher can't be shared across terminals).
-const WRITE_TOOLS: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit"]);
-
 /** The directory whose `.mulmoterminal.json` a tool call just wrote, or null for anything else.
- *  A relative `file_path` is relative to the SESSION's cwd, never the server process's — resolving
- *  it against `process.cwd()` would invalidate a directory nobody is looking at AND miss the real
- *  one, so without a known session cwd we publish nothing. */
+ *  Narrows the general "which file did this write" (writtenFilePath) rather than restating its
+ *  rules, so the config's live reload and the editor's change feed can't drift apart. */
 export function dirConfigWriteTarget(toolName: unknown, toolInput: unknown, sessionCwd: string | null = null): string | null {
-  if (typeof toolName !== "string" || !WRITE_TOOLS.has(toolName)) return null;
-  if (!isRecord(toolInput) || typeof toolInput.file_path !== "string") return null;
-  const file = toolInput.file_path;
-  if (path.basename(file) !== DIR_CONFIG_FILE) return null;
-  if (path.isAbsolute(file)) return path.dirname(path.resolve(file));
-  return sessionCwd ? path.dirname(path.resolve(sessionCwd, file)) : null;
+  const file = writtenFilePath(toolName, toolInput, sessionCwd);
+  return file && path.basename(file) === DIR_CONFIG_FILE ? path.dirname(file) : null;
 }
 
 // A directory's sound for one notification kind: its own audio file, or one of the built-in
