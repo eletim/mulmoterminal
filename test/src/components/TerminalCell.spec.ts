@@ -95,7 +95,6 @@ function mountCell(
       openCwds: opts.openCwds ?? [],
     },
   });
-  return wrapper;
 }
 
 describe("TerminalCell", () => {
