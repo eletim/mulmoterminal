@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises, DOMWrapper } from "@vue/test-utils";
-import { h, nextTick } from "vue";
+import { h, nextTick, type VNode } from "vue";
 import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalGrid.vue";
 import type { Cell } from "../../../src/components/gridTabs.js";
 import type { RunCommand } from "../../../src/components/runCommand.js";
@@ -15,9 +15,9 @@ vi.mock("../../../src/components/FilesPane.vue", () => ({
     name: "FilesPane",
     props: ["cwd", "requestedPath"],
     emits: ["close", "dirty"],
-    setup: (_p: unknown, { expose, slots }: { expose: (e: Record<string, unknown>) => void; slots: Record<string, (() => unknown) | undefined> }) => {
+    setup: (_p: unknown, { expose, slots }: { expose: (e: Record<string, unknown>) => void; slots: { title?: () => VNode[] } }) => {
       expose({ reload: paneStub.reload, confirmDiscard: paneStub.confirmDiscard });
-      return () => h("div", { class: "stub-files-pane" }, [slots.title?.()]);
+      return () => h("div", { class: "stub-files-pane" }, slots.title?.());
     },
   },
 }));
