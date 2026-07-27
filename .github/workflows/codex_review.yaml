@@ -79,7 +79,11 @@ jobs:
     # lint_test / smoke) gate them.
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 10 wasn't enough: the review step hit it and was cancelled on #945, #951 and #952 within
+    # two days, each time passing in ~1-2 minutes on a plain rerun of the same commit. The job
+    # is not hanging — it is occasionally slow — so the cap only has to sit above the slow tail,
+    # and cancelling costs a full re-review round trip on a PR that was ready to merge.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
