@@ -24,7 +24,7 @@ import {
   tmuxCaptureStyledPane,
 } from "./infra/tmux.js";
 import { sandboxEnabled, sandboxPlatformSupported, dockerAvailable, ensureSandboxImage } from "./infra/sandbox.js";
-import { isAllowedOrigin } from "./infra/allowed-origin.js";
+import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
 import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE } from "./config/env.js";
 import { isLoopbackBinding } from "./infra/loopback.js";
@@ -253,6 +253,12 @@ enforceKeymap(APP_CONFIG_FILE, {
     process.exit(1);
   },
 });
+
+// Which browser origins this server accepts, decided once from what the operator asked for
+// (#956). Read here rather than inside the predicate so the same set is what the startup warning
+// reports — a warning describing a different rule than the one enforced is worse than none.
+const browserHostnames = browserOriginHostnames(BIND_HOST, process.env.MULMOTERMINAL_ALLOWED_ORIGINS);
+const isAllowedOrigin = createIsAllowedOrigin(browserHostnames);
 
 const app = express();
 hideErrorStacks(app);
@@ -564,10 +570,7 @@ server.on("error", (err) => {
 server.listen(Number(PORT), BIND_HOST, () => {
   console.log(`mulmoterminal running at http://localhost:${PORT}`);
   if (!isLoopbackBinding(server.address())) {
-    console.warn(
-      `\x1b[33m[security]\x1b[0m bound to ${BIND_HOST}, not loopback — this server has no authentication, ` +
-        `so anyone who can reach ${BIND_HOST}:${PORT} can read your sessions and start terminals. Unset MULMOTERMINAL_HOST to bind 127.0.0.1.`,
-    );
+    console.warn(bindSecurityWarning(BIND_HOST, PORT, browserHostnames));
   }
   const surviving = tmuxAvailable() ? tmuxListSessionIds() : [];
   if (tmuxAvailable()) {

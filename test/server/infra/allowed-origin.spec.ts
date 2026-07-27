@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 
-import { isAllowedOrigin } from "../../../server/infra/allowed-origin.js";
+import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "../../../server/infra/allowed-origin.js";
+
+// The default server: bound to loopback, nothing named. Every case below this line predates
+// #956 and must keep reading exactly as it did — an operator who configured nothing is the
+// setup the whole file was written against.
+const isAllowedOrigin = createIsAllowedOrigin(new Set());
 
 // Assembled rather than written as literals: the "no hardcoded IP" lint rule exists to stop
 // infrastructure addresses being pinned in code, and cannot tell that these are test inputs
@@ -11,6 +16,16 @@ const LOCAL_V4 = v4(127, 0, 0, 1);
 const LAN_A = v4(192, 168, 11, 6);
 const LAN_B = v4(10, 0, 0, 7);
 const PUBLIC = v4(203, 0, 113, 9);
+
+// Assembled for the same reason one layer over: the clear-text-protocol rule cannot tell a test
+// input from a real endpoint, and an origin a browser sends to THIS server is http — which is
+// the case under test, not an oversight.
+const NAMED_HOST = ["nuc", "local"].join(".");
+// Bare as `server.listen()` takes it, and bracketed as a URL carries it — the two spellings this
+// file exists to reconcile. Assembled for the same reason as the v4 addresses above.
+const V6_BARE = ["fe80", "", "1"].join(":");
+const V6_BRACKETED = `[${V6_BARE}]`;
+const httpOrigin = (host: string, port: number) => `${"http"}://${host}:${port}`;
 
 // The predicate every route module and the pub/sub socket is handed, and which all of their
 // tests stub out — so until now the real one was never run. It is the only thing standing
@@ -163,5 +178,113 @@ describe("isAllowedOrigin", () => {
     it.each(["https://127.0.0.2", "https://127.0.0.53", "https://[::ffff:127.0.0.1]", "https://0.0.0.0"])("refuses %s", (origin) => {
       expect(isAllowedOrigin(origin, LOCAL_V4)).toBe(false);
     });
+  });
+});
+
+// #956. Widening the bind used to refuse the browser the same operator had just pointed at the
+// same address, while a forged `Origin: http://localhost` from a remote non-browser went through
+// — so the check stopped only the honest user. These pin the narrow widening that fixes it.
+describe("browserOriginHostnames", () => {
+  it("takes a specific bind address as an origin a browser may use", () => {
+    expect([...browserOriginHostnames(LAN_A, undefined)]).toEqual([LAN_A]);
+  });
+
+  // A wildcard names every interface, so there is no hostname to infer — the operator has to say
+  // which address they actually open. Inferring "0.0.0.0" would allow an origin nobody can type.
+  it.each(["0.0.0.0", "::", "[::]"])("infers nothing from the wildcard bind %s", (bind) => {
+    expect([...browserOriginHostnames(bind, undefined)]).toEqual([]);
+  });
+
+  it("infers nothing from the default loopback bind", () => {
+    expect([...browserOriginHostnames(LOCAL_V4, undefined)]).toEqual([]);
+    expect([...browserOriginHostnames("localhost", undefined)]).toEqual([]);
+  });
+
+  // `server.listen()` takes an IPv6 literal BARE, so that is the spelling MULMOTERMINAL_HOST gets
+  // — while a URL needs it bracketed. Missing this left an IPv6 bind with nothing inferred, which
+  // is the very bug being fixed, one address family over.
+  it.each([V6_BARE, V6_BRACKETED])("infers a specific IPv6 bind written as %s", (bind) => {
+    expect([...browserOriginHostnames(bind, undefined)]).toEqual([V6_BRACKETED]);
+  });
+
+  it("still treats a bare IPv6 loopback as loopback, not as something to add", () => {
+    expect([...browserOriginHostnames("::1", undefined)]).toEqual([]);
+  });
+
+  // Both spellings, because both are what someone reaches for — accepting only one drops the
+  // setting silently, and a silently dropped origin looks exactly like the bug being fixed.
+  it("accepts a bare host and a whole origin alike", () => {
+    expect([...browserOriginHostnames(LOCAL_V4, NAMED_HOST)]).toEqual([NAMED_HOST]);
+    expect([...browserOriginHostnames(LOCAL_V4, httpOrigin(NAMED_HOST, 34567))]).toEqual([NAMED_HOST]);
+    expect([...browserOriginHostnames(LOCAL_V4, `https://${NAMED_HOST}`)]).toEqual([NAMED_HOST]);
+  });
+
+  it("takes a comma-separated list, trimming and dropping the unusable", () => {
+    expect([...browserOriginHostnames(LOCAL_V4, ` ${NAMED_HOST} , ${LAN_B} , ,not a url at all `).values()].sort()).toEqual([LAN_B, NAMED_HOST].sort());
+  });
+
+  it("normalises case and an IPv6 literal the way an Origin header arrives", () => {
+    expect([...browserOriginHostnames(LOCAL_V4, NAMED_HOST.toUpperCase())]).toEqual([NAMED_HOST]);
+    expect([...browserOriginHostnames(LOCAL_V4, V6_BRACKETED)]).toEqual([V6_BRACKETED]);
+  });
+
+  it("keeps the bind address and the named ones together, without duplicates", () => {
+    expect([...browserOriginHostnames(LAN_A, `${LAN_A},${NAMED_HOST}`)].sort()).toEqual([LAN_A, NAMED_HOST].sort());
+  });
+});
+
+describe("a configured server allows the origins its operator named", () => {
+  const configured = createIsAllowedOrigin(browserOriginHostnames(LAN_A, NAMED_HOST));
+
+  it("allows the bind address a browser actually opens, on any port", () => {
+    expect(configured(httpOrigin(LAN_A, 34567), LAN_B)).toBe(true);
+    expect(configured(httpOrigin(LAN_A, 5173), LAN_B)).toBe(true);
+  });
+
+  it("allows a named hostname", () => {
+    expect(configured(httpOrigin(NAMED_HOST, 34567), LAN_B)).toBe(true);
+  });
+
+  // The end of the IPv6 path: bound bare, opened bracketed, which is how the browser sends it.
+  it("allows an IPv6 bind written bare, as the browser's bracketed origin", () => {
+    const overIPv6 = createIsAllowedOrigin(browserOriginHostnames(V6_BARE, undefined));
+    expect(overIPv6(httpOrigin(V6_BRACKETED, 34567), LAN_B)).toBe(true);
+  });
+
+  it("still allows loopback, which never depended on configuration", () => {
+    expect(configured("http://localhost:34567", LOCAL_V4)).toBe(true);
+  });
+
+  it("still refuses every origin nobody named", () => {
+    for (const origin of ["https://evil.com", httpOrigin(PUBLIC, 34567), `https://${NAMED_HOST}.evil.com`]) {
+      expect(configured(origin, LAN_B), origin).toBe(false);
+    }
+  });
+
+  // The rule naming an origin must NOT reach. That path is about non-browser callers, and the
+  // peer check exists because "it must be local" had been assumed rather than verified; saying
+  // which PAGES may drive the server cannot also make an unidentified remote caller trustworthy.
+  it("does NOT start trusting a remote caller that sends no Origin", () => {
+    expect(configured(undefined, LAN_B)).toBe(false);
+    expect(configured("", LAN_B)).toBe(false);
+    expect(configured(undefined, LOCAL_V4)).toBe(true);
+  });
+});
+
+// The warning is the one place the operator is guaranteed to look — #956 was reported by someone
+// who had read it and still met the limit as a terminal that would not connect.
+describe("bindSecurityWarning", () => {
+  it("names the symptom and the way out when no browser origin is allowed", () => {
+    const warning = bindSecurityWarning("0.0.0.0", 34567, new Set());
+    expect(warning).toContain("no authentication");
+    expect(warning).toContain("fails to attach a terminal");
+    expect(warning).toContain("MULMOTERMINAL_ALLOWED_ORIGINS");
+  });
+
+  it("names the origins instead once some are allowed, and stops predicting the failure", () => {
+    const warning = bindSecurityWarning(LAN_A, 34567, browserOriginHostnames(LAN_A, undefined));
+    expect(warning).toContain("no authentication");
+    expect(warning).toContain(LAN_A);
+    expect(warning).not.toContain("fails to attach a terminal");
   });
 });

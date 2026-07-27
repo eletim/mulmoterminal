@@ -755,6 +755,7 @@ Your project's scripts that can run in a grid cell (dev server, tests, build, an
 | `CLAUDE_CWD` / `--cwd` | The directory you run `npx mulmoterminal` in (only `~/mulmoclaude` when the server is started directly) | The default working directory (the PTY's cwd); also set via `--cwd` |
 | `PORT` | `34567` | The server port |
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
+| `MULMOTERMINAL_ALLOWED_ORIGINS` | *(none)* | Extra browser origins allowed to attach a terminal, comma-separated. Only needed alongside a wider `MULMOTERMINAL_HOST` (→ [below](#bind-host)) |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
 
 ### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}
@@ -773,12 +774,54 @@ loopback, because there is no other signal that it happened.
 MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # trusted networks only — see the caveat below
 ```
 
-**This is for port-forwarding, not for browsing from another machine.** The same-origin checks
-that protect the terminal WebSockets accept only a *localhost* origin, so a browser opening
-`http://<this-machine>:34567` from elsewhere on the network loads the page and then fails to
-attach a terminal. Where the opt-in does help is when something forwards a local port to the
-server — a **Docker container** or **WSL**, where the process must bind `0.0.0.0` inside for the
-mapping to reach it while the browser still connects to `localhost` on the outside.
+Binding wider is not by itself enough to open the page **from another machine**. The same-origin
+checks that protect the terminal WebSockets accept *localhost* plus **the origins you name**, so a
+browser reaching `http://<address>:34567` has to be one of those or it loads the page and then
+fails to attach a terminal.
+
+Naming a single address does both at once:
+
+```bash
+MULMOTERMINAL_HOST=192.168.11.6 npx mulmoterminal   # binds there AND accepts that origin
+```
+
+A wildcard cannot: `0.0.0.0` means *every* interface, so there is no single address to accept —
+say which one you actually open.
+
+```bash
+MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterminal
+```
+
+`MULMOTERMINAL_ALLOWED_ORIGINS` takes a comma-separated list; each entry is a host (`nuc.local`,
+`192.168.11.6`, `[fe80::1]`) or a whole origin (`http://nuc.local:34567`). The port is not part of
+the decision, so one entry covers the server and the Vite dev port alike. The startup warning
+prints the list it ended up with — if a browser cannot attach, read that line first.
+
+#### Which setups this changes, and which it does not {#bind-host-scope}
+
+Both variables are **opt-in, and nothing happens without them**. If you have never set either, the
+server accepts exactly the origins it always did.
+
+| What you set | What a browser may attach from |
+|---|---|
+| *(nothing — the default)* | localhost only. **Unchanged**, and the server is not reachable from another machine at all |
+| `MULMOTERMINAL_HOST=0.0.0.0` | localhost only. A wildcard names every interface, so no single address can be inferred from it |
+| Port-forwarding (a container binding `0.0.0.0` inside, browser on `localhost` outside) | localhost — which is what the browser is using, so this needs nothing further |
+| `MULMOTERMINAL_HOST=<one address>` | localhost **and that address** |
+| `MULMOTERMINAL_ALLOWED_ORIGINS=<list>` | localhost **and everything on the list** |
+
+Naming an origin decides **which pages may drive this server**. It is not a login — there still
+isn't one — and it does not decide who can *reach* the port; that is the bind, and on a widened
+bind anything that can open a socket is already trusted, browser or not.
+
+The opt-in also covers **port-forwarding**, where none of this is needed: a **Docker container** or
+**WSL** must bind `0.0.0.0` inside for the mapping to reach it, while the browser outside still
+connects to `localhost` and is allowed for that reason alone.
+
+{: .warning }
+> Naming an origin says **which pages may drive this server**. It does not add a login — there
+> still isn't one — and it does not make the server safe to expose. A request that sends *no*
+> `Origin` at all is still refused unless it comes from this machine, whatever you name here.
 
 You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
 host over Firestore, not over your local network (→ [from your phone](phone.html)).
