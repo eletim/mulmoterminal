@@ -66,7 +66,7 @@ describe("AppToolbar per-view buttons", () => {
 
   // The overlays render BELOW the header (`top-10`), so the header stays on screen while one
   // is open. Switching to the other view's buttons there would take away the very button the
-  // user just clicked — and would swap the shell behind the panel (#889).
+  // user just clicked — and would swap the shell behind the panel (#892).
   it("keeps the grid buttons while an overlay opened FROM the grid is on screen", async () => {
     await router.push("/terminals");
     await settle();
@@ -93,7 +93,7 @@ describe("AppToolbar per-view buttons", () => {
   // Regression: the button SET follows the view underneath, but the HIGHLIGHT follows the
   // route. Answering both with one flag lit up Grid view AND Pull requests at once — and,
   // because the overlays live inside App.vue's `!isGrid` block, also stopped the panel
-  // rendering at all: the URL changed and the grid just stayed on screen (#889).
+  // rendering at all: the URL changed and the grid just stayed on screen (#892).
   const activeLabels = (wrapper: ReturnType<typeof mount>): string[] =>
     wrapper
       .findAll("nav[aria-label='Views'] button")
