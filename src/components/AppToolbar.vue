@@ -128,9 +128,14 @@ function showPrs(): void {
   <header class="flex h-10 flex-none items-center border-b border-border bg-panel px-4">
     <span class="font-sans text-[14px] font-semibold tracking-[0.02em] text-fg">MulmoTerminal</span>
     <nav class="ml-4 flex min-w-0 items-center gap-[3px] overflow-x-auto" aria-label="Views">
-      <!-- Both views: the pair that switches between them. -->
-      <LauncherButton icon="chat" title="Chat" label="Chat" :active="chatActive" @click="showChat" />
-      <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
+      <!-- Both views: the pair that switches between them. Fenced off with a rule because it is
+           the only group here that changes WHICH VIEW you are in — everything to its right acts
+           within the current one, and a flat row of equal buttons hid that (#941). Same rule
+           treatment as the status tally at the other end of the nav. -->
+      <span class="mr-1.5 inline-flex flex-none items-center gap-[3px] border-r border-border pr-2.5" role="group" aria-label="Switch view">
+        <LauncherButton icon="chat" title="Chat" label="Chat" :active="chatActive" @click="showChat" />
+        <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
+      </span>
       <!-- Single view only (#886): the content surfaces. The grid is for supervising agents,
            and every one of these replaces the whole screen anyway. -->
       <LauncherButton v-if="!inGrid" icon="apps" title="Collections" label="Collections" :active="collectionsActive" @click="showCollections" />

@@ -116,3 +116,30 @@ describe("AppToolbar per-view buttons", () => {
     expect(activeLabels(onPrs)).toEqual(["Pull requests"]);
   });
 });
+
+// #941: the view switch is the only group in the nav that changes WHICH VIEW you are in. It is
+// fenced off with a rule; the group makes that structure reach a screen reader too, which a
+// border alone never does.
+describe("AppToolbar view-switch grouping", () => {
+  const switchGroup = (wrapper: ReturnType<typeof mount>) => wrapper.find("nav[aria-label='Views'] [role='group'][aria-label='Switch view']");
+
+  it.each(["/chat", "/terminals"])("groups exactly Chat and Grid view, in both views (%s)", async (path) => {
+    const group = switchGroup(await mountAt(path));
+    expect(group.exists()).toBe(true);
+    expect(group.findAll("button").map((b) => b.attributes("aria-label"))).toEqual(["Chat", "Grid view"]);
+  });
+
+  // The rule is the separator. Losing it turns the nav back into one undifferentiated row,
+  // which is the whole bug — and a class change is exactly the edit that would do it silently.
+  it("carries the separating rule", async () => {
+    expect(switchGroup(await mountAt("/chat")).classes()).toContain("border-r");
+  });
+
+  // Everything else stays OUTSIDE the group — a content surface swept in would read as a view
+  // switch to a screen reader and sit on the wrong side of the rule.
+  it("leaves the content surfaces out of the group", async () => {
+    const wrapper = await mountAt("/chat");
+    const grouped = switchGroup(wrapper).findAll("button").length;
+    expect(wrapper.findAll("nav[aria-label='Views'] button").length).toBeGreaterThan(grouped);
+  });
+});
