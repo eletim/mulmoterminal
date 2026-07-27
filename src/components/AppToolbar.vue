@@ -13,6 +13,7 @@ import { useWikiBrowse, wikiGotoIndex, wikiGotoTag } from "../composables/useWik
 import { usePrsView, prsGotoIndex } from "../composables/usePrsView";
 import { useSoundEnabled } from "../composables/useSoundEnabled";
 import { useUpdateStatus } from "../composables/useUpdateStatus";
+import { useGithubStar } from "../composables/useGithubStar";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
 import { parseTagQuery } from "./wikiTagFilter";
 import type { Shortcut } from "../../common/shortcuts";
@@ -51,6 +52,7 @@ const { isOpen: wikiOpen } = useWikiBrowse();
 const { isOpen: prsOpen } = usePrsView();
 const { enabled: soundEnabled, toggle: toggleSound } = useSoundEnabled();
 const { badge: updateBadge } = useUpdateStatus();
+const { visible: starVisible, confirming: starConfirming, title: starTitle, activate: activateStar } = useGithubStar();
 
 // Clicking the badge opens a popover that spells out what to run — a silent clipboard copy
 // gave no hint of what happened or which command it even was.
@@ -226,6 +228,9 @@ function showPrs(): void {
         <p v-else class="text-muted">{{ updateBadge.text }}</p>
       </div>
     </div>
+    <!-- Grid only: star this project on GitHub. It retires itself once starred (or once the
+         user has opened the repo page), so it is a one-time ask rather than a fixture. -->
+    <LauncherButton v-if="inGrid && starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
     <LauncherButton
       :icon="soundEnabled ? 'notifications_active' : 'notifications_off'"
       :title="soundEnabled ? 'Attention sound on' : 'Attention sound off'"

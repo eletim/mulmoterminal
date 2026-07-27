@@ -915,6 +915,10 @@ Favorited collections get their own toolbar buttons.
   session.
 - **Notifications** (🔔) — a toolbar bell with an unread badge and a dropdown of active
   notifications; click a row to jump to its session.
+- **Star MulmoTerminal** — a star button in the grid toolbar that stars the project on
+  GitHub through your own `gh` login. It is a one-time ask: once you have starred it (or
+  once you have opened the repo page, which is what it falls back to when `gh` can't answer)
+  the button is gone for good and stops calling the server at all.
 - **Voice input** — dictate a prompt via on-device Whisper (`POST /api/transcribe`, macOS
   only; the model downloads on first use). Settings picks **the language you dictate in**
   (per browser): your browser's, whisper's own per-clip detection, or a fixed one. Worth
@@ -1097,6 +1101,7 @@ same-origin-guarded.
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>`, remove (managed root only), push, open a PR (`gh`, else compare URL). |
 | `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` (via `gh`). |
+| `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer. |
 
 **Workspace views**
 
