@@ -1,7 +1,6 @@
 // Pure decisions extracted from collectionUi.ts so they can be tested without the
 // fetch/DOM host around them. The host keeps the network and configureCollectionUi
 // wiring; these functions only shape strings.
-import { isObject } from "graphai";
 
 const HTML_PREVIEW_DIR_PREFIX = "artifacts/html/";
 
@@ -32,11 +31,4 @@ export function remoteViewItemsQuery(req: { offset?: number; limit?: number; fie
   if (req.fields?.length) query.set("fields", req.fields.join(","));
   const qs = query.toString();
   return qs ? `?${qs}` : "";
-}
-
-// The message for a failed DELETE: the server's `{ error }` body when present, else a
-// bare `HTTP <status>` (e.g. a delete-refusal reason like "preset collections can't be
-// deleted" instead of "HTTP 403").
-export function deleteErrorMessage(body: unknown, status: number): string {
-  return isObject(body) && typeof body.error === "string" ? body.error : `HTTP ${status}`;
 }
