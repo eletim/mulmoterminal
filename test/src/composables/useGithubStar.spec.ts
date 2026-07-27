@@ -74,9 +74,11 @@ describe("useGithubStar", () => {
   });
 
   it("stars on click, confirms briefly, then retires", async () => {
-    vi.useFakeTimers();
     vi.stubGlobal("fetch", answering(false));
     const star = await mountStar();
+    // Only after the mount has settled: `flushPromises` schedules on setImmediate/setTimeout,
+    // which fake timers would hold, so the fakes are for the confirmation window alone.
+    vi.useFakeTimers();
 
     vi.stubGlobal("fetch", answering(true));
     await star.activate();
@@ -90,9 +92,9 @@ describe("useGithubStar", () => {
   });
 
   it("ignores a second click inside the confirmation window", async () => {
-    vi.useFakeTimers();
     vi.stubGlobal("fetch", answering(false));
     const star = await mountStar();
+    vi.useFakeTimers();
     const open = vi.fn();
     vi.stubGlobal("open", open);
 
