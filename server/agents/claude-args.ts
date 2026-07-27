@@ -21,6 +21,9 @@ export interface ClaudeArgsInput {
   // name. Null leaves the choice to Claude Code. `--model` outranks both the settings
   // `model` key and ANTHROPIC_MODEL, so it is the one place the decision has to be made.
   model?: string | null;
+  // Extra directories the session may read/edit (#908). Absolute, existing, deduped by the
+  // config layer — this builder only places them.
+  addDirs?: string[] | null;
 }
 
 export function buildClaudeArgs(input: ClaudeArgsInput): string[] {
@@ -29,6 +32,10 @@ export function buildClaudeArgs(input: ClaudeArgsInput): string[] {
   if (input.attachGuiMcp) {
     guiArgs.push("--mcp-config", input.mcpConfig, "--strict-mcp-config", "--allowedTools", input.guiMcpTools);
   }
+  // LAST, and one flag for the whole list: `--add-dir` is variadic (`<directories...>`), so a
+  // flag placed after it would be fine but a VALUE would be swallowed. Keeping it at the end
+  // means nothing can ever follow it.
+  if (input.addDirs?.length) guiArgs.push("--add-dir", ...input.addDirs);
 
   // No initial-prompt positional: an auto-run prompt is TYPED into the input box after
   // claude is ready (see spawnClaudePty), not passed as an arg — a large prompt as a
