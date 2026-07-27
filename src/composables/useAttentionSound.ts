@@ -79,10 +79,18 @@ function playChime(kind: NotifyKind) {
 }
 
 // Decoded audio, keyed by a string that changes when the SOURCE changes, so a settings edit
-// reloads rather than replaying the old file. `null` means "fetched and unusable" and is
-// remembered on purpose — a directory with no sound must not be refetched on every beep.
+// reloads rather than replaying the old file. `null` means "asked, and this source has no
+// sound" and is remembered on purpose — a directory without one must not be refetched on
+// every beep. A key left UNKNOWN is retried instead.
 const buffers = new Map<string, AudioBuffer | null>();
 const loading = new Map<string, Promise<void>>();
+
+/**
+ * Whether a non-OK response is this source saying it HAS no sound (remember it) rather than
+ * "ask again later". A 5xx is the second: the server reached for a preset and could not get
+ * it, which one offline moment must not turn into a permanently silent kind.
+ */
+export const isDefinitiveMiss = (status: number): boolean => status < 500;
 
 function loadBuffer(key: string, url: string): Promise<void> {
   const existing = loading.get(key);
@@ -90,14 +98,23 @@ function loadBuffer(key: string, url: string): Promise<void> {
   const pending = (async () => {
     const ctx = getCtx();
     if (!ctx) return; // no AudioContext yet — leave the key unknown so a later beep retries
-    let decoded: AudioBuffer | null = null;
+    let response: Response;
     try {
-      const res = await fetch(url);
-      if (res.ok) decoded = await ctx.decodeAudioData(await res.arrayBuffer());
+      response = await fetch(url);
     } catch {
-      decoded = null; // 404 / unreadable / not audio — this source has no usable sound
+      return; // the request never completed — unknown, so the next beep tries again
     }
-    buffers.set(key, decoded);
+    if (!response.ok) {
+      if (isDefinitiveMiss(response.status)) buffers.set(key, null);
+      return;
+    }
+    try {
+      buffers.set(key, await ctx.decodeAudioData(await response.arrayBuffer()));
+    } catch {
+      // Served, but not audio: the configured file is wrong, not the network. Remember it
+      // rather than decoding the same bad bytes on every beep.
+      buffers.set(key, null);
+    }
   })();
   loading.set(
     key,

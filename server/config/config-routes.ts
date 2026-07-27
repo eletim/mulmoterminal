@@ -28,7 +28,7 @@ import { badArrayField, badNullableArrayField, badObjectField } from "./config-b
 import { getUpdateStatus } from "./update-status.js";
 import { readSoundPreset } from "./sound-presets.js";
 import { isNotifyKind } from "../../common/notifyKinds.js";
-import { parsePresetRef } from "../../common/notifySounds.js";
+import { parsePresetRef, soundPresetById } from "../../common/notifySounds.js";
 
 export const APP_CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config.json");
 const CONFIG_FILE = APP_CONFIG_FILE;
@@ -182,7 +182,8 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
     const presetId = configured ? parsePresetRef(configured) : null;
     if (presetId) {
       const bytes = await readSoundPreset(presetId);
-      return bytes ? res.type("audio/mpeg").send(bytes) : res.status(404).end();
+      // 503, not 404: the id is known, so a miss here is the download failing (see above).
+      return bytes ? res.type("audio/mpeg").send(bytes) : res.status(503).end();
     }
     const file = configured ?? config.soundFile;
     if (!file || !existsSync(file) || !statSync(file).isFile()) return res.status(404).end();
@@ -195,7 +196,10 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
   // when the id is unknown or the download failed — the client falls back to the chime.
   app.get("/api/sound-preset/:id", async (req, res) => {
     const bytes = await readSoundPreset(req.params.id);
-    if (!bytes) return res.status(404).end();
-    res.type("audio/mpeg").send(bytes);
+    if (bytes) return res.type("audio/mpeg").send(bytes);
+    // A KNOWN id with no bytes is a download that failed — say "try again later" rather than
+    // "no such sound", because the client remembers a 404 for the life of the page and would
+    // otherwise turn one offline moment into a permanently silent kind.
+    res.status(soundPresetById(req.params.id) ? 503 : 404).end();
   });
 }

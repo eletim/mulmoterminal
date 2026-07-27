@@ -515,8 +515,10 @@ it there are two options:
 - **Presets** — seven sounds hosted in the [ownplate](https://github.com/Nakajima-Foundation/ownplate)
   repo (MIT), referenced as `preset:<id>`: `chime` `coin` `cheep` `door` `gong` `magic` `meow`.
   The first play downloads one into `~/.mulmoterminal/sounds/`; every later play reads that
-  file, so a preset keeps working offline. A failed download is not remembered as one — you
-  get the chime that time and the next play retries.
+  file, so a preset keeps working offline. A failed download is not remembered as one — you get
+  the chime that time and the next play retries. That holds on both sides: the server caches no
+  failure, and it answers **503** (not 404) for a preset it could not fetch, because the browser
+  remembers a 404 for the life of the page and only retries a 5xx.
 - **Your own file** — an absolute path, per kind in `sounds` or as the all-kind `soundFile`.
 
 Resolution per kind, nearest first: the session directory's `sounds[kind]`, its `sound`, your

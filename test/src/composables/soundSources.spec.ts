@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { globalSoundValue, soundSources, type SoundConfig } from "../../../src/composables/useAttentionSound";
+import { globalSoundValue, isDefinitiveMiss, soundSources, type SoundConfig } from "../../../src/composables/useAttentionSound";
 
 const config = (over: Partial<SoundConfig> = {}): SoundConfig => ({
   kinds: ["finished", "waiting"],
@@ -69,5 +69,24 @@ describe("soundSources", () => {
   it("escapes a directory containing characters the query would otherwise break on", () => {
     const [dir] = soundSources("finished", "/repo/a b&c", config());
     expect(dir.url).toBe("/api/dir-sound?cwd=%2Frepo%2Fa%20b%26c&kind=finished");
+  });
+});
+
+// A miss is remembered for the life of the page, so which misses count is what decides whether
+// a preset that failed to download once is silent forever.
+describe("isDefinitiveMiss", () => {
+  it("remembers a 404 — that source genuinely has no sound", () => {
+    expect(isDefinitiveMiss(404)).toBe(true);
+  });
+
+  it("retries a 5xx — the server could not reach the preset host, which is temporary", () => {
+    expect(isDefinitiveMiss(500)).toBe(false);
+    expect(isDefinitiveMiss(502)).toBe(false);
+    expect(isDefinitiveMiss(503)).toBe(false);
+    expect(isDefinitiveMiss(504)).toBe(false);
+  });
+
+  it("treats the rest of the 4xx range as definitive too", () => {
+    for (const status of [400, 401, 403, 410, 429]) expect(isDefinitiveMiss(status)).toBe(true);
   });
 });

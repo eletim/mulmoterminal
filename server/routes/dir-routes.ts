@@ -102,7 +102,9 @@ export function mountDirRoutes(app: Express): void {
     if (!sound) return res.status(404).end();
     if (sound.source === "preset") {
       const bytes = await readSoundPreset(sound.id);
-      return bytes ? res.type("audio/mpeg").send(bytes) : res.status(404).end();
+      // 503, not 404: the id was validated when the directory config was read, so a miss is
+      // the download failing — and the client retries a 5xx while it remembers a 404.
+      return bytes ? res.type("audio/mpeg").send(bytes) : res.status(503).end();
     }
     // dotfiles:"allow" — the conventional location is a hidden <cwd>/.mulmoterminal/
     // dir, which send() would otherwise 404. The path is already confined to cwd, so
