@@ -1761,6 +1761,20 @@
     js-yaml "^5.2.2"
     zod "^4.4.3"
 
+"@mulmoclaude/core@^1.7.1":
+  version "1.7.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.7.1.tgz#c897bffcad2e04b2f645e1c1b5cfaaf190f36b54"
+  integrity sha512-ExmlCh0valjpD35NpEGnn3bTSL3qQKqfwygaxFbClVufPCGS5wJyBxnkMWRB8bVtfXxIQO5IZl7cTqLW/I+amA==
+  dependencies:
+    "@duckdb/node-api" "^1.5.5-r.1"
+    "@mulmoclaude/common" "^1.1.1"
+    "@mulmoclaude/markdown-utils" "^1.3.1"
+    fast-xml-parser "^5.10.1"
+    google-auth-library "^10.9.1"
+    iconv-lite "^0.7.3"
+    js-yaml "^5.2.2"
+    zod "^4.4.3"
+
 "@mulmoclaude/form-plugin@^1.0.2":
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/@mulmoclaude/form-plugin/-/form-plugin-1.0.2.tgz#8768bcddcd0f388a7a9dbe01c112b8b1bf0ce255"
