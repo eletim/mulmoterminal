@@ -4,6 +4,118 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.4.0 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.4.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.4.0.html))
+
+Reloading the page stopped answering 404 to every `npx` user, the file pane became somewhere a
+clicked path can land and something a reload does not empty, and a `.mulmoterminal.json` can now
+explain itself.
+
+### Reloading a page under `npx` answered 404 (#954, #963)
+
+Startup worked; the router then rewrote the URL to `/terminals`, and reloading **that** tab
+returned "Not Found". Recovering meant editing the URL by hand — and the move that triggers it is
+the one made when something already seems wrong: restart the server, reload the open tab to
+reconnect.
+
+`send` runs its dotfile check over the **whole absolute path** when given no `root`, and the
+default `dotfiles: "ignore"` answers 404. `npx` expands the package under `~/.npm/_npx/…`, so
+every npx install failed. The `express.static` mount immediately above passes a `root`, which is
+why the assets loaded and only the deep link 404'd — the asymmetry that made it look like a
+routing bug rather than a serving one.
+
+Present since vue-router arrived (#161), but the default view was `/` back then, so only someone
+who navigated and then reloaded hit it. #883 made the grid the startup view in 2.1.0, putting
+every user on a deep route from the first second.
+
+Reported and diagnosed by @ystknsh, down to the line in `send` and a minimal reproduction.
+
+Sweeping the rule across every call site found **a second instance**: `/api/sound` served a
+configured sound file the same way, so a custom chime under `~/.mulmoterminal/` never played. The
+two fixes differ — a fixed serving root takes `root`, an arbitrary configured path takes
+`dotfiles: "allow"` (which the sibling directory-sound route already passed, the asymmetry that
+marked this as an oversight). A spec now requires every `sendFile` to say which one it means, so
+a future call site cannot forget.
+
+The existing spec tested the route **pattern** only and stayed green through the whole bug; it now
+also asserts that index.html actually comes back, from a dist under a dot directory.
+
+### Binding to a non-loopback address now lets that browser attach (#956, #964)
+
+`MULMOTERMINAL_HOST=192.168.11.6` bound the server where it was asked to and then refused the
+browser that arrived — the page loaded and the terminals never attached. The allowed origins did
+not follow the bind decision.
+
+Naming an address now does both jobs: bind there, and accept a browser that opens it. A wildcard
+bind cannot infer what will be typed, so that case still needs
+`MULMOTERMINAL_ALLOWED_ORIGINS` (comma-separated). Loopback stays unconditional.
+
+This began as a "spec or bug?" judgement — the guide said the setting was for port forwarding,
+not for another machine's browser, and the reported behaviour matched. It was treated as a bug
+because the check stopped only honest browsers while stopping no attacker.
+
+### A clicked file path opens beside the terminal that printed it (#910, #953)
+
+The file pane shipped in 2.2.0 with one way in: a toggle in the enlarged cell's header. Clicking
+a path in terminal output still either took over the screen (source, via the full-screen view) or
+opened a browser tab (Markdown, JSON, CSV) — neither of which is "look at this file while
+watching the terminal", which is what the pane exists for.
+
+While a cell is enlarged, the pane now takes the click first, opening itself if it was closed. It
+takes everything it can render — the in-app set plus the rendered routes — derived from the two
+existing extension tables rather than a third one, so a new extension reaches the pane without a
+second edit. Images, PDFs and video keep the browser tab, where they display better than an empty
+editor would. A path outside that cell's directory keeps its old route: the pane cannot walk above
+its root.
+
+Running it surfaced a defect in the pane itself, invisible to every unit test: the tree and the
+open file shared one "latest request wins" counter, and nothing had ever started them at the same
+time. Opening a file while the tree was still loading discarded the tree's result, leaving the
+file open next to "Empty directory." Fixed with a counter each.
+
+### The pane survives a reload with its file still open (#958, #959)
+
+Whether the pane was open and how wide it was were already remembered; the file and the expanded
+tree were not, so a reload dropped you at the tree root. The memory was keyed by cell uid — right
+for a session, useless across a reload, since the number is not the same one afterwards.
+
+A directory-keyed copy now goes to localStorage, read only when the in-memory map has nothing.
+That entry is handed out **once per session**: it describes the one pane that was on screen before
+the reload, not a default for the directory, so a second terminal in the same repository still
+starts on its own empty tree.
+
+Nothing snapshotted on the way out either — the state was written only when the pane closed or
+re-rooted — so `pagehide` now does.
+
+### Directory colours reach the new-terminal chips (#949, #951)
+
+The directory chips on the new-terminal screen carry a 3px stripe in that directory's configured
+colour. A stripe rather than a background tint: the chip's background already means "a session is
+running here", and a colour on top of that would collide. A directory with no colour is unchanged.
+
+### A `.mulmoterminal.json` can explain itself (#950, #952)
+
+Settings gained a **Directory settings** section. Opening a row shows the values in effect (colours
+with a swatch), which file each came from, **keys dropped in validation**, and **keys this app never
+reads** — a misspelt `badgeColour`, or a global-only setting written per-directory. Read-only; writing
+is still the `mulmoterminal-config` skill.
+
+It exists for the question "why isn't my setting working", where the answer is almost always in one
+of the last two lists and was previously invisible.
+
+### `NODE_ENV=production` leaked into every terminal (#955, #962)
+
+The launcher exported it to every spawned session, and yarn v1 reads it — so `yarn install` skipped
+devDependencies **and reported success**. The launcher now adds `PORT` and `CLAUDE_CWD` and nothing
+else; a `NODE_ENV` the user exports themselves still passes through. Express's own production
+behaviour (no stack traces in error responses) is now set explicitly rather than inherited from the
+variable.
+
+### Codex auto-review timed out on large diffs (#960, #961)
+
+The CI review job's timeout is 15 minutes.
+
 ## mulmoterminal@2.3.0 — 2026-07-27
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.3.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.3.0.html))
