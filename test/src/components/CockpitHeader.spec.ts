@@ -53,4 +53,13 @@ describe("CockpitHeader", () => {
     expect(w.text()).toContain("proj");
     expect(w.find('[data-testid="slotted"]').exists()).toBe(true);
   });
+
+  it("clips the directory from the front, so the tail survives the roster's narrow column", () => {
+    const dir = mountH({ cwd: "/home/me/work/nested/deep/proj", home: "/home/me" }).get('[data-testid="cockpit-dir"]');
+    expect(dir.classes()).toContain("[direction:rtl]");
+    expect(dir.classes()).toContain("truncate");
+    // rtl reorders punctuation unless the path text opts back into logical order.
+    expect(dir.get("span").classes()).toContain("[unicode-bidi:plaintext]");
+    expect(dir.attributes("title")).toBe("/home/me/work/nested/deep/proj");
+  });
 });

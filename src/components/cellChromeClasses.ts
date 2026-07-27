@@ -34,11 +34,14 @@ export const CELL_BTN_INK = "cursor-pointer text-[var(--cell-btn,var(--text-seco
 export const CELL_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} ${CELL_BTN_INK}`;
 export const CELL_CLOSE_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[var(--cell-btn,var(--text-secondary))] hover:bg-[var(--err-hover-bg)] hover:text-err-text`;
 
-// Truncated from the FRONT (rtl) so the tail — the project dir — stays visible, and floored at
-// ~15 characters of path so it stays readable in a narrow cell.
-export const CELL_DIR =
-  "min-w-[16ch] max-w-[45%] flex-initial truncate text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl]";
+// A path clipped from the FRONT: `rtl` puts the ellipsis at the start so the tail — the
+// project dir, the part that identifies the cell — survives a narrow column. The path text
+// itself must carry CELL_DIR_PATH, or rtl would reorder the trailing "/" and punctuation.
+export const DIR_TRUNCATE_FRONT = "truncate [direction:rtl]";
 export const CELL_DIR_PATH = "[unicode-bidi:plaintext]";
+
+// Floored at ~15 characters of path so it stays readable in a narrow cell.
+export const CELL_DIR = `min-w-[16ch] max-w-[45%] flex-initial ${DIR_TRUNCATE_FRONT} text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))]`;
 
 export const CELL_CMD = "min-w-0 flex-auto truncate font-mono text-[12px] text-secondary";
 
