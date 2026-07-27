@@ -5,7 +5,8 @@ import { FLIP_MS, shouldRefocusOnZoomChange } from "./cellFlip";
 import { terminalManagesAttention, terminalViewActive } from "./terminalViewActive";
 import { dragCarriesFiles, dropTextFromUriList } from "./dropPaths";
 import { translateUiSentence } from "../utils/translateUi";
-import { useTheme, currentTermTheme, termThemeFor, type ThemeId } from "../composables/useTheme";
+import { useTheme, currentTermTheme, termThemeFor } from "../composables/useTheme";
+import { useDirConfig } from "../composables/useDirConfig";
 import { useTerminalFontSize } from "../composables/useTerminalFontSize";
 import { globalFontFamily } from "../composables/terminalFontFamily";
 import { badgeStyleFor } from "./dirBadge";
@@ -64,16 +65,15 @@ const props = defineProps<{
   expanded?: boolean;
   zoomed?: boolean;
   persistKey?: string | null;
-  // Per-directory overrides from <cwd>/.mulmoterminal.json. `dirTheme` pins this
-  // terminal's xterm palette (overriding the app-wide theme for this cell only);
-  // `dirColors` overrides individual palette keys on top of that; `dirName` /
-  // `dirBadgeColor` render a project badge in the header.
-  dirTheme?: ThemeId | null;
-  dirColors?: Partial<ITheme> | null;
-  // Pins this terminal's xterm font size, overriding the app-wide Settings value.
-  dirFontSize?: number | null;
-  // Pins this terminal's font-family stack, overriding the global config.json value.
-  dirFontFamily?: string | null;
+  // The CANVAS side of <cwd>/.mulmoterminal.json — palette, font — is NOT a prop: this
+  // component resolves it from its own cwd (see `dirConfig` below). It used to arrive as four
+  // props, and four separate hosts each had to remember to pass them; two didn't, so a shell
+  // cell silently ignored every directory setting (#902). The header props below stay, because
+  // the CHROME around the terminal is the host's to style, not this component's.
+  //
+  // Which directory to read that from, for a host whose `cwd` is deliberately unset (the single
+  // view). Only a starting hint — the server-confirmed cwd wins as soon as it is known.
+  dirCwd?: string | null;
   dirName?: string | null;
   dirBadgeColor?: string | null;
   // The header row's own colors (matches the grid cell's row-1 header): background,
@@ -117,6 +117,19 @@ const statusClass = computed(() => {
 // The server-resolved cwd of the connected session (the open project), used by the
 // Run menu so it lists THAT directory's scripts. Falls back to the requested cwd.
 const serverCwd = computed(() => conn.connView.get(slotKey)?.serverCwd ?? props.cwd ?? null);
+
+// This terminal's directory settings, resolved HERE rather than handed down (#909). Keyed on the
+// server-confirmed cwd — better than a host's copy, since the server may have rejected the
+// requested directory and started somewhere else. useDirConfig shares one fetch per cwd, so a host
+// that also reads the config for its own chrome costs nothing extra.
+//
+// `dirCwd` covers the one host that cannot supply `cwd`: the single view leaves it unset on purpose
+// (passing it would put `?cwd=` on the WebSocket and change what the server connects to), so
+// without a hint its palette would resolve only once the session reports back — a visible flash of
+// the app-wide theme first. Unlike the four style props this replaces, forgetting this one costs a
+// moment's delay, not a silently dead setting.
+const dirConfigCwd = computed(() => serverCwd.value ?? props.dirCwd ?? null);
+const { config: dirConfig } = useDirConfig(dirConfigCwd);
 
 // The running model, so header buttons/chips can substitute `${model}`.
 const { context: sessionContext } = useSessionContext(
@@ -167,17 +180,19 @@ const { themeId } = useTheme();
 const { fontSize } = useTerminalFontSize();
 
 // A dir-pinned theme wins over the app-wide selection for this terminal's canvas,
-// then per-key `dirColors` override on top (so a dir can tweak just the background
+// then per-key `colors` override on top (so a dir can tweak just the background
 // without restating a whole palette).
 function effectiveTermTheme(): ITheme {
-  const base = props.dirTheme ? termThemeFor(props.dirTheme) : currentTermTheme();
-  return props.dirColors ? { ...base, ...props.dirColors } : base;
+  const { theme, colors } = dirConfig.value;
+  const base = theme ? termThemeFor(theme) : currentTermTheme();
+  return colors ? { ...base, ...colors } : base;
 }
 
 // Same precedence as the theme: a dir pin wins, otherwise the app-wide value — per-browser for
 // the size (Settings), from config.json for the family.
 function effectiveFont(): conn.TerminalFont {
-  return { size: props.dirFontSize ?? fontSize.value, family: props.dirFontFamily ?? globalFontFamily.value };
+  const { fontSize: dirSize, fontFamily: dirFamily } = dirConfig.value;
+  return { size: dirSize ?? fontSize.value, family: dirFamily ?? globalFontFamily.value };
 }
 const dirBadgeStyle = computed(() => badgeStyleFor(props.dirBadgeColor));
 const headerStyle = computed(() => terminalHeaderStyleFor(props.dirHeaderColor, props.dirHeaderTextColor, props.dirButtonColor));
@@ -276,7 +291,7 @@ onUnmounted(() => pushView(false));
 // xterm can't read CSS variables, so repaint its canvas palette when the theme
 // changes (keeps an already-open terminal in sync with the rest of the app). A
 // dir-pinned theme ignores the app-wide change; a change to the pin itself repaints.
-watch([themeId, () => props.dirTheme, () => props.dirColors], () => {
+watch([themeId, () => dirConfig.value.theme, () => dirConfig.value.colors], () => {
   conn.setTheme(slotKey, effectiveTermTheme());
 });
 
@@ -284,8 +299,10 @@ watch([themeId, () => props.dirTheme, () => props.dirColors], () => {
 // new cols/rows to the PTY, so the ResizeObserver above is not what reacts here (the host element
 // never resized; only what fits inside it did). `globalFontFamily` is in the list because it
 // hydrates from /api/config asynchronously, so a terminal mounted before that lands is corrected
-// here rather than staying on the built-in stack.
-watch([fontSize, globalFontFamily, () => props.dirFontSize, () => props.dirFontFamily], () => {
+// here rather than staying on the built-in stack. The dir values are watched for the same reason:
+// on a fresh load useDirConfig has nothing cached, so the terminal is BUILT with the app-wide font
+// and the directory's arrives only once /api/dir-config resolves.
+watch([fontSize, globalFontFamily, () => dirConfig.value.fontSize, () => dirConfig.value.fontFamily], () => {
   conn.setFont(slotKey, effectiveFont());
 });
 
