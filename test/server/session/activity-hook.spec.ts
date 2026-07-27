@@ -203,3 +203,51 @@ describe("resolveHookCwd", () => {
     expect(dirConfigWriteTarget("Write", { file_path: ".mulmoterminal.json" }, cwd ?? null)).toBe(liveCwd);
   });
 });
+
+// #874: a subagent finishing arrives as `Notification` with `notification_type:
+// "agent_completed"` — measured from a real session, where the payload carried that type and NO
+// `agent_id`, so the type is the only distinguishing field. Treating every Notification as
+// "blocked on you" made each finished subagent flag the cell, beep, and push while the main turn
+// was still running. With 8 parallel sessions that is the reported "notification storm".
+describe("Notification kinds — informational vs actually blocked (#874)", () => {
+  const INFORMATIONAL = ["agent_completed", "auth_success", "elicitation_complete", "elicitation_response"];
+  const ACTIONABLE = ["permission_prompt", "idle_prompt", "agent_needs_input", "elicitation_dialog"];
+
+  it("does not push or flag for a notification that only reports something finished", () => {
+    INFORMATIONAL.forEach((type) => {
+      expect(pushKindFor("Notification", type)).toBeNull();
+      expect(activityHookEffects("Notification", false, type)).toEqual([]);
+    });
+  });
+
+  it("still pushes and flags when the agent is genuinely blocked on the user", () => {
+    ACTIONABLE.forEach((type) => {
+      expect(pushKindFor("Notification", type)).toBe("waiting");
+      expect(activityHookEffects("Notification", false, type)).toEqual([{ kind: "waiting", value: true }]);
+    });
+  });
+
+  // A DENYLIST on purpose. Claude Code adds notification types over time and the failure modes are
+  // not symmetric: one spurious ping is an annoyance, a swallowed "your agent is blocked" is the
+  // thing this feature exists to prevent — and a user cannot discover a stuck session another way.
+  it("notifies for a type it has never seen", () => {
+    expect(pushKindFor("Notification", "some_future_type")).toBe("waiting");
+    expect(activityHookEffects("Notification", false, "some_future_type")).toEqual([{ kind: "waiting", value: true }]);
+  });
+
+  // An older Claude Code sends no type at all; those must keep notifying rather than go silent.
+  it("keeps the previous behaviour when no type is sent", () => {
+    expect(pushKindFor("Notification")).toBe("waiting");
+    expect(activityHookEffects("Notification", false)).toEqual([{ kind: "waiting", value: true }]);
+  });
+
+  // The type must not leak into the other events — a Stop is a finished turn regardless.
+  it("leaves Stop alone", () => {
+    expect(pushKindFor("Stop", "agent_completed")).toBe("finished");
+  });
+
+  // The actively-viewed pane never raises attention, whatever the type — unchanged by #874.
+  it("still suppresses the flag on the active pane", () => {
+    expect(activityHookEffects("Notification", true, "permission_prompt")).toEqual([]);
+  });
+});
