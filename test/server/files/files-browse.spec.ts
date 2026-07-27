@@ -70,6 +70,29 @@ describe("conditional write", () => {
   };
   const query = (dir: string, file = "a.md") => `cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent(file)}`;
 
+  // The editor asks this every 30 seconds per open file; answering with the whole file would
+  // ship it all to answer a 16-character question.
+  it("answers the version alone, matching the one served with the text", async () => {
+    await withProject(async (app, dir) => {
+      const { body: read } = await request(app).get(`/api/files/browse/text?${query(dir)}`);
+      const res = await request(app).get(`/api/files/browse/version?${query(dir)}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ version: read.version });
+
+      writeFileSync(path.join(dir, "a.md"), "the agent's version");
+      const after = await request(app).get(`/api/files/browse/version?${query(dir)}`);
+      expect(after.body.version).not.toBe(read.version);
+    });
+  });
+
+  it("reports a missing file as no version, rather than failing", async () => {
+    await withProject(async (app, dir) => {
+      const res = await request(app).get(`/api/files/browse/version?${query(dir, "nope.md")}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ version: null });
+    });
+  });
+
   it("hands the editor a version with the text", async () => {
     await withProject(async (app, dir) => {
       const res = await request(app).get(`/api/files/browse/text?${query(dir)}`);

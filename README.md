@@ -769,6 +769,11 @@ the terminal is pointed at. A save sends the version the file had when it was op
 it is **refused (409) rather than silently overwriting** an agent that edited the same
 file meanwhile; the editor then offers to reload or to overwrite deliberately.
 
+You usually hear about it before that. An open file that changes on disk is picked up from
+Claude's own write hook (immediately) and from a 30-second version check (which catches Codex,
+git, builds and other editors too). A **clean** buffer just takes the new content — the pane
+reads as a live view — while a **dirty** one raises the same banner rather than choosing for you.
+
 **Leaving an open file saves it** — switching files, moving the enlargement to another
 terminal, closing the pane, navigating away. No dialog interrupts you mid-flow, because
 opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/` — **three
@@ -1098,7 +1103,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET /api/wiki` (`?slug=`) · `/api/wiki/graph` · `/api/wiki/lint` | Read-only wiki index / page / graph / lint. |
 | `GET /api/collections/…` · `/api/feeds` · `GET\|PUT /api/shortcuts` | Collections browser, feeds, favorites (see `docs/collection-plugin-integration.md`). |
-| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/{write,backup}` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. `backup` banks a buffer the editor is about to discard. |
+| `GET /api/files/browse/{list,text,version,md}` · `PUT /api/files/browse/{write,backup}` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. `version` answers that token alone, for the editor's periodic check. `backup` banks a buffer the editor is about to discard. |
 | `GET /api/files/raw?path=` | Raw asset bytes (workspace-rooted). |
 
 **GUI panel / plugins / MCP**

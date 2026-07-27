@@ -165,6 +165,18 @@ export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
     }
   });
 
+  // Just the version, for the editor's periodic "did this move under me?" check. The full
+  // /text response would ship the whole file every poll to answer a 16-character question.
+  app.get("/api/files/browse/version", (req, res) => {
+    const abs = containedFor(req, res, defaultCwd);
+    if (!abs) return;
+    try {
+      res.json({ version: currentVersion(abs) });
+    } catch {
+      res.status(500).json({ error: "failed to read file" });
+    }
+  });
+
   const serveRendered = (routePath: string, render: RenderDoc) => mountRenderedRoute(app, routePath, defaultCwd, render);
 
   serveRendered("/api/files/browse/md", async (text, title) => htmlDoc(await marked.parse(text), title));

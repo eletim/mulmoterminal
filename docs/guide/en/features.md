@@ -64,6 +64,7 @@ path an agent printed.
 | A save is **refused (409)** if the file changed on disk since you opened it | An agent rewriting the file you have open is normal here. A banner then offers to reload the disk's copy or to overwrite deliberately |
 | Opening a file, and replacing one, keep **three generations** under `~/.mulmoterminal/backups/` | Not asking is only defensible if what a save replaced can be fetched back. Outside the project, so no `.bak` reaches `git status` or the agent |
 | If neither the save nor the backup can be written, nothing moves on | With no copy anywhere, walking away is the one outcome that loses what you typed |
+| A file that changes on disk is picked up **without waiting for your save** — instantly from Claude's write hook, and within 30 seconds otherwise | A clean buffer just takes the new content, so the pane reads as a live view; a dirty one raises the banner instead of choosing for you. The poll is what covers Codex, git, builds and other editors |
 
 Two gaps are worth knowing: closing the **full-screen** view outright cannot keep the buffer if
 the backup store is also failing, and on tab close the browser caps the request at **64 KB**,
