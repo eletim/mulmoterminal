@@ -140,12 +140,20 @@ const paneWidth = ref(Number(stored(PANE_WIDTH_KEY)) || PANE_WIDTH_DEFAULT);
 const zoomRow = ref<HTMLElement | null>(null);
 const rowWidth = () => zoomRow.value?.clientWidth ?? 0;
 
-function toggleFiles(): void {
-  filesOpen.value = !filesOpen.value;
+function setFilesOpen(open: boolean): void {
+  filesOpen.value = open;
   // Closing drops the root it was on, so re-opening lands on whichever cell is enlarged THEN
   // rather than resuming a directory the user has since walked away from.
-  if (!filesOpen.value) paneCwd.value = null;
-  remember(PANE_OPEN_KEY, filesOpen.value ? "1" : "0");
+  if (!open) paneCwd.value = null;
+  remember(PANE_OPEN_KEY, open ? "1" : "0");
+}
+
+// The header toggle. Closing unmounts the pane, buffer and all, so it asks first — the pane's
+// OWN close button has already asked by the time it emits, which is why that path is separate
+// rather than routed through here (it would prompt twice).
+function toggleFiles(): void {
+  if (filesOpen.value && !filesPane.value?.confirmDiscard()) return;
+  setFilesOpen(!filesOpen.value);
 }
 
 // The enlarged cell's project dir — what the pane browses. A cell that hasn't reported one yet
@@ -395,7 +403,7 @@ watch(
           @pointerdown.prevent="onSplitterDown"
           @keydown="onSplitterKey"
         />
-        <FilesPane ref="filesPane" :cwd="paneCwd" :style="{ flex: `0 0 ${paneWidth}px` }" class="border-l border-border bg-deep" @close="toggleFiles">
+        <FilesPane ref="filesPane" :cwd="paneCwd" :style="{ flex: `0 0 ${paneWidth}px` }" class="border-l border-border bg-deep" @close="setFilesOpen(false)">
           <!-- Which directory the tree is actually rooted at. It normally follows the enlarged
                cell, but declining a re-root leaves it behind — and then this is the only thing
                that says so. -->

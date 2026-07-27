@@ -459,6 +459,51 @@ describe("file pane beside the enlarged cell", () => {
     expect(paneOf(w).props("cwd")).toBe("/one");
   });
 
+  // Closing unmounts the pane, buffer and all — so the toggle asks. The pane's own close button
+  // has already asked by the time it emits, and must not be asked again on the way out.
+  it("asks before the header toggle closes a pane with unsaved edits", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+
+    paneStub.confirmDiscard.mockReturnValueOnce(false);
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await nextTick();
+    expect(paneOf(w).exists()).toBe(true); // refused — the pane and its buffer stay
+
+    paneStub.confirmDiscard.mockReturnValueOnce(true);
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await nextTick();
+    expect(paneOf(w).exists()).toBe(false);
+  });
+
+  it("does not re-ask when the pane itself reports it is closing", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    paneStub.confirmDiscard.mockClear();
+
+    await paneOf(w).vm.$emit("close");
+    await nextTick();
+    expect(paneStub.confirmDiscard).not.toHaveBeenCalled();
+    expect(paneOf(w).exists()).toBe(false);
+  });
+
+  // Collapsing the zoom only HIDES the row; the pane stays mounted, so an unsaved buffer is
+  // still there when the cell is enlarged again. (Codex read this as an unguarded discard.)
+  it("keeps the pane and its buffer mounted while the zoom is collapsed", async () => {
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await openPane(w);
+    const before = paneOf(w).element;
+
+    await w.setProps({ expandedUid: null });
+    await flushPromises();
+    expect(paneOf(w).exists()).toBe(true);
+    expect(w.find(".zoom-main").element.parentElement?.className).toContain("hidden");
+
+    await w.setProps({ expandedUid: 1 });
+    await flushPromises();
+    expect(paneOf(w).element).toBe(before); // same instance, never torn down
+  });
+
   it("remembers being open across a remount, and the pane's own close puts it away", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await openPane(w);
