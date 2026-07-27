@@ -257,11 +257,21 @@ const SELECTION_SETTLE_MS = 150;
 function wireCopyOnSelect(term: Terminal, host: HTMLDivElement): void {
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let lastCopied: string | null = null;
+  // Writes run one after another rather than the moment each one is due. A settle can land while
+  // the previous write is still pending — a browser that ASKS for clipboard permission leaves it
+  // pending for as long as the user takes to answer — and two overlapping writes then resolve in
+  // whichever order the browser picks, which can leave the clipboard holding the OLDER selection.
+  let writes: Promise<void> = Promise.resolve();
   const copySettledSelection = async (): Promise<void> => {
     const text = selectionToCopy(isCopyOnSelectEnabled(), term.getSelection(), lastCopied);
     // Remembered only once it has actually landed, so a write blocked by a lost focus is retried
     // rather than treated as already done.
     if (text !== null && (await writeTerminalSelection(host, text))) lastCopied = text;
+  };
+  const enqueueCopy = (): void => {
+    // The catch matters more than it looks: one rejected link would poison the chain and end
+    // copy-on-select for this terminal for good, with nothing to show for it.
+    writes = writes.then(copySettledSelection).catch(() => {});
   };
   term.onSelectionChange(() => {
     // The default path, and it must cost nothing: xterm fires this on every coordinate change, so
@@ -278,7 +288,7 @@ function wireCopyOnSelect(term: Terminal, host: HTMLDivElement): void {
     // getSelection() rebuilds the text from the buffer, which is not worth doing per event.
     if (!term.hasSelection()) lastCopied = null;
     if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(() => void copySettledSelection(), SELECTION_SETTLE_MS);
+    settleTimer = setTimeout(enqueueCopy, SELECTION_SETTLE_MS);
   });
 }
 

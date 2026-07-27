@@ -13,7 +13,7 @@ smaller half of the difference. The larger half is what happens after:
 | what the browser has been asked for | a copy | nothing |
 | who writes the clipboard | **xterm**, from its own `copy` listener | **us** |
 
-#933 called no clipboard API at all — it returned `false` and stood back while the browser did the
+Issue #933 called no clipboard API at all — it returned `false` and stood back while the browser did the
 copy the keystroke had already requested. There is no keystroke here, so nothing is going to happen
 unless this app writes the clipboard itself. **That makes it the first place in the app that does.**
 Every constraint below follows from it.

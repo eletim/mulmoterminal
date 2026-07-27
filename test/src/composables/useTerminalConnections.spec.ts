@@ -402,6 +402,10 @@ describe("copy-on-select wiring", () => {
   const writeText = vi.fn<(text: string) => Promise<void>>();
   const execCommand = vi.fn<(commandId: string) => boolean>(() => true);
   let cellEl: HTMLDivElement;
+  // Torn down in afterEach rather than inline, so a failing assertion cannot leave a focused node
+  // in the document — the fallback tests read document.activeElement, so one failure would
+  // cascade into the others.
+  let elsewhere: HTMLInputElement | null = null;
 
   beforeEach(() => {
     FakeWebSocket.instances.length = 0;
@@ -426,9 +430,14 @@ describe("copy-on-select wiring", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    // unstubAllGlobals does NOT undo defineProperty on `document`, and jsdom ships no native
+    // execCommand — leaving the stub would hand every later suite one that silently returns true.
+    Reflect.deleteProperty(document, "execCommand");
     setCopyOnSelect(false);
     conn.release("cell-select");
     cellEl.remove();
+    elsewhere?.remove();
+    elsewhere = null;
   });
 
   const attachTerminal = (): void => {
@@ -533,7 +542,7 @@ describe("copy-on-select wiring", () => {
     setCopyOnSelect(true);
     vi.stubGlobal("navigator", {});
     attachTerminal();
-    const elsewhere = document.createElement("input");
+    elsewhere = document.createElement("input");
     document.body.appendChild(elsewhere);
     elsewhere.focus();
 
@@ -541,7 +550,29 @@ describe("copy-on-select wiring", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(execCommand).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(elsewhere);
-    elsewhere.remove();
+  });
+
+  // A clipboard write can stay pending far longer than the settle window — a browser that asks for
+  // clipboard permission holds it open until the user answers. Fired as they came due, two writes
+  // would then resolve in whatever order the browser picked, and the clipboard could end up with
+  // the older selection. Each write therefore waits for the one before it.
+  it("holds a newer write until the pending one finishes, so the older text cannot win", async () => {
+    setCopyOnSelect(true);
+    attachTerminal();
+    const finish: Array<() => void> = [];
+    writeText.mockImplementation(() => new Promise<void>((resolve) => finish.push(resolve)));
+
+    select("first");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(writeText).toHaveBeenCalledTimes(1); // in flight, and staying there
+
+    select("second");
+    await vi.advanceTimersByTimeAsync(200);
+    expect(writeText).toHaveBeenCalledTimes(1); // settled, but must not start yet
+
+    finish[0]();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(writeText).toHaveBeenNthCalledWith(2, "second");
   });
 });
 
