@@ -21,6 +21,13 @@ ping to your phone when a task finishes. One `npx` command, no Electron, no conf
 npx mulmoterminal        # starts on http://localhost:34567 and opens your browser
 ```
 
+> **Something looks wrong?** Type `/mulmoterminal-bug-report` in any MulmoTerminal session. The
+> bundled skill hears the symptom out, checks your **real** config, schema and version to see
+> whether the behaviour is configuration or by design, searches the existing issues — and only
+> helps you file one if none of that explains it, with the environment collected and secrets
+> masked. Getting you unstuck is the goal; an issue is what is left when the first three steps
+> fail.
+
 ![MulmoTerminal's grid view — four live Claude sessions running side by side, each in its own color-coded project](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-2x2-live.png)
 
 *The grid is a **cockpit for parallel agents** — here, four live Claude sessions, each in its own color-coded project. Every cell's header carries what you need to triage at a glance: **model · context %**, **token counts** (`⇡in ⇣out`), the **git branch / changes** chip, and an AI summary of what the agent is doing. A cell's **border color signals state** — working / done (blue), needs-you (amber — e.g. waiting on a permission), idle — with an attention chime so a stuck cell off-screen still pulls you back. Supervise many; only step in where you're called.*
@@ -475,8 +482,15 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
 | `copyOnSelect` | `true` puts a **mouse selection on the clipboard the moment it settles**, with no key pressed (the PuTTY / iTerm2 behaviour). **Off by default** — it changes the clipboard when you may only have meant to highlight something. No Settings UI: edit the file and reload the tab. Composes with the `copy` keymap action rather than replacing it. Over plain `http://` the browser gives a page no clipboard access, so a fallback asks xterm to copy instead; see the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#copy-on-select). |
-| `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out — read from the file per PR, so no restart is needed (there is no Settings control for it). Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
+| `prWorkdirFooter` | Ends a PR body with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. Applies to **both** paths that open PRs here: **⧉ Open PR** appends it to the PR it creates, and every Claude session is told to end the bodies it writes with the same line (the name is resolved by the server, so a session inside a managed worktree still names the main checkout). **On by default**; set `false` to opt out — read per PR and per session spawn, so no restart is needed (there is no Settings control for it). Appending is idempotent: an existing PR never gets a second copy. |
 | `fontFamily` | The **terminal font** every session renders in — a CSS font-family stack, e.g. `"'Cica', 'MS Gothic', monospace"`. No Settings UI: edit the file, then **restart** (this config is read once at startup). Unset uses the built-in stack (JetBrains Mono / Fira Code / Menlo / Consolas, then CJK faces for Japanese, Korean and Chinese). Unlike the per-browser font **size**, this is one value for the whole host — it names fonts, and which fonts exist is a property of the machine. A directory can override it. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#font-family). |
+
+Every MulmoTerminal on the machine shares this one file, so an older build could save over a key a
+newer one wrote. It doesn't: a **top-level key this version doesn't recognise is written back
+untouched**, which is what makes running two versions side by side — or downgrading for a while —
+safe. A mistyped key survives on the same rule, which is deliberate: a line you can still see is
+easier to debug than one that silently vanished. See the
+[Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#unknown-keys).
 
 #### Header buttons
 
