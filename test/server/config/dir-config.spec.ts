@@ -24,6 +24,7 @@ const EMPTY = {
   skills: null,
   provider: null,
   model: null,
+  addDirs: null,
 };
 
 function withConfig(body: unknown): { dir: string; cleanup: () => void } {
@@ -141,6 +142,7 @@ describe("loadDirConfig", () => {
       skills: ["review", "commit"], // trimmed, deduped, empties dropped
       provider: null,
       model: null,
+      addDirs: null,
     });
     cleanup();
   });

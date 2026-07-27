@@ -89,6 +89,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       // Auto-allow the GUI tools + the user's own configured MCP servers (mcp__<id>), so
       // their tools don't trip a permission prompt on every call.
       guiMcpTools: [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(","),
+      addDirs: dir.addDirs,
     });
 
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);
@@ -101,7 +102,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     const entry = withSettingsCleanup(sessionId, spawnEntry);
 
     function spawnEntry(): PtyEntry {
-      if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws);
+      if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, dir.addDirs);
       const { term, tmux } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, resolved.unset);
       console.log(`[pty] spawned claude (pid=${term.pid}${tmux ? " via tmux" : ""}) in ${cwd}`);
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };

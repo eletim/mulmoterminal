@@ -71,13 +71,13 @@ export function ptySpawn(
 // Spawn the single-view session inside a Docker container (the sandbox path). Exports the
 // host's live Keychain credential so the containerized claude is authenticated — without
 // it the container reads a stale/absent ~/.claude/.credentials.json and shows "Not logged in".
-export function spawnSandboxEntry(sessionId: string, claudeArgs: string[], cwd: string, ws: WebSocket | null): PtyEntry {
+export function spawnSandboxEntry(sessionId: string, claudeArgs: string[], cwd: string, ws: WebSocket | null, addDirs: string[] | null = null): PtyEntry {
   cleanupSandbox(sessionId); // clear any stale container/config/credential with this name
   const claudeConfig = writeSandboxClaudeConfig(sessionId, cwd);
   const credentials = writeSandboxCredentials(sessionId);
   if (credentials === null)
     console.warn("[sandbox] no Claude credential found in the macOS Keychain — the container may be unauthenticated. Run `claude` on the host to log in.");
-  const term = spawnPty("docker", buildDockerRunArgs(sessionId, claudeArgs, cwd, claudeConfig, credentials), cwd);
+  const term = spawnPty("docker", buildDockerRunArgs(sessionId, claudeArgs, cwd, claudeConfig, credentials, addDirs), cwd);
   console.log(`[pty] spawned claude (pid=${term.pid} via docker sandbox) in ${cwd}`);
   return { term, ws, buffer: "", cwd, sandbox: true, active: false, agent: "claude" };
 }
