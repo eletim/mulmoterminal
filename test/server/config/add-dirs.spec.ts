@@ -41,6 +41,26 @@ describe("resolveAddDirs", () => {
     expect(resolveAddDirs(input, BASE, () => true)).toBeNull();
   });
 
+  // Codex review on #912: the real predicate is `statSync(...).isDirectory()`, which throws on
+  // EACCES or if the path vanishes mid-check. It runs inside loadDirConfig's outer try, so an
+  // escaping throw would drop the WHOLE directory config — colors, sound, skills — over one
+  // unreadable entry.
+  it("drops only the entry whose existence check throws", () => {
+    const exists = (p: string) => {
+      if (p === "/denied") throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      return true;
+    };
+    expect(resolveAddDirs(["/denied", "/abs/docs"], BASE, exists)).toEqual(["/abs/docs"]);
+  });
+
+  it("is null — not a throw — when every entry's check throws", () => {
+    expect(
+      resolveAddDirs(["/denied"], BASE, () => {
+        throw new Error("EACCES");
+      }),
+    ).toBeNull();
+  });
+
   // argv rides a tmux `new-session` command, which has a length limit this repo has already hit.
   it("caps the list", () => {
     const many = Array.from({ length: MAX_ADD_DIRS + 5 }, (_, i) => `/d${i}`);

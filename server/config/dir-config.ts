@@ -141,7 +141,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       skills: dirSkillsField.parse(raw.skills),
       provider: dirProviderField.parse(raw.provider),
       model: dirModelField.parse(raw.model),
-      addDirs: resolveAddDirs(raw.addDirs, base, (p) => existsSync(p) && statSync(p).isDirectory()),
+      addDirs: resolveAddDirs(raw.addDirs, base, (p) => statSync(p).isDirectory()),
     };
   } catch {
     return EMPTY;

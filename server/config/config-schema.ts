@@ -225,7 +225,18 @@ export function resolveAddDirs(input: unknown, base: string, exists: (p: string)
     .map((entry) => path.resolve(base, entry.trim()))
     // The workspace itself is already the session's cwd — listing it again would add a
     // duplicate container mount and grant nothing.
-    .filter((dir) => dir !== path.resolve(base) && exists(dir));
+    // `exists` touches the disk, so it can throw (EACCES, or the path vanishing between the
+    // check and the stat). This runs inside loadDirConfig's outer try, where a throw costs
+    // the WHOLE directory config — colors, sound, skills — over one unreadable entry. A
+    // failure here means "drop this entry", never "drop everything".
+    .filter((dir) => {
+      if (dir === path.resolve(base)) return false;
+      try {
+        return exists(dir);
+      } catch {
+        return false;
+      }
+    });
   const unique = [...new Set(resolved)].slice(0, MAX_ADD_DIRS);
   return unique.length ? unique : null;
 }
