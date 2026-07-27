@@ -53,6 +53,31 @@ separator is what makes the check a boundary.
 rather than hand-rolling `target.startsWith(base + path.sep)`; several callers are security
 boundaries, and the lexical answer still needs a realpath pass for symlinks.
 
+## Tests that handle paths
+
+**Build the EXPECTED path with `path.resolve` too, never as a POSIX literal.** A rule that
+resolves with the platform's own `path` produces `<drive>:\shared-lib` on Windows (drive-qualified,
+per the section above — the CI failure read `D:\shared-lib`) and `/shared-lib` elsewhere, so an
+expectation written as `"/shared-lib"` matches on the developer's machine and nowhere else. `yarn test` stays green locally and the daily Windows job goes red — #912's
+`resolveAddDirs` spec cost exactly that.
+
+**A stubbed predicate that compares paths has the same problem, and it fails silently.** That
+spec's EACCES case asked `p === "/denied"`, which on Windows never matched — so nothing threw,
+both entries survived, and the property under test ("a throwing check drops only its own
+entry") was not being tested there at all. A path-comparing stub is a path comparison: resolve
+its operand as well.
+
+```ts
+const BASE = path.resolve("/repo");            // C:\repo on Windows, /repo elsewhere
+const SIBLING = path.resolve(BASE, "../lib");  // the expectation, computed the same way
+```
+
+→ `test/server/config/add-dirs.spec.ts` for the shape.
+
+**Verify on the real runner before merging**, with the dispatch at the top of this file. Local
+`yarn test` on macOS/Linux cannot see any of this — the whole class only appears where the
+separator and the drive letter differ.
+
 ## Filesystem watching
 
 **`fs.watch` on an 8.3 short path is unreliable, and can abort the process.** `os.tmpdir()`
