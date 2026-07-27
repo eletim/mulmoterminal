@@ -5,6 +5,7 @@ import { getPrRepos } from "../config/config-routes.js";
 import { listPrsAcrossRepos } from "../git/prs.js";
 import { listIssuesAcrossRepos } from "../git/issues.js";
 import { readStarState, starRepo } from "../git/github-star.js";
+import type { GithubStarState } from "../../common/githubRepo.js";
 
 export function mountRepoRoutes(app: Express): void {
   // Cross-repo PR list (the /prs view): aggregate open PRs for the configured repos via
@@ -28,9 +29,11 @@ export function mountRepoRoutes(app: Express): void {
 
   // The header's "star this project on GitHub" button. Not a configured repo like the two
   // above — it is always this project, so the target is a constant and never the request.
+  // `starred: null` is "cannot tell" (no `gh`, not logged in, offline), which hides the button.
   app.get("/api/github/star", async (_req, res) => {
     try {
-      res.json({ starred: await readStarState() });
+      const body: GithubStarState = { starred: await readStarState() };
+      res.json(body);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -40,7 +43,8 @@ export function mountRepoRoutes(app: Express): void {
   // (app-routes.ts) covers it: a page the user happens to visit must not star on their behalf.
   app.post("/api/github/star", async (_req, res) => {
     try {
-      res.json({ starred: await starRepo() });
+      const body: GithubStarState = { starred: await starRepo() };
+      res.json(body);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

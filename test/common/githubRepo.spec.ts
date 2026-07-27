@@ -1,11 +1,10 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { GITHUB_REPO, GITHUB_REPO_URL, STAR_API_PATH, parseStarState } from "../../common/githubRepo.js";
+import { GITHUB_REPO, STAR_API_PATH, parseStarState } from "../../common/githubRepo.js";
 
 describe("githubRepo constants", () => {
-  it("derives both the page URL and the gh api path from one repo constant", () => {
-    expect(GITHUB_REPO_URL).toBe(`https://github.com/${GITHUB_REPO}`);
+  it("derives the gh api path from the repo constant", () => {
     expect(STAR_API_PATH).toBe(`/user/starred/${GITHUB_REPO}`);
   });
 });

@@ -3,7 +3,8 @@ import { defineComponent, h, type ComputedRef } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
 
 // The composable keeps its state at module scope (one shared button across both toolbars) and
-// reads localStorage on import, so each case re-imports it against a freshly seeded store.
+// reads localStorage on import, so each mount re-imports it — which is also how a second call
+// stands in for a second page load, against whatever localStorage the first one left behind.
 async function mountStar() {
   vi.resetModules();
   const { useGithubStar } = await import("../../../src/composables/useGithubStar");
@@ -21,6 +22,7 @@ async function mountStar() {
 }
 
 const answering = (starred: boolean | null) => vi.fn(async () => ({ ok: true, json: async () => ({ starred }) }));
+const DONE_KEY = "github_star_done";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -41,17 +43,17 @@ describe("useGithubStar", () => {
     vi.stubGlobal("fetch", answering(true));
     const star = await mountStar();
     expect(star.visible.value).toBe(false);
-    expect(localStorage.getItem("github_star_done")).toBe("1");
+    expect(localStorage.getItem(DONE_KEY)).toBe("1");
   });
 
-  it("offers a plain link when the server cannot tell", async () => {
+  // No `gh` means one click cannot star anything, so there is nothing to offer.
+  it("stays hidden when the server cannot tell", async () => {
     vi.stubGlobal("fetch", answering(null));
     const star = await mountStar();
-    expect(star.visible.value).toBe(true);
-    expect(star.title.value).toBe("Open MulmoTerminal on GitHub");
+    expect(star.visible.value).toBe(false);
   });
 
-  it("offers the link when the request fails outright", async () => {
+  it("stays hidden when the request fails outright", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -59,13 +61,24 @@ describe("useGithubStar", () => {
       }),
     );
     const star = await mountStar();
-    expect(star.visible.value).toBe(true);
-    expect(star.title.value).toBe("Open MulmoTerminal on GitHub");
+    expect(star.visible.value).toBe(false);
+  });
+
+  // The reason nothing is written down while `gh` is missing: retiring on anything short of real
+  // evidence would hide the button from exactly the people who have not starred, permanently.
+  it("records nothing while gh cannot answer, so installing gh later brings the button back", async () => {
+    vi.stubGlobal("fetch", answering(null));
+    expect((await mountStar()).visible.value).toBe(false);
+    expect(localStorage.getItem(DONE_KEY)).toBeNull();
+
+    // `gh auth login` happened; the next page load gets a real answer.
+    vi.stubGlobal("fetch", answering(false));
+    expect((await mountStar()).visible.value).toBe(true);
   });
 
   // A retired button must cost nothing at all — not even the state request on every page load.
   it("asks the server nothing once it has been retired", async () => {
-    localStorage.setItem("github_star_done", "1");
+    localStorage.setItem(DONE_KEY, "1");
     const fetchMock = answering(false);
     vi.stubGlobal("fetch", fetchMock);
     const star = await mountStar();
@@ -88,25 +101,23 @@ describe("useGithubStar", () => {
 
     await vi.advanceTimersByTimeAsync(2000);
     expect(star.visible.value).toBe(false);
-    expect(localStorage.getItem("github_star_done")).toBe("1");
+    expect(localStorage.getItem(DONE_KEY)).toBe("1");
   });
 
-  it("ignores a second click inside the confirmation window", async () => {
+  it("sends one request when clicked twice", async () => {
     vi.stubGlobal("fetch", answering(false));
     const star = await mountStar();
     vi.useFakeTimers();
-    const open = vi.fn();
-    vi.stubGlobal("open", open);
 
-    vi.stubGlobal("fetch", answering(true));
-    await star.activate();
-    await star.activate();
-    expect(open).not.toHaveBeenCalled();
+    const post = answering(true);
+    vi.stubGlobal("fetch", post);
+    await Promise.all([star.activate(), star.activate()]);
+    expect(post).toHaveBeenCalledOnce();
   });
 
-  // `gh` can stop working between the read and the click (auth expired, network died). The
-  // button must then become the link rather than swallow the click.
-  it("degrades to the link when starring fails", async () => {
+  // `gh` can stop working between the read and the click (auth expired, network died). The click
+  // must stay repeatable rather than silently retire or vanish.
+  it("stays visible and unrecorded when starring fails", async () => {
     vi.stubGlobal("fetch", answering(false));
     const star = await mountStar();
 
@@ -116,19 +127,7 @@ describe("useGithubStar", () => {
     );
     await star.activate();
     expect(star.visible.value).toBe(true);
-    expect(star.title.value).toBe("Open MulmoTerminal on GitHub");
-    expect(localStorage.getItem("github_star_done")).toBeNull();
-  });
-
-  it("opens the repo page and retires when it is only a link", async () => {
-    vi.stubGlobal("fetch", answering(null));
-    const open = vi.fn();
-    vi.stubGlobal("open", open);
-    const star = await mountStar();
-
-    await star.activate();
-    expect(open).toHaveBeenCalledWith("https://github.com/receptron/mulmoterminal", "_blank", "noopener");
-    expect(star.visible.value).toBe(false);
-    expect(localStorage.getItem("github_star_done")).toBe("1");
+    expect(star.confirming.value).toBe(false);
+    expect(localStorage.getItem(DONE_KEY)).toBeNull();
   });
 });
