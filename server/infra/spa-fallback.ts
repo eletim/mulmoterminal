@@ -1,3 +1,5 @@
+import type { Express } from "express";
+
 // The SPA-fallback matcher for vue-router history mode. index.html is served for any
 // client-side route — i.e. everything EXCEPT the /api prefix, which is where every
 // server HTTP endpoint (including the GUI MCP route) lives. WebSocket upgrades
@@ -14,4 +16,20 @@ export const SPA_FALLBACK_RE = /^\/(?!api(?:\/|$)).*/;
 /** True when `pathname` should serve the SPA shell rather than hit a server route. */
 export function isClientRoute(pathname: string): boolean {
   return SPA_FALLBACK_RE.test(pathname);
+}
+
+/** Serve `distDir/index.html` for every client route.
+ *
+ *  The `root` option is the whole point (#954). Without it `send` runs its dotfile check over
+ *  the ABSOLUTE path, and the default `dotfiles: "ignore"` answers 404 for any install whose
+ *  path contains a dot segment — which every `npx` run does, since the package is expanded
+ *  under `~/.npm/_npx/`. With a root, only what sits BELOW it is examined, so where the app
+ *  happens to be installed stops mattering. The `express.static` above already passes one,
+ *  which is why the assets loaded and only the deep link 404'd.
+ *
+ *  Mounted as a function so a test can drive the real thing on a bare app: mountAppRoutes wants
+ *  a dependency object the size of the server, and the spec that existed checked the route
+ *  PATTERN only — it stayed green through the whole bug. */
+export function mountSpaFallback(app: Pick<Express, "get">, distDir: string): void {
+  app.get(SPA_FALLBACK_RE, (_req, res) => res.sendFile("index.html", { root: distDir }));
 }
