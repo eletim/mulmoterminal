@@ -1115,6 +1115,8 @@ describe("TerminalCell", () => {
     await flushPromises();
     expect(w.find('[data-testid="cell-diff"]').exists()).toBe(true);
     expect(w.findAll('[data-testid="cell-diff-file"]')).toHaveLength(2);
+    // Paths clip from the front here too, so the filename is what survives a narrow panel.
+    expect(w.findAll('[data-testid="cell-diff-file"]')[0].get("span").classes()).toEqual(expect.arrayContaining(["truncate", "text-left", "[direction:rtl]"]));
     expect(w.find('[data-testid="df-new"]').exists()).toBe(true); // the untracked file
     expect(w.find('[data-testid="cell-diff-patch"]').text()).toContain("hello");
 

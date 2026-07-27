@@ -26,7 +26,17 @@ import type { Launcher, LaunchPick } from "./launchers";
 import { activityStatus, type CellStatus } from "./gridTabs";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
-import { CELL_ACTIONS, CELL_BTN, CELL_DOT, CELL_DOT_IDLE, CELL_DOT_WORKING, CELL_HEADER_ZOOMABLE, CELL_TERM } from "./cellChromeClasses";
+import {
+  CELL_ACTIONS,
+  CELL_BTN,
+  CELL_DIR_PATH,
+  CELL_DOT,
+  CELL_DOT_IDLE,
+  CELL_DOT_WORKING,
+  CELL_HEADER_ZOOMABLE,
+  CELL_TERM,
+  DIR_TRUNCATE_FRONT,
+} from "./cellChromeClasses";
 import { handoffTargets, pullLastTurn, type HandoffTarget } from "../composables/useHandoff";
 import { runOneExchange, liveCrossTalkDeps } from "../composables/useCrossTalk";
 import { outcomeMessage } from "../composables/exchangeRules";
@@ -1277,7 +1287,9 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         </div>
         <div v-if="diff && diff.files.length" class="max-h-[35%] flex-none overflow-y-auto border-b border-b-border px-2 py-1">
           <div v-for="f in diff.files" :key="f.path" data-testid="cell-diff-file" class="flex items-baseline gap-2 py-px font-mono text-[11px]">
-            <span class="min-w-0 flex-auto truncate text-secondary [direction:rtl]">{{ f.path }}</span>
+            <span class="min-w-0 flex-auto text-secondary" :class="DIR_TRUNCATE_FRONT"
+              ><span :class="CELL_DIR_PATH">{{ f.path }}</span></span
+            >
             <span v-if="f.status === 'untracked'" data-testid="df-new" class="flex-none text-[#3fae6b]">new</span>
             <span v-else class="flex-none">
               <span class="text-[#3fae6b]">+{{ f.additions < 0 ? "bin" : f.additions }}</span>
