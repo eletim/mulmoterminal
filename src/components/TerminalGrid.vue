@@ -17,7 +17,7 @@ import type { Launcher, LaunchPick } from "./launchers";
 import { shouldFlipZoom } from "./cellChromeRules";
 import { formatCwd } from "./cwdDisplay";
 import FilesPane from "./FilesPane.vue";
-import { clampPaneWidth, splitterKeyWidth } from "./splitterWidth";
+import { clampPaneWidth, splitterKeyWidth, MIN_GUI, MIN_TERMINAL } from "./splitterWidth";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -139,6 +139,12 @@ const filesOpen = ref(stored(PANE_OPEN_KEY) === "1");
 const paneWidth = ref(Number(stored(PANE_WIDTH_KEY)) || PANE_WIDTH_DEFAULT);
 const zoomRow = ref<HTMLElement | null>(null);
 const rowWidth = () => zoomRow.value?.clientWidth ?? 0;
+// Mirrored into a ref so the separator can announce its range (a plain function call would not
+// re-render when the row resizes). The pane's floor gives way to the terminal's on a narrow row,
+// which is why the minimum is itself clamped.
+const rowWidthNow = ref(0);
+const paneMax = computed(() => Math.max(0, rowWidthNow.value - MIN_TERMINAL));
+const paneMin = computed(() => Math.min(MIN_GUI, paneMax.value));
 
 function setFilesOpen(open: boolean): void {
   filesOpen.value = open;
@@ -187,6 +193,7 @@ watch(
 
 function setPaneWidth(width: number): void {
   const available = rowWidth();
+  rowWidthNow.value = available;
   // Before the row is laid out there is nothing to clamp against, and clamping against zero
   // would "correct" the width to a negative one.
   if (available <= 0) return;
@@ -399,6 +406,10 @@ watch(
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize file pane"
+          :aria-valuenow="paneWidth"
+          :aria-valuemin="paneMin"
+          :aria-valuemax="paneMax"
+          title="Drag (or use arrow keys) to resize the file pane"
           tabindex="0"
           @pointerdown.prevent="onSplitterDown"
           @keydown="onSplitterKey"

@@ -543,6 +543,19 @@ describe("file pane width restored from storage", () => {
     expect(w.findComponent({ name: "FilesPane" }).attributes("style")).toContain("680px");
   });
 
+  // The single view's splitter announces its range; a screen-reader user resizing this one gets
+  // nothing without the same three attributes.
+  it("announces its value and range on the separator", async () => {
+    localStorage.setItem("files_pane_open", "1");
+    localStorage.setItem("files_pane_width", "400");
+    const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
+    await flushPromises();
+    const sep = w.find('[role="separator"][aria-label="Resize file pane"]');
+    expect(sep.attributes("aria-valuenow")).toBe("400");
+    expect(sep.attributes("aria-valuemin")).toBe("360"); // MIN_GUI, there being room for it
+    expect(sep.attributes("aria-valuemax")).toBe(String(ROW - 320)); // the terminal keeps MIN_TERMINAL
+  });
+
   it("leaves a width that already fits alone", async () => {
     localStorage.setItem("files_pane_open", "1");
     localStorage.setItem("files_pane_width", "400");
