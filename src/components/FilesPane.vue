@@ -56,7 +56,14 @@ const isMarkdown = computed(() => langKindForFilename(openName.value) === "markd
 
 const editorHost = ref<HTMLDivElement>();
 let editor: CmEditor | null = null;
-let reqId = 0;
+// The tree and the open file are fetched independently, so they get a counter EACH. One
+// shared counter reads as "latest request wins" and is wrong the moment the two overlap:
+// opening a file while the tree is still loading bumped the shared id, the tree's own
+// `id === reqId` check then failed, and its result was thrown away — leaving a pane that says
+// "Empty directory." next to the file it just opened. Nothing overlapped them until a click in
+// terminal output could open a file at the same moment the pane mounts (#910).
+let treeReqId = 0;
+let fileReqId = 0;
 
 // The host guards its own navigation on this, so it has to hear every change.
 watch(dirty, (value) => emit("dirty", value));
@@ -81,13 +88,13 @@ async function fetchEntries(pathRel: string): Promise<Entry[]> {
 }
 
 async function loadRoot(): Promise<void> {
-  const id = ++reqId;
+  const id = ++treeReqId;
   treeError.value = null;
   try {
     const entries = await fetchEntries("");
-    if (id === reqId) roots.value = entries.map((e) => makeNode(e, ""));
+    if (id === treeReqId) roots.value = entries.map((e) => makeNode(e, ""));
   } catch (e) {
-    if (id === reqId) treeError.value = e instanceof Error ? e.message : String(e);
+    if (id === treeReqId) treeError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -197,7 +204,7 @@ async function loadFile(pathRel: string, force = false): Promise<void> {
     // the only way not to lose it.
     if (!(await flush())) return;
   }
-  const id = ++reqId;
+  const id = ++fileReqId;
   fileError.value = null;
   conflict.value = null;
   showPreview.value = false;
@@ -205,13 +212,13 @@ async function loadFile(pathRel: string, force = false): Promise<void> {
     const res = await fetch(`/api/files/browse/text?${qs(pathRel)}`);
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     const data = await res.json();
-    if (id !== reqId) return;
+    if (id !== fileReqId) return;
     openPath.value = pathRel;
     baseVersion.value = typeof data.version === "string" ? data.version : null;
     editor?.setDoc(typeof data.text === "string" ? data.text : "", pathRel.split("/").pop() ?? pathRel);
     dirty.value = false;
   } catch (e) {
-    if (id === reqId) fileError.value = e instanceof Error ? e.message : String(e);
+    if (id === fileReqId) fileError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
@@ -397,6 +404,10 @@ defineExpose({
     teardown();
     await start();
   },
+  /** Open a file the host chose — a path clicked in terminal output (#910). Routed through
+   *  loadFile, which treats opening another file as leaving this one, so an unsaved buffer is
+   *  flushed (or keeps the pane where it is) exactly as it would be from the tree. */
+  openFile: (pathRel: string) => loadFile(pathRel),
   flush,
 });
 </script>
