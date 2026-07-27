@@ -3,7 +3,7 @@
 // sidebar's optimistic row, the draft typed into the input box, and teardown on exit.
 import type { WebSocket } from "ws";
 import { CLAUDE_CWD } from "../config/env.js";
-import { getUserMcpServers } from "../config/config-routes.js";
+import { getUserMcpServers, getPrWorkdirFooter } from "../config/config-routes.js";
 import { SANDBOX_HOST } from "../infra/sandbox.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
 import { knownSessions, launchChoices, ptys } from "./registry.js";
@@ -15,6 +15,8 @@ import { sessionExistsOnDisk } from "./session-reads.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { loadDirConfig } from "../config/dir-config.js";
+import { repoRootSync } from "../git/repo-root-sync.js";
+import { workdirFooter } from "../git/pr-footer.js";
 import { getProviders } from "../config/config-routes.js";
 import { requireResolution, resolveProvider, type DirModelChoice } from "./provider-env.js";
 import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
@@ -32,6 +34,40 @@ export interface SpawnClaudeOptions {
   // as a PAIR: a provider from one source with a model from the other is a combination
   // neither of them asked for. Absent — the usual case — means "use the directory's".
   launch?: DirModelChoice;
+}
+
+// The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
+// directory is not a git repo (nothing to name).
+//
+// Resolved HERE rather than left to the agent: inside a managed worktree an agent would name the
+// worktree, and the clone is what identifies the work (the branch is already on the PR). Read per
+// spawn, like the ⧉ Open PR button reads it per PR, so switching it off needs no restart.
+function sessionWorkdirFooter(cwd: string): string | null {
+  if (!getPrWorkdirFooter()) return null;
+  const root = repoRootSync(cwd);
+  return root ? workdirFooter(root) : null;
+}
+
+// What this session runs, and the directory config it runs under (#579). A refusal THROWS:
+// falling back to Anthropic would send this session's prompts to a backend the directory did not
+// select, which is exactly what the provider contract exists to prevent. The ws route turns it
+// into a message in the terminal.
+//
+// Its own function because the spawn body is at its line budget and this is one decision made
+// from three sources, not part of spawning.
+function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?: DirModelChoice; canResume: boolean; sandbox: boolean }) {
+  const dir = loadDirConfig(input.cwd);
+  const choice = effectiveChoice({
+    launch: input.launch,
+    remembered: launchChoices.get(input.sessionId),
+    dir: { provider: dir.provider, model: dir.model },
+    resuming: input.canResume,
+  });
+  const resolved = requireResolution(resolveProvider(choice, getProviders(), process.env, input.sandbox));
+  // Remembered so a later resume continues on the backend this session began on, instead of
+  // silently moving to the directory's default mid-conversation.
+  if (input.launch) launchChoices.set(input.sessionId, choice);
+  return { dir, resolved };
 }
 
 export function createClaudeSpawner(deps: SpawnDeps) {
@@ -53,21 +89,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     const sandbox = sandboxWouldRun(attachGuiMcp) && ws !== null;
     const canResume = resume !== null && sessionExistsOnDisk(resume, cwd);
 
-    // What this directory asked its sessions to run (#579). A refusal THROWS: falling back
-    // to Anthropic would send this session's prompts to a backend the directory did not
-    // select, which is exactly what the provider contract exists to prevent. The ws route
-    // turns it into a message in the terminal.
-    const dir = loadDirConfig(cwd);
-    const choice = effectiveChoice({
-      launch,
-      remembered: launchChoices.get(sessionId),
-      dir: { provider: dir.provider, model: dir.model },
-      resuming: canResume,
-    });
-    const resolved = requireResolution(resolveProvider(choice, getProviders(), process.env, sandbox));
-    // Remembered so a later resume continues on the backend this session began on, instead
-    // of silently moving to the directory's default mid-conversation.
-    if (launch) launchChoices.set(sessionId, choice);
+    const { dir, resolved } = resolveSessionBackend({ cwd, sessionId, launch, canResume, sandbox });
 
     const hookSettings = deps.hookSettingsJson(sandbox ? SANDBOX_HOST : "localhost", sessionId, resolved.env);
     const mcpJson = deps.mcpConfigJson(sessionId, sandbox ? SANDBOX_HOST : "127.0.0.1", sandbox);
@@ -90,6 +112,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       // their tools don't trip a permission prompt on every call.
       guiMcpTools: [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(","),
       addDirs: dir.addDirs,
+      workdirFooter: sessionWorkdirFooter(cwd),
     });
 
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);
