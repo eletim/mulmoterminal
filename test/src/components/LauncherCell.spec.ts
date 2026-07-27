@@ -18,6 +18,15 @@ const baseProps = { uid: 7, expanded: false, launcher: LAUNCHER, session: null, 
 const mountCell = (extra: Record<string, unknown> = {}) => mount(LauncherCell, { props: { ...baseProps, ...extra } });
 
 describe("LauncherCell header zoom", () => {
+  // #965: the whole cell — header included — sits in one wrapper, so the focus zoom can be
+  // cancelled about the cell's own centre. A second element child, or content left outside the
+  // wrapper, would scale with the frame and resample the terminal's canvas.
+  it("keeps its whole content in the focus-zoom wrapper", () => {
+    const root = mountCell().element;
+    expect(root.children).toHaveLength(1);
+    expect(root.children[0].className).toContain("group-[.focused]/cell:scale-[calc(1/var(--focus-zoom))]");
+  });
+
   it("shows the label + dir and runs the configured launcher in its directory", () => {
     const w = mountCell();
     expect(w.find(".cell-cmd").text()).toContain("zsh");

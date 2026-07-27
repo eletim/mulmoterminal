@@ -128,6 +128,15 @@
   --err-hover-bg: #3a2030;
 }
 
+/* How much the keyboard-focused grid cell grows. The cell scales up by this; everything inside it
+   scales down by calc(1 / this) about the same centre (CELL_INNER), so the content ends up with an
+   identity transform and the terminal's canvas is still rasterised 1:1. A canvas composited at any
+   other scale is resampled — that was the blur in #965, where 1.03 alone changed 22% of the
+   canvas's pixels. One token so the two sides cannot drift apart. */
+:root {
+  --focus-zoom: 1.03;
+}
+
 /* Light themes: status pills become light-tinted with dark, saturated text so
    they stay legible on a bright background. */
 :root[data-theme="daylight"],

@@ -35,6 +35,7 @@ import {
   CELL_DOT_IDLE,
   CELL_DOT_WORKING,
   CELL_HEADER_ZOOMABLE,
+  CELL_INNER,
   CELL_TERM,
   DIR_TRUNCATE_FRONT,
 } from "./cellChromeClasses";
@@ -1005,633 +1006,640 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
 
 <template>
   <div
-    class="cell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-[var(--cell-bg,var(--bg-base))]"
+    class="group/cell cell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border bg-[var(--cell-bg,var(--bg-base))]"
     :class="[statusClass, cellStatusClass]"
     :style="cellStyle"
   >
-    <template v-if="launched">
-      <!-- Filmstrip thumbnail: the same roster header (CockpitHeader) — the dir colour is applied
+    <div :class="CELL_INNER">
+      <template v-if="launched">
+        <!-- Filmstrip thumbnail: the same roster header (CockpitHeader) — the dir colour is applied
            regardless of status (status is the dot + badge), so a thumbnail reads as its directory
            the way the roster row does. Expand/close go in its trailing slot. -->
-      <CockpitHeader
-        v-if="filmstrip"
-        class="cell-header flex-none border-b"
-        :class="[statusClass, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]"
-        :status="status"
-        :agent="agent"
-        :cwd="cwd"
-        :home="home"
-        :header-color="dirConfig.headerColor"
-        :header-text-color="dirConfig.headerTextColor"
-        @click="onHeaderClick"
-      >
-        <span class="cell-actions" :class="CELL_ACTIONS">
-          <CellChromeButtons
-            :expanded="expanded"
-            :files-open="filesOpen"
-            @toggle-expand="emit('toggle-expand')"
-            @toggle-files="emit('toggle-files')"
-            @close="close"
-          />
-        </span>
-      </CockpitHeader>
-      <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
+        <CockpitHeader
+          v-if="filmstrip"
+          class="cell-header flex-none border-b"
+          :class="[statusClass, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]"
+          :status="status"
+          :agent="agent"
+          :cwd="cwd"
+          :home="home"
+          :header-color="dirConfig.headerColor"
+          :header-text-color="dirConfig.headerTextColor"
+          @click="onHeaderClick"
+        >
+          <span class="cell-actions" :class="CELL_ACTIONS">
+            <CellChromeButtons
+              :expanded="expanded"
+              :files-open="filesOpen"
+              @toggle-expand="emit('toggle-expand')"
+              @toggle-files="emit('toggle-files')"
+              @close="close"
+            />
+          </span>
+        </CockpitHeader>
+        <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
            Every icon BUTTON lives on row 2 (the embedded terminal's header, via its slot). -->
-      <div
-        v-else
-        class="cell-header flex h-[34px] flex-none items-center gap-2 border-b px-2"
-        :class="[statusClass, headerStatusClass, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]"
-        :style="headerStyle"
-        @click="onHeaderClick"
-      >
-        <!-- All the info lives in one shrinkable, clipping track. The chips (badge / git /
+        <div
+          v-else
+          class="cell-header flex h-[34px] flex-none items-center gap-2 border-b px-2"
+          :class="[statusClass, headerStatusClass, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]"
+          :style="headerStyle"
+          @click="onHeaderClick"
+        >
+          <!-- All the info lives in one shrinkable, clipping track. The chips (badge / git /
              model / tokens / custom) don't shrink, so without this they would overflow and
              push the actions past the cell's `overflow: hidden` edge — the buttons must
              stay reachable no matter how much a dir's config crams in here. -->
-        <div data-testid="cell-header-main" class="flex min-w-0 flex-auto items-center gap-2 overflow-hidden">
-          <span class="cell-dot" :class="[CELL_DOT, statusClass, dotStatusClass]" :title="statusLabel" />
-          <!-- Normal grid: the dir is a button that opens it. As a filmstrip thumbnail the
+          <div data-testid="cell-header-main" class="flex min-w-0 flex-auto items-center gap-2 overflow-hidden">
+            <span class="cell-dot" :class="[CELL_DOT, statusClass, dotStatusClass]" :title="statusLabel" />
+            <!-- Normal grid: the dir is a button that opens it. As a filmstrip thumbnail the
                header's job is to zoom (switch to this terminal), so the dir is inert text
                and a click on it falls through to the header's zoom gesture. -->
-          <button
-            v-if="headerDir && !filmstrip"
-            type="button"
-            class="cell-dir flex-initial min-w-[16ch] max-w-[60%] cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl] hover:text-muted hover:underline"
-            :title="cwd ? `Open ${cwd}` : ''"
-            @click="openDir"
-          >
-            <span class="cell-dir-path [unicode-bidi:plaintext]">{{ headerDir }}</span>
-          </button>
-          <span
-            v-else-if="headerDir"
-            class="cell-dir flex-initial min-w-[16ch] max-w-[60%] cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl] hover:text-muted hover:underline"
-            :title="cwd ?? ''"
-          >
-            <span class="cell-dir-path [unicode-bidi:plaintext]">{{ headerDir }}</span>
-          </span>
-          <!-- Info (dir badge / git / diff / model / tokens) is dropped on a filmstrip
+            <button
+              v-if="headerDir && !filmstrip"
+              type="button"
+              class="cell-dir flex-initial min-w-[16ch] max-w-[60%] cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl] hover:text-muted hover:underline"
+              :title="cwd ? `Open ${cwd}` : ''"
+              @click="openDir"
+            >
+              <span class="cell-dir-path [unicode-bidi:plaintext]">{{ headerDir }}</span>
+            </button>
+            <span
+              v-else-if="headerDir"
+              class="cell-dir flex-initial min-w-[16ch] max-w-[60%] cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl] hover:text-muted hover:underline"
+              :title="cwd ?? ''"
+            >
+              <span class="cell-dir-path [unicode-bidi:plaintext]">{{ headerDir }}</span>
+            </span>
+            <!-- Info (dir badge / git / diff / model / tokens) is dropped on a filmstrip
                thumbnail, leaving only dir + what it's doing + a zoom button. -->
-          <template v-if="!filmstrip">
-            <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
-            <template v-for="chip in cellChips" :key="chip.key">
-              <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
-              <button
-                v-else-if="chip.builtin === 'diff' && showDiffBadge && diff"
-                type="button"
-                data-testid="cell-wt-badge"
-                class="inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-[10px] border border-border bg-elevated px-[7px] py-px font-mono text-[11px] hover:bg-hover"
-                :title="`View changes vs ${diff.base ?? 'base'}`"
-                @click="openDiff"
-              >
-                <span v-if="diff.ahead > 0" data-testid="wt-ahead" class="text-accent">+{{ diff.ahead }}</span>
-                <span v-if="diff.dirty > 0" data-testid="wt-dirty-count" class="text-[var(--warn-text,#e0a030)]">●{{ diff.dirty }}</span>
-              </button>
-              <ModelContextBadge v-else-if="chip.builtin === 'ctx' && context" :agent="agent" :model="context.model" :context-tokens="context.contextTokens" />
-              <span
-                v-else-if="chip.builtin === 'usage' && showUsage"
-                data-testid="cell-usage"
-                class="flex-none whitespace-nowrap font-mono text-[10px] tracking-[0.02em] text-dim"
-                :title="usageTitle"
-                >{{ usageLabel }}</span
-              >
-              <span
-                v-else-if="chip.custom"
-                data-testid="cell-hdr-chip"
-                class="flex-none whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[10px] text-dim"
-                :title="chip.custom.label || chip.custom.text"
-                >{{ chip.custom.text }}</span
-              >
+            <template v-if="!filmstrip">
+              <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
+              <template v-for="chip in cellChips" :key="chip.key">
+                <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
+                <button
+                  v-else-if="chip.builtin === 'diff' && showDiffBadge && diff"
+                  type="button"
+                  data-testid="cell-wt-badge"
+                  class="inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-[10px] border border-border bg-elevated px-[7px] py-px font-mono text-[11px] hover:bg-hover"
+                  :title="`View changes vs ${diff.base ?? 'base'}`"
+                  @click="openDiff"
+                >
+                  <span v-if="diff.ahead > 0" data-testid="wt-ahead" class="text-accent">+{{ diff.ahead }}</span>
+                  <span v-if="diff.dirty > 0" data-testid="wt-dirty-count" class="text-[var(--warn-text,#e0a030)]">●{{ diff.dirty }}</span>
+                </button>
+                <ModelContextBadge
+                  v-else-if="chip.builtin === 'ctx' && context"
+                  :agent="agent"
+                  :model="context.model"
+                  :context-tokens="context.contextTokens"
+                />
+                <span
+                  v-else-if="chip.builtin === 'usage' && showUsage"
+                  data-testid="cell-usage"
+                  class="flex-none whitespace-nowrap font-mono text-[10px] tracking-[0.02em] text-dim"
+                  :title="usageTitle"
+                  >{{ usageLabel }}</span
+                >
+                <span
+                  v-else-if="chip.custom"
+                  data-testid="cell-hdr-chip"
+                  class="flex-none whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[10px] text-dim"
+                  :title="chip.custom.label || chip.custom.text"
+                  >{{ chip.custom.text }}</span
+                >
+              </template>
             </template>
-          </template>
-          <span
-            data-testid="cell-prompt"
-            class="min-w-0 flex-auto truncate font-sans text-[12px] text-[var(--cell-header-fg,var(--text-secondary))]"
-            :title="lastPrompt || aiTitle || ''"
-            >{{ headerText }}</span
-          >
-        </div>
-        <!-- Expand/restore + close stay on row 1 (the info row) and OUTSIDE the info
+            <span
+              data-testid="cell-prompt"
+              class="min-w-0 flex-auto truncate font-sans text-[12px] text-[var(--cell-header-fg,var(--text-secondary))]"
+              :title="lastPrompt || aiTitle || ''"
+              >{{ headerText }}</span
+            >
+          </div>
+          <!-- Expand/restore + close stay on row 1 (the info row) and OUTSIDE the info
              track, so they're always pinned top-right. `.stop` so they don't trigger the
              header's click-to-zoom. -->
-        <span class="cell-actions" :class="CELL_ACTIONS">
-          <CellChromeButtons
-            :expanded="expanded"
-            :files-open="filesOpen"
-            @toggle-expand="emit('toggle-expand')"
-            @toggle-files="emit('toggle-files')"
-            @close="close"
-          />
-        </span>
-      </div>
-      <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />
-      <TerminalView
-        ref="termRef"
-        class="cell-term"
-        :class="CELL_TERM"
-        :persist-key="`cell-${uid}`"
-        :session-id="sessionId"
-        :connect-key="connectKey"
-        :cwd="cwd"
-        :codex="agent === 'codex'"
-        :launch="launchChoice"
-        :dir-header-color="dirConfig.headerColor"
-        :dir-header-text-color="dirConfig.headerTextColor"
-        :dir-button-color="dirConfig.buttonColor"
-        :hide-header="filmstrip"
-        :expanded="expanded"
-        :zoomed="zoomed"
-        dev-terminal
-        run-menu
-        @session="onSession"
-        @cwd="onServerCwd"
-        @run="(cmd) => emit('runSpare', cmd)"
-      >
-        <!-- Row 2 — the cell's icon actions, gathered onto the terminal's header row. -->
-        <template #header-actions>
-          <span v-if="githubUrl" ref="ghWrap" class="relative inline-flex flex-none">
-            <button
-              type="button"
-              data-testid="cell-gh"
-              class="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-[4px] border-none bg-transparent p-0 text-dim hover:bg-hover hover:text-fg"
-              title="Open on GitHub"
-              aria-label="Open on GitHub"
-              aria-haspopup="true"
-              :aria-expanded="ghMenuOpen"
-              @click="ghMenuOpen = !ghMenuOpen"
-            >
-              <svg class="block h-[14px] w-[14px]" viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  fill-rule="evenodd"
-                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.6 7.6 0 0 1 8 4.6c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
-                />
-              </svg>
-            </button>
-            <div
-              v-if="ghMenuOpen"
-              data-testid="cell-gh-menu"
-              class="absolute left-0 top-full z-20 mt-1 flex min-w-[132px] flex-col rounded-md border border-border bg-panel p-1 shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
-              @keydown.escape="ghMenuOpen = false"
-            >
-              <button
-                type="button"
-                data-testid="cell-gh-item"
-                class="cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                @click="openGithub('')"
-              >
-                Repository
-              </button>
-              <button
-                type="button"
-                data-testid="cell-gh-item"
-                class="cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                @click="openGithub('/issues')"
-              >
-                Issues
-              </button>
-              <button
-                type="button"
-                data-testid="cell-gh-item"
-                class="cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                @click="openGithub('/pulls')"
-              >
-                Pull requests
-              </button>
-            </div>
+          <span class="cell-actions" :class="CELL_ACTIONS">
+            <CellChromeButtons
+              :expanded="expanded"
+              :files-open="filesOpen"
+              @toggle-expand="emit('toggle-expand')"
+              @toggle-files="emit('toggle-files')"
+              @close="close"
+            />
           </span>
-          <span v-if="sessionId" ref="askWrap" class="relative inline-flex flex-none">
-            <button
-              type="button"
-              data-testid="cell-ask"
-              class="cell-btn"
-              :class="CELL_BTN"
-              title="Bring another terminal's last turn into this input box"
-              aria-label="Bring another terminal's last turn here"
-              aria-haspopup="true"
-              :aria-expanded="askMenuOpen"
-              @click="openAskMenu"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">forum</span>
-            </button>
-            <div
-              v-if="askMenuOpen"
-              data-testid="cell-ask-menu"
-              class="absolute right-0 top-full z-20 mt-1 flex min-w-[180px] flex-col rounded-md border border-border bg-panel p-1 shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
-              @keydown.escape="askMenuOpen = false"
-            >
-              <div v-for="target in askTargets" :key="target.key" class="flex items-center gap-1">
+        </div>
+        <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />
+        <TerminalView
+          ref="termRef"
+          class="cell-term"
+          :class="CELL_TERM"
+          :persist-key="`cell-${uid}`"
+          :session-id="sessionId"
+          :connect-key="connectKey"
+          :cwd="cwd"
+          :codex="agent === 'codex'"
+          :launch="launchChoice"
+          :dir-header-color="dirConfig.headerColor"
+          :dir-header-text-color="dirConfig.headerTextColor"
+          :dir-button-color="dirConfig.buttonColor"
+          :hide-header="filmstrip"
+          :expanded="expanded"
+          :zoomed="zoomed"
+          dev-terminal
+          run-menu
+          @session="onSession"
+          @cwd="onServerCwd"
+          @run="(cmd) => emit('runSpare', cmd)"
+        >
+          <!-- Row 2 — the cell's icon actions, gathered onto the terminal's header row. -->
+          <template #header-actions>
+            <span v-if="githubUrl" ref="ghWrap" class="relative inline-flex flex-none">
+              <button
+                type="button"
+                data-testid="cell-gh"
+                class="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-[4px] border-none bg-transparent p-0 text-dim hover:bg-hover hover:text-fg"
+                title="Open on GitHub"
+                aria-label="Open on GitHub"
+                aria-haspopup="true"
+                :aria-expanded="ghMenuOpen"
+                @click="ghMenuOpen = !ghMenuOpen"
+              >
+                <svg class="block h-[14px] w-[14px]" viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    fill-rule="evenodd"
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.6 7.6 0 0 1 8 4.6c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+                  />
+                </svg>
+              </button>
+              <div
+                v-if="ghMenuOpen"
+                data-testid="cell-gh-menu"
+                class="absolute left-0 top-full z-20 mt-1 flex min-w-[132px] flex-col rounded-md border border-border bg-panel p-1 shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+                @keydown.escape="ghMenuOpen = false"
+              >
                 <button
                   type="button"
-                  data-testid="cell-ask-item"
-                  class="flex-1 cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                  :title="`Bring ${target.label}'s last turn here`"
-                  @click="askCell(target)"
+                  data-testid="cell-gh-item"
+                  class="cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  @click="openGithub('')"
                 >
-                  {{ target.label }}
+                  Repository
                 </button>
                 <button
                   type="button"
-                  data-testid="cell-exchange-item"
-                  :aria-label="`Exchange one turn with ${target.label}`"
-                  class="cursor-pointer rounded-[4px] border-none bg-transparent px-1.5 py-1.5 font-sans text-[12px] text-dim hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-40"
-                  :disabled="exchanging"
-                  title="Send this cell's turn there and bring the answer back, both submitted"
-                  @click="exchangeWith(target)"
+                  data-testid="cell-gh-item"
+                  class="cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  @click="openGithub('/issues')"
                 >
-                  <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
+                  Issues
+                </button>
+                <button
+                  type="button"
+                  data-testid="cell-gh-item"
+                  class="cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  @click="openGithub('/pulls')"
+                >
+                  Pull requests
                 </button>
               </div>
-              <p v-if="!askTargets.length" class="m-0 px-2 py-1.5 font-sans text-[12px] text-dim">No other terminal to read</p>
-            </div>
-            <button
-              v-if="exchanging"
-              type="button"
-              data-testid="cell-exchange-stop"
-              aria-label="Stop the exchange in progress"
-              class="absolute right-0 top-full z-20 mt-1 cursor-pointer whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:text-fg"
-              @click="stopExchange"
-            >
-              <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span> exchanging — stop
-            </button>
-            <p
-              v-else-if="askMsg"
-              data-testid="cell-ask-msg"
-              role="status"
-              class="absolute right-0 top-full z-20 m-0 mt-1 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-dim shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
-            >
-              {{ askMsg }}
-            </p>
-          </span>
-          <button
-            v-if="sessionId && agent !== 'codex'"
-            class="cell-btn"
-            :class="CELL_BTN"
-            title="Activity timeline"
-            aria-label="Show activity timeline"
-            @click="timelineOpen = true"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">history</span>
-          </button>
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
-          </button>
-          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">
-            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-          </button>
-        </template>
-      </TerminalView>
-      <div
-        v-if="diffOpen && diff"
-        data-testid="cell-diff"
-        class="absolute inset-x-0 bottom-0 top-[34px] z-[15] flex flex-col overflow-hidden border-t border-t-border bg-base"
-      >
-        <div class="flex flex-none items-center gap-2 border-b border-b-border bg-panel px-2 py-1.5">
-          <span class="font-sans text-[12px] font-semibold text-fg">Changes vs {{ diff?.base ?? "base" }}</span>
-          <span class="flex-auto font-sans text-[11px] text-dim">{{ diff?.ahead ?? 0 }} ahead · {{ diff?.dirty ?? 0 }} uncommitted</span>
-          <button class="cell-btn" :class="CELL_BTN" title="Close diff" aria-label="Close diff" @click="diffOpen = false">
-            <span class="material-symbols-outlined" aria-hidden="true">close</span>
-          </button>
-        </div>
-        <div v-if="diff && diff.files.length" class="max-h-[35%] flex-none overflow-y-auto border-b border-b-border px-2 py-1">
-          <div v-for="f in diff.files" :key="f.path" data-testid="cell-diff-file" class="flex items-baseline gap-2 py-px font-mono text-[11px]">
-            <span class="min-w-0 flex-auto text-secondary" :class="DIR_TRUNCATE_FRONT"
-              ><span :class="CELL_DIR_PATH">{{ f.path }}</span></span
-            >
-            <span v-if="f.status === 'untracked'" data-testid="df-new" class="flex-none text-[#3fae6b]">new</span>
-            <span v-else class="flex-none">
-              <span class="text-[#3fae6b]">+{{ f.additions < 0 ? "bin" : f.additions }}</span>
-              <span class="text-err-text">−{{ f.deletions < 0 ? "bin" : f.deletions }}</span>
             </span>
+            <span v-if="sessionId" ref="askWrap" class="relative inline-flex flex-none">
+              <button
+                type="button"
+                data-testid="cell-ask"
+                class="cell-btn"
+                :class="CELL_BTN"
+                title="Bring another terminal's last turn into this input box"
+                aria-label="Bring another terminal's last turn here"
+                aria-haspopup="true"
+                :aria-expanded="askMenuOpen"
+                @click="openAskMenu"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">forum</span>
+              </button>
+              <div
+                v-if="askMenuOpen"
+                data-testid="cell-ask-menu"
+                class="absolute right-0 top-full z-20 mt-1 flex min-w-[180px] flex-col rounded-md border border-border bg-panel p-1 shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+                @keydown.escape="askMenuOpen = false"
+              >
+                <div v-for="target in askTargets" :key="target.key" class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    data-testid="cell-ask-item"
+                    class="flex-1 cursor-pointer rounded-[4px] border-none bg-transparent px-2 py-1.5 text-left font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                    :title="`Bring ${target.label}'s last turn here`"
+                    @click="askCell(target)"
+                  >
+                    {{ target.label }}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="cell-exchange-item"
+                    :aria-label="`Exchange one turn with ${target.label}`"
+                    class="cursor-pointer rounded-[4px] border-none bg-transparent px-1.5 py-1.5 font-sans text-[12px] text-dim hover:bg-hover hover:text-fg disabled:cursor-default disabled:opacity-40"
+                    :disabled="exchanging"
+                    title="Send this cell's turn there and bring the answer back, both submitted"
+                    @click="exchangeWith(target)"
+                  >
+                    <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
+                  </button>
+                </div>
+                <p v-if="!askTargets.length" class="m-0 px-2 py-1.5 font-sans text-[12px] text-dim">No other terminal to read</p>
+              </div>
+              <button
+                v-if="exchanging"
+                type="button"
+                data-testid="cell-exchange-stop"
+                aria-label="Stop the exchange in progress"
+                class="absolute right-0 top-full z-20 mt-1 cursor-pointer whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)] hover:text-fg"
+                @click="stopExchange"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span> exchanging — stop
+              </button>
+              <p
+                v-else-if="askMsg"
+                data-testid="cell-ask-msg"
+                role="status"
+                class="absolute right-0 top-full z-20 m-0 mt-1 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1.5 font-sans text-[12px] text-dim shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+              >
+                {{ askMsg }}
+              </p>
+            </span>
+            <button
+              v-if="sessionId && agent !== 'codex'"
+              class="cell-btn"
+              :class="CELL_BTN"
+              title="Activity timeline"
+              aria-label="Show activity timeline"
+              @click="timelineOpen = true"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">history</span>
+            </button>
+            <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move terminal left" @click="emit('move', -1)">
+              <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+            </button>
+            <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move terminal right" @click="emit('move', 1)">
+              <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+            </button>
+          </template>
+        </TerminalView>
+        <div
+          v-if="diffOpen && diff"
+          data-testid="cell-diff"
+          class="absolute inset-x-0 bottom-0 top-[34px] z-[15] flex flex-col overflow-hidden border-t border-t-border bg-base"
+        >
+          <div class="flex flex-none items-center gap-2 border-b border-b-border bg-panel px-2 py-1.5">
+            <span class="font-sans text-[12px] font-semibold text-fg">Changes vs {{ diff?.base ?? "base" }}</span>
+            <span class="flex-auto font-sans text-[11px] text-dim">{{ diff?.ahead ?? 0 }} ahead · {{ diff?.dirty ?? 0 }} uncommitted</span>
+            <button class="cell-btn" :class="CELL_BTN" title="Close diff" aria-label="Close diff" @click="diffOpen = false">
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </div>
+          <div v-if="diff && diff.files.length" class="max-h-[35%] flex-none overflow-y-auto border-b border-b-border px-2 py-1">
+            <div v-for="f in diff.files" :key="f.path" data-testid="cell-diff-file" class="flex items-baseline gap-2 py-px font-mono text-[11px]">
+              <span class="min-w-0 flex-auto text-secondary" :class="DIR_TRUNCATE_FRONT"
+                ><span :class="CELL_DIR_PATH">{{ f.path }}</span></span
+              >
+              <span v-if="f.status === 'untracked'" data-testid="df-new" class="flex-none text-[#3fae6b]">new</span>
+              <span v-else class="flex-none">
+                <span class="text-[#3fae6b]">+{{ f.additions < 0 ? "bin" : f.additions }}</span>
+                <span class="text-err-text">−{{ f.deletions < 0 ? "bin" : f.deletions }}</span>
+              </span>
+            </div>
+          </div>
+          <pre
+            v-if="diff && diff.patch"
+            data-testid="cell-diff-patch"
+            class="m-0 flex-auto overflow-auto whitespace-pre p-2 font-mono text-[11px] leading-[1.45] text-secondary [tab-size:2]"
+            >{{ diff.patch }}</pre>
+          <p v-if="diff && diff.truncated" class="m-0 p-2 font-sans text-[11px] text-dim">Diff truncated — open the worktree to see the rest.</p>
+          <p v-if="diff && !diff.files.length" class="m-0 p-2 font-sans text-[11px] text-dim">No changes yet.</p>
+          <div class="flex flex-none items-center gap-2 border-t border-t-border bg-panel px-2 py-1.5">
+            <button
+              data-testid="cell-diff-btn"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="prBusy || working || (diff?.dirty ?? 0) === 0"
+              :title="(diff?.dirty ?? 0) === 0 ? 'No uncommitted changes' : working ? 'Wait for the session to finish' : 'Ask Claude to commit the changes'"
+              @click="commitViaClaude"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">check</span> Commit
+            </button>
+            <button
+              data-testid="cell-diff-btn"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="prBusy || (diff?.ahead ?? 0) === 0"
+              :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes first' : 'git push -u origin'"
+              @click="pushBranch"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span> Push
+            </button>
+            <button
+              data-testid="cell-diff-btn"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="prBusy || (diff?.ahead ?? 0) === 0"
+              :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes in the terminal first' : 'Push and open a pull request'"
+              @click="openPR"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span> Open PR
+            </button>
+            <span v-if="prMsg" data-testid="cell-diff-msg" class="min-w-0 flex-auto truncate font-sans text-[11px] text-dim">{{ prMsg }}</span>
           </div>
         </div>
-        <pre
-          v-if="diff && diff.patch"
-          data-testid="cell-diff-patch"
-          class="m-0 flex-auto overflow-auto whitespace-pre p-2 font-mono text-[11px] leading-[1.45] text-secondary [tab-size:2]"
-          >{{ diff.patch }}</pre>
-        <p v-if="diff && diff.truncated" class="m-0 p-2 font-sans text-[11px] text-dim">Diff truncated — open the worktree to see the rest.</p>
-        <p v-if="diff && !diff.files.length" class="m-0 p-2 font-sans text-[11px] text-dim">No changes yet.</p>
-        <div class="flex flex-none items-center gap-2 border-t border-t-border bg-panel px-2 py-1.5">
-          <button
-            data-testid="cell-diff-btn"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="prBusy || working || (diff?.dirty ?? 0) === 0"
-            :title="(diff?.dirty ?? 0) === 0 ? 'No uncommitted changes' : working ? 'Wait for the session to finish' : 'Ask Claude to commit the changes'"
-            @click="commitViaClaude"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">check</span> Commit
-          </button>
-          <button
-            data-testid="cell-diff-btn"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="prBusy || (diff?.ahead ?? 0) === 0"
-            :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes first' : 'git push -u origin'"
-            @click="pushBranch"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">arrow_upward</span> Push
-          </button>
-          <button
-            data-testid="cell-diff-btn"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-3 py-1 font-sans text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="prBusy || (diff?.ahead ?? 0) === 0"
-            :title="(diff?.ahead ?? 0) === 0 ? 'Commit changes in the terminal first' : 'Push and open a pull request'"
-            @click="openPR"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">open_in_new</span> Open PR
-          </button>
-          <span v-if="prMsg" data-testid="cell-diff-msg" class="min-w-0 flex-auto truncate font-sans text-[11px] text-dim">{{ prMsg }}</span>
-        </div>
-      </div>
-      <div
-        v-if="closeConfirm"
-        data-testid="cell-close-confirm"
-        class="absolute inset-0 z-[25] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_82%,transparent)] p-4"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="`Close worktree ${headerDir}`"
-      >
-        <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-          <p class="m-0 font-sans text-[13px] font-semibold text-fg">Close {{ headerDir }}</p>
-          <template v-if="!closeError">
-            <p v-if="hasUnsaved" data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">
-              {{ unsavedSummary }} will be discarded if you remove the worktree.
-            </p>
-            <p v-else class="m-0 font-sans text-[12px] text-dim">Keep the worktree to reuse it later, or remove it.</p>
-            <div class="flex flex-wrap gap-1.5">
-              <button
-                data-testid="ccx-keep"
-                class="cursor-pointer rounded-md border border-accent bg-elevated px-3 py-1.5 font-sans text-[12px] text-fg hover:bg-hover hover:text-fg"
-                @click="teardown"
-              >
-                Keep worktree
-              </button>
-              <button
-                data-testid="ccx-remove"
-                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-                :disabled="closeChecking"
-                @click="removeAndClose"
-              >
-                {{ closeChecking ? "Checking…" : hasUnsaved ? "Discard &amp; remove" : "Remove worktree" }}
-              </button>
-              <button
-                data-testid="ccx-cancel"
-                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                @click="cancelClose"
-              >
-                Cancel
-              </button>
-            </div>
-          </template>
-          <template v-else>
-            <p data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">{{ closeError }}</p>
-            <div class="flex flex-wrap gap-1.5">
-              <button
-                data-testid="ccx-remove"
-                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-                @click="removeAndClose"
-              >
-                Retry
-              </button>
-              <button
-                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                @click="teardown"
-              >
-                Close cell
-              </button>
-            </div>
-          </template>
-        </div>
-      </div>
-    </template>
-    <div v-else data-testid="cell-launch" class="flex min-h-0 flex-1 flex-col items-center justify-start gap-2 overflow-y-auto p-4">
-      <button
-        v-if="cancellable"
-        type="button"
-        data-testid="cell-launch-cancel"
-        class="absolute right-1.5 top-1.5 inline-flex h-[26px] w-7 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-[16px] leading-none text-secondary hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-        title="Cancel new terminal"
-        aria-label="Cancel new terminal"
-        @click="emit('close')"
-      >
-        <span class="material-symbols-outlined" aria-hidden="true">close</span>
-      </button>
-      <div v-if="presets.length" class="flex max-w-[360px] flex-wrap justify-center gap-1.5">
-        <span
-          v-for="p in presets"
-          :key="p.label + p.path"
-          data-testid="cell-chip"
-          class="inline-flex items-stretch overflow-hidden rounded-[14px] border"
-          :class="[
-            { 'is-running': isCwdRunning(p.path) },
-            isCwdRunning(p.path)
-              ? 'border-[color-mix(in_srgb,#3b82f6_55%,var(--border))] bg-[color-mix(in_srgb,#3b82f6_14%,var(--bg-elevated))]'
-              : 'border-border bg-elevated',
-          ]"
-          :style="dirChipTint(presetColors[p.path] ?? null, isCwdRunning(p.path))"
+        <div
+          v-if="closeConfirm"
+          data-testid="cell-close-confirm"
+          class="absolute inset-0 z-[25] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_82%,transparent)] p-4"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="`Close worktree ${headerDir}`"
         >
-          <!-- The directory's colour: a solid stripe down the leading edge, plus a wash over the
+          <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
+            <p class="m-0 font-sans text-[13px] font-semibold text-fg">Close {{ headerDir }}</p>
+            <template v-if="!closeError">
+              <p v-if="hasUnsaved" data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">
+                {{ unsavedSummary }} will be discarded if you remove the worktree.
+              </p>
+              <p v-else class="m-0 font-sans text-[12px] text-dim">Keep the worktree to reuse it later, or remove it.</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  data-testid="ccx-keep"
+                  class="cursor-pointer rounded-md border border-accent bg-elevated px-3 py-1.5 font-sans text-[12px] text-fg hover:bg-hover hover:text-fg"
+                  @click="teardown"
+                >
+                  Keep worktree
+                </button>
+                <button
+                  data-testid="ccx-remove"
+                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+                  :disabled="closeChecking"
+                  @click="removeAndClose"
+                >
+                  {{ closeChecking ? "Checking…" : hasUnsaved ? "Discard &amp; remove" : "Remove worktree" }}
+                </button>
+                <button
+                  data-testid="ccx-cancel"
+                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  @click="cancelClose"
+                >
+                  Cancel
+                </button>
+              </div>
+            </template>
+            <template v-else>
+              <p data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">{{ closeError }}</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  data-testid="ccx-remove"
+                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+                  @click="removeAndClose"
+                >
+                  Retry
+                </button>
+                <button
+                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  @click="teardown"
+                >
+                  Close cell
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+      <div v-else data-testid="cell-launch" class="flex min-h-0 flex-1 flex-col items-center justify-start gap-2 overflow-y-auto p-4">
+        <button
+          v-if="cancellable"
+          type="button"
+          data-testid="cell-launch-cancel"
+          class="absolute right-1.5 top-1.5 inline-flex h-[26px] w-7 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-[16px] leading-none text-secondary hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+          title="Cancel new terminal"
+          aria-label="Cancel new terminal"
+          @click="emit('close')"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+        <div v-if="presets.length" class="flex max-w-[360px] flex-wrap justify-center gap-1.5">
+          <span
+            v-for="p in presets"
+            :key="p.label + p.path"
+            data-testid="cell-chip"
+            class="inline-flex items-stretch overflow-hidden rounded-[14px] border"
+            :class="[
+              { 'is-running': isCwdRunning(p.path) },
+              isCwdRunning(p.path)
+                ? 'border-[color-mix(in_srgb,#3b82f6_55%,var(--border))] bg-[color-mix(in_srgb,#3b82f6_14%,var(--bg-elevated))]'
+                : 'border-border bg-elevated',
+            ]"
+            :style="dirChipTint(presetColors[p.path] ?? null, isCwdRunning(p.path))"
+          >
+            <!-- The directory's colour: a solid stripe down the leading edge, plus a wash over the
                chip when nothing is running there (dirChipTint). Not a wash while running — that
                background already means "a session is here", and a dir that configured no colour
                has to keep looking exactly as it did. -->
-          <span
-            v-if="presetColors[p.path]"
-            data-testid="cell-chip-color"
-            class="w-[6px] flex-none"
-            :style="{ background: presetColors[p.path] }"
-            aria-hidden="true"
-          />
-          <button
-            type="button"
-            data-testid="cell-chip-main"
-            class="cursor-pointer border-none bg-transparent px-2.5 py-1 font-sans text-[12px] hover:bg-hover hover:text-fg"
-            :class="isCwdRunning(p.path) ? 'text-fg' : 'text-secondary'"
-            :title="p.path"
-            :aria-label="`Use ${p.label} — fill the field to browse / resume here (without launching)`"
-            @click="fillDir(p.path)"
-          >
             <span
-              v-if="isCwdRunning(p.path)"
-              data-testid="cell-chip-dot"
-              class="mr-[5px] inline-block h-1.5 w-1.5 rounded-full bg-[#3b82f6] align-middle"
+              v-if="presetColors[p.path]"
+              data-testid="cell-chip-color"
+              class="w-[6px] flex-none"
+              :style="{ background: presetColors[p.path] }"
               aria-hidden="true"
-            />{{ p.label }}
-          </button>
-          <button
-            type="button"
-            data-testid="cell-chip-launch"
-            class="inline-flex cursor-pointer items-center border-0 border-l border-l-border bg-transparent px-[5px] text-secondary hover:bg-hover hover:text-fg"
-            :title="isCwdRunning(p.path) ? `${p.path} — a session is already running here in another terminal` : `Launch a new terminal in ${p.path} now`"
-            :aria-label="
-              isCwdRunning(p.path) ? `${p.label} — a session is already running here in another terminal` : `Launch a new terminal in ${p.label} now`
-            "
-            @click="selectPreset(p)"
-          >
-            <span class="material-symbols-outlined text-[14px]" aria-hidden="true">play_arrow</span>
-          </button>
-          <button
-            type="button"
-            data-testid="cell-chip-del"
-            class="cursor-pointer border-0 border-l border-l-border bg-transparent px-[7px] text-[11px] text-secondary hover:bg-hover hover:text-[var(--danger,#e5484d)]"
-            :title="`Remove ${p.path} from the list`"
-            :aria-label="`Remove ${p.path} from the list`"
-            @click="emit('remove-preset', p.path)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">close</span>
-          </button>
-        </span>
-      </div>
-      <div class="inline-flex gap-0.5 self-start rounded-[7px] border border-border bg-deep p-0.5" role="radiogroup" aria-label="Agent">
-        <button
-          type="button"
-          class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
-          :class="agent === 'claude' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
-          role="radio"
-          :aria-checked="agent === 'claude'"
-          @click="agent = 'claude'"
-        >
-          Claude
-        </button>
-        <button
-          type="button"
-          class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
-          :class="agent === 'codex' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
-          role="radio"
-          :aria-checked="agent === 'codex'"
-          @click="agent = 'codex'"
-        >
-          Codex
-        </button>
-      </div>
-      <label class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
-        <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">Working directory</span>
-        <span class="flex w-full items-stretch gap-1.5">
-          <input
-            v-model="dirInput"
-            data-testid="cell-dir-input"
-            class="box-border w-full rounded-md border border-border bg-input px-2.5 py-[7px] font-mono text-[12px] text-fg focus:border-accent focus:outline-none min-w-0 flex-auto"
-            type="text"
-            placeholder="/path/to/project"
-            spellcheck="false"
-            @input="dirTouched = true"
-            @keydown.enter="launch"
-          />
-          <button
-            type="button"
-            class="flex-none inline-flex items-center justify-center px-2 rounded-md border border-border bg-elevated text-secondary cursor-pointer hover:bg-hover hover:text-fg hover:border-accent"
-            title="Choose a folder…"
-            aria-label="Choose the working directory"
-            @click="pickDir"
-          >
-            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">folder_open</span>
-          </button>
-          <button
-            type="button"
-            data-testid="cell-dir-go"
-            class="inline-flex flex-none cursor-pointer items-center justify-center rounded-md border border-border bg-elevated px-2 text-secondary enabled:hover:border-accent enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-default disabled:opacity-40"
-            :disabled="!dirInput.trim()"
-            title="Start a new terminal here (or press Enter)"
-            aria-label="Start a new terminal here"
-            @click="launch"
-          >
-            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">play_arrow</span>
-          </button>
-        </span>
-      </label>
-      <!-- Codex has its own model configuration and doesn't read this one. -->
-      <ModelPicker v-if="agent === 'claude'" v-model="launchChoice" />
-      <div v-if="isGitRepo" data-testid="cell-worktrees" class="flex w-full max-w-[360px] flex-col items-stretch gap-1.5">
-        <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or isolate in a worktree (git repo)</span>
-        <div class="flex gap-1.5">
-          <input
-            v-model="worktreeTask"
-            data-testid="wt-task"
-            class="box-border w-full rounded-md border border-border bg-input px-2.5 py-[7px] font-mono text-[12px] text-fg focus:border-accent focus:outline-none w-auto min-w-0 flex-auto"
-            type="text"
-            placeholder="task name (e.g. fix-login)"
-            aria-label="Worktree task name"
-            spellcheck="false"
-            @keydown.enter="createWorktreeAndLaunch"
-          />
-          <button
-            data-testid="wt-start"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-4 py-[7px] font-sans text-[14px] font-medium text-secondary flex-none whitespace-nowrap hover:bg-hover hover:text-fg"
-            :disabled="!worktreeTask.trim()"
-            @click="createWorktreeAndLaunch"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">add</span> New worktree
-          </button>
-        </div>
-        <div v-for="w in worktrees" :key="w.path" class="flex items-center gap-1.5">
-          <button
-            class="flex-auto min-w-0 text-left rounded-md border border-border bg-elevated text-secondary cursor-pointer font-mono text-[12px] py-[5px] px-2.5 truncate hover:bg-hover hover:text-fg"
-            data-testid="worktree-reuse"
-            :title="w.branch ?? w.path"
-            @click="reuseWorktree(w)"
-          >
-            ⎇ {{ w.task }}<span v-if="w.dirty" data-testid="wt-dirty" class="ml-1.5 text-[var(--warn-text,#e0a030)]" title="uncommitted changes">●</span>
-          </button>
-          <button
-            data-testid="wt-del"
-            class="flex-none cursor-pointer rounded-md border-none bg-transparent px-1.5 py-1 text-[13px] hover:bg-[var(--err-hover-bg)]"
-            title="Remove worktree"
-            aria-label="Remove worktree"
-            @click="removeWorktree(w)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">delete</span>
-          </button>
-        </div>
-      </div>
-      <div v-if="scripts.length" class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
-        <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or run a script</span>
-        <div class="flex w-full flex-wrap justify-center gap-1.5">
-          <button
-            v-for="s in scripts"
-            :key="s.index"
-            data-testid="cell-script-item"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
-            :title="s.command"
-            @click="runScript(s)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ s.label }}
-          </button>
-        </div>
-      </div>
-      <div v-if="launchers && launchers.length" class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
-        <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or launch</span>
-        <div class="flex w-full flex-wrap justify-center gap-1.5">
-          <button
-            v-for="(l, i) in launchers"
-            :key="l.label"
-            data-testid="cell-script-item"
-            class="inline-flex cursor-pointer items-center gap-1 rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
-            :title="l.command"
-            @click="launchProgram(i, l)"
-          >
-            <span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ l.label }}
-          </button>
-        </div>
-      </div>
-      <div v-if="resumable.length" data-testid="cell-resume" class="flex min-h-0 w-full max-w-[360px] flex-col items-center gap-1.5">
-        <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or resume here</span>
-        <div class="flex w-full flex-col gap-1">
-          <button
-            v-for="s in resumable"
-            :key="s.id"
-            data-testid="cell-resume-item"
-            class="flex cursor-pointer items-baseline justify-between gap-2 rounded-md border bg-deep px-2.5 py-[5px] text-left font-sans text-[12px] text-secondary hover:border-accent hover:bg-elevated"
-            :class="[{ 'is-open': sessionOpenElsewhere(s.id) }, sessionOpenElsewhere(s.id) ? 'border-amber' : 'border-border']"
-            :title="sessionOpenElsewhere(s.id) ? `${s.title} — already open in another terminal` : s.title"
-            @click="resume(s)"
-          >
-            <span data-testid="ri-title" class="truncate">{{ s.title }}</span>
-            <span
-              v-if="sessionOpenElsewhere(s.id)"
-              data-testid="ri-open"
-              class="flex-none whitespace-nowrap text-[11px] text-amber"
-              title="Already open in another terminal"
-              >● open</span
+            />
+            <button
+              type="button"
+              data-testid="cell-chip-main"
+              class="cursor-pointer border-none bg-transparent px-2.5 py-1 font-sans text-[12px] hover:bg-hover hover:text-fg"
+              :class="isCwdRunning(p.path) ? 'text-fg' : 'text-secondary'"
+              :title="p.path"
+              :aria-label="`Use ${p.label} — fill the field to browse / resume here (without launching)`"
+              @click="fillDir(p.path)"
             >
-            <span class="flex-none text-[11px] text-dim">{{ relativeTime(s.mtime) }}</span>
+              <span
+                v-if="isCwdRunning(p.path)"
+                data-testid="cell-chip-dot"
+                class="mr-[5px] inline-block h-1.5 w-1.5 rounded-full bg-[#3b82f6] align-middle"
+                aria-hidden="true"
+              />{{ p.label }}
+            </button>
+            <button
+              type="button"
+              data-testid="cell-chip-launch"
+              class="inline-flex cursor-pointer items-center border-0 border-l border-l-border bg-transparent px-[5px] text-secondary hover:bg-hover hover:text-fg"
+              :title="isCwdRunning(p.path) ? `${p.path} — a session is already running here in another terminal` : `Launch a new terminal in ${p.path} now`"
+              :aria-label="
+                isCwdRunning(p.path) ? `${p.label} — a session is already running here in another terminal` : `Launch a new terminal in ${p.label} now`
+              "
+              @click="selectPreset(p)"
+            >
+              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">play_arrow</span>
+            </button>
+            <button
+              type="button"
+              data-testid="cell-chip-del"
+              class="cursor-pointer border-0 border-l border-l-border bg-transparent px-[7px] text-[11px] text-secondary hover:bg-hover hover:text-[var(--danger,#e5484d)]"
+              :title="`Remove ${p.path} from the list`"
+              :aria-label="`Remove ${p.path} from the list`"
+              @click="emit('remove-preset', p.path)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </span>
+        </div>
+        <div class="inline-flex gap-0.5 self-start rounded-[7px] border border-border bg-deep p-0.5" role="radiogroup" aria-label="Agent">
+          <button
+            type="button"
+            class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
+            :class="agent === 'claude' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
+            role="radio"
+            :aria-checked="agent === 'claude'"
+            @click="agent = 'claude'"
+          >
+            Claude
           </button>
+          <button
+            type="button"
+            class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
+            :class="agent === 'codex' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
+            role="radio"
+            :aria-checked="agent === 'codex'"
+            @click="agent = 'codex'"
+          >
+            Codex
+          </button>
+        </div>
+        <label class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
+          <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">Working directory</span>
+          <span class="flex w-full items-stretch gap-1.5">
+            <input
+              v-model="dirInput"
+              data-testid="cell-dir-input"
+              class="box-border w-full rounded-md border border-border bg-input px-2.5 py-[7px] font-mono text-[12px] text-fg focus:border-accent focus:outline-none min-w-0 flex-auto"
+              type="text"
+              placeholder="/path/to/project"
+              spellcheck="false"
+              @input="dirTouched = true"
+              @keydown.enter="launch"
+            />
+            <button
+              type="button"
+              class="flex-none inline-flex items-center justify-center px-2 rounded-md border border-border bg-elevated text-secondary cursor-pointer hover:bg-hover hover:text-fg hover:border-accent"
+              title="Choose a folder…"
+              aria-label="Choose the working directory"
+              @click="pickDir"
+            >
+              <span class="material-symbols-outlined text-[18px]" aria-hidden="true">folder_open</span>
+            </button>
+            <button
+              type="button"
+              data-testid="cell-dir-go"
+              class="inline-flex flex-none cursor-pointer items-center justify-center rounded-md border border-border bg-elevated px-2 text-secondary enabled:hover:border-accent enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-default disabled:opacity-40"
+              :disabled="!dirInput.trim()"
+              title="Start a new terminal here (or press Enter)"
+              aria-label="Start a new terminal here"
+              @click="launch"
+            >
+              <span class="material-symbols-outlined text-[18px]" aria-hidden="true">play_arrow</span>
+            </button>
+          </span>
+        </label>
+        <!-- Codex has its own model configuration and doesn't read this one. -->
+        <ModelPicker v-if="agent === 'claude'" v-model="launchChoice" />
+        <div v-if="isGitRepo" data-testid="cell-worktrees" class="flex w-full max-w-[360px] flex-col items-stretch gap-1.5">
+          <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or isolate in a worktree (git repo)</span>
+          <div class="flex gap-1.5">
+            <input
+              v-model="worktreeTask"
+              data-testid="wt-task"
+              class="box-border w-full rounded-md border border-border bg-input px-2.5 py-[7px] font-mono text-[12px] text-fg focus:border-accent focus:outline-none w-auto min-w-0 flex-auto"
+              type="text"
+              placeholder="task name (e.g. fix-login)"
+              aria-label="Worktree task name"
+              spellcheck="false"
+              @keydown.enter="createWorktreeAndLaunch"
+            />
+            <button
+              data-testid="wt-start"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border bg-elevated px-4 py-[7px] font-sans text-[14px] font-medium text-secondary flex-none whitespace-nowrap hover:bg-hover hover:text-fg"
+              :disabled="!worktreeTask.trim()"
+              @click="createWorktreeAndLaunch"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">add</span> New worktree
+            </button>
+          </div>
+          <div v-for="w in worktrees" :key="w.path" class="flex items-center gap-1.5">
+            <button
+              class="flex-auto min-w-0 text-left rounded-md border border-border bg-elevated text-secondary cursor-pointer font-mono text-[12px] py-[5px] px-2.5 truncate hover:bg-hover hover:text-fg"
+              data-testid="worktree-reuse"
+              :title="w.branch ?? w.path"
+              @click="reuseWorktree(w)"
+            >
+              ⎇ {{ w.task }}<span v-if="w.dirty" data-testid="wt-dirty" class="ml-1.5 text-[var(--warn-text,#e0a030)]" title="uncommitted changes">●</span>
+            </button>
+            <button
+              data-testid="wt-del"
+              class="flex-none cursor-pointer rounded-md border-none bg-transparent px-1.5 py-1 text-[13px] hover:bg-[var(--err-hover-bg)]"
+              title="Remove worktree"
+              aria-label="Remove worktree"
+              @click="removeWorktree(w)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="scripts.length" class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
+          <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or run a script</span>
+          <div class="flex w-full flex-wrap justify-center gap-1.5">
+            <button
+              v-for="s in scripts"
+              :key="s.index"
+              data-testid="cell-script-item"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
+              :title="s.command"
+              @click="runScript(s)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ s.label }}
+            </button>
+          </div>
+        </div>
+        <div v-if="launchers && launchers.length" class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
+          <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or launch</span>
+          <div class="flex w-full flex-wrap justify-center gap-1.5">
+            <button
+              v-for="(l, i) in launchers"
+              :key="l.label"
+              data-testid="cell-script-item"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-[14px] border border-[#2a4e3a] bg-[#16271d] px-2.5 py-1 font-sans text-[12px] text-[#b6e3c7] hover:border-[#3fae6b] hover:bg-[#1f3a2a] hover:text-white"
+              :title="l.command"
+              @click="launchProgram(i, l)"
+            >
+              <span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ l.label }}
+            </button>
+          </div>
+        </div>
+        <div v-if="resumable.length" data-testid="cell-resume" class="flex min-h-0 w-full max-w-[360px] flex-col items-center gap-1.5">
+          <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or resume here</span>
+          <div class="flex w-full flex-col gap-1">
+            <button
+              v-for="s in resumable"
+              :key="s.id"
+              data-testid="cell-resume-item"
+              class="flex cursor-pointer items-baseline justify-between gap-2 rounded-md border bg-deep px-2.5 py-[5px] text-left font-sans text-[12px] text-secondary hover:border-accent hover:bg-elevated"
+              :class="[{ 'is-open': sessionOpenElsewhere(s.id) }, sessionOpenElsewhere(s.id) ? 'border-amber' : 'border-border']"
+              :title="sessionOpenElsewhere(s.id) ? `${s.title} — already open in another terminal` : s.title"
+              @click="resume(s)"
+            >
+              <span data-testid="ri-title" class="truncate">{{ s.title }}</span>
+              <span
+                v-if="sessionOpenElsewhere(s.id)"
+                data-testid="ri-open"
+                class="flex-none whitespace-nowrap text-[11px] text-amber"
+                title="Already open in another terminal"
+                >● open</span
+              >
+              <span class="flex-none text-[11px] text-dim">{{ relativeTime(s.mtime) }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
