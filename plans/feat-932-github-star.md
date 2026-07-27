@@ -34,7 +34,14 @@
   切り出し、spawn なしでユニットテストする。
   - 確認: `gh api /user/starred/<repo>` → 204/exit 0 なら starred、404 なら未スター、それ以外は null
   - 付与: `gh api -X PUT /user/starred/<repo>`
-  - 起動中はメモリキャッシュ。`starred=true` は覆らないので確定させ、gh の spawn を最小化する
+  - 既存の `createTtlCache`（`pr-for-branch.ts` / `prPhase.ts` と同じ）で読みをキャッシュする。
+    **読みは GET なので same-origin ゲートの対象外**であり、対象にしようもない（クロスサイトの
+    リクエストと正規のリクエストは origin 判定では区別できない）。キャッシュしないと、ユーザーが
+    たまたま訪れたページからループで叩かれてローカルマシンに `gh` が無制限に湧く。
+  - **窓は二つ。** 答え（true/false）は安定しているので 60 秒。判定不能（null）は「いま `gh` が
+    壊れている」という意味で、ユーザーがまさに直している最中かもしれないので 5 秒だけ。
+    null を素通しにするとスパム経路が塞がらず、逆に 60 秒持つと `gh auth login` 直後も
+    リンクのままになる。
 
 - `server/routes/repo-routes.ts` に相乗り（既に `gh` 前提の cross-repo ルートが居る場所）
   - `GET /api/github/star` → `{ starred: boolean | null }`
