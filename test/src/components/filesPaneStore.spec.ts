@@ -38,10 +38,18 @@ describe("parsePaneStore", () => {
     expect(parsePaneStore(raw).map((e) => e.cwd)).toEqual(["/a", "/b"]);
   });
 
-  // A value written by a build with a larger cap must not come back over it.
-  it("caps what it reads, not just what it writes", () => {
+  // A value written by a build with a larger cap — or by hand — must not come back over either
+  // bound. A cap enforced only on write is no cap at all once such a value is in storage, and
+  // restore() walks every path in the list.
+  it("caps the directory count it reads, not just what it writes", () => {
     const over = Array.from({ length: MAX_REMEMBERED_DIRS + 5 }, (_, i) => ({ cwd: `/p${i}`, state: state(null) }));
     expect(parsePaneStore(JSON.stringify(over))).toHaveLength(MAX_REMEMBERED_DIRS);
+  });
+
+  it("caps the expanded list it reads too", () => {
+    const huge = Array.from({ length: MAX_EXPANDED_PATHS + 500 }, (_, i) => `dir${i}`);
+    const raw = JSON.stringify([{ cwd: "/proj", state: state("a.ts", huge) }]);
+    expect(parsePaneStore(raw)[0].state.expanded).toHaveLength(MAX_EXPANDED_PATHS);
   });
 });
 

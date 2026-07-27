@@ -31,6 +31,11 @@ const isPaneState = (value: unknown): value is FilesPaneState => {
   return openPathOk && Array.isArray(expanded) && expanded.every((p) => typeof p === "string");
 };
 
+/** Both caps applied. Shared by the write and the read so the two cannot drift: a bound only
+ *  enforced on write is no bound at all once a value written by another build — or by hand —
+ *  is in storage, and `restore()` walks every path in the list. */
+const capped = (state: FilesPaneState): FilesPaneState => ({ openPath: state.openPath, expanded: state.expanded.slice(0, MAX_EXPANDED_PATHS) });
+
 const isRemembered = (value: unknown): value is RememberedPane => {
   if (typeof value !== "object" || value === null) return false;
   const { cwd, state } = value as Partial<RememberedPane>;
@@ -44,7 +49,10 @@ export function parsePaneStore(raw: string | null): RememberedPane[] {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isRemembered).slice(0, MAX_REMEMBERED_DIRS);
+    return parsed
+      .filter(isRemembered)
+      .slice(0, MAX_REMEMBERED_DIRS)
+      .map((entry) => ({ cwd: entry.cwd, state: capped(entry.state) }));
   } catch {
     return []; // not JSON at all — a foreign or half-written value
   }
@@ -53,8 +61,7 @@ export function parsePaneStore(raw: string | null): RememberedPane[] {
 /** `store` with `cwd` recorded at the front, its previous entry removed. Newest-first order is
  *  what makes the cap an LRU rather than an arbitrary truncation. */
 export function rememberPane(store: RememberedPane[], cwd: string, state: FilesPaneState): RememberedPane[] {
-  const trimmed: FilesPaneState = { openPath: state.openPath, expanded: state.expanded.slice(0, MAX_EXPANDED_PATHS) };
-  return [{ cwd, state: trimmed }, ...store.filter((entry) => entry.cwd !== cwd)].slice(0, MAX_REMEMBERED_DIRS);
+  return [{ cwd, state: capped(state) }, ...store.filter((entry) => entry.cwd !== cwd)].slice(0, MAX_REMEMBERED_DIRS);
 }
 
 /** What this directory had open, or null when it is not remembered. */
