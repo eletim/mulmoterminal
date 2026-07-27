@@ -79,6 +79,13 @@ asks the local server to open the OS file dialog and inserts the chosen path (wo
 browser, including Chrome). The path is inserted at the cursor — it is not submitted, so you
 can review it first.
 
+**Pasting a screenshot** — take a screenshot and paste it straight into the terminal
+(`Cmd`/`Ctrl`+`V`). The image is saved to `~/.mulmoterminal/tmp/pasted/` and its **absolute
+path** is inserted at the cursor, so the agent can read it. Works in every browser, Chrome
+included, because the bytes are on the clipboard — no path needs to be exposed. Pasting text
+is untouched. The directory is emptied each time the server starts: these files exist to be
+handed over once, not kept.
+
 <a id="clicking-a-file-path"></a>
 
 **Clicking a file path** — the other direction. A path an agent *prints* becomes a link, and
@@ -1134,6 +1141,7 @@ same-origin-guarded.
 | `POST /api/translation` | Runtime UI-string translation. |
 | `GET /api/remote-host/status` · `POST /api/remote-host/{connect,disconnect}` | Companion phone-client link. Each response carries the command channel's `health` (`online` / `reconnecting` / `offline`, plus the last listener error), so the toolbar shows a dropped channel instead of the last state it happened to fetch. |
 | `POST /api/open-dir` · `POST /api/pick-file` | Reveal a dir in Finder/Explorer; OS file-picker → path (`{ directory: true }` opens the folder picker — used by the launcher's Working-directory 📁 button). |
+| `POST /api/paste-image` | `{ dataUrl }` → `{ path }`: saves an image pasted into a terminal under `~/.mulmoterminal/tmp/pasted/` and returns its **absolute** path. Deliberately not MulmoClaude's `POST /api/attachments`, which keeps a managed asset and answers workspace-relative — here the file is a one-time handoff and the path is what enters the terminal. |
 
 The phone itself uses **none** of these routes — it reaches the host over Firestore command
 docs, not HTTP. Every command it can send, and the shapes it gets back, are in
@@ -1383,7 +1391,8 @@ server/
   git/            git & GitHub (via gh) + worktrees: git-status.ts, gitRemote.ts,
                   gh.ts, prs.ts, issues.ts, pr-for-branch.ts, worktrees.ts, worktree-*.ts
   files/          files-browse.ts (contained tree read/write), pick-file.ts,
-                  open-dir.ts, scripts.ts (Run-menu script.json loader)
+                  open-dir.ts, scripts.ts (Run-menu script.json loader),
+                  paste-image.ts + paste-image-store.ts (pasted screenshots)
   infra/          process/transport/misc: tmux.ts, tmux-routes.ts, sandbox.ts,
                   pubsub.ts (socket.io /ws/pubsub), spa-fallback.ts, host-tools.ts,
                   plugins-registry.ts, web-push.ts, install-bundled-skills.ts, accounting-tool.ts

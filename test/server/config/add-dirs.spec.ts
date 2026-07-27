@@ -3,6 +3,7 @@ import path from "node:path";
 import { resolveAddDirs, MAX_ADD_DIRS } from "../../../server/config/config-schema";
 import { buildClaudeArgs } from "../../../server/agents/claude-args";
 import { buildDockerRunArgs } from "../../../server/infra/sandbox";
+import { withPasteImageDir } from "../../../server/files/paste-image-store";
 
 // Built through `path.resolve`, never written as "/repo": the rule resolves with the platform's
 // own path module, so on Windows a literal POSIX string never matches what it produces
@@ -164,5 +165,42 @@ describe("path resolution parity", () => {
     const flagged = args.slice(args.indexOf("--add-dir") + 1);
     const mounted = buildDockerRunArgs("s1", args, "/work", "/cfg/c.json", null, dirs).filter((_value, i, all) => all[i - 1] === "-v");
     flagged.forEach((dir) => expect(mounted).toContain(`${dir}:${dir}`));
+  });
+});
+
+// #938 rides on this same list: a pasted screenshot is saved outside the working directory,
+// and Claude Code asks permission to read outside it. The pair below is what keeps the two
+// features from taking anything away from each other.
+describe("the pasted-image directory shares the addDirs channel", () => {
+  const PASTE = path.resolve("/paste");
+
+  it("reaches the flag and the mount together, alongside what the user configured", () => {
+    const configured = resolveAddDirs([DOCS], BASE, exists([DOCS]));
+    const dirs = withPasteImageDir(configured, PASTE);
+    expect(dirs).toEqual([DOCS, PASTE]);
+    const args = buildClaudeArgs({
+      sessionId: "s1",
+      resume: null,
+      canResume: false,
+      settings: "/cfg/s.json",
+      permissionMode: "auto",
+      attachGuiMcp: false,
+      mcpConfig: "{}",
+      guiMcpTools: "",
+      addDirs: dirs,
+    });
+    expect(args.slice(args.indexOf("--add-dir") + 1)).toEqual([DOCS, PASTE]);
+    const mounted = buildDockerRunArgs("s1", args, "/work", "/cfg/c.json", null, dirs).filter((_value, i, all) => all[i - 1] === "-v");
+    expect(mounted).toContain(`${PASTE}:${PASTE}`);
+    expect(mounted).toContain(`${DOCS}:${DOCS}`);
+  });
+
+  // MAX_ADD_DIRS caps what a user may ask for; the app's own entry is added after that cap
+  // and must not be the one that falls off.
+  it("survives a config that already filled MAX_ADD_DIRS", () => {
+    const configured = Array.from({ length: MAX_ADD_DIRS }, (_unused, i) => path.resolve(`/d${i}`));
+    const dirs = withPasteImageDir(resolveAddDirs(configured, BASE, exists(configured)), PASTE);
+    expect(dirs).toHaveLength(MAX_ADD_DIRS + 1);
+    expect(dirs[dirs.length - 1]).toBe(PASTE);
   });
 });

@@ -4,6 +4,7 @@ import { type ITheme } from "@xterm/xterm";
 import { FLIP_MS, shouldRefocusOnZoomChange } from "./cellFlip";
 import { terminalManagesAttention, terminalViewActive } from "./terminalViewActive";
 import { dragCarriesFiles, dropTextFromUriList } from "./dropPaths";
+import { createImagePasteHandler } from "../composables/usePasteImage";
 import { translateUiSentence } from "../utils/translateUi";
 import { useTheme, currentTermTheme, termThemeFor } from "../composables/useTheme";
 import { useDirConfig } from "../composables/useDirConfig";
@@ -379,8 +380,7 @@ const dropHint = ref(false);
 const dropHintText = ref("");
 const DROP_HINT_MS = 6000;
 let dropHintTimer: ReturnType<typeof setTimeout> | undefined;
-async function showDropHint() {
-  const english = hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN;
+async function showHint(english: string) {
   dropHintText.value = english; // show immediately; the translation (server-cached) swaps in
   dropHint.value = true;
   clearTimeout(dropHintTimer);
@@ -388,7 +388,19 @@ async function showDropHint() {
   const translated = await translateUiSentence(english, "mulmoterminal-ui");
   if (dropHint.value) dropHintText.value = translated; // ignore if it resolved after the hint hid
 }
+function showDropHint() {
+  void showHint(hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN);
+}
 onUnmounted(() => clearTimeout(dropHintTimer));
+
+// Paste a screenshot to insert the path of the file the server saves it as (#938). What a
+// drop cannot do in Chrome — hand over a real path — a paste can, because the bytes
+// themselves are on the clipboard. Text pastes never reach this: the handler declines them
+// and xterm's own paste handling runs as before.
+const onPaste = createImagePasteHandler({
+  insertText,
+  onError: (message) => void showHint(`Could not save the pasted image: ${message}`),
+});
 
 onUnmounted(() => {
   resizeObserver?.disconnect();
@@ -457,6 +469,7 @@ onUnmounted(() => {
       @dragover="onDragOver"
       @dragleave="dragOver = false"
       @drop="onDrop"
+      @paste.capture="onPaste"
     />
     <Transition
       enter-active-class="transition-opacity duration-200 ease-[ease]"

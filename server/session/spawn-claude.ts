@@ -6,6 +6,7 @@ import { CLAUDE_CWD } from "../config/env.js";
 import { getUserMcpServers } from "../config/config-routes.js";
 import { SANDBOX_HOST } from "../infra/sandbox.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
+import { withPasteImageDir } from "../files/paste-image-store.js";
 import { knownSessions, launchChoices, ptys } from "./registry.js";
 import { ptySpawn, sandboxWouldRun, spawnSandboxEntry } from "./pty-spawn.js";
 import { attachDraftInjection } from "./draft-injection.js";
@@ -16,7 +17,7 @@ import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { loadDirConfig } from "../config/dir-config.js";
 import { getProviders } from "../config/config-routes.js";
-import { requireResolution, resolveProvider, type DirModelChoice } from "./provider-env.js";
+import { requireResolution, resolveProvider, type DirModelChoice, type ProviderResolution } from "./provider-env.js";
 import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
 import { effectiveChoice } from "./launch-choice.js";
 
@@ -32,6 +33,42 @@ export interface SpawnClaudeOptions {
   // as a PAIR: a provider from one source with a model from the other is a combination
   // neither of them asked for. Absent — the usual case — means "use the directory's".
   launch?: DirModelChoice;
+}
+
+interface ClaudeArgvInput {
+  deps: SpawnDeps;
+  sessionId: string;
+  resume: string | null;
+  canResume: boolean;
+  sandbox: boolean;
+  attachGuiMcp: boolean;
+  resolved: ProviderResolution;
+  addDirs: string[];
+}
+
+// The session's CLI argv, once the spawner has decided where it runs and on which backend.
+function claudeArgvFor({ deps, sessionId, resume, canResume, sandbox, attachGuiMcp, resolved, addDirs }: ClaudeArgvInput): string[] {
+  const hookSettings = deps.hookSettingsJson(sandbox ? SANDBOX_HOST : "localhost", sessionId, resolved.env);
+  const mcpJson = deps.mcpConfigJson(sessionId, sandbox ? SANDBOX_HOST : "127.0.0.1", sandbox);
+  return buildClaudeArgs({
+    model: resolved.model,
+    sessionId,
+    resume,
+    canResume,
+    // In the sandbox the hooks + GUI MCP are reached over host.docker.internal. A
+    // provider session's settings carry its token, so they go to a 0600 file instead of
+    // argv — see session-settings.ts.
+    settings: settingsArgument(sessionId, hookSettings, Object.keys(resolved.env).length > 0),
+    permissionMode: deps.permissionMode,
+    attachGuiMcp,
+    // File-ized only when it is actually passed (attachGuiMcp), so a cell that never carries
+    // the GUI MCP leaves no file behind for reap to clean up.
+    mcpConfig: attachGuiMcp ? mcpConfigArgument(sessionId, mcpJson) : mcpJson,
+    // Auto-allow the GUI tools + the user's own configured MCP servers (mcp__<id>), so
+    // their tools don't trip a permission prompt on every call.
+    guiMcpTools: [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(","),
+    addDirs,
+  });
 }
 
 export function createClaudeSpawner(deps: SpawnDeps) {
@@ -69,28 +106,9 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     // of silently moving to the directory's default mid-conversation.
     if (launch) launchChoices.set(sessionId, choice);
 
-    const hookSettings = deps.hookSettingsJson(sandbox ? SANDBOX_HOST : "localhost", sessionId, resolved.env);
-    const mcpJson = deps.mcpConfigJson(sessionId, sandbox ? SANDBOX_HOST : "127.0.0.1", sandbox);
-    // File-ized only when it is actually passed (attachGuiMcp), so a cell that never carries
-    // the GUI MCP leaves no file behind for reap to clean up.
-    const mcpConfig = attachGuiMcp ? mcpConfigArgument(sessionId, mcpJson) : mcpJson;
-    const args = buildClaudeArgs({
-      model: resolved.model,
-      sessionId,
-      resume,
-      canResume,
-      // In the sandbox the hooks + GUI MCP are reached over host.docker.internal. A
-      // provider session's settings carry its token, so they go to a 0600 file instead of
-      // argv — see session-settings.ts.
-      settings: settingsArgument(sessionId, hookSettings, Object.keys(resolved.env).length > 0),
-      permissionMode: deps.permissionMode,
-      attachGuiMcp,
-      mcpConfig,
-      // Auto-allow the GUI tools + the user's own configured MCP servers (mcp__<id>), so
-      // their tools don't trip a permission prompt on every call.
-      guiMcpTools: [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(","),
-      addDirs: dir.addDirs,
-    });
+    // One list for both the `--add-dir` flag and the sandbox's bind-mounts (see withPasteImageDir).
+    const addDirs = withPasteImageDir(dir.addDirs);
+    const args = claudeArgvFor({ deps, sessionId, resume, canResume, sandbox, attachGuiMcp, resolved, addDirs });
 
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);
 
@@ -102,7 +120,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     const entry = withSettingsCleanup(sessionId, spawnEntry);
 
     function spawnEntry(): PtyEntry {
-      if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, dir.addDirs);
+      if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, addDirs);
       const { term, tmux } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, resolved.unset);
       console.log(`[pty] spawned claude (pid=${term.pid}${tmux ? " via tmux" : ""}) in ${cwd}`);
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
