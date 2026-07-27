@@ -36,6 +36,24 @@ const SOURCE_FILE = "source.txt";
 // can be trusted to give back.
 const stamp = (at: number): string => String(at).padStart(15, "0");
 
+// Two backups inside one millisecond are not hypothetical once saving happens on the user's
+// behalf, and a bare timestamp would have the second silently replace the first — losing a
+// generation exactly when churn makes them worth having. The counter breaks the tie within a
+// process and keeps sorting chronological; the existence check covers a second process
+// landing on the same millisecond and counter.
+let sequence = 0;
+const SEQUENCE_WIDTH = 3;
+const SEQUENCE_WRAP = 1000;
+
+function freeBackupPath(dir: string, absFile: string, at: number): string {
+  const base = path.basename(absFile);
+  for (;;) {
+    sequence = (sequence + 1) % SEQUENCE_WRAP;
+    const target = path.join(dir, `${stamp(at)}-${String(sequence).padStart(SEQUENCE_WIDTH, "0")}-${base}${BACKUP_SUFFIX}`);
+    if (!fs.existsSync(target)) return target;
+  }
+}
+
 function newestBackup(dir: string): string | null {
   try {
     const names = fs
@@ -59,7 +77,7 @@ export function storeBackup(absFile: string, text: string, root: string, at: num
     const newest = newestBackup(dir);
     if (newest !== null && fs.readFileSync(newest, "utf8") === text) return null;
 
-    const target = path.join(dir, `${stamp(at)}-${path.basename(absFile)}${BACKUP_SUFFIX}`);
+    const target = freeBackupPath(dir, absFile, at);
     fs.writeFileSync(target, text, "utf8");
     // The hash tells nobody which file this was; written once so the store stays inspectable.
     const source = path.join(dir, SOURCE_FILE);

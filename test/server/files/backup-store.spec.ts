@@ -75,6 +75,18 @@ describe("storeBackup", () => {
     });
   });
 
+  // Saving on the user's behalf means bursts. A bare timestamp had the second write of a
+  // millisecond replace the first, quietly costing a generation exactly when churn makes them
+  // worth having.
+  it("keeps both generations written within the same millisecond", () => {
+    withStore((file, root, dir) => {
+      expect(storeBackup(file, "first", root, 1000)).not.toBeNull();
+      expect(storeBackup(file, "second", root, 1000)).not.toBeNull();
+      const kept = backupsIn(dir).map((n) => readFileSync(path.join(dir, n), "utf8"));
+      expect(kept).toEqual(["first", "second"]); // still in the order they were written
+    });
+  });
+
   // The directory is named by a hash, so nothing in it says which file it belongs to.
   it("records the source path so the store can be read by a human", () => {
     withStore((file, root, dir) => {
