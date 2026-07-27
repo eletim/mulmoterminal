@@ -36,4 +36,14 @@ describe("SessionTabBar tab background", () => {
       }
     }
   });
+
+  // Which fill lands on which tab, not just that both have one — the checks above would be
+  // satisfied by giving the idle tabs bg-subtle too, which reads as "everything is selected".
+  it("fills only the active tab, and leaves the rest showing the bar through", () => {
+    const bar = mountBar("a");
+    expect(bar.find("button[title='session a']").classes()).toContain("bg-subtle");
+    expect(bar.find("button[title='session b']").classes()).toContain("bg-transparent");
+    // The idle tab still lights up under the cursor; bg-transparent must not have replaced that.
+    expect(bar.find("button[title='session b']").classes()).toContain("hover:bg-subtle");
+  });
 });
