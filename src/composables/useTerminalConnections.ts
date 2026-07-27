@@ -241,6 +241,11 @@ async function writeTerminalSelection(host: HTMLDivElement, text: string): Promi
 // every coordinate change during a drag, so writing on each one would put every intermediate
 // selection into the OS clipboard HISTORY (Win+V) — one drag, twenty entries. Restarting this
 // timer on each event leaves only the last one.
+//
+// A pause longer than this MID-drag still writes what was selected so far, and then again at the
+// end. That is the accepted cost of not keying this to mouseup: the settle timer serves a keyboard
+// or select-all selection too, where there is no mouse event to key to. The clipboard still ends
+// up holding the right text either way — only the history gets one extra entry.
 const SELECTION_SETTLE_MS = 150;
 
 // Copy-on-select (#900): a settled mouse selection reaches the clipboard with no key pressed. Off
