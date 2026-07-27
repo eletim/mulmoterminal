@@ -21,7 +21,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await router.replace("/");
+  await router.replace({ name: "chat" });
   await flushPromises();
   browseSetSelectedId(null);
 });
@@ -131,7 +131,7 @@ describe("useCollectionBrowse over the router", () => {
 
     // Toolbar Chat / Grid push a bare route WITHOUT calling any browse setter — the
     // sync path watcher must still drop the record on the way out.
-    router.push("/");
+    router.push({ name: "chat" });
     await flushPromises();
     expect(browseRouteSelectedId()).toBeUndefined();
 

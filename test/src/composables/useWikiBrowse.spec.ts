@@ -11,7 +11,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await router.replace("/");
+  await router.replace({ name: "chat" });
   await flushPromises();
 });
 
@@ -79,7 +79,7 @@ describe("useWikiBrowse over the router", () => {
     await flushPromises();
     wikiClose();
     await flushPromises();
-    expect(router.currentRoute.value.path).toBe("/");
+    expect(router.currentRoute.value.path).toBe("/chat");
     expect(useWikiBrowse().view.value).toEqual({ mode: "closed" });
   });
 });

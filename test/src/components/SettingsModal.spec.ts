@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import SettingsModal from "../../../src/components/SettingsModal.vue";
+import { VOICE_LANGUAGES } from "../../../src/composables/voiceLanguage";
 
 const mountModal = (props: Record<string, unknown> = {}) => mount(SettingsModal, { props });
 
@@ -113,6 +114,78 @@ describe("SettingsModal", () => {
     expect(checked()).toBe(start); // back to where we started
   });
 
+  // The section offers a setting for a mic that only exists on a machine that can transcribe
+  // (macOS + whisper-server + ffmpeg), so its whole contract is "appears iff the server says
+  // capable" — including when the server can't be reached at all.
+  describe("Voice input section", () => {
+    const VOICE_URL = "/api/transcribe/model";
+    const stubStatus = (respond: (url: string) => { ok: boolean; json: () => Promise<unknown> }) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => respond(url)),
+      );
+    // Every other GET the modal fires on open resolves to an empty body it tolerates.
+    const otherRoutes = { ok: true, json: async () => ({}) };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const voiceSelect = (w: ReturnType<typeof mount>) => w.find('[aria-label="Language for voice input"]');
+
+    it("shows the language picker when the server reports capable", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: true, json: async () => ({ capable: true, model: { name: "base", state: "ready" } }) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(true);
+      expect(w.text()).toContain("Voice input");
+    });
+
+    it("offers every language the picker exports, plus locale and auto", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: true, json: async () => ({ capable: true, model: { name: "base", state: "ready" } }) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      const values = voiceSelect(w)
+        .findAll("option")
+        .map((o) => o.attributes("value"));
+      expect(values).toEqual(["locale", "auto", ...VOICE_LANGUAGES.map((l) => l.code)]);
+    });
+
+    it("hides the section when the machine cannot transcribe", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: true, json: async () => ({ capable: false, model: { name: "base", state: "idle" } }) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(false);
+      expect(w.text()).not.toContain("Voice input");
+    });
+
+    // A probe that never answers must read as "no voice input", not as an empty section or a
+    // thrown error inside onMounted.
+    it("hides the section when the probe fails", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("network down");
+        }),
+      );
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(false);
+    });
+
+    it("hides the section when the route is absent", async () => {
+      stubStatus((url) => (url === VOICE_URL ? { ok: false, json: async () => ({}) } : otherRoutes));
+
+      const w = mountModal();
+      await flushPromises();
+      expect(voiceSelect(w).exists()).toBe(false);
+    });
+  });
+
   describe("Google account link (broker support)", () => {
     beforeEach(() => {
       vi.stubGlobal("fetch", vi.fn());
@@ -175,5 +248,55 @@ describe("SettingsModal", () => {
       expect(warning.exists()).toBe(true);
       expect(warning.text()).toContain("client_secret");
     });
+  });
+});
+
+describe("SettingsModal per-kind sounds (#873)", () => {
+  const selectFor = (w: ReturnType<typeof mount>, label: string) => w.find(`select[aria-label="Sound for ${label}"]`);
+
+  // SELECT_CONTROL is `w-full`. A width utility written NEXT to it on the same element has the
+  // same specificity, so which one applies depends on the order Tailwind emits them — and the
+  // select ended up full-width, pushing itself and the play button out of the row. The width
+  // belongs to a wrapper, where `w-full` then means "as wide as the slot I was given".
+  it("sizes the sound select from its wrapper, not from a utility racing w-full", () => {
+    const w = mountModal({ soundKinds: ["finished"] });
+    const select = w.find('select[aria-label="Sound for Turn finished"]');
+    expect(select.classes().some((c) => /^w-\d/.test(c))).toBe(false);
+    expect(select.element.parentElement?.className).toContain("w-36");
+  });
+
+  it("offers a row per notification kind, with the new kinds unticked by default", () => {
+    const w = mountModal({ soundKinds: ["finished", "waiting"] });
+    expect(w.text()).toContain("Turn finished");
+    expect(w.text()).toContain("Command failed");
+    expect(w.text()).toContain("PR CI failed");
+    const box = (kind: string) => w.find(`input[aria-label="Beep when a session is ${kind}"]`).element as HTMLInputElement;
+    expect(box("finished").checked).toBe(true);
+    expect(box("command-failed").checked).toBe(false);
+  });
+
+  it("emits the whole map, dropping the entry when a kind goes back to the fallback", async () => {
+    const w = mountModal({ soundKinds: ["finished", "waiting"], sounds: { finished: "preset:coin", waiting: "preset:gong" } });
+    await selectFor(w, "Turn finished").setValue("");
+    const emitted = w.emitted("update-sounds");
+    expect(emitted?.at(-1)?.[0]).toEqual({ waiting: "preset:gong" });
+  });
+
+  // The whole map is persisted on every change, so a second pick made BEFORE the first save
+  // answers must build on the first — otherwise it silently reverts it. Props deliberately
+  // stay put here: that is what an in-flight POST looks like from the component's side.
+  it("keeps an earlier pick when a second is made before the save lands", async () => {
+    const w = mountModal({ soundKinds: ["finished", "waiting"], sounds: {} });
+    await selectFor(w, "Turn finished").setValue("preset:coin");
+    await selectFor(w, "Waiting for you").setValue("preset:meow");
+    const emitted = w.emitted("update-sounds");
+    expect(emitted?.at(-1)?.[0]).toEqual({ finished: "preset:coin", waiting: "preset:meow" });
+  });
+
+  it("emits the kind list in NOTIFY_KINDS order however it was clicked", async () => {
+    const w = mountModal({ soundKinds: [] });
+    await w.find('input[aria-label="Beep when a session is pr-ci-failed"]').setValue(true);
+    await w.find('input[aria-label="Beep when a session is finished"]').setValue(true);
+    expect(w.emitted("update-sound-kinds")?.at(-1)?.[0]).toEqual(["finished", "pr-ci-failed"]);
   });
 });

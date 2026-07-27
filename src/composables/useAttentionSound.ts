@@ -1,31 +1,15 @@
 import { onUnmounted, watch, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
+import { notifyKindOf, isActivityMsg, type ActivityState } from "./notifyKind";
+import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds";
+import { parsePresetRef } from "../../common/notifySounds";
 
-interface ActivityMsg {
-  id: string;
-  working?: boolean;
-  waiting?: boolean;
-  // The session's working dir, so a beep can use that directory's custom sound.
-  cwd?: string | null;
-}
-interface ActivityState {
-  working: boolean;
-  waiting: boolean;
-}
-const isActivityMsg = (d: unknown): d is ActivityMsg => typeof d === "object" && d !== null && "id" in d;
-
-// True when this activity push means the session now needs you: it just finished a
-// turn (working true→false — Claude's Stop, published for every session) or it set
-// `waiting` (a prompt/permission, published for background sessions). First sight is
-// baseline only (no beep). Mutates `prev` to the latest state.
-export function needsAttention(prev: Map<string, ActivityState>, msg: ActivityMsg): boolean {
-  const now: ActivityState = { working: msg.working ?? false, waiting: msg.waiting ?? false };
-  const was = prev.get(msg.id);
-  prev.set(msg.id, now);
-  if (!was) return false;
-  const finishedTurn = was.working && !now.working;
-  const becameWaiting = !was.waiting && now.waiting;
-  return finishedTurn || becameWaiting;
+// What the player needs from the user's config: which moments beep, and what each plays.
+// `soundFile` is the all-kind fallback a `sounds` entry overrides.
+export interface SoundConfig {
+  kinds: NotifyKind[];
+  sounds: Partial<Record<NotifyKind, string>>;
+  soundFile: string | null;
 }
 
 let audioCtx: AudioContext | null = null;
@@ -56,8 +40,19 @@ function armUnlock() {
   window.addEventListener("keydown", unlock);
 }
 
-// A short two-note attention chime via Web Audio (no asset).
-function playAttentionSound() {
+// The synthesized fallback, one two-note figure per kind. Rising and bright means the agent
+// wants you; falling and low means something ended or broke. Frequencies rather than assets,
+// so the fallback still works with no network and nothing configured.
+const CHIME_NOTES: Record<NotifyKind, readonly [number, number]> = {
+  waiting: [784, 1047], // G5→C6 — it stopped to ask
+  finished: [1047, 784], // C6→G5 — the turn ended
+  "command-done": [659, 988], // E5→B5
+  "command-failed": [440, 330], // A4→E4
+  "session-exited": [523, 392], // C5→G4
+  "pr-ci-failed": [415, 311], // G#4→D#4
+};
+
+function playChime(kind: NotifyKind) {
   const ctx = getCtx();
   if (!ctx) return;
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
@@ -75,39 +70,57 @@ function playAttentionSound() {
     osc.stop(t + dur + 0.02);
   };
   try {
-    tone(784, 0, 0.16); // G5
-    tone(1047, 0.14, 0.22); // C6
+    const [first, second] = CHIME_NOTES[kind];
+    tone(first, 0, 0.16);
+    tone(second, 0.14, 0.22);
   } catch {
     // no Web Audio — stay silent
   }
 }
 
-// The user's custom sound, decoded once into an AudioBuffer (keyed by its path so a
-// settings change reloads it). The server streams the configured file at /api/sound;
-// a 404 / decode failure leaves the buffer null and we use the chime.
-let customBuffer: AudioBuffer | null = null;
-let customLoadedFor: string | null = null;
-let customLoading: Promise<void> | null = null;
+// Decoded audio, keyed by a string that changes when the SOURCE changes, so a settings edit
+// reloads rather than replaying the old file. `null` means "asked, and this source has no
+// sound" and is remembered on purpose — a directory without one must not be refetched on
+// every beep. A key left UNKNOWN is retried instead.
+const buffers = new Map<string, AudioBuffer | null>();
+const loading = new Map<string, Promise<void>>();
 
-function loadCustomSound(soundFile: string): Promise<void> {
-  if (customLoadedFor === soundFile) return customLoading ?? Promise.resolve();
-  customLoadedFor = soundFile;
-  customBuffer = null;
-  customLoading = (async () => {
+/**
+ * Whether a non-OK response is this source saying it HAS no sound (remember it) rather than
+ * "ask again later". A 5xx is the second: the server reached for a preset and could not get
+ * it, which one offline moment must not turn into a permanently silent kind.
+ */
+export const isDefinitiveMiss = (status: number): boolean => status < 500;
+
+function loadBuffer(key: string, url: string): Promise<void> {
+  const existing = loading.get(key);
+  if (existing) return existing;
+  const pending = (async () => {
     const ctx = getCtx();
-    if (!ctx) return;
-    let decoded: AudioBuffer | null = null;
+    if (!ctx) return; // no AudioContext yet — leave the key unknown so a later beep retries
+    let response: Response;
     try {
-      const res = await fetch(`/api/sound?v=${encodeURIComponent(soundFile)}`);
-      if (res.ok) decoded = await ctx.decodeAudioData(await res.arrayBuffer());
+      response = await fetch(url);
     } catch {
-      decoded = null; // unreadable / not audio — fall back to the chime
+      return; // the request never completed — unknown, so the next beep tries again
     }
-    // Only assign if this is still the selected sound: a slower load for a now-stale
-    // path (A→B switch) must not overwrite B's buffer.
-    if (customLoadedFor === soundFile) customBuffer = decoded;
+    if (!response.ok) {
+      if (isDefinitiveMiss(response.status)) buffers.set(key, null);
+      return;
+    }
+    try {
+      buffers.set(key, await ctx.decodeAudioData(await response.arrayBuffer()));
+    } catch {
+      // Served, but not audio: the configured file is wrong, not the network. Remember it
+      // rather than decoding the same bad bytes on every beep.
+      buffers.set(key, null);
+    }
   })();
-  return customLoading;
+  loading.set(
+    key,
+    pending.finally(() => loading.delete(key)),
+  );
+  return pending;
 }
 
 function playBuffer(buf: AudioBuffer) {
@@ -122,89 +135,98 @@ function playBuffer(buf: AudioBuffer) {
   src.start();
 }
 
-// A directory's own attention sound (<cwd>/.mulmoterminal.json), decoded once and
-// cached by cwd. `undefined` = not checked yet; `null` = checked, no sound (so we
-// never refetch a dir that has none). Streamed from /api/dir-sound?cwd=<cwd>.
-const dirBuffers = new Map<string, AudioBuffer | null>();
-const dirLoading = new Map<string, Promise<void>>();
-
-function loadDirSound(cwd: string): Promise<void> {
-  if (dirBuffers.has(cwd)) return Promise.resolve();
-  const existing = dirLoading.get(cwd);
-  if (existing) return existing;
-  const loading = (async () => {
-    const ctx = getCtx();
-    if (!ctx) return; // can't decode without an AudioContext — leave unknown to retry
-    let decoded: AudioBuffer | null = null;
-    try {
-      const res = await fetch(`/api/dir-sound?cwd=${encodeURIComponent(cwd)}`);
-      if (res.ok) decoded = await ctx.decodeAudioData(await res.arrayBuffer());
-    } catch {
-      decoded = null; // 404 / unreadable / not audio — the dir has no usable sound
-    }
-    dirBuffers.set(cwd, decoded);
-  })();
-  dirLoading.set(
-    cwd,
-    loading.finally(() => dirLoading.delete(cwd)),
-  );
-  return loading;
+/** The user's configured sound for a kind, or null when only the built-in chime applies. */
+export function globalSoundValue(kind: NotifyKind, config: SoundConfig): string | null {
+  return config.sounds[kind] ?? config.soundFile;
 }
 
-// Play the attention sound, preferring the session directory's own sound, then the
-// user's global custom file, then the chime. A dir sound not yet decoded is loaded in
-// the background (this beep falls back), so later beeps for that dir use it.
-export function playAttentionFor(cwd: string | null, soundFile: string | null) {
-  if (cwd) {
-    const buf = dirBuffers.get(cwd);
-    if (buf) {
-      playBuffer(buf);
-      return;
-    }
-    if (buf === undefined) loadDirSound(cwd);
+// Cache keys. The parts are joined with an explicit NUL, the same separator rosterCellsKey
+// uses and for the same reason: it cannot occur in a path or a config value, so a cwd holding
+// the separator character cannot forge a boundary and make two different sources collide.
+const SEP = "\u0000";
+// A directory's sound is resolved SERVER-side (its per-kind entry, then its all-kind one), so
+// the key is just what identifies the request.
+const dirKey = (cwd: string, kind: NotifyKind) => `dir${SEP}${cwd}${SEP}${kind}`;
+// The global key is the RESOLVED VALUE and not the kind: the value already says which entry
+// won, so two kinds left on the same fallback file share one download and one decoded buffer
+// rather than fetching identical bytes once per kind. Picking a different sound changes the
+// value, which is what invalidates the cache.
+const globalKey = (value: string) => `app${SEP}${value}`;
+
+const dirUrl = (cwd: string, kind: NotifyKind) => `/api/dir-sound?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`;
+
+// A preset is addressed DIRECTLY rather than through /api/sound?kind=. Same bytes either way,
+// but the preset route answers from the fixed catalog instead of the saved config — which is
+// what lets the Settings preview play a sound the user has only just picked, before the POST
+// that saves it has come back. A file path still goes through the config route: the path is
+// server-side by design and is never put in a request.
+const globalUrl = (kind: NotifyKind, value: string) => {
+  const presetId = parsePresetRef(value);
+  return presetId ? `/api/sound-preset/${encodeURIComponent(presetId)}` : `/api/sound?kind=${encodeURIComponent(kind)}&v=${encodeURIComponent(value)}`;
+};
+
+// The sources to try for one beep, nearest first: the session directory's own sound, then the
+// user's global one. Each entry is a cache key plus where to fetch it; the caller plays the
+// first that is already decoded and starts loading the first that isn't.
+export function soundSources(kind: NotifyKind, cwd: string | null, config: SoundConfig): { key: string; url: string }[] {
+  const sources = cwd ? [{ key: dirKey(cwd, kind), url: dirUrl(cwd, kind) }] : [];
+  const value = globalSoundValue(kind, config);
+  if (value) sources.push({ key: globalKey(value), url: globalUrl(kind, value) });
+  return sources;
+}
+
+/**
+ * Play the notification for a kind: the nearest configured sound that is already decoded,
+ * else the built-in chime. A source not yet decoded is loaded in the background, so the FIRST
+ * beep for it falls back and later ones use it — the beep itself never waits on a fetch.
+ */
+export function playNotify(kind: NotifyKind, cwd: string | null, config: SoundConfig) {
+  for (const { key, url } of soundSources(kind, cwd, config)) {
+    const buf = buffers.get(key);
+    if (buf) return playBuffer(buf);
+    if (buf === undefined) void loadBuffer(key, url);
   }
-  playAttention(soundFile);
+  playChime(kind);
 }
 
-// Play the attention sound: the user's custom file when configured AND already
-// loaded, otherwise the built-in chime. A newly-configured file is loaded in the
-// background, so the first beep uses the chime and later ones the custom sound.
-export function playAttention(soundFile: string | null) {
-  if (soundFile) {
-    if (customLoadedFor !== soundFile) loadCustomSound(soundFile);
-    if (customBuffer && customLoadedFor === soundFile) {
-      playBuffer(customBuffer);
-      return;
-    }
+/** Test-button variant: AWAIT the load so a just-picked sound is actually heard. Pass the value
+ *  the user is LOOKING at, not the saved one — a preset resolves without the server's config, so
+ *  the preview is right even while the save is still in flight. */
+export async function previewNotify(kind: NotifyKind, config: SoundConfig): Promise<void> {
+  const value = globalSoundValue(kind, config);
+  if (value) {
+    const key = globalKey(value);
+    await loadBuffer(key, globalUrl(kind, value));
+    const buf = buffers.get(key);
+    if (buf) return playBuffer(buf);
   }
-  playAttentionSound();
+  playChime(kind);
 }
 
-// Test-button variant: AWAIT the custom file's load so a just-configured sound is
-// actually heard (the live beep path stays synchronous and chime-first).
-export async function previewAttention(soundFile: string | null) {
-  if (soundFile) {
-    await loadCustomSound(soundFile);
-    if (customBuffer && customLoadedFor === soundFile) {
-      playBuffer(customBuffer);
-      return;
-    }
-  }
-  playAttentionSound();
-}
-
-// Beep when any session transitions into `waiting` (needs attention), across every
-// page/view, by listening to the same "sessions" activity stream the cells use — so
-// the beep tracks the amber header exactly. `enabled` gates it (the sound toggle);
-// `soundFile`, when set, plays the user's chosen file instead of the chime.
-export function useAttentionSound(enabled: Ref<boolean>, soundFile?: Ref<string | null>) {
+/**
+ * Beep when a session raises a notification, across every page/view, by listening to the same
+ * "sessions" activity stream the cells use — so the beep tracks the amber header exactly.
+ * `enabled` is the master toggle; `config.kinds` says which moments qualify (#873).
+ */
+export function useAttentionSound(enabled: Ref<boolean>, config: Ref<SoundConfig>) {
   armUnlock();
-  // Preload the custom sound whenever it's set/changed, so the first beep can use it.
-  if (soundFile) watch(soundFile, (f) => f && loadCustomSound(f), { immediate: true });
+  // Preload each enabled kind's global sound whenever the config changes, so the first beep
+  // can already use it instead of falling back to the chime.
+  watch(
+    config,
+    (c) =>
+      NOTIFY_KINDS.filter((kind) => c.kinds.includes(kind)).forEach((kind) => {
+        const value = globalSoundValue(kind, c);
+        if (value) void loadBuffer(globalKey(value), globalUrl(kind, value));
+      }),
+    { immediate: true, deep: true },
+  );
   const prev = new Map<string, ActivityState>();
   const { subscribe } = usePubSub();
   const unsubscribe = subscribe("sessions", (d) => {
-    if (isActivityMsg(d) && needsAttention(prev, d) && enabled.value) playAttentionFor(d.cwd ?? null, soundFile?.value ?? null);
+    if (!isActivityMsg(d)) return;
+    const kind = notifyKindOf(prev, d);
+    if (kind && enabled.value && config.value.kinds.includes(kind)) playNotify(kind, d.cwd ?? null, config.value);
   });
   onUnmounted(unsubscribe);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { htmlPreviewUrl, remoteViewItemsQuery, deleteErrorMessage } from "../../../src/composables/collectionUiRules";
+import { htmlPreviewUrl, remoteViewItemsQuery } from "../../../src/composables/collectionUiRules";
 
 describe("htmlPreviewUrl", () => {
   it("maps a well-formed artifacts/html/*.html path to the preview route", () => {
@@ -75,28 +75,5 @@ describe("remoteViewItemsQuery", () => {
 
   it("returns an empty string when everything is omitted", () => {
     expect(remoteViewItemsQuery({})).toBe("");
-  });
-});
-
-describe("deleteErrorMessage", () => {
-  it("returns the server error string when present", () => {
-    expect(deleteErrorMessage({ error: "preset collections can't be deleted" }, 403)).toBe("preset collections can't be deleted");
-  });
-
-  it("falls back to HTTP <status> when error is not a string", () => {
-    expect(deleteErrorMessage({ error: 42 }, 500)).toBe("HTTP 500");
-  });
-
-  it("falls back to HTTP <status> when the object has no error field", () => {
-    expect(deleteErrorMessage({ message: "nope" }, 404)).toBe("HTTP 404");
-  });
-
-  it("falls back to HTTP <status> when body is null (parse failure)", () => {
-    expect(deleteErrorMessage(null, 400)).toBe("HTTP 400");
-  });
-
-  it("falls back to HTTP <status> when body is a non-object", () => {
-    expect(deleteErrorMessage("just a string", 502)).toBe("HTTP 502");
-    expect(deleteErrorMessage(123, 418)).toBe("HTTP 418");
   });
 });

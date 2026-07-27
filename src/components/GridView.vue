@@ -49,7 +49,8 @@ import { preferredLaunchDir } from "./launchDir";
 import * as conn from "../composables/useTerminalConnections";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
-import { EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
+import { becameCiFailing, EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
+import { notifySound } from "../composables/notifySound";
 import { useGridActivity } from "../composables/useGridActivity";
 import { registerNewTerminalHandler, type NewTerminalRequest } from "../composables/useNewTerminal";
 import { usePendingScript } from "../composables/usePendingScript";
@@ -171,7 +172,11 @@ async function seedPhase(cwd: string) {
     if (!res.ok || latestPhaseSeed.get(cwd) !== seed) return;
     const d = (await res.json()) as { phase?: unknown };
     if (latestPhaseSeed.get(cwd) !== seed) return;
-    if (isPrPhase(d.phase)) phaseByCwd.set(cwd, d.phase);
+    if (isPrPhase(d.phase)) {
+      // Before the set, so the previous value is still the one to compare against.
+      if (becameCiFailing(phaseByCwd.get(cwd), d.phase)) notifySound("pr-ci-failed", cwd);
+      phaseByCwd.set(cwd, d.phase);
+    }
   } catch {
     // best-effort — the next poll retries
   }
@@ -470,7 +475,7 @@ useCaptureKeydown(onShortcutKey);
 // (the grid has no single active session). The skill then asks which directory / batch.
 function configureAppearance() {
   closeSettings();
-  router.push("/");
+  router.push({ name: "chat" });
   void startCollectionChat("/mulmoterminal-config");
 }
 </script>

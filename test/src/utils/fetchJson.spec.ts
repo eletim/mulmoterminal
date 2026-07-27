@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import { fetchJson } from "../../../src/utils/fetchJson";
+import { fetchJson, errorMessage } from "../../../src/utils/fetchJson";
 
 // Callers branch on `status`: the collection UI treats 404 as "not found" and anything else
 // as "skip". A transport failure reports 0 — there was no response to have a status — and
@@ -13,9 +13,41 @@ describe("fetchJson", () => {
     expect(await fetchJson<{ a: number }>("/api/x")).toEqual({ ok: true, data: { a: 1 } });
   });
 
-  it("reports the HTTP status on an HTTP failure", async () => {
+  // A stub with no `json` at all — and the shape every /api route sends on failure.
+  it("reports the HTTP status when the failure carries no body", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
     expect(await fetchJson("/api/x")).toEqual({ ok: false, error: "HTTP 404", status: 404 });
+  });
+
+  // #913: the server says WHY. Reporting only the status turned a fixable setting into an
+  // unexplained "HTTP 400" — the sister app (MulmoClaude) has always read this body.
+  it("surfaces the server's own reason from the error body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: "declare googleCalendar first" }) }));
+    expect(await fetchJson("/api/x")).toEqual({ ok: false, error: "declare googleCalendar first", status: 400 });
+  });
+
+  it.each([
+    [
+      "a body that is not JSON (a proxy's HTML page)",
+      502,
+      async () => {
+        throw new SyntaxError("Unexpected token <");
+      },
+    ],
+    ["an empty body", 500, async () => null],
+    ["a JSON body with no error field", 500, async () => ({ message: "nope" })],
+    ["a JSON body whose error is not a string", 500, async () => ({ error: 42 })],
+    ["a JSON body whose error is empty", 500, async () => ({ error: "" })],
+  ])("falls back to HTTP <status> for %s", async (_case, status, json) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status, json }));
+    expect(await fetchJson("/api/x")).toEqual({ ok: false, error: `HTTP ${status}`, status });
+  });
+
+  // Callers branch on `status`, not on the message: the collection UI reads 404 as "not found".
+  // Reading the body must not disturb that.
+  it("keeps the status intact while reading the body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({ error: "no such collection" }) }));
+    expect(await fetchJson("/api/x")).toMatchObject({ status: 404 });
   });
 
   // The distinction the callers depend on.
@@ -49,5 +81,22 @@ describe("fetchJson", () => {
     vi.stubGlobal("fetch", fetchMock);
     await fetchJson("/api/x", { method: "POST" });
     expect(fetchMock).toHaveBeenCalledWith("/api/x", { method: "POST" });
+  });
+});
+
+describe("errorMessage", () => {
+  it("returns the server's error string when there is one", () => {
+    expect(errorMessage({ error: "preset collections can't be deleted" }, 403)).toBe("preset collections can't be deleted");
+  });
+
+  it.each([
+    ["error is not a string", { error: 42 }, 500],
+    ["there is no error field", { message: "nope" }, 404],
+    ["the body did not parse", null, 400],
+    ["the body is a bare string", "just a string", 502],
+    ["the body is a number", 123, 418],
+    ["the body is an array", ["nope"], 500],
+  ])("falls back to HTTP <status> when %s", (_case, body, status) => {
+    expect(errorMessage(body, status)).toBe(`HTTP ${status}`);
   });
 });

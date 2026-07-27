@@ -13,8 +13,13 @@ import { defineComponent } from "vue";
 const Stub = defineComponent({ name: "RouteStub", render: () => null });
 
 export const routes: RouteRecordRaw[] = [
-  { path: "/", name: "chat", component: Stub },
+  // `/` is the DEFAULT-VIEW ENTRY, not a view of its own: which screen the app opens on
+  // is this one line (#883). That only holds while navigation goes through route NAMES —
+  // a `push("/")` written to mean "the single view" pins the default in place and breaks
+  // the moment it moves, which is exactly what this change had to undo in six call sites.
+  { path: "/", redirect: { name: "terminals" } },
   { path: "/terminals", name: "terminals", component: Stub },
+  { path: "/chat", name: "chat", component: Stub },
   { path: "/collections", name: "collections", component: Stub },
   { path: "/collections/:slug", name: "collectionDetail", component: Stub },
   { path: "/feeds", name: "feeds", component: Stub },
@@ -30,7 +35,7 @@ export const routes: RouteRecordRaw[] = [
   { path: "/wiki/pages/:slug", name: "wikiPage", component: Stub },
   { path: "/wiki/graph", name: "wikiGraph", component: Stub },
   { path: "/wiki/lint", name: "wikiLint", component: Stub },
-  // Unknown URLs land on chat.
+  // Unknown URLs land on the default view — via `/`, so they follow it wherever it points.
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 

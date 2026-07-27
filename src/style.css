@@ -166,6 +166,13 @@
     overflow: hidden;
   }
 
+  /* CodeMirror injects `.cm-editor` into the host at runtime, so no utility can reach it
+     and this cannot live on an element we render. Global rather than scoped: the same
+     editor is mounted by the full-screen Files view and by the pane beside a zoomed cell. */
+  .files-editor .cm-editor {
+    height: 100%;
+  }
+
   /* Project-wide icon convention: Material Symbols (outlined). Icons inherit the
      surrounding text size by default; set font-size on the element to scale, and
      the optical-size axis (opsz) follows so weight stays balanced. */

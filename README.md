@@ -70,7 +70,7 @@ output you haven't seen) — driven by Claude/Codex activity hooks the server in
 
 ![Single view — one agent in focus, terminal on the left and a GUI panel on the right](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/single-view.png)
 
-*Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar.*
+*Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar. **The app opens on the grid** (`/`); the single view has its own URL, `/chat`, so you can bookmark either.*
 
 **Inserting a file path** — like a native terminal, you can put a file's absolute path into
 the prompt: **drag a file** onto the terminal (works where the browser exposes the path via
@@ -111,11 +111,23 @@ dotfiles are server-only. The 45 extensions both sides agree on live in
 
 ## Install & run
 
-Requires the [`claude`](https://claude.com/claude-code) CLI on your `PATH` and
-**Node ≥ 22.9**. Optional but recommended: **`tmux`** so terminals survive a server
-restart (see [Session persistence (tmux)](#session-persistence-tmux)), the **`gh`** CLI
-logged in for the PRs/Issues view and one-click PR creation, and — for Codex sessions —
-the **`codex`** CLI on your `PATH`.
+Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
+
+| | Tool | What it gives you | Install |
+| --- | --- | --- | --- |
+| **Required** | [`claude`](https://claude.com/claude-code) | every Claude session — this app is a cockpit for it | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in |
+| **Required** | `git` | [worktree isolation](#git-worktrees--pull-requests), each cell's branch / unsaved-dot / diff readout, the PR footer | `brew install git` · `sudo apt install git` · `sudo dnf install git` · Windows: [git-scm.com](https://git-scm.com/download/win) |
+| **Required** | `gh` | the cross-repo **PRs & Issues** view and one-click PR creation — it uses your `gh` login, so no token is stored | [cli.github.com](https://cli.github.com), then `gh auth login` |
+| Recommended | `tmux` | [session persistence](#session-persistence-tmux) — terminals survive a server restart | `brew install tmux` · `sudo apt install tmux` · `sudo dnf install tmux` · no native Windows build (falls back to plain PTYs) |
+| Optional | `codex` | [Codex sessions](#agents-claude--codex) in a cell, alongside Claude | `npm i -g @openai/codex` |
+| Optional | `docker` | the experimental [Docker sandbox](#docker-sandbox-experimental-single-view) | [docs.docker.com](https://docs.docker.com/get-started/get-docker/) |
+| Optional | `ffmpeg` | video rendering from the [mulmo-script panel](#wiki-collections--the-gui-panel) (its plugin ships enabled) | `brew install ffmpeg` · `sudo apt install ffmpeg` · `sudo dnf install ffmpeg` |
+| Optional | `ollama` | [`claude-ollama`](https://receptron.github.io/mulmoterminal/guide/en/claude-ollama.html) — Claude Code against a fully local model | [ollama.com/download](https://ollama.com/download) |
+
+The server starts without any of the non-required rows; you just lose that row's feature,
+and the header/panel for it says so. `git` and `gh` are marked required because losing them
+costs whole views rather than one button. `npx mulmoterminal init` (below) reports which of
+these it can find.
 
 ```bash
 npx mulmoterminal           # start on http://localhost:34567 and open the browser
@@ -124,8 +136,8 @@ npm install -g mulmoterminal
 mulmoterminal
 ```
 
-**First-run setup (optional).** `npx mulmoterminal init` checks your environment (Node ≥ 22.9,
-the `claude` CLI, plus optional `tmux` / `gh` / `codex`), seeds the launcher's **directory
+**First-run setup (optional).** `npx mulmoterminal init` checks your environment (Node ≥ 22.9
+and every CLI in the table above), seeds the launcher's **directory
 presets** from the projects in your Claude Code history, and writes `~/.mulmoterminal/config.json`.
 It's **idempotent** — re-run it any time to refresh the presets; it overwrites the managed parts
 and keeps your other settings. When `claude` is installed it can hand off to the
@@ -439,7 +451,9 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | Field        | Meaning |
 | ------------ | ------- |
 | `cwdPresets` | Quick-pick directories offered when launching a terminal. |
-| `soundFile`  | Absolute path to a custom **attention sound** (played when a session needs attention). Empty/unset uses the built-in synthesized chime. |
+| `soundFile`  | Absolute path to a custom **attention sound**, the fallback for every kind. Empty/unset uses the built-in synthesized chime. |
+| `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
+| `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
 | `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates (via your `gh` login). |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides Claude — a plain shell, `codex`, any interactive command. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
@@ -452,6 +466,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
 | `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out — read from the file per PR, so no restart is needed (there is no Settings control for it). Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
+| `fontFamily` | The **terminal font** every session renders in — a CSS font-family stack, e.g. `"'Cica', 'MS Gothic', monospace"`. No Settings UI: edit the file, then **restart** (this config is read once at startup). Unset uses the built-in stack (JetBrains Mono / Fira Code / Menlo / Consolas, then CJK faces for Japanese, Korean and Chinese). Unlike the per-browser font **size**, this is one value for the whole host — it names fonts, and which fonts exist is a property of the machine. A directory can override it. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#font-family). |
 
 #### Header buttons
 
@@ -470,12 +485,46 @@ there's no open PR) / `pickFile: true` (OS file dialog → insert the path).
 visibility. The `/mulmoterminal-config` skill writes a valid config interactively; per-dir buttons
 merge over the global ones by `id`.
 
-**Attention sound.** The default chime is generated with the Web Audio API — **no
-audio file is bundled**, so the npm package stays light and has no media-licensing
-concerns. To use your own sound, set `soundFile` in Settings (Browse / Test / Use
-chime) or in the config file; the server streams that file at `GET /api/sound` and
-the client decodes it (falling back to the chime if it's missing or not audio). It's
-your own local file referenced by absolute path — nothing is added to the package.
+### Notification sounds
+
+Six moments can beep, each with its own sound and its own on/off switch. Running many
+agents at once is what turns notifications into noise, so **only the first two are on by
+default** — the rest are opt-in from Settings.
+
+| Kind | When | Default |
+| --- | --- | --- |
+| `finished` | the turn ended and the output is unread | **on** |
+| `waiting` | it stopped to ask — a permission prompt or a question | **on** |
+| `command-done` | a **Run cell's** command exited 0 | off |
+| `command-failed` | a **Run cell's** command exited non-zero, or never started | off |
+| `session-exited` | a session's terminal ended — **including when you close the cell yourself** | off |
+| `pr-ci-failed` | a directory's PR went red. Only seen **while the roster is on screen**, since that is what polls the phase | off |
+
+A **Run cell** is the one-shot cell a `script.json` entry or a `run:"shell"` header button
+opens — not a shell launcher cell. A launcher runs an interactive shell that stays alive, so
+nothing marks where one command inside it ended; only the one-shot cell reports an exit code.
+
+`finished` and `waiting` reach the phone too (`pushKinds`); the other four are seen only in
+the browser — a Run PTY never enters the session registry, and a PR phase is something the
+page polls — so Web Push cannot raise them.
+
+**What each one plays.** The default chime is generated with the Web Audio API — **no audio
+file is bundled**, so the npm package stays light and has no media-licensing concerns. Beyond
+it there are two options:
+
+- **Presets** — seven sounds hosted in the [ownplate](https://github.com/Nakajima-Foundation/ownplate)
+  repo (MIT), referenced as `preset:<id>`: `chime` `coin` `cheep` `door` `gong` `magic` `meow`.
+  The first play downloads one into `~/.mulmoterminal/sounds/`; every later play reads that
+  file, so a preset keeps working offline. A failed download is not remembered as one — you get
+  the chime that time and the next play retries. That holds on both sides: the server caches no
+  failure, and it answers **503** (not 404) for a preset it could not fetch, because the browser
+  remembers a 404 for the life of the page and only retries a 5xx.
+- **Your own file** — an absolute path, per kind in `sounds` or as the all-kind `soundFile`.
+
+Resolution per kind, nearest first: the session directory's `sounds[kind]`, its `sound`, your
+`sounds[kind]`, your `soundFile`, then the chime. The server streams whichever applies at
+`GET /api/sound?kind=` / `GET /api/dir-sound?cwd=&kind=`, and the client falls back to the
+chime if it's missing or not audio.
 
 **Web Push on task finish.** Enable `pushEnabled` in Settings to have the server send a
 push (title = the project dir, body = the last prompt) to your registered devices each
@@ -529,8 +578,10 @@ malformed file is ignored.
   "theme": "nord",                      // terminal palette: midnight | nord | daylight | solarized
   "colors": { "background": "#190a23", "cursor": "#ff2e63" }, // per-key palette overrides
   "fontSize": 16,                       // terminal font size in px (8–32); overrides Settings
+  "fontFamily": "'Cica', monospace",    // terminal font stack; overrides the global config
   "orderPriority": 10,                  // rank in the grid's "priority" ordering (lowest first)
-  "sound": "./.mulmoterminal/alert.mp3" // attention sound, RELATIVE to this directory
+  "sound": "./.mulmoterminal/alert.mp3", // attention sound, RELATIVE to this directory
+  "sounds": { "command-failed": "preset:gong" } // per-notification-kind override
 }
 ```
 
@@ -552,10 +603,13 @@ malformed file is ignored.
 | `colors`     | Per-key xterm palette overrides applied on top of `theme` (or the app theme when `theme` is unset). Keys are xterm `ITheme` names (`background`, `foreground`, `cursor`, `selectionBackground`, the 16 ANSI colors, …); values are hex (`#rgb` / `#rrggbb` / `#rrggbbaa`). Unknown keys / bad values are dropped. |
 | `fontSize`   | Terminal font size in px for this directory (8–32), overriding the Settings value. A size outside the range is clamped; a non-number is ignored. Changing it re-fits the terminal, so the PTY learns the new width — unlike browser zoom, which leaves the two disagreeing. |
 | `orderPriority` | This directory's rank in the grid's **priority** ordering — the third mode on the toolbar's ordering button, next to auto (attention-first) and manual (the move buttons). Any integer, **lowest first**; negatives are allowed. Directories that set nothing sort last, keeping their existing order, so adding the key to one project doesn't shuffle the rest. Only the priority mode reads it. |
-| `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). |
+| `fontFamily` | CSS font-family stack for this directory's terminals, overriding the global `fontFamily`. Use the names as your OS lists them (`"'Cica', 'MS Gothic', monospace"`). An unusable stack is ignored whole rather than half-applied; `monospace` is appended if you name no generic family. Prefer fonts whose fullwidth glyphs are exactly twice the Latin width, or box-drawing frames tear. |
+| `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). The fallback for every kind. |
+| `sounds`     | Per-kind override of `sound`: `{ "command-failed": "preset:gong" }`. Each value is a `preset:<id>` or a directory-relative path, under the same confinement. |
+| `addDirs`    | Extra directories this project's Claude sessions may read and edit — the terminal-side equivalent of opening several folders in one VS Code workspace, via Claude Code's `--add-dir`. Relative entries resolve against **this file's directory** (`"../shared-lib"`), a path that doesn't exist is dropped, max 16. In the Docker sandbox each one is bind-mounted too, so the grant is real inside the container — which widens the sandbox on purpose. Claude only: codex has no equivalent flag and ignores the key. |
 
-**Security.** `sound` is a directory-relative path only — absolute paths and any
-`../` that escapes the directory are rejected, and the path is never taken from the
+**Security.** `sound` and every `sounds` entry are directory-relative paths only — absolute
+paths and any `../` that escapes the directory are rejected, and the path is never taken from the
 HTTP request, so an opened project can't point the player at arbitrary files.
 **When changes take effect.** A write made *through Claude's tools* — which includes the
 `mulmoterminal-config` skill — applies **live**: the tool hook that reports the write doubles
@@ -706,10 +760,28 @@ tree; clicking a file opens it in a **CodeMirror** editor (Markdown / JS-TS / JS
 highlighting, everything else as plain text). Markdown files get a **Preview** toggle
 that renders via the server's sandboxed `…/md` HTML. **Save** (or ⌘/Ctrl-S) writes back.
 
+**Beside an enlarged terminal, not only full-screen.** Expand a grid cell (**⤢**) and its
+header gains a **folder** toggle that splits the enlarged area in two: terminal on the left,
+the same explorer + editor on the right, rooted at that cell's directory. Drag the divider
+(or focus it and use ←/→, Home, End) to resize — the terminal keeps a floor, so a squeeze
+shrinks the pane rather than reflowing xterm into garbage. It works in both zoomed layouts
+(cockpit roster and thumbnail filmstrip), the pane re-roots as you walk the zoom between
+terminals, and whether it's open plus how wide it is are remembered per browser.
+
 All reads and writes go through `GET/PUT /api/files/browse/*?cwd=&path=`, and every
 `path` is **contained within the project root** (server-side) — `..`/absolute escapes
 are rejected for reads and writes alike, so editing can't reach outside the directory
-the terminal is pointed at.
+the terminal is pointed at. A save sends the version the file had when it was opened, so
+it is **refused (409) rather than silently overwriting** an agent that edited the same
+file meanwhile; the editor then offers to reload or to overwrite deliberately.
+
+**Leaving an open file saves it** — switching files, moving the enlargement to another
+terminal, closing the pane, navigating away. No dialog interrupts you mid-flow, because
+opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/` — **three
+generations per file**, outside the project so they never reach `git status` or the agent's
+view of its own repo. A parting save that loses the version race banks your version there
+instead of overwriting the other writer. Re-opening unchanged content doesn't rotate one in, and a backup that
+can't be written never blocks the read or the save it was taken for.
 
 ---
 
@@ -844,7 +916,10 @@ Favorited collections get their own toolbar buttons.
 - **Notifications** (🔔) — a toolbar bell with an unread badge and a dropdown of active
   notifications; click a row to jump to its session.
 - **Voice input** — dictate a prompt via on-device Whisper (`POST /api/transcribe`, macOS
-  only; the model downloads on first use).
+  only; the model downloads on first use). Settings picks **the language you dictate in**
+  (per browser): your browser's, whisper's own per-clip detection, or a fixed one. Worth
+  setting — speech in a language the mic is not expecting comes back *translated* into the
+  one it is, so an English browser silently turned Japanese dictation into English.
 - **Remote host** — link MulmoTerminal to the companion phone client (Google sign-in) to
   watch and start sessions from your phone.
 - **Themes** — four terminal palettes (midnight / nord / daylight / solarized), your pick
@@ -853,6 +928,11 @@ Favorited collections get their own toolbar buttons.
   **Option** is treated as Meta so Claude's Alt-key bindings work. If your Claude Code is
   rebound so Enter and Shift+Enter behave backwards, flip them with
   [`terminalSubmit`](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit).
+- **No accidental page zoom** — `Ctrl`+wheel and a trackpad pinch would rescale the whole
+  page and drag the layout and the terminal's fit along with it, so both are ignored.
+  Keyboard zoom (`Cmd`/`Ctrl` `+` / `-`) still works when you mean it, and a phone's finger
+  pinch is untouched. To make terminal text bigger for real, use the font size in Settings
+  (or a directory's `fontSize`) — that re-fits the PTY instead of leaving it disagreeing.
 
 ---
 
@@ -1024,7 +1104,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET /api/wiki` (`?slug=`) · `/api/wiki/graph` · `/api/wiki/lint` | Read-only wiki index / page / graph / lint. |
 | `GET /api/collections/…` · `/api/feeds` · `GET\|PUT /api/shortcuts` | Collections browser, feeds, favorites (see `docs/collection-plugin-integration.md`). |
-| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/write` | File tree / read / Markdown-render / write (contained within the project root). |
+| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/{write,backup}` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. `backup` banks a buffer the editor is about to discard. |
 | `GET /api/files/raw?path=` | Raw asset bytes (workspace-rooted). |
 
 **GUI panel / plugins / MCP**
@@ -1041,8 +1121,8 @@ same-origin-guarded.
 
 | Endpoint | Purpose |
 | -------- | ------- |
-| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
-| `GET /api/sound` · `/api/dir-sound?cwd=` · `/api/dir-config?cwd=` | Custom / per-directory attention sound + per-dir config. |
+| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `soundKinds`, `sounds`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
+| `GET /api/sound?kind=` · `/api/dir-sound?cwd=&kind=` · `/api/sound-preset/:id` · `/api/dir-config?cwd=` | Custom / per-directory / preset attention sound + per-dir config. `kind` selects a config entry, never a path. |
 | `GET /api/launch-options` | The Anthropic-compatible backends this server can reach, each with its models and — when it can't — the reason. Reports the **name** of the env var a key is read from, never the key. |
 | `GET /api/notifications`(`/history`) · `POST /api/notifications/:id/clear` | Notification feed. |
 | `POST /api/transcribe`(`/model`…) | Voice-input transcription (Whisper, macOS). |

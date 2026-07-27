@@ -339,6 +339,12 @@ export function buildDockerRunArgs(
   cwd: string,
   claudeConfigPath: string,
   credentialsPath: string | null = null,
+  // `--add-dir` grants the agent paths OUTSIDE the workspace (#908). In the sandbox they must
+  // also be bind-mounted, or the flag names paths the container does not have — the agent sees
+  // nothing and nothing errors. Mounted at their same absolute path, like the workspace, so a
+  // path means the same thing on both sides. This widens the sandbox on purpose: the list comes
+  // from the user's own `.mulmoterminal.json`, which is the same act as granting the flag.
+  addDirs: string[] | null = null,
 ): string[] {
   const claudeDir = path.join(os.homedir(), ".claude");
   return [
@@ -355,6 +361,7 @@ export function buildDockerRunArgs(
     "DISABLE_AUTOUPDATER=1", // ephemeral container — never self-update the CLI
     "-v",
     `${cwd}:${cwd}`,
+    ...(addDirs ?? []).flatMap((dir) => ["-v", `${dir}:${dir}`]),
     "-v",
     `${claudeDir}:${CONTAINER_HOME}/.claude`,
     // Overlay the live Keychain credential over the dir mount's possibly-stale

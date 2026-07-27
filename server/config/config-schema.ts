@@ -10,14 +10,17 @@
 //      better, and the goal is ease of handling.
 //   2. The `sound` path confinement (a filesystem realpath check) stays in dir-config.ts — it
 //      touches the disk, which does not belong in a pure schema.
+import path from "node:path";
 import { z } from "zod";
 // Shared with the client dir-config parser so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
 import { THEME_IDS } from "../../common/themeIds.js";
 import { isUsableModelId } from "../../common/modelIds.js";
 import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
+import { normalizeFontFamily, TERMINAL_FONT_FAMILY_MAX_CHARS, TERMINAL_FONT_FAMILY_SAFE_RE } from "../../common/terminalFontFamily.js";
 import { normalizeOrderPriority } from "../../common/orderPriority.js";
 import { SESSION_AGENTS } from "../../common/sessionAgent.js";
+import { NOTIFY_KINDS } from "../../common/notifyKinds.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 
 // ---- shared constants ---------------------------------------------------------------------
@@ -144,6 +147,13 @@ export const dirFontSizeField = z
   .transform((value) => normalizeFontSize(value))
   .nullable()
   .catch(null);
+// Rejected as a whole rather than clamped, unlike the size above: a stack is one intent, so
+// keeping the half of it that parsed would render in a font the author never named.
+export const dirFontFamilyField = z
+  .unknown()
+  .transform((value) => normalizeFontFamily(value))
+  .nullable()
+  .catch(null);
 export const dirNameField = z
   .string()
   .trim()
@@ -212,6 +222,36 @@ export const dirSkillsField = z
   })
   .nullable()
   .catch(null);
+
+// Extra directories a session may read/edit — Claude Code's `--add-dir` (#908), the
+// terminal-side answer to opening several folders in one VS Code workspace. Relative
+// entries resolve against the directory holding the config, which is what a reader of
+// `"../shared-lib"` means; a managed worktree runs from elsewhere and must not silently
+// point somewhere else. A path that does not exist is dropped HERE rather than passed on:
+// the flag would otherwise look applied while the agent sees nothing.
+export const MAX_ADD_DIRS = 16;
+export function resolveAddDirs(input: unknown, base: string, exists: (p: string) => boolean): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const resolved = input
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    .map((entry) => path.resolve(base, entry.trim()))
+    // The workspace itself is already the session's cwd — listing it again would add a
+    // duplicate container mount and grant nothing.
+    // `exists` touches the disk, so it can throw (EACCES, or the path vanishing between the
+    // check and the stat). This runs inside loadDirConfig's outer try, where a throw costs
+    // the WHOLE directory config — colors, sound, skills — over one unreadable entry. A
+    // failure here means "drop this entry", never "drop everything".
+    .filter((dir) => {
+      if (dir === path.resolve(base)) return false;
+      try {
+        return exists(dir);
+      } catch {
+        return false;
+      }
+    });
+  const unique = [...new Set(resolved)].slice(0, MAX_ADD_DIRS);
+  return unique.length ? unique : null;
+}
 
 // ---- JSON Schema for the config skill -----------------------------------------------------
 // The WRITABLE per-dir shape (what a user types into `.mulmoterminal.json`), described strictly
@@ -288,9 +328,18 @@ const writableDirConfigSchema = z.object({
   colors: z.partialRecord(z.enum(THEME_COLOR_KEYS), z.string().regex(PALETTE_COLOR_RE)).optional(),
   // xterm font size in px for this directory's terminals. Omit to follow the Settings value.
   fontSize: z.number().int().min(TERMINAL_FONT_SIZE_MIN).max(TERMINAL_FONT_SIZE_MAX).optional(),
+  // CSS font-family stack for this directory's terminals. Omit to follow the global config.
+  // The pattern is the portable subset of the real rule — z.toJSONSchema drops a `.refine`, so
+  // an exact check here would vanish from the shipped schema; normalizeFontFamily is the rule.
+  fontFamily: z.string().min(1).max(TERMINAL_FONT_FAMILY_MAX_CHARS).regex(TERMINAL_FONT_FAMILY_SAFE_RE).optional(),
   // Rank in the grid's "priority" sort mode, ascending. Omit to sort after everything that sets it.
   orderPriority: z.number().int().optional(),
   sound: nonEmptyText.optional(),
+  // Per-notification-kind sound, overriding `sound` for that kind. Each value is either
+  // `preset:<id>` or a path relative to this directory, same as `sound`. partialRecord for
+  // the same reason `colors` uses it: z.record over an enum marks every key required in the
+  // generated JSON Schema, which would reject the usual one-or-two-kind object.
+  sounds: z.partialRecord(z.enum(NOTIFY_KINDS), nonEmptyText).optional(),
   buttons: z.array(writableHeaderButtonSchema).max(MAX_BUTTONS).optional(),
   chips: z.array(writableHeaderChipSchema).max(MAX_CHIPS).optional(),
   // Header Skill-menu allowlist: show only these skill slugs, in this order. Omit to show all.
@@ -299,6 +348,10 @@ const writableDirConfigSchema = z.object({
   // global config's `providers`; `model` alone picks a different model on Anthropic itself.
   provider: nonEmptyText.optional(),
   model: nonEmptyText.optional(),
+  // Extra directories this dir's sessions may read/edit — Claude Code's `--add-dir` (#908).
+  // Relative entries resolve against this file's own directory. Claude only; codex has no
+  // equivalent flag and ignores the key.
+  addDirs: z.array(nonEmptyText).max(MAX_ADD_DIRS).optional(),
 });
 
 export function dirConfigJsonSchema(): Record<string, unknown> {

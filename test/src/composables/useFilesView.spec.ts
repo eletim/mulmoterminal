@@ -9,7 +9,7 @@ const settle = () => flushPromises();
 
 describe("useFilesView return-to-origin", () => {
   beforeEach(async () => {
-    await router.push("/");
+    await router.push({ name: "chat" });
     await settle();
   });
 
@@ -67,7 +67,7 @@ describe("useFilesView return-to-origin", () => {
     filesGotoIndex("/proj"); // captures /terminals into that entry's state
     await settle();
 
-    await router.push("/");
+    await router.push({ name: "chat" });
     await settle();
     await router.push("/files"); // fresh /files entry, no captured origin
     await settle();

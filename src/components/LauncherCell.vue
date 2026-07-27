@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, toRef, watch } from "vue";
+import DirBadge from "./DirBadge.vue";
+import { useDirConfig } from "../composables/useDirConfig";
 import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import { formatCwd } from "./cwdDisplay";
@@ -54,6 +56,10 @@ function onHeaderClick(event: MouseEvent) {
 const connectKey = ref(0);
 const finished = ref(false);
 
+// The name badge is CHROME — this cell's own header, not the terminal canvas (#914). The
+// canvas side resolves itself inside Terminal.vue (#911); this is the other half of that line.
+const { config: dirConfig } = useDirConfig(toRef(props, "cwd"));
+
 const dirDisplay = computed(() => formatCwd(props.cwd, props.home));
 const target = computed(() => (isShellLauncher(props.launcher) ? { shell: true as const } : { index: props.launcher.index }));
 
@@ -83,6 +89,7 @@ function relaunch() {
       <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="cwd ?? ''"
         ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
+      <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
       <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ launcher.label }}</span>
       <span class="cell-actions" :class="CELL_ACTIONS">
         <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">
@@ -94,7 +101,13 @@ function relaunch() {
         <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
         </button>
-        <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
+        <CellChromeButtons
+          :expanded="expanded"
+          :files-open="filesOpen"
+          @toggle-expand="emit('toggle-expand')"
+          @toggle-files="emit('toggle-files')"
+          @close="emit('close')"
+        />
       </span>
     </div>
     <TerminalView

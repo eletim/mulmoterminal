@@ -9,6 +9,7 @@
 import { computed, ref } from "vue";
 import { useLaunchOptions } from "../composables/useLaunchOptions";
 import { modelOptionLabel, sortedModels } from "./modelOption";
+import { SELECT_CONTROL } from "./selectClasses";
 import ModelSetupHelp from "./ModelSetupHelp.vue";
 import type { LaunchChoice } from "./wsUrl";
 
@@ -53,7 +54,7 @@ const selected = computed({
       v-model="selected"
       data-testid="cell-model-select"
       aria-label="Model for this session"
-      class="box-border w-full rounded-md border border-border bg-input px-2.5 py-[7px] font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+      :class="[SELECT_CONTROL, 'font-mono']"
     >
       <option value="">This directory's default</option>
       <optgroup v-for="provider in readyProviders" :key="provider.id" :label="provider.label">

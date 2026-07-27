@@ -50,6 +50,36 @@ A global rule in `src/style.css` gives them `font-size: inherit`, so size them o
 - `docs/` — Jekyll site; bilingual guide under `docs/guide/{en,ja}` (keep both in sync).
 - `plans/` — design notes per change. `test/` — Vitest specs.
 
+## MulmoClaude is the reference host — read it before wiring a shared package
+
+**MulmoClaude's source is a sibling checkout at `../mulmoclaude`.** It drives the same
+`@mulmoclaude/*` packages over the **same workspace on disk** (`~/mulmoclaude`), so for
+anything those packages define, it is not "another app" — it is the existing answer.
+
+Before writing or changing a host binding for a shared package (`@mulmoclaude/core`, the
+collection / accounting / google / html / markdown plugins), **find its counterpart there
+first** — `grep` the feature name under `../mulmoclaude/{server,src}`. Match it on:
+
+- **`/api/*` route paths** — MulmoClaude keeps them in `src/config/apiRoutes.ts`; that file
+  is the naming authority, not a guess from the plugin's JSDoc.
+- **Which failures are HTTP status vs. a field on a 200.** Plugins route `!ok` and a
+  successful body to different places in the UI, so this is behaviour, not style.
+- **User-facing wording** for the same condition. Someone running both hosts must not get
+  two different explanations for one setup problem.
+- **Wire shapes**, including fields neither side reads yet.
+
+Why this needs saying: we own **both** ends here — the Express route and the Vue binding
+that calls it — so a divergent path or status is self-consistent and **works**. `typecheck`,
+the specs, CI and the review bots all pass. Only a human comparing the two repos sees it.
+In #907 the push route shipped as `/calendar/push` against MulmoClaude's `/calendar-push`,
+green the whole way, and was caught only because someone pointed at `../mulmoclaude`.
+
+`server/backends/collections.ts` already requires this of the **on-disk** layout (so both
+apps discover the same collection skills). The API surface needs it for the same reason and
+had no rule until now.
+
+Deliberate divergence is fine — say so in a comment with the reason, and flag it in the PR.
+
 ## Bundled skills
 `server/skills/` ships skills to end users (mulmoterminal-config, mulmoterminal-bug-report);
 they are mirrored to `~/.claude/skills/`.

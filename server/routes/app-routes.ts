@@ -33,6 +33,7 @@ import { mountGoogleRoutes } from "../backends/google.js";
 import { mountWikiRoutes } from "../backends/wiki.js";
 import { mountAccountingRoutes } from "../backends/accounting.js";
 import { mountFeedsRoutes } from "../backends/feeds.js";
+import { mountCalendarPushRoutes } from "../backends/calendarPush.js";
 import { mountRemoteHostRoutes } from "../backends/remoteHost/index.js";
 import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
@@ -43,7 +44,7 @@ import { mountShortcutsRoutes } from "../backends/shortcuts.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
-import { CLAUDE_CWD, PORT, SESSION_ID_RE } from "../config/env.js";
+import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
 import { resolveWorkspace } from "../config/workspace.js";
 import type { createToolStores } from "../session/tool-store.js";
 import type { createClaudeSpawner } from "../session/spawn-claude.js";
@@ -124,6 +125,12 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // @mulmoclaude/core/feeds — fetches declarative feeds or dispatches an agent-ingest
   // worker. Backs the collection-view Refresh button. The engine is configured below.
   mountFeedsRoutes(app);
+
+  // The other direction: POST /api/collections/:slug/calendar-push writes a collection's
+  // records to the Google calendar its schema declares (path per MulmoClaude's
+  // API_ROUTES.collections.calendarPush). Backs the collection-view Push button; reads the
+  // workspace from the collection host configured below.
+  mountCalendarPushRoutes(app);
 
   // Notification REST surface (list active / history, dismiss one) — backs the toolbar
   // bell. The engine is configured below once pubsub + the workspace exist.
@@ -218,7 +225,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // Project-scoped file browsing + editing for the full-screen Files view
   // (GET /api/files/browse/{list,text,md}, PUT .../write — all ?cwd=&path=). Each
   // terminal browses its own session's project dir; paths are contained within it.
-  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD });
+  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD, backupRoot: path.join(MULMOTERMINAL_HOME, "backups") });
 
   // Directory-scoped reads for a terminal cell: scripts, skills, dir config, git status,
   // PR phase, resolved header, custom sound. All keyed by ?cwd= (see routes/dir-routes.ts).

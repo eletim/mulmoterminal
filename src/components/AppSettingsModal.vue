@@ -18,6 +18,10 @@ const emit = defineEmits<{ (e: "configure-appearance" | "close"): void }>();
 const {
   soundFile,
   saveSound,
+  soundKinds,
+  saveSoundKinds,
+  sounds,
+  saveSounds,
   pushEnabled,
   savePushEnabled,
   pushKinds,
@@ -36,6 +40,8 @@ const {
 <template>
   <SettingsModal
     :sound-file="soundFile"
+    :sound-kinds="soundKinds"
+    :sounds="sounds"
     :push-enabled="pushEnabled"
     :push-kinds="pushKinds"
     :pr-repos="prRepos"
@@ -45,6 +51,8 @@ const {
     :cwd="cwd"
     :session-id="sessionId"
     @update-sound="saveSound"
+    @update-sound-kinds="saveSoundKinds"
+    @update-sounds="saveSounds"
     @update-push-enabled="savePushEnabled"
     @update-push-kinds="savePushKinds"
     @update-repos="savePrRepos"

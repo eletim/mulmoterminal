@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, watch, nextTick, useTemplateRef } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick, useTemplateRef } from "vue";
 import TerminalCell from "./TerminalCell.vue";
 import CommandCell from "./CommandCell.vue";
 import LauncherCell from "./LauncherCell.vue";
@@ -15,6 +15,9 @@ import type { PrPhase, WorkPhase } from "./rosterPhase";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { shouldFlipZoom } from "./cellChromeRules";
+import { formatCwd } from "./cwdDisplay";
+import FilesPane from "./FilesPane.vue";
+import { clampPaneWidth, splitterKeyWidth, MIN_GUI, MIN_TERMINAL } from "./splitterWidth";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -110,6 +113,134 @@ const zoomMain = ref<HTMLElement | null>(null);
 const mounted = ref(false);
 onMounted(() => (mounted.value = true));
 const zoomed = computed(() => props.expandedUid !== null && mounted.value);
+
+// The file pane beside the enlarged cell. ONE pane, not one per cell: it re-roots to whichever
+// cell is enlarged, so walking the zoom doesn't accumulate editors. Open-state and width are
+// per-browser (localStorage), like the single view's splitter and the terminal font size.
+const PANE_OPEN_KEY = "files_pane_open";
+const PANE_WIDTH_KEY = "files_pane_width";
+const PANE_WIDTH_DEFAULT = 480;
+// Storage can throw (private mode / storage-blocked contexts), so both reads are best-effort.
+const stored = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const remember = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // storage blocked: the pane still works this session, it just isn't remembered
+  }
+};
+const filesOpen = ref(stored(PANE_OPEN_KEY) === "1");
+const paneWidth = ref(Number(stored(PANE_WIDTH_KEY)) || PANE_WIDTH_DEFAULT);
+const zoomRow = ref<HTMLElement | null>(null);
+const rowWidth = () => zoomRow.value?.clientWidth ?? 0;
+// Mirrored into a ref so the separator can announce its range (a plain function call would not
+// re-render when the row resizes). The pane's floor gives way to the terminal's on a narrow row,
+// which is why the minimum is itself clamped.
+const rowWidthNow = ref(0);
+const paneMax = computed(() => Math.max(0, rowWidthNow.value - MIN_TERMINAL));
+const paneMin = computed(() => Math.min(MIN_GUI, paneMax.value));
+
+function setFilesOpen(open: boolean): void {
+  filesOpen.value = open;
+  // Closing drops the root it was on, so re-opening lands on whichever cell is enlarged THEN
+  // rather than resuming a directory the user has since walked away from.
+  if (!open) paneCwd.value = null;
+  remember(PANE_OPEN_KEY, open ? "1" : "0");
+}
+
+// The header toggle. Closing unmounts the pane, buffer and all, so the buffer is saved on the
+// way out — the pane's OWN close button has already flushed by the time it emits, which is why
+// that path stays separate rather than routing through here.
+async function toggleFiles(): Promise<void> {
+  // Closing unmounts the buffer with the pane, so a buffer that could be neither saved nor
+  // backed up keeps the pane open — the error is visible in it.
+  if (filesOpen.value && (await filesPane.value?.flush()) === false) return;
+  setFilesOpen(!filesOpen.value);
+}
+
+// The enlarged cell's project dir — what the pane browses. A cell that hasn't reported one yet
+// (a launcher, a session still starting) falls back to the grid's default.
+const expandedCwd = computed(() => props.cells.find((c) => c.uid === props.expandedUid)?.cwd ?? props.defaultCwd);
+const filesPane = ref<InstanceType<typeof FilesPane> | null>(null);
+// The root the pane is ACTUALLY on. Normally `expandedCwd`, but it stays behind when a re-root
+// is declined over unsaved edits — and it, not `expandedCwd`, is what the pane is handed, so a
+// file opened from a tree that stayed put still resolves against the directory it came from.
+const paneCwd = ref<string | null>(null);
+
+// Walking the zoom to another terminal has to re-root the pane: the pane deliberately ignores
+// its `cwd` prop (see its defineExpose contract), so nothing else would move it. The buffer is
+// saved first rather than asked about — the zoom moves from keys and filmstrip clicks, and a
+// dialog on each of those would interrupt the very flow the pane is meant to sit beside.
+watch(
+  [filesOpen, zoomed, expandedCwd],
+  async ([open, isZoomed]) => {
+    if (!open || !isZoomed || paneCwd.value === expandedCwd.value) return;
+    // First showing: the pane is about to mount against this root, so there is nothing to re-read.
+    if (paneCwd.value === null) {
+      paneCwd.value = expandedCwd.value;
+      return;
+    }
+    // Re-rooting re-reads the tree and drops the buffer with it. Nothing to fall back on means
+    // staying put: the pane keeps the old root, which its header names.
+    if ((await filesPane.value?.flush()) === false) return;
+    paneCwd.value = expandedCwd.value;
+    await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
+    filesPane.value?.reload();
+  },
+  { immediate: true },
+);
+
+function setPaneWidth(width: number): void {
+  const available = rowWidth();
+  rowWidthNow.value = available;
+  // Before the row is laid out there is nothing to clamp against, and clamping against zero
+  // would "correct" the width to a negative one.
+  if (available <= 0) return;
+  paneWidth.value = clampPaneWidth(width, available);
+}
+function onSplitterDown(e: PointerEvent): void {
+  const startX = e.clientX;
+  const startWidth = paneWidth.value;
+  // Dragging LEFT grows the pane, so the delta is subtracted.
+  const onMove = (ev: PointerEvent) => setPaneWidth(startWidth - (ev.clientX - startX));
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    remember(PANE_WIDTH_KEY, String(paneWidth.value));
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+// The keys act on the TERMINAL's width (ArrowLeft shrinks it, growing the pane), which is what
+// splitterKeyWidth speaks — the pane's width is the remainder. Returning null means the key
+// isn't ours, and the separator must not swallow Tab or Escape.
+function onSplitterKey(e: KeyboardEvent): void {
+  const available = rowWidth();
+  const next = splitterKeyWidth(e.key, available - paneWidth.value, available);
+  if (next === null) return;
+  e.preventDefault();
+  setPaneWidth(available - next);
+  remember(PANE_WIDTH_KEY, String(paneWidth.value));
+}
+// A window that shrank below the two floors would otherwise leave the pane wider than the row.
+const reclampPane = () => filesOpen.value && setPaneWidth(paneWidth.value);
+onMounted(() => window.addEventListener("resize", reclampPane));
+onBeforeUnmount(() => window.removeEventListener("resize", reclampPane));
+
+// A width restored from storage was clamped against WHATEVER row existed when it was stored —
+// a wider window, or the other zoom mode. Re-clamp once the row is actually on screen, or a
+// remembered 900px opens against a 1000px row and leaves the terminal 100px wide.
+watch([filesOpen, zoomed, () => props.listMode], async ([open, isZoomed]) => {
+  if (!open || !isZoomed) return;
+  await nextTick();
+  setPaneWidth(paneWidth.value);
+});
 
 const stage = ref<HTMLElement | null>(null);
 // The cells currently flying between slots. Also gates the stylesheet: the cells not in
@@ -268,7 +399,36 @@ watch(
         >
       </div>
     </aside>
-    <div ref="zoomMain" class="zoom-main" />
+    <!-- The enlarged cell and its file pane, side by side. A row wrapper rather than two more
+         siblings of the stage: the stage is a ROW in list mode (roster | terminal) and a COLUMN
+         in strip mode (terminal / filmstrip), so only nesting puts the pane beside the terminal
+         in both. Hidden outright when nothing is zoomed, like .zoom-main itself. -->
+    <div ref="zoomRow" :class="zoomed ? 'flex min-h-0 min-w-0 flex-auto' : 'hidden'">
+      <div ref="zoomMain" class="zoom-main" />
+      <template v-if="filesOpen">
+        <div
+          class="w-[5px] flex-none cursor-col-resize bg-border hover:bg-accent focus-visible:bg-accent"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize file pane"
+          :aria-valuenow="paneWidth"
+          :aria-valuemin="paneMin"
+          :aria-valuemax="paneMax"
+          title="Drag (or use arrow keys) to resize the file pane"
+          tabindex="0"
+          @pointerdown.prevent="onSplitterDown"
+          @keydown="onSplitterKey"
+        />
+        <FilesPane ref="filesPane" :cwd="paneCwd" :style="{ flex: `0 0 ${paneWidth}px` }" class="border-l border-border bg-deep" @close="setFilesOpen(false)">
+          <!-- Which directory the tree is actually rooted at. It normally follows the enlarged
+               cell, but declining a re-root leaves it behind — and then this is the only thing
+               that says so. -->
+          <template #title>
+            <span class="truncate font-mono text-[11px] text-muted" :title="paneCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
+          </template>
+        </FilesPane>
+      </template>
+    </div>
     <div class="grid" :style="gridStyle">
       <Teleport v-for="cell in cells" :key="cell.uid" :to="zoomMain" :disabled="!(zoomed && cell.uid === expandedUid)">
         <CommandCell
@@ -276,11 +436,13 @@ watch(
           :data-uid="cell.uid"
           :class="cellClass(cell.uid)"
           :expanded="cell.uid === expandedUid"
+          :files-open="filesOpen"
           :zoomed="zoomed"
           :command="cell.command"
           :home="home"
           :reorderable="reorderable"
           @toggle-expand="emit('toggle-expand', cell.uid)"
+          @toggle-files="toggleFiles"
           @close="emit('close', cell.uid)"
           @move="(dir) => emit('move', cell.uid, dir)"
           @status="(s) => emit('status', cell.uid, s)"
@@ -291,6 +453,7 @@ watch(
           :data-uid="cell.uid"
           :class="cellClass(cell.uid)"
           :expanded="cell.uid === expandedUid"
+          :files-open="filesOpen"
           :zoomed="zoomed"
           :launcher="cell.launcher"
           :session="cell.session"
@@ -298,6 +461,7 @@ watch(
           :home="home"
           :reorderable="reorderable"
           @toggle-expand="emit('toggle-expand', cell.uid)"
+          @toggle-files="toggleFiles"
           @close="emit('close', cell.uid)"
           @move="(dir) => emit('move', cell.uid, dir)"
           @status="(s) => emit('status', cell.uid, s)"
@@ -309,6 +473,7 @@ watch(
           :data-uid="cell.uid"
           :class="cellClass(cell.uid)"
           :expanded="cell.uid === expandedUid"
+          :files-open="filesOpen"
           :zoomed="zoomed"
           :initial-session-id="cell.session"
           :initial-cwd="cell.cwd"
@@ -322,6 +487,7 @@ watch(
           :cancellable="cell.uid === cancelUid"
           :reorderable="reorderable"
           @toggle-expand="emit('toggle-expand', cell.uid)"
+          @toggle-files="toggleFiles"
           @session="(id) => emit('session', cell.uid, id)"
           @agent="(a) => emit('agent', cell.uid, a)"
           @cwd="(c) => emit('cwd', cell.uid, c)"

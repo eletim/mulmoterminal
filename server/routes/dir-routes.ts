@@ -8,7 +8,9 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { workspaceFromQuery } from "../config/workspace.js";
 import { normalizeAgent } from "./routeParams.js";
 import { getHeaderConfig } from "../config/config-routes.js";
-import { publicDirConfig, dirSoundFile, loadDirConfig } from "../config/dir-config.js";
+import { publicDirConfig, dirSoundFor, loadDirConfig } from "../config/dir-config.js";
+import { readSoundPreset } from "../config/sound-presets.js";
+import { isNotifyKind } from "../../common/notifyKinds.js";
 import { buildHeaderContext, loadHeaderConfig, repoFromWebUrl } from "../config/header-context.js";
 import { headerHasPrButton, resolveHeader } from "../config/header-resolve.js";
 import { loadScripts } from "../files/scripts.js";
@@ -91,14 +93,23 @@ export function mountDirRoutes(app: Express): void {
   // request — it's read from that dir's .mulmoterminal.json and confined to the dir —
   // so there's no traversal surface. 404 when unset/missing (the client falls back to
   // the global sound, then the built-in chime).
-  app.get("/api/dir-sound", (req, res) => {
+  app.get("/api/dir-sound", async (req, res) => {
     const cwd = workspaceFromQuery(req.query.cwd);
-    const file = dirSoundFile(cwd);
-    if (!file) return res.status(404).end();
+    // An unknown/absent `kind` asks for the directory's all-kind sound, which is also what a
+    // client from before #873 sends. The value only ever selects a map entry — never a path.
+    const kind = isNotifyKind(req.query.kind) ? req.query.kind : null;
+    const sound = dirSoundFor(cwd, kind);
+    if (!sound) return res.status(404).end();
+    if (sound.source === "preset") {
+      const bytes = await readSoundPreset(sound.id);
+      // 503, not 404: the id was validated when the directory config was read, so a miss is
+      // the download failing — and the client retries a 5xx while it remembers a 404.
+      return bytes ? res.type("audio/mpeg").send(bytes) : res.status(503).end();
+    }
     // dotfiles:"allow" — the conventional location is a hidden <cwd>/.mulmoterminal/
     // dir, which send() would otherwise 404. The path is already confined to cwd, so
     // serving from a dot-segment is safe here.
-    res.sendFile(file, { dotfiles: "allow" }, (err) => {
+    res.sendFile(sound.path, { dotfiles: "allow" }, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
   });

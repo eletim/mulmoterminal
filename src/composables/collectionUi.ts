@@ -8,6 +8,7 @@
 // read/write mobile phone-frame preview via fetchRemoteView/mutateRemoteView), actions
 // (seed prompt → startChat → a visible chat), favorites (useShortcuts), feed/agent
 // refresh + feed listing (via @mulmoclaude/core/feeds — see server/backends/feeds.ts),
+// Google-calendar push (via @mulmoclaude/core/google — see server/backends/calendarPush.ts),
 // collection/feed/view deletion and the Discover registry tab (listRegistry/importRegistry
 // via @mulmoclaude/core/collection — see server/backends/collections.ts), and state-based
 // navigation (useCollectionBrowse — the toolbar + browse overlay).
@@ -31,9 +32,10 @@ import type {
 } from "@mulmoclaude/core/collection";
 import type { RegistryListResponse, RegistryImportResponse } from "@mulmoclaude/core/collection/registry";
 import type { TranslateRequest, TranslateResponse } from "@mulmoclaude/core/translation/client";
+import type { CollectionPushResult } from "../../common/collectionPush";
 import { buildCustomViewSrcdoc } from "../utils/customViewSrcdoc";
-import { fetchJson } from "../utils/fetchJson";
-import { htmlPreviewUrl, remoteViewItemsQuery, deleteErrorMessage } from "./collectionUiRules";
+import { fetchJson, errorMessage, readErrorBody } from "../utils/fetchJson";
+import { htmlPreviewUrl, remoteViewItemsQuery } from "./collectionUiRules";
 import { useShortcuts } from "./useShortcuts";
 import {
   browseGotoIndex,
@@ -81,8 +83,7 @@ async function apiDelete(url: string): Promise<{ ok: true } | { ok: false; error
   try {
     const res = await fetch(url, { method: "DELETE" });
     if (res.ok) return { ok: true };
-    const body = await res.json().catch(() => null);
-    return { ok: false, error: deleteErrorMessage(body, res.status) };
+    return { ok: false, error: errorMessage(await readErrorBody(res), res.status) };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -212,6 +213,10 @@ configureCollectionUi({
   runCollectionAction: (slug, actionId) =>
     apiPost<CollectionActionResult>(`/api/collections/${encodeURIComponent(slug)}/actions/${encodeURIComponent(actionId)}`, {}),
   refreshCollection: (slug) => apiPost(`/api/collections/${encodeURIComponent(slug)}/refresh`, {}),
+  // The write direction. Path matches MulmoClaude's `API_ROUTES.collections.calendarPush`.
+  // A push that could not run still answers 200 with the reason in `errors`, which is what
+  // the view shows beside the button (server/backends/calendarPush.ts).
+  pushCalendarCollection: (slug) => apiPost<CollectionPushResult>(`/api/collections/${encodeURIComponent(slug)}/calendar-push`, {}),
   deleteView: (slug, viewId) => apiDelete(`/api/collections/${encodeURIComponent(slug)}/views/${encodeURIComponent(viewId)}`),
   listFeeds: () => apiGet<FeedsListResponse>("/api/feeds"),
   // ── Discover/registry tab: the shared @mulmoclaude/core registry engine, wired

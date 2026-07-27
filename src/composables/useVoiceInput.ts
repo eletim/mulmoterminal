@@ -10,14 +10,11 @@
 // Clicking the mic while capable-but-not-available downloads the model on demand.
 
 import { onScopeDispose, ref, type Ref } from "vue";
-import { createVoiceCapture, localeToWhisperLanguage, type VoiceCaptureTransport } from "@mulmoclaude/core/whisper/client";
+import { createVoiceCapture, type VoiceCaptureTransport } from "@mulmoclaude/core/whisper/client";
 import { browserLocale } from "../utils/browserLocale";
 import { modelReadiness, voiceAction } from "./voiceAction";
-
-interface VoiceModelStatusResponse {
-  capable: boolean;
-  model: { name: string; state: "idle" | "downloading" | "ready" | "error"; progress?: number; error?: string };
-}
+import { browserVoiceLanguage, resolveVoiceLanguage, voiceLanguage } from "./voiceLanguage";
+import { fetchVoiceInputStatus } from "./voiceModelStatus";
 
 export interface UseVoiceInput {
   /** Platform + binaries present — gate the mic button's visibility on this. */
@@ -40,16 +37,6 @@ export interface UseVoiceInputOptions {
   onTranscript: (text: string) => void;
 }
 
-async function fetchModelStatus(): Promise<VoiceModelStatusResponse | null> {
-  try {
-    const res = await fetch("/api/transcribe/model");
-    if (!res.ok) return null;
-    return (await res.json()) as VoiceModelStatusResponse;
-  } catch {
-    return null;
-  }
-}
-
 // The controller's transport: plain fetch for transcription + a status poll that doubles
 // as our capability/downloading refresh (keeps `capable`/`downloading` in sync).
 function createVoiceTransport(capable: Ref<boolean>, downloading: Ref<boolean>): VoiceCaptureTransport {
@@ -67,7 +54,7 @@ function createVoiceTransport(capable: Ref<boolean>, downloading: Ref<boolean>):
     // response. Optional-chain throughout so a status blip degrades to "not ready" instead
     // of throwing and wedging the controller's poll loop.
     async getStatus() {
-      const status = await fetchModelStatus();
+      const status = await fetchVoiceInputStatus();
       capable.value = status?.capable ?? false;
       const readiness = modelReadiness(status);
       downloading.value = readiness.downloading;
@@ -85,7 +72,10 @@ export function useVoiceInput(opts: UseVoiceInputOptions): UseVoiceInput {
   const error = ref<string | null>(null);
 
   const transport = createVoiceTransport(capable, downloading);
-  const capture = createVoiceCapture(transport, () => localeToWhisperLanguage(browserLocale()), {
+  // Read per segment (the controller calls this getter per clip), so flipping the setting
+  // takes effect on the next thing you say rather than on the next reload.
+  const language = () => resolveVoiceLanguage(voiceLanguage.value, browserVoiceLanguage(browserLocale()));
+  const capture = createVoiceCapture(transport, language, {
     onTranscript: (text) => {
       error.value = null;
       opts.onTranscript(text);

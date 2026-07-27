@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, toRef, watch } from "vue";
+import DirBadge from "./DirBadge.vue";
+import { useDirConfig } from "../composables/useDirConfig";
 import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { RunCommand } from "./runCommand";
@@ -8,6 +10,7 @@ import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { browserLocale } from "../utils/browserLocale";
 import { isRecord } from "../../common/isRecord";
+import { commandExitKind, notifySound } from "../composables/notifySound";
 import {
   CELL_ACTIONS,
   CELL_BTN,
@@ -51,13 +54,21 @@ const connectKey = ref(0);
 const finished = ref(false);
 const termRef = ref<InstanceType<typeof TerminalView>>();
 
+// Same as LauncherCell (#914): the badge belongs to this cell's header, so it reads the config
+// here. A getter ref because the cwd lives inside the `command` object.
+const { config: dirConfig } = useDirConfig(toRef(() => props.command.cwd));
+
 const dirDisplay = computed(() => formatCwd(props.command.cwd, props.home));
 
 // A running command counts as "working"; once it exits it's idle (never "waiting").
 watch(finished, (done) => emit("status", done ? "idle" : "working"), { immediate: true });
 
-function onExit() {
+function onExit(exitCode: number | null) {
   finished.value = true;
+  // A Run PTY is ephemeral: it never enters the session registry, so nothing publishes a
+  // "closed" activity for it and useAttentionSound cannot see this. The cell is the only
+  // place that knows the command ended, and with what status.
+  notifySound(commandExitKind(exitCode), props.command.cwd);
 }
 
 function rerun() {
@@ -163,6 +174,7 @@ function onHeaderClick(event: MouseEvent) {
       <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="command.cwd ?? ''"
         ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
+      <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
       <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ command.label }}</span>
       <span class="cell-actions" :class="CELL_ACTIONS">
         <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move command left" @click="emit('move', -1)">
@@ -184,7 +196,13 @@ function onHeaderClick(event: MouseEvent) {
         >
           <span class="material-symbols-outlined" aria-hidden="true">{{ summaryState === "loading" ? "more_horiz" : "auto_awesome" }}</span>
         </button>
-        <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
+        <CellChromeButtons
+          :expanded="expanded"
+          :files-open="filesOpen"
+          @toggle-expand="emit('toggle-expand')"
+          @toggle-files="emit('toggle-files')"
+          @close="emit('close')"
+        />
       </span>
     </div>
     <TerminalView

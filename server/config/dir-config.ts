@@ -11,12 +11,15 @@ import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
+import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds.js";
+import { parsePresetRef } from "../../common/notifySounds.js";
 import {
   dirNameField,
   dirColorField,
   dirThemeField,
   dirColorsField,
   dirFontSizeField,
+  dirFontFamilyField,
   dirOrderPriorityField,
   dirSkillsField,
   dirProviderField,
@@ -24,6 +27,7 @@ import {
   type ThemeId,
   type HeaderButton,
   type HeaderChip,
+  resolveAddDirs,
 } from "./config-schema.js";
 
 const DIR_CONFIG_FILE = ".mulmoterminal.json";
@@ -33,8 +37,11 @@ export interface DirConfig extends DirChrome {
   // Per-key xterm palette overrides (on top of `theme`), or null when none are valid.
   colors: Record<string, string> | null;
   // Absolute path to the attention sound, resolved within cwd; null when unset or the
-  // configured path is absolute / escapes the directory / doesn't exist.
+  // configured path is absolute / escapes the directory / doesn't exist. The fallback for
+  // EVERY notification kind; `sounds` overrides it per kind.
   sound: string | null;
+  // Per-kind overrides of `sound` (#873), each either a preset or a file inside cwd.
+  sounds: Partial<Record<NotifyKind, DirSound>>;
   // Per-project terminal-header action buttons (merged over the global ones by id).
   // null = this dir doesn't configure buttons.
   buttons: HeaderButton[] | null;
@@ -46,6 +53,9 @@ export interface DirConfig extends DirChrome {
   // Which backend/model this directory's sessions run on (#579). Never a secret.
   provider: string | null;
   model: string | null;
+  // Extra directories this dir's sessions may touch (#908) — already resolved to absolute
+  // paths against the config's own directory, and already checked to exist.
+  addDirs: string[] | null;
 }
 
 // What the browser receives: the raw sound path stays server-side (streamed via
@@ -77,6 +87,30 @@ export function dirConfigWriteTarget(toolName: unknown, toolInput: unknown, sess
   return sessionCwd ? path.dirname(path.resolve(sessionCwd, file)) : null;
 }
 
+// A directory's sound for one notification kind: its own audio file, or one of the built-in
+// presets. The preset arm carries no path — the id is matched against a fixed catalog — so a
+// project can pick a sound without shipping an mp3 and without widening what it can read.
+export type DirSound = { source: "file"; path: string } | { source: "preset"; id: string };
+
+// One `sounds` entry: a `preset:<id>` reference, else a file confined to cwd by resolveDirSound.
+export function resolveDirSoundValue(cwd: string, input: unknown): DirSound | null {
+  if (typeof input !== "string") return null;
+  const presetId = parsePresetRef(input.trim());
+  if (presetId) return { source: "preset", id: presetId };
+  const file = resolveDirSound(cwd, input);
+  return file ? { source: "file", path: file } : null;
+}
+
+function resolveDirSounds(cwd: string, input: unknown): Partial<Record<NotifyKind, DirSound>> {
+  if (!isRecord(input)) return {};
+  const out: Partial<Record<NotifyKind, DirSound>> = {};
+  NOTIFY_KINDS.forEach((kind) => {
+    const resolved = resolveDirSoundValue(cwd, input[kind]);
+    if (resolved) out[kind] = resolved;
+  });
+  return out;
+}
+
 // Confine the configured sound to a real file INSIDE cwd. Relative paths only;
 // anything absolute or escaping via "../" is rejected so an opened project can't
 // point the player at arbitrary files on disk. The lexical check only constrains the
@@ -103,11 +137,13 @@ const EMPTY: DirConfig = {
   theme: null,
   colors: null,
   sound: null,
+  sounds: {},
   buttons: null,
   chips: null,
   skills: null,
   provider: null,
   model: null,
+  addDirs: null,
 };
 
 export function loadDirConfig(cwd: string): DirConfig {
@@ -127,15 +163,18 @@ export function loadDirConfig(cwd: string): DirConfig {
       dotColor: dirColorField.parse(raw.dotColor),
       buttonColor: dirColorField.parse(raw.buttonColor),
       fontSize: dirFontSizeField.parse(raw.fontSize),
+      fontFamily: dirFontFamilyField.parse(raw.fontFamily),
       orderPriority: dirOrderPriorityField.parse(raw.orderPriority),
       theme: dirThemeField.parse(raw.theme),
       colors: dirColorsField.parse(raw.colors),
       sound: resolveDirSound(base, raw.sound),
+      sounds: resolveDirSounds(base, raw.sounds),
       buttons: sanitizeButtons(raw.buttons),
       chips: sanitizeChips(raw.chips),
       skills: dirSkillsField.parse(raw.skills),
       provider: dirProviderField.parse(raw.provider),
       model: dirModelField.parse(raw.model),
+      addDirs: resolveAddDirs(raw.addDirs, base, (p) => statSync(p).isDirectory()),
     };
   } catch {
     return EMPTY;
@@ -143,8 +182,23 @@ export function loadDirConfig(cwd: string): DirConfig {
 }
 
 export function publicDirConfig(cwd: string): PublicDirConfig {
-  const { name, badgeColor, headerColor, headerTextColor, cellColor, cellBorderColor, dotColor, buttonColor, fontSize, orderPriority, theme, colors, sound } =
-    loadDirConfig(cwd);
+  const {
+    name,
+    badgeColor,
+    headerColor,
+    headerTextColor,
+    cellColor,
+    cellBorderColor,
+    dotColor,
+    buttonColor,
+    fontSize,
+    fontFamily,
+    orderPriority,
+    theme,
+    colors,
+    sound,
+    sounds,
+  } = loadDirConfig(cwd);
   return {
     name,
     badgeColor,
@@ -155,13 +209,20 @@ export function publicDirConfig(cwd: string): PublicDirConfig {
     dotColor,
     buttonColor,
     fontSize,
+    fontFamily,
     orderPriority,
     theme,
     colors,
-    hasSound: sound !== null,
+    hasSound: sound !== null || Object.keys(sounds).length > 0,
   };
 }
 
-export function dirSoundFile(cwd: string): string | null {
-  return loadDirConfig(cwd).sound;
+// The sound this directory wants for one kind: its per-kind entry, else its all-kind
+// `sound`. Null when the directory configures neither — the caller then falls back to the
+// user's global sound and finally to the built-in chime.
+export function dirSoundFor(cwd: string, kind: NotifyKind | null): DirSound | null {
+  const config = loadDirConfig(cwd);
+  const perKind = kind ? config.sounds[kind] : undefined;
+  if (perKind) return perKind;
+  return config.sound ? { source: "file", path: config.sound } : null;
 }

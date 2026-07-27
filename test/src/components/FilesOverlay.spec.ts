@@ -36,6 +36,11 @@ vi.mock("../../../src/components/cmEditor", async (orig) => {
   return { ...actual, createEditor: (_host: HTMLElement, cb: () => void) => ((onChange = cb), fakeEditor) };
 });
 
+// What /text serves and how /write answers, so a test can make the file change underneath
+// the editor (the agent-wrote-it-too case) without a second fetch mock.
+const disk = { text: "# hello", version: "v1" };
+let writeConflictVersion: string | null = null;
+
 function mockFs() {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -51,8 +56,16 @@ function mockFs() {
           : [{ name: "app.ts", dir: false, size: 5 }];
       return { ok: true, json: async () => ({ entries }) };
     }
-    if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello" }) };
-    if (url.includes("/write")) return { ok: true, json: async () => ({ ok: true }), _init: init };
+    if (url.includes("/text")) return { ok: true, json: async () => ({ text: disk.text, version: disk.version }) };
+    // The backup store is a separate endpoint and must not fall into the /write branch below —
+    // banking is what makes "discard" safe, so a failing bank correctly refuses to discard.
+    if (url.includes("/backup")) return { ok: true, json: async () => ({ stored: true }) };
+    if (url.includes("/write")) {
+      if (writeConflictVersion !== null) {
+        return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: writeConflictVersion }) };
+      }
+      return { ok: true, json: async () => ({ ok: true, version: "v2" }), _init: init };
+    }
     return { ok: false, status: 404, json: async () => ({}) };
   }) as unknown as typeof fetch;
 }
@@ -77,6 +90,9 @@ describe("FilesOverlay", () => {
     hoisted.setCwd("/proj");
     hoisted.setRequestedPath(null);
     hoisted.setOpen(true);
+    disk.text = "# hello";
+    disk.version = "v1";
+    writeConflictVersion = null;
     mockFs();
   });
   afterEach(() => wrappers.splice(0).forEach((w) => w.unmount()));
@@ -117,77 +133,71 @@ describe("FilesOverlay", () => {
       "write call",
     );
     expect(putCall[1]).toMatchObject({ method: "PUT" });
-    expect(JSON.parse(putCall[1].body)).toEqual({ text: "edited text" });
+    // The version the buffer was loaded from rides along, so the server can refuse a write
+    // that would clobber whoever else touched the file meanwhile.
+    expect(JSON.parse(putCall[1].body)).toEqual({ text: "edited text", baseVersion: "v1" });
   });
 
-  it("guards against discarding unsaved edits when switching files", async () => {
+  // The confirm dialogs are gone: leaving an open file SAVES it, wherever the leaving comes
+  // from. The server keeps three generations of whatever a save replaces, so nothing that was
+  // typed is lost either way — and the reader never gets a modal between them and a terminal.
+  const openAndDirty = async (w: ReturnType<typeof mount>, name = "README.md") => {
+    await must(
+      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes(name)),
+      name,
+    ).trigger("click");
+    await flushPromises();
+    onChange();
+    await flushPromises();
+  };
+  const writeCalls = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/write"));
+
+  it("saves the open file before switching to another, without asking", async () => {
     const w = mountOverlay();
     await flushPromises();
-    const open = (name: string) =>
-      must(
-        w.findAll('[data-testid="files-row"]').find((b) => b.text().includes(name)),
-        name,
-      ).trigger("click");
-    await open("README.md");
-    await flushPromises();
-    onChange(); // mark dirty
+    await openAndDirty(w);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    await must(
+      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("notes.txt")),
+      "notes.txt",
+    ).trigger("click");
     await flushPromises();
 
-    // Declining the confirm aborts the switch — the new file is not loaded.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fakeEditor.setDoc.mockClear();
-    await open("notes.txt");
-    await flushPromises();
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // buffer kept
-
-    // Accepting the confirm proceeds with the switch.
-    confirmSpy.mockReturnValue(true);
-    await open("notes.txt");
-    await flushPromises();
-    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "notes.txt");
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "notes.txt"); // the switch happened
     confirmSpy.mockRestore();
   });
 
-  it("guards a route root (cwd) change with a dirty buffer", async () => {
+  it("saves before the route changes root, then re-reads at the new one", async () => {
     const w = mountOverlay();
     await flushPromises();
-    await must(
-      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
-      "readme",
-    ).trigger("click");
-    await flushPromises();
-    onChange(); // mark dirty
+    await openAndDirty(w);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    hoisted.setCwd("/other-project");
     await flushPromises();
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fakeEditor.destroy.mockClear();
-    hoisted.setCwd("/other-project"); // simulate the Files route changing roots
-    await flushPromises();
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(fakeEditor.destroy).not.toHaveBeenCalled(); // declined → no teardown, buffer kept
-    expect(w.text()).toContain("README.md"); // still showing the old root's tree
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // The save must be built from the OLD root, or it would write to a file of the same
+    // relative path in the project the user just moved to.
+    expect(String(writeCalls()[0][0])).toContain(encodeURIComponent("/proj"));
     confirmSpy.mockRestore();
   });
 
-  it("guards an external close (isOpen=false) with a dirty buffer", async () => {
+  it("saves when an external navigation closes the view", async () => {
     const w = mountOverlay();
     await flushPromises();
-    await must(
-      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
-      "readme",
-    ).trigger("click");
-    await flushPromises();
-    onChange(); // mark dirty
+    await openAndDirty(w);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    hoisted.setOpen(false); // Back / another view
     await flushPromises();
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fakeEditor.destroy.mockClear();
-    hoisted.setOpen(false); // external navigation (Back / another view) closes the overlay
-    await flushPromises();
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(fakeEditor.destroy).not.toHaveBeenCalled(); // declined → reverted, buffer kept
-    expect(w.text()).toContain("README.md"); // overlay still open
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 
@@ -253,5 +263,115 @@ describe("FilesOverlay", () => {
       expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "app.ts");
       expect(urls.some((u) => u.includes("%2Fother-proj") && u.includes("src%2Fapp.ts"))).toBe(true);
     });
+  });
+
+  // The agent running in this very directory edits the same files, so "someone else wrote it
+  // while you had it open" is the normal case here, not the exotic one.
+  describe("a save the server refuses (409)", () => {
+    const conflictBanner = (w: ReturnType<typeof mount>) => w.find('[data-testid="files-conflict"]');
+    const clickButton = async (w: ReturnType<typeof mount>, label: string) => {
+      await must(
+        w.findAll("button").find((b) => b.text().startsWith(label)),
+        `${label} btn`,
+      ).trigger("click");
+      await flushPromises();
+    };
+    const openAndEdit = async () => {
+      const w = mountOverlay();
+      await flushPromises();
+      await must(
+        w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
+        "README row",
+      ).trigger("click");
+      await flushPromises();
+      onChange(); // dirty
+      await flushPromises();
+      return w;
+    };
+
+    it("shows the banner and keeps the buffer instead of reporting a plain error", async () => {
+      writeConflictVersion = "v9";
+      const w = await openAndEdit();
+      await clickButton(w, "Save");
+      expect(conflictBanner(w).exists()).toBe(true);
+      expect(w.text()).toContain("Nothing was saved");
+      // Still dirty: the edits are the whole point of offering the choice.
+      const saveBtn = must(
+        w.findAll("button").find((b) => b.text().startsWith("Save")),
+        "save btn",
+      );
+      expect(saveBtn.attributes("disabled")).toBeUndefined();
+    });
+
+    it("Reload takes the disk's copy, banking the buffer first and never prompting", async () => {
+      writeConflictVersion = "v9";
+      const w = await openAndEdit();
+      await clickButton(w, "Save");
+
+      disk.text = "# the agent's version";
+      disk.version = "v9";
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      await clickButton(w, "Reload");
+      // The version being dropped goes to the backup store before it is dropped.
+      const banked = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).includes("/backup"));
+      expect(banked).toBe(true);
+
+      // The button IS the decision — prompting again would ask the same question twice.
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(fakeEditor.setDoc).toHaveBeenLastCalledWith("# the agent's version", "README.md");
+      expect(conflictBanner(w).exists()).toBe(false);
+      confirmSpy.mockRestore();
+    });
+
+    it("Overwrite re-sends with the disk's version, so the retry writes instead of conflicting", async () => {
+      writeConflictVersion = "v9";
+      const w = await openAndEdit();
+      await clickButton(w, "Save");
+
+      writeConflictVersion = null; // the retry is allowed through
+      await clickButton(w, "Overwrite");
+
+      const writes = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/write"));
+      expect(writes).toHaveLength(2);
+      expect(JSON.parse(writes[0][1].body).baseVersion).toBe("v1");
+      expect(JSON.parse(writes[1][1].body).baseVersion).toBe("v9");
+      expect(conflictBanner(w).exists()).toBe(false);
+    });
+  });
+});
+
+// A root change the pane could not be saved out of leaves it on the OLD tree. Handing it the
+// new ?cwd= anyway would send its next save to the same relative path in a different project.
+describe("FilesOverlay when the parting save fails", () => {
+  beforeEach(() => {
+    hoisted.setCwd("/proj");
+    hoisted.setRequestedPath(null);
+    hoisted.setOpen(true);
+    disk.text = "# hello";
+    disk.version = "v1";
+    writeConflictVersion = null;
+    mockFs();
+  });
+  afterEach(() => wrappers.splice(0).forEach((w) => w.unmount()));
+
+  it("keeps the old root on the pane, not just the old tree", async () => {
+    const w = mount(FilesOverlay);
+    wrappers.push(w);
+    await flushPromises();
+    await must(
+      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
+      "readme",
+    ).trigger("click");
+    await flushPromises();
+    onChange();
+    await flushPromises();
+
+    // Neither the save nor the backup can be written.
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: "server is down" }) })) as unknown as typeof fetch;
+    hoisted.setCwd("/other-project");
+    await flushPromises();
+
+    expect(w.findComponent({ name: "FilesPane" }).props("cwd")).toBe("/proj");
+    expect(w.text()).toContain("/proj"); // and the header says so
   });
 });
