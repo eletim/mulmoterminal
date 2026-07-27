@@ -1720,10 +1720,10 @@
   dependencies:
     "@mulmoclaude/core" "^1.5.0"
 
-"@mulmoclaude/collection-plugin@^1.1.1":
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/collection-plugin/-/collection-plugin-1.1.1.tgz#18eb0ded20844ac55cf737e0c367b72b72f5e44f"
-  integrity sha512-5r18FEgGFwae3y2S7rmhN+WpVzM/LsRMOI5fqJ8cALQJp2Q5Oqopq7qnhwqDrOAOxR7UlIPEAx3WaCPTi1pWqA==
+"@mulmoclaude/collection-plugin@^1.2.1":
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/collection-plugin/-/collection-plugin-1.2.1.tgz#b9ec1b19d9dfb42eeee67d69679affe3eb2d4618"
+  integrity sha512-tx8sBOoA3Eznn27P9s7sIu7a5Os4PnDJAZFPD/cltNHvvd/H55htbN702CJ9xaGQhLQh+aIQVU9piqpyRm94IQ==
   dependencies:
     vuedraggable "^4.1.0"
     zod "^4.4.3"
