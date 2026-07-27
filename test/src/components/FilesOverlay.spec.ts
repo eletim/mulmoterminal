@@ -339,3 +339,39 @@ describe("FilesOverlay", () => {
     });
   });
 });
+
+// A root change the pane could not be saved out of leaves it on the OLD tree. Handing it the
+// new ?cwd= anyway would send its next save to the same relative path in a different project.
+describe("FilesOverlay when the parting save fails", () => {
+  beforeEach(() => {
+    hoisted.setCwd("/proj");
+    hoisted.setRequestedPath(null);
+    hoisted.setOpen(true);
+    disk.text = "# hello";
+    disk.version = "v1";
+    writeConflictVersion = null;
+    mockFs();
+  });
+  afterEach(() => wrappers.splice(0).forEach((w) => w.unmount()));
+
+  it("keeps the old root on the pane, not just the old tree", async () => {
+    const w = mount(FilesOverlay);
+    wrappers.push(w);
+    await flushPromises();
+    await must(
+      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
+      "readme",
+    ).trigger("click");
+    await flushPromises();
+    onChange();
+    await flushPromises();
+
+    // Neither the save nor the backup can be written.
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: "server is down" }) })) as unknown as typeof fetch;
+    hoisted.setCwd("/other-project");
+    await flushPromises();
+
+    expect(w.findComponent({ name: "FilesPane" }).props("cwd")).toBe("/proj");
+    expect(w.text()).toContain("/proj"); // and the header says so
+  });
+});
