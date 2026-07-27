@@ -12,9 +12,8 @@ chip's label (a bare basename — `proj`, `web`, `api`) is doing the work alone.
 
 ## What
 
-Each chip gets a 3px stripe down its leading edge in that directory's colour.
-
-A 6px stripe, plus a wash over the chip's background and border in the same colour.
+A 6px stripe down each chip's leading edge in that directory's colour, plus a wash over its
+background and border in the same colour.
 
 **The wash is dropped while a session is running there.** That chip's blue means "a session is
 already here" — a state, not an identity. Two meanings on one background is how both stop being
