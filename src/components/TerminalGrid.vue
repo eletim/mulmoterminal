@@ -18,6 +18,8 @@ import { shouldFlipZoom } from "./cellChromeRules";
 import { formatCwd } from "./cwdDisplay";
 import FilesPane, { type FilesPaneState } from "./FilesPane.vue";
 import { clampPaneWidth, splitterKeyWidth, MIN_GUI, MIN_TERMINAL } from "./splitterWidth";
+import { setFilesPaneOpener } from "../composables/filesPaneOpener";
+import { paneCanShowClick } from "./paneClickTarget";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -222,6 +224,29 @@ watch(
   },
   { immediate: true },
 );
+
+// The pane's SECOND entrance (#910): a file path clicked in terminal output, offered here
+// before it falls back to a new tab or the full-screen view. Whether this grid can show it is
+// `paneCanShowClick`; all that is left here is doing it.
+function openClickedPath(cwd: string, pathRel: string): boolean {
+  const state = { zoomed: zoomed.value, expandedCwd: expandedCwd.value, paneCwd: paneCwd.value };
+  if (!paneCanShowClick(state, cwd)) return false;
+  void showClickedPath(pathRel);
+  return true;
+}
+
+async function showClickedPath(pathRel: string): Promise<void> {
+  if (!filesOpen.value) setFilesOpen(true);
+  // Let the pane mount and the re-root watcher put paneCwd under it — the pane resolves the
+  // path against that prop, so opening any earlier would read it from the wrong directory.
+  await nextTick();
+  await filesPane.value?.openFile(pathRel);
+}
+
+onMounted(() => setFilesPaneOpener(openClickedPath));
+// A stale opener would point at a pane that no longer exists and report success for a click
+// nothing acted on — the path would then simply not open anywhere.
+onBeforeUnmount(() => setFilesPaneOpener(null));
 
 function setPaneWidth(width: number): void {
   const available = rowWidth();
