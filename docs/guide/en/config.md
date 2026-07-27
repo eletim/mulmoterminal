@@ -92,6 +92,17 @@ Open it from the ⚙ in the toolbar.
 | `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 | `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
 
+### Keys this version doesn't know are kept {#unknown-keys}
+
+Every MulmoTerminal on the machine reads and writes this one file, so a key written by a newer
+version can be saved over by an older one. It isn't: **a top-level key this build doesn't
+recognise is written back untouched.** Run 2.4 and 2.2 side by side, or downgrade for an
+afternoon, and the newer version's settings are still there when you come back.
+
+A typo survives the same way — `copyOnSlect` stays in the file rather than being quietly dropped.
+That is the intended trade: a setting that "doesn't work" is easier to spot when the line is still
+there to look at.
+
 ## Notification sounds (`soundKinds` / `sounds`) {#sounds}
 
 Six moments can beep, each with its own sound and its own switch. Running many agents at once

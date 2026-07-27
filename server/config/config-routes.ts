@@ -16,6 +16,7 @@ import {
   saveAppConfig,
   mergeConfigUpdate,
   toPublicAppConfig,
+  unknownKeysOf,
   type AppConfig,
 } from "./app-config.js";
 import { type HeaderConfig } from "./header-config.js";
@@ -156,7 +157,9 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
     const next = mergeConfigUpdate(base, body);
     // Stage, persist, commit in-memory only on success — a failed write must not
     // leave GET exposing values that won't survive a restart.
-    if (!saveAppConfig(CONFIG_FILE, next)) return res.status(500).json({ error: "failed to persist config" });
+    // Carry the keys this build doesn't know straight back to disk. Another version's setting
+    // must not disappear because this one saved over it (#966).
+    if (!saveAppConfig(CONFIG_FILE, next, unknownKeysOf(loaded))) return res.status(500).json({ error: "failed to persist config" });
     config = next;
     res.json(configResponse());
   });

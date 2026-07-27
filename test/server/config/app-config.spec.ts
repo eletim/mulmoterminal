@@ -288,7 +288,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
       fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
     };
-    expect(saveAppConfig(file, cfg)).toBe(true);
+    expect(saveAppConfig(file, cfg, {})).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
     expect(loadAppConfig(file)).toEqual(cfg);
     rmSync(dir, { recursive: true, force: true });
@@ -450,7 +450,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, richConfig);
+    saveAppConfig(file, richConfig, {});
     const loaded = loadAppConfigResult(file);
     expect(loaded.status).toBe("ok");
     const base = loaded.status === "ok" ? loaded.config : loadAppConfig(file);
@@ -464,7 +464,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   it("a corrupt base is caught BEFORE merge, so the write path can refuse instead of wiping", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, richConfig);
+    saveAppConfig(file, richConfig, {});
     // Corrupt it the way a hand-edit would (append a stray token).
     writeFileSync(file, readFileSync(file, "utf8") + "  oops");
     const loaded = loadAppConfigResult(file);
@@ -558,7 +558,7 @@ describe("mergeConfigUpdate", () => {
     const file = path.join(dir, "config.json");
     try {
       // "Another instance" persisted a full config (buttons + chips) to the shared file.
-      saveAppConfig(file, baseConfig());
+      saveAppConfig(file, baseConfig(), {});
       // A stale instance handles a chips-only POST: base must come from the re-read disk,
       // not its boot-time memory — so the disk's buttons survive.
       const disk = loadAppConfig(file);
