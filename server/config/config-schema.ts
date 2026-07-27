@@ -201,6 +201,16 @@ export const dirModelField = z.string().trim().min(1).nullable().catch(null);
 // A per-dir allowlist for the header Skill menu: which skill slugs to show, in this
 // order. Trimmed, deduped, capped. null when unset/garbage/empty — which means
 // "no filter, show every discovered skill" (absent config == show all).
+export const MAX_SKILL_FILTER = 100;
+export const dirSkillsField = z
+  .array(z.string())
+  .transform((arr) => {
+    const cleaned = [...new Set(arr.map((s) => s.trim()).filter(Boolean))].slice(0, MAX_SKILL_FILTER);
+    return cleaned.length ? cleaned : null;
+  })
+  .nullable()
+  .catch(null);
+
 // Extra directories a session may read/edit — Claude Code's `--add-dir` (#908), the
 // terminal-side answer to opening several folders in one VS Code workspace. Relative
 // entries resolve against the directory holding the config, which is what a reader of
@@ -219,16 +229,6 @@ export function resolveAddDirs(input: unknown, base: string, exists: (p: string)
   const unique = [...new Set(resolved)].slice(0, MAX_ADD_DIRS);
   return unique.length ? unique : null;
 }
-
-export const MAX_SKILL_FILTER = 100;
-export const dirSkillsField = z
-  .array(z.string())
-  .transform((arr) => {
-    const cleaned = [...new Set(arr.map((s) => s.trim()).filter(Boolean))].slice(0, MAX_SKILL_FILTER);
-    return cleaned.length ? cleaned : null;
-  })
-  .nullable()
-  .catch(null);
 
 // ---- JSON Schema for the config skill -----------------------------------------------------
 // The WRITABLE per-dir shape (what a user types into `.mulmoterminal.json`), described strictly
