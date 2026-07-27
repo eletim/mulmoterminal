@@ -10,19 +10,25 @@ const backupsIn = (dir: string) =>
     .filter((n) => n.endsWith(".bak"))
     .sort();
 
+// Resolved, not POSIX literals: on Windows an absolute path is drive-qualified, so an
+// expectation written as "/backups" only agrees on the developer's machine.
+const ROOT = path.resolve("/backups");
+const FILE = path.resolve("/proj/a.md");
+// Built by hand rather than with path.join, which would normalize away the `..` this is about.
+const MESSY_FILE = [path.dirname(FILE), "sub", "..", path.basename(FILE)].join(path.sep);
+
 describe("backupDirFor", () => {
   it("gives each file its own stable directory", () => {
-    const root = "/backups";
-    expect(backupDirFor("/proj/a.md", root)).toBe(backupDirFor("/proj/a.md", root));
-    expect(backupDirFor("/proj/a.md", root)).not.toBe(backupDirFor("/proj/b.md", root));
+    expect(backupDirFor(FILE, ROOT)).toBe(backupDirFor(FILE, ROOT));
+    expect(backupDirFor(FILE, ROOT)).not.toBe(backupDirFor(path.resolve("/proj/b.md"), ROOT));
     // Same file reached by a messier path is the same file.
-    expect(backupDirFor("/proj/sub/../a.md", root)).toBe(backupDirFor("/proj/a.md", root));
+    expect(backupDirFor(MESSY_FILE, ROOT)).toBe(backupDirFor(FILE, ROOT));
   });
 
   // A path can't BE a directory name: separators, case folding and length limits all break it.
   it("names it with a hash, not the path", () => {
-    const dir = backupDirFor("/proj/a.md", "/backups");
-    expect(path.dirname(dir)).toBe("/backups");
+    const dir = backupDirFor(FILE, ROOT);
+    expect(path.dirname(dir)).toBe(ROOT);
     expect(path.basename(dir)).toMatch(/^[0-9a-f]{16}$/);
   });
 });
