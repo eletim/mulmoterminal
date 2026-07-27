@@ -44,7 +44,7 @@ import { mountShortcutsRoutes } from "../backends/shortcuts.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
-import { CLAUDE_CWD, PORT, SESSION_ID_RE } from "../config/env.js";
+import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
 import { resolveWorkspace } from "../config/workspace.js";
 import type { createToolStores } from "../session/tool-store.js";
 import type { createClaudeSpawner } from "../session/spawn-claude.js";
@@ -225,7 +225,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // Project-scoped file browsing + editing for the full-screen Files view
   // (GET /api/files/browse/{list,text,md}, PUT .../write — all ?cwd=&path=). Each
   // terminal browses its own session's project dir; paths are contained within it.
-  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD });
+  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD, backupRoot: path.join(MULMOTERMINAL_HOME, "backups") });
 
   // Directory-scoped reads for a terminal cell: scripts, skills, dir config, git status,
   // PR phase, resolved header, custom sound. All keyed by ?cwd= (see routes/dir-routes.ts).
