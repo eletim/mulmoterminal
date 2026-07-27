@@ -46,9 +46,24 @@ describe("soundSources", () => {
     expect(coin).not.toBe(gong);
   });
 
-  it("keys each kind separately, so two kinds sharing a file still cache apart", () => {
+  // Two kinds left on the same fallback resolve to the same bytes, so they must SHARE the key —
+  // keying on the kind would fetch and decode the identical file once per kind.
+  it("shares one key between kinds that resolve to the same sound", () => {
     const c = config({ soundFile: "/abs/one.mp3" });
+    expect(soundSources("finished", null, c)[0].key).toBe(soundSources("waiting", null, c)[0].key);
+  });
+
+  it("still keys apart when the kinds resolve to different sounds", () => {
+    const c = config({ sounds: { finished: "preset:coin" }, soundFile: "/abs/one.mp3" });
     expect(soundSources("finished", null, c)[0].key).not.toBe(soundSources("waiting", null, c)[0].key);
+  });
+
+  // The key parts are NUL-joined so a value containing the separator cannot forge a boundary
+  // and collide with a different one.
+  it("cannot be made to collide by a value containing the separator", () => {
+    const a = soundSources("finished", null, config({ soundFile: "/a\u0000/b.mp3" }))[0].key;
+    const b = soundSources("finished", null, config({ soundFile: "/a/b.mp3" }))[0].key;
+    expect(a).not.toBe(b);
   });
 
   it("escapes a directory containing characters the query would otherwise break on", () => {
