@@ -1,6 +1,6 @@
 ---
 name: mulmoterminal-config
-description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, terminal font size and font family, position in the grid, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), the terminal font (`fontFamily`, including a CJK-capable one for Japanese), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, resize or change the terminal font, control where a project sits in the grid, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal, or the terminal text is too small/large (browser zoom is not the fix — it breaks xterm's grid alignment), or Japanese/CJK text in the terminal looks wrong or misaligns the box-drawing frames.
+description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, terminal font size and font family, position in the grid, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`, including copy/paste), copy-on-select (`copyOnSelect`, for "selecting text should copy it"), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), the terminal font (`fontFamily`, including a CJK-capable one for Japanese), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, resize or change the terminal font, control where a project sits in the grid, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal, or the terminal text is too small/large (browser zoom is not the fix — it breaks xterm's grid alignment), or Japanese/CJK text in the terminal looks wrong or misaligns the box-drawing frames.
 ---
 
 # Configure a MulmoTerminal directory
@@ -339,6 +339,8 @@ never add one they did not request.
 | `terminal-new` | Add a terminal at the end (the toolbar's `＋`) | no |
 | `terminal-new-adjacent` | Add one right after the current terminal, inheriting its cwd | yes |
 | `terminal-close` | Close the current terminal | yes |
+| `copy` | Copy the terminal's selection. Acts ONLY when something is selected, so `Ctrl+C` stays usable as interrupt — with no selection the key reaches the program untouched | no |
+| `paste` | Paste into the terminal | no |
 
 **Offer one of these starter sets rather than inventing keys** — each is checked against the traps
 below, and the guide documents them at
@@ -378,6 +380,31 @@ below, and the guide documents them at
   lists every action and its binding (read-only).
 - The browser reads the keymap on page load: **reload the tab** after writing. A hand-edit made while
   the server is running also needs a server restart before it reaches the page.
+
+## Copy on select — `copyOnSelect` in `~/.mulmoterminal/config.json`
+
+Reach for this when the user wants a mouse selection to reach the clipboard **without pressing
+anything** — the PuTTY / iTerm2 behaviour, `copyOnSelect` in Windows Terminal. Global file, and off
+unless written.
+
+```json
+{ "copyOnSelect": true }
+```
+
+- **Only write it if asked.** It changes the clipboard when the user may have only meant to
+  highlight something while reading, which is why it ships off.
+- It is **not** a replacement for the `copy` keymap action, and they coexist. Someone who selects
+  with the keyboard still wants `copy` bound.
+- **Over plain `http://` the browser gives the page no clipboard access at all** (the API is
+  `https://`- and `localhost`-only). There is a fallback that works there, but it needs the terminal
+  to still hold keyboard focus. If the user reaches MulmoTerminal at `http://<ip>:PORT` and reports
+  that dragging does not copy, this is the first thing to check — not the setting.
+- Whitespace-only selections and a repeat of the last text are deliberately not copied, so the
+  user's existing clipboard survives an accidental drag. Say so if they report "it didn't copy" for
+  either case.
+- Partial `POST /api/config` merge — write only `copyOnSelect`.
+- The browser reads it on page load: **reload the tab**, and restart the server if the file was
+  hand-edited while it was running.
 
 ## Enter key behaviour — `terminalSubmit` in `~/.mulmoterminal/config.json`
 

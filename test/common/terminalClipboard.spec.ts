@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { clipboardActionFor } from "../../common/terminalClipboard";
+import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
 import { TERMINAL_SCOPED_ACTIONS, type Keymap } from "../../common/keymap";
 
 const keymap: Keymap = { copy: "Ctrl+c", paste: "Ctrl+v", "zoom-next": "PageDown" };
@@ -56,5 +56,37 @@ describe("clipboardActionFor", () => {
 
   it("declares both actions terminal-scoped, so the grid handler cannot claim them", () => {
     expect([...TERMINAL_SCOPED_ACTIONS].sort()).toEqual(["copy", "paste"]);
+  });
+});
+
+describe("selectionToCopy", () => {
+  it("returns the selection to write once the feature is on", () => {
+    expect(selectionToCopy(true, "npm run build", null)).toBe("npm run build");
+  });
+
+  // The default. Nothing may reach the clipboard from a plain highlight unless it was asked for.
+  it("writes nothing at all while disabled", () => {
+    expect(selectionToCopy(false, "npm run build", null)).toBeNull();
+  });
+
+  // Dragging across empty terminal space selects spaces. Replacing what the user had copied with a
+  // run of them, silently, is the worst thing this feature could do.
+  it("refuses a selection that is only whitespace", () => {
+    expect(selectionToCopy(true, "   ", null)).toBeNull();
+    expect(selectionToCopy(true, "\n\t ", null)).toBeNull();
+    expect(selectionToCopy(true, "", null)).toBeNull();
+  });
+
+  // A selection can settle unchanged (a click that clears and re-makes it, a re-render). Writing
+  // again would cost a duplicate entry in the OS clipboard history and gain nothing.
+  it("does not write the same text twice in a row", () => {
+    expect(selectionToCopy(true, "npm run build", "npm run build")).toBeNull();
+    expect(selectionToCopy(true, "npm run test", "npm run build")).toBe("npm run test");
+  });
+
+  // Leading/trailing whitespace is the user's selection, not noise to tidy up: it is what they
+  // dragged over, and a terminal line's indentation can be the point.
+  it("keeps surrounding whitespace on a selection that has real content", () => {
+    expect(selectionToCopy(true, "  indented  ", null)).toBe("  indented  ");
   });
 });
