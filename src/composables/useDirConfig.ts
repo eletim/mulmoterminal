@@ -9,6 +9,7 @@ import { normalizeFontSize } from "../../common/terminalFontSize";
 import { normalizeFontFamily } from "../../common/terminalFontFamily";
 import { normalizeOrderPriority } from "../../common/orderPriority";
 import { isRecord } from "../../common/isRecord";
+import { dirChipColor } from "../components/dirChipColor";
 
 // The per-directory overrides a terminal adopts when its cwd holds a
 // `.mulmoterminal.json` (served by GET /api/dir-config). The raw sound path stays
@@ -134,36 +135,36 @@ function releaseDir(cwd: string, listener: (config: DirConfig) => void): void {
   generation.delete(cwd);
 }
 
-// The grid's "priority" sort needs a rank for EVERY cell, including ones on pages that are
-// not mounted — and an unmounted cell runs no useDirConfig of its own. This subscribes to a
-// whole SET of directories at once and reports just their `orderPriority`, so editing any of
-// their .mulmoterminal.json re-sorts the grid live through the existing invalidation channel.
-// Directories that set nothing are absent from the map rather than present-as-null, so the
-// caller's "unset sorts last" default is a plain lookup miss.
-export function useDirPriorities(cwds: Ref<string[]>) {
-  const priorities = ref<Record<string, number>>({});
+// One field of the config, for a whole SET of directories at once — the callers below need a
+// value for directories that have no mounted cell running `useDirConfig` of its own (the grid's
+// "priority" sort ranks every cell, the launch form colours a chip per recent dir). Editing any
+// of their .mulmoterminal.json updates the map live through the existing invalidation channel.
+// Directories where `pick` returns null are ABSENT from the map rather than present-as-null, so
+// "unset" is a plain lookup miss for the caller.
+export function useDirField<T>(cwds: Ref<string[]>, pick: (config: DirConfig) => T | null) {
+  const values = ref<Record<string, T>>({}) as Ref<Record<string, T>>;
   subscribeToDirConfigChanges();
   const listeners = new Map<string, (config: DirConfig) => void>();
 
   // Rewrite only on a real change: this is called on every fetch resolve and every
   // invalidation, and a fresh object each time would re-sort the grid for nothing.
-  const record = (cwd: string, next: number | null) => {
-    const held = priorities.value[cwd];
+  const record = (cwd: string, next: T | null) => {
+    const held = values.value[cwd];
     if (next === null ? held === undefined : held === next) return;
     // Rebuilt without the key rather than spread-and-delete: an unset directory must be ABSENT,
     // since the sort reads a lookup miss as "no rank", and a present-but-undefined entry would
     // still answer `cwd in map`.
-    const kept = Object.entries(priorities.value).filter(([key]) => key !== cwd);
-    priorities.value = Object.fromEntries(next === null ? kept : [...kept, [cwd, next]]);
+    const kept = Object.entries(values.value).filter(([key]) => key !== cwd);
+    values.value = Object.fromEntries(next === null ? kept : [...kept, [cwd, next]]);
   };
 
   const track = (cwd: string) => {
-    const listener = (config: DirConfig) => record(cwd, config.orderPriority);
+    const listener = (config: DirConfig) => record(cwd, pick(config));
     listeners.set(cwd, listener);
     bindDir(cwd, listener);
     const seeded = resolvedConfig.get(cwd); // paint from cache now; the fetch below refreshes
-    if (seeded) record(cwd, seeded.orderPriority);
-    void fetchDirConfig(cwd).then((config) => listeners.get(cwd) === listener && record(cwd, config.orderPriority));
+    if (seeded) record(cwd, pick(seeded));
+    void fetchDirConfig(cwd).then((config) => listeners.get(cwd) === listener && record(cwd, pick(config)));
   };
 
   const untrack = (cwd: string) => {
@@ -184,7 +185,18 @@ export function useDirPriorities(cwds: Ref<string[]>) {
     { immediate: true },
   );
   onScopeDispose(() => [...listeners.keys()].forEach(untrack));
-  return { priorities };
+  return values;
+}
+
+// Ranks for the grid's "priority" sort; unset sorts last, which the caller reads as a lookup miss.
+export function useDirPriorities(cwds: Ref<string[]>) {
+  return { priorities: useDirField(cwds, (config) => config.orderPriority) };
+}
+
+// The colour that stands for each directory on a launch chip — see dirChipColor for which of the
+// configured colours wins. Directories that configured none are absent, and stay uncoloured.
+export function useDirColors(cwds: Ref<string[]>) {
+  return { colors: useDirField(cwds, dirChipColor) };
 }
 
 // One process-wide subscription, established by the first cell that asks for a dir config.

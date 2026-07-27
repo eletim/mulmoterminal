@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
-import { useDirConfig } from "../composables/useDirConfig";
+import { useDirConfig, useDirColors } from "../composables/useDirConfig";
 import { useGitStatus } from "../composables/useGitStatus";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
 import DirBadge from "./DirBadge.vue";
@@ -132,6 +132,11 @@ const filmstrip = computed(() => !!props.zoomed && !props.expanded);
 // load (cold-load / open-before-config) — it never clobbers the user's own edit.
 const dirInput = ref(preferredLaunchDir(props));
 const dirTouched = ref(false); // true once the user types in / picks a dir
+// Each recent-dir chip wears its directory's configured colour, so picking one is the same
+// visual decision as finding its cell in the grid. Dropped once this cell launches: the chips
+// are gone, and their subscriptions would keep fetching for the rest of the session.
+const presetPaths = computed(() => (launched.value ? [] : props.presets.map((p) => p.path)));
+const { colors: presetColors } = useDirColors(presetPaths);
 watch([() => props.presets, () => props.defaultCwd], () => {
   if (cwd.value === null && props.defaultCwd) cwd.value = props.defaultCwd;
   if (!shouldSyncLaunchDir({ hasInitialCwd: !!props.initialCwd, touched: dirTouched.value, launched: launched.value })) return;
@@ -1421,6 +1426,16 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               : 'border-border bg-elevated',
           ]"
         >
+          <!-- The directory's own colour, as the stripe down the chip's leading edge. A stripe and
+               not a tint: the chip's background already means "a session is running here", and a
+               dir that configured no colour has to keep looking exactly as it did. -->
+          <span
+            v-if="presetColors[p.path]"
+            data-testid="cell-chip-color"
+            class="w-[3px] flex-none"
+            :style="{ background: presetColors[p.path] }"
+            aria-hidden="true"
+          />
           <button
             type="button"
             data-testid="cell-chip-main"

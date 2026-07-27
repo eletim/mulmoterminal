@@ -1752,4 +1752,32 @@ describe("TerminalCell", () => {
     expect(idle?.find('[data-testid="cell-chip-dot"]').exists()).toBe(false);
     expect(idle?.find('[data-testid="cell-chip-launch"]').attributes("aria-label")).not.toContain("already running");
   });
+
+  it("stripes each recent-dir chip with that directory's configured colour, and leaves the rest bare", async () => {
+    const byCwd: Record<string, unknown> = { "/chip/tinted": { headerColor: "#aa1122" }, "/chip/bare": { name: "no colour" } };
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/dir-config")) {
+        const cwd = decodeURIComponent(new URL(u, "https://test.invalid").searchParams.get("cwd") ?? "");
+        return { ok: true, json: async () => byCwd[cwd] ?? {} };
+      }
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, {
+      presets: [
+        { label: "tinted", path: "/chip/tinted" },
+        { label: "bare", path: "/chip/bare" },
+      ],
+    });
+    await flushPromises();
+
+    const chips = w.findAll('[data-testid="cell-chip"]');
+    const tinted = chips.find((c) => c.text().includes("tinted"));
+    const bare = chips.find((c) => c.text().includes("bare"));
+    expect(tinted?.find('[data-testid="cell-chip-color"]').attributes("style")).toContain("rgb(170, 17, 34)");
+    // A directory with nothing configured has to look exactly as it did before the stripe existed.
+    expect(bare?.find('[data-testid="cell-chip-color"]').exists()).toBe(false);
+  });
 });

@@ -12,7 +12,7 @@ vi.mock("../../../src/composables/usePubSub", () => ({
   }),
 }));
 
-import { useDirConfig, useDirPriorities, boundDirCount, invalidateDirConfig } from "../../../src/composables/useDirConfig";
+import { useDirConfig, useDirPriorities, useDirColors, boundDirCount, invalidateDirConfig } from "../../../src/composables/useDirConfig";
 import { TERMINAL_FONT_SIZE_MAX } from "../../../common/terminalFontSize";
 
 let served = "first";
@@ -34,6 +34,18 @@ const serve = (body: unknown) =>
   vi.stubGlobal(
     "fetch",
     vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(body) })),
+  );
+
+// For the set-subscribing composables (useDirPriorities / useDirColors), which fetch one
+// directory at a time and have to keep them apart.
+const serveByCwd = (byCwd: Record<string, unknown>) =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string) => {
+      // Base only so a relative /api path parses; nothing is ever requested over it.
+      const cwd = decodeURIComponent(new URL(url, "https://test.invalid").searchParams.get("cwd") ?? "");
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(byCwd[cwd] ?? {}) });
+    }),
   );
 const read = async (cwd: string) => {
   const scope = effectScope();
@@ -90,16 +102,6 @@ describe("useDirConfig fontFamily", () => {
 // The grid's "priority" sort needs a rank for cells on pages that aren't mounted, so this
 // subscribes to a whole SET of directories rather than one per mounted cell.
 describe("useDirPriorities", () => {
-  const serveByCwd = (byCwd: Record<string, unknown>) =>
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) => {
-        // Base only so a relative /api path parses; nothing is ever requested over it.
-        const cwd = decodeURIComponent(new URL(url, "https://test.invalid").searchParams.get("cwd") ?? "");
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(byCwd[cwd] ?? {}) });
-      }),
-    );
-
   it("collects the ranks of every directory it is given, mounted or not", async () => {
     serveByCwd({ "/g/a": { orderPriority: 2 }, "/g/b": { orderPriority: 1 }, "/g/c": { name: "no rank" } });
     const scope = effectScope();
@@ -156,6 +158,54 @@ describe("useDirPriorities", () => {
 
     scope.stop();
     expect(boundDirCount()).toBe(before); // and the survivor goes on disposal
+  });
+});
+
+// The launch form colours one chip per recent directory, none of which has a cell of its own.
+describe("useDirColors", () => {
+  it("resolves each directory to one colour, and omits the ones that set none", async () => {
+    serveByCwd({
+      "/c/header": { headerColor: "#112233", badgeColor: "#445566" },
+      "/c/badge": { badgeColor: "#445566" },
+      "/c/plain": { name: "no colour" },
+    });
+    const scope = effectScope();
+    const colors = scope.run(() => useDirColors(ref(["/c/header", "/c/badge", "/c/plain"])).colors);
+    await flush();
+    expect(colors?.value).toEqual({ "/c/header": "#112233", "/c/badge": "#445566" });
+    scope.stop();
+  });
+
+  it("recolours a chip when the server announces a config write", async () => {
+    serveByCwd({ "/c/live": { headerColor: "#112233" } });
+    const scope = effectScope();
+    const colors = scope.run(() => useDirColors(ref(["/c/live"])).colors);
+    await flush();
+    expect(colors?.value["/c/live"]).toBe("#112233");
+
+    serveByCwd({ "/c/live": { headerColor: "#998877" } });
+    publish?.({ cwd: "/c/live" });
+    await flush();
+    expect(colors?.value["/c/live"]).toBe("#998877");
+    scope.stop();
+  });
+
+  // The launch form hands over an empty list once the cell launches, and the chips' fetches
+  // must stop with them rather than outliving the form for the rest of the session.
+  it("releases a directory that leaves the set", async () => {
+    serveByCwd({ "/c/gone": { headerColor: "#112233" } });
+    const before = boundDirCount();
+    const cwds = ref(["/c/gone"]);
+    const scope = effectScope();
+    const colors = scope.run(() => useDirColors(cwds).colors);
+    await flush();
+    expect(boundDirCount()).toBe(before + 1);
+
+    cwds.value = [];
+    await flush();
+    expect(colors?.value).toEqual({});
+    expect(boundDirCount()).toBe(before);
+    scope.stop();
   });
 });
 

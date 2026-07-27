@@ -1,4 +1,5 @@
 import { readableTextColor } from "./contrast";
+import { isHexColor } from "./hexColor";
 
 // Inline style for a directory's name badge: the configured color as the
 // background, with black or white text picked for contrast. Shared by the single
@@ -12,10 +13,8 @@ function textColorFor(hex: string): "#000" | "#fff" {
   return readableTextColor((n >> 16) & 255, (n >> 8) & 255, n & 255);
 }
 
-const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-
 export function badgeStyleFor(color: string | null | undefined): Record<string, string> {
-  if (!color || !HEX_COLOR_RE.test(color)) {
+  if (!isHexColor(color)) {
     return { background: "var(--bg-elevated)", color: "var(--text-secondary)" };
   }
   return { background: color, color: textColorFor(color) };
