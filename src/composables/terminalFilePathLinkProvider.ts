@@ -108,7 +108,10 @@ export function fileLinkTarget(filePath: string, cwd: string): FileLinkTarget {
  *  editor and a new tab is still the right place. */
 export function isPaneViewable(filePath: string): boolean {
   const ext = fileExtension(filePath);
-  return IN_APP_EXTENSIONS.has(ext) || ext in ROUTE_BY_EXTENSION;
+  // Indexed like fileViewerRoute does, not `in`: the table is a plain object, so `in` also
+  // answers for whatever Object.prototype carries. Every real key starts with a dot and no
+  // inherited one does, which makes it safe today and needlessly load-bearing tomorrow.
+  return IN_APP_EXTENSIONS.has(ext) || ROUTE_BY_EXTENSION[ext] !== undefined;
 }
 
 export function rawFileUrl(filePath: string, cwd: string): string {
