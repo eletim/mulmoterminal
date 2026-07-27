@@ -223,6 +223,7 @@ The launcher detects it and prints the exact, OS-appropriate removal command; ru
 - [Session model](#session-model)
 - [Session lifecycle](#session-lifecycle)
 - [Claude hook injection](#claude-hook-injection)
+- [Closing summary](#closing-summary)
 - [Session discovery & titles](#session-discovery--titles)
 - [Project structure](#project-structure)
 - [Testing](#testing)
@@ -287,7 +288,8 @@ today — **Claude Code** (the default) and **Codex**.
 - **Claude** — spawned as `claude` (override with `CLAUDE_BIN`). The server passes
   `--session-id <uuid>`, so it knows the live session's id even before its transcript
   file exists, and injects activity hooks + the GUI MCP per spawn (see
-  [Claude hook injection](#claude-hook-injection)).
+  [Claude hook injection](#claude-hook-injection)) plus the
+  [closing summary](#closing-summary) instruction.
 - **Codex** — spawned as `codex` (override with `CODEX_BIN`; `CODEX_MODEL` sets
   `--model`). Codex runs on its own WebSocket (`/ws/codex`) and its sessions appear in the
   sidebar next to Claude's. Because Codex only mints its rollout id **after** the first
@@ -1332,6 +1334,30 @@ payload to the server:
 
 Because the server spawns each new session with `--session-id <uuid>`, it always
 knows the live session's id — even before the session's `.jsonl` file exists.
+
+---
+
+## Closing summary
+
+Every Claude session is spawned with `claude --append-system-prompt '<text>'`, asking the
+agent to end a reply with a short summary **when it hands control back** — the work is
+finished, or it is stopping to ask a question. Coming back to a grid cell after a while, the
+standing request and what came of it are otherwise only recoverable by scrolling the whole
+session.
+
+The summary states three things: the request **for the conversation as a whole** (not the
+last message — several turns of refinement do not replace what was asked first), what was
+achieved, and what was not and why. It is written in the language of the conversation, and
+placed last with nothing after it.
+
+It is deliberately **not** written on every turn: mid-work replies and short factual answers
+carry no standing request, and a summary that always appears stops being read. The wording
+lives in `server/agents/session-summary-prompt.ts`; there is no setting to turn it off.
+
+Passed inline rather than as `--append-system-prompt-file` for the same reason `--settings`
+is: the sandbox spawn runs in a container that cannot read a host path.
+
+Codex sessions are unaffected — the CLI has no equivalent flag.
 
 ---
 
