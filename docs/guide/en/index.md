@@ -7,7 +7,9 @@ has_children: true
 
 # MulmoTerminal Guide (English)
 
-> 🆕 **[What's new in 2.0.0](v2.0.0.html)** — setting up keyboard shortcuts, per-kind Push, and the phone features (as of 2026-07-26)
+> 🆕 **[What's new in 2.4.0](v2.4.0.html)** — the `npx` reload 404 is fixed, reaching the app from another machine, and a clicked file path opening beside the terminal (as of 2026-07-28)
+>
+> **Something looks wrong?** Type `/mulmoterminal-bug-report` in any session. The bundled skill hears the symptom out, checks your **real** config and version to see whether it is configuration or by design, searches the existing issues — and only helps you file one if none of that explains it, with the environment collected and secrets masked.
 
 **Run a whole team of AI coding agents (Claude Code / Codex) in parallel, on one board** —
 MulmoTerminal is the cockpit for that. The headline features first.
