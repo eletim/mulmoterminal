@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { createPubSub } from "./infra/pubsub.js";
+import { hideErrorStacks } from "./infra/hide-error-stacks.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
@@ -254,6 +255,7 @@ enforceKeymap(APP_CONFIG_FILE, {
 });
 
 const app = express();
+hideErrorStacks(app);
 // Generous body limit: PostToolUse hook payloads carry the tool's full output
 // (a big Read/Bash result can blow past Express's 100kb default, which would 413
 // the hook and leave its tool-call entry stuck on "running").

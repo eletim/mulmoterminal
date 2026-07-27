@@ -150,3 +150,19 @@ export function nodeMeetsMinimum(version) {
 export function serverNodeArgs(serverEntry, launchDir) {
   return ["--import", "tsx", `--env-file-if-exists=${join(launchDir, ".env")}`, serverEntry];
 }
+
+/**
+ * The environment the launcher spawns the server with.
+ *
+ * Only the two values the server cannot work out for itself. In particular NOT `NODE_ENV`:
+ * the server hands its own environment to every PTY it spawns, so a `NODE_ENV=production`
+ * set here reaches every terminal in every cell — where yarn v1 reads it and installs
+ * WITHOUT devDependencies while still reporting success (#955). Express is pinned to
+ * production separately, in the server, so nothing here needs to say it.
+ *
+ * A `NODE_ENV` the user exported themselves passes through untouched: this decides what the
+ * launcher adds, not what it removes.
+ */
+export function serverSpawnEnv(env, port, cwd) {
+  return { ...env, PORT: String(port), CLAUDE_CWD: cwd };
+}
