@@ -19,16 +19,23 @@ the string looks front-clipped, and then CSS eats the far end of it anyway.
 
 ## What
 
-`cellChromeClasses.ts` grows `DIR_TRUNCATE_FRONT` (`truncate [direction:rtl]`) next to the existing
-`CELL_DIR_PATH`, and `CELL_DIR` is rebuilt from it. `CockpitHeader.vue` uses the same pair, with the
-path text in an inner span.
+`cellChromeClasses.ts` grows `DIR_TRUNCATE_FRONT` (`truncate text-left [direction:rtl]`) next to the
+existing `CELL_DIR_PATH`, and `CELL_DIR` is rebuilt from it. `CockpitHeader.vue` uses the same pair,
+with the path text in an inner span.
+
+`text-left` belongs **in** the constant: rtl flips the default alignment as well, so a path short
+enough to fit drifts to the trailing edge without it. `CELL_DIR` carried its own `text-left` and was
+therefore fine; every hand-rolled copy of the combination has to remember it, and one didn't (see
+below). Codex caught the same thing on the first draft of this change.
 
 The bar also gains `:title="cwd"` — the full path, since the head is now the part you can't read.
 `cell-dir` already carries the same title.
 
-Not touched: `TerminalCell.vue:1043`/`:1051` spell the same rtl combination out inline (they differ
-in `max-w` and hover), and the diff-file list at `:1280` uses it too. Folding those into the
-constant is a separate cleanup, not this fix.
+The worktree diff panel's file list (`TerminalCell.vue`, `cell-diff-file`) had the same two omissions
+— no `text-left`, no `CELL_DIR_PATH` — so it moves onto the constant too.
+
+Not touched: `TerminalCell.vue:1043`/`:1051` spell the combination out inline but do include
+`text-left`, so they render correctly; folding them in is a cleanup, not a fix.
 
 ## Test
 

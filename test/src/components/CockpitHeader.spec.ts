@@ -58,6 +58,8 @@ describe("CockpitHeader", () => {
     const dir = mountH({ cwd: "/home/me/work/nested/deep/proj", home: "/home/me" }).get('[data-testid="cockpit-dir"]');
     expect(dir.classes()).toContain("[direction:rtl]");
     expect(dir.classes()).toContain("truncate");
+    // rtl flips the default alignment too, which would push a short path to the trailing edge.
+    expect(dir.classes()).toContain("text-left");
     // rtl reorders punctuation unless the path text opts back into logical order.
     expect(dir.get("span").classes()).toContain("[unicode-bidi:plaintext]");
     expect(dir.attributes("title")).toBe("/home/me/work/nested/deep/proj");
