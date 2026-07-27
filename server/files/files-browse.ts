@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { marked } from "marked";
 import type { Express, Request, Response } from "express";
 import os from "node:os";
+import { hasErrnoCode } from "../errors.js";
 import { resolveBase, resolveContained } from "./pathContainment.js";
 import { htmlDoc, jsonHtmlDoc, tableHtmlDoc, delimiterForExtension } from "./renderedDoc.js";
 
@@ -37,12 +38,16 @@ export interface BrowseEntry {
 const versionOfBytes = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex").slice(0, 16);
 
 /** The file's current version, or null when it doesn't exist — which is also what a caller
- *  passes as `baseVersion` to say "I expect to be creating this". */
+ *  passes as `baseVersion` to say "I expect to be creating this". ONLY a missing file reads
+ *  as null: one that exists but can't be read (permissions, a transient I/O error) must not
+ *  answer "absent", or a `baseVersion: null` write would sail past the conflict check and
+ *  overwrite it. Anything else throws, and the write fails instead of guessing. */
 export function currentVersion(abs: string): string | null {
   try {
     return versionOfBytes(fs.readFileSync(abs));
-  } catch {
-    return null;
+  } catch (err) {
+    if (hasErrnoCode(err) && err.code === "ENOENT") return null;
+    throw err;
   }
 }
 
