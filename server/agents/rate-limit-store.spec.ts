@@ -60,6 +60,15 @@ describe("createRateLimitStore", () => {
     expect(store.wantsProbe(NOW)).toBe(true);
   });
 
+  // The browser is told this so it can wait out the probe instead of painting half a gauge and
+  // sleeping through the rest — which is how the feature read as broken the first time it ran.
+  it("reports whether a probe is in flight", () => {
+    const store = createRateLimitStore();
+    expect(store.isProbing()).toBe(false);
+    store.setProbeInFlight(true);
+    expect(store.isProbing()).toBe(true);
+  });
+
   it("stops wanting one while a probe is in flight, and again once it has reported", () => {
     const store = createRateLimitStore();
     store.noteAsked(NOW);

@@ -37,6 +37,7 @@ import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
 import { newestRolloutFile, readTailLines, codexSessionsDir } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
+import { rateLimitCacheFile, readRateLimitCache, writeRateLimitCache } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
@@ -269,7 +270,9 @@ const isAllowedOrigin = createIsAllowedOrigin(browserHostnames);
 // Claude needs a hidden probe session, so the store decides when spending a query is warranted.
 // Neither agent being installed is not a case to handle: no rollout means no Codex reading, and a
 // probe that cannot launch simply never reports, which is the same as having no data yet.
-const rateLimitStore = createRateLimitStore();
+// Seeded from the last run so the header has numbers the moment the grid opens. Probing at boot
+// instead would spend a query on every restart — once per SAVE under `yarn dev`.
+const rateLimitStore = createRateLimitStore(readRateLimitCache(rateLimitCacheFile()), (snapshot) => writeRateLimitCache(rateLimitCacheFile(), snapshot));
 const refreshCodexRateLimits = (): void => {
   const file = newestRolloutFile(codexSessionsDir(), Date.now());
   if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readTailLines(file)), Date.now());
@@ -284,6 +287,9 @@ const startClaudeRateLimitProbe = (): void => {
     onSettled: () => rateLimitStore.setProbeInFlight(false),
   });
 };
+
+// Codex costs nothing to read, so it is current before the first browser arrives.
+refreshCodexRateLimits();
 
 const app = express();
 hideErrorStacks(app);

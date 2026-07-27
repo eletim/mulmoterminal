@@ -43,23 +43,24 @@ export function gaugeWindows(limits: RateLimits | null): GaugeWindow[] {
 
 export interface AgentGauge {
   agent: "claude" | "codex";
-  /** Shown only when BOTH agents have something, since a single row needs no disambiguation. */
-  prefix: string | null;
+  /** Drawn only when BOTH agents have something: one row needs nothing to distinguish it from
+   * (see AgentMark.vue for why the mark is drawn rather than picked from the icon set). */
+  marked: boolean;
   windows: GaugeWindow[];
 }
 
 /**
  * The whole readout. An agent with nothing to show is dropped rather than rendered empty, and the
- * agent prefix appears only when there are two — a solo user of either tool should not have to
- * read a letter that distinguishes nothing.
+ * agent mark appears only when there are two — a solo user of either tool should not have to read
+ * a symbol that distinguishes nothing.
  */
 export function agentGauges(snapshot: RateLimitSnapshot | null): AgentGauge[] {
   const claude = gaugeWindows(snapshot?.claude ?? null);
   const codex = gaugeWindows(snapshot?.codex ?? null);
   const both = claude.length > 0 && codex.length > 0;
   return [
-    ...(claude.length ? [{ agent: "claude" as const, prefix: both ? "claude" : null, windows: claude }] : []),
-    ...(codex.length ? [{ agent: "codex" as const, prefix: both ? "codex" : null, windows: codex }] : []),
+    ...(claude.length ? [{ agent: "claude" as const, marked: both, windows: claude }] : []),
+    ...(codex.length ? [{ agent: "codex" as const, marked: both, windows: codex }] : []),
   ];
 }
 

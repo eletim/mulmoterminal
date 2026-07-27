@@ -8,6 +8,7 @@
 import { computed, onMounted, onUnmounted } from "vue";
 import { useRateLimits } from "../composables/useRateLimits";
 import { agentGauges, gaugeTitle } from "../composables/rateLimitGauge";
+import AgentMark from "./AgentMark.vue";
 
 const { snapshot, start, stop } = useRateLimits();
 onMounted(start);
@@ -31,7 +32,7 @@ const titleFor = (agent: "claude" | "codex") => gaugeTitle(agent, snapshot.value
     :aria-label="titleFor(gauge.agent)"
     :title="titleFor(gauge.agent)"
   >
-    <span v-if="gauge.prefix" class="font-mono text-[11px] leading-none text-muted" aria-hidden="true">{{ gauge.prefix }}</span>
+    <AgentMark v-if="gauge.marked" :agent="gauge.agent" :class="gauge.windows.some((w) => w.warn) ? 'text-amber' : 'text-muted'" />
     <span
       v-for="window in gauge.windows"
       :key="window.label"

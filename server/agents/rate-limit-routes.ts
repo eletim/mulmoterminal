@@ -37,11 +37,11 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
       deps.store.setProbeInFlight(true);
       deps.startProbe();
     }
-    res.json(snapshotBody(deps.store.snapshot()));
+    res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing()));
   });
 
   app.get("/api/rate-limits", (_req, res) => {
-    res.json(snapshotBody(deps.store.snapshot()));
+    res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing()));
   });
 }
 
@@ -49,7 +49,11 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
 // An agent that is not installed at all reaches this the same way — there is no separate
 // "unavailable" state to render, because there is nothing useful to say about a tool the user
 // does not use.
-const snapshotBody = (snapshot: RateLimitSnapshot) => ({
+// `probing` is not decoration: a Claude probe takes most of a minute, so a client polling on its
+// normal interval paints Codex alone and keeps that half-gauge on screen for minutes. Saying a
+// reading is on its way is what lets the client wait for it instead.
+const snapshotBody = (snapshot: RateLimitSnapshot, probing: boolean) => ({
   claude: snapshot.claude?.limits ?? null,
   codex: snapshot.codex?.limits ?? null,
+  probing,
 });

@@ -34,8 +34,8 @@ export function shouldProbe(now_ms: number, reportedAt_ms: number | null, lastAs
   return reportedAt_ms === null || now_ms - reportedAt_ms > RATE_LIMIT_STALE_MS;
 }
 
-export function createRateLimitStore() {
-  const byAgent: RateLimitSnapshot = {};
+export function createRateLimitStore(initial: RateLimitSnapshot = {}, onChange: (snapshot: RateLimitSnapshot) => void = () => {}) {
+  const byAgent: RateLimitSnapshot = { ...initial };
   let lastAskedAt_ms: number | null = null;
   let probeInFlight = false;
 
@@ -43,7 +43,9 @@ export function createRateLimitStore() {
     /** A payload without the windows is routine — before the first API response, or API-key
      * billing — so it leaves the last known reading alone rather than blanking the gauge. */
     report(agent: RateLimitAgent, limits: RateLimits | null, now_ms: number): void {
-      if (limits) byAgent[agent] = { limits, reportedAt_ms: now_ms };
+      if (!limits) return;
+      byAgent[agent] = { limits, reportedAt_ms: now_ms };
+      onChange({ ...byAgent });
     },
     snapshot(): RateLimitSnapshot {
       return { ...byAgent };
@@ -58,6 +60,12 @@ export function createRateLimitStore() {
     },
     setProbeInFlight(inFlight: boolean): void {
       probeInFlight = inFlight;
+    },
+    /** Told to the browser so it can wait for the probe instead of sleeping through it: the probe
+     * takes the better part of a minute, so a client on its normal interval would paint an
+     * incomplete gauge and leave it that way for minutes. */
+    isProbing(): boolean {
+      return probeInFlight;
     },
   };
 }

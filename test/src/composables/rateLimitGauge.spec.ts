@@ -35,13 +35,13 @@ describe("agentGauges", () => {
   const claudeOnly = { claude: { fiveHour: window(27), sevenDay: null }, codex: null };
 
   // A user of one tool should not have to read a label that distinguishes nothing.
-  it("labels neither agent when only one reports", () => {
-    expect(agentGauges(claudeOnly)).toEqual([{ agent: "claude", prefix: null, windows: [{ label: "5h", percent: 27, warn: false }] }]);
+  it("marks neither agent when only one reports", () => {
+    expect(agentGauges(claudeOnly)).toEqual([{ agent: "claude", marked: false, windows: [{ label: "5h", percent: 27, warn: false }] }]);
   });
 
-  it("labels both once both report", () => {
+  it("marks both once both report", () => {
     const both = { claude: claudeOnly.claude, codex: { fiveHour: window(6), sevenDay: null } };
-    expect(agentGauges(both).map((g) => g.prefix)).toEqual(["claude", "codex"]);
+    expect(agentGauges(both).map((g) => g.marked)).toEqual([true, true]);
   });
 
   // Which is also what "codex is not installed" looks like from here — there is nothing separate
