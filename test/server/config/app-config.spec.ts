@@ -244,6 +244,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     keymap: {},
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
+    fontFamily: null,
   };
   it("round-trips presets + soundFile + prRepos + launchers + userMcpServers through a file", () => {
     const dir = tmp();
@@ -266,6 +267,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
       prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
       cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
+      fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
     };
     expect(saveAppConfig(file, cfg)).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
@@ -294,6 +296,7 @@ describe("loadAppConfig / saveAppConfig", () => {
           { id: "bad url", url: "nope" },
         ],
         terminalSubmit: "bogus", // unknown mode => standard 'cr'
+        fontFamily: "Cica; color: red", // CSS syntax => dropped, not passed to the browser
         keymap: { "zoom-next": "PageDown", "warp-drive": "F1", "zoom-prev": "Shift+" }, // unknown action + bad binding are dropped
       }),
     );
@@ -315,6 +318,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "cr",
       prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
+      fontFamily: null,
     });
     rmSync(dir, { recursive: true, force: true });
   });
@@ -415,6 +419,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     keymap: {},
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
+    fontFamily: null,
   };
 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
@@ -471,6 +476,7 @@ describe("mergeConfigUpdate", () => {
     keymap: {},
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
+    fontFamily: null,
     ...over,
   });
 
@@ -507,6 +513,14 @@ describe("mergeConfigUpdate", () => {
     expect(mergeConfigUpdate(baseConfig(), { prWorkdirFooter: false }).prWorkdirFooter).toBe(false);
     // The opt-out must survive an unrelated update, or the next Settings save re-enables it.
     expect(mergeConfigUpdate(baseConfig({ prWorkdirFooter: false }), { chips: ["git"] }).prWorkdirFooter).toBe(false);
+  });
+
+  // No Settings UI writes this one, so the merge path is the only thing standing between a
+  // POST that omits it and the user's configured font disappearing.
+  it("applies fontFamily from the body (normalized) and keeps it when omitted", () => {
+    expect(mergeConfigUpdate(baseConfig(), { fontFamily: "Cica" }).fontFamily).toBe("Cica, monospace");
+    expect(mergeConfigUpdate(baseConfig(), { fontFamily: "Cica; color: red" }).fontFamily).toBeNull(); // invalid => unset
+    expect(mergeConfigUpdate(baseConfig({ fontFamily: "Cica, monospace" }), { chips: ["git"] }).fontFamily).toBe("Cica, monospace");
   });
 
   it("merging on a RE-READ disk base preserves another instance's write (the clobber fix)", () => {

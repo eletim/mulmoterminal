@@ -15,6 +15,7 @@ const EMPTY = {
   dotColor: null,
   buttonColor: null,
   fontSize: null,
+  fontFamily: null,
   theme: null,
   colors: null,
   sound: null,
@@ -115,6 +116,7 @@ describe("loadDirConfig", () => {
       dotColor: "#00E676",
       buttonColor: "#C7CDF0",
       fontSize: 17,
+      fontFamily: "'Cica', monospace",
       theme: "nord",
       sound: "./a.mp3",
       skills: ["  review  ", "commit", "review", ""],
@@ -130,6 +132,7 @@ describe("loadDirConfig", () => {
       dotColor: "#00e676",
       buttonColor: "#c7cdf0",
       fontSize: 17,
+      fontFamily: "'Cica', monospace",
       theme: "nord",
       colors: null,
       sound: path.join(dir, "a.mp3"),
@@ -252,7 +255,7 @@ describe("dirConfigWriteTarget", () => {
 
 describe("publicDirConfig / dirSoundFile", () => {
   it("exposes hasSound but not the raw path", () => {
-    const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20 });
+    const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20, fontFamily: "Cica" });
     writeFileSync(path.join(dir, "a.mp3"), "x");
     expect(publicDirConfig(dir)).toEqual({
       name: "x",
@@ -266,6 +269,9 @@ describe("publicDirConfig / dirSoundFile", () => {
       // On the wire on purpose: the browser needs it to size the terminal, and unlike `sound`
       // there is nothing sensitive about it.
       fontSize: 20,
+      // normalized on load: the missing generic tail is appended, so a stack whose fonts are
+      // all absent still lands on a monospace face rather than the browser's proportional default.
+      fontFamily: "Cica, monospace",
       theme: null,
       colors: null,
       hasSound: true,

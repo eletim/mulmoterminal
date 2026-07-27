@@ -73,7 +73,7 @@ async function copyUpdateCommand(): Promise<void> {
   }
 }
 
-// TWO different questions, and answering both with one flag is what broke #889.
+// TWO different questions, and answering both with one flag is what broke #892.
 //   - which buttons the header OFFERS: the view underneath, so an overlay opened from the
 //     grid keeps the grid's buttons instead of hiding the one just clicked
 //   - which button is HIGHLIGHTED, and whether the grid is the screen: the route itself,

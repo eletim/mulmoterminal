@@ -16,6 +16,7 @@ import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
 import { THEME_IDS } from "../../common/themeIds.js";
 import { isUsableModelId } from "../../common/modelIds.js";
 import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
+import { normalizeFontFamily, TERMINAL_FONT_FAMILY_MAX_CHARS, TERMINAL_FONT_FAMILY_SAFE_RE } from "../../common/terminalFontFamily.js";
 import { SESSION_AGENTS } from "../../common/sessionAgent.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 
@@ -131,6 +132,13 @@ export const dirThemeField = themeIdSchema.nullable().catch(null);
 export const dirFontSizeField = z
   .unknown()
   .transform((value) => normalizeFontSize(value))
+  .nullable()
+  .catch(null);
+// Rejected as a whole rather than clamped, unlike the size above: a stack is one intent, so
+// keeping the half of it that parsed would render in a font the author never named.
+export const dirFontFamilyField = z
+  .unknown()
+  .transform((value) => normalizeFontFamily(value))
   .nullable()
   .catch(null);
 export const dirNameField = z
@@ -277,6 +285,10 @@ const writableDirConfigSchema = z.object({
   colors: z.partialRecord(z.enum(THEME_COLOR_KEYS), z.string().regex(PALETTE_COLOR_RE)).optional(),
   // xterm font size in px for this directory's terminals. Omit to follow the Settings value.
   fontSize: z.number().int().min(TERMINAL_FONT_SIZE_MIN).max(TERMINAL_FONT_SIZE_MAX).optional(),
+  // CSS font-family stack for this directory's terminals. Omit to follow the global config.
+  // The pattern is the portable subset of the real rule — z.toJSONSchema drops a `.refine`, so
+  // an exact check here would vanish from the shipped schema; normalizeFontFamily is the rule.
+  fontFamily: z.string().min(1).max(TERMINAL_FONT_FAMILY_MAX_CHARS).regex(TERMINAL_FONT_FAMILY_SAFE_RE).optional(),
   sound: nonEmptyText.optional(),
   buttons: z.array(writableHeaderButtonSchema).max(MAX_BUTTONS).optional(),
   chips: z.array(writableHeaderChipSchema).max(MAX_CHIPS).optional(),

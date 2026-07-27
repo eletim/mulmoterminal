@@ -42,9 +42,19 @@
   --color-err-text: var(--err-text);
 
   /* The app's two type families, so font-sans / font-mono match existing
-     components exactly instead of Tailwind's default stacks. */
+     components exactly instead of Tailwind's default stacks.
+
+     font-mono's Latin head is deliberately NOT the terminal's (the terminal leads with
+     JetBrains Mono; the chrome leads with the platform's ui-monospace) — these are different
+     surfaces and this keeps every existing header, diff line and input rendering exactly as
+     before. The CJK tail IS shared: without it a Japanese header or diff line fell through to
+     whatever the browser picked, which is the same defect #864 fixed in the terminal.
+     Restated here because CSS can't import TERMINAL_CJK_FAMILIES from common/; a spec pins
+     the two lists together so they can't drift. */
   --font-sans: system-ui, sans-serif;
-  --font-mono: ui-monospace, "JetBrains Mono", monospace;
+  --font-mono:
+    ui-monospace, "JetBrains Mono", "Noto Sans Mono CJK JP", "Hiragino Sans", "BIZ UDGothic", "MS Gothic", IPAGothic, "Noto Sans Mono CJK KR", "Malgun Gothic",
+    "Noto Sans Mono CJK SC", "Microsoft YaHei", "Noto Sans Mono CJK TC", "Microsoft JhengHei", monospace;
 }
 
 /* The grid cell's working dot. A keyframes animation is the one thing a utility can't

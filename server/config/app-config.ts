@@ -23,6 +23,7 @@ import type { QuickCommand } from "../../common/quickCommands.js";
 import { DEFAULT_PUSH_KINDS, PUSH_KINDS, type PushKind } from "../../common/pushKinds.js";
 import { sanitizeKeymap, type Keymap } from "../../common/keymap.js";
 import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "../../common/cockpitLines.js";
+import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 
@@ -74,6 +75,11 @@ export interface AppConfig {
   // How many lines each cockpit-roster row shows before clamping (#877). Defaults keep the
   // previous 2/2/3; raising `summary` trades roster length for reading a long one in place.
   cockpitLines: CockpitLines;
+  // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
+  // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
+  // exist is a property of the machine the browser runs on — the same answer for every client
+  // of one host. A directory's `.mulmoterminal.json` fontFamily overrides it.
+  fontFamily: string | null;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -238,6 +244,7 @@ export const emptyConfig = (): AppConfig => ({
   keymap: {},
   prWorkdirFooter: true,
   cockpitLines: { ...DEFAULT_COCKPIT_LINES },
+  fontFamily: null,
 });
 
 // Drop malformed entries rather than rejecting the whole config: one bad provider must
@@ -273,6 +280,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     keymap: sanitizeKeymap(o.keymap),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
     cockpitLines: sanitizeCockpitLines(o.cockpitLines),
+    fontFamily: normalizeFontFamily(o.fontFamily),
   };
 }
 
@@ -344,6 +352,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     providers: updated("providers", sanitizeProviders, base.providers),
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
+    fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
     cockpitLines: updated("cockpitLines", sanitizeCockpitLines, base.cockpitLines),
   };
@@ -371,6 +380,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     keymap: config.keymap,
     prWorkdirFooter: config.prWorkdirFooter,
     cockpitLines: config.cockpitLines,
+    fontFamily: config.fontFamily,
   };
 }
 

@@ -6,6 +6,7 @@ import {
   dirThemeField,
   dirColorsField,
   dirFontSizeField,
+  dirFontFamilyField,
   headerButtonSchema,
   headerChipSchema,
   cwdPresetSchema,
@@ -16,6 +17,7 @@ import {
   MAX_SKILL_FILTER,
 } from "../../../server/config/config-schema";
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../../common/terminalFontSize.js";
+import { TERMINAL_FONT_FAMILY_MAX_CHARS } from "../../../common/terminalFontFamily.js";
 
 describe("dirNameField", () => {
   it("trims and caps at NAME_MAX_CHARS", () => {
@@ -103,6 +105,22 @@ describe("dirFontSizeField", () => {
   });
 });
 
+describe("dirFontFamilyField", () => {
+  it("keeps a usable stack and normalizes its spacing", () => {
+    expect(dirFontFamilyField.parse("'Cica', monospace")).toBe("'Cica', monospace");
+    expect(dirFontFamilyField.parse("Cica,monospace")).toBe("Cica, monospace");
+  });
+
+  // Rejected whole where dirFontSizeField clamps: half a stack renders in a font nobody named.
+  it("nulls a missing or unusable stack so the global setting wins", () => {
+    expect(dirFontFamilyField.parse(undefined)).toBeNull();
+    expect(dirFontFamilyField.parse(null)).toBeNull();
+    expect(dirFontFamilyField.parse("")).toBeNull();
+    expect(dirFontFamilyField.parse(16)).toBeNull();
+    expect(dirFontFamilyField.parse("Cica; color: red")).toBeNull();
+  });
+});
+
 describe("dirConfigJsonSchema", () => {
   it("emits an object schema with every writable property", () => {
     const schema = dirConfigJsonSchema();
@@ -128,6 +146,17 @@ describe("dirConfigJsonSchema", () => {
     const fontSize = isRecord(props) && isRecord(props.fontSize) ? props.fontSize : {};
     expect(fontSize.minimum).toBe(TERMINAL_FONT_SIZE_MIN);
     expect(fontSize.maximum).toBe(TERMINAL_FONT_SIZE_MAX);
+  });
+
+  // z.toJSONSchema DROPS a `.refine`, so the exact rule can't be carried here — the portable
+  // pattern is what stops the skill writing a stack that breaks the CSS declaration.
+  it("includes fontFamily with the pattern that rejects CSS syntax", () => {
+    const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
+    const fontFamily = isRecord(props) && isRecord(props.fontFamily) ? props.fontFamily : {};
+    expect(fontFamily.type).toBe("string");
+    expect(fontFamily.maxLength).toBe(TERMINAL_FONT_FAMILY_MAX_CHARS);
+    expect(new RegExp(String(fontFamily.pattern)).test("'Cica', monospace")).toBe(true);
+    expect(new RegExp(String(fontFamily.pattern)).test("Cica; color: red")).toBe(false);
   });
 
   it("caps the skills allowlist at MAX_SKILL_FILTER", () => {

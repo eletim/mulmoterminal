@@ -6,6 +6,7 @@ import type { QuickCommand } from "../../common/quickCommands";
 import type { PushKind } from "../../common/pushKinds";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
+import { setGlobalFontFamily } from "./terminalFontFamily";
 import { setActiveKeymap } from "./activeKeymap";
 import { setCockpitLines } from "./cockpitLines";
 
@@ -252,6 +253,9 @@ export function useAppConfig() {
       setActiveKeymap(c.keymap);
       // How far the cockpit roster clamps each line. Absent `cockpitLines` keeps 2/2/3.
       setCockpitLines(c.cockpitLines);
+      // The terminal font stack (config.json-only, no Settings UI). Terminals already open
+      // re-fit when this lands — a different face means different cell metrics.
+      setGlobalFontFamily(c.fontFamily);
       await migrateLegacyRecents();
     } catch {
       // the app still works; presets are just unavailable

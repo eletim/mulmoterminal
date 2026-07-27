@@ -1,6 +1,6 @@
 ---
 name: mulmoterminal-config
-description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, terminal font size, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, resize the terminal font, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal, or the terminal text is too small/large (browser zoom is not the fix — it breaks xterm's grid alignment).
+description: Create or edit a .mulmoterminal.json to customize how a directory looks and behaves in MulmoTerminal — its name badge, chrome colors, xterm palette, terminal font size and font family, attention sound, header buttons/chips, and which model/provider its sessions run on. Also configures the settings that have NO Settings-modal UI and live only in the global `~/.mulmoterminal/config.json`: an Anthropic-compatible backend (OpenRouter, Moonshot, a gateway), keyboard shortcuts (`keymap`), the Enter-vs-newline binding (`terminalSubmit`, the fix for "Shift+Enter submits instead of adding a line"), the terminal font (`fontFamily`, including a CJK-capable one for Japanese), and the periodic dev-work log. Walks a beginner through it: pick directories with checkboxes, start from a colour preset (warm / tropical / cool / bold), apply it and look at the real cell, then refine. Configures the current directory OR several of your recent MulmoTerminal directories at once. Use when the user wants to configure, theme, color-code, rename, resize or change the terminal font, add header buttons/chips, or bind keyboard shortcuts for a project's terminal — for one project or across many — or when Enter/Shift+Enter behaves wrongly in the terminal, or the terminal text is too small/large (browser zoom is not the fix — it breaks xterm's grid alignment), or Japanese/CJK text in the terminal looks wrong or misaligns the box-drawing frames.
 ---
 
 # Configure a MulmoTerminal directory
@@ -41,10 +41,11 @@ no `cwdPresets`, say there's no history yet and ask for the paths.
 
 One `multiSelect` question: **Name badge + chrome colors** / **Terminal palette** / **Header buttons** /
 **Header chips** / **Attention sound** / **Which model it runs on** / **Keyboard shortcuts** / **Enter key behaviour** /
-**Dev-work log**. Configure only what they ticked.
+**Terminal font** / **Dev-work log**. Configure only what they ticked.
 
-The last three are **global**, not per-directory, and none of them has a Settings-modal UI — they exist
+The last four are **global**, not per-directory, and none of them has a Settings-modal UI — they exist
 only in `~/.mulmoterminal/config.json`, which is why this skill is the way a user finds them at all.
+(The terminal font can *also* be pinned per directory; the global value is the one with no UI.)
 Mention them when the user's complaint matches one (see each section below).
 
 ### 3. Choose a colour direction — preset first, never a blank hex
@@ -179,6 +180,27 @@ Settings value is the normal case.
 Reach for this when the user says the terminal text is too small or too big, and especially if
 they mention trying browser zoom: zoom desynchronises xterm's cell grid from the PTY (drifting
 cursor, wrong wrap points), while `fontSize` re-fits and tells the process its new size.
+
+### Terminal font — `fontFamily`
+
+A CSS font-family stack for this directory's terminals, e.g. `"'Cica', 'MS Gothic', monospace"`,
+overriding the global `fontFamily` in `~/.mulmoterminal/config.json`. Names are matched as the OS
+lists them, first installed one wins. Validated as ONE unit: any unusable entry drops the whole
+stack (CSS syntax characters are rejected, quotes must be a matching pair around a whole name), and
+`monospace` is appended when no generic family is named.
+
+**Ask which fonts they actually have before writing one** — an uninstalled name silently does
+nothing, and that reads as the setting being broken. For CJK, prefer a face whose fullwidth glyphs
+are exactly twice the Latin width (Cica, HackGen, Sarasa Mono J, Noto Sans Mono CJK JP, MS Gothic,
+BIZ UDGothic); anything else tears the box-drawing frames an agent TUI is made of.
+
+Most users want this **globally**, not per directory — it is the same font everywhere unless one
+project's output is a different language. The global key has no Settings UI, so writing
+`~/.mulmoterminal/config.json` is the only way to set it. **Tell the user to restart
+`mulmoterminal`** after you write it: that file is read once at server startup, so unlike a
+`.mulmoterminal.json` edit (which applies instantly **because you wrote it with Write/Edit** — that
+tool call is the live-reload signal; there is no filesystem watcher) the global one does nothing
+until a restart — and "I set it and nothing happened" is exactly how that reads.
 
 ### Attention sound — `sound`
 
