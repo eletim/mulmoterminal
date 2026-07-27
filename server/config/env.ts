@@ -24,6 +24,11 @@ export const PORT = process.env.PORT || 34567;
 // — and that setup needs MULMOTERMINAL_ALLOWED_ORIGINS to say which one is actually opened. The
 // startup warning prints whichever set it ended up with, because a browser that cannot attach
 // otherwise looks like a broken server (#956).
+//
+// Both are opt-in and nothing follows from leaving them alone: unset, this is loopback, the
+// origin set is empty, and the accepted origins are exactly what they were before #956. Only an
+// operator who named a specific address (or listed origins) sees any of it change — and what
+// changes for them is the result they were reaching for by naming it.
 export const BIND_HOST = process.env.MULMOTERMINAL_HOST || "127.0.0.1";
 
 // The workspace used as the PTY cwd and as the root for persisted session state. index.ts

@@ -797,6 +797,23 @@ MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterm
 the decision, so one entry covers the server and the Vite dev port alike. The startup warning
 prints the list it ended up with — if a browser cannot attach, read that line first.
 
+#### Which setups this changes, and which it does not {#bind-host-scope}
+
+Both variables are **opt-in, and nothing happens without them**. If you have never set either, the
+server accepts exactly the origins it always did.
+
+| What you set | What a browser may attach from |
+|---|---|
+| *(nothing — the default)* | localhost only. **Unchanged**, and the server is not reachable from another machine at all |
+| `MULMOTERMINAL_HOST=0.0.0.0` | localhost only. A wildcard names every interface, so no single address can be inferred from it |
+| Port-forwarding (a container binding `0.0.0.0` inside, browser on `localhost` outside) | localhost — which is what the browser is using, so this needs nothing further |
+| `MULMOTERMINAL_HOST=<one address>` | localhost **and that address** |
+| `MULMOTERMINAL_ALLOWED_ORIGINS=<list>` | localhost **and everything on the list** |
+
+Naming an origin decides **which pages may drive this server**. It is not a login — there still
+isn't one — and it does not decide who can *reach* the port; that is the bind, and on a widened
+bind anything that can open a socket is already trusted, browser or not.
+
 The opt-in also covers **port-forwarding**, where none of this is needed: a **Docker container** or
 **WSL** must bind `0.0.0.0` inside for the mapping to reach it, while the browser outside still
 connects to `localhost` and is allowed for that reason alone.
