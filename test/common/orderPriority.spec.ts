@@ -28,3 +28,21 @@ describe("normalizeOrderPriority", () => {
     expect(normalizeOrderPriority(true)).toBeNull();
   });
 });
+
+// Codex review on #881, verified independently: `Number.isInteger` accepts 2^53+1 and 1e300,
+// while zod@4's `z.number().int()` — the strict half of this pair, in writableDirConfigSchema —
+// rejects both. The whole reason this module exists is that the two boundaries must agree, so
+// the lenient side has to be safe-integer too. Past 2^53 a value is not distinct from its
+// neighbours, so it cannot express an ordering anyway.
+describe("normalizeOrderPriority — agreement with the strict schema", () => {
+  it("keeps the largest rank the strict schema also accepts", () => {
+    expect(normalizeOrderPriority(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+    expect(normalizeOrderPriority(Number.MIN_SAFE_INTEGER)).toBe(Number.MIN_SAFE_INTEGER);
+  });
+
+  it("rejects integers past the safe range, as the strict schema does", () => {
+    expect(normalizeOrderPriority(Number.MAX_SAFE_INTEGER + 2)).toBeNull();
+    expect(normalizeOrderPriority(1e300)).toBeNull();
+    expect(normalizeOrderPriority(-1e300)).toBeNull();
+  });
+});
