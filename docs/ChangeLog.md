@@ -4,6 +4,93 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.3.0 — 2026-07-27
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.3.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.3.0.html))
+
+Agents now sign off with what you asked for and what came of it, a mouse selection can reach the
+clipboard on its own, and the toolbar says which of its buttons change the view you are in.
+
+### Every session ends its replies with the request and its outcome (#942, #943)
+
+Coming back to a grid cell after a while, the standing request and what came of it were only
+recoverable by scrolling back through the whole session. Every Claude session is now spawned with
+`--append-system-prompt`, asking the agent to close a reply with a short summary **when it hands
+control back** — the work is finished, or it has stopped to ask something.
+
+The summary names the request **for the conversation as a whole**, what was achieved, and what was
+not and why. The first of those is the point: after several turns of refinement the agent still
+states what was asked at the *start*, folding the later turns in as qualifiers rather than
+replacing them.
+
+It deliberately stays quiet mid-work and on replies that involved no work — a factual question, a
+greeting — because a block on every turn stops being read. That balance was tuned against a live
+model, not written blind: an earlier draft told the agent to stay silent when in doubt, and it then
+skipped a *finished* one-file task, which is exactly the moment worth summarizing.
+
+Always on, with no setting. Sonnet and Opus follow it reliably; Haiku was observed ignoring it, so a
+directory pinned to Haiku may not see it. Codex sessions are unaffected — the CLI has no equivalent
+flag.
+
+The prompt is passed inline rather than as a file, for the same reason `--settings` is: the sandbox
+spawn runs in a container that cannot read a host path. It carries no ASCII `"`, which would break
+the Windows argv invariant that moved the JSON payloads to files in the first place — a guard test
+now sits next to the prose so a future edit fails where the wording is written.
+
+### Copy on select, as an opt-in (#900, #940)
+
+`{ "copyOnSelect": true }` in `~/.mulmoterminal/config.json` puts a mouse selection on the clipboard
+the moment it settles, with no key pressed — the PuTTY / iTerm2 behaviour. **Off by default**,
+because it changes your clipboard when you may only have meant to highlight something while reading.
+
+This is the first place in the app that writes the clipboard itself. A selection asks the browser
+for nothing, unlike the copy *key* added in 2.2.0, where standing back and letting the browser copy
+was the whole implementation. Everything below follows from that difference: a whitespace-only
+selection and a repeat of the text already there are both skipped, so neither can silently overwrite
+something you wanted to keep, and writes are serialized so two quick drags cannot land out of order.
+
+Over plain `http://` the browser gives a page no clipboard access at all, so it falls back to asking
+xterm to copy the way the keyboard shortcut does — which works, but needs the terminal to still hold
+keyboard focus. It composes with the `copy` keymap action rather than replacing it.
+
+### A star button in the grid header (#932, #937)
+
+One click stars `receptron/mulmoterminal`, authenticated with **your own `gh` login** — the same
+authentication the cross-repo PR and issue views already use. The server never holds a token.
+
+The design is mostly about the exit. Once the repo is starred, or once the repository page has been
+opened from the button, it never appears again and the app stops asking the server about it at all.
+That is why it uses the real star API rather than a plain link: a link can never tell whether it was
+followed, so the button could never decide to leave. "Cannot tell" — no `gh`, not logged in, offline
+— is kept as a third state distinct from "not starred", so the button hides rather than becoming a
+control that does nothing.
+
+### The view switch is fenced off from the rest of the toolbar (#941, #947)
+
+**Chat** and **Grid view** are the only buttons in the header nav that change *which view you are
+in*; Collections, Wiki, Pull requests and the rest all act within the view you are already in. They
+sat in one evenly-spaced row that hid the distinction. The pair is now grouped behind a rule — the
+same treatment the grid's status tally already had at the other end of the nav — and carries a
+`role="group"` so the structure reaches a screen reader too, which a border alone never does.
+
+### The directory in the enlarged-terminal side list truncates from the front (#944, #945)
+
+Enlarging a cell puts the other sessions beside it as a roster, and the directory on each row was
+cut from the *end*. The column is narrow, so what disappeared was the project name — the part you
+were actually reading — leaving the prefix every path shares. It now truncates from the front
+(`…rminal2/src/components`), matching the grid cell headers, and the full path is in the tooltip.
+The filmstrip thumbnails had the same problem and got the same fix.
+
+### History tabs are readable on dark themes again (#946)
+
+Idle session tabs in the second toolbar row rendered as pale grey text on a pale grey box. The app
+builds Tailwind **without preflight** on purpose — every existing component uses scoped CSS, so a
+base reset would repaint all of it — which means a `<button>` with no `bg-*` falls back to the
+browser's default `ButtonFace`. The tab bar styled only the active side, so idle tabs picked up the
+UA button face and put `text-secondary` on top of it. They now declare `bg-transparent` and let the
+bar's own background through. All four dark themes were affected; an audit of every `<button>` in
+`src/` found this was the only one missing a background.
+
 ## mulmoterminal@2.2.0 — 2026-07-27
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.2.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.2.0.html))
