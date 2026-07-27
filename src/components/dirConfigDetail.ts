@@ -17,6 +17,9 @@ export interface DirConfigRow {
 }
 
 export interface DirConfigDetailView {
+  // False when the directory itself is gone — a preset outliving its project. Distinct from
+  // "no config file here", which describes a directory that is fine.
+  exists: boolean;
   file: string | null;
   rows: DirConfigRow[];
   source: DirConfigSource;
@@ -109,9 +112,12 @@ export function dirConfigRows(config: unknown, extras: unknown = {}): DirConfigR
 }
 
 export function parseDirConfigDetail(data: unknown): DirConfigDetailView {
-  if (!isRecord(data)) return { file: null, rows: [], source: EMPTY_DIR_CONFIG_SOURCE };
+  if (!isRecord(data)) return { exists: false, file: null, rows: [], source: EMPTY_DIR_CONFIG_SOURCE };
   const source = isRecord(data.source) ? data.source : {};
   return {
+    // Absent on the wire is read as "gone" rather than "fine": the only responses without it
+    // are the ones this parser already couldn't make sense of.
+    exists: data.exists === true,
     file: asString(data.file),
     rows: dirConfigRows(data.config, data.extras),
     source: { applied: stringList(source.applied), ignored: stringList(source.ignored), unknown: stringList(source.unknown) },

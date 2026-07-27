@@ -72,10 +72,12 @@ describe("dirConfigRows", () => {
 describe("parseDirConfigDetail", () => {
   it("reads a full response", () => {
     const view = parseDirConfigDetail({
+      exists: true,
       file: "/proj/.mulmoterminal.json",
       config: { name: "proj" },
       source: { applied: ["name"], ignored: ["cellColor"], unknown: ["badgeColour"] },
     });
+    expect(view.exists).toBe(true);
     expect(view.file).toBe("/proj/.mulmoterminal.json");
     expect(view.rows.map((r) => r.key)).toEqual(["name"]);
     expect(view.source).toEqual({ applied: ["name"], ignored: ["cellColor"], unknown: ["badgeColour"] });
@@ -84,8 +86,9 @@ describe("parseDirConfigDetail", () => {
   // The wire is a trust boundary like every other parser here: a shape the server would never
   // send must leave the preview empty rather than reaching the template.
   it("falls back to an empty view for anything unexpected on the wire", () => {
-    expect(parseDirConfigDetail(null)).toEqual({ file: null, rows: [], source: { applied: [], ignored: [], unknown: [] } });
+    expect(parseDirConfigDetail(null)).toEqual({ exists: false, file: null, rows: [], source: { applied: [], ignored: [], unknown: [] } });
     expect(parseDirConfigDetail({ file: 7, config: "nope", source: { applied: "name" } })).toEqual({
+      exists: false,
       file: null,
       rows: [],
       source: { applied: [], ignored: [], unknown: [] },

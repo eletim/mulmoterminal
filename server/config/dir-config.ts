@@ -222,6 +222,9 @@ export function publicDirConfig(cwd: string): PublicDirConfig {
 // that one — this is fetched only while the modal is open, and it re-reads the file to say what
 // the resolved values alone can't: that a key was written and then dropped, or misspelled.
 export interface DirConfigDetail {
+  // False when the requested directory itself is gone — a preset outliving its project. The
+  // preview must not present that as "no config here", which reads as a working directory.
+  exists: boolean;
   // Absolute path of the file, or null when the directory has none.
   file: string | null;
   config: PublicDirConfig;
@@ -258,17 +261,27 @@ function dirConfigFile(cwd: string): string | null {
   }
 }
 
+// What a directory that isn't there reports: no file, no settings, and `exists: false` so the
+// preview can say "this directory is gone" instead of "it uses the global settings".
+export const MISSING_DIR_CONFIG_DETAIL: DirConfigDetail = {
+  exists: false,
+  file: null,
+  config: { ...EMPTY_DIR_CHROME, theme: null, colors: null, hasSound: false },
+  extras: EMPTY_DIR_CONFIG_EXTRAS,
+  source: EMPTY_DIR_CONFIG_SOURCE,
+};
+
 export function dirConfigDetail(cwd: string): DirConfigDetail {
   const config = publicDirConfig(cwd);
   const file = dirConfigFile(cwd);
-  if (!file) return { file: null, config, extras: EMPTY_DIR_CONFIG_EXTRAS, source: EMPTY_DIR_CONFIG_SOURCE };
+  if (!file) return { exists: true, file: null, config, extras: EMPTY_DIR_CONFIG_EXTRAS, source: EMPTY_DIR_CONFIG_SOURCE };
   const extras = dirConfigExtras(cwd);
   // Malformed or non-object JSON keeps the FILE in the answer: "there is a file here and none
   // of it applied" is the single most useful thing this preview can say, and reporting no file
   // at all would send the reader looking for one that is right there.
   const raw: unknown = tryReadJson(file);
-  if (!isRecord(raw)) return { file, config, extras, source: EMPTY_DIR_CONFIG_SOURCE };
-  return { file, config, extras, source: describeDirConfig(raw, keysWithValue(loadDirConfig(cwd))) };
+  if (!isRecord(raw)) return { exists: true, file, config, extras, source: EMPTY_DIR_CONFIG_SOURCE };
+  return { exists: true, file, config, extras, source: describeDirConfig(raw, keysWithValue(loadDirConfig(cwd))) };
 }
 
 function tryReadJson(file: string): unknown {

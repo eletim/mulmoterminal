@@ -56,7 +56,10 @@ watch(
 
         <div class="pb-3 pl-3 text-[12px]">
           <template v-if="details[path]">
-            <p v-if="!details[path].file" class="m-0 text-dim">No <code>.mulmoterminal.json</code> here — this directory uses the global settings.</p>
+            <p v-if="!details[path].exists" data-testid="dir-preview-gone" class="m-0 text-[var(--warn-text,#e0a030)]">
+              This directory no longer exists — the entry is left over from a project that was moved or deleted.
+            </p>
+            <p v-else-if="!details[path].file" class="m-0 text-dim">No <code>.mulmoterminal.json</code> here — this directory uses the global settings.</p>
             <template v-else>
               <p class="m-0 mb-2 font-mono text-[11px] text-dim">
                 {{ details[path].file }}

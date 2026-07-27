@@ -78,3 +78,11 @@ answer "where was I working" and are ordered accordingly; this list is a referen
 directory you already have in mind, and one that reorders itself as you work is the wrong shape
 for that. Numbers sort as numbers (proj2 above proj10) and the full path breaks ties, since two
 checkouts of one repo share a basename.
+
+**Codex: the route fell back to the default workspace.** Every other `?cwd=` route resolves through
+`workspaceFromQuery`, which answers with `CLAUDE_CWD` when the path is missing or not a directory.
+That is the right default for a route that RUNS somewhere and a correctness bug for one that
+REPORTS ON the directory it was asked about: a preset outliving its project would render another
+directory's settings under the dead path's name. The route now uses a non-falling-back
+`existingWorkspaceFromQuery`, and the response carries `exists` so the preview can say the
+directory is gone rather than calling it a working directory with no config.

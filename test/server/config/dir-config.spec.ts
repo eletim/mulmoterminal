@@ -2,7 +2,15 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveDirSound, loadDirConfig, publicDirConfig, dirSoundFor, dirConfigWriteTarget, dirConfigDetail } from "../../../server/config/dir-config";
+import {
+  resolveDirSound,
+  loadDirConfig,
+  publicDirConfig,
+  dirSoundFor,
+  dirConfigWriteTarget,
+  dirConfigDetail,
+  MISSING_DIR_CONFIG_DETAIL,
+} from "../../../server/config/dir-config";
 import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
@@ -398,6 +406,26 @@ describe("dirConfigDetail", () => {
     expect(Object.values(config).every((value) => value === null || value === false)).toBe(true);
     expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, buttonLabels: [], chipLabels: [] });
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Codex on #952: the route used to resolve `?cwd=` with the fallback-to-CLAUDE_CWD helper, so
+  // a preset pointing at a deleted project answered with a DIFFERENT directory's settings under
+  // the requested path's name. The route now refuses to fall back; this pins the payload it
+  // sends instead.
+  it("reports a directory that is gone as gone, not as one with no config", () => {
+    expect(MISSING_DIR_CONFIG_DETAIL.exists).toBe(false);
+    expect(MISSING_DIR_CONFIG_DETAIL.file).toBeNull();
+    expect(MISSING_DIR_CONFIG_DETAIL.source).toEqual({ applied: [], ignored: [], unknown: [] });
+    expect(Object.values(MISSING_DIR_CONFIG_DETAIL.config).every((v) => v === null || v === false)).toBe(true);
+  });
+
+  it("marks a real directory as existing, whether or not it has a file", () => {
+    const dir = tmp();
+    expect(dirConfigDetail(dir).exists).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+    const { dir: configured, cleanup } = withConfig({ name: "proj" });
+    expect(dirConfigDetail(configured).exists).toBe(true);
+    cleanup();
   });
 
   // The key list the preview labels things with lives in common/ and the loader lives here;

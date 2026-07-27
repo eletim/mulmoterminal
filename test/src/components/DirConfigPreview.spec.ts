@@ -3,6 +3,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import DirConfigPreview from "../../../src/components/DirConfigPreview.vue";
 
 const detail = (over: Record<string, unknown> = {}) => ({
+  exists: true,
   file: "/proj/a/.mulmoterminal.json",
   config: { name: "proj", headerColor: "#2b3a55" },
   source: { applied: ["name", "headerColor"], ignored: [], unknown: [] },
@@ -80,6 +81,16 @@ describe("DirConfigPreview", () => {
     const w2 = mountPreview(["/proj/b"]);
     await expand(w2);
     expect(w2.text()).toContain("sets nothing this app applies");
+  });
+
+  // A preset outliving its project: the row must not read as a working directory with no config,
+  // which is what the fallback in workspaceFromQuery used to make it look like (Codex, #952).
+  it("says a directory is gone rather than calling it unconfigured", async () => {
+    served = detail({ exists: false, file: null, config: {} });
+    const w = mountPreview(["/proj/deleted"]);
+    await expand(w);
+    expect(w.find('[data-testid="dir-preview-gone"]').exists()).toBe(true);
+    expect(w.text()).not.toContain("uses the global settings");
   });
 
   it("retries a directory whose read failed instead of showing it as empty forever", async () => {
