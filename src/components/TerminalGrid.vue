@@ -149,9 +149,12 @@ const paneMin = computed(() => Math.min(MIN_GUI, paneMax.value));
 function setFilesOpen(open: boolean): void {
   if (!open) rememberPaneState(paneUid.value);
   filesOpen.value = open;
-  // Closing drops the root it was on, so re-opening lands on whichever cell is enlarged THEN
+  // Closing drops the cell it was on, so re-opening lands on whichever cell is enlarged THEN
   // rather than resuming a directory the user has since walked away from.
-  if (!open) paneCwd.value = null;
+  if (!open) {
+    paneCwd.value = null;
+    paneUid.value = null;
+  }
   remember(PANE_OPEN_KEY, open ? "1" : "0");
 }
 
@@ -183,31 +186,37 @@ const paneState = ref<FilesPaneState | null>(null);
 // is declined over unsaved edits — and it, not `expandedCwd`, is what the pane is handed, so a
 // file opened from a tree that stayed put still resolves against the directory it came from.
 const paneCwd = ref<string | null>(null);
-// Which cell the pane is showing. Tracks `paneCwd` rather than `expandedUid`, or a re-root that
-// could not be saved out of would file its snapshot under the cell it never moved to.
+// Which cell the pane is showing — the identity everything else hangs off. The UID rather than
+// the directory: two terminals in the same repository is the ordinary case here, and keying on
+// the directory would leave the pane bound to the cell it started on while the zoom moved to
+// its neighbour. It also trails `expandedUid` when a re-root could not be saved out of, so a
+// snapshot is filed under the cell the pane is on rather than the one it failed to reach.
 const paneUid = ref<number | null>(null);
-watch(paneCwd, () => (paneUid.value = paneCwd.value === null ? null : (props.expandedUid ?? null)));
 
 // Walking the zoom to another terminal has to re-root the pane: the pane deliberately ignores
 // its `cwd` prop (see its defineExpose contract), so nothing else would move it. The buffer is
 // saved first rather than asked about — the zoom moves from keys and filmstrip clicks, and a
 // dialog on each of those would interrupt the very flow the pane is meant to sit beside.
 watch(
-  [filesOpen, zoomed, expandedCwd],
-  async ([open, isZoomed]) => {
-    if (!open || !isZoomed || paneCwd.value === expandedCwd.value) return;
-    // First showing: the pane is about to mount against this root, so there is nothing to re-read.
-    if (paneCwd.value === null) {
+  [filesOpen, zoomed, () => props.expandedUid, expandedCwd],
+  async ([open, isZoomed, uid]) => {
+    if (!open || !isZoomed) return;
+    // Nothing moved: same cell, and it still reports the same directory.
+    if (paneUid.value === uid && paneCwd.value === expandedCwd.value) return;
+    // First showing: the pane is about to mount against this cell, so there is nothing to re-read.
+    if (paneUid.value === null) {
+      paneUid.value = uid;
       paneCwd.value = expandedCwd.value;
-      paneState.value = paneStateByUid.get(props.expandedUid ?? -1) ?? null;
+      paneState.value = paneStateByUid.get(uid ?? -1) ?? null;
       return;
     }
     // Re-rooting re-reads the tree and drops the buffer with it. Nothing to fall back on means
-    // staying put: the pane keeps the old root, which its header names.
+    // staying put: the pane keeps the cell and root it is on, which its header names.
     if ((await filesPane.value?.flush()) === false) return;
     rememberPaneState(paneUid.value);
+    paneUid.value = uid;
     paneCwd.value = expandedCwd.value;
-    paneState.value = paneStateByUid.get(props.expandedUid ?? -1) ?? null;
+    paneState.value = paneStateByUid.get(uid ?? -1) ?? null;
     await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
     filesPane.value?.reload();
   },

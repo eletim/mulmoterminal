@@ -536,6 +536,25 @@ describe("file pane beside the enlarged cell", () => {
     expect(paneOf(w).props("initialState")).toEqual({ openPath: "notes.md", expanded: ["docs"] });
   });
 
+  // Two terminals in the same repository is the ordinary case here. Keying the pane on the
+  // DIRECTORY left it bound to the cell it started on while the zoom moved to its neighbour —
+  // so the neighbour's snapshot was filed under the first cell, and its own tree never arrived.
+  it("re-roots and re-binds between two cells sharing a directory", async () => {
+    const w = mountCockpit([cell(1, "s1", "/same"), cell(2, "s2", "/same")], 1, []);
+    await openPane(w);
+    paneStub.snapshot.mockReturnValue({ openPath: "from-one.md", expanded: [] });
+
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(paneStub.reload).toHaveBeenCalledTimes(1); // it moved, despite the same cwd
+    expect(paneOf(w).props("initialState")).toBeNull(); // cell 2 has its own (empty) memory
+
+    paneStub.snapshot.mockReturnValue({ openPath: "from-two.md", expanded: [] });
+    await w.setProps({ expandedUid: 1 });
+    await flushPromises();
+    expect(paneOf(w).props("initialState")).toEqual({ openPath: "from-one.md", expanded: [] });
+  });
+
   it("remembers across closing and re-opening the pane on the same cell", async () => {
     const w = mountCockpit([cell(1, "s1", "/one"), cell(2)], 1, []);
     await openPane(w);
