@@ -21,7 +21,26 @@ export type ActivityEffect = { kind: "working" | "waiting"; value: boolean };
 // no-ops when the flag is already true, so this re-asserts only after a loss, never spams.
 const WORKING_EVENTS = new Set(["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"]);
 
-export function activityHookEffects(event: string, active: boolean): ActivityEffect[] {
+// Notification types that report something that ALREADY HAPPENED rather than something the user
+// must answer. `agent_completed` is the one this was written for: a subagent finishing fires it,
+// and treating every Notification as "blocked on you" made a finished subagent flag the cell for
+// attention, beep, and push — once per subagent, while the main turn was still running (#874).
+// Measured, not assumed: the payload carries `notification_type: "agent_completed"` and no
+// `agent_id`, so the TYPE is the only thing that distinguishes it.
+//
+// A DENYLIST, not an allowlist, and the asymmetry is the reason: Claude Code adds notification
+// types over time, an unrecognised one still notifies, and the two failure modes are not equal.
+// One spurious ping is an annoyance; a swallowed "your agent is blocked" is exactly what this
+// feature exists to prevent, and a user cannot discover a stuck session any other way.
+const INFORMATIONAL_NOTIFICATIONS: ReadonlySet<string> = new Set(["agent_completed", "auth_success", "elicitation_complete", "elicitation_response"]);
+
+// A Notification the user should actually be told about. An absent type means an older Claude
+// Code that doesn't send one — those keep the previous behaviour rather than going silent.
+export function isActionableNotification(notificationType?: string): boolean {
+  return !notificationType || !INFORMATIONAL_NOTIFICATIONS.has(notificationType);
+}
+
+export function activityHookEffects(event: string, active: boolean, notificationType?: string): ActivityEffect[] {
   if (WORKING_EVENTS.has(event)) return [{ kind: "working", value: true }];
   // A finished turn (Stop) has unseen output; a paused turn (Notification) waits on the
   // user. Either flags the session for attention UNLESS it's the actively-viewed pane.
@@ -33,7 +52,7 @@ export function activityHookEffects(event: string, active: boolean): ActivityEff
           { kind: "working", value: false },
         ];
   }
-  if (event === "Notification") return active ? [] : [{ kind: "waiting", value: true }];
+  if (event === "Notification") return active || !isActionableNotification(notificationType) ? [] : [{ kind: "waiting", value: true }];
   return [];
 }
 
@@ -48,9 +67,9 @@ export function activityHookEffects(event: string, active: boolean): ActivityEff
 // fire regardless of `active` — the phone is elsewhere. pushEnabled / hidden /
 // translation gates stay with the caller.
 
-export function pushKindFor(event: string): PushKind | null {
+export function pushKindFor(event: string, notificationType?: string): PushKind | null {
   if (event === "Stop") return "finished";
-  if (event === "Notification") return "waiting";
+  if (event === "Notification") return isActionableNotification(notificationType) ? "waiting" : null;
   return null;
 }
 

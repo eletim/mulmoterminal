@@ -32,8 +32,8 @@ export interface HookDeps extends SessionActivityDeps {
 // Activity hooks update a session's working / needs-attention flags. `active` (this
 // session is the user's actively-viewed pane) suppresses the attention flag — see
 // activityHookEffects for why a mere attached socket doesn't count in the grid.
-function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, message: string) {
-  for (const eff of activityHookEffects(event, active)) {
+function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, message: string, notificationType?: string) {
+  for (const eff of activityHookEffects(event, active, notificationType)) {
     if (eff.kind === "working") deps.setWorking(sessionId, eff.value, event);
     else deps.setWaiting(sessionId, eff.value, event);
   }
@@ -41,7 +41,7 @@ function handleActivityHook(deps: HookDeps, sessionId: string, event: string, ac
   // A finished turn (Stop) and a blocked one (Notification) both reach here; the kind
   // decides the wording. Stop is one event per finished turn, so this fires once even
   // though a background Stop publishes twice.
-  const kind = pushKindFor(event);
+  const kind = pushKindFor(event, notificationType);
   if (kind) void notifyTaskFinished(sessionId, kind, message, deps.uiPort);
 }
 
@@ -137,7 +137,16 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
     // pty — so tracking an id with no pty (any well-formed uuid may be posted here) would never be
     // reclaimed. A session whose pty is gone simply reports no phase, as it does before its first tool.
     if (entry) deps.noteWorkPhase(sessionId, event, typeof body.tool_name === "string" ? body.tool_name : undefined);
-    handleActivityHook(deps, sessionId, event, active, typeof body.message === "string" ? body.message : "");
+    handleActivityHook(
+      deps,
+      sessionId,
+      event,
+      active,
+      typeof body.message === "string" ? body.message : "",
+      // Which KIND of notification — a subagent finishing arrives here as
+      // `agent_completed`, and must not be read as the agent waiting on the user (#874).
+      typeof body.notification_type === "string" ? body.notification_type : undefined,
+    );
     await handleToolHook(deps, sessionId, event, body, cwd);
     // A hidden translation worker that ends its turn while still pending never called
     // submitTranslation — fail it now rather than hang until the timeout. (When it DID
