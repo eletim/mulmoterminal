@@ -161,3 +161,51 @@ describe("FilesPane", () => {
     expect(String(listCalls()[1][0])).toContain(encodeURIComponent("/other"));
   });
 });
+
+// Leaving happens WHILE the pane is being torn down. Anything flush() reads after its first
+// await may already be gone, which is how a parting save's 409 fallback lost the buffer.
+describe("FilesPane leaving mid-unmount", () => {
+  beforeEach(() => {
+    fakeEditor.setDoc.mockClear();
+    mockFs();
+  });
+
+  it("still banks the buffer when the pane unmounts during the parting save", async () => {
+    const w = await openFileAndEdit();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/backup")) return { ok: true, json: async () => ({ stored: true }) };
+      return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: "v9" }) };
+    }) as unknown as typeof fetch;
+
+    const flushing = (w.vm as unknown as { flush: () => Promise<void> }).flush();
+    w.unmount(); // the editor is destroyed while the write is in flight
+    await flushing;
+    await flushPromises();
+
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((u) => u.includes("/backup"))).toBe(true);
+  });
+
+  // Clearing `dirty` on a failed backup would leave the only copy nowhere and say it was fine.
+  it("keeps the buffer marked unsaved when neither the save nor the backup lands", async () => {
+    const w = await openFileAndEdit();
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: "nope" }) })) as unknown as typeof fetch;
+
+    await (w.vm as unknown as { flush: () => Promise<void> }).flush();
+    await flushPromises();
+    expect(w.emitted("dirty")?.at(-1)).toEqual([true]);
+  });
+
+  // No awaiting an answer on the way out of the tab, so the backup goes unconditionally.
+  it("banks and writes on pagehide, so a conflict there can't cost the buffer", async () => {
+    await openFileAndEdit();
+    const before = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    window.dispatchEvent(new Event("pagehide"));
+    await flushPromises();
+
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.slice(before).map((c) => String(c[0]));
+    expect(calls.some((u) => u.includes("/backup"))).toBe(true);
+    expect(calls.some((u) => u.includes("/write"))).toBe(true);
+  });
+});

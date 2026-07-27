@@ -14,11 +14,13 @@ const pane = ref<InstanceType<typeof FilesPane> | null>(null);
 // the buffer is saved rather than asked about — the same bargain the pane makes everywhere
 // else. The watcher runs before the re-render that unmounts the pane, and flush() reads the
 // document synchronously, so the content is captured even on the way out.
-watch([isOpen, cwd], ([open, curCwd], prev) => {
+watch([isOpen, cwd], async ([open, curCwd], prev) => {
   const wasOpen = prev?.[0] ?? false;
   const rootChanged = open && curCwd !== (prev?.[1] ?? null);
   if (!wasOpen) return;
-  if (!open || rootChanged) pane.value?.flush();
+  // Awaited: the save has to finish before the tree it is being replaced by is read, and a
+  // parting save that hits a conflict still has a backup to write afterwards.
+  if (!open || rootChanged) await pane.value?.flush();
   // A root change keeps the pane mounted, and only this side knows the change happened.
   if (rootChanged) pane.value?.reload();
 });

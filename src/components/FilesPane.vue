@@ -106,35 +106,62 @@ const rows = computed(() => {
   return out;
 });
 
+type WriteOutcome = { status: "saved"; version: string | null } | { status: "conflict"; version: string | null } | { status: "error"; message: string };
+
+// One write, reported as a value rather than through component state. Leaving has to keep
+// working while the pane is being torn down, and anything read from `editor` or a ref AFTER
+// an await may already be gone by then.
+async function writeBuffer(pathRel: string, text: string, base: string | null, keepalive = false): Promise<WriteOutcome> {
+  try {
+    const res = await fetch(`/api/files/browse/write?${qs(pathRel)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, baseVersion: base }),
+      keepalive,
+    });
+    const data = await res.json().catch(() => ({}));
+    const version = typeof data.version === "string" ? data.version : null;
+    if (res.status === 409) return { status: "conflict", version };
+    if (!res.ok) return { status: "error", message: data.error || `HTTP ${res.status}` };
+    return { status: "saved", version };
+  } catch (e) {
+    return { status: "error", message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Hand a copy to the backup store — content that exists nowhere else once the editor is gone. */
+async function bankText(pathRel: string, text: string, keepalive = false): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/files/browse/backup?${qs(pathRel)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      keepalive,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Save on the way out instead of asking. The editor sits beside a terminal the user is
 // working in, so anything that moves the enlargement — a key, a click on the filmstrip —
 // would otherwise raise a dialog mid-flow. Nothing is lost either way: the server banks
 // three generations of every file it replaces.
 //
 // A save that loses the version race can't put a banner up (we are already leaving), so the
-// buffer is banked instead and the file left as the other writer left it.
+// buffer is banked instead and the file left as the other writer left it. Everything needed
+// is read BEFORE the first await, so an unmount mid-flight can't take the content with it.
 async function flush(): Promise<void> {
   if (!dirty.value || !openPath.value || !editor) return;
-  await save();
-  if (conflict.value) {
-    await bankBuffer();
-    conflict.value = null;
+  const pathRel = openPath.value;
+  const text = editor.getDoc();
+  const outcome = await writeBuffer(pathRel, text, baseVersion.value);
+  // Stop calling it unsaved only once the copy is SOMEWHERE. A failed backup leaves the buffer
+  // marked dirty, which is the one honest answer left.
+  if (outcome.status === "saved" || (await bankText(pathRel, text))) {
     dirty.value = false;
-  }
-}
-
-/** Hand the editor's own copy to the backup store — content that exists nowhere else. */
-async function bankBuffer(): Promise<boolean> {
-  if (!openPath.value || !editor) return false;
-  try {
-    const res = await fetch(`/api/files/browse/backup?${qs(openPath.value)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: editor.getDoc() }),
-    });
-    return res.ok;
-  } catch {
-    return false;
+    conflict.value = null;
   }
 }
 
@@ -175,35 +202,28 @@ async function save(): Promise<void> {
   if (!openPath.value || !editor || saving.value) return;
   saving.value = true;
   fileError.value = null;
-  try {
-    const res = await fetch(`/api/files/browse/write?${qs(openPath.value)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: editor.getDoc(), baseVersion: baseVersion.value }),
-    });
-    const data = await res.json().catch(() => ({}));
-    // 409: the file moved on under us (the agent working in this very directory is the
-    // likeliest author). Nothing was written — offer the choice instead of picking a loser.
-    if (res.status === 409) {
-      conflict.value = { version: typeof data.version === "string" ? data.version : null };
-      return;
-    }
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    baseVersion.value = typeof data.version === "string" ? data.version : null;
-    dirty.value = false;
-    conflict.value = null;
-  } catch (e) {
-    fileError.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    saving.value = false;
+  const outcome = await writeBuffer(openPath.value, editor.getDoc(), baseVersion.value);
+  saving.value = false;
+  // 409: the file moved on under us (the agent working in this very directory is the likeliest
+  // author). Nothing was written — offer the choice instead of picking a loser.
+  if (outcome.status === "conflict") {
+    conflict.value = { version: outcome.version };
+    return;
   }
+  if (outcome.status === "error") {
+    fileError.value = outcome.message;
+    return;
+  }
+  baseVersion.value = outcome.version;
+  dirty.value = false;
+  conflict.value = null;
 }
 
 /** Conflict banner — take the disk's copy. The buffer is banked first, so "discard" costs
  *  nothing that can't be fetched back out of the backup store. */
 async function discardAndReload(): Promise<void> {
-  if (!openPath.value) return;
-  await bankBuffer();
+  if (!openPath.value || !editor) return;
+  await bankText(openPath.value, editor.getDoc());
   loadFile(openPath.value, true);
 }
 
@@ -262,12 +282,13 @@ watch(
 // is the one hole autosave can't close.
 function onPageHide(): void {
   if (!dirty.value || !openPath.value || !editor) return;
-  fetch(`/api/files/browse/write?${qs(openPath.value)}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: editor.getDoc(), baseVersion: baseVersion.value }),
-    keepalive: true,
-  }).catch(() => undefined);
+  const pathRel = openPath.value;
+  const text = editor.getDoc();
+  // Both, unconditionally: there is no awaiting an answer here, so the only way to honour
+  // "your version is kept either way" is to bank it whether or not the write wins the race.
+  // The cost is one redundant generation per tab-close with unsaved edits.
+  bankText(pathRel, text, true);
+  writeBuffer(pathRel, text, baseVersion.value, true);
 }
 
 onMounted(() => {
