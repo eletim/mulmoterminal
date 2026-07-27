@@ -259,6 +259,10 @@ function wireCopyOnSelect(term: Terminal, host: HTMLDivElement): void {
     if (text !== null && (await writeTerminalSelection(host, text))) lastCopied = text;
   };
   term.onSelectionChange(() => {
+    // The default path, and it must cost nothing: xterm fires this on every coordinate change, so
+    // without the early return every ordinary drag would schedule and cancel a timer per cell
+    // crossed for a feature nobody turned on.
+    if (!isCopyOnSelectEnabled()) return;
     // A cleared selection retires the last one, so selecting the same text again afterwards copies
     // again: between two drags the user may well have put something else on the clipboard, and
     // "you already copied that" would then leave them with the wrong thing and no sign of it.
