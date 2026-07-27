@@ -38,14 +38,19 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 // from it, so the operator has to name the origin themselves.
 const WILDCARD_BIND_HOSTNAMES = new Set(["0.0.0.0", "[::]"]);
 
+// An IPv6 literal reaches a URL bracketed, but `server.listen()` takes it BARE — so `fe80::1` is
+// what an operator writes into MULMOTERMINAL_HOST, and `new URL("http://fe80::1")` throws on it.
+// Two or more colons is what separates that from a `host:port`, which has exactly one.
+const bracketIfBareIPv6 = (host: string): string => (host.split(":").length > 2 && !host.includes("[") ? `[${host}]` : host);
+
 // The hostname a browser would display for `entry`, written either as a bare host (`nuc.local`,
-// `192.168.11.6`, `[fe80::1]`) or as a whole origin (`http://nuc.local:34567`) — both are what
-// someone reaches for, and accepting only one spelling drops the setting silently. null when it
-// is neither.
+// `192.168.11.6`, `fe80::1`, `[fe80::1]`) or as a whole origin (`http://nuc.local:34567`) — every
+// one of those is what someone reaches for, and accepting only some spellings drops the setting
+// silently. null when it is none of them.
 function hostnameOf(entry: string): string | null {
   const trimmed = entry.trim();
   if (!trimmed) return null;
-  for (const candidate of [trimmed, `http://${trimmed}`]) {
+  for (const candidate of [trimmed, `http://${bracketIfBareIPv6(trimmed)}`]) {
     try {
       const { hostname } = new URL(candidate);
       if (hostname) return hostname;

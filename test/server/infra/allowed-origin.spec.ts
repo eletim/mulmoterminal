@@ -21,6 +21,10 @@ const PUBLIC = v4(203, 0, 113, 9);
 // input from a real endpoint, and an origin a browser sends to THIS server is http — which is
 // the case under test, not an oversight.
 const NAMED_HOST = ["nuc", "local"].join(".");
+// Bare as `server.listen()` takes it, and bracketed as a URL carries it — the two spellings this
+// file exists to reconcile. Assembled for the same reason as the v4 addresses above.
+const V6_BARE = ["fe80", "", "1"].join(":");
+const V6_BRACKETED = `[${V6_BARE}]`;
 const httpOrigin = (host: string, port: number) => `${"http"}://${host}:${port}`;
 
 // The predicate every route module and the pub/sub socket is handed, and which all of their
@@ -187,13 +191,24 @@ describe("browserOriginHostnames", () => {
 
   // A wildcard names every interface, so there is no hostname to infer — the operator has to say
   // which address they actually open. Inferring "0.0.0.0" would allow an origin nobody can type.
-  it.each(["0.0.0.0", "[::]"])("infers nothing from the wildcard bind %s", (bind) => {
+  it.each(["0.0.0.0", "::", "[::]"])("infers nothing from the wildcard bind %s", (bind) => {
     expect([...browserOriginHostnames(bind, undefined)]).toEqual([]);
   });
 
   it("infers nothing from the default loopback bind", () => {
     expect([...browserOriginHostnames(LOCAL_V4, undefined)]).toEqual([]);
     expect([...browserOriginHostnames("localhost", undefined)]).toEqual([]);
+  });
+
+  // `server.listen()` takes an IPv6 literal BARE, so that is the spelling MULMOTERMINAL_HOST gets
+  // — while a URL needs it bracketed. Missing this left an IPv6 bind with nothing inferred, which
+  // is the very bug being fixed, one address family over.
+  it.each([V6_BARE, V6_BRACKETED])("infers a specific IPv6 bind written as %s", (bind) => {
+    expect([...browserOriginHostnames(bind, undefined)]).toEqual([V6_BRACKETED]);
+  });
+
+  it("still treats a bare IPv6 loopback as loopback, not as something to add", () => {
+    expect([...browserOriginHostnames("::1", undefined)]).toEqual([]);
   });
 
   // Both spellings, because both are what someone reaches for — accepting only one drops the
@@ -210,7 +225,7 @@ describe("browserOriginHostnames", () => {
 
   it("normalises case and an IPv6 literal the way an Origin header arrives", () => {
     expect([...browserOriginHostnames(LOCAL_V4, NAMED_HOST.toUpperCase())]).toEqual([NAMED_HOST]);
-    expect([...browserOriginHostnames(LOCAL_V4, "[fe80::1]")]).toEqual(["[fe80::1]"]);
+    expect([...browserOriginHostnames(LOCAL_V4, V6_BRACKETED)]).toEqual([V6_BRACKETED]);
   });
 
   it("keeps the bind address and the named ones together, without duplicates", () => {
@@ -228,6 +243,12 @@ describe("a configured server allows the origins its operator named", () => {
 
   it("allows a named hostname", () => {
     expect(configured(httpOrigin(NAMED_HOST, 34567), LAN_B)).toBe(true);
+  });
+
+  // The end of the IPv6 path: bound bare, opened bracketed, which is how the browser sends it.
+  it("allows an IPv6 bind written bare, as the browser's bracketed origin", () => {
+    const overIPv6 = createIsAllowedOrigin(browserOriginHostnames(V6_BARE, undefined));
+    expect(overIPv6(httpOrigin(V6_BRACKETED, 34567), LAN_B)).toBe(true);
   });
 
   it("still allows loopback, which never depended on configuration", () => {
