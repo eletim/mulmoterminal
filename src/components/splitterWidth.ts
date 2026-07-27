@@ -20,6 +20,13 @@ export function clampTerminalWidth(width: number, viewport: number): number {
   return Math.max(MIN_TERMINAL, Math.min(width, maxTerminalWidth(viewport)));
 }
 
+/** The same rule read from the other side, for a splitter that stores the RIGHT pane's width
+ *  (the file pane beside a zoomed grid cell) rather than the terminal's. Stating it in terms
+ *  of `clampTerminalWidth` is what keeps the two splitters from drifting apart. */
+export function clampPaneWidth(paneWidth: number, available: number): number {
+  return available - clampTerminalWidth(available - paneWidth, available);
+}
+
 // The width a key produces, or null when the key is not ours — the caller must NOT
 // preventDefault on null, or the separator would swallow Tab and Escape while focused.
 export function splitterKeyWidth(key: string, current: number, viewport: number): number | null {

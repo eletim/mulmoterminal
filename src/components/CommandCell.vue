@@ -191,7 +191,13 @@ function onHeaderClick(event: MouseEvent) {
         >
           <span class="material-symbols-outlined" aria-hidden="true">{{ summaryState === "loading" ? "more_horiz" : "auto_awesome" }}</span>
         </button>
-        <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
+        <CellChromeButtons
+          :expanded="expanded"
+          :files-open="filesOpen"
+          @toggle-expand="emit('toggle-expand')"
+          @toggle-files="emit('toggle-files')"
+          @close="emit('close')"
+        />
       </span>
     </div>
     <TerminalView

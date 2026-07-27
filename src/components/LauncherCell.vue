@@ -101,7 +101,13 @@ function relaunch() {
         <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
         </button>
-        <CellChromeButtons :expanded="expanded" @toggle-expand="emit('toggle-expand')" @close="emit('close')" />
+        <CellChromeButtons
+          :expanded="expanded"
+          :files-open="filesOpen"
+          @toggle-expand="emit('toggle-expand')"
+          @toggle-files="emit('toggle-files')"
+          @close="emit('close')"
+        />
       </span>
     </div>
     <TerminalView
