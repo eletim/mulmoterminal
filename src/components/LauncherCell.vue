@@ -18,6 +18,7 @@ import {
   CELL_DOT_IDLE,
   CELL_DOT_WORKING,
   CELL_FRAME,
+  CELL_INNER,
   CELL_HEADER,
   CELL_HEADER_ZOOMABLE,
   CELL_TERM,
@@ -80,48 +81,50 @@ function relaunch() {
 
 <template>
   <div class="cell" :class="CELL_FRAME">
-    <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" @click="onHeaderClick">
-      <span
-        class="cell-dot"
-        :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
-        :title="finished ? 'Exited' : 'Running…'"
-      />
-      <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="cwd ?? ''"
-        ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
-      >
-      <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
-      <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ launcher.label }}</span>
-      <span class="cell-actions" :class="CELL_ACTIONS">
-        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">
-          <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
-        </button>
-        <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move launcher right" @click="emit('move', 1)">
-          <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
-        </button>
-        <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">
-          <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
-        </button>
-        <CellChromeButtons
-          :expanded="expanded"
-          :files-open="filesOpen"
-          @toggle-expand="emit('toggle-expand')"
-          @toggle-files="emit('toggle-files')"
-          @close="emit('close')"
+    <div :class="CELL_INNER">
+      <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" @click="onHeaderClick">
+        <span
+          class="cell-dot"
+          :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
+          :title="finished ? 'Exited' : 'Running…'"
         />
-      </span>
+        <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="cwd ?? ''"
+          ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
+        >
+        <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
+        <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined" aria-hidden="true">rocket_launch</span> {{ launcher.label }}</span>
+        <span class="cell-actions" :class="CELL_ACTIONS">
+          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move launcher left" @click="emit('move', -1)">
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
+          </button>
+          <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move right" aria-label="Move launcher right" @click="emit('move', 1)">
+            <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+          </button>
+          <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">
+            <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+          </button>
+          <CellChromeButtons
+            :expanded="expanded"
+            :files-open="filesOpen"
+            @toggle-expand="emit('toggle-expand')"
+            @toggle-files="emit('toggle-files')"
+            @close="emit('close')"
+          />
+        </span>
+      </div>
+      <TerminalView
+        class="cell-term"
+        :class="CELL_TERM"
+        :persist-key="`cell-${uid}`"
+        :session-id="session"
+        :connect-key="connectKey"
+        :cwd="cwd"
+        :launcher="target"
+        :expanded="expanded"
+        :zoomed="zoomed"
+        @session="onSession"
+        @exit="onExit"
+      />
     </div>
-    <TerminalView
-      class="cell-term"
-      :class="CELL_TERM"
-      :persist-key="`cell-${uid}`"
-      :session-id="session"
-      :connect-key="connectKey"
-      :cwd="cwd"
-      :launcher="target"
-      :expanded="expanded"
-      :zoomed="zoomed"
-      @session="onSession"
-      @exit="onExit"
-    />
   </div>
 </template>

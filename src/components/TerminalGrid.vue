@@ -697,7 +697,10 @@ watch(
 
 /* The keyboard-focused cell lifts and grows slightly, in place — tiled grid only, so it never
    applies to a filmstrip thumbnail (.stage.zoomed) or a cell mid-FLIP. The transform doesn't change
-   the cell's layout size, so xterm isn't refit and the PTY isn't resized. */
+   the cell's layout size, so xterm isn't refit and the PTY isn't resized.
+   What grows is the FRAME: the cell's content (CELL_INNER) cancels this scale out about the same
+   centre, because the terminal is a canvas and scaling a canvas resamples it (#965). The factor is
+   a token for that reason — a literal here would silently stop matching the inverse. */
 .stage:not(.zoomed) .grid > *:not(.flipping) {
   transition:
     transform 140ms ease,
@@ -705,7 +708,7 @@ watch(
 }
 
 .stage:not(.zoomed) .grid > .focused {
-  transform: scale(1.03);
+  transform: scale(var(--focus-zoom));
   z-index: 5;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }

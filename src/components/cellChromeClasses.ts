@@ -8,7 +8,20 @@
 // styling now, so the specs that select on them aren't coupled to how a cell looks.
 
 export const CELL_FRAME =
-  "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--cell-border,var(--border))] bg-[var(--cell-bg,var(--bg-base))]";
+  "group/cell flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--cell-border,var(--border))] bg-[var(--cell-bg,var(--bg-base))]";
+
+// Everything inside a cell lives in one wrapper so the focus zoom can cancel itself out.
+// The focused cell scales up by --focus-zoom (TerminalGrid's `.focused`); this scales back down by
+// the inverse OF THE SAME TOKEN, and because the wrapper's box is the cell's own box the two share
+// a centre — the content's composed transform is exactly identity, so the terminal's canvas keeps
+// its 1:1 rasterisation while the frame around it grows (#965).
+//
+// It has to wrap ALL of the cell's children, header included. A wrapper that starts below the
+// header has its own centre, and cancelling about the wrong centre leaves a sub-pixel translation
+// which blurs the canvas just the same — measured at 14% of the canvas's pixels changed, against
+// 0% for this.
+export const CELL_INNER =
+  "flex min-h-0 min-w-0 flex-1 flex-col transition-transform duration-[140ms] ease-[ease] group-[.focused]/cell:scale-[calc(1/var(--focus-zoom))] motion-reduce:transition-none";
 
 export const CELL_HEADER = "flex h-[34px] flex-none items-center gap-2 border-b border-b-border bg-[var(--cell-header-bg,var(--bg-panel))] px-2";
 
