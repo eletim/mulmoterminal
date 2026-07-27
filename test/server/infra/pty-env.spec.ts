@@ -29,6 +29,9 @@ describe("isLauncherEnvVar", () => {
     }
   });
 
+  // NODE_ENV stays on this list on purpose. It reached PTYs as "production" until #955, which
+  // was the launcher exporting it — fixed there. Adding it here instead would take away the
+  // NODE_ENV of a user who exports one, which is a different bug with the same shape.
   it("keeps real user environment, including other *_PREFIX vars", () => {
     for (const name of ["HOMEBREW_PREFIX", "CONDA_PREFIX", "HOME", "SHELL", "PATH", "NVM_DIR", "NODE_ENV", "NODE_OPTIONS"]) {
       expect(isLauncherEnvVar(name), name).toBe(false);

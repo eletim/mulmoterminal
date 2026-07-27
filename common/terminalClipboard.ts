@@ -50,3 +50,22 @@ export function clipboardActionFor(keymap: Keymap, e: ClipboardKeyEvent, hasSele
   // to be reversed.
   return action === "copy" && !hasSelection ? null : action;
 }
+
+// Copy-on-select: the text a settled selection should put on the clipboard, or null to leave the
+// clipboard alone. `lastCopied` is what this terminal wrote last, so an unchanged selection is not
+// written twice.
+//
+// Unlike the rules above, this one ends in a clipboard WRITE — no keystroke happened, so nothing in
+// the browser was ever going to copy anything by itself. That is what makes the two skips here
+// matter more than they look:
+//
+//   - Whitespace only. Dragging across empty terminal space selects spaces, and silently replacing
+//     the user's clipboard with a run of them is this feature's worst failure. Anyone who really
+//     wants indentation still has the `copy` keymap action.
+//   - Unchanged text. A second identical write buys nothing and costs a duplicate entry in the OS
+//     clipboard history (Win+V), which is the same reason the caller waits for the selection to
+//     settle instead of writing on every onSelectionChange.
+export function selectionToCopy(enabled: boolean, selection: string, lastCopied: string | null): string | null {
+  if (!enabled || selection.trim() === "" || selection === lastCopied) return null;
+  return selection;
+}

@@ -5,10 +5,10 @@
 // injected; the mount only needs the app.
 import type { Express } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
-import { workspaceFromQuery } from "../config/workspace.js";
+import { workspaceFromQuery, existingWorkspaceFromQuery } from "../config/workspace.js";
 import { normalizeAgent } from "./routeParams.js";
 import { getHeaderConfig } from "../config/config-routes.js";
-import { publicDirConfig, dirSoundFor, loadDirConfig } from "../config/dir-config.js";
+import { publicDirConfig, dirSoundFor, loadDirConfig, dirConfigDetail, MISSING_DIR_CONFIG_DETAIL } from "../config/dir-config.js";
 import { readSoundPreset } from "../config/sound-presets.js";
 import { isNotifyKind } from "../../common/notifyKinds.js";
 import { buildHeaderContext, loadHeaderConfig, repoFromWebUrl } from "../config/header-context.js";
@@ -49,6 +49,18 @@ export function mountDirRoutes(app: Express): void {
   app.get("/api/dir-config", (req, res) => {
     const cwd = workspaceFromQuery(req.query.cwd);
     res.json(publicDirConfig(cwd));
+  });
+
+  // The settings modal's preview: the same resolved config PLUS which keys the file set and
+  // how each fared (applied / dropped in validation / not a key we read). Its own route rather
+  // than fields on /api/dir-config, which every cell fetches — this re-reads the file and is
+  // only wanted while the modal is open.
+  // NOT workspaceFromQuery: this route reports ON the directory it is asked about, so falling
+  // back to the default workspace would answer about a DIFFERENT directory under the requested
+  // one's name — and a preset that outlived its project is exactly when that happens.
+  app.get("/api/dir-config-detail", (req, res) => {
+    const cwd = existingWorkspaceFromQuery(req.query.cwd);
+    res.json(cwd ? dirConfigDetail(cwd) : MISSING_DIR_CONFIG_DETAIL);
   });
 
   // Live git status (branch / dirty / ahead·behind) for a terminal's dir, so the

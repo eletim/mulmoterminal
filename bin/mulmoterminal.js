@@ -26,6 +26,7 @@ import {
   nodeMeetsMinimum,
   MIN_NODE_LABEL,
   serverNodeArgs,
+  serverSpawnEnv,
 } from "./cli-args.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -272,7 +273,7 @@ function runServer(port, noOpen, cwd, onChild) {
     // package directory, so serverNodeArgs makes that path absolute (#795).
     const server = spawn(process.execPath, serverNodeArgs(SERVER_ENTRY, process.cwd()), {
       cwd: PKG_DIR,
-      env: { ...process.env, NODE_ENV: "production", PORT: String(port), CLAUDE_CWD: cwd },
+      env: serverSpawnEnv(process.env, port, cwd),
       stdio: ["inherit", "inherit", "pipe"],
     });
     let stderrTail = "";

@@ -21,6 +21,13 @@ ping to your phone when a task finishes. One `npx` command, no Electron, no conf
 npx mulmoterminal        # starts on http://localhost:34567 and opens your browser
 ```
 
+> **Something looks wrong?** Type `/mulmoterminal-bug-report` in any MulmoTerminal session. The
+> bundled skill hears the symptom out, checks your **real** config, schema and version to see
+> whether the behaviour is configuration or by design, searches the existing issues — and only
+> helps you file one if none of that explains it, with the environment collected and secrets
+> masked. Getting you unstuck is the goal; an issue is what is left when the first three steps
+> fail.
+
 ![MulmoTerminal's grid view — four live Claude sessions running side by side, each in its own color-coded project](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-2x2-live.png)
 
 *The grid is a **cockpit for parallel agents** — here, four live Claude sessions, each in its own color-coded project. Every cell's header carries what you need to triage at a glance: **model · context %**, **token counts** (`⇡in ⇣out`), the **git branch / changes** chip, and an AI summary of what the agent is doing. A cell's **border color signals state** — working / done (blue), needs-you (amber — e.g. waiting on a permission), idle — with an attention chime so a stuck cell off-screen still pulls you back. Supervise many; only step in where you're called.*
@@ -102,6 +109,13 @@ than as bytes (files within the session's working directory only):
 | `.csv` `.tsv` | a **table** in a new tab, with a sticky header that scrolls inside its own box |
 | source, config, logs, and `.txt` — 46 extensions | the app's own **Files** view (`/files?path=`), where CodeMirror highlights it, the tree is right there, and it can be edited |
 | everything else — images, PDF, SVG, HTML, video | raw bytes in a new tab, which the browser renders better than an editor would |
+
+**While a grid cell is enlarged, the [Files pane](#files-view-browse--edit) takes the click first** — every
+row above except the last one, since the pane is the same editor plus a Markdown preview. The
+file opens *beside* the terminal that printed it, and the pane opens itself if it was closed.
+It declines, leaving the routing above untouched, when nothing is enlarged, when the path is
+not under that cell's own directory (the pane cannot walk above its root), or for the raw-bytes
+row, where it would only show an empty editor.
 
 Highlighting in the Files view covers the JS/TS family, JSON and Markdown (the modes
 `cmEditor.ts` bundles); other languages open as plain text.
@@ -233,6 +247,7 @@ The launcher detects it and prints the exact, OS-appropriate removal command; ru
 - [Session model](#session-model)
 - [Session lifecycle](#session-lifecycle)
 - [Claude hook injection](#claude-hook-injection)
+- [Closing summary](#closing-summary)
 - [Session discovery & titles](#session-discovery--titles)
 - [Project structure](#project-structure)
 - [Testing](#testing)
@@ -297,7 +312,8 @@ today — **Claude Code** (the default) and **Codex**.
 - **Claude** — spawned as `claude` (override with `CLAUDE_BIN`). The server passes
   `--session-id <uuid>`, so it knows the live session's id even before its transcript
   file exists, and injects activity hooks + the GUI MCP per spawn (see
-  [Claude hook injection](#claude-hook-injection)).
+  [Claude hook injection](#claude-hook-injection)) plus the
+  [closing summary](#closing-summary) instruction.
 - **Codex** — spawned as `codex` (override with `CODEX_BIN`; `CODEX_MODEL` sets
   `--model`). Codex runs on its own WebSocket (`/ws/codex`) and its sessions appear in the
   sidebar next to Claude's. Because Codex only mints its rollout id **after** the first
@@ -475,6 +491,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `worklogEnabled` | `true` to run the built-in **dev worklog** batch (see below). Off by default (each run spawns an LLM session, so it costs tokens). |
 | `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
+| `copyOnSelect` | `true` puts a **mouse selection on the clipboard the moment it settles**, with no key pressed (the PuTTY / iTerm2 behaviour). **Off by default** — it changes the clipboard when you may only have meant to highlight something. No Settings UI: edit the file and reload the tab. Composes with the `copy` keymap action rather than replacing it. Over plain `http://` the browser gives a page no clipboard access, so a fallback asks xterm to copy instead; see the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#copy-on-select). |
 | `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out — read from the file per PR, so no restart is needed (there is no Settings control for it). Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
 | `fontFamily` | The **terminal font** every session renders in — a CSS font-family stack, e.g. `"'Cica', 'MS Gothic', monospace"`. No Settings UI: edit the file, then **restart** (this config is read once at startup). Unset uses the built-in stack (JetBrains Mono / Fira Code / Menlo / Consolas, then CJK faces for Japanese, Korean and Chinese). Unlike the per-browser font **size**, this is one value for the whole host — it names fonts, and which fonts exist is a property of the machine. A directory can override it. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#font-family). |
 
@@ -627,6 +644,12 @@ as the reload signal, so colors, palette, font size and grid order update withou
 anything. There is no filesystem watcher, so an edit made **outside** a session (your own
 editor) is picked up when the terminal is next opened.
 
+**Checking what took effect.** Settings → **Directory settings** lists your recent directories
+and expands each one to the values in force, with a swatch per color and the path of the file
+they came from. It also names the keys it **dropped** (a color that isn't `#rrggbb`, a size out
+of range) and the keys it doesn't read at all (`badgeColour`, a global-only setting) — which is
+what tells "I never set that" apart from "I set it and it didn't take".
+
 ---
 
 ## Running
@@ -777,6 +800,10 @@ the same explorer + editor on the right, rooted at that cell's directory. Drag t
 shrinks the pane rather than reflowing xterm into garbage. It works in both zoomed layouts
 (cockpit roster and thumbnail filmstrip), the pane re-roots as you walk the zoom between
 terminals, and whether it's open plus how wide it is are remembered per browser.
+
+The toggle is not the only way in: while a cell is enlarged, **clicking a file path the agent
+printed** opens it here too, rather than in a new tab or full-screen — see
+[Clicking a file path](#clicking-a-file-path).
 
 All reads and writes go through `GET/PUT /api/files/browse/*?cwd=&path=`, and every
 `path` is **contained within the project root** (server-side) — `..`/absolute escapes
@@ -930,6 +957,11 @@ Favorited collections get their own toolbar buttons.
   session.
 - **Notifications** (🔔) — a toolbar bell with an unread badge and a dropdown of active
   notifications; click a row to jump to its session.
+- **Star MulmoTerminal** — a star button in the grid toolbar that stars the project on GitHub
+  through your own `gh` login, in one click. It is a one-time ask: once the repo is starred the
+  button is gone for good and stops calling the server at all. It shows **only when `gh` can
+  answer** — with no `gh`, no login, or no network, one click couldn't star anything, so nothing
+  is shown and nothing is recorded. Set `gh` up later and the button appears by itself.
 - **Voice input** — dictate a prompt via on-device Whisper (`POST /api/transcribe`, macOS
   only; the model downloads on first use). Settings picks **the language you dictate in**
   (per browser): your browser's, whisper's own per-clip detection, or a fixed one. Worth
@@ -1112,6 +1144,7 @@ same-origin-guarded.
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>`, remove (managed root only), push, open a PR (`gh`, else compare URL). |
 | `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` (via `gh`). |
+| `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |
 
 **Workspace views**
 
@@ -1138,6 +1171,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `soundKinds`, `sounds`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
 | `GET /api/sound?kind=` · `/api/dir-sound?cwd=&kind=` · `/api/sound-preset/:id` · `/api/dir-config?cwd=` | Custom / per-directory / preset attention sound + per-dir config. `kind` selects a config entry, never a path. |
+| `GET /api/dir-config-detail?cwd=` | The same per-dir config, **plus** the settings a running terminal doesn't need (`provider`, `model`, `skills`, `addDirs`, header button/chip **labels**), **plus** which keys the file set and how each fared (applied / dropped in validation / not a setting at all). Read-only; backs the Settings modal's **Directory settings** preview. Unlike the other `?cwd=` routes this one does **not** fall back to the default workspace — it reports on the directory it was asked about, so a path that no longer exists comes back as `exists:false`. Sound paths and button commands stay server-side. |
 | `GET /api/launch-options` | The Anthropic-compatible backends this server can reach, each with its models and — when it can't — the reason. Reports the **name** of the env var a key is read from, never the key. |
 | `GET /api/notifications`(`/history`) · `POST /api/notifications/:id/clear` | Notification feed. |
 | `POST /api/transcribe`(`/model`…) | Voice-input transcription (Whisper, macOS). |
@@ -1336,6 +1370,30 @@ payload to the server:
 
 Because the server spawns each new session with `--session-id <uuid>`, it always
 knows the live session's id — even before the session's `.jsonl` file exists.
+
+---
+
+## Closing summary
+
+Every Claude session is spawned with `claude --append-system-prompt '<text>'`, asking the
+agent to end a reply with a short summary **when it hands control back** — the work is
+finished, or it is stopping to ask a question. Coming back to a grid cell after a while, the
+standing request and what came of it are otherwise only recoverable by scrolling the whole
+session.
+
+The summary states three things: the request **for the conversation as a whole** (not the
+last message — several turns of refinement do not replace what was asked first), what was
+achieved, and what was not and why. It is written in the language of the conversation, and
+placed last with nothing after it.
+
+It is deliberately **not** written on every turn: mid-work replies and short factual answers
+carry no standing request, and a summary that always appears stops being read. The wording
+lives in `server/agents/session-summary-prompt.ts`; there is no setting to turn it off.
+
+Passed inline rather than as `--append-system-prompt-file` for the same reason `--settings`
+is: the sandbox spawn runs in a container that cannot read a host path.
+
+Codex sessions are unaffected — the CLI has no equivalent flag.
 
 ---
 

@@ -13,6 +13,7 @@ import { useWikiBrowse, wikiGotoIndex, wikiGotoTag } from "../composables/useWik
 import { usePrsView, prsGotoIndex } from "../composables/usePrsView";
 import { useSoundEnabled } from "../composables/useSoundEnabled";
 import { useUpdateStatus } from "../composables/useUpdateStatus";
+import { useGithubStar } from "../composables/useGithubStar";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
 import { parseTagQuery } from "./wikiTagFilter";
 import type { Shortcut } from "../../common/shortcuts";
@@ -51,6 +52,7 @@ const { isOpen: wikiOpen } = useWikiBrowse();
 const { isOpen: prsOpen } = usePrsView();
 const { enabled: soundEnabled, toggle: toggleSound } = useSoundEnabled();
 const { badge: updateBadge } = useUpdateStatus();
+const { visible: starVisible, confirming: starConfirming, title: starTitle, activate: activateStar } = useGithubStar();
 
 // Clicking the badge opens a popover that spells out what to run — a silent clipboard copy
 // gave no hint of what happened or which command it even was.
@@ -126,9 +128,14 @@ function showPrs(): void {
   <header class="flex h-10 flex-none items-center border-b border-border bg-panel px-4">
     <span class="font-sans text-[14px] font-semibold tracking-[0.02em] text-fg">MulmoTerminal</span>
     <nav class="ml-4 flex min-w-0 items-center gap-[3px] overflow-x-auto" aria-label="Views">
-      <!-- Both views: the pair that switches between them. -->
-      <LauncherButton icon="chat" title="Chat" label="Chat" :active="chatActive" @click="showChat" />
-      <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
+      <!-- Both views: the pair that switches between them. Fenced off with a rule because it is
+           the only group here that changes WHICH VIEW you are in — everything to its right acts
+           within the current one, and a flat row of equal buttons hid that (#941). Same rule
+           treatment as the status tally at the other end of the nav. -->
+      <span class="mr-1.5 inline-flex flex-none items-center gap-[3px] border-r border-border pr-2.5" role="group" aria-label="Switch view">
+        <LauncherButton icon="chat" title="Chat" label="Chat" :active="chatActive" @click="showChat" />
+        <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
+      </span>
       <!-- Single view only (#886): the content surfaces. The grid is for supervising agents,
            and every one of these replaces the whole screen anyway. -->
       <LauncherButton v-if="!inGrid" icon="apps" title="Collections" label="Collections" :active="collectionsActive" @click="showCollections" />
@@ -226,6 +233,9 @@ function showPrs(): void {
         <p v-else class="text-muted">{{ updateBadge.text }}</p>
       </div>
     </div>
+    <!-- Grid only: star this project on GitHub. It retires itself once starred (or once the
+         user has opened the repo page), so it is a one-time ask rather than a fixture. -->
+    <LauncherButton v-if="inGrid && starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
     <LauncherButton
       :icon="soundEnabled ? 'notifications_active' : 'notifications_off'"
       :title="soundEnabled ? 'Attention sound on' : 'Attention sound off'"

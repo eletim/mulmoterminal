@@ -299,4 +299,11 @@ describe("SettingsModal per-kind sounds (#873)", () => {
     await w.find('input[aria-label="Beep when a session is finished"]').setValue(true);
     expect(w.emitted("update-sound-kinds")?.at(-1)?.[0]).toEqual(["finished", "pr-ci-failed"]);
   });
+
+  // Wiring only — what the preview shows for each directory is DirConfigPreview.spec.ts.
+  it("hands the directory list to the config preview, and asks for nothing until one is expanded", async () => {
+    const w = mountModal({ dirPaths: ["/proj/a", "/proj/b"] });
+    await flushPromises();
+    expect(w.findAll('[data-testid="dir-preview-row"]')).toHaveLength(2);
+  });
 });

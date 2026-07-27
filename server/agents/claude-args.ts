@@ -1,6 +1,7 @@
 // Pure builder for the `claude` CLI argv. Kept separate so the exact flag set —
 // especially the GUI-MCP / --strict-mcp-config switch — is unit-testable without
 // spawning a PTY.
+import { SESSION_SUMMARY_PROMPT } from "./session-summary-prompt.js";
 
 export interface ClaudeArgsInput {
   sessionId: string;
@@ -28,6 +29,10 @@ export interface ClaudeArgsInput {
 
 export function buildClaudeArgs(input: ClaudeArgsInput): string[] {
   const guiArgs = ["--permission-mode", input.permissionMode];
+  // Inline, not --append-system-prompt-file: the sandbox spawn runs in a container that cannot
+  // read a host path, which is why --settings is already passed inline too. A prompt this size
+  // is nowhere near the tmux arg limit that forced the seed prompt out of the argv (#942).
+  guiArgs.push("--append-system-prompt", SESSION_SUMMARY_PROMPT);
   if (input.model) guiArgs.push("--model", input.model);
   if (input.attachGuiMcp) {
     guiArgs.push("--mcp-config", input.mcpConfig, "--strict-mcp-config", "--allowedTools", input.guiMcpTools);

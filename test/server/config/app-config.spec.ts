@@ -11,6 +11,7 @@ import {
   sanitizeUserMcpServers,
   sanitizePushEnabled,
   sanitizePrWorkdirFooter,
+  sanitizeCopyOnSelect,
   sanitizeWorklogIntervalHours,
   sanitizeTerminalSubmit,
   loadAppConfig,
@@ -51,6 +52,17 @@ describe("sanitizePushEnabled", () => {
     expect(sanitizePushEnabled(1)).toBe(false);
     expect(sanitizePushEnabled(null)).toBe(false);
     expect(sanitizePushEnabled(undefined)).toBe(false);
+  });
+});
+
+describe("sanitizeCopyOnSelect", () => {
+  it("is true only for the boolean true — a highlight must not start copying by accident", () => {
+    expect(sanitizeCopyOnSelect(true)).toBe(true);
+    expect(sanitizeCopyOnSelect(false)).toBe(false);
+    expect(sanitizeCopyOnSelect("true")).toBe(false);
+    expect(sanitizeCopyOnSelect(1)).toBe(false);
+    expect(sanitizeCopyOnSelect(null)).toBe(false);
+    expect(sanitizeCopyOnSelect(undefined)).toBe(false);
   });
 });
 
@@ -245,6 +257,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     providers: [],
     terminalSubmit: "cr",
     keymap: {},
+    copyOnSelect: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -270,6 +283,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
+      copyOnSelect: true, // opt-in, so only `true` proves it persisted rather than defaulted
       prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
       cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
       fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
@@ -324,6 +338,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       worklogIntervalHours: 6,
       providers: [],
       terminalSubmit: "cr",
+      copyOnSelect: false,
       prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
       fontFamily: null,
     });
@@ -426,6 +441,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     providers: [],
     terminalSubmit: "cr" as const,
     keymap: {},
+    copyOnSelect: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -485,6 +501,7 @@ describe("mergeConfigUpdate", () => {
     providers: [],
     terminalSubmit: "cr",
     keymap: {},
+    copyOnSelect: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -514,6 +531,8 @@ describe("mergeConfigUpdate", () => {
   });
 
   it("applies terminalSubmit from the body (sanitized) and keeps it when omitted", () => {
+    expect(mergeConfigUpdate(baseConfig(), { copyOnSelect: true }).copyOnSelect).toBe(true);
+    expect(mergeConfigUpdate(baseConfig({ copyOnSelect: true }), { chips: ["git"] }).copyOnSelect).toBe(true);
     expect(mergeConfigUpdate(baseConfig(), { terminalSubmit: "esc-cr" }).terminalSubmit).toBe("esc-cr");
     expect(mergeConfigUpdate(baseConfig(), { terminalSubmit: "bogus" }).terminalSubmit).toBe("cr"); // invalid => default
     // a chips-only update must not reset the mapping

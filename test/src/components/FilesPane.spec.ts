@@ -482,3 +482,40 @@ describe("FilesPane reacting to the write hook", () => {
     expect(pubsub.handlers.has("file-write")).toBe(false);
   });
 });
+
+// #910 regression. The tree and the open file are independent fetches, and until a path could
+// be clicked in terminal output nothing ever started them at the same time. Sharing one
+// "latest request wins" counter meant the file load cancelled the tree's own result: the pane
+// showed the file next to "Empty directory.", and stayed that way. Caught by running the app,
+// not by any test — so this is the test.
+describe("opening a file while the tree is still loading", () => {
+  let releaseList: (() => void) | null = null;
+
+  beforeEach(() => {
+    releaseList = null;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/list")) {
+        // Hold the tree response open so the file load below is genuinely concurrent.
+        await new Promise<void>((resolve) => (releaseList = resolve));
+        return { ok: true, json: async () => ({ entries: [{ name: "src", dir: true, size: 0 }] }) };
+      }
+      return { ok: true, json: async () => ({ text: "export const x = 1;", version: "v1" }) };
+    }) as unknown as typeof fetch;
+  });
+
+  it("keeps the tree — the file load must not cancel it", async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
+    await flushPromises();
+    // The click in terminal output lands before the tree has answered.
+    await (w.vm as unknown as { openFile: (p: string) => Promise<void> }).openFile("src/main.ts");
+    await flushPromises();
+    releaseList?.();
+    await flushPromises();
+
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("export const x = 1;", "main.ts");
+    expect(w.findAll('[data-testid="files-row"]')).toHaveLength(1);
+    expect(w.text()).not.toContain("Empty directory");
+    w.unmount();
+  });
+});

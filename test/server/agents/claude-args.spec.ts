@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildClaudeArgs, type ClaudeArgsInput } from "../../../server/agents/claude-args.js";
+import { SESSION_SUMMARY_PROMPT } from "../../../server/agents/session-summary-prompt.js";
 
 const base: ClaudeArgsInput = {
   sessionId: "11111111-1111-1111-1111-111111111111",
@@ -24,6 +25,8 @@ describe("buildClaudeArgs", () => {
       "{hooks}",
       "--permission-mode",
       "auto",
+      "--append-system-prompt",
+      SESSION_SUMMARY_PROMPT,
       "--mcp-config",
       "{gui-mcp}",
       "--strict-mcp-config",
@@ -34,7 +37,16 @@ describe("buildClaudeArgs", () => {
 
   it("grid dev terminal (attachGuiMcp=false): no GUI MCP, no --strict-mcp-config, no --allowedTools", () => {
     const args = buildClaudeArgs({ ...base, attachGuiMcp: false });
-    expect(args).toEqual(["--session-id", base.sessionId, "--settings", "{hooks}", "--permission-mode", "auto"]);
+    expect(args).toEqual([
+      "--session-id",
+      base.sessionId,
+      "--settings",
+      "{hooks}",
+      "--permission-mode",
+      "auto",
+      "--append-system-prompt",
+      SESSION_SUMMARY_PROMPT,
+    ]);
     expect(args).not.toContain("--mcp-config");
     expect(args).not.toContain("--strict-mcp-config");
     expect(args).not.toContain("--allowedTools");
@@ -82,5 +94,30 @@ describe("model selection", () => {
     const args = buildClaudeArgs(cfg({ model: "opus", resume: "abc", canResume: true }));
     expect(args).toContain("--resume");
     expect(args).toContain("--model");
+  });
+});
+
+// #942: the closing-summary instruction rides on every session, with no config to turn it off.
+// A resumed session is the one that most needs it — it is the session someone came back to.
+describe("session summary prompt", () => {
+  const promptValue = (args: string[]): string | undefined => args[args.indexOf("--append-system-prompt") + 1];
+
+  it.each([
+    ["a fresh session", cfg()],
+    ["a resumed session", cfg({ resume: "abc", canResume: true })],
+    ["a grid dev terminal (no GUI MCP)", cfg({ attachGuiMcp: false })],
+    ["a session pinned to a model", cfg({ model: "opus" })],
+  ])("appends it to %s", (_case, input) => {
+    const args = buildClaudeArgs(input);
+    expect(args.filter((a) => a === "--append-system-prompt")).toHaveLength(1);
+    expect(promptValue(args)).toBe(SESSION_SUMMARY_PROMPT);
+  });
+
+  // `--add-dir` is variadic, so anything after it is swallowed as a directory. The prompt is a
+  // single argument that would silently become one.
+  it("sits before --add-dir, never after it", () => {
+    const args = buildClaudeArgs(cfg({ addDirs: ["/a", "/b"] }));
+    expect(args.indexOf("--append-system-prompt")).toBeLessThan(args.indexOf("--add-dir"));
+    expect(promptValue(args)).toBe(SESSION_SUMMARY_PROMPT);
   });
 });

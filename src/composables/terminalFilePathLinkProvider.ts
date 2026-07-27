@@ -101,6 +101,19 @@ export function fileLinkTarget(filePath: string, cwd: string): FileLinkTarget {
   return { kind: "url", url: rawFileUrl(filePath, cwd) };
 }
 
+/** Whether the Files pane beside a zoomed cell can show this path: anything the app renders
+ *  as text or as Markdown. Derived from the two tables above rather than being a third one,
+ *  so a new extension row reaches the pane without a second edit. What is left out is what
+ *  only the raw route can answer — images, PDFs, bytes — where the pane would show an empty
+ *  editor and a new tab is still the right place. */
+export function isPaneViewable(filePath: string): boolean {
+  const ext = fileExtension(filePath);
+  // Indexed like fileViewerRoute does, not `in`: the table is a plain object, so `in` also
+  // answers for whatever Object.prototype carries. Every real key starts with a dot and no
+  // inherited one does, which makes it safe today and needlessly load-bearing tomorrow.
+  return IN_APP_EXTENSIONS.has(ext) || ROUTE_BY_EXTENSION[ext] !== undefined;
+}
+
 export function rawFileUrl(filePath: string, cwd: string): string {
   return `${fileViewerRoute(filePath)}?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(filePath)}`;
 }
@@ -121,6 +134,10 @@ export function createFilePathLinkProvider(
   getCwd: () => string | null,
   openUrl: (url: string) => void,
   openInFiles: (filePath: string, cwd: string) => void,
+  // First chance at the click, ahead of the extension table: the Files pane beside an enlarged
+  // cell, which can show most of these WITHOUT leaving the grid (#910). Returns whether it took
+  // it; false falls through to the routing below, unchanged.
+  openInPane: (filePath: string, cwd: string) => boolean,
 ): ILinkProvider {
   return {
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void): void {
@@ -132,6 +149,7 @@ export function createFilePathLinkProvider(
         range: { start: { x: link.startX, y: bufferLineNumber }, end: { x: link.endX, y: bufferLineNumber } },
         decorations: { pointerCursor: true, underline: true },
         activate: () => {
+          if (openInPane(link.text, cwd)) return;
           const target = fileLinkTarget(link.text, cwd);
           if (target.kind === "files") openInFiles(link.text, cwd);
           else openUrl(target.url);

@@ -13,6 +13,7 @@ import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setGlobalFontFamily } from "./terminalFontFamily";
 import { setActiveKeymap } from "./activeKeymap";
 import { setCockpitLines } from "./cockpitLines";
+import { setCopyOnSelect } from "./copyOnSelect";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
 // useAppConfig() caller — the beep player lives in the single view while the
@@ -261,6 +262,13 @@ const soundSettings = { soundFile, soundKinds, sounds, saveSound, saveSoundKinds
 // Server config (default workspace dir, home, directory presets, custom sound)
 // shared by both the single view and the grid view so each can open the settings
 // modal without duplicating the fetch/save logic.
+//
+// CAUTION — only SOME of what this returns is shared state. The refs declared module-level
+// above (sound, push, repos, launchers, quick commands, MCP) are singletons: any caller reads
+// the same value. The four below are NOT — each useAppConfig() call gets its own, and they
+// only ever fill in for the caller that also runs `loadConfig`. A component that reads
+// `presets` here without loading gets a permanently empty list, which looks exactly like a
+// user who has opened no directories. Take them from the shell that loaded them instead.
 export function useAppConfig() {
   const defaultCwd = ref<string | null>(null);
   const home = ref<string | null>(null);
@@ -292,6 +300,9 @@ export function useAppConfig() {
       // Keyboard shortcuts are opt-in: no `keymap` in config.json leaves this empty and
       // every shortcut stays off.
       setActiveKeymap(c.keymap);
+      // Copy-on-select, off unless config.json asks for it — it changes the clipboard with no
+      // key pressed, so it must never arrive by default.
+      setCopyOnSelect(c.copyOnSelect);
       // How far the cockpit roster clamps each line. Absent `cockpitLines` keeps 2/2/3.
       setCockpitLines(c.cockpitLines);
       // The terminal font stack (config.json-only, no Settings UI). Terminals already open

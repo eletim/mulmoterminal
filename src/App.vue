@@ -176,7 +176,7 @@ onMounted(() => window.addEventListener("resize", onViewportResize));
 
 // Settings (theme + notification sound), shared with the grid view via useAppConfig
 // and opened from the toolbar's gear button.
-const { defaultCwd, loadConfig } = useAppConfig();
+const { defaultCwd, loadConfig, presets } = useAppConfig();
 // Drive the single view's dir overrides off the dir the terminal ACTUALLY runs in
 // (reported by the server, which may resolve/fall back), not the static default — so
 // the badge/theme/colors always track the active session. Falls back to the default
@@ -403,6 +403,13 @@ function onSession(id: string) {
     <PrsOverlay />
     <!-- Full-screen file explorer + editor; opened by a terminal header's Files button. -->
     <FilesOverlay />
-    <AppSettingsModal v-if="showSettings" :cwd="effectiveCwd" :session-id="activeId" @configure-appearance="configureAppearance" @close="closeSettings" />
+    <AppSettingsModal
+      v-if="showSettings"
+      :cwd="effectiveCwd"
+      :session-id="activeId"
+      :presets="presets"
+      @configure-appearance="configureAppearance"
+      @close="closeSettings"
+    />
   </div>
 </template>

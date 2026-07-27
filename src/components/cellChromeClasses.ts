@@ -8,7 +8,20 @@
 // styling now, so the specs that select on them aren't coupled to how a cell looks.
 
 export const CELL_FRAME =
-  "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--cell-border,var(--border))] bg-[var(--cell-bg,var(--bg-base))]";
+  "group/cell flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--cell-border,var(--border))] bg-[var(--cell-bg,var(--bg-base))]";
+
+// Everything inside a cell lives in one wrapper so the focus zoom can cancel itself out.
+// The focused cell scales up by --focus-zoom (TerminalGrid's `.focused`); this scales back down by
+// the inverse OF THE SAME TOKEN, and because the wrapper's box is the cell's own box the two share
+// a centre — the content's composed transform is exactly identity, so the terminal's canvas keeps
+// its 1:1 rasterisation while the frame around it grows (#965).
+//
+// It has to wrap ALL of the cell's children, header included. A wrapper that starts below the
+// header has its own centre, and cancelling about the wrong centre leaves a sub-pixel translation
+// which blurs the canvas just the same — measured at 14% of the canvas's pixels changed, against
+// 0% for this.
+export const CELL_INNER =
+  "flex min-h-0 min-w-0 flex-1 flex-col transition-transform duration-[140ms] ease-[ease] group-[.focused]/cell:scale-[calc(1/var(--focus-zoom))] motion-reduce:transition-none";
 
 export const CELL_HEADER = "flex h-[34px] flex-none items-center gap-2 border-b border-b-border bg-[var(--cell-header-bg,var(--bg-panel))] px-2";
 
@@ -34,11 +47,16 @@ export const CELL_BTN_INK = "cursor-pointer text-[var(--cell-btn,var(--text-seco
 export const CELL_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} ${CELL_BTN_INK}`;
 export const CELL_CLOSE_BTN = `${CELL_BTN_BOX} ${CELL_BTN_SIZE} cursor-pointer text-[var(--cell-btn,var(--text-secondary))] hover:bg-[var(--err-hover-bg)] hover:text-err-text`;
 
-// Truncated from the FRONT (rtl) so the tail — the project dir — stays visible, and floored at
-// ~15 characters of path so it stays readable in a narrow cell.
-export const CELL_DIR =
-  "min-w-[16ch] max-w-[45%] flex-initial truncate text-left font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))] [direction:rtl]";
+// A path clipped from the FRONT: `rtl` puts the ellipsis at the start so the tail — the
+// project dir, the part that identifies the cell — survives a narrow column. `text-left` comes
+// with it because rtl also flips the default alignment, which would push a path short enough to
+// fit over to the trailing edge. The path text itself must carry CELL_DIR_PATH, or rtl would
+// reorder the trailing "/" and punctuation.
+export const DIR_TRUNCATE_FRONT = "truncate text-left [direction:rtl]";
 export const CELL_DIR_PATH = "[unicode-bidi:plaintext]";
+
+// Floored at ~15 characters of path so it stays readable in a narrow cell.
+export const CELL_DIR = `min-w-[16ch] max-w-[45%] flex-initial ${DIR_TRUNCATE_FRONT} font-mono text-[11px] text-[var(--cell-header-fg,var(--text-dim))]`;
 
 export const CELL_CMD = "min-w-0 flex-auto truncate font-mono text-[12px] text-secondary";
 

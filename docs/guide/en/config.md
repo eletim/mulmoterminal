@@ -87,6 +87,7 @@ Open it from the ⚙ in the toolbar.
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
+| `copyOnSelect` | Put a mouse selection on the clipboard the moment it settles, with no key pressed. **Off by default** (→ [Copy on select](#copy-on-select)) |
 | `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |
 | `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 | `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
@@ -508,6 +509,37 @@ before committing to one.
 > MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
 > navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
 
+## Copy on select (`copyOnSelect`) {#copy-on-select}
+
+Drag over some terminal output and it is on your clipboard the moment you let go — no key pressed.
+The same behaviour PuTTY and iTerm2 have always had, and what Windows Terminal calls `copyOnSelect`.
+
+**Off unless you ask for it**, because it changes your clipboard when you may only have meant to
+highlight something while reading.
+
+```json
+{ "copyOnSelect": true }
+```
+
+Config file only — there is no Settings toggle. Restart the server to pick it up.
+
+It coexists with the [`copy` keymap action](#keymap): keep `copy` bound as well if you also want a
+key for it, for instance to copy a selection made with the keyboard.
+
+Two things it deliberately does **not** copy, both to protect what you already had on the clipboard:
+
+- **A selection that is only whitespace** — dragging across empty terminal space would otherwise
+  replace your clipboard with a run of spaces, silently. Use the `copy` binding if you really want
+  the indentation.
+- **The same text twice in a row**, which would only add a duplicate to your OS clipboard history.
+
+{: .note }
+> **Over plain `http://`, browsers give a page no clipboard access at all** — the API is restricted
+> to `https://` and `localhost`. MulmoTerminal falls back to asking xterm to copy the selection the
+> way the keyboard shortcut does, which does work there, but it needs the terminal to still hold the
+> keyboard focus. If a drag does not seem to land while you are on `http://<some-ip>:PORT`, that is
+> where to look first. Reaching the app at `http://localhost:PORT` has no such limit.
+
 ## Cockpit roster line counts (`cockpitLines`) {#cockpit-lines}
 
 Enlarge a terminal and the others line up beside it as a **roster**, three lines each: **summary**
@@ -723,6 +755,7 @@ Your project's scripts that can run in a grid cell (dev server, tests, build, an
 | `CLAUDE_CWD` / `--cwd` | The directory you run `npx mulmoterminal` in (only `~/mulmoclaude` when the server is started directly) | The default working directory (the PTY's cwd); also set via `--cwd` |
 | `PORT` | `34567` | The server port |
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
+| `MULMOTERMINAL_ALLOWED_ORIGINS` | *(none)* | Extra browser origins allowed to attach a terminal, comma-separated. Only needed alongside a wider `MULMOTERMINAL_HOST` (→ [below](#bind-host)) |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
 
 ### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}
@@ -741,12 +774,54 @@ loopback, because there is no other signal that it happened.
 MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # trusted networks only — see the caveat below
 ```
 
-**This is for port-forwarding, not for browsing from another machine.** The same-origin checks
-that protect the terminal WebSockets accept only a *localhost* origin, so a browser opening
-`http://<this-machine>:34567` from elsewhere on the network loads the page and then fails to
-attach a terminal. Where the opt-in does help is when something forwards a local port to the
-server — a **Docker container** or **WSL**, where the process must bind `0.0.0.0` inside for the
-mapping to reach it while the browser still connects to `localhost` on the outside.
+Binding wider is not by itself enough to open the page **from another machine**. The same-origin
+checks that protect the terminal WebSockets accept *localhost* plus **the origins you name**, so a
+browser reaching `http://<address>:34567` has to be one of those or it loads the page and then
+fails to attach a terminal.
+
+Naming a single address does both at once:
+
+```bash
+MULMOTERMINAL_HOST=192.168.11.6 npx mulmoterminal   # binds there AND accepts that origin
+```
+
+A wildcard cannot: `0.0.0.0` means *every* interface, so there is no single address to accept —
+say which one you actually open.
+
+```bash
+MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterminal
+```
+
+`MULMOTERMINAL_ALLOWED_ORIGINS` takes a comma-separated list; each entry is a host (`nuc.local`,
+`192.168.11.6`, `[fe80::1]`) or a whole origin (`http://nuc.local:34567`). The port is not part of
+the decision, so one entry covers the server and the Vite dev port alike. The startup warning
+prints the list it ended up with — if a browser cannot attach, read that line first.
+
+#### Which setups this changes, and which it does not {#bind-host-scope}
+
+Both variables are **opt-in, and nothing happens without them**. If you have never set either, the
+server accepts exactly the origins it always did.
+
+| What you set | What a browser may attach from |
+|---|---|
+| *(nothing — the default)* | localhost only. **Unchanged**, and the server is not reachable from another machine at all |
+| `MULMOTERMINAL_HOST=0.0.0.0` | localhost only. A wildcard names every interface, so no single address can be inferred from it |
+| Port-forwarding (a container binding `0.0.0.0` inside, browser on `localhost` outside) | localhost — which is what the browser is using, so this needs nothing further |
+| `MULMOTERMINAL_HOST=<one address>` | localhost **and that address** |
+| `MULMOTERMINAL_ALLOWED_ORIGINS=<list>` | localhost **and everything on the list** |
+
+Naming an origin decides **which pages may drive this server**. It is not a login — there still
+isn't one — and it does not decide who can *reach* the port; that is the bind, and on a widened
+bind anything that can open a socket is already trusted, browser or not.
+
+The opt-in also covers **port-forwarding**, where none of this is needed: a **Docker container** or
+**WSL** must bind `0.0.0.0` inside for the mapping to reach it, while the browser outside still
+connects to `localhost` and is allowed for that reason alone.
+
+{: .warning }
+> Naming an origin says **which pages may drive this server**. It does not add a login — there
+> still isn't one — and it does not make the server safe to expose. A request that sends *no*
+> `Origin` at all is still refused unless it comes from this machine, whatever you name here.
 
 You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
 host over Firestore, not over your local network (→ [from your phone](phone.html)).

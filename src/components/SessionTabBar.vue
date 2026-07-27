@@ -42,11 +42,16 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
     </div>
 
     <div class="flex min-w-0 flex-1 gap-1.5 overflow-hidden">
+      <!-- Both branches set a background: there is no Tailwind preflight (src/tailwind.css), so a
+           <button> with no bg-* falls back to the UA's ButtonFace — a light grey pill that made
+           the idle tabs' text-secondary near-unreadable on every dark theme. It stays in the
+           branches rather than the static class so two bg-* utilities never compete on one
+           element (see cellChromeClasses.ts). -->
       <button
         v-for="s in visibleSessions"
         :key="s.id"
         class="relative flex h-7 min-w-0 max-w-[200px] flex-1 cursor-pointer items-center gap-[5px] rounded-md border px-2.5 text-[12px] text-secondary transition-[background] duration-[120ms] ease-[ease]"
-        :class="s.id === props.activeId ? 'border-accent bg-subtle' : 'border-transparent hover:bg-subtle'"
+        :class="s.id === props.activeId ? 'border-accent bg-subtle' : 'border-transparent bg-transparent hover:bg-subtle'"
         :title="s.title"
         :aria-current="s.id === props.activeId ? 'page' : undefined"
         @click="emit('select', s.id, s.agent ?? 'claude')"
