@@ -8,9 +8,11 @@
 // markdown is served under a sandbox CSP so embedded scripts can't run in the app origin.
 import path from "node:path";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { marked } from "marked";
 import type { Express, Request, Response } from "express";
 import os from "node:os";
+import { hasErrnoCode } from "../errors.js";
 import { resolveBase, resolveContained } from "./pathContainment.js";
 import { htmlDoc, jsonHtmlDoc, tableHtmlDoc, delimiterForExtension } from "./renderedDoc.js";
 
@@ -25,6 +27,28 @@ export interface BrowseEntry {
   name: string;
   dir: boolean;
   size: number;
+}
+
+// A file's version token, handed to the editor with its text and handed back on save so a
+// write that would clobber someone else's is refused instead (the agent running in that very
+// directory is the someone else). Content, not mtime: a one-second-resolution filesystem or
+// two writes inside a clock tick report "unchanged" for exactly the race this guards.
+// Computed from raw bytes and never by the client, so a BOM or invalid UTF-8 can't make the
+// two sides disagree about what the file is.
+const versionOfBytes = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+
+/** The file's current version, or null when it doesn't exist — which is also what a caller
+ *  passes as `baseVersion` to say "I expect to be creating this". ONLY a missing file reads
+ *  as null: one that exists but can't be read (permissions, a transient I/O error) must not
+ *  answer "absent", or a `baseVersion: null` write would sail past the conflict check and
+ *  overwrite it. Anything else throws, and the write fails instead of guessing. */
+export function currentVersion(abs: string): string | null {
+  try {
+    return versionOfBytes(fs.readFileSync(abs));
+  } catch (err) {
+    if (hasErrnoCode(err) && err.code === "ENOENT") return null;
+    throw err;
+  }
 }
 
 // Directory listing, directories first then files, each alphabetical. Dotfiles are
@@ -128,7 +152,9 @@ export function mountFilesBrowseRoutes(app: Express, deps: { defaultCwd: string 
       const stat = fs.statSync(abs);
       if (stat.isDirectory()) return res.status(400).json({ error: "not a file" });
       if (stat.size > MAX_EDIT_BYTES) return res.status(413).json({ error: "file too large to edit" });
-      res.json({ text: fs.readFileSync(abs, "utf8") });
+      // One read for both, so the version can't describe a different revision than the text.
+      const bytes = fs.readFileSync(abs);
+      res.json({ text: bytes.toString("utf8"), version: versionOfBytes(bytes) });
     } catch {
       res.status(404).json({ error: "not found" });
     }
@@ -141,16 +167,25 @@ export function mountFilesBrowseRoutes(app: Express, deps: { defaultCwd: string 
   // The delimiter comes from the file's own extension, so one route serves .csv and .tsv.
   serveRendered("/api/files/browse/table", (text, title) => tableHtmlDoc(text, title, delimiterForExtension(path.extname(title))));
 
+  // Conditional write. `baseVersion` is the version the editor loaded (null = "I expect no
+  // file here"); it is REQUIRED, because an optional one is a blind-write escape hatch and
+  // blind writes are what this endpoint stopped doing. A mismatch answers 409 with the
+  // version now on disk, which the caller can re-send to overwrite deliberately.
   app.put("/api/files/browse/write", (req, res) => {
     const abs = containedFor(req, res, defaultCwd);
     if (!abs) return;
     const text = req.body?.text;
+    const baseVersion = req.body?.baseVersion;
     if (typeof text !== "string") return res.status(400).json({ error: "body.text (string) required" });
+    if (baseVersion !== null && typeof baseVersion !== "string") return res.status(400).json({ error: "body.baseVersion (string|null) required" });
     if (Buffer.byteLength(text, "utf8") > MAX_EDIT_BYTES) return res.status(413).json({ error: "content too large" });
     try {
       if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) return res.status(400).json({ error: "path is a directory" });
-      fs.writeFileSync(abs, text, "utf8");
-      res.json({ ok: true });
+      const onDisk = currentVersion(abs);
+      if (onDisk !== baseVersion) return res.status(409).json({ error: "file changed on disk", version: onDisk });
+      const bytes = Buffer.from(text, "utf8");
+      fs.writeFileSync(abs, bytes);
+      res.json({ ok: true, version: versionOfBytes(bytes) });
     } catch {
       res.status(500).json({ error: "failed to write file" });
     }

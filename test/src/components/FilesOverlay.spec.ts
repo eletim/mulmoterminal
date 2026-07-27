@@ -36,6 +36,11 @@ vi.mock("../../../src/components/cmEditor", async (orig) => {
   return { ...actual, createEditor: (_host: HTMLElement, cb: () => void) => ((onChange = cb), fakeEditor) };
 });
 
+// What /text serves and how /write answers, so a test can make the file change underneath
+// the editor (the agent-wrote-it-too case) without a second fetch mock.
+const disk = { text: "# hello", version: "v1" };
+let writeConflictVersion: string | null = null;
+
 function mockFs() {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -51,8 +56,13 @@ function mockFs() {
           : [{ name: "app.ts", dir: false, size: 5 }];
       return { ok: true, json: async () => ({ entries }) };
     }
-    if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello" }) };
-    if (url.includes("/write")) return { ok: true, json: async () => ({ ok: true }), _init: init };
+    if (url.includes("/text")) return { ok: true, json: async () => ({ text: disk.text, version: disk.version }) };
+    if (url.includes("/write")) {
+      if (writeConflictVersion !== null) {
+        return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: writeConflictVersion }) };
+      }
+      return { ok: true, json: async () => ({ ok: true, version: "v2" }), _init: init };
+    }
     return { ok: false, status: 404, json: async () => ({}) };
   }) as unknown as typeof fetch;
 }
@@ -77,6 +87,9 @@ describe("FilesOverlay", () => {
     hoisted.setCwd("/proj");
     hoisted.setRequestedPath(null);
     hoisted.setOpen(true);
+    disk.text = "# hello";
+    disk.version = "v1";
+    writeConflictVersion = null;
     mockFs();
   });
   afterEach(() => wrappers.splice(0).forEach((w) => w.unmount()));
@@ -117,7 +130,9 @@ describe("FilesOverlay", () => {
       "write call",
     );
     expect(putCall[1]).toMatchObject({ method: "PUT" });
-    expect(JSON.parse(putCall[1].body)).toEqual({ text: "edited text" });
+    // The version the buffer was loaded from rides along, so the server can refuse a write
+    // that would clobber whoever else touched the file meanwhile.
+    expect(JSON.parse(putCall[1].body)).toEqual({ text: "edited text", baseVersion: "v1" });
   });
 
   it("guards against discarding unsaved edits when switching files", async () => {
@@ -252,6 +267,77 @@ describe("FilesOverlay", () => {
 
       expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "app.ts");
       expect(urls.some((u) => u.includes("%2Fother-proj") && u.includes("src%2Fapp.ts"))).toBe(true);
+    });
+  });
+
+  // The agent running in this very directory edits the same files, so "someone else wrote it
+  // while you had it open" is the normal case here, not the exotic one.
+  describe("a save the server refuses (409)", () => {
+    const conflictBanner = (w: ReturnType<typeof mount>) => w.find('[data-testid="files-conflict"]');
+    const clickButton = async (w: ReturnType<typeof mount>, label: string) => {
+      await must(
+        w.findAll("button").find((b) => b.text().startsWith(label)),
+        `${label} btn`,
+      ).trigger("click");
+      await flushPromises();
+    };
+    const openAndEdit = async () => {
+      const w = mountOverlay();
+      await flushPromises();
+      await must(
+        w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
+        "README row",
+      ).trigger("click");
+      await flushPromises();
+      onChange(); // dirty
+      await flushPromises();
+      return w;
+    };
+
+    it("shows the banner and keeps the buffer instead of reporting a plain error", async () => {
+      writeConflictVersion = "v9";
+      const w = await openAndEdit();
+      await clickButton(w, "Save");
+      expect(conflictBanner(w).exists()).toBe(true);
+      expect(w.text()).toContain("Nothing was saved");
+      // Still dirty: the edits are the whole point of offering the choice.
+      const saveBtn = must(
+        w.findAll("button").find((b) => b.text().startsWith("Save")),
+        "save btn",
+      );
+      expect(saveBtn.attributes("disabled")).toBeUndefined();
+    });
+
+    it("Reload takes the disk's copy, discarding the buffer without a confirm prompt", async () => {
+      writeConflictVersion = "v9";
+      const w = await openAndEdit();
+      await clickButton(w, "Save");
+
+      disk.text = "# the agent's version";
+      disk.version = "v9";
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      await clickButton(w, "Reload");
+
+      // The button IS the decision — prompting again would ask the same question twice.
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(fakeEditor.setDoc).toHaveBeenLastCalledWith("# the agent's version", "README.md");
+      expect(conflictBanner(w).exists()).toBe(false);
+      confirmSpy.mockRestore();
+    });
+
+    it("Overwrite re-sends with the disk's version, so the retry writes instead of conflicting", async () => {
+      writeConflictVersion = "v9";
+      const w = await openAndEdit();
+      await clickButton(w, "Save");
+
+      writeConflictVersion = null; // the retry is allowed through
+      await clickButton(w, "Overwrite");
+
+      const writes = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/write"));
+      expect(writes).toHaveLength(2);
+      expect(JSON.parse(writes[0][1].body).baseVersion).toBe("v1");
+      expect(JSON.parse(writes[1][1].body).baseVersion).toBe("v9");
+      expect(conflictBanner(w).exists()).toBe(false);
     });
   });
 });
