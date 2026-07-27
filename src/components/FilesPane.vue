@@ -106,10 +106,67 @@ const rows = computed(() => {
   return out;
 });
 
-// Guard any action that would drop the open buffer's unsaved edits (switching files,
-// closing the view). Returns true to proceed.
-function confirmDiscard(): boolean {
-  return !dirty.value || window.confirm("Discard unsaved changes?");
+type WriteOutcome = { status: "saved"; version: string | null } | { status: "conflict"; version: string | null } | { status: "error"; message: string };
+
+// One write, reported as a value rather than through component state. Leaving has to keep
+// working while the pane is being torn down, and anything read from `editor` or a ref AFTER
+// an await may already be gone by then.
+async function writeBuffer(pathRel: string, text: string, base: string | null, keepalive = false): Promise<WriteOutcome> {
+  try {
+    const res = await fetch(`/api/files/browse/write?${qs(pathRel)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, baseVersion: base }),
+      keepalive,
+    });
+    const data = await res.json().catch(() => ({}));
+    const version = typeof data.version === "string" ? data.version : null;
+    if (res.status === 409) return { status: "conflict", version };
+    if (!res.ok) return { status: "error", message: data.error || `HTTP ${res.status}` };
+    return { status: "saved", version };
+  } catch (e) {
+    return { status: "error", message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Hand a copy to the backup store — content that exists nowhere else once the editor is gone. */
+async function bankText(pathRel: string, text: string, keepalive = false): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/files/browse/backup?${qs(pathRel)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      keepalive,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Save on the way out instead of asking. The editor sits beside a terminal the user is
+// working in, so anything that moves the enlargement — a key, a click on the filmstrip —
+// would otherwise raise a dialog mid-flow. Nothing is lost either way: the server banks
+// three generations of every file it replaces.
+//
+// A save that loses the version race can't put a banner up (we are already leaving), so the
+// buffer is banked instead and the file left as the other writer left it. Everything needed
+// is read BEFORE the first await, so an unmount mid-flight can't take the content with it.
+// Returns whether the buffer is safe to leave behind — false when NEITHER the save nor the
+// backup landed (the server is down, the disk is full). Callers that can stay must stay: with
+// no copy anywhere, walking away is the one outcome that loses what was typed.
+async function flush(): Promise<boolean> {
+  if (!dirty.value || !openPath.value || !editor) return true;
+  const pathRel = openPath.value;
+  const text = editor.getDoc();
+  const outcome = await writeBuffer(pathRel, text, baseVersion.value);
+  if (outcome.status !== "saved" && !(await bankText(pathRel, text))) {
+    fileError.value = outcome.status === "error" ? outcome.message : "could not save or back up this file";
+    return false;
+  }
+  dirty.value = false;
+  conflict.value = null;
+  return true;
 }
 
 async function openFile(node: Node): Promise<void> {
@@ -124,8 +181,10 @@ async function openFile(node: Node): Promise<void> {
 // conflict banner's "Reload", where discarding is the button the user just pressed.
 async function loadFile(pathRel: string, force = false): Promise<void> {
   if (!force) {
-    if (pathRel === openPath.value) return; // already open — no reload, no prompt
-    if (!confirmDiscard()) return;
+    if (pathRel === openPath.value) return; // already open — no reload
+    // Opening another file is leaving this one. If it couldn't be saved OR banked, staying is
+    // the only way not to lose it.
+    if (!(await flush())) return;
   }
   const id = ++reqId;
   fileError.value = null;
@@ -149,33 +208,34 @@ async function save(): Promise<void> {
   if (!openPath.value || !editor || saving.value) return;
   saving.value = true;
   fileError.value = null;
-  try {
-    const res = await fetch(`/api/files/browse/write?${qs(openPath.value)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: editor.getDoc(), baseVersion: baseVersion.value }),
-    });
-    const data = await res.json().catch(() => ({}));
-    // 409: the file moved on under us (the agent working in this very directory is the
-    // likeliest author). Nothing was written — offer the choice instead of picking a loser.
-    if (res.status === 409) {
-      conflict.value = { version: typeof data.version === "string" ? data.version : null };
-      return;
-    }
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    baseVersion.value = typeof data.version === "string" ? data.version : null;
-    dirty.value = false;
-    conflict.value = null;
-  } catch (e) {
-    fileError.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    saving.value = false;
+  const outcome = await writeBuffer(openPath.value, editor.getDoc(), baseVersion.value);
+  saving.value = false;
+  // 409: the file moved on under us (the agent working in this very directory is the likeliest
+  // author). Nothing was written — offer the choice instead of picking a loser.
+  if (outcome.status === "conflict") {
+    conflict.value = { version: outcome.version };
+    return;
   }
+  if (outcome.status === "error") {
+    fileError.value = outcome.message;
+    return;
+  }
+  baseVersion.value = outcome.version;
+  dirty.value = false;
+  conflict.value = null;
 }
 
-/** Conflict banner — take the disk's copy, dropping the buffer. */
-function discardAndReload(): void {
-  if (openPath.value) loadFile(openPath.value, true);
+/** Conflict banner — take the disk's copy. The buffer is banked first, so "discard" costs
+ *  nothing that can't be fetched back out of the backup store. */
+async function discardAndReload(): Promise<void> {
+  if (!openPath.value || !editor) return;
+  // "Kept as a backup either way" is the promise the banner makes. If the store refuses it,
+  // the honest answer is to keep the buffer rather than discard it anyway.
+  if (!(await bankText(openPath.value, editor.getDoc()))) {
+    fileError.value = "could not back up your version — nothing was discarded";
+    return;
+  }
+  loadFile(openPath.value, true);
 }
 
 /** Conflict banner — keep the buffer, adopting the disk's version as the new baseline so the
@@ -187,8 +247,8 @@ function overwrite(): void {
   save();
 }
 
-function requestClose(): void {
-  if (confirmDiscard()) emit("close");
+async function requestClose(): Promise<void> {
+  if (await flush()) emit("close");
 }
 
 // Bound to this pane's own subtree, not to window: with a pane open beside a terminal,
@@ -227,8 +287,28 @@ watch(
   },
 );
 
-onMounted(start);
-onBeforeUnmount(teardown);
+// Closing the tab or reloading is also leaving the file. `keepalive` lets the request outlive
+// the page — capped at 64 KB by the browser, so a very large buffer may not make it out, which
+// is the one hole autosave can't close.
+function onPageHide(): void {
+  if (!dirty.value || !openPath.value || !editor) return;
+  const pathRel = openPath.value;
+  const text = editor.getDoc();
+  // Both, unconditionally: there is no awaiting an answer here, so the only way to honour
+  // "your version is kept either way" is to bank it whether or not the write wins the race.
+  // The cost is one redundant generation per tab-close with unsaved edits.
+  bankText(pathRel, text, true);
+  writeBuffer(pathRel, text, baseVersion.value, true);
+}
+
+onMounted(() => {
+  window.addEventListener("pagehide", onPageHide);
+  start();
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("pagehide", onPageHide);
+  teardown();
+});
 
 // `reload` is the host's way to say "the root changed and I have already cleared it with the
 // user" — the pane never watches `cwd` itself, because reacting to it would discard a buffer
@@ -238,7 +318,7 @@ defineExpose({
     teardown();
     await start();
   },
-  confirmDiscard,
+  flush,
 });
 </script>
 
@@ -315,7 +395,7 @@ defineExpose({
           class="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-2 border-b border-amber bg-[var(--warn-bg-subtle)] px-4 py-2 text-[13px] text-warn"
         >
           <span class="material-symbols-outlined" aria-hidden="true">warning</span>
-          <span class="flex-auto">This file changed on disk. Nothing was saved.</span>
+          <span class="flex-auto">This file changed on disk. Nothing was saved — your version is kept as a backup either way.</span>
           <button
             type="button"
             class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"

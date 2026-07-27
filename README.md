@@ -769,9 +769,12 @@ the terminal is pointed at. A save sends the version the file had when it was op
 it is **refused (409) rather than silently overwriting** an agent that edited the same
 file meanwhile; the editor then offers to reload or to overwrite deliberately.
 
-Opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/` — **three
+**Leaving an open file saves it** — switching files, moving the enlargement to another
+terminal, closing the pane, navigating away. No dialog interrupts you mid-flow, because
+opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/` — **three
 generations per file**, outside the project so they never reach `git status` or the agent's
-view of its own repo. Re-opening unchanged content doesn't rotate one in, and a backup that
+view of its own repo. A parting save that loses the version race banks your version there
+instead of overwriting the other writer. Re-opening unchanged content doesn't rotate one in, and a backup that
 can't be written never blocks the read or the save it was taken for.
 
 ---
