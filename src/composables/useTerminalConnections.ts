@@ -111,7 +111,10 @@ const submitBytesFor = (c: Conn): string => submitSequence(effectiveSubmitMode(c
 export interface ConnHandlers {
   onSession?: (id: string) => void;
   onCwd?: (cwd: string) => void;
-  onExit?: () => void;
+  // `exitCode` is the command's status when the server reported one, else null (a start
+  // failure, or an agent session that ended without one). A Run cell reads it to tell a
+  // clean finish from a broken build.
+  onExit?: (exitCode: number | null) => void;
 }
 
 // The two xterm options that decide the CELL METRICS, so they travel together: both change how
@@ -463,6 +466,10 @@ function connect(c: Conn) {
   };
 }
 
+// The status the server reported for a finished PTY, or null when it named none (a command
+// that never started, or a session that ended without one).
+const exitCodeOf = (msg: { exitCode?: unknown }): number | null => (typeof msg.exitCode === "number" ? msg.exitCode : null);
+
 function handleMessage(c: Conn, event: MessageEvent) {
   const msg = JSON.parse(event.data);
   if (msg.type === "output") {
@@ -490,7 +497,7 @@ function handleMessage(c: Conn, event: MessageEvent) {
     c.sawExit = true;
     if (effect.banner) c.term.write(effect.banner);
     setStatus(c, "disconnected");
-    if (effect.callsOnExit) c.handlers.onExit?.();
+    if (effect.callsOnExit) c.handlers.onExit?.(exitCodeOf(msg));
   }
 }
 

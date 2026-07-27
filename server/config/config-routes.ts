@@ -1,6 +1,7 @@
 // GET/POST /api/config — the default workspace dir, the user's directory presets,
 // and an optional custom attention-sound file (persisted at ~/.mulmoterminal/
-// config.json), shown/edited in the UI. GET /api/sound streams that sound file.
+// config.json), shown/edited in the UI. GET /api/sound streams that sound file, and
+// GET /api/sound-preset/:id streams one of the built-in preset sounds.
 // Kept in its own module (mounted from index.ts) so grid/preset work doesn't churn
 // index.ts and collide with unrelated server changes.
 import os from "node:os";
@@ -23,8 +24,11 @@ import type { QuickCommand } from "../../common/quickCommands.js";
 import type { PushKind } from "../../common/pushKinds.js";
 import { type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import { launchOptions } from "./launch-options.js";
-import { badArrayField, badNullableArrayField } from "./config-body.js";
+import { badArrayField, badNullableArrayField, badObjectField } from "./config-body.js";
 import { getUpdateStatus } from "./update-status.js";
+import { readSoundPreset } from "./sound-presets.js";
+import { isNotifyKind } from "../../common/notifyKinds.js";
+import { parsePresetRef } from "../../common/notifySounds.js";
 
 export const APP_CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config.json");
 const CONFIG_FILE = APP_CONFIG_FILE;
@@ -127,6 +131,8 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
     if (badField) return res.status(400).json({ error: `${badField} must be an array` });
     const badNullableField = badNullableArrayField(body);
     if (badNullableField) return res.status(400).json({ error: `${badNullableField} must be an array or null` });
+    const badMapField = badObjectField(body);
+    if (badMapField) return res.status(400).json({ error: `${badMapField} must be an object` });
     // Merge onto the CURRENT disk config, re-read now — not this instance's cached
     // `config`, which may be stale (another mulmoterminal instance sharing this file
     // could have written since we booted). Using the stale copy for omitted fields
@@ -166,9 +172,30 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
   // path comes from server-side config — never from the request — so there's no
   // traversal surface. 404 when unset or the file is gone (the client then falls
   // back to the built-in chime).
-  app.get("/api/sound", (_req, res) => {
-    const file = config.soundFile;
+  app.get("/api/sound", async (req, res) => {
+    // `kind` selects an entry in the server's own `sounds` map and nothing else; the PATH
+    // still comes from config, never from the request, so there is no traversal surface.
+    // No kind (or an unknown one) asks for the all-kind `soundFile`, which is also what a
+    // client from before #873 sends.
+    const kind = isNotifyKind(req.query.kind) ? req.query.kind : null;
+    const configured = (kind ? config.sounds[kind] : null) ?? null;
+    const presetId = configured ? parsePresetRef(configured) : null;
+    if (presetId) {
+      const bytes = await readSoundPreset(presetId);
+      return bytes ? res.type("audio/mpeg").send(bytes) : res.status(404).end();
+    }
+    const file = configured ?? config.soundFile;
     if (!file || !existsSync(file) || !statSync(file).isFile()) return res.status(404).end();
     res.sendFile(path.resolve(file));
+  });
+
+  // Stream a preset attention sound, downloading it into ~/.mulmoterminal/sounds/ the first
+  // time. The id is matched against the fixed catalog before anything touches the filesystem
+  // or the network, so a request can neither traverse the cache dir nor pick the URL. 404
+  // when the id is unknown or the download failed — the client falls back to the chime.
+  app.get("/api/sound-preset/:id", async (req, res) => {
+    const bytes = await readSoundPreset(req.params.id);
+    if (!bytes) return res.status(404).end();
+    res.type("audio/mpeg").send(bytes);
   });
 }

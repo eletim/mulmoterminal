@@ -84,7 +84,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: "session" | "cwd", value: string): void;
-  (e: "exit"): void;
+  (e: "exit", exitCode: number | null): void;
   (e: "run", command: RunCommand): void;
 }>();
 
@@ -218,7 +218,7 @@ onMounted(() => {
     {
       onSession: (id) => emit("session", id),
       onCwd: (c) => emit("cwd", c),
-      onExit: () => emit("exit"),
+      onExit: (exitCode) => emit("exit", exitCode),
     },
     container,
     effectiveTermTheme(),

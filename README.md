@@ -451,7 +451,9 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | Field        | Meaning |
 | ------------ | ------- |
 | `cwdPresets` | Quick-pick directories offered when launching a terminal. |
-| `soundFile`  | Absolute path to a custom **attention sound** (played when a session needs attention). Empty/unset uses the built-in synthesized chime. |
+| `soundFile`  | Absolute path to a custom **attention sound**, the fallback for every kind. Empty/unset uses the built-in synthesized chime. |
+| `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
+| `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
 | `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates (via your `gh` login). |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides Claude — a plain shell, `codex`, any interactive command. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
@@ -483,12 +485,40 @@ there's no open PR) / `pickFile: true` (OS file dialog → insert the path).
 visibility. The `/mulmoterminal-config` skill writes a valid config interactively; per-dir buttons
 merge over the global ones by `id`.
 
-**Attention sound.** The default chime is generated with the Web Audio API — **no
-audio file is bundled**, so the npm package stays light and has no media-licensing
-concerns. To use your own sound, set `soundFile` in Settings (Browse / Test / Use
-chime) or in the config file; the server streams that file at `GET /api/sound` and
-the client decodes it (falling back to the chime if it's missing or not audio). It's
-your own local file referenced by absolute path — nothing is added to the package.
+### Notification sounds
+
+Six moments can beep, each with its own sound and its own on/off switch. Running many
+agents at once is what turns notifications into noise, so **only the first two are on by
+default** — the rest are opt-in from Settings.
+
+| Kind | When | Default |
+| --- | --- | --- |
+| `finished` | the turn ended and the output is unread | **on** |
+| `waiting` | it stopped to ask — a permission prompt or a question | **on** |
+| `command-done` | a Run cell's command exited 0 | off |
+| `command-failed` | a Run cell's command exited non-zero, or never started | off |
+| `session-exited` | a session's terminal ended — **including when you close the cell yourself** | off |
+| `pr-ci-failed` | a directory's PR went red. Only seen **while the roster is on screen**, since that is what polls the phase | off |
+
+`finished` and `waiting` reach the phone too (`pushKinds`); the other four are seen only in
+the browser — a Run PTY never enters the session registry, and a PR phase is something the
+page polls — so Web Push cannot raise them.
+
+**What each one plays.** The default chime is generated with the Web Audio API — **no audio
+file is bundled**, so the npm package stays light and has no media-licensing concerns. Beyond
+it there are two options:
+
+- **Presets** — seven sounds hosted in the [ownplate](https://github.com/Nakajima-Foundation/ownplate)
+  repo (MIT), referenced as `preset:<id>`: `chime` `coin` `cheep` `door` `gong` `magic` `meow`.
+  The first play downloads one into `~/.mulmoterminal/sounds/`; every later play reads that
+  file, so a preset keeps working offline. A failed download is not remembered as one — you
+  get the chime that time and the next play retries.
+- **Your own file** — an absolute path, per kind in `sounds` or as the all-kind `soundFile`.
+
+Resolution per kind, nearest first: the session directory's `sounds[kind]`, its `sound`, your
+`sounds[kind]`, your `soundFile`, then the chime. The server streams whichever applies at
+`GET /api/sound?kind=` / `GET /api/dir-sound?cwd=&kind=`, and the client falls back to the
+chime if it's missing or not audio.
 
 **Web Push on task finish.** Enable `pushEnabled` in Settings to have the server send a
 push (title = the project dir, body = the last prompt) to your registered devices each
@@ -543,7 +573,8 @@ malformed file is ignored.
   "colors": { "background": "#190a23", "cursor": "#ff2e63" }, // per-key palette overrides
   "fontSize": 16,                       // terminal font size in px (8–32); overrides Settings
   "fontFamily": "'Cica', monospace",    // terminal font stack; overrides the global config
-  "sound": "./.mulmoterminal/alert.mp3" // attention sound, RELATIVE to this directory
+  "sound": "./.mulmoterminal/alert.mp3", // attention sound, RELATIVE to this directory
+  "sounds": { "command-failed": "preset:gong" } // per-notification-kind override
 }
 ```
 
@@ -565,10 +596,11 @@ malformed file is ignored.
 | `colors`     | Per-key xterm palette overrides applied on top of `theme` (or the app theme when `theme` is unset). Keys are xterm `ITheme` names (`background`, `foreground`, `cursor`, `selectionBackground`, the 16 ANSI colors, …); values are hex (`#rgb` / `#rrggbb` / `#rrggbbaa`). Unknown keys / bad values are dropped. |
 | `fontSize`   | Terminal font size in px for this directory (8–32), overriding the Settings value. A size outside the range is clamped; a non-number is ignored. Changing it re-fits the terminal, so the PTY learns the new width — unlike browser zoom, which leaves the two disagreeing. |
 | `fontFamily` | CSS font-family stack for this directory's terminals, overriding the global `fontFamily`. Use the names as your OS lists them (`"'Cica', 'MS Gothic', monospace"`). An unusable stack is ignored whole rather than half-applied; `monospace` is appended if you name no generic family. Prefer fonts whose fullwidth glyphs are exactly twice the Latin width, or box-drawing frames tear. |
-| `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). |
+| `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). The fallback for every kind. |
+| `sounds`     | Per-kind override of `sound`: `{ "command-failed": "preset:gong" }`. Each value is a `preset:<id>` or a directory-relative path, under the same confinement. |
 
-**Security.** `sound` is a directory-relative path only — absolute paths and any
-`../` that escapes the directory are rejected, and the path is never taken from the
+**Security.** `sound` and every `sounds` entry are directory-relative paths only — absolute
+paths and any `../` that escapes the directory are rejected, and the path is never taken from the
 HTTP request, so an opened project can't point the player at arbitrary files.
 Changes take effect when the terminal is next opened (no live file watch).
 
@@ -1058,8 +1090,8 @@ same-origin-guarded.
 
 | Endpoint | Purpose |
 | -------- | ------- |
-| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
-| `GET /api/sound` · `/api/dir-sound?cwd=` · `/api/dir-config?cwd=` | Custom / per-directory attention sound + per-dir config. |
+| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `soundKinds`, `sounds`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
+| `GET /api/sound?kind=` · `/api/dir-sound?cwd=&kind=` · `/api/sound-preset/:id` · `/api/dir-config?cwd=` | Custom / per-directory / preset attention sound + per-dir config. `kind` selects a config entry, never a path. |
 | `GET /api/launch-options` | The Anthropic-compatible backends this server can reach, each with its models and — when it can't — the reason. Reports the **name** of the env var a key is read from, never the key. |
 | `GET /api/notifications`(`/history`) · `POST /api/notifications/:id/clear` | Notification feed. |
 | `POST /api/transcribe`(`/model`…) | Voice-input transcription (Whisper, macOS). |

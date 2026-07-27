@@ -4,6 +4,9 @@ import type { Launcher } from "../components/launchers";
 import type { UserMcpServer } from "../components/userMcp";
 import type { QuickCommand } from "../../common/quickCommands";
 import type { PushKind } from "../../common/pushKinds";
+import { DEFAULT_SOUND_KINDS, isNotifyKind, type NotifyKind } from "../../common/notifyKinds";
+import { isRecord } from "../../common/isRecord";
+import type { SoundConfig } from "./useAttentionSound";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setGlobalFontFamily } from "./terminalFontFamily";
@@ -23,6 +26,36 @@ const pushEnabled = ref(false);
 
 // Which kinds of push the server sends (#850) — SINGLETON like the others.
 const pushKinds = ref<PushKind[]>([]);
+
+// Which moments beep, and what each one plays (#873) — SINGLETONS like the others, since the
+// beep player lives in the single view while the settings modal opens from either.
+const soundKinds = ref<NotifyKind[]>([...DEFAULT_SOUND_KINDS]);
+const sounds = ref<Partial<Record<NotifyKind, string>>>({});
+
+/** The sound settings as the player wants them. Module-level rather than a useAppConfig()
+ *  field so a one-off notification can read them without building per-call config state. */
+export const currentSoundConfig = (): SoundConfig => ({ kinds: soundKinds.value, sounds: sounds.value, soundFile: soundFile.value });
+
+// Adopt the sound settings from a /api/config response. Module-level so loadConfig stays a
+// readable list of assignments rather than growing a third ternary per field.
+function adoptSoundConfig(c: Record<string, unknown>): void {
+  soundFile.value = typeof c.soundFile === "string" ? c.soundFile : null;
+  // A config written before #873 has no soundKinds; the defaults keep it beeping exactly as it
+  // did rather than going silent on upgrade.
+  soundKinds.value = Array.isArray(c.soundKinds) ? c.soundKinds.filter(isNotifyKind) : [...DEFAULT_SOUND_KINDS];
+  sounds.value = isRecord(c.sounds) ? readSounds(c.sounds) : {};
+}
+
+// Keep only known kinds with a non-empty value. The server sanitizes the same map, but the
+// response is still just JSON — an unknown key here would reach the player as a fetch for a
+// kind that has no route.
+function readSounds(raw: Record<string, unknown>): Partial<Record<NotifyKind, string>> {
+  const out: Partial<Record<NotifyKind, string>> = {};
+  Object.entries(raw).forEach(([key, value]) => {
+    if (isNotifyKind(key) && typeof value === "string" && value) out[key] = value;
+  });
+  return out;
+}
 
 // Cross-repo PR list's repos — also a SINGLETON, so the settings modal (openable from
 // either view) and any future reader share one list; a save in one view is seen by the
@@ -204,6 +237,19 @@ async function savePushKinds(next: PushKind[]): Promise<boolean> {
   if (r.ok) pushKinds.value = r.value ?? [];
   return r.ok;
 }
+// Persist which moments beep (partial update).
+async function saveSoundKinds(next: NotifyKind[]): Promise<boolean> {
+  const r = await postConfigField<NotifyKind[]>("soundKinds", next);
+  if (r.ok) soundKinds.value = r.value ?? [];
+  return r.ok;
+}
+// Persist the per-kind sounds (partial update). The whole map goes each time — the server
+// merges by FIELD, not by key, so sending one kind would drop the others.
+async function saveSounds(next: Partial<Record<NotifyKind, string>>): Promise<boolean> {
+  const r = await postConfigField<Partial<Record<NotifyKind, string>>>("sounds", next);
+  if (r.ok) sounds.value = r.value ?? {};
+  return r.ok;
+}
 // Persist the phone quick commands (partial update).
 async function saveQuickCommands(next: QuickCommand[]): Promise<boolean> {
   const r = await postConfigField<QuickCommand[]>("quickCommands", next);
@@ -216,6 +262,11 @@ async function saveUserMcpServers(next: UserMcpServer[]): Promise<boolean> {
   if (r.ok) userMcpServers.value = r.value ?? [];
   return r.ok;
 }
+
+// The notification-sound settings, as one object: every part is a module-level singleton or
+// saver already, and listing all six in the return below is what pushed useAppConfig past its
+// line budget without saying anything a reader needed.
+const soundSettings = { soundFile, soundKinds, sounds, saveSound, saveSoundKinds, saveSounds };
 
 // Server config (default workspace dir, home, directory presets, custom sound)
 // shared by both the single view and the grid view so each can open the settings
@@ -238,7 +289,7 @@ export function useAppConfig() {
       defaultCwd.value = c.cwd ?? null;
       home.value = c.home ?? null;
       adoptServerPresets(c.cwdPresets, version);
-      soundFile.value = typeof c.soundFile === "string" ? c.soundFile : null;
+      adoptSoundConfig(c);
       pushEnabled.value = c.pushEnabled === true;
       pushKinds.value = Array.isArray(c.pushKinds) ? c.pushKinds : [];
       prRepos.value = Array.isArray(c.prRepos) ? c.prRepos : [];
@@ -270,7 +321,7 @@ export function useAppConfig() {
     launchers,
     quickCommands,
     userMcpServers,
-    soundFile,
+    ...soundSettings,
     pushEnabled,
     pushKinds,
     saving,
@@ -279,7 +330,6 @@ export function useAppConfig() {
     savePresets,
     recordPreset,
     removePreset,
-    saveSound,
     savePushEnabled,
     savePushKinds,
     savePrRepos,

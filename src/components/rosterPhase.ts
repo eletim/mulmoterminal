@@ -63,3 +63,10 @@ export function mergeSessionMeta(previous: SessionMetaView, fetched: Omit<Partia
     workPhase: isWorkPhase(fetched.workPhase) ? fetched.workPhase : null,
   };
 }
+
+/** Whether a phase poll just crossed INTO CI failure. Only the transition is news: the poll
+ *  repeats while the roster is open, so a branch that STAYS red must not notify on every
+ *  round, and a roster opened on an already-failing branch has not just learned anything. */
+export function becameCiFailing(previous: PrPhase | undefined, next: PrPhase): boolean {
+  return previous !== undefined && previous !== "ci-failing" && next === "ci-failing";
+}

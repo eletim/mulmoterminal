@@ -18,6 +18,7 @@ import { isUsableModelId } from "../../common/modelIds.js";
 import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
 import { normalizeFontFamily, TERMINAL_FONT_FAMILY_MAX_CHARS, TERMINAL_FONT_FAMILY_SAFE_RE } from "../../common/terminalFontFamily.js";
 import { SESSION_AGENTS } from "../../common/sessionAgent.js";
+import { NOTIFY_KINDS } from "../../common/notifyKinds.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
 
 // ---- shared constants ---------------------------------------------------------------------
@@ -290,6 +291,11 @@ const writableDirConfigSchema = z.object({
   // an exact check here would vanish from the shipped schema; normalizeFontFamily is the rule.
   fontFamily: z.string().min(1).max(TERMINAL_FONT_FAMILY_MAX_CHARS).regex(TERMINAL_FONT_FAMILY_SAFE_RE).optional(),
   sound: nonEmptyText.optional(),
+  // Per-notification-kind sound, overriding `sound` for that kind. Each value is either
+  // `preset:<id>` or a path relative to this directory, same as `sound`. partialRecord for
+  // the same reason `colors` uses it: z.record over an enum marks every key required in the
+  // generated JSON Schema, which would reject the usual one-or-two-kind object.
+  sounds: z.partialRecord(z.enum(NOTIFY_KINDS), nonEmptyText).optional(),
   buttons: z.array(writableHeaderButtonSchema).max(MAX_BUTTONS).optional(),
   chips: z.array(writableHeaderChipSchema).max(MAX_CHIPS).optional(),
   // Header Skill-menu allowlist: show only these skill slugs, in this order. Omit to show all.

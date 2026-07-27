@@ -9,6 +9,7 @@ import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { browserLocale } from "../utils/browserLocale";
 import { isRecord } from "../../common/isRecord";
+import { commandExitKind, notifySound } from "../composables/notifySound";
 import {
   CELL_ACTIONS,
   CELL_BTN,
@@ -61,8 +62,12 @@ const dirDisplay = computed(() => formatCwd(props.command.cwd, props.home));
 // A running command counts as "working"; once it exits it's idle (never "waiting").
 watch(finished, (done) => emit("status", done ? "idle" : "working"), { immediate: true });
 
-function onExit() {
+function onExit(exitCode: number | null) {
   finished.value = true;
+  // A Run PTY is ephemeral: it never enters the session registry, so nothing publishes a
+  // "closed" activity for it and useAttentionSound cannot see this. The cell is the only
+  // place that knows the command ended, and with what status.
+  notifySound(commandExitKind(exitCode), props.command.cwd);
 }
 
 function rerun() {
