@@ -94,7 +94,7 @@ describe("overlay return-to-origin", () => {
 
   // Hopping straight from one overlay to another (grid → PRs → Worklog) must keep the view
   // UNDERNEATH as the return target. Recording the previous overlay instead is what made the
-  // header follow Worklog back to the single view (#889) — and only a real click-through
+  // header follow Worklog back to the single view (#892) — and only a real click-through
   // found it, because every earlier case opened exactly one overlay.
   it("carries the underlying view across an overlay-to-overlay hop", async () => {
     await router.push("/terminals");
