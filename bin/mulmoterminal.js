@@ -76,6 +76,31 @@ function claudeInstalled() {
   return hasCommand("claude");
 }
 
+// PATH tools the app shells out to; mirrors the requirements table in README.md. `required`
+// ones back the core grid — without them a developer loses whole views rather than one
+// feature — so a miss is an ✗, not an ○.
+const PATH_TOOLS = [
+  { cmd: "git", versionArg: "--version", required: true, why: "worktrees, per-cell branch/diff, PR footer", hint: "brew install git  ·  apt install git" },
+  { cmd: "gh", versionArg: "--version", required: true, why: "PRs & Issues view + one-click PRs", hint: "https://cli.github.com  (then: gh auth login)" },
+  { cmd: "tmux", versionArg: "-V", required: false, why: "sessions survive a restart", hint: "brew install tmux  ·  apt install tmux" },
+  { cmd: "codex", versionArg: "--version", required: false, why: "run OpenAI Codex as an agent", hint: "npm install -g @openai/codex" },
+  { cmd: "docker", versionArg: "--version", required: false, why: "the experimental Docker sandbox", hint: "https://docs.docker.com/get-started/get-docker/" },
+  {
+    cmd: "ffmpeg",
+    versionArg: "-version",
+    required: false,
+    why: "video rendering in the mulmo-script panel",
+    hint: "brew install ffmpeg  ·  apt install ffmpeg",
+  },
+  { cmd: "ollama", versionArg: "--version", required: false, why: "a fully local model via claude-ollama", hint: "https://ollama.com/download" },
+];
+
+function toolCheckLine({ cmd, versionArg, required, why, hint }) {
+  if (hasCommand(cmd, versionArg)) return `  ✓ ${cmd} — ${why}`;
+  const head = required ? `  ✗ ${cmd} — not found, needed for ${why}` : `  ○ ${cmd} — optional (${why})`;
+  return `${head}\n      → ${hint}`;
+}
+
 function promptYesNo(question) {
   return new Promise((res) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -103,13 +128,7 @@ async function runInit(initArgs) {
     console.log("      → npm install -g @anthropic-ai/claude-code   (then run `claude` and log in)");
   }
 
-  for (const [cmd, versionArg, why, hint] of [
-    ["tmux", "-V", "sessions survive a restart", "brew install tmux  ·  apt install tmux"],
-    ["gh", "--version", "PRs & Issues view + one-click PRs", "https://cli.github.com  (then: gh auth login)"],
-    ["codex", "--version", "run OpenAI Codex as an agent", "npm install -g @openai/codex"],
-  ]) {
-    console.log(hasCommand(cmd, versionArg) ? `  ✓ ${cmd} — ${why}` : `  ○ ${cmd} — optional (${why})\n      → ${hint}`);
-  }
+  PATH_TOOLS.forEach((tool) => console.log(toolCheckLine(tool)));
 
   // Config half: derive working-dir presets from Claude history + write config.json.
   console.log("");
