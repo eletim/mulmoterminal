@@ -337,12 +337,27 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
   };
 }
 
+// The top-level keys this version does not know. Every instance on the machine shares one
+// config.json, so a key written by a NEWER version — or left behind by a downgrade — arrives
+// here as "unrecognised". Sanitizing drops it, and dropping it is how `copyOnSelect` vanished
+// seconds after being set, with no warning anywhere (#966): an unknown key is not an invalid
+// value, it is one this build has not learned yet, and the write path has to hand it back.
+//
+// The known set comes from `emptyConfig()` rather than a second list, because that object is
+// typed AppConfig — a field added to the config cannot be missing from it.
+export function unknownConfigKeys(raw: unknown): Record<string, unknown> {
+  if (!isRecord(raw)) return {};
+  const known = new Set(Object.keys(emptyConfig()));
+  return Object.fromEntries(Object.entries(raw).filter(([key]) => !known.has(key)));
+}
+
 // "missing" and "corrupt" are DIFFERENT and a caller about to overwrite must tell them
 // apart: an absent file means "first run, start from empty"; an unparseable file means
 // "the user has real config here that we simply failed to read", where writing an empty
 // base back would silently erase presets/launchers/providers. loadAppConfig collapses
 // both to empty (safe for read-only boot); a WRITE path must use this instead.
-export type AppConfigLoad = { status: "ok"; config: AppConfig } | { status: "missing" } | { status: "corrupt"; error: string };
+export type AppConfigLoad =
+  { status: "ok"; config: AppConfig; unknownKeys: Record<string, unknown> } | { status: "missing" } | { status: "corrupt"; error: string };
 
 export function loadAppConfigResult(file: string): AppConfigLoad {
   if (!existsSync(file)) return { status: "missing" };
@@ -353,10 +368,17 @@ export function loadAppConfigResult(file: string): AppConfigLoad {
     return { status: "corrupt", error: `cannot read ${file}: ${String(err)}` };
   }
   try {
-    return { status: "ok", config: sanitizeAppConfig(JSON.parse(text)) };
+    const raw: unknown = JSON.parse(text);
+    return { status: "ok", config: sanitizeAppConfig(raw), unknownKeys: unknownConfigKeys(raw) };
   } catch (err) {
     return { status: "corrupt", error: `invalid JSON in ${file}: ${String(err)}` };
   }
+}
+
+// What a writer must carry from its load to its save. A missing or corrupt file has none to
+// preserve — the corrupt case never reaches a write at all (the route backs it up and refuses).
+export function unknownKeysOf(loaded: AppConfigLoad): Record<string, unknown> {
+  return loaded.status === "ok" ? loaded.unknownKeys : {};
 }
 
 // Lenient load for read-only / boot callers: a missing OR unreadable file yields an empty
@@ -443,13 +465,32 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
   };
 }
 
+// The exact object written to disk: this version's fields, then the keys it did not recognise,
+// appended verbatim (#966). Deliberately NOT what GET /api/config answers — the file is the union
+// of every version that shares it, the response is what this build can actually act on.
+//
+// A known field always wins. Membership is `Object.hasOwn`, not `in`: a config key legitimately
+// named `toString` or `constructor` answers `in` through the prototype chain and would be dropped
+// as a collision that never happened.
+export function serializableAppConfig(config: AppConfig, unknownKeys: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...toPublicAppConfig(config) };
+  Object.entries(unknownKeys).forEach(([key, value]) => {
+    if (!Object.hasOwn(out, key)) out[key] = value;
+  });
+  return out;
+}
+
 // Persist the whole config; returns false on any write failure so the caller can
 // surface it instead of reporting a false success.
-export function saveAppConfig(file: string, config: AppConfig): boolean {
+//
+// `unknownKeys` has no default on purpose: every writer shares config.json with other versions,
+// so one that forgets to carry them forward silently deletes another version's settings. Make
+// that a type error rather than something to remember — pass `unknownKeysOf(loaded)`.
+export function saveAppConfig(file: string, config: AppConfig, unknownKeys: Record<string, unknown>): boolean {
   try {
     // Atomic: this is the file holding every provider, launcher and header button, and a
     // truncated one reads as corrupt on the next boot — i.e. as no configuration at all.
-    writeFileAtomicSync(file, JSON.stringify(toPublicAppConfig(config), null, 2));
+    writeFileAtomicSync(file, JSON.stringify(serializableAppConfig(config, unknownKeys), null, 2));
     return true;
   } catch {
     return false;

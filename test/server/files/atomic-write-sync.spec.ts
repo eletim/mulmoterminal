@@ -74,7 +74,7 @@ describe("saveAppConfig", () => {
   // rather than a truncated file that the next boot reads as corrupt.
   it("round-trips through the real loader", () => {
     const file = path.join(tmp(), "config.json");
-    expect(saveAppConfig(file, { launchers: [{ label: "shell", command: "bash" }] } as never)).toBe(true);
+    expect(saveAppConfig(file, { launchers: [{ label: "shell", command: "bash" }] } as never, {})).toBe(true);
     const loaded = loadAppConfigResult(file);
     expect(loaded.status).toBe("ok");
   });
@@ -84,9 +84,9 @@ describe("saveAppConfig", () => {
     // A path whose parent is a file: the write cannot succeed, and must not be reported as if
     // it had.
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, {} as never);
+    saveAppConfig(file, {} as never, {});
     const impossible = path.join(file, "child.json");
-    expect(saveAppConfig(impossible, {} as never)).toBe(false);
+    expect(saveAppConfig(impossible, {} as never, {})).toBe(false);
     expect(existsSync(file)).toBe(true); // the real config is untouched
   });
 });

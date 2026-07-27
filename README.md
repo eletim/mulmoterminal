@@ -485,6 +485,13 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `prWorkdirFooter` | Ends the body of a PR **⧉ Open PR** creates with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. **On by default**; set `false` to opt out — read from the file per PR, so no restart is needed (there is no Settings control for it). Only applied to PRs this app creates (pressing the button again on an existing PR never re-appends). |
 | `fontFamily` | The **terminal font** every session renders in — a CSS font-family stack, e.g. `"'Cica', 'MS Gothic', monospace"`. No Settings UI: edit the file, then **restart** (this config is read once at startup). Unset uses the built-in stack (JetBrains Mono / Fira Code / Menlo / Consolas, then CJK faces for Japanese, Korean and Chinese). Unlike the per-browser font **size**, this is one value for the whole host — it names fonts, and which fonts exist is a property of the machine. A directory can override it. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#font-family). |
 
+Every MulmoTerminal on the machine shares this one file, so an older build could save over a key a
+newer one wrote. It doesn't: a **top-level key this version doesn't recognise is written back
+untouched**, which is what makes running two versions side by side — or downgrading for a while —
+safe. A mistyped key survives on the same rule, which is deliberate: a line you can still see is
+easier to debug than one that silently vanished. See the
+[Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#unknown-keys).
+
 #### Header buttons
 
 Each terminal header shows configurable **action buttons**. Omitting `buttons` (globally or per-dir)
