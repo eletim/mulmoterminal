@@ -47,3 +47,19 @@ moved out to `resolveSessionBackend`.
 The ten PRs listed above were already merged. The five opened from this clone were edited to carry
 the line; the others were opened from clones this session cannot identify, and guessing would put
 a wrong name on a merged PR.
+
+## Review follow-up
+
+**Codex: the clone name reaches the system prompt unsanitised.** Correct. A clone name is a
+DIRECTORY name, and on POSIX that can hold newlines and control characters — a name containing a
+line break would read as instructions of its own inside the appended prompt. The practical risk is
+low (these are directories the user made on their own machine), but the value crosses a trust
+boundary and the defence is cheap.
+
+Sanitised in `workdirFooter`, where the untrusted value enters, rather than at each use: control
+and format characters collapse to spaces, runs of whitespace collapse, the name is capped at 64
+characters, and a name with nothing printable left yields **null** — no line at all, rather than a
+dangling `work in `. Doing it there also covers the PR-body path, which had the same input.
+
+`workdirFooter` therefore returns `string | null` now, and the button path skips the append when it
+is null.

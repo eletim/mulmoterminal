@@ -12,6 +12,9 @@
 // Same character constraint as session-summary-prompt.ts: NO ASCII double quote. This text
 // rides in the argv of a Windows spawn (#813).
 
+/** `footer` must be a single line: it is interpolated into the prompt verbatim, so a newline in
+ *  it would read as instructions of its own. `workdirFooter` is what guarantees that — it
+ *  sanitises the directory name where that untrusted value enters (see pr-footer.ts). */
 export function prClonePrompt(footer: string): string {
   return `## Which clone this work is in
 

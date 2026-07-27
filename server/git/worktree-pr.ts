@@ -82,6 +82,7 @@ export async function pushWorktree(cwd: string): Promise<PushResult> {
 // missing trailing line would tell the user their PR wasn't created when it was.
 export async function appendWorkdirFooter(prUrl: string, repoRootPath: string, cwd: string, runner: Runner = run): Promise<void> {
   const footer = workdirFooter(repoRootPath);
+  if (!footer) return; // a clone name with nothing printable in it — say nothing rather than `work in `
   const viewed = await runner("gh", ["pr", "view", prUrl, "--json", "body", "--jq", ".body"], cwd);
   if (!viewed.ok) {
     console.warn(`[pr] could not read the body of ${prUrl} to append "${footer}": ${viewed.stderr.trim().slice(0, DETAIL_LIMIT)}`);
