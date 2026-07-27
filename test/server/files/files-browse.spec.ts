@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
 import request from "supertest";
 import { currentVersion, listEntries, mdToHtmlDoc, mountFilesBrowseRoutes } from "../../../server/files/files-browse";
+import { backupDirFor } from "../../../server/files/backup-store";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-files-"));
 
@@ -52,10 +53,10 @@ describe("mdToHtmlDoc", () => {
 // The editor's write is conditional: the agent working in this very directory edits the same
 // files, so a save has to be able to lose the race rather than silently win it.
 describe("conditional write", () => {
-  const serve = (dir: string) => {
+  const serve = (dir: string, backupRoot = path.join(dir, ".backups")) => {
     const app = express();
     app.use(express.json());
-    mountFilesBrowseRoutes(app, { defaultCwd: dir });
+    mountFilesBrowseRoutes(app, { defaultCwd: dir, backupRoot });
     return app;
   };
   const withProject = async (run: (app: express.Express, dir: string) => Promise<void>) => {
@@ -166,6 +167,103 @@ describe("currentVersion", () => {
     // A directory stands in for "exists, unreadable as a file": chmod is a no-op on Windows,
     // so a permissions-based case couldn't run on the whole CI matrix.
     expect(() => currentVersion(dir)).toThrow();
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// Every discard the editor performs — a save replacing what the agent wrote, a conflict the
+// user resolves by dropping one side — happens to content nobody deliberately threw away.
+describe("browse routes keep backups", () => {
+  const withStore = async (run: (app: express.Express, dir: string, backups: string) => Promise<void>) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mt-files-"));
+    const backups = mkdtempSync(path.join(tmpdir(), "mt-backups-"));
+    writeFileSync(path.join(dir, "a.md"), "one");
+    const app = express();
+    app.use(express.json());
+    mountFilesBrowseRoutes(app, { defaultCwd: dir, backupRoot: backups });
+    try {
+      await run(app, dir, backups);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(backups, { recursive: true, force: true });
+    }
+  };
+  const query = (dir: string, file = "a.md") => `cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent(file)}`;
+  // realpath: the server resolves the path it is given, and on macOS a tmpdir under /var IS
+  // /private/var — hashing the un-resolved one looks in a directory that will never exist.
+  const generations = (backups: string, dir: string, file = "a.md") => {
+    const store = backupDirFor(realpathSync(path.join(dir, file)), backups);
+    return readdirSync(store)
+      .filter((n) => n.endsWith(".bak"))
+      .sort()
+      .map((n) => readFileSync(path.join(store, n), "utf8"));
+  };
+
+  it("banks the file when it is opened", async () => {
+    await withStore(async (app, dir, backups) => {
+      await request(app).get(`/api/files/browse/text?${query(dir)}`);
+      expect(generations(backups, dir)).toEqual(["one"]);
+    });
+  });
+
+  it("banks what a write is about to replace", async () => {
+    await withStore(async (app, dir, backups) => {
+      const { body } = await request(app).get(`/api/files/browse/text?${query(dir)}`);
+      await request(app)
+        .put(`/api/files/browse/write?${query(dir)}`)
+        .send({ text: "two", baseVersion: body.version });
+      // "one" was banked once at open; the write finds the same content and doesn't re-bank it.
+      expect(generations(backups, dir)).toEqual(["one"]);
+
+      const reread = await request(app).get(`/api/files/browse/text?${query(dir)}`);
+      await request(app)
+        .put(`/api/files/browse/write?${query(dir)}`)
+        .send({ text: "three", baseVersion: reread.body.version });
+      expect(generations(backups, dir)).toEqual(["one", "two"]);
+    });
+  });
+
+  it("keeps three generations, oldest first out", async () => {
+    await withStore(async (app, dir, backups) => {
+      for (const text of ["two", "three", "four", "five"]) {
+        const { body } = await request(app).get(`/api/files/browse/text?${query(dir)}`);
+        await request(app)
+          .put(`/api/files/browse/write?${query(dir)}`)
+          .send({ text, baseVersion: body.version });
+      }
+      expect(generations(backups, dir)).toEqual(["two", "three", "four"]);
+    });
+  });
+
+  // The conflict banner's "Reload" drops content that only ever existed in the editor.
+  it("banks a buffer the client hands over", async () => {
+    await withStore(async (app, dir, backups) => {
+      const res = await request(app)
+        .put(`/api/files/browse/backup?${query(dir)}`)
+        .send({ text: "only in the editor" });
+      expect(res.status).toBe(200);
+      expect(res.body.stored).toBe(true);
+      expect(generations(backups, dir)).toContain("only in the editor");
+    });
+  });
+
+  // Refusing a save because the BACKUP failed would be exactly backwards.
+  it("still reads and writes when the backup store is unusable", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mt-files-"));
+    writeFileSync(path.join(dir, "a.md"), "one");
+    const blocked = path.join(dir, "blocked");
+    writeFileSync(blocked, "a file where the backup root should be");
+    const app = express();
+    app.use(express.json());
+    mountFilesBrowseRoutes(app, { defaultCwd: dir, backupRoot: blocked });
+
+    const read = await request(app).get(`/api/files/browse/text?${query(dir)}`);
+    expect(read.status).toBe(200);
+    const written = await request(app)
+      .put(`/api/files/browse/write?${query(dir)}`)
+      .send({ text: "two", baseVersion: read.body.version });
+    expect(written.status).toBe(200);
+    expect(readFileSync(path.join(dir, "a.md"), "utf8")).toBe("two");
     rmSync(dir, { recursive: true, force: true });
   });
 });

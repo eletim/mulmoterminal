@@ -731,6 +731,11 @@ the terminal is pointed at. A save sends the version the file had when it was op
 it is **refused (409) rather than silently overwriting** an agent that edited the same
 file meanwhile; the editor then offers to reload or to overwrite deliberately.
 
+Opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/` — **three
+generations per file**, outside the project so they never reach `git status` or the agent's
+view of its own repo. Re-opening unchanged content doesn't rotate one in, and a backup that
+can't be written never blocks the read or the save it was taken for.
+
 ---
 
 ## Git worktrees & pull requests
@@ -1052,7 +1057,7 @@ same-origin-guarded.
 | -------- | ------- |
 | `GET /api/wiki` (`?slug=`) · `/api/wiki/graph` · `/api/wiki/lint` | Read-only wiki index / page / graph / lint. |
 | `GET /api/collections/…` · `/api/feeds` · `GET\|PUT /api/shortcuts` | Collections browser, feeds, favorites (see `docs/collection-plugin-integration.md`). |
-| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/write` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. |
+| `GET /api/files/browse/{list,text,md}` · `PUT /api/files/browse/{write,backup}` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. `backup` banks a buffer the editor is about to discard. |
 | `GET /api/files/raw?path=` | Raw asset bytes (workspace-rooted). |
 
 **GUI panel / plugins / MCP**
