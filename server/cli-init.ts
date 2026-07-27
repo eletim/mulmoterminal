@@ -6,7 +6,7 @@
 import { statSync, readdirSync, openSync, readSync, closeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAppConfigResult, emptyConfig, mergeConfigUpdate, saveAppConfig } from "./config/app-config.js";
+import { loadAppConfigResult, emptyConfig, mergeConfigUpdate, saveAppConfig, unknownKeysOf } from "./config/app-config.js";
 import { deriveCwdPresets, extractCwdFromTranscript, type CwdRecord } from "./config/cwd-presets.js";
 
 const CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config.json");
@@ -99,7 +99,7 @@ function main(): void {
   }
   const base = loaded.status === "ok" ? loaded.config : emptyConfig();
   const next = mergeConfigUpdate(base, { cwdPresets: presets });
-  if (!saveAppConfig(CONFIG_FILE, next)) {
+  if (!saveAppConfig(CONFIG_FILE, next, unknownKeysOf(loaded))) {
     console.error(`\x1b[31m[init]\x1b[0m Failed to write ${CONFIG_FILE}`);
     process.exit(1);
   }
