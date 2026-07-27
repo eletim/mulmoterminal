@@ -18,7 +18,12 @@ export declare function pushCalendarForCollection(
 
 ## 決めたこと
 
-### 1. セットアップ不備は HTTP エラーではなく **200 + `errors`** で返す
+> **追記（実装後）**: 初版はプラグインの型とコメントだけを頼りに書き、`../mulmoclaude` の
+> 参照実装と食い違った。ルートのパスを `/calendar/push` と推測し（正しくは `calendar-push`）、
+> 失敗を全部 200 で返し、文言を独自に書いていた。以下は突き合わせ後の内容。
+> 経緯は CLAUDE.md の「MulmoClaude is the reference host」に規約として残した。
+
+### 1. **どの失敗を HTTP ステータスにし、どれを 200 のフィールドにするか**
 
 これがこの変更で一番効いている判断で、プラグインの実装がそう要求している。
 
@@ -40,8 +45,19 @@ reportPush(result.data);                                       // インライ�
 「a push that reported only its counts would render a setup failure as "0 created"」と
 書いているとおり、「何もすることがなかった」に読めてしまう。
 
-サーバが 5xx を返すのは**予期しない例外のときだけ**。`pushCalendarForCollection` は自前で
-try/catch して `{kind:"failed"}` を返すので通常そこには来ないが、保険は残す。
+一方で、**エンジンに渡る前に分かること**は参照実装と同じく HTTP ステータスで弾く。
+ボタンは `schema.googleCalendar` があるときだけ動くので UI からは到達せず、これは
+API を直に叩いた場合の正しさの話。
+
+| 状況 | 応答 |
+|---|---|
+| コレクションが存在しない | **404** |
+| `googleCalendar` 未宣言 | **400**（`PUSH_NOT_DECLARED_ERROR`） |
+| 未連携 / 読み取り専用 / エンジン失敗 | **200** + `errors` |
+| 予期しない例外 | **500** |
+
+`pushCalendarForCollection` は自前で try/catch して `{kind:"failed"}` を返すので 500 には
+通常来ないが、保険は残す。
 
 ### 2. outcome → wire 形の変換は純粋関数として切り出す
 
@@ -51,14 +67,23 @@ try/catch して `{kind:"failed"}` を返すので通常そこには来ないが
 
 | outcome | wire |
 |---|---|
-| `pushed` | `pushed: true` + カウントをそのまま（`slug` は落とす） |
-| `not-a-calendar` | `pushed: false` + このコレクションはカレンダーを宣言していない |
-| `not-linked` | `pushed: false` + Google 未連携（Settings で連携するよう促す） |
-| `read-only` | `pushed: false` + `accessRole` を添えて読み取り専用 |
-| `failed` | `pushed: false` + エンジンのメッセージ |
+| `pushed` | カウントをそのまま（engine 側の `slug` は落とす） |
+| `not-linked` | カウント 0 + `errors: [PUSH_NOT_LINKED_ERROR]` |
+| `not-a-calendar` | カウント 0 + `errors: [PUSH_NOT_DECLARED_ERROR]` |
+| `read-only` | カウント 0 + `errors: [accessRole を含む文言]` |
+| `failed` | カウント 0 + `errors: [エンジンのメッセージ]` |
 
-`not-a-calendar` はプラグインのボタンが `schema.googleCalendar` で出し分けているので
-UI からはまず起きない。API を直に叩いた場合の経路として残す。
+`pushed` は**常に `true`**（型もリテラル）。参照実装に倣った。プラグインの公開型は
+`boolean` だが、プラグインは `pushed` を読んでおらず（`reportPush` は `pushProblems` と
+カウントだけ）、`pushWroteSomething()` も export されているだけで未使用。意味が
+未定義のフィールドで 2 ホストが割れるより揃えるほうを取った。upstream で意味を
+確定させる価値はある。
+
+文言も参照実装からそのまま移植した。両方使うユーザーが同じ設定不備に別々の説明を
+受けないため。
+
+`not-a-calendar` はルートが 400 で先に弾くので通常は到達しないが、エンジンが返しうる
+以上は変換側にも残す。
 
 ### 3. 置き場所
 
@@ -66,14 +91,26 @@ UI からはまず起きない。API を直に叩いた場合の経路として�
   （`voiceInputStatus.ts` と同じ理由）。プラグインの `CollectionPushResult` とは
   **構造的に一致させるだけ**で、プラグインの型を server から import はしない
   （Vue 向けパッケージをサーバに引き込みたくない）
-- `server/backends/calendarPushResult.ts` — 純粋変換
-- `server/backends/calendarPush.ts` — ルート。workspace は `getWorkspaceRoot()` で
-  取れるので `mountCollectionRoutes` と同じく引数なしで mount できる
+- `server/backends/calendarPushResult.ts` — 純粋変換 + 文言定数
+- `server/backends/calendarPush.ts` — ルート。**deps 注入**（`mountGoogleRoutes` と同じ形）。
+  どの失敗をどのステータスにするかがこのルートの仕事そのものなので、実ワークスペースと
+  Google grant なしに固められる必要がある。`workspaceRoot` は**リクエストごとに**読む —
+  コレクションホストの設定はルート mount より後なので、mount 時に読むと空文字のままになる
 - `src/composables/collectionUi.ts` — バインディング 1 行（`refreshCollection` の隣）
+
+## テスト
+
+- `calendarPushResult.spec.ts` — 変換。`kind` 5 通り、部分成功、`accessRole` が空のとき、
+  refusal ごとに配列が独立していること
+- `calendarPush.spec.ts` — ルート。404 / 400 のゲート、200 + `errors` の 3 経路、
+  workspace をリクエストごとに読むこと、依存が throw したときの 500
+
+どちらも実装を書き換えると実際に落ちることを確認済み（ゲートを潰す / workspace を
+mount 時に固定する / 共有オブジェクトにする）。
 
 ## 実機で確かめられていないこと
 
-Google カレンダーへの実書き込みは**このマシンでは確認していない**。`configureGoogleHost`
-は `server/index.ts` で呼ばれているので既定 deps は動くはずだが、確かめたのは
-「型が通る」「変換が正しい」までで、実際に Google にイベントが立つところは見ていない。
-`schema.googleCalendar` を宣言したコレクションと連携済みアカウントが要る。
+Google カレンダーへの実書き込みは**このマシンでは確認していない**。実サーバでは
+404（不在の slug）と 400（`googleCalendar` 未宣言）まで到達を確認したが、
+`pushed` / `not-linked` / `read-only` の経路には `schema.googleCalendar` を宣言した
+コレクションと連携済みアカウントが要る。

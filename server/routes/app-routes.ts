@@ -126,9 +126,10 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // worker. Backs the collection-view Refresh button. The engine is configured below.
   mountFeedsRoutes(app);
 
-  // The other direction: POST /api/collections/:slug/calendar/push writes a collection's
-  // records to the Google calendar its schema declares. Backs the collection-view Push
-  // button; reads the workspace from the collection host configured below.
+  // The other direction: POST /api/collections/:slug/calendar-push writes a collection's
+  // records to the Google calendar its schema declares (path per MulmoClaude's
+  // API_ROUTES.collections.calendarPush). Backs the collection-view Push button; reads the
+  // workspace from the collection host configured below.
   mountCalendarPushRoutes(app);
 
   // Notification REST surface (list active / history, dismiss one) — backs the toolbar

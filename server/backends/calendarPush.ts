@@ -19,27 +19,47 @@ import { getWorkspaceRoot, loadCollection } from "@mulmoclaude/core/collection/s
 import { PUSH_NOT_DECLARED_ERROR, toCollectionPushResult } from "./calendarPushResult.js";
 import { hostLogger } from "./hostLogger.js";
 
+/** Injectable so the route's gates are testable without a workspace on disk or a live
+ *  Google grant — the same shape `mountGoogleRoutes` uses for the same reason. Which
+ *  failure is an HTTP status and which is a field on a 200 is this route's whole job, so
+ *  it must not be reachable only through a real push. */
+export interface CalendarPushRouteDeps {
+  /** Any collection by slug — NOT the engine's calendar-only lookup, which cannot tell an
+   *  undeclared collection from a missing one. Narrowed to what the gates actually read:
+   *  a full `LoadedCollection` is a Zod-derived giant, and a route that needs one built to
+   *  be tested is a route nobody tests. `loadCollection` satisfies this. */
+  findCollection: (slug: string) => Promise<{ schema: { googleCalendar?: unknown } } | null>;
+  push: typeof pushCalendarForCollection;
+  workspaceRoot: () => string;
+}
+
+const liveDeps: CalendarPushRouteDeps = {
+  findCollection: loadCollection,
+  push: pushCalendarForCollection,
+  // Read per request, not at mount: the collection host is configured after the routes go up.
+  workspaceRoot: getWorkspaceRoot,
+};
+
 /** Mount POST /api/collections/:slug/calendar-push — backs the collection view's Push
- *  button (collectionUi.pushCalendarCollection). No workspace argument: the collection host
- *  is already configured by the time a request lands, so `getWorkspaceRoot()` answers. */
-export function mountCalendarPushRoutes(app: Express): void {
+ *  button (collectionUi.pushCalendarCollection). */
+export function mountCalendarPushRoutes(app: Express, deps: CalendarPushRouteDeps = liveDeps): void {
   app.post("/api/collections/:slug/calendar-push", async (req: Request<{ slug: string }>, res: Response) => {
     const { slug } = req.params;
-    const collection = await loadCollection(slug);
-    if (!collection) {
-      res.status(404).json({ error: `collection '${slug}' not found` });
-      return;
-    }
-    // The view only shows the button for a collection that declares a calendar, so this
-    // answers the direct-API caller rather than anything a click can reach.
-    if (!collection.schema.googleCalendar) {
-      res.status(400).json({ error: PUSH_NOT_DECLARED_ERROR });
-      return;
-    }
     try {
+      const collection = await deps.findCollection(slug);
+      if (!collection) {
+        res.status(404).json({ error: `collection '${slug}' not found` });
+        return;
+      }
+      // The view only shows the button for a collection that declares a calendar, so this
+      // answers the direct-API caller rather than anything a click can reach.
+      if (!collection.schema.googleCalendar) {
+        res.status(400).json({ error: PUSH_NOT_DECLARED_ERROR });
+        return;
+      }
       // A push that could not run still answers 200 with the reason in `errors` — see
       // calendarPushResult.ts for why an HTTP failure would surface in the wrong place.
-      const body = toCollectionPushResult(await pushCalendarForCollection(slug, getWorkspaceRoot()));
+      const body = toCollectionPushResult(await deps.push(slug, deps.workspaceRoot()));
       hostLogger.info("calendar-push", "pushed via collection route", {
         slug,
         created: body.created,
