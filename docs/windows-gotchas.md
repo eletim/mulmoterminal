@@ -56,9 +56,9 @@ boundaries, and the lexical answer still needs a realpath pass for symlinks.
 ## Tests that handle paths
 
 **Build the EXPECTED path with `path.resolve` too, never as a POSIX literal.** A rule that
-resolves with the platform's own `path` produces `\shared-lib` on Windows and `/shared-lib`
-elsewhere, so an expectation written as `"/shared-lib"` matches on the developer's machine and
-nowhere else. `yarn test` stays green locally and the daily Windows job goes red — #912's
+resolves with the platform's own `path` produces `<drive>:\shared-lib` on Windows (drive-qualified,
+per the section above — the CI failure read `D:\shared-lib`) and `/shared-lib` elsewhere, so an
+expectation written as `"/shared-lib"` matches on the developer's machine and nowhere else. `yarn test` stays green locally and the daily Windows job goes red — #912's
 `resolveAddDirs` spec cost exactly that.
 
 **A stubbed predicate that compares paths has the same problem, and it fails silently.** That
