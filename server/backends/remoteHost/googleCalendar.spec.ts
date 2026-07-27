@@ -33,6 +33,9 @@ const sampleCalendar: CalendarSummary = {
   backgroundColor: "#16a765",
   foregroundColor: "#1d1d1d",
   colorId: "8",
+  // The zone a pushed offset-less clock is read in. Matches sampleEvent's +09:00 so the
+  // fixture describes one coherent calendar.
+  timeZone: "Asia/Tokyo",
 };
 
 const sampleColors: CalendarColors = {
@@ -123,7 +126,10 @@ describe("createGoogleCalendarCreateEvent", () => {
   ])("accepts %s", async (_label, given) => {
     const { deps, calls } = stubDeps();
     await createGoogleCalendarCreateEvent(deps)({ ...validParams, start: given });
-    expect(calls.createInputs[0]?.startDateTime).toBe(given);
+    // Asserted on the whole input rather than the one field: a span is now either the flat
+    // pair or the structured one, and these handlers speak the flat spelling — so which
+    // spelling reaches the engine is part of what this pins.
+    expect(calls.createInputs).toEqual([{ summary: "Standup", startDateTime: given, endDateTime: validParams.end }]);
   });
 
   it("does not fetch a token when validation fails", async () => {
