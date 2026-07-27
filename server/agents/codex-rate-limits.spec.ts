@@ -54,7 +54,8 @@ describe("extractCodexRateLimits", () => {
 });
 
 describe("latestRateLimitsInRollout", () => {
-  const line = (used: number) => JSON.stringify({ type: "event", payload: { rate_limits: { primary: { used_percent: used, window_minutes: FIVE_HOUR_MIN, resets_at: 1 } } } });
+  const line = (used: number) =>
+    JSON.stringify({ type: "event", payload: { rate_limits: { primary: { used_percent: used, window_minutes: FIVE_HOUR_MIN, resets_at: 1 } } } });
 
   // A long session writes the object many times; the last one is the state now.
   it("reads the newest entry, not the first", () => {

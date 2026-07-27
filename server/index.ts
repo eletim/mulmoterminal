@@ -32,6 +32,11 @@ import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
 import { mcpConfigJson } from "./session/mcp-config.js";
 import { createClaudeSpawner } from "./session/spawn-claude.js";
+import { spawnPty } from "./session/pty-spawn.js";
+import { createRateLimitStore } from "./agents/rate-limit-store.js";
+import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
+import { newestRolloutFile, readTailLines, codexSessionsDir } from "./agents/codex-rollout.js";
+import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
@@ -260,6 +265,26 @@ enforceKeymap(APP_CONFIG_FILE, {
 const browserHostnames = browserOriginHostnames(BIND_HOST, process.env.MULMOTERMINAL_ALLOWED_ORIGINS);
 const isAllowedOrigin = createIsAllowedOrigin(browserHostnames);
 
+// The 5h / 7d rate-limit gauge (#387). Codex is free — its rollout file holds the windows — while
+// Claude needs a hidden probe session, so the store decides when spending a query is warranted.
+// Neither agent being installed is not a case to handle: no rollout means no Codex reading, and a
+// probe that cannot launch simply never reports, which is the same as having no data yet.
+const rateLimitStore = createRateLimitStore();
+const refreshCodexRateLimits = (): void => {
+  const file = newestRolloutFile(codexSessionsDir(), Date.now());
+  if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readTailLines(file)), Date.now());
+};
+const startClaudeRateLimitProbe = (): void => {
+  startRateLimitProbe({
+    spawn: (args, cwd) => spawnPty(CLAUDE_BIN, args, cwd),
+    host: "localhost",
+    port: PORT,
+    cwd: CLAUDE_CWD,
+    sessionId: randomUUID(),
+    onSettled: () => rateLimitStore.setProbeInFlight(false),
+  });
+};
+
 const app = express();
 hideErrorStacks(app);
 // Generous body limit: PostToolUse hook payloads carry the tool's full output
@@ -267,6 +292,7 @@ hideErrorStacks(app);
 // the hook and leave its tool-call entry stuck on "running").
 mountAppRoutes(app, {
   clientDir: __dirname,
+  rateLimits: { store: rateLimitStore, refreshCodex: refreshCodexRateLimits, startProbe: startClaudeRateLimitProbe, now_ms: () => Date.now() },
   isAllowedOrigin,
   publish: (channel, data) => pubsub?.publish(channel, data),
   sessionChannel,
