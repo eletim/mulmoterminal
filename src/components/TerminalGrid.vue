@@ -20,6 +20,7 @@ import FilesPane, { type FilesPaneState } from "./FilesPane.vue";
 import { clampPaneWidth, splitterKeyWidth, MIN_GUI, MIN_TERMINAL } from "./splitterWidth";
 import { setFilesPaneOpener } from "../composables/filesPaneOpener";
 import { paneCanShowClick } from "./paneClickTarget";
+import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -121,6 +122,8 @@ const zoomed = computed(() => props.expandedUid !== null && mounted.value);
 // per-browser (localStorage), like the single view's splitter and the terminal font size.
 const PANE_OPEN_KEY = "files_pane_open";
 const PANE_WIDTH_KEY = "files_pane_width";
+// What each directory had open, so a reload lands back on the file rather than the tree root (#958).
+const PANE_STATE_KEY = "files_pane_state";
 const PANE_WIDTH_DEFAULT = 480;
 // Storage can throw (private mode / storage-blocked contexts), so both reads are best-effort.
 const stored = (key: string): string | null => {
@@ -176,12 +179,35 @@ const expandedCwd = computed(() => props.cells.find((c) => c.uid === props.expan
 const filesPane = ref<InstanceType<typeof FilesPane> | null>(null);
 // What the pane looked like in each cell, so coming back to a terminal doesn't mean opening
 // the same three directories again. Saved state only — the buffer went to disk on the way out
-// (or to the backup store), so there is nothing unsaved to carry. In memory: a reload starts
-// the grid over anyway, and stale paths from a previous session would only mislead.
+// (or to the backup store), so there is nothing unsaved to carry.
+//
+// Keyed by uid, which is right for a live session and useless across a reload: the number is
+// not the same one afterwards. So a SECOND copy goes to localStorage keyed by directory
+// (#958). Reads are memory-first, which leaves everything about a live session unchanged —
+// the directory layer only answers when this map is empty, i.e. the first look after a reload.
 const paneStateByUid = new Map<number, FilesPaneState>();
 const rememberPaneState = (uid: number | null): void => {
   const snapshot = uid !== null ? filesPane.value?.snapshot() : undefined;
-  if (uid !== null && snapshot) paneStateByUid.set(uid, snapshot);
+  if (uid === null || !snapshot) return;
+  paneStateByUid.set(uid, snapshot);
+  // Filed under the directory the pane is ACTUALLY on, which is what it will be looked up by.
+  if (paneCwd.value) remember(PANE_STATE_KEY, JSON.stringify(rememberPane(parsePaneStore(stored(PANE_STATE_KEY)), paneCwd.value, snapshot)));
+};
+
+// A remembered directory is handed out at most ONCE per session. It describes what was on
+// screen before the reload — not a default for every cell that happens to share the directory.
+// Two terminals in the same repository is the ordinary case here, and without this the second
+// one would inherit the first one's open file instead of starting on its own empty tree.
+const claimedCwds = new Set<string>();
+
+/** What to hand the pane for this cell: what it had this session, else — once — what this
+ *  directory had before the reload. */
+const claimPaneState = (uid: number | null, cwd: string | null): FilesPaneState | null => {
+  const thisSession = paneStateByUid.get(uid ?? -1);
+  if (thisSession) return thisSession;
+  if (!cwd || claimedCwds.has(cwd)) return null;
+  claimedCwds.add(cwd);
+  return recallPane(parsePaneStore(stored(PANE_STATE_KEY)), cwd);
 };
 const paneState = ref<FilesPaneState | null>(null);
 // The root the pane is ACTUALLY on. Normally `expandedCwd`, but it stays behind when a re-root
@@ -209,7 +235,7 @@ watch(
     if (paneUid.value === null) {
       paneUid.value = uid;
       paneCwd.value = expandedCwd.value;
-      paneState.value = paneStateByUid.get(uid ?? -1) ?? null;
+      paneState.value = claimPaneState(uid, expandedCwd.value);
       return;
     }
     // Re-rooting re-reads the tree and drops the buffer with it. Nothing to fall back on means
@@ -218,7 +244,7 @@ watch(
     rememberPaneState(paneUid.value);
     paneUid.value = uid;
     paneCwd.value = expandedCwd.value;
-    paneState.value = paneStateByUid.get(uid ?? -1) ?? null;
+    paneState.value = claimPaneState(uid, expandedCwd.value);
     await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
     filesPane.value?.reload();
   },
@@ -247,6 +273,14 @@ onMounted(() => setFilesPaneOpener(openClickedPath));
 // A stale opener would point at a pane that no longer exists and report success for a click
 // nothing acted on — the path would then simply not open anywhere.
 onBeforeUnmount(() => setFilesPaneOpener(null));
+
+// Reloading is the case #958 is about, and nothing else snapshots on the way out: the state is
+// otherwise written only when the pane closes or re-roots, so a reload would restore whatever
+// the user last walked away from rather than what is on screen. `pagehide` rather than
+// `beforeunload` — it also fires when the tab is put in the back/forward cache.
+const snapshotOnLeave = (): void => rememberPaneState(paneUid.value);
+onMounted(() => window.addEventListener("pagehide", snapshotOnLeave));
+onBeforeUnmount(() => window.removeEventListener("pagehide", snapshotOnLeave));
 
 function setPaneWidth(width: number): void {
   const available = rowWidth();

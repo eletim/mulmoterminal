@@ -555,6 +555,57 @@ describe("file pane beside the enlarged cell", () => {
     expect(paneOf(w).props("initialState")).toEqual({ openPath: "from-one.md", expanded: [] });
   });
 
+  // #958: what survives a RELOAD. The uid-keyed memory above cannot — a cell is not the same
+  // number next time — so a copy goes to localStorage keyed by directory, and is read only
+  // when the memory has nothing.
+  describe("restoring across a reload", () => {
+    const seed = (cwd: string, state: { openPath: string | null; expanded: string[] }) =>
+      localStorage.setItem("files_pane_state", JSON.stringify([{ cwd, state }]));
+
+    beforeEach(() => localStorage.removeItem("files_pane_state"));
+
+    it("hands the pane what this directory had open before the reload", async () => {
+      seed("/one", { openPath: "notes.md", expanded: ["docs"] });
+      const w = mountCockpit([cell(1, "s1", "/one"), cell(2)], 1, []);
+      await openPane(w);
+      expect(paneOf(w).props("initialState")).toEqual({ openPath: "notes.md", expanded: ["docs"] });
+    });
+
+    // The stored entry describes ONE pane, not a default for the directory. Two terminals in
+    // the same repository is the ordinary case, and the second must start on its own empty
+    // tree rather than inherit the first one's file — which is what a plain cwd lookup did.
+    it("gives it to the first cell only, not to every cell sharing the directory", async () => {
+      seed("/same", { openPath: "notes.md", expanded: [] });
+      const w = mountCockpit([cell(1, "s1", "/same"), cell(2, "s2", "/same")], 1, []);
+      await openPane(w);
+      expect(paneOf(w).props("initialState")).toEqual({ openPath: "notes.md", expanded: [] });
+
+      paneStub.snapshot.mockReturnValue({ openPath: "from-one.md", expanded: [] });
+      await w.setProps({ expandedUid: 2 });
+      await flushPromises();
+      expect(paneOf(w).props("initialState")).toBeNull();
+    });
+
+    it("ignores a directory it has nothing stored for", async () => {
+      seed("/elsewhere", { openPath: "notes.md", expanded: [] });
+      const w = mountCockpit([cell(1, "s1", "/one"), cell(2)], 1, []);
+      await openPane(w);
+      expect(paneOf(w).props("initialState")).toBeNull();
+    });
+
+    // Leaving the page is the moment this feature exists for, and nothing else snapshots then:
+    // the state is otherwise written only when the pane closes or re-roots.
+    it("writes what is on screen when the page goes away", async () => {
+      const w = mountCockpit([cell(1, "s1", "/one"), cell(2)], 1, []);
+      await openPane(w);
+      paneStub.snapshot.mockReturnValue({ openPath: "live.md", expanded: ["src"] });
+
+      window.dispatchEvent(new Event("pagehide"));
+      await flushPromises();
+      expect(JSON.parse(localStorage.getItem("files_pane_state") ?? "[]")).toEqual([{ cwd: "/one", state: { openPath: "live.md", expanded: ["src"] } }]);
+    });
+  });
+
   it("remembers across closing and re-opening the pane on the same cell", async () => {
     const w = mountCockpit([cell(1, "s1", "/one"), cell(2)], 1, []);
     await openPane(w);
