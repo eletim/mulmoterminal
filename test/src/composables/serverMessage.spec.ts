@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { messageEffect } from "../../../src/composables/serverMessage";
+import { exitCodeOf, messageEffect } from "../../../src/composables/serverMessage";
 
 describe("messageEffect", () => {
   // An unknown or non-terminal type must not stop the connection — output/session are handled
@@ -43,5 +43,20 @@ describe("messageEffect", () => {
   it("uses the command wording only for exit, not for error", () => {
     // error is the same regardless of isCommand — the branch is exit-only.
     expect(messageEffect("error", true, "x").banner).toBe(messageEffect("error", false, "x").banner);
+  });
+});
+
+describe("exitCodeOf", () => {
+  it("reads the status the server reported", () => {
+    expect(exitCodeOf({ exitCode: 0 })).toBe(0);
+    expect(exitCodeOf({ exitCode: 137 })).toBe(137);
+  });
+
+  // A start failure names no code, and a Run cell must not read that as a clean finish.
+  it("answers null when there is no usable status", () => {
+    expect(exitCodeOf({})).toBeNull();
+    expect(exitCodeOf({ exitCode: undefined })).toBeNull();
+    expect(exitCodeOf({ exitCode: null })).toBeNull();
+    expect(exitCodeOf({ exitCode: "0" })).toBeNull();
   });
 });

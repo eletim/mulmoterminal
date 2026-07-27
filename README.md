@@ -495,10 +495,14 @@ default** — the rest are opt-in from Settings.
 | --- | --- | --- |
 | `finished` | the turn ended and the output is unread | **on** |
 | `waiting` | it stopped to ask — a permission prompt or a question | **on** |
-| `command-done` | a Run cell's command exited 0 | off |
-| `command-failed` | a Run cell's command exited non-zero, or never started | off |
+| `command-done` | a **Run cell's** command exited 0 | off |
+| `command-failed` | a **Run cell's** command exited non-zero, or never started | off |
 | `session-exited` | a session's terminal ended — **including when you close the cell yourself** | off |
 | `pr-ci-failed` | a directory's PR went red. Only seen **while the roster is on screen**, since that is what polls the phase | off |
+
+A **Run cell** is the one-shot cell a `script.json` entry or a `run:"shell"` header button
+opens — not a shell launcher cell. A launcher runs an interactive shell that stays alive, so
+nothing marks where one command inside it ended; only the one-shot cell reports an exit code.
 
 `finished` and `waiting` reach the phone too (`pushKinds`); the other four are seen only in
 the browser — a Run PTY never enters the session registry, and a PR phase is something the

@@ -22,8 +22,31 @@ describe("notifyKindOf", () => {
     // { waiting: true } and then { working: false }, so two rows arrive for one finished turn.
     const prev = fresh();
     notifyKindOf(prev, msg("a", true, false, "UserPromptSubmit"));
-    expect(notifyKindOf(prev, msg("a", true, true, "Stop"))).toBeNull();
+    expect(notifyKindOf(prev, msg("a", true, true, "Stop"))).toBe("finished");
+    expect(notifyKindOf(prev, msg("a", false, true, "Stop"))).toBeNull();
+  });
+
+  // The regression that made the beep intermittent: setWorking(false) publishes NOTHING when
+  // `working` was already false, so a turn whose working flag was never set produces only the
+  // waiting row. Keying "finished" on the working flag dropping made exactly those turns silent.
+  it("still raises finished when the working flag was never set", () => {
+    const prev = fresh();
+    notifyKindOf(prev, msg("a", false, false)); // idle baseline — no working flag
     expect(notifyKindOf(prev, msg("a", false, true, "Stop"))).toBe("finished");
+  });
+
+  it("raises finished for a Stop on the pane the user is watching (one row, no waiting)", () => {
+    const prev = fresh();
+    notifyKindOf(prev, msg("a", true, false, "UserPromptSubmit"));
+    expect(notifyKindOf(prev, msg("a", false, false, "Stop"))).toBe("finished");
+  });
+
+  // A Stop is a finished turn even though it raises the same flag a prompt does — calling it
+  // "waiting" would play the wrong sound and, with soundKinds, the wrong switch would mute it.
+  it("never reports a Stop as waiting", () => {
+    const prev = fresh();
+    notifyKindOf(prev, msg("a", true, false));
+    expect(notifyKindOf(prev, msg("a", true, true, "Stop"))).not.toBe("waiting");
   });
 
   it("reports session-exited on a close, and only for a session it had seen", () => {

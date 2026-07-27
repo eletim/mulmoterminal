@@ -2,6 +2,7 @@ import { onUnmounted, watch, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import { notifyKindOf, isActivityMsg, type ActivityState } from "./notifyKind";
 import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds";
+import { parsePresetRef } from "../../common/notifySounds";
 
 // What the player needs from the user's config: which moments beep, and what each plays.
 // `soundFile` is the all-kind fallback a `sounds` entry overrides.
@@ -136,7 +137,16 @@ const dirKey = (cwd: string, kind: NotifyKind) => `dir${SEP}${cwd}${SEP}${kind}`
 const globalKey = (value: string) => `app${SEP}${value}`;
 
 const dirUrl = (cwd: string, kind: NotifyKind) => `/api/dir-sound?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`;
-const globalUrl = (kind: NotifyKind, value: string) => `/api/sound?kind=${encodeURIComponent(kind)}&v=${encodeURIComponent(value)}`;
+
+// A preset is addressed DIRECTLY rather than through /api/sound?kind=. Same bytes either way,
+// but the preset route answers from the fixed catalog instead of the saved config — which is
+// what lets the Settings preview play a sound the user has only just picked, before the POST
+// that saves it has come back. A file path still goes through the config route: the path is
+// server-side by design and is never put in a request.
+const globalUrl = (kind: NotifyKind, value: string) => {
+  const presetId = parsePresetRef(value);
+  return presetId ? `/api/sound-preset/${encodeURIComponent(presetId)}` : `/api/sound?kind=${encodeURIComponent(kind)}&v=${encodeURIComponent(value)}`;
+};
 
 // The sources to try for one beep, nearest first: the session directory's own sound, then the
 // user's global one. Each entry is a cache key plus where to fetch it; the caller plays the
@@ -162,7 +172,9 @@ export function playNotify(kind: NotifyKind, cwd: string | null, config: SoundCo
   playChime(kind);
 }
 
-/** Test-button variant: AWAIT the load so a just-picked sound is actually heard. */
+/** Test-button variant: AWAIT the load so a just-picked sound is actually heard. Pass the value
+ *  the user is LOOKING at, not the saved one — a preset resolves without the server's config, so
+ *  the preview is right even while the save is still in flight. */
 export async function previewNotify(kind: NotifyKind, config: SoundConfig): Promise<void> {
   const value = globalSoundValue(kind, config);
   if (value) {

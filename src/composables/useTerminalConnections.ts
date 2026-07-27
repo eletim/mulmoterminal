@@ -41,7 +41,7 @@ import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
 import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
-import { messageEffect } from "./serverMessage";
+import { exitCodeOf, messageEffect } from "./serverMessage";
 import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
@@ -465,10 +465,6 @@ function connect(c: Conn) {
     setStatus(c, "disconnected");
   };
 }
-
-// The status the server reported for a finished PTY, or null when it named none (a command
-// that never started, or a session that ended without one).
-const exitCodeOf = (msg: { exitCode?: unknown }): number | null => (typeof msg.exitCode === "number" ? msg.exitCode : null);
 
 function handleMessage(c: Conn, event: MessageEvent) {
   const msg = JSON.parse(event.data);

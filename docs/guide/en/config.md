@@ -103,6 +103,7 @@ are opt-in, from **Settings → NOTIFICATION SOUNDS** or the config file.
 | `waiting` | it stopped to ask — a permission prompt or a question | **on** |
 | `command-done` | a Run cell's command exited 0 | off |
 | `command-failed` | a Run cell's command exited non-zero, or never started | off |
+
 | `session-exited` | a session's terminal ended — **including when you close the cell yourself** | off |
 | `pr-ci-failed` | a directory's PR went red. Only seen **while the roster is on screen**, since that is what polls the phase | off |
 
@@ -115,6 +116,10 @@ are opt-in, from **Settings → NOTIFICATION SOUNDS** or the config file.
   }
 }
 ```
+
+A **Run cell** is the one-shot cell a `script.json` entry or a `run:"shell"` header button
+opens. A shell launcher cell keeps an interactive shell alive, so nothing marks where a command
+inside it ended — those two kinds never fire there.
 
 `"soundKinds": ["waiting"]` is the setting to reach for first if eight parallel sessions are
 wearing you out: you still get called, and nothing else interrupts.

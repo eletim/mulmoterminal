@@ -254,6 +254,17 @@ describe("SettingsModal", () => {
 describe("SettingsModal per-kind sounds (#873)", () => {
   const selectFor = (w: ReturnType<typeof mount>, label: string) => w.find(`select[aria-label="Sound for ${label}"]`);
 
+  // SELECT_CONTROL is `w-full`. A width utility written NEXT to it on the same element has the
+  // same specificity, so which one applies depends on the order Tailwind emits them — and the
+  // select ended up full-width, pushing itself and the play button out of the row. The width
+  // belongs to a wrapper, where `w-full` then means "as wide as the slot I was given".
+  it("sizes the sound select from its wrapper, not from a utility racing w-full", () => {
+    const w = mountModal({ soundKinds: ["finished"] });
+    const select = w.find('select[aria-label="Sound for Turn finished"]');
+    expect(select.classes().some((c) => /^w-\d/.test(c))).toBe(false);
+    expect(select.element.parentElement?.className).toContain("w-36");
+  });
+
   it("offers a row per notification kind, with the new kinds unticked by default", () => {
     const w = mountModal({ soundKinds: ["finished", "waiting"] });
     expect(w.text()).toContain("Turn finished");

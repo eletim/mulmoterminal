@@ -20,7 +20,8 @@ import type { QuickCommand } from "../../common/quickCommands";
 import { SESSION_AGENTS, type SessionAgent } from "../../common/sessionAgent";
 import { PUSH_KINDS, type PushKind } from "../../common/pushKinds";
 import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds";
-import { parsePresetRef, presetRef, SOUND_PRESETS } from "../../common/notifySounds";
+import { presetRef, SOUND_PRESETS } from "../../common/notifySounds";
+import { customSoundLabel, isCustomSound, toggledKinds, withKindSound, type SoundMap } from "../composables/soundSettings";
 import { canAddLauncher, canAddMcpServer, canAddQuickCommand, canAddRepo } from "./settingsValidators";
 import { formatUsd } from "./formatUsd";
 import { isRecord } from "../../common/isRecord";
@@ -28,7 +29,7 @@ import { isRecord } from "../../common/isRecord";
 const props = defineProps<{
   soundFile?: string | null;
   soundKinds?: NotifyKind[];
-  sounds?: Partial<Record<NotifyKind, string>>;
+  sounds?: SoundMap;
   pushEnabled?: boolean;
   pushKinds?: PushKind[];
   prRepos?: string[];
@@ -41,7 +42,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update-sound", file: string | null): void;
   (e: "update-sound-kinds", kinds: NotifyKind[]): void;
-  (e: "update-sounds", sounds: Partial<Record<NotifyKind, string>>): void;
+  (e: "update-sounds", sounds: SoundMap): void;
   (e: "update-push-enabled", on: boolean): void;
   (e: "update-push-kinds", kinds: PushKind[]): void;
   (e: "update-repos", repos: string[]): void;
@@ -235,9 +236,7 @@ watch(
   (k) => (soundKindList.value = [...(k ?? [])]),
 );
 function toggleSoundKind(kind: NotifyKind) {
-  // Emitted in NOTIFY_KINDS order so the saved list reads the same however it was clicked.
-  const next = soundKindList.value.includes(kind) ? soundKindList.value.filter((k) => k !== kind) : [...soundKindList.value, kind];
-  soundKindList.value = NOTIFY_KINDS.filter((k) => next.includes(k));
+  soundKindList.value = toggledKinds(soundKindList.value, kind);
   emit("update-sound-kinds", soundKindList.value);
 }
 
@@ -245,7 +244,7 @@ function toggleSoundKind(kind: NotifyKind) {
 // `props.sounds`: the whole map is persisted on every change, so two picks made before the
 // first POST answers would both compute from the same pre-save snapshot and the second would
 // drop the first. This is the hazard createPresetMutations serializes writes for.
-const soundMap = ref<Partial<Record<NotifyKind, string>>>({ ...(props.sounds ?? {}) });
+const soundMap = ref<SoundMap>({ ...(props.sounds ?? {}) });
 watch(
   () => props.sounds,
   (m) => (soundMap.value = { ...(m ?? {}) }),
@@ -253,29 +252,21 @@ watch(
 
 // "" is the fallback (the file below, else the chime). A kind whose saved value is a PATH —
 // only settable by hand in config.json — gets an extra option so picking a preset for another
-// kind can't silently drop it.
+// kind can't silently drop it. The editing itself is pure, in composables/soundSettings.
 const soundValue = (kind: NotifyKind): string => soundMap.value[kind] ?? "";
-const customSoundLabel = (value: string): string => `Your file — ${value.split(/[\\/]/).pop() || value}`;
-const isCustomSound = (value: string): boolean => Boolean(value) && !parsePresetRef(value);
 function setKindSound(kind: NotifyKind, value: string) {
-  // Rebuilt rather than edited in place: "" means this kind goes back to the fallback, which
-  // is the ABSENCE of an entry, and the whole map is what gets persisted.
-  const next: Partial<Record<NotifyKind, string>> = {};
-  NOTIFY_KINDS.forEach((k) => {
-    const chosen = k === kind ? value : (soundMap.value[k] ?? "");
-    if (chosen) next[k] = chosen;
-  });
-  soundMap.value = next;
-  emit("update-sounds", next);
+  soundMap.value = withKindSound(soundMap.value, kind, value);
+  emit("update-sounds", soundMap.value);
 }
 function onKindSoundChange(kind: NotifyKind, e: Event) {
   if (e.target instanceof HTMLSelectElement) setKindSound(kind, e.target.value);
 }
-// Preview what this kind would actually play, resolved the same way a real beep resolves it
-// (the kind's own sound, else the fallback file, else the chime). The SAVED value is what the
-// server streams, so a pick still in flight previews as its previous sound.
+// Preview what this kind would play, resolved the same way a real beep resolves it (the kind's
+// own sound, else the fallback file, else the chime). Reads the LOCAL map so a preset picked a
+// moment ago is what you hear — a preset is fetched by id and needs no saved config. Falling
+// back to `soundFile` still shows the saved path, which is the only value the server can stream.
 function testKindSound(kind: NotifyKind) {
-  void previewNotify(kind, { kinds: soundKindList.value, sounds: props.sounds ?? {}, soundFile: props.soundFile ?? null });
+  void previewNotify(kind, { kinds: soundKindList.value, sounds: soundMap.value, soundFile: props.soundFile ?? null });
 }
 
 // Theme is applied immediately on click.
@@ -466,31 +457,36 @@ onUnmounted(() => {
       </p>
       <div v-for="kind in NOTIFY_KINDS" :key="kind" class="py-0.5">
         <div class="flex items-center gap-2">
-          <label class="flex flex-auto cursor-pointer items-center gap-2">
+          <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
             <input
               type="checkbox"
-              class="cursor-pointer"
+              class="shrink-0 cursor-pointer"
               :checked="soundKindList.includes(kind)"
               :aria-label="`Beep when a session is ${kind}`"
               @change="toggleSoundKind(kind)"
             />
-            <span class="text-[12px]"
+            <span class="truncate text-[12px]"
               ><strong>{{ NOTIFY_KIND_LABEL[kind] }}</strong></span
             >
           </label>
-          <select
-            :value="soundValue(kind)"
-            :disabled="!soundKindList.includes(kind)"
-            :aria-label="`Sound for ${NOTIFY_KIND_LABEL[kind]}`"
-            :class="SELECT_CONTROL"
-            class="w-44 flex-none"
-            @change="onKindSoundChange(kind, $event)"
-          >
-            <option value="">Default</option>
-            <option v-for="preset in SOUND_PRESETS" :key="preset.id" :value="presetRef(preset.id)">{{ preset.label }}</option>
-            <option v-if="isCustomSound(soundValue(kind))" :value="soundValue(kind)">{{ customSoundLabel(soundValue(kind)) }}</option>
-          </select>
-          <SettingsButton :title="`Play the ${NOTIFY_KIND_LABEL[kind]} sound`" @click="testKindSound(kind)"
+          <!-- The width lives on this wrapper, not the select: SELECT_CONTROL is `w-full`, and a
+               `w-44` beside it is the same specificity — which of the two wins is decided by the
+               order Tailwind emits them, not by the order written here. -->
+          <div class="w-36 shrink-0">
+            <select
+              :value="soundValue(kind)"
+              :disabled="!soundKindList.includes(kind)"
+              :aria-label="`Sound for ${NOTIFY_KIND_LABEL[kind]}`"
+              :class="SELECT_CONTROL"
+              class="truncate"
+              @change="onKindSoundChange(kind, $event)"
+            >
+              <option value="">Default</option>
+              <option v-for="preset in SOUND_PRESETS" :key="preset.id" :value="presetRef(preset.id)">{{ preset.label }}</option>
+              <option v-if="isCustomSound(soundValue(kind))" :value="soundValue(kind)">{{ customSoundLabel(soundValue(kind)) }}</option>
+            </select>
+          </div>
+          <SettingsButton class="shrink-0" :title="`Play the ${NOTIFY_KIND_LABEL[kind]} sound`" @click="testKindSound(kind)"
             ><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span></SettingsButton
           >
         </div>

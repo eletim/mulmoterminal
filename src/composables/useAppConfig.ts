@@ -6,6 +6,7 @@ import type { QuickCommand } from "../../common/quickCommands";
 import type { PushKind } from "../../common/pushKinds";
 import { DEFAULT_SOUND_KINDS, isNotifyKind, type NotifyKind } from "../../common/notifyKinds";
 import { isRecord } from "../../common/isRecord";
+import { readSoundMap, type SoundMap } from "./soundSettings";
 import type { SoundConfig } from "./useAttentionSound";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
@@ -30,7 +31,7 @@ const pushKinds = ref<PushKind[]>([]);
 // Which moments beep, and what each one plays (#873) — SINGLETONS like the others, since the
 // beep player lives in the single view while the settings modal opens from either.
 const soundKinds = ref<NotifyKind[]>([...DEFAULT_SOUND_KINDS]);
-const sounds = ref<Partial<Record<NotifyKind, string>>>({});
+const sounds = ref<SoundMap>({});
 
 /** The sound settings as the player wants them. Module-level rather than a useAppConfig()
  *  field so a one-off notification can read them without building per-call config state. */
@@ -43,18 +44,7 @@ function adoptSoundConfig(c: Record<string, unknown>): void {
   // A config written before #873 has no soundKinds; the defaults keep it beeping exactly as it
   // did rather than going silent on upgrade.
   soundKinds.value = Array.isArray(c.soundKinds) ? c.soundKinds.filter(isNotifyKind) : [...DEFAULT_SOUND_KINDS];
-  sounds.value = isRecord(c.sounds) ? readSounds(c.sounds) : {};
-}
-
-// Keep only known kinds with a non-empty value. The server sanitizes the same map, but the
-// response is still just JSON — an unknown key here would reach the player as a fetch for a
-// kind that has no route.
-function readSounds(raw: Record<string, unknown>): Partial<Record<NotifyKind, string>> {
-  const out: Partial<Record<NotifyKind, string>> = {};
-  Object.entries(raw).forEach(([key, value]) => {
-    if (isNotifyKind(key) && typeof value === "string" && value) out[key] = value;
-  });
-  return out;
+  sounds.value = isRecord(c.sounds) ? readSoundMap(c.sounds) : {};
 }
 
 // Cross-repo PR list's repos — also a SINGLETON, so the settings modal (openable from
@@ -245,8 +235,8 @@ async function saveSoundKinds(next: NotifyKind[]): Promise<boolean> {
 }
 // Persist the per-kind sounds (partial update). The whole map goes each time — the server
 // merges by FIELD, not by key, so sending one kind would drop the others.
-async function saveSounds(next: Partial<Record<NotifyKind, string>>): Promise<boolean> {
-  const r = await postConfigField<Partial<Record<NotifyKind, string>>>("sounds", next);
+async function saveSounds(next: SoundMap): Promise<boolean> {
+  const r = await postConfigField<SoundMap>("sounds", next);
   if (r.ok) sounds.value = r.value ?? {};
   return r.ok;
 }

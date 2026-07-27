@@ -136,14 +136,45 @@ dir sounds[kind] → dir sound → global sounds[kind] → global soundFile → 
 の boolean だったため、1行目を「waiting になった」、2行目を「finished した」と数え、
 **同じターンで2回ビープしていた**。
 
-さらにこの2行はフラグだけでは `Notification`（本当に質問で止まった）と区別できない。
-publish には hook 名が `event` として載っているので、`notifyKindOf` はそれを見て
+さらにこの2行はフラグだけでは `Notification`（本当に質問で止まった）と区別できない。publish
+には hook 名が `event` として載っているので、そこで見分ける。
 
-- `working: true→false` → `finished`
-- `waiting: false→true` **かつ** `event !== "Stop"` → `waiting`
+### そのつもりで入れた対策が、逆に無音を2種類作った
 
-とした。結果、1ターン1回になり、鳴らし分けも成立する。issue #873 が挙げていない
-既存バグなので、コミットで明示する。
+最初の実装は「1行目（Stop ラベルの waiting 立ち上がり）は無視、2行目の
+`working: true→false` で鳴らす」だった。これが2つの無音を生んだ:
+
+1. **`working` が既に false だと2行目は publish されない**。`nextActivity` は値が変わらない
+   flag に対して null を返すため。1行目も無視していたので**完全に無音**。
+2. 1の対策として `!was.waiting` を足したところ、**質問して待った後に完了したターン**
+   （waiting が既に true）も落ちるようになった。
+
+どちらもユーザの実機で「たまに鳴らない」として顕在化した。
+
+**最終形**: フラグだけでは「背景 Stop の2行目」と「質問後の完了」が区別できない
+（どちらも `was={working:true,waiting:true} → now={working:false,waiting:true}`）ので、
+**1つの通知イベントにつき1回だけ鳴らす**を状態として持つ。`ActivityState` に `event` と
+`announced` を持たせ、行の `event` が変わったら新しい瞬間として `announced` をリセットする。
+1つの hook が publish する行はすべて同じ event 名を持つので、これが2行を1回に畳む。
+
+### テスト方針の変更（ユーザ指摘: 「デグレってデプロイすると大問題」）
+
+上の2つの無音は、**手書きの行によるテストでは見えなかった**。サーバが送らない行を
+テスト作者が書いていたため。対策:
+
+- `test/server/session/notify-kind-from-server.spec.ts` — サーバの実関数
+  （`activityHookEffects` + `nextActivity`）を回して**実際に publish される行だけ**を生成し、
+  それをクライアントの判定に流す。2つ目の無音はこの spec が発見した。
+  「Stop が publish される限り完了音はちょうど1回」をプロパティとして固定し、
+  サーバが1行も publish しないケース（見ているペインで working フラグ無しの Stop）は
+  **サーバ側の穴として明示的にアサート**する
+- `src/composables/soundSettings.ts` — kind 別マップの編集・ON/OFF の並び順・
+  プリセット判定・`readSoundMap` をコンポーネントから純関数として抽出し、node 環境で単体テスト
+  （Codex が見つけた「保存前の連続変更で先の選択が消える」バグの現場）
+- `serverMessage.ts` の `exitCodeOf` も同様に抽出
+
+app 用の tsconfig にサーバのモジュールを import すると `@types/node` が混ざって
+`window.setTimeout` の型が壊れるので、クロス境界の spec は `test/server/` 側に置く。
 
 ### `@mulmoclaude/core` のインストールずれ
 
@@ -163,5 +194,11 @@ publish には hook 名が `event` として載っているので、`notifyKindO
     フォールバック、`../escape.mp3` は拒否されてフォールバック（封じ込め維持）
   - `{"sounds": []}` は 400（サニタイズによる暗黙の全消しを防止）
 - プリセット7種と kind 別内蔵チャイム6種を実際に再生して音を確認
-- **未確認**: Settings 画面の見た目（ブラウザツールが使えなかった）。PR のレビュー項目に記載
+- **ユーザの実機（ブラウザ）で確認済み**: finished（door）/ waiting（gong）/
+  session-exited（meow）。`/api/hook` に実フックを投げて発火させ、鳴り方を確認した
+- **未確認**: command-done / command-failed（Run セルでコマンドを走らせる必要がある）、
+  pr-ci-failed（ロスター表示中に PR が実際に赤くなる必要があり、その場で再現できない。
+  `becameCiFailing` の unit test で固定）
+- Settings 画面の見た目もユーザが確認。プルダウンが `SELECT_CONTROL` の `w-full` と
+  競合して行からはみ出していたのを、幅をラッパに移して修正
 - README / `docs/guide/{en,ja}/config.md` を更新
