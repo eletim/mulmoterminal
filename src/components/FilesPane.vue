@@ -152,17 +152,21 @@ async function bankText(pathRel: string, text: string, keepalive = false): Promi
 // A save that loses the version race can't put a banner up (we are already leaving), so the
 // buffer is banked instead and the file left as the other writer left it. Everything needed
 // is read BEFORE the first await, so an unmount mid-flight can't take the content with it.
-async function flush(): Promise<void> {
-  if (!dirty.value || !openPath.value || !editor) return;
+// Returns whether the buffer is safe to leave behind — false when NEITHER the save nor the
+// backup landed (the server is down, the disk is full). Callers that can stay must stay: with
+// no copy anywhere, walking away is the one outcome that loses what was typed.
+async function flush(): Promise<boolean> {
+  if (!dirty.value || !openPath.value || !editor) return true;
   const pathRel = openPath.value;
   const text = editor.getDoc();
   const outcome = await writeBuffer(pathRel, text, baseVersion.value);
-  // Stop calling it unsaved only once the copy is SOMEWHERE. A failed backup leaves the buffer
-  // marked dirty, which is the one honest answer left.
-  if (outcome.status === "saved" || (await bankText(pathRel, text))) {
-    dirty.value = false;
-    conflict.value = null;
+  if (outcome.status !== "saved" && !(await bankText(pathRel, text))) {
+    fileError.value = outcome.status === "error" ? outcome.message : "could not save or back up this file";
+    return false;
   }
+  dirty.value = false;
+  conflict.value = null;
+  return true;
 }
 
 async function openFile(node: Node): Promise<void> {
@@ -178,7 +182,9 @@ async function openFile(node: Node): Promise<void> {
 async function loadFile(pathRel: string, force = false): Promise<void> {
   if (!force) {
     if (pathRel === openPath.value) return; // already open — no reload
-    await flush(); // opening another file is leaving this one
+    // Opening another file is leaving this one. If it couldn't be saved OR banked, staying is
+    // the only way not to lose it.
+    if (!(await flush())) return;
   }
   const id = ++reqId;
   fileError.value = null;
@@ -223,7 +229,12 @@ async function save(): Promise<void> {
  *  nothing that can't be fetched back out of the backup store. */
 async function discardAndReload(): Promise<void> {
   if (!openPath.value || !editor) return;
-  await bankText(openPath.value, editor.getDoc());
+  // "Kept as a backup either way" is the promise the banner makes. If the store refuses it,
+  // the honest answer is to keep the buffer rather than discard it anyway.
+  if (!(await bankText(openPath.value, editor.getDoc()))) {
+    fileError.value = "could not back up your version — nothing was discarded";
+    return;
+  }
   loadFile(openPath.value, true);
 }
 
@@ -237,8 +248,7 @@ function overwrite(): void {
 }
 
 async function requestClose(): Promise<void> {
-  await flush();
-  emit("close");
+  if (await flush()) emit("close");
 }
 
 // Bound to this pane's own subtree, not to window: with a pane open beside a terminal,

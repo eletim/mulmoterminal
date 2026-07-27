@@ -20,9 +20,12 @@ watch([isOpen, cwd], async ([open, curCwd], prev) => {
   if (!wasOpen) return;
   // Awaited: the save has to finish before the tree it is being replaced by is read, and a
   // parting save that hits a conflict still has a backup to write afterwards.
-  if (!open || rootChanged) await pane.value?.flush();
-  // A root change keeps the pane mounted, and only this side knows the change happened.
-  if (rootChanged) pane.value?.reload();
+  const safe = !open || rootChanged ? await pane.value?.flush() : true;
+  // A root change keeps the pane mounted, and only this side knows the change happened — so a
+  // buffer that could be neither saved nor backed up keeps the old tree instead of being
+  // re-read away. (Closing the view outright unmounts the pane either way; there the backup
+  // store IS the guarantee, and a store that refuses the write is the one hole left.)
+  if (rootChanged && safe !== false) pane.value?.reload();
 });
 </script>
 

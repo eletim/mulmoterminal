@@ -209,3 +209,88 @@ describe("FilesPane leaving mid-unmount", () => {
     expect(calls.some((u) => u.includes("/write"))).toBe(true);
   });
 });
+
+// The server being down turns "leave and save" into "leave and lose". Every caller that CAN
+// stay has to stay, because at that point the buffer is the only copy in existence.
+describe("FilesPane when nothing can be saved or banked", () => {
+  const allFail = () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/list"))
+        return {
+          ok: true,
+          json: async () => ({
+            entries: [
+              { name: "README.md", dir: false, size: 10 },
+              { name: "other.md", dir: false, size: 10 },
+            ],
+          }),
+        };
+      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
+      return { ok: false, status: 500, json: async () => ({ error: "server is down" }) };
+    }) as unknown as typeof fetch;
+  };
+
+  beforeEach(() => {
+    fakeEditor.setDoc.mockClear();
+    mockFs();
+  });
+
+  it("reports it, and stays unsaved, instead of claiming success", async () => {
+    const w = await openFileAndEdit();
+    allFail();
+    expect(await (w.vm as unknown as { flush: () => Promise<boolean> }).flush()).toBe(false);
+    expect(w.emitted("dirty")?.at(-1)).toEqual([true]);
+    expect(w.text()).toContain("server is down");
+  });
+
+  it("does not open another file over the top of it", async () => {
+    allFail(); // reads still work; writes and backups do not
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
+    await flushPromises();
+    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
+    await flushPromises();
+    onChange();
+    await flushPromises();
+
+    fakeEditor.setDoc.mockClear();
+    await w.findAll('[data-testid="files-row"]')[1].trigger("click");
+    await flushPromises();
+    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // still on the file with the edits
+  });
+
+  it("does not close", async () => {
+    const w = await openFileAndEdit();
+    allFail();
+    await w.find('[aria-label="Close files"]').trigger("click");
+    await flushPromises();
+    expect(w.emitted("close")).toBeUndefined();
+  });
+
+  // "Kept as a backup either way" is the banner's promise; a store that refuses the write
+  // means the honest move is to keep the buffer rather than discard it anyway.
+  it("refuses to discard on the conflict banner when the backup is refused", async () => {
+    const w = await openFileAndEdit();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/backup")) return { ok: false, status: 500, json: async () => ({ error: "no room" }) };
+      if (url.includes("/write")) return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: "v9" }) };
+      return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
+    }) as unknown as typeof fetch;
+
+    await w
+      .findAll("button")
+      .find((b) => b.text().startsWith("Save"))
+      ?.trigger("click");
+    await flushPromises();
+    fakeEditor.setDoc.mockClear();
+
+    await w
+      .findAll("button")
+      .find((b) => b.text().startsWith("Reload"))
+      ?.trigger("click");
+    await flushPromises();
+    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // the buffer is still there
+    expect(w.text()).toContain("could not back up your version");
+  });
+});

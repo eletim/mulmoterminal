@@ -158,7 +158,9 @@ function setFilesOpen(open: boolean): void {
 // way out — the pane's OWN close button has already flushed by the time it emits, which is why
 // that path stays separate rather than routing through here.
 async function toggleFiles(): Promise<void> {
-  if (filesOpen.value) await filesPane.value?.flush();
+  // Closing unmounts the buffer with the pane, so a buffer that could be neither saved nor
+  // backed up keeps the pane open — the error is visible in it.
+  if (filesOpen.value && (await filesPane.value?.flush()) === false) return;
   setFilesOpen(!filesOpen.value);
 }
 
@@ -184,7 +186,9 @@ watch(
       paneCwd.value = expandedCwd.value;
       return;
     }
-    await filesPane.value?.flush();
+    // Re-rooting re-reads the tree and drops the buffer with it. Nothing to fall back on means
+    // staying put: the pane keeps the old root, which its header names.
+    if ((await filesPane.value?.flush()) === false) return;
     paneCwd.value = expandedCwd.value;
     await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
     filesPane.value?.reload();

@@ -57,6 +57,9 @@ function mockFs() {
       return { ok: true, json: async () => ({ entries }) };
     }
     if (url.includes("/text")) return { ok: true, json: async () => ({ text: disk.text, version: disk.version }) };
+    // The backup store is a separate endpoint and must not fall into the /write branch below —
+    // banking is what makes "discard" safe, so a failing bank correctly refuses to discard.
+    if (url.includes("/backup")) return { ok: true, json: async () => ({ stored: true }) };
     if (url.includes("/write")) {
       if (writeConflictVersion !== null) {
         return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: writeConflictVersion }) };
@@ -300,7 +303,7 @@ describe("FilesOverlay", () => {
       expect(saveBtn.attributes("disabled")).toBeUndefined();
     });
 
-    it("Reload takes the disk's copy, discarding the buffer without a confirm prompt", async () => {
+    it("Reload takes the disk's copy, banking the buffer first and never prompting", async () => {
       writeConflictVersion = "v9";
       const w = await openAndEdit();
       await clickButton(w, "Save");
@@ -309,6 +312,9 @@ describe("FilesOverlay", () => {
       disk.version = "v9";
       const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
       await clickButton(w, "Reload");
+      // The version being dropped goes to the backup store before it is dropped.
+      const banked = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).includes("/backup"));
+      expect(banked).toBe(true);
 
       // The button IS the decision — prompting again would ask the same question twice.
       expect(confirmSpy).not.toHaveBeenCalled();
