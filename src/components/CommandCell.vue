@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch } from "vue";
-import TerminalView from "./Terminal.vue";
+import DirBadge from "./DirBadge.vue";
 import { useDirConfig } from "../composables/useDirConfig";
+import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { RunCommand } from "./runCommand";
 import { formatCwd } from "./cwdDisplay";
@@ -53,8 +54,8 @@ const connectKey = ref(0);
 const finished = ref(false);
 const termRef = ref<InstanceType<typeof TerminalView>>();
 
-// Same as LauncherCell (#902): a command runs in a directory, so its terminal takes that
-// directory's palette and font. A getter ref because the cwd lives inside the `command` object.
+// Same as LauncherCell (#914): the badge belongs to this cell's header, so it reads the config
+// here. A getter ref because the cwd lives inside the `command` object.
 const { config: dirConfig } = useDirConfig(toRef(() => props.command.cwd));
 
 const dirDisplay = computed(() => formatCwd(props.command.cwd, props.home));
@@ -173,6 +174,7 @@ function onHeaderClick(event: MouseEvent) {
       <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="command.cwd ?? ''"
         ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
       >
+      <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
       <span class="cell-cmd" :class="CELL_CMD"><span class="material-symbols-outlined" aria-hidden="true">play_arrow</span> {{ command.label }}</span>
       <span class="cell-actions" :class="CELL_ACTIONS">
         <button v-if="reorderable" class="cell-btn" :class="CELL_BTN" title="Move left" aria-label="Move command left" @click="emit('move', -1)">
@@ -205,10 +207,6 @@ function onHeaderClick(event: MouseEvent) {
       :connect-key="connectKey"
       :cwd="command.cwd"
       :command="command"
-      :dir-theme="dirConfig.theme"
-      :dir-colors="dirConfig.colors"
-      :dir-font-size="dirConfig.fontSize"
-      :dir-font-family="dirConfig.fontFamily"
       :expanded="expanded"
       :zoomed="zoomed"
       @exit="onExit"

@@ -231,6 +231,31 @@ box-drawing frame — which is most of what an agent TUI draws. Fonts built for 
   stack matched. MulmoTerminal appends `monospace` when you name no generic family, so this should
   only happen if you ended the stack with a proportional one yourself.
 
+### Several folders in one session (`addDirs`) {#add-dirs}
+
+To have an agent work across more than one directory — a repo plus the shared library next to
+it — you used to need an editor that can open a multi-folder workspace. Claude Code takes
+`--add-dir`, and a directory can set it for every session it launches:
+
+```json
+{
+  "addDirs": ["../shared-lib", "/Users/me/notes"]
+}
+```
+
+- Relative entries resolve against **the directory holding this file**, so `"../shared-lib"`
+  means the sibling of the project — not of wherever the session happens to run (a git worktree
+  runs from `~/.mulmoterminal/worktrees/`).
+- A path that does not exist is **dropped when the config is read**, rather than passed to the
+  agent — otherwise the flag looks applied while the agent sees nothing. Up to 16 entries.
+- Listing the project itself does nothing: it is already the session's working directory.
+- **Claude only.** codex has no equivalent flag and ignores the key.
+- **In the Docker sandbox** each directory is bind-mounted at the same absolute path, so the
+  grant is real inside the container. That widens the sandbox beyond the workspace on
+  purpose — the list comes from your own config file, which is the same act as granting access.
+
+Take effect on the next session in that directory.
+
 ## Enter — submit vs. newline (`terminalSubmit`) {#terminal-submit}
 
 Whether **Enter submits** your prompt or **inserts a newline** is decided by Claude Code (its

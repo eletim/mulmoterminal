@@ -10,6 +10,7 @@
 //      better, and the goal is ease of handling.
 //   2. The `sound` path confinement (a filesystem realpath check) stays in dir-config.ts — it
 //      touches the disk, which does not belong in a pure schema.
+import path from "node:path";
 import { z } from "zod";
 // Shared with the client dir-config parser so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
@@ -211,6 +212,36 @@ export const dirSkillsField = z
   .nullable()
   .catch(null);
 
+// Extra directories a session may read/edit — Claude Code's `--add-dir` (#908), the
+// terminal-side answer to opening several folders in one VS Code workspace. Relative
+// entries resolve against the directory holding the config, which is what a reader of
+// `"../shared-lib"` means; a managed worktree runs from elsewhere and must not silently
+// point somewhere else. A path that does not exist is dropped HERE rather than passed on:
+// the flag would otherwise look applied while the agent sees nothing.
+export const MAX_ADD_DIRS = 16;
+export function resolveAddDirs(input: unknown, base: string, exists: (p: string) => boolean): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const resolved = input
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    .map((entry) => path.resolve(base, entry.trim()))
+    // The workspace itself is already the session's cwd — listing it again would add a
+    // duplicate container mount and grant nothing.
+    // `exists` touches the disk, so it can throw (EACCES, or the path vanishing between the
+    // check and the stat). This runs inside loadDirConfig's outer try, where a throw costs
+    // the WHOLE directory config — colors, sound, skills — over one unreadable entry. A
+    // failure here means "drop this entry", never "drop everything".
+    .filter((dir) => {
+      if (dir === path.resolve(base)) return false;
+      try {
+        return exists(dir);
+      } catch {
+        return false;
+      }
+    });
+  const unique = [...new Set(resolved)].slice(0, MAX_ADD_DIRS);
+  return unique.length ? unique : null;
+}
+
 // ---- JSON Schema for the config skill -----------------------------------------------------
 // The WRITABLE per-dir shape (what a user types into `.mulmoterminal.json`), described strictly
 // so the skill can validate its output and drive structured generation. Distinct from the
@@ -304,6 +335,10 @@ const writableDirConfigSchema = z.object({
   // global config's `providers`; `model` alone picks a different model on Anthropic itself.
   provider: nonEmptyText.optional(),
   model: nonEmptyText.optional(),
+  // Extra directories this dir's sessions may read/edit — Claude Code's `--add-dir` (#908).
+  // Relative entries resolve against this file's own directory. Claude only; codex has no
+  // equivalent flag and ignores the key.
+  addDirs: z.array(nonEmptyText).max(MAX_ADD_DIRS).optional(),
 });
 
 export function dirConfigJsonSchema(): Record<string, unknown> {

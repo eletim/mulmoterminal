@@ -26,6 +26,7 @@ import {
   type ThemeId,
   type HeaderButton,
   type HeaderChip,
+  resolveAddDirs,
 } from "./config-schema.js";
 
 const DIR_CONFIG_FILE = ".mulmoterminal.json";
@@ -51,6 +52,9 @@ export interface DirConfig extends DirChrome {
   // Which backend/model this directory's sessions run on (#579). Never a secret.
   provider: string | null;
   model: string | null;
+  // Extra directories this dir's sessions may touch (#908) — already resolved to absolute
+  // paths against the config's own directory, and already checked to exist.
+  addDirs: string[] | null;
 }
 
 // What the browser receives: the raw sound path stays server-side (streamed via
@@ -138,6 +142,7 @@ const EMPTY: DirConfig = {
   skills: null,
   provider: null,
   model: null,
+  addDirs: null,
 };
 
 export function loadDirConfig(cwd: string): DirConfig {
@@ -167,6 +172,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       skills: dirSkillsField.parse(raw.skills),
       provider: dirProviderField.parse(raw.provider),
       model: dirModelField.parse(raw.model),
+      addDirs: resolveAddDirs(raw.addDirs, base, (p) => statSync(p).isDirectory()),
     };
   } catch {
     return EMPTY;

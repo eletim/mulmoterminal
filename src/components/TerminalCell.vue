@@ -5,7 +5,7 @@ import { usePubSub } from "../composables/usePubSub";
 import { useDirConfig } from "../composables/useDirConfig";
 import { useGitStatus } from "../composables/useGitStatus";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
-import { badgeStyleFor } from "./dirBadge";
+import DirBadge from "./DirBadge.vue";
 import { isCellContext, isCellUsage, type CellContext, type CellUsage } from "./cellPayload";
 import { unsavedWork } from "./unsavedWork";
 import { relativeTime as relativeTimeFrom, usageBadge } from "./cellDisplay";
@@ -104,7 +104,6 @@ const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
 // Per-directory overrides (<cwd>/.mulmoterminal.json): pins this cell's terminal
 // palette and shows a project badge. Re-fetched when the effective cwd changes.
 const { config: dirConfig } = useDirConfig(cwd);
-const dirBadgeStyle = computed(() => badgeStyleFor(dirConfig.value.badgeColor));
 const headerStyle = computed(() => headerStyleFor(dirConfig.value.headerColor, dirConfig.value.headerTextColor));
 const cellStyle = computed(() =>
   cellStyleFor(dirConfig.value.cellColor, dirConfig.value.cellBorderColor, dirConfig.value.dotColor, dirConfig.value.buttonColor),
@@ -1051,13 +1050,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           <!-- Info (dir badge / git / diff / model / tokens) is dropped on a filmstrip
                thumbnail, leaving only dir + what it's doing + a zoom button. -->
           <template v-if="!filmstrip">
-            <span
-              v-if="dirConfig.name"
-              class="max-w-[14ch] flex-none truncate rounded-[10px] px-[7px] py-px font-sans text-[11px] font-semibold"
-              :style="dirBadgeStyle"
-              :title="dirConfig.name"
-              >{{ dirConfig.name }}</span
-            >
+            <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
             <template v-for="chip in cellChips" :key="chip.key">
               <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
               <button
@@ -1113,10 +1106,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         :cwd="cwd"
         :codex="agent === 'codex'"
         :launch="launchChoice"
-        :dir-theme="dirConfig.theme"
-        :dir-colors="dirConfig.colors"
-        :dir-font-size="dirConfig.fontSize"
-        :dir-font-family="dirConfig.fontFamily"
         :dir-header-color="dirConfig.headerColor"
         :dir-header-text-color="dirConfig.headerTextColor"
         :dir-button-color="dirConfig.buttonColor"
