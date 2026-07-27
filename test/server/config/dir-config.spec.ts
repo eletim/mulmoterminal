@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolveDirSound, loadDirConfig, publicDirConfig, dirSoundFor, dirConfigWriteTarget } from "../../../server/config/dir-config";
+import { resolveDirSound, loadDirConfig, publicDirConfig, dirSoundFor, dirConfigWriteTarget, dirConfigDetail } from "../../../server/config/dir-config";
+import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
 const EMPTY = {
@@ -329,6 +330,45 @@ describe("per-kind directory sounds", () => {
   it("counts a per-kind sound towards hasSound", () => {
     const { dir, cleanup } = withConfig({ sounds: { waiting: "preset:coin" } });
     expect(publicDirConfig(dir).hasSound).toBe(true);
+    cleanup();
+  });
+});
+
+// The settings modal's preview. Its job is to tell "never set" apart from "set and dropped",
+// which is exactly what the resolved config alone cannot say.
+describe("dirConfigDetail", () => {
+  it("reports no file for a directory that has none", () => {
+    const dir = tmp();
+    const detail = dirConfigDetail(dir);
+    expect(detail.file).toBeNull();
+    expect(detail.source).toEqual({ applied: [], ignored: [], unknown: [] });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("separates what applied, what was dropped, and what is not a setting at all", () => {
+    const { dir, cleanup } = withConfig({ name: "proj", headerColor: "#2b3a55", cellColor: "rebeccapurple", badgeColour: "#123456" });
+    const detail = dirConfigDetail(dir);
+    expect(detail.file).toBe(path.join(dir, ".mulmoterminal.json"));
+    expect(detail.source.applied.sort()).toEqual(["headerColor", "name"]);
+    expect(detail.source.ignored).toEqual(["cellColor"]); // a CSS colour name is not #rrggbb
+    expect(detail.source.unknown).toEqual(["badgeColour"]);
+    expect(detail.config.headerColor).toBe("#2b3a55");
+    cleanup();
+  });
+
+  it("says a malformed file set nothing, rather than failing", () => {
+    const { dir, cleanup } = withConfig("{ not json");
+    const detail = dirConfigDetail(dir);
+    expect(detail.file).toBe(path.join(dir, ".mulmoterminal.json"));
+    expect(detail.source).toEqual({ applied: [], ignored: [], unknown: [] });
+    cleanup();
+  });
+
+  // The key list the preview labels things with lives in common/ and the loader lives here;
+  // nothing but this test stops a field added to one from going missing in the other.
+  it("documents every key the loader reads", () => {
+    const { dir, cleanup } = withConfig({});
+    expect([...DIR_CONFIG_KEYS].sort()).toEqual(Object.keys(loadDirConfig(dir)).sort());
     cleanup();
   });
 });

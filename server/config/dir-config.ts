@@ -8,6 +8,7 @@ import { existsSync, statSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { sanitizeButtons, sanitizeChips } from "./header-config.js";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome.js";
+import { describeDirConfig, keysWithValue, EMPTY_DIR_CONFIG_SOURCE, type DirConfigSource } from "../../common/dirConfigSource.js";
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
@@ -207,6 +208,48 @@ export function publicDirConfig(cwd: string): PublicDirConfig {
     colors,
     hasSound: sound !== null || Object.keys(sounds).length > 0,
   };
+}
+
+// The settings modal's read-only preview of one directory: what the app resolved, plus which
+// keys the file set and how each fared. Separate from publicDirConfig because every cell polls
+// that one — this is fetched only while the modal is open, and it re-reads the file to say what
+// the resolved values alone can't: that a key was written and then dropped, or misspelled.
+export interface DirConfigDetail {
+  // Absolute path of the file, or null when the directory has none.
+  file: string | null;
+  config: PublicDirConfig;
+  source: DirConfigSource;
+}
+
+// The file, when the directory has one at all. Null also covers an unreadable path — the
+// preview then says "no file", which is what the app itself concluded.
+function dirConfigFile(cwd: string): string | null {
+  try {
+    const file = path.join(path.resolve(cwd), DIR_CONFIG_FILE);
+    return existsSync(file) ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+export function dirConfigDetail(cwd: string): DirConfigDetail {
+  const config = publicDirConfig(cwd);
+  const file = dirConfigFile(cwd);
+  if (!file) return { file: null, config, source: EMPTY_DIR_CONFIG_SOURCE };
+  // Malformed or non-object JSON keeps the FILE in the answer: "there is a file here and none
+  // of it applied" is the single most useful thing this preview can say, and reporting no file
+  // at all would send the reader looking for one that is right there.
+  const raw: unknown = tryReadJson(file);
+  if (!isRecord(raw)) return { file, config, source: EMPTY_DIR_CONFIG_SOURCE };
+  return { file, config, source: describeDirConfig(raw, keysWithValue(loadDirConfig(cwd))) };
+}
+
+function tryReadJson(file: string): unknown {
+  try {
+    return readJsonFile(file);
+  } catch {
+    return null;
+  }
 }
 
 // The sound this directory wants for one kind: its per-kind entry, else its all-kind

@@ -9,10 +9,11 @@
 // useAppConfig's state is a singleton, so reading it here is the same state the shells read.
 // What genuinely differs stays a prop or an event: the chat view knows a cwd and a session,
 // and each shell configures appearance its own way.
+import { computed } from "vue";
 import { useAppConfig } from "../composables/useAppConfig";
 import SettingsModal from "./SettingsModal.vue";
 
-defineProps<{ cwd?: string | null; sessionId?: string | null }>();
+const props = defineProps<{ cwd?: string | null; sessionId?: string | null }>();
 const emit = defineEmits<{ (e: "configure-appearance" | "close"): void }>();
 
 const {
@@ -34,7 +35,15 @@ const {
   saveQuickCommands,
   userMcpServers,
   saveUserMcpServers,
+  presets,
 } = useAppConfig();
+
+// Which directories the config preview lists: the recent dirs, plus the focused session's own
+// directory when it isn't among them (the chat view knows a cwd; the grid doesn't).
+const dirPaths = computed(() => {
+  const paths = presets.value.map((p) => p.path);
+  return props.cwd && !paths.includes(props.cwd) ? [props.cwd, ...paths] : paths;
+});
 </script>
 
 <template>
@@ -50,6 +59,7 @@ const {
     :user-mcp-servers="userMcpServers"
     :cwd="cwd"
     :session-id="sessionId"
+    :dir-paths="dirPaths"
     @update-sound="saveSound"
     @update-sound-kinds="saveSoundKinds"
     @update-sounds="saveSounds"
