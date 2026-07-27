@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import TerminalView from "./Terminal.vue";
-import { useDirConfig } from "../composables/useDirConfig";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import { formatCwd } from "./cwdDisplay";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
@@ -55,11 +54,6 @@ function onHeaderClick(event: MouseEvent) {
 const connectKey = ref(0);
 const finished = ref(false);
 
-// A launcher cell is still a terminal opened IN a directory, so it adopts that directory's palette
-// and font exactly as a Claude cell does (#902). The header badge/colours stay out: this cell has
-// its own header markup, and fitting a name badge into it is a design call, not wiring.
-const { config: dirConfig } = useDirConfig(toRef(props, "cwd"));
-
 const dirDisplay = computed(() => formatCwd(props.cwd, props.home));
 const target = computed(() => (isShellLauncher(props.launcher) ? { shell: true as const } : { index: props.launcher.index }));
 
@@ -111,10 +105,6 @@ function relaunch() {
       :connect-key="connectKey"
       :cwd="cwd"
       :launcher="target"
-      :dir-theme="dirConfig.theme"
-      :dir-colors="dirConfig.colors"
-      :dir-font-size="dirConfig.fontSize"
-      :dir-font-family="dirConfig.fontFamily"
       :expanded="expanded"
       :zoomed="zoomed"
       @session="onSession"
