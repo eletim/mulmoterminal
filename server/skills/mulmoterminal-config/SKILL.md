@@ -198,7 +198,8 @@ Most users want this **globally**, not per directory — it is the same font eve
 project's output is a different language. The global key has no Settings UI, so writing
 `~/.mulmoterminal/config.json` is the only way to set it. **Tell the user to restart
 `mulmoterminal`** after you write it: that file is read once at server startup, so unlike a
-`.mulmoterminal.json` edit (which is watched and applies instantly) the global one does nothing
+`.mulmoterminal.json` edit (which applies instantly **because you wrote it with Write/Edit** — that
+tool call is the live-reload signal; there is no filesystem watcher) the global one does nothing
 until a restart — and "I set it and nothing happened" is exactly how that reads.
 
 ### Attention sound — `sound`
