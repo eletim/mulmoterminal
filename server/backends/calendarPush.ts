@@ -16,7 +16,7 @@
 import type { Express, Request, Response } from "express";
 import { pushCalendarForCollection } from "@mulmoclaude/core/google";
 import { getWorkspaceRoot, loadCollection } from "@mulmoclaude/core/collection/server";
-import { PUSH_NOT_DECLARED_ERROR, toCollectionPushResult } from "./calendarPushResult.js";
+import { toCollectionPushResult } from "./calendarPushResult.js";
 import { hostLogger } from "./hostLogger.js";
 
 /** Injectable so the route's gates are testable without a workspace on disk or a live
@@ -24,11 +24,11 @@ import { hostLogger } from "./hostLogger.js";
  *  failure is an HTTP status and which is a field on a 200 is this route's whole job, so
  *  it must not be reachable only through a real push. */
 export interface CalendarPushRouteDeps {
-  /** Any collection by slug — NOT the engine's calendar-only lookup, which cannot tell an
-   *  undeclared collection from a missing one. Narrowed to what the gates actually read:
-   *  a full `LoadedCollection` is a Zod-derived giant, and a route that needs one built to
-   *  be tested is a route nobody tests. `loadCollection` satisfies this. */
-  findCollection: (slug: string) => Promise<{ schema: { googleCalendar?: unknown } } | null>;
+  /** Existence only — the engine's own lookup is calendar-scoped and so cannot tell a
+   *  missing collection from one that simply declares no calendar. Narrowed to a
+   *  presence check: a full `LoadedCollection` is a Zod-derived giant, and a route that
+   *  needs one built to be tested is a route nobody tests. `loadCollection` satisfies this. */
+  findCollection: (slug: string) => Promise<unknown | null>;
   push: typeof pushCalendarForCollection;
   workspaceRoot: () => string;
 }
@@ -46,19 +46,21 @@ export function mountCalendarPushRoutes(app: Express, deps: CalendarPushRouteDep
   app.post("/api/collections/:slug/calendar-push", async (req: Request<{ slug: string }>, res: Response) => {
     const { slug } = req.params;
     try {
-      const collection = await deps.findCollection(slug);
-      if (!collection) {
+      // A slug that names nothing is the one genuine 404 here: there is no collection to
+      // report a push result for, and the view distinguishes 404 from a generic failure.
+      if (!(await deps.findCollection(slug))) {
         res.status(404).json({ error: `collection '${slug}' not found` });
         return;
       }
-      // The view only shows the button for a collection that declares a calendar, so this
-      // answers the direct-API caller rather than anything a click can reach.
-      if (!collection.schema.googleCalendar) {
-        res.status(400).json({ error: PUSH_NOT_DECLARED_ERROR });
-        return;
-      }
-      // A push that could not run still answers 200 with the reason in `errors` — see
-      // calendarPushResult.ts for why an HTTP failure would surface in the wrong place.
+      // Everything else — including "declares no calendar" — is a push refusal, and refusals
+      // ride a 200 with the reason in `errors`. The engine's own lookup is calendar-only, so
+      // an undeclared collection comes back as `not-a-calendar` without a gate here.
+      //
+      // DIVERGENCE from MulmoClaude, which 400s this case. Its `apiPost` extracts `{error}`
+      // from a non-2xx body, so a 400 still reaches the user as a sentence; our `fetchJson`
+      // reports the bare `HTTP 400` and drops the body, which would turn a fixable setup
+      // problem into a page-level "HTTP 400" beside no explanation at all. Reunifying the
+      // two means teaching `fetchJson` to read the body — tracked separately.
       const body = toCollectionPushResult(await deps.push(slug, deps.workspaceRoot()));
       hostLogger.info("calendar-push", "pushed via collection route", {
         slug,

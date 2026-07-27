@@ -45,19 +45,42 @@ reportPush(result.data);                                       // インライ�
 「a push that reported only its counts would render a setup failure as "0 created"」と
 書いているとおり、「何もすることがなかった」に読めてしまう。
 
-一方で、**エンジンに渡る前に分かること**は参照実装と同じく HTTP ステータスで弾く。
-ボタンは `schema.googleCalendar` があるときだけ動くので UI からは到達せず、これは
-API を直に叩いた場合の正しさの話。
+HTTP ステータスで弾くのは「push の結果を報告する相手そのものが無い」場合だけ。
 
 | 状況 | 応答 |
 |---|---|
 | コレクションが存在しない | **404** |
-| `googleCalendar` 未宣言 | **400**（`PUSH_NOT_DECLARED_ERROR`） |
+| `googleCalendar` 未宣言 | **200** + `errors`（下記の divergence） |
 | 未連携 / 読み取り専用 / エンジン失敗 | **200** + `errors` |
 | 予期しない例外 | **500** |
 
 `pushCalendarForCollection` は自前で try/catch して `{kind:"failed"}` を返すので 500 には
 通常来ないが、保険は残す。
+
+#### `googleCalendar` 未宣言だけ参照実装と分かれる
+
+参照実装はここを **400** で弾く。こちらは **200 + `errors`** にした。理由は
+**2 つのホストの fetch ラッパが違う**こと:
+
+```ts
+// mulmoclaude/src/utils/api.ts
+if (!res.ok) { const { error, status } = await extractError(res); return { ok:false, error, status }; }
+//                     ^^^^^^^^^^^^ 本文から理由を取り出す
+
+// mulmoterminal/src/utils/fetchJson.ts
+if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, status: res.status };
+//                                       ^^^^^^^^^^^^^^^^^^ 本文を捨てる
+```
+
+MulmoClaude では 400 でも文言がユーザーに届く。こちらで 400 を返すと
+**「HTTP 400」しか出ない** — 直せる設定の問題が、説明のないページ全体エラーに化ける。
+揃えるべきはステータスコードではなく**ユーザーに届く体験**なので、ここは分かれる。
+
+ゲートを外すとエンジン側の calendar-only な lookup が `not-a-calendar` を返すので、
+ルートに分岐を書く必要はない。
+
+根本的には `fetchJson` に本文を読ませれば両者は再統合できる。全ルートの挙動が変わる
+変更なので別 issue。
 
 ### 2. outcome → wire 形の変換は純粋関数として切り出す
 
@@ -82,8 +105,7 @@ API を直に叩いた場合の正しさの話。
 文言も参照実装からそのまま移植した。両方使うユーザーが同じ設定不備に別々の説明を
 受けないため。
 
-`not-a-calendar` はルートが 400 で先に弾くので通常は到達しないが、エンジンが返しうる
-以上は変換側にも残す。
+`not-a-calendar` は実際にここを通る（ルートは存在チェックしかしない）。
 
 ### 3. 置き場所
 
@@ -102,8 +124,8 @@ API を直に叩いた場合の正しさの話。
 
 - `calendarPushResult.spec.ts` — 変換。`kind` 5 通り、部分成功、`accessRole` が空のとき、
   refusal ごとに配列が独立していること
-- `calendarPush.spec.ts` — ルート。404 / 400 のゲート、200 + `errors` の 3 経路、
-  workspace をリクエストごとに読むこと、依存が throw したときの 500
+- `calendarPush.spec.ts` — ルート。404 ゲート、refusal 4 通りがすべて 200 + `errors` に
+  なること、workspace をリクエストごとに読むこと、依存が throw したときの 500
 
 どちらも実装を書き換えると実際に落ちることを確認済み（ゲートを潰す / workspace を
 mount 時に固定する / 共有オブジェクトにする）。
@@ -111,6 +133,6 @@ mount 時に固定する / 共有オブジェクトにする）。
 ## 実機で確かめられていないこと
 
 Google カレンダーへの実書き込みは**このマシンでは確認していない**。実サーバでは
-404（不在の slug）と 400（`googleCalendar` 未宣言）まで到達を確認したが、
-`pushed` / `not-linked` / `read-only` の経路には `schema.googleCalendar` を宣言した
+404（不在の slug）とカレンダー未宣言の経路まで到達を確認したが、
+`pushed` / `not-linked` / `read-only` には `schema.googleCalendar` を宣言した
 コレクションと連携済みアカウントが要る。

@@ -20,7 +20,7 @@ const PUSHED: CalendarPushOutcome = {
 };
 
 const stubDeps = (over: Partial<CalendarPushRouteDeps> = {}): CalendarPushRouteDeps => ({
-  findCollection: vi.fn(async () => ({ schema: { googleCalendar: { calendarId: "c1" } } })),
+  findCollection: vi.fn(async () => ({ slug: "meetings" })),
   push: vi.fn(async () => PUSHED),
   workspaceRoot: () => "/ws",
   ...over,
@@ -55,32 +55,25 @@ describe("mountCalendarPushRoutes", () => {
     expect(deps.push).toHaveBeenLastCalledWith("meetings", "/after");
   });
 
-  describe("gates that never reach the engine", () => {
-    it("404s an unknown slug", async () => {
-      const deps = stubDeps({ findCollection: vi.fn(async () => null) });
-      const res = await push(deps, "nope");
-      expect(res.status).toBe(404);
-      expect(res.body.error).toContain("'nope' not found");
-      expect(deps.push).not.toHaveBeenCalled();
-    });
-
-    // Distinct from 404 on purpose: "you have no such collection" and "this one has no
-    // calendar" send the reader to different fixes.
-    it("400s a collection that declares no calendar", async () => {
-      const deps = stubDeps({ findCollection: vi.fn(async () => ({ schema: {} })) });
-      const res = await push(deps);
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe(PUSH_NOT_DECLARED_ERROR);
-      expect(deps.push).not.toHaveBeenCalled();
-    });
+  // The only genuine 404: there is no collection to report a push result for.
+  it("404s an unknown slug without reaching the engine", async () => {
+    const deps = stubDeps({ findCollection: vi.fn(async () => null) });
+    const res = await push(deps, "nope");
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain("'nope' not found");
+    expect(deps.push).not.toHaveBeenCalled();
   });
 
   // The split that matters: a push that COULD NOT RUN is still a 200, because the view only
   // renders `errors` beside the button. A 4xx here would land in the page-level error slot,
-  // away from what was clicked.
-  describe("setup problems answer 200 with the reason in errors", () => {
+  // away from what was clicked — and `fetchJson` drops the body, so it would arrive as a
+  // bare "HTTP 400" with no explanation at all.
+  describe("every refusal answers 200 with the reason in errors", () => {
     it.each<[string, CalendarPushOutcome, string]>([
       ["not-linked", { kind: "not-linked" }, PUSH_NOT_LINKED_ERROR],
+      // Existence is gated above; "exists but declares no calendar" reaches the engine and
+      // comes back here. MulmoClaude 400s this one — see the route for why we do not.
+      ["not-a-calendar", { kind: "not-a-calendar" }, PUSH_NOT_DECLARED_ERROR],
       ["read-only", { kind: "read-only", accessRole: "reader" }, "reader"],
       ["failed", { kind: "failed", message: "calendar API unreachable" }, "calendar API unreachable"],
     ])("%s", async (_label, outcome, expected) => {
