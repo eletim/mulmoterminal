@@ -28,7 +28,7 @@ export async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit)
  *  body, or a test stub with no `json` at all. Its OWN try/catch, deliberately not the one
  *  above: that one answers `status: 0`, which means "the request never reached a server", and
  *  the collection UI branches on that to tell offline apart from missing. */
-async function readErrorBody(res: Response): Promise<unknown> {
+export async function readErrorBody(res: Response): Promise<unknown> {
   try {
     return await res.json();
   } catch {
