@@ -93,6 +93,13 @@ than as bytes (files within the session's working directory only):
 | source, config, logs, and `.txt` — 46 extensions | the app's own **Files** view (`/files?path=`), where CodeMirror highlights it, the tree is right there, and it can be edited |
 | everything else — images, PDF, SVG, HTML, video | raw bytes in a new tab, which the browser renders better than an editor would |
 
+**While a grid cell is enlarged, the [Files pane](#files-view-browse--edit) takes the click first** — every
+row above except the last one, since the pane is the same editor plus a Markdown preview. The
+file opens *beside* the terminal that printed it, and the pane opens itself if it was closed.
+It declines, leaving the routing above untouched, when nothing is enlarged, when the path is
+not under that cell's own directory (the pane cannot walk above its root), or for the raw-bytes
+row, where it would only show an empty editor.
+
 Highlighting in the Files view covers the JS/TS family, JSON and Markdown (the modes
 `cmEditor.ts` bundles); other languages open as plain text.
 
@@ -776,6 +783,10 @@ the same explorer + editor on the right, rooted at that cell's directory. Drag t
 shrinks the pane rather than reflowing xterm into garbage. It works in both zoomed layouts
 (cockpit roster and thumbnail filmstrip), the pane re-roots as you walk the zoom between
 terminals, and whether it's open plus how wide it is are remembered per browser.
+
+The toggle is not the only way in: while a cell is enlarged, **clicking a file path the agent
+printed** opens it here too, rather than in a new tab or full-screen — see
+[Clicking a file path](#clicking-a-file-path).
 
 All reads and writes go through `GET/PUT /api/files/browse/*?cwd=&path=`, and every
 `path` is **contained within the project root** (server-side) — `..`/absolute escapes
