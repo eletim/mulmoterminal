@@ -6,7 +6,7 @@
 // deliberately NOT cached as a failure: the caller falls back to the built-in chime and the
 // next play tries again, because "offline once" must not mean "silent forever".
 
-import { existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -84,12 +84,13 @@ export async function readSoundPreset(id: string, deps: PresetDeps = {}): Promis
   const preset = soundPresetById(id);
   if (!preset) return null;
   const cachePath = path.join(deps.cacheDir ?? SOUNDS_DIR, preset.file);
-  if (existsSync(cachePath) && statSync(cachePath).isFile()) {
-    try {
-      return await readFile(cachePath);
-    } catch {
-      // Unreadable (mid-write, permissions) — fall through and fetch it again.
-    }
+  try {
+    if (statSync(cachePath).isFile()) return await readFile(cachePath);
+  } catch {
+    // Absent, or gone between the stat and the read (a manual clear, a concurrent write) —
+    // fall through and fetch it again. The check and the read are inside ONE try on purpose:
+    // splitting them lets a file that vanishes in between throw out of here, and the caller
+    // would answer 500 rather than quietly re-downloading.
   }
   return fetchOnce(cachePath, preset.file, deps.fetchImpl ?? fetch);
 }

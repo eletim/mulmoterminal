@@ -241,28 +241,39 @@ function toggleSoundKind(kind: NotifyKind) {
   emit("update-sound-kinds", soundKindList.value);
 }
 
+// Editable mirror of the saved map, like the lists above. It has to be a LOCAL ref and not
+// `props.sounds`: the whole map is persisted on every change, so two picks made before the
+// first POST answers would both compute from the same pre-save snapshot and the second would
+// drop the first. This is the hazard createPresetMutations serializes writes for.
+const soundMap = ref<Partial<Record<NotifyKind, string>>>({ ...(props.sounds ?? {}) });
+watch(
+  () => props.sounds,
+  (m) => (soundMap.value = { ...(m ?? {}) }),
+);
+
 // "" is the fallback (the file below, else the chime). A kind whose saved value is a PATH —
 // only settable by hand in config.json — gets an extra option so picking a preset for another
 // kind can't silently drop it.
-const soundValue = (kind: NotifyKind): string => props.sounds?.[kind] ?? "";
+const soundValue = (kind: NotifyKind): string => soundMap.value[kind] ?? "";
 const customSoundLabel = (value: string): string => `Your file — ${value.split(/[\\/]/).pop() || value}`;
 const isCustomSound = (value: string): boolean => Boolean(value) && !parsePresetRef(value);
 function setKindSound(kind: NotifyKind, value: string) {
-  const current = props.sounds ?? {};
   // Rebuilt rather than edited in place: "" means this kind goes back to the fallback, which
   // is the ABSENCE of an entry, and the whole map is what gets persisted.
   const next: Partial<Record<NotifyKind, string>> = {};
   NOTIFY_KINDS.forEach((k) => {
-    const chosen = k === kind ? value : (current[k] ?? "");
+    const chosen = k === kind ? value : (soundMap.value[k] ?? "");
     if (chosen) next[k] = chosen;
   });
+  soundMap.value = next;
   emit("update-sounds", next);
 }
 function onKindSoundChange(kind: NotifyKind, e: Event) {
   if (e.target instanceof HTMLSelectElement) setKindSound(kind, e.target.value);
 }
 // Preview what this kind would actually play, resolved the same way a real beep resolves it
-// (the kind's own sound, else the fallback file, else the chime).
+// (the kind's own sound, else the fallback file, else the chime). The SAVED value is what the
+// server streams, so a pick still in flight previews as its previous sound.
 function testKindSound(kind: NotifyKind) {
   void previewNotify(kind, { kinds: soundKindList.value, sounds: props.sounds ?? {}, soundFile: props.soundFile ?? null });
 }

@@ -250,3 +250,42 @@ describe("SettingsModal", () => {
     });
   });
 });
+
+describe("SettingsModal per-kind sounds (#873)", () => {
+  const selectFor = (w: ReturnType<typeof mount>, label: string) => w.find(`select[aria-label="Sound for ${label}"]`);
+
+  it("offers a row per notification kind, with the new kinds unticked by default", () => {
+    const w = mountModal({ soundKinds: ["finished", "waiting"] });
+    expect(w.text()).toContain("Turn finished");
+    expect(w.text()).toContain("Command failed");
+    expect(w.text()).toContain("PR CI failed");
+    const box = (kind: string) => w.find(`input[aria-label="Beep when a session is ${kind}"]`).element as HTMLInputElement;
+    expect(box("finished").checked).toBe(true);
+    expect(box("command-failed").checked).toBe(false);
+  });
+
+  it("emits the whole map, dropping the entry when a kind goes back to the fallback", async () => {
+    const w = mountModal({ soundKinds: ["finished", "waiting"], sounds: { finished: "preset:coin", waiting: "preset:gong" } });
+    await selectFor(w, "Turn finished").setValue("");
+    const emitted = w.emitted("update-sounds");
+    expect(emitted?.at(-1)?.[0]).toEqual({ waiting: "preset:gong" });
+  });
+
+  // The whole map is persisted on every change, so a second pick made BEFORE the first save
+  // answers must build on the first — otherwise it silently reverts it. Props deliberately
+  // stay put here: that is what an in-flight POST looks like from the component's side.
+  it("keeps an earlier pick when a second is made before the save lands", async () => {
+    const w = mountModal({ soundKinds: ["finished", "waiting"], sounds: {} });
+    await selectFor(w, "Turn finished").setValue("preset:coin");
+    await selectFor(w, "Waiting for you").setValue("preset:meow");
+    const emitted = w.emitted("update-sounds");
+    expect(emitted?.at(-1)?.[0]).toEqual({ finished: "preset:coin", waiting: "preset:meow" });
+  });
+
+  it("emits the kind list in NOTIFY_KINDS order however it was clicked", async () => {
+    const w = mountModal({ soundKinds: [] });
+    await w.find('input[aria-label="Beep when a session is pr-ci-failed"]').setValue(true);
+    await w.find('input[aria-label="Beep when a session is finished"]').setValue(true);
+    expect(w.emitted("update-sound-kinds")?.at(-1)?.[0]).toEqual(["finished", "pr-ci-failed"]);
+  });
+});

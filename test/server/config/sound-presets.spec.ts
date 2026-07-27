@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readSoundPreset } from "../../../server/config/sound-presets";
@@ -65,6 +65,28 @@ describe("readSoundPreset", () => {
     const huge = vi.fn().mockResolvedValue(new Response(new Uint8Array(3 * 1024 * 1024), { status: 200 }));
     expect(await readSoundPreset("door", { cacheDir: dir, fetchImpl: huge })).toBeNull();
     expect(existsSync(path.join(dir, "sound_door_chime.mp3"))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The stat and the read live inside ONE try. Splitting them (an existsSync guard, then a
+  // stat outside the try) lets a cache entry that is not a regular file — or that vanishes
+  // between the two calls — throw out of here, and the route answers 500 instead of quietly
+  // re-downloading. A directory at the cache path is the reachable half of that.
+  it("re-downloads when the cache path is not a regular file", async () => {
+    const dir = cacheDir();
+    mkdirSync(path.join(dir, "sound_coin.mp3"));
+    const fetchImpl = vi.fn().mockResolvedValue(audio("fresh"));
+    expect((await readSoundPreset("coin", { cacheDir: dir, fetchImpl }))?.toString()).toBe("fresh");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("survives an unstattable cache path rather than throwing", async () => {
+    // cacheDir under a FILE: every stat below it fails with ENOTDIR.
+    const dir = cacheDir();
+    const blocker = path.join(dir, "blocker");
+    writeFileSync(blocker, "not a directory");
+    const fetchImpl = vi.fn().mockResolvedValue(audio("fresh"));
+    await expect(readSoundPreset("coin", { cacheDir: path.join(blocker, "sounds"), fetchImpl })).resolves.not.toThrow();
     rmSync(dir, { recursive: true, force: true });
   });
 
