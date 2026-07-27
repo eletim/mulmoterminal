@@ -10,12 +10,33 @@
 //   "keymap": { "zoom-next": "PageDown", "zoom-prev": "Shift+PageUp" }
 
 // Actions a key can be bound to. Adding one here is all it takes for the config to accept it.
-export const KEYMAP_ACTIONS = ["zoom-toggle", "zoom-next", "zoom-prev", "next-attention", "terminal-new", "terminal-new-adjacent", "terminal-close"] as const;
+export const KEYMAP_ACTIONS = [
+  "zoom-toggle",
+  "zoom-next",
+  "zoom-prev",
+  "next-attention",
+  "terminal-new",
+  "terminal-new-adjacent",
+  "terminal-close",
+  "copy",
+  "paste",
+] as const;
 export type KeymapAction = (typeof KEYMAP_ACTIONS)[number];
 
 export const isKeymapAction = (value: unknown): value is KeymapAction => typeof value === "string" && (KEYMAP_ACTIONS as readonly string[]).includes(value);
 
 // action -> binding string. Absent action = unbound = that shortcut does nothing.
+// Actions the GRID's key handler must never claim, because they are decided inside the terminal
+// instead (see terminalClipboard.ts). One `keymap` block stays the user's single place to bind a
+// key; only the dispatch differs, and it has to:
+//
+//   - The grid handler ends every match with preventDefault(). For `paste` that is fatal — the
+//     browser's own paste is what actually inserts the text, and cancelling the keydown cancels
+//     it. xterm implements paste as a `paste` DOM listener, not a key binding.
+//   - `copy` must fall through to the terminal when there is NO selection, so Ctrl+C still sends
+//     ^C. A handler that has already swallowed the key cannot change its mind.
+export const TERMINAL_SCOPED_ACTIONS: readonly KeymapAction[] = ["copy", "paste"];
+
 export type Keymap = Partial<Record<KeymapAction, string>>;
 
 // A parsed binding. `key` is matched against `KeyboardEvent.key` exactly as the browser

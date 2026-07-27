@@ -13,7 +13,8 @@ const mockTermState: {
   wheelHandler: (ev: FakeWheelEvent) => boolean;
   input: string[];
   bufferType: "normal" | "alternate";
-} = vi.hoisted(() => ({ options: {}, csiHandlers: [], wheelHandler: () => true, input: [], bufferType: "normal" }));
+  hasSelection: boolean;
+} = vi.hoisted(() => ({ options: {}, csiHandlers: [], wheelHandler: () => true, input: [], bufferType: "normal", hasSelection: false }));
 
 // Mock xterm + addons so the manager runs headless (no real DOM terminal / canvas).
 // Factories are hoisted above imports, so the fakes are declared INSIDE them.
@@ -44,6 +45,11 @@ vi.mock("@xterm/xterm", () => ({
     }
     get buffer() {
       return { active: { type: mockTermState.bufferType } };
+    }
+    // The clipboard decision asks the terminal whether anything is selected (#900), so the
+    // double has to answer. Selection-specific behaviour is covered in terminalClipboard.spec.
+    hasSelection() {
+      return mockTermState.hasSelection;
     }
     input(data: string) {
       mockTermState.input.push(data);

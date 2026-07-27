@@ -6,6 +6,18 @@ import FilesPane from "../../../src/components/FilesPane.vue";
 // user edit can be simulated.
 let onChange: () => void = () => {};
 const fakeEditor = { setDoc: vi.fn(), getDoc: vi.fn(() => "edited text"), destroy: vi.fn() };
+// Capture the pubsub handler so the IMMEDIATE path (Claude's write hook) can be driven — the
+// timer path alone leaves it untested, which is where a real defect would hide.
+const pubsub = vi.hoisted(() => ({ handlers: new Map<string, (data: unknown) => void>() }));
+vi.mock("../../../src/composables/usePubSub", () => ({
+  usePubSub: () => ({
+    subscribe: (channel: string, cb: (data: unknown) => void) => {
+      pubsub.handlers.set(channel, cb);
+      return () => pubsub.handlers.delete(channel);
+    },
+    onReconnect: () => () => {},
+  }),
+}));
 vi.mock("../../../src/components/cmEditor", async (orig) => {
   const actual = await orig<typeof import("../../../src/components/cmEditor")>();
   return { ...actual, createEditor: (_host: HTMLElement, cb: () => void) => ((onChange = cb), fakeEditor) };
@@ -411,5 +423,62 @@ describe("FilesPane noticing an external change", () => {
     serveVersion("v1"); // the version it was loaded at
     await check(w);
     expect(fakeEditor.setDoc).not.toHaveBeenCalled();
+  });
+});
+
+// The hook path is the one that makes this feel immediate; the 30s timer is only the backstop.
+describe("FilesPane reacting to the write hook", () => {
+  const fire = (file: string) => pubsub.handlers.get("file-write")?.({ file });
+
+  // The file is opened at v1, and only THEN does the agent rewrite it — anything else would be
+  // "no change" and prove nothing.
+  const server = { version: "v1", text: "# hello" };
+
+  beforeEach(() => {
+    fakeEditor.setDoc.mockClear();
+    pubsub.handlers.clear();
+    server.version = "v1";
+    server.text = "# hello";
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/version")) return { ok: true, json: async () => ({ version: server.version }) };
+      if (url.includes("/list")) return { ok: true, json: async () => ({ entries: [{ name: "README.md", dir: false, size: 10 }] }) };
+      if (url.includes("/text")) return { ok: true, json: async () => ({ text: server.text, version: server.version }) };
+      return { ok: true, json: async () => ({ ok: true, version: "v2" }) };
+    }) as unknown as typeof fetch;
+  });
+
+  const openReadme = async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
+    await flushPromises();
+    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
+    await flushPromises();
+    fakeEditor.setDoc.mockClear();
+    // The agent rewrites it while it sits open.
+    server.version = "v9";
+    server.text = "# from the agent";
+    return w;
+  };
+
+  it("takes the new content as soon as the agent's write is announced", async () => {
+    const w = await openReadme();
+    fire("/proj/README.md");
+    await flushPromises();
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# from the agent", "README.md");
+    w.unmount();
+  });
+
+  it("ignores a write to some other file", async () => {
+    const w = await openReadme();
+    fire("/proj/somewhere/else.ts");
+    await flushPromises();
+    expect(fakeEditor.setDoc).not.toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("stops listening once the pane is gone", async () => {
+    const w = await openReadme();
+    w.unmount();
+    expect(pubsub.handlers.has("file-write")).toBe(false);
   });
 });

@@ -46,6 +46,8 @@ import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type En
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
+import { clipboardActionFor } from "../../common/terminalClipboard";
+import { getActiveKeymap } from "./activeKeymap";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
 import { filesGotoFile } from "./useFilesView";
 
@@ -244,7 +246,11 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
     if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
   };
   term.onData(send);
-  term.attachCustomKeyEventHandler(makeEnterHandler(() => effectiveSubmitMode(c), send));
+  const onEnter = makeEnterHandler(() => effectiveSubmitMode(c), send);
+  // Clipboard first: it answers for at most two bindings and, when it answers, the key must
+  // NOT be turned into bytes. Returning false here (without preventDefault) is what lets the
+  // browser run the copy/paste xterm already listens for — see common/terminalClipboard.ts.
+  term.attachCustomKeyEventHandler((e) => (clipboardActionFor(getActiveKeymap(), e, term.hasSelection()) ? false : onEnter(e)));
 }
 
 // Linkify file paths in the output, scoped to the session's live cwd (read lazily, since
