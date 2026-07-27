@@ -9,14 +9,14 @@ import { setCockpitLines } from "../../../src/composables/cockpitLines";
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
 // The host drives the pane through reload()/confirmDiscard(); spies here are what let the
 // contract be asserted rather than the prop that merely claims it.
-const paneStub = vi.hoisted(() => ({ reload: vi.fn(), confirmDiscard: vi.fn(() => true) }));
+const paneStub = vi.hoisted(() => ({ reload: vi.fn(), flush: vi.fn(async () => undefined) }));
 vi.mock("../../../src/components/FilesPane.vue", () => ({
   default: {
     name: "FilesPane",
     props: ["cwd", "requestedPath"],
     emits: ["close", "dirty"],
     setup: (_p: unknown, { expose, slots }: { expose: (e: Record<string, unknown>) => void; slots: { title?: () => VNode[] } }) => {
-      expose({ reload: paneStub.reload, confirmDiscard: paneStub.confirmDiscard });
+      expose({ reload: paneStub.reload, flush: paneStub.flush });
       return () => h("div", { class: "stub-files-pane" }, slots.title?.());
     },
   },
@@ -382,7 +382,7 @@ describe("file pane beside the enlarged cell", () => {
   beforeEach(() => {
     localStorage.clear();
     paneStub.reload.mockClear();
-    paneStub.confirmDiscard.mockReturnValue(true);
+    paneStub.flush.mockClear();
     if (!window.matchMedia) {
       window.matchMedia = ((query: string) => ({
         matches: false,
@@ -446,49 +446,53 @@ describe("file pane beside the enlarged cell", () => {
     expect(paneStub.reload).toHaveBeenCalledTimes(1);
   });
 
-  // Declining the prompt has to leave the pane WHOLE — same root, same buffer. Handing it the
-  // new cwd while keeping the old tree would resolve the next file open against the wrong dir.
-  it("keeps the old root, prop and all, when the re-root is refused over unsaved edits", async () => {
-    paneStub.confirmDiscard.mockReturnValueOnce(false);
+  // The zoom moves from keys and filmstrip clicks; a dialog on each would interrupt the very
+  // flow the pane sits beside. The buffer is saved on the way out instead — before the re-read,
+  // or the save would race the tree it is being replaced by.
+  it("saves the buffer before re-rooting, without asking", async () => {
     const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
     await openPane(w);
+    const confirmSpy = vi.spyOn(window, "confirm");
 
     await w.setProps({ expandedUid: 2 });
     await flushPromises();
-    expect(paneStub.reload).not.toHaveBeenCalled();
-    expect(paneOf(w).props("cwd")).toBe("/one");
-    // The header names the root it stayed on — label AND tooltip, or the tooltip would quietly
-    // claim the directory the pane refused to move to.
+    expect(paneStub.flush).toHaveBeenCalledTimes(1);
+    expect(paneStub.flush.mock.invocationCallOrder[0]).toBeLessThan(paneStub.reload.mock.invocationCallOrder[0]);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  // The header names the root the pane is on — label AND tooltip from the same value, or one
+  // of them would quietly claim a different directory.
+  it("names the root the pane is actually on", async () => {
+    const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
+    await openPane(w);
     const label = w.find(".stub-files-pane span");
     expect(label.text()).toContain("one");
     expect(label.attributes("title")).toBe("/one");
   });
 
-  // Closing unmounts the pane, buffer and all — so the toggle asks. The pane's own close button
-  // has already asked by the time it emits, and must not be asked again on the way out.
-  it("asks before the header toggle closes a pane with unsaved edits", async () => {
+  // Closing unmounts the pane, buffer and all — so the toggle saves on the way out.
+  it("saves before the header toggle closes the pane", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await openPane(w);
 
-    paneStub.confirmDiscard.mockReturnValueOnce(false);
     await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-    await nextTick();
-    expect(paneOf(w).exists()).toBe(true); // refused — the pane and its buffer stay
-
-    paneStub.confirmDiscard.mockReturnValueOnce(true);
-    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
-    await nextTick();
+    await flushPromises();
+    expect(paneStub.flush).toHaveBeenCalledTimes(1);
     expect(paneOf(w).exists()).toBe(false);
   });
 
-  it("does not re-ask when the pane itself reports it is closing", async () => {
+  // The pane's own close button has already flushed by the time it emits; flushing again here
+  // would write the same buffer twice and rotate a backup generation for nothing.
+  it("does not flush again when the pane itself reports it is closing", async () => {
     const w = mountCockpit([cell(1, "s1", "/proj"), cell(2)], 1, []);
     await openPane(w);
-    paneStub.confirmDiscard.mockClear();
+    paneStub.flush.mockClear();
 
     await paneOf(w).vm.$emit("close");
-    await nextTick();
-    expect(paneStub.confirmDiscard).not.toHaveBeenCalled();
+    await flushPromises();
+    expect(paneStub.flush).not.toHaveBeenCalled();
     expect(paneOf(w).exists()).toBe(false);
   });
 

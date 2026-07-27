@@ -80,17 +80,67 @@ describe("FilesPane", () => {
     expect(writeCalls()).toHaveLength(1);
   });
 
-  it("asks before closing on top of unsaved edits, and stays put when refused", async () => {
+  // Saving on the way out rather than asking: the editor sits beside a terminal being worked
+  // in, and the server keeps three generations of whatever a save replaces.
+  it("saves the buffer when closing, without asking", async () => {
     const w = await openFileAndEdit();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    await w.find('[aria-label="Close files"]').trigger("click");
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(w.emitted("close")).toBeUndefined();
+    const confirmSpy = vi.spyOn(window, "confirm");
 
-    confirmSpy.mockReturnValue(true);
     await w.find('[aria-label="Close files"]').trigger("click");
+    await flushPromises();
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
     expect(w.emitted("close")).toHaveLength(1);
     confirmSpy.mockRestore();
+  });
+
+  it("saves the open file before opening another one", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/list")) {
+        return {
+          ok: true,
+          json: async () => ({
+            entries: [
+              { name: "README.md", dir: false, size: 10 },
+              { name: "other.md", dir: false, size: 10 },
+            ],
+          }),
+        };
+      }
+      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
+      return { ok: true, json: async () => ({ ok: true, version: "v2" }), _init: init };
+    }) as unknown as typeof fetch;
+
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
+    await flushPromises();
+    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
+    await flushPromises();
+    onChange();
+    await flushPromises();
+
+    await w.findAll('[data-testid="files-row"]')[1].trigger("click");
+    await flushPromises();
+    expect(writeCalls()).toHaveLength(1);
+    expect(fakeEditor.setDoc).toHaveBeenLastCalledWith("# hello", "other.md");
+  });
+
+  // A save can lose the version race on the way out, and there is nowhere to put a banner by
+  // then — so the buffer goes to the backup store and the other writer's file is left alone.
+  it("banks the buffer instead of a banner when the parting save hits a conflict", async () => {
+    const w = await openFileAndEdit();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/backup")) return { ok: true, json: async () => ({ stored: true }) };
+      if (url.includes("/write")) return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: "v9" }) };
+      return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
+    }) as unknown as typeof fetch;
+
+    await (w.vm as unknown as { flush: () => Promise<void> }).flush();
+    await flushPromises();
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(calls.some((u) => u.includes("/backup"))).toBe(true);
+    expect(w.find('[data-testid="files-conflict"]').exists()).toBe(false);
   });
 
   // reload() is how the host says "the root changed and I already cleared it with the user" —

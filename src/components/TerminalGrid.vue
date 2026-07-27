@@ -154,11 +154,11 @@ function setFilesOpen(open: boolean): void {
   remember(PANE_OPEN_KEY, open ? "1" : "0");
 }
 
-// The header toggle. Closing unmounts the pane, buffer and all, so it asks first — the pane's
-// OWN close button has already asked by the time it emits, which is why that path is separate
-// rather than routed through here (it would prompt twice).
-function toggleFiles(): void {
-  if (filesOpen.value && !filesPane.value?.confirmDiscard()) return;
+// The header toggle. Closing unmounts the pane, buffer and all, so the buffer is saved on the
+// way out — the pane's OWN close button has already flushed by the time it emits, which is why
+// that path stays separate rather than routing through here.
+async function toggleFiles(): Promise<void> {
+  if (filesOpen.value) await filesPane.value?.flush();
   setFilesOpen(!filesOpen.value);
 }
 
@@ -172,8 +172,9 @@ const filesPane = ref<InstanceType<typeof FilesPane> | null>(null);
 const paneCwd = ref<string | null>(null);
 
 // Walking the zoom to another terminal has to re-root the pane: the pane deliberately ignores
-// its `cwd` prop (see its defineExpose contract), so nothing else would move it. Asking first
-// is what keeps an unsaved buffer from vanishing with the enlargement.
+// its `cwd` prop (see its defineExpose contract), so nothing else would move it. The buffer is
+// saved first rather than asked about — the zoom moves from keys and filmstrip clicks, and a
+// dialog on each of those would interrupt the very flow the pane is meant to sit beside.
 watch(
   [filesOpen, zoomed, expandedCwd],
   async ([open, isZoomed]) => {
@@ -183,7 +184,7 @@ watch(
       paneCwd.value = expandedCwd.value;
       return;
     }
-    if (!filesPane.value?.confirmDiscard()) return; // declined — stay on the old root
+    await filesPane.value?.flush();
     paneCwd.value = expandedCwd.value;
     await nextTick(); // the pane reads its `cwd` prop when reloading, so let the new one land
     filesPane.value?.reload();

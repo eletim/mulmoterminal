@@ -135,74 +135,66 @@ describe("FilesOverlay", () => {
     expect(JSON.parse(putCall[1].body)).toEqual({ text: "edited text", baseVersion: "v1" });
   });
 
-  it("guards against discarding unsaved edits when switching files", async () => {
+  // The confirm dialogs are gone: leaving an open file SAVES it, wherever the leaving comes
+  // from. The server keeps three generations of whatever a save replaces, so nothing that was
+  // typed is lost either way — and the reader never gets a modal between them and a terminal.
+  const openAndDirty = async (w: ReturnType<typeof mount>, name = "README.md") => {
+    await must(
+      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes(name)),
+      name,
+    ).trigger("click");
+    await flushPromises();
+    onChange();
+    await flushPromises();
+  };
+  const writeCalls = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/write"));
+
+  it("saves the open file before switching to another, without asking", async () => {
     const w = mountOverlay();
     await flushPromises();
-    const open = (name: string) =>
-      must(
-        w.findAll('[data-testid="files-row"]').find((b) => b.text().includes(name)),
-        name,
-      ).trigger("click");
-    await open("README.md");
-    await flushPromises();
-    onChange(); // mark dirty
+    await openAndDirty(w);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    await must(
+      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("notes.txt")),
+      "notes.txt",
+    ).trigger("click");
     await flushPromises();
 
-    // Declining the confirm aborts the switch — the new file is not loaded.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fakeEditor.setDoc.mockClear();
-    await open("notes.txt");
-    await flushPromises();
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // buffer kept
-
-    // Accepting the confirm proceeds with the switch.
-    confirmSpy.mockReturnValue(true);
-    await open("notes.txt");
-    await flushPromises();
-    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "notes.txt");
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "notes.txt"); // the switch happened
     confirmSpy.mockRestore();
   });
 
-  it("guards a route root (cwd) change with a dirty buffer", async () => {
+  it("saves before the route changes root, then re-reads at the new one", async () => {
     const w = mountOverlay();
     await flushPromises();
-    await must(
-      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
-      "readme",
-    ).trigger("click");
-    await flushPromises();
-    onChange(); // mark dirty
+    await openAndDirty(w);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    hoisted.setCwd("/other-project");
     await flushPromises();
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fakeEditor.destroy.mockClear();
-    hoisted.setCwd("/other-project"); // simulate the Files route changing roots
-    await flushPromises();
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(fakeEditor.destroy).not.toHaveBeenCalled(); // declined → no teardown, buffer kept
-    expect(w.text()).toContain("README.md"); // still showing the old root's tree
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    // The save must be built from the OLD root, or it would write to a file of the same
+    // relative path in the project the user just moved to.
+    expect(String(writeCalls()[0][0])).toContain(encodeURIComponent("/proj"));
     confirmSpy.mockRestore();
   });
 
-  it("guards an external close (isOpen=false) with a dirty buffer", async () => {
+  it("saves when an external navigation closes the view", async () => {
     const w = mountOverlay();
     await flushPromises();
-    await must(
-      w.findAll('[data-testid="files-row"]').find((b) => b.text().includes("README.md")),
-      "readme",
-    ).trigger("click");
-    await flushPromises();
-    onChange(); // mark dirty
+    await openAndDirty(w);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    hoisted.setOpen(false); // Back / another view
     await flushPromises();
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fakeEditor.destroy.mockClear();
-    hoisted.setOpen(false); // external navigation (Back / another view) closes the overlay
-    await flushPromises();
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(fakeEditor.destroy).not.toHaveBeenCalled(); // declined → reverted, buffer kept
-    expect(w.text()).toContain("README.md"); // overlay still open
+    expect(writeCalls()).toHaveLength(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
 
