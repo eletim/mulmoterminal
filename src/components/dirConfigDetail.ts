@@ -1,5 +1,6 @@
 import { isRecord } from "../../common/isRecord";
 import { EMPTY_DIR_CONFIG_SOURCE, type DirConfigSource } from "../../common/dirConfigSource";
+import { presetLabel } from "./presets";
 
 // The settings modal's read-only view of one directory's `.mulmoterminal.json`, built off
 // /api/dir-config-detail. Kept out of the component so the wire parsing and the wording of
@@ -19,6 +20,16 @@ export interface DirConfigDetailView {
   file: string | null;
   rows: DirConfigRow[];
   source: DirConfigSource;
+}
+
+// The preview lists directories BY NAME, not in the recent-first order the launch chips use.
+// Those are different jobs: the chips answer "where was I working", this one is a reference you
+// scan for a directory you already have in mind, and a list that reorders itself as you work is
+// the wrong shape for that. `numeric` keeps proj2 above proj10; the path breaks ties, since two
+// checkouts of the same repo share a basename.
+export function sortDirPathsByName(paths: readonly string[]): string[] {
+  const byName = (a: string, b: string) => presetLabel(a).localeCompare(presetLabel(b), undefined, { sensitivity: "base", numeric: true });
+  return [...paths].sort((a, b) => byName(a, b) || a.localeCompare(b));
 }
 
 // Ordered as the settings read, not as the type declares: what the directory is called, then

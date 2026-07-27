@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dirConfigRows, parseDirConfigDetail } from "../../../src/components/dirConfigDetail";
+import { dirConfigRows, parseDirConfigDetail, sortDirPathsByName } from "../../../src/components/dirConfigDetail";
 
 describe("dirConfigRows", () => {
   it("has no rows for a directory that configured nothing", () => {
@@ -94,5 +94,37 @@ describe("parseDirConfigDetail", () => {
 
   it("keeps only the string entries of a key list", () => {
     expect(parseDirConfigDetail({ source: { ignored: ["cellColor", 3, null] } }).source.ignored).toEqual(["cellColor"]);
+  });
+});
+
+// The chips list recent-first; this one is a reference you scan for a directory you already
+// have in mind, so it goes by name.
+describe("sortDirPathsByName", () => {
+  it("orders by the name shown, not by the order the directories were used", () => {
+    expect(sortDirPathsByName(["/x/zeta", "/y/alpha", "/z/mid"])).toEqual(["/y/alpha", "/z/mid", "/x/zeta"]);
+  });
+
+  it("counts numbers as numbers, so proj2 comes before proj10", () => {
+    expect(sortDirPathsByName(["/w/proj10", "/w/proj2"])).toEqual(["/w/proj2", "/w/proj10"]);
+  });
+
+  it("ignores case rather than sorting every capital ahead of every lowercase", () => {
+    expect(sortDirPathsByName(["/w/beta", "/w/Alpha"])).toEqual(["/w/Alpha", "/w/beta"]);
+  });
+
+  // Two checkouts of one repo share a basename; without the path tie-break their order would
+  // depend on the incoming order, and the list would shuffle as the recents do.
+  it("breaks a tie on the full path", () => {
+    expect(sortDirPathsByName(["/b/proj", "/a/proj"])).toEqual(["/a/proj", "/b/proj"]);
+  });
+
+  it("labels a managed worktree the way the row does", () => {
+    expect(sortDirPathsByName(["/w/zeta", "/w/worktrees/alpha-1a2b3c4d/task"])).toEqual(["/w/worktrees/alpha-1a2b3c4d/task", "/w/zeta"]);
+  });
+
+  it("leaves the caller's array untouched", () => {
+    const paths = ["/x/b", "/x/a"];
+    sortDirPathsByName(paths);
+    expect(paths).toEqual(["/x/b", "/x/a"]);
   });
 });

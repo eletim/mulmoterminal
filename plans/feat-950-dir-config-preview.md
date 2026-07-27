@@ -72,3 +72,9 @@ returns is from the file whose path is printed above them. Per-key origin would 
 meaningful if the response started carrying merged values, which it deliberately doesn't. The UI
 now says so in a line under the path, and a spec asserts a directory with no file reports nothing
 rather than the app-wide settings.
+
+**Listed by name, not recent-first.** Tried on the running app and asked for. The launch chips
+answer "where was I working" and are ordered accordingly; this list is a reference you scan for a
+directory you already have in mind, and one that reorders itself as you work is the wrong shape
+for that. Numbers sort as numbers (proj2 above proj10) and the full path breaks ties, since two
+checkouts of one repo share a basename.

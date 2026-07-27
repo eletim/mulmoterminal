@@ -5,11 +5,13 @@
 // setting that was misspelled or rejected looked exactly like a setting that was never made.
 // Each directory expands to the values the app resolved, plus the keys it dropped and the
 // keys it doesn't know — which is what tells those two cases apart.
-import { ref, watch } from "vue";
-import { parseDirConfigDetail, type DirConfigDetailView } from "./dirConfigDetail";
+import { computed, ref, watch } from "vue";
+import { parseDirConfigDetail, sortDirPathsByName, type DirConfigDetailView } from "./dirConfigDetail";
 import { presetLabel } from "./presets";
 
 const props = defineProps<{ paths: string[] }>();
+
+const listed = computed(() => sortDirPathsByName(props.paths));
 
 const details = ref<Record<string, DirConfigDetailView>>({});
 const loaded = ref<Set<string>>(new Set());
@@ -43,10 +45,10 @@ watch(
 <template>
   <p v-if="!paths.length" class="mb-3 mt-1.5 text-[12px] text-dim">No directories yet — open a terminal somewhere and it will be listed here.</p>
   <ul v-else class="m-0 list-none p-0" data-testid="dir-preview-list">
-    <li v-for="path in paths" :key="path" class="border-b border-border last:border-b-0">
+    <li v-for="path in listed" :key="path" class="border-b border-border last:border-b-0">
       <details data-testid="dir-preview-row" @toggle="load(path)">
         <summary class="flex cursor-pointer items-center gap-2 py-2 text-[13px] text-fg">
-          <span class="flex-none font-semibold">{{ presetLabel(path) }}</span>
+          <span data-testid="dir-preview-name" class="flex-none font-semibold">{{ presetLabel(path) }}</span>
           <span class="min-w-0 flex-auto truncate text-left font-mono text-[11px] text-dim [direction:rtl]" :title="path"
             ><span class="[unicode-bidi:plaintext]">{{ path }}</span></span
           >

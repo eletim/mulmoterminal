@@ -32,6 +32,12 @@ describe("DirConfigPreview", () => {
     expect(mountPreview([]).text()).toContain("No directories yet");
   });
 
+  it("lists the directories by name, not in the order they were handed over", () => {
+    const w = mountPreview(["/x/zeta", "/y/alpha", "/w/proj10", "/w/proj2"]);
+    const names = w.findAll('[data-testid="dir-preview-name"]').map((s) => s.text());
+    expect(names).toEqual(["alpha", "proj2", "proj10", "zeta"]);
+  });
+
   it("lists a row per directory without reading any of them yet", () => {
     const w = mountPreview(["/proj/a", "/proj/b"]);
     expect(w.findAll('[data-testid="dir-preview-row"]')).toHaveLength(2);
