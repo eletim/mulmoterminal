@@ -638,6 +638,23 @@ though: MulmoTerminal re-reads a `.mulmoterminal.json` when **Claude's own Write
 having written it — which is why `/mulmoterminal-config` recolours the cell as you watch. Edit the
 file **by hand, from outside**, and an already-open terminal keeps the old font until you reload the
 browser tab.
+### Where this project sits in the grid (`orderPriority`) {#order-priority}
+
+`orderPriority` gives the directory a rank in the grid's **priority** ordering — the third mode on the
+toolbar's ordering button, alongside auto (attention-first) and manual (the move buttons):
+
+```json
+{ "orderPriority": 10 }
+```
+
+- **Lowest first.** Any integer, including negative ones, so a project can sort ahead of everything at `0`.
+- **Directories that set nothing come last**, keeping their existing order — adding the key to one project
+  doesn't shuffle the rest.
+- Equal ranks keep their current order, which is also what happens when several cells share one directory
+  (the rank belongs to the *directory*, not the cell).
+
+Only the **priority** mode reads it. Leave the button on auto or manual and nothing changes, whatever
+your projects declare.
 
 ### Customizing the header (buttons / chips) {#header}
 

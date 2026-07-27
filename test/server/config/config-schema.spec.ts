@@ -7,6 +7,7 @@ import {
   dirColorsField,
   dirFontSizeField,
   dirFontFamilyField,
+  dirOrderPriorityField,
   headerButtonSchema,
   headerChipSchema,
   cwdPresetSchema,
@@ -121,6 +122,26 @@ describe("dirFontFamilyField", () => {
   });
 });
 
+describe("dirOrderPriorityField", () => {
+  // Unlike the font size this is NOT clamped: every finite integer is a usable rank, so there
+  // is no out-of-range to pull back. Negative and zero are ordinary values.
+  it("keeps any integer rank, including zero and negatives", () => {
+    expect(dirOrderPriorityField.parse(10)).toBe(10);
+    expect(dirOrderPriorityField.parse(0)).toBe(0);
+    expect(dirOrderPriorityField.parse(-5)).toBe(-5);
+    expect(dirOrderPriorityField.parse(999999)).toBe(999999);
+  });
+
+  it("nulls anything that isn't an integer, so the directory sorts last", () => {
+    expect(dirOrderPriorityField.parse(undefined)).toBeNull();
+    expect(dirOrderPriorityField.parse(null)).toBeNull();
+    expect(dirOrderPriorityField.parse(1.5)).toBeNull();
+    expect(dirOrderPriorityField.parse("3")).toBeNull();
+    expect(dirOrderPriorityField.parse(NaN)).toBeNull();
+    expect(dirOrderPriorityField.parse({})).toBeNull();
+  });
+});
+
 describe("dirConfigJsonSchema", () => {
   it("emits an object schema with every writable property", () => {
     const schema = dirConfigJsonSchema();
@@ -157,6 +178,14 @@ describe("dirConfigJsonSchema", () => {
     expect(fontFamily.maxLength).toBe(TERMINAL_FONT_FAMILY_MAX_CHARS);
     expect(new RegExp(String(fontFamily.pattern)).test("'Cica', monospace")).toBe(true);
     expect(new RegExp(String(fontFamily.pattern)).test("Cica; color: red")).toBe(false);
+  });
+
+  // Same reasoning as fontSize/provider above: the config skill writes from this schema, so a
+  // key absent here is a key it will refuse to write even though the runtime honours it.
+  it("includes orderPriority as an integer, so the config skill can write it", () => {
+    const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
+    const orderPriority = isRecord(props) && isRecord(props.orderPriority) ? props.orderPriority : {};
+    expect(orderPriority.type).toBe("integer");
   });
 
   it("caps the skills allowlist at MAX_SKILL_FILTER", () => {

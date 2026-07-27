@@ -16,6 +16,7 @@ const EMPTY = {
   buttonColor: null,
   fontSize: null,
   fontFamily: null,
+  orderPriority: null,
   theme: null,
   colors: null,
   sound: null,
@@ -119,6 +120,7 @@ describe("loadDirConfig", () => {
       buttonColor: "#C7CDF0",
       fontSize: 17,
       fontFamily: "'Cica', monospace",
+      orderPriority: 5,
       theme: "nord",
       sound: "./a.mp3",
       skills: ["  review  ", "commit", "review", ""],
@@ -135,6 +137,7 @@ describe("loadDirConfig", () => {
       buttonColor: "#c7cdf0",
       fontSize: 17,
       fontFamily: "'Cica', monospace",
+      orderPriority: 5,
       theme: "nord",
       colors: null,
       sound: path.join(dir, "a.mp3"),
@@ -259,7 +262,7 @@ describe("dirConfigWriteTarget", () => {
 
 describe("publicDirConfig / dirSoundFor", () => {
   it("exposes hasSound but not the raw path", () => {
-    const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20, fontFamily: "Cica" });
+    const { dir, cleanup } = withConfig({ name: "x", sound: "./a.mp3", fontSize: 20, fontFamily: "Cica", orderPriority: -3 });
     writeFileSync(path.join(dir, "a.mp3"), "x");
     expect(publicDirConfig(dir)).toEqual({
       name: "x",
@@ -276,6 +279,9 @@ describe("publicDirConfig / dirSoundFor", () => {
       // normalized on load: the missing generic tail is appended, so a stack whose fonts are
       // all absent still lands on a monospace face rather than the browser's proportional default.
       fontFamily: "Cica, monospace",
+      // Negative on purpose: a rank is an ordering, not a size, so "before everything at 0"
+      // has to survive the wire rather than be normalised away.
+      orderPriority: -3,
       theme: null,
       colors: null,
       hasSound: true,

@@ -7,6 +7,7 @@ import { THEME_COLOR_KEYS } from "../../common/themeColors";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
 import { normalizeFontSize } from "../../common/terminalFontSize";
 import { normalizeFontFamily } from "../../common/terminalFontFamily";
+import { normalizeOrderPriority } from "../../common/orderPriority";
 import { isRecord } from "../../common/isRecord";
 
 // The per-directory overrides a terminal adopts when its cwd holds a
@@ -69,6 +70,7 @@ function parse(c: unknown): DirConfig {
     // boundary, and an out-of-range size reaches the canvas renderer if nothing checks.
     fontSize: normalizeFontSize(c.fontSize),
     fontFamily: normalizeFontFamily(c.fontFamily),
+    orderPriority: normalizeOrderPriority(c.orderPriority),
     theme: isThemeId(c.theme) ? c.theme : null,
     colors: parseColors(c.colors),
     hasSound: c.hasSound === true,
@@ -111,6 +113,80 @@ export function invalidateDirConfig(cwd: string): void {
   });
 }
 
+// Bind one listener to a directory's config, reusing the same per-cwd fan-out the reactive
+// composable uses — so an invalidation reaches it too.
+function bindDir(cwd: string, listener: (config: DirConfig) => void): void {
+  let targets = bound.get(cwd);
+  if (!targets) {
+    targets = new Set();
+    bound.set(cwd, targets);
+  }
+  targets.add(listener);
+}
+
+function releaseDir(cwd: string, listener: (config: DirConfig) => void): void {
+  const targets = bound.get(cwd);
+  if (!targets) return;
+  targets.delete(listener);
+  if (targets.size) return;
+  // Drop the keys too, or opening many directories grows both maps forever.
+  bound.delete(cwd);
+  generation.delete(cwd);
+}
+
+// The grid's "priority" sort needs a rank for EVERY cell, including ones on pages that are
+// not mounted — and an unmounted cell runs no useDirConfig of its own. This subscribes to a
+// whole SET of directories at once and reports just their `orderPriority`, so editing any of
+// their .mulmoterminal.json re-sorts the grid live through the existing invalidation channel.
+// Directories that set nothing are absent from the map rather than present-as-null, so the
+// caller's "unset sorts last" default is a plain lookup miss.
+export function useDirPriorities(cwds: Ref<string[]>) {
+  const priorities = ref<Record<string, number>>({});
+  subscribeToDirConfigChanges();
+  const listeners = new Map<string, (config: DirConfig) => void>();
+
+  // Rewrite only on a real change: this is called on every fetch resolve and every
+  // invalidation, and a fresh object each time would re-sort the grid for nothing.
+  const record = (cwd: string, next: number | null) => {
+    const held = priorities.value[cwd];
+    if (next === null ? held === undefined : held === next) return;
+    // Rebuilt without the key rather than spread-and-delete: an unset directory must be ABSENT,
+    // since the sort reads a lookup miss as "no rank", and a present-but-undefined entry would
+    // still answer `cwd in map`.
+    const kept = Object.entries(priorities.value).filter(([key]) => key !== cwd);
+    priorities.value = Object.fromEntries(next === null ? kept : [...kept, [cwd, next]]);
+  };
+
+  const track = (cwd: string) => {
+    const listener = (config: DirConfig) => record(cwd, config.orderPriority);
+    listeners.set(cwd, listener);
+    bindDir(cwd, listener);
+    const seeded = resolvedConfig.get(cwd); // paint from cache now; the fetch below refreshes
+    if (seeded) record(cwd, seeded.orderPriority);
+    void fetchDirConfig(cwd).then((config) => listeners.get(cwd) === listener && record(cwd, config.orderPriority));
+  };
+
+  const untrack = (cwd: string) => {
+    const listener = listeners.get(cwd);
+    if (!listener) return;
+    listeners.delete(cwd);
+    releaseDir(cwd, listener);
+    record(cwd, null);
+  };
+
+  watch(
+    cwds,
+    (list) => {
+      const wanted = new Set(list.filter(Boolean));
+      [...listeners.keys()].filter((cwd) => !wanted.has(cwd)).forEach(untrack);
+      [...wanted].filter((cwd) => !listeners.has(cwd)).forEach(track);
+    },
+    { immediate: true },
+  );
+  onScopeDispose(() => [...listeners.keys()].forEach(untrack));
+  return { priorities };
+}
+
 // One process-wide subscription, established by the first cell that asks for a dir config.
 let subscribed = false;
 function subscribeToDirConfigChanges(): void {
@@ -130,15 +206,7 @@ export function useDirConfig(cwd: Ref<string | null | undefined>) {
   const apply = (next: DirConfig) => (config.value = next);
   const unbind = () => {
     if (!boundCwd) return;
-    const targets = bound.get(boundCwd);
-    if (targets) {
-      targets.delete(apply);
-      if (!targets.size) {
-        // Drop the keys too, or opening many directories grows both maps forever.
-        bound.delete(boundCwd);
-        generation.delete(boundCwd);
-      }
-    }
+    releaseDir(boundCwd, apply);
     boundCwd = null;
   };
 
@@ -150,12 +218,7 @@ export function useDirConfig(cwd: Ref<string | null | undefined>) {
         config.value = EMPTY;
         return;
       }
-      let targets = bound.get(c);
-      if (!targets) {
-        targets = new Set();
-        bound.set(c, targets);
-      }
-      targets.add(apply);
+      bindDir(c, apply);
       boundCwd = c;
       config.value = seedConfig(c); // paint the cached palette now; the fetch below refreshes it
       const seq = generationOf(c);

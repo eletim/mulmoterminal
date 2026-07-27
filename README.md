@@ -579,6 +579,7 @@ malformed file is ignored.
   "colors": { "background": "#190a23", "cursor": "#ff2e63" }, // per-key palette overrides
   "fontSize": 16,                       // terminal font size in px (8–32); overrides Settings
   "fontFamily": "'Cica', monospace",    // terminal font stack; overrides the global config
+  "orderPriority": 10,                  // rank in the grid's "priority" ordering (lowest first)
   "sound": "./.mulmoterminal/alert.mp3", // attention sound, RELATIVE to this directory
   "sounds": { "command-failed": "preset:gong" } // per-notification-kind override
 }
@@ -601,6 +602,7 @@ malformed file is ignored.
 | `theme`      | xterm palette for terminals in this directory (one of the built-in theme ids). |
 | `colors`     | Per-key xterm palette overrides applied on top of `theme` (or the app theme when `theme` is unset). Keys are xterm `ITheme` names (`background`, `foreground`, `cursor`, `selectionBackground`, the 16 ANSI colors, …); values are hex (`#rgb` / `#rrggbb` / `#rrggbbaa`). Unknown keys / bad values are dropped. |
 | `fontSize`   | Terminal font size in px for this directory (8–32), overriding the Settings value. A size outside the range is clamped; a non-number is ignored. Changing it re-fits the terminal, so the PTY learns the new width — unlike browser zoom, which leaves the two disagreeing. |
+| `orderPriority` | This directory's rank in the grid's **priority** ordering — the third mode on the toolbar's ordering button, next to auto (attention-first) and manual (the move buttons). Any integer, **lowest first**; negatives are allowed. Directories that set nothing sort last, keeping their existing order, so adding the key to one project doesn't shuffle the rest. Only the priority mode reads it. |
 | `fontFamily` | CSS font-family stack for this directory's terminals, overriding the global `fontFamily`. Use the names as your OS lists them (`"'Cica', 'MS Gothic', monospace"`). An unusable stack is ignored whole rather than half-applied; `monospace` is appended if you name no generic family. Prefer fonts whose fullwidth glyphs are exactly twice the Latin width, or box-drawing frames tear. |
 | `sound`      | Attention sound for this directory's sessions, a path **relative to the directory** (served at `GET /api/dir-sound`). The fallback for every kind. |
 | `sounds`     | Per-kind override of `sound`: `{ "command-failed": "preset:gong" }`. Each value is a `preset:<id>` or a directory-relative path, under the same confinement. |
@@ -609,7 +611,11 @@ malformed file is ignored.
 **Security.** `sound` and every `sounds` entry are directory-relative paths only — absolute
 paths and any `../` that escapes the directory are rejected, and the path is never taken from the
 HTTP request, so an opened project can't point the player at arbitrary files.
-Changes take effect when the terminal is next opened (no live file watch).
+**When changes take effect.** A write made *through Claude's tools* — which includes the
+`mulmoterminal-config` skill — applies **live**: the tool hook that reports the write doubles
+as the reload signal, so colors, palette, font size and grid order update without reopening
+anything. There is no filesystem watcher, so an edit made **outside** a session (your own
+editor) is picked up when the terminal is next opened.
 
 ---
 

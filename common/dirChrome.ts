@@ -25,6 +25,10 @@ export interface DirChrome {
   // Changes the cell metrics for the same reason `fontSize` does — a different face has a
   // different advance width — so it re-fits on the same path.
   fontFamily: string | null;
+  // Where this directory's cells sit in the grid's "priority" sort order — ascending, and
+  // null (unset) sorts last so adding it to one directory doesn't displace every other cell.
+  // Only that one sort mode reads it; "auto" and "manual" ignore it entirely.
+  orderPriority: number | null;
 }
 
 // "Nothing configured" — the base every DirConfig/PublicDirConfig empty spreads, so adding
@@ -42,4 +46,5 @@ export const EMPTY_DIR_CHROME: Readonly<DirChrome> = {
   buttonColor: null,
   fontSize: null,
   fontFamily: null,
+  orderPriority: null,
 };

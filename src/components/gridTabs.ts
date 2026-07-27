@@ -31,8 +31,9 @@ export interface Cell {
   agent?: "codex";
 }
 // How the grid orders its cells. "manual": the user's hand-arranged order (the move buttons);
-// "auto": attention-first, recomputed from each cell's live status.
-export type SortMode = "manual" | "auto";
+// "auto": attention-first, recomputed from each cell's live status; "priority": the rank each
+// directory declares as `orderPriority` in its .mulmoterminal.json (#876).
+export type SortMode = "manual" | "auto" | "priority";
 // A cell's live activity, reported up from the cell. Drives the "auto" order and the
 // cell's color/label. `blocked` (needs input/permission) and `done` (finished a turn,
 // output unreviewed) both come from the server's `waiting` flag, split by which hook
@@ -364,14 +365,28 @@ const RANK: Record<CellStatus, number> = { blocked: 0, done: 1, idle: 2, working
 const LAUNCH_RANK = 4;
 const cellRank = (c: Cell, statusByUid: Record<number, CellStatus>): number => (isLaunchCell(c) ? LAUNCH_RANK : RANK[statusByUid[c.uid] ?? "idle"]);
 
+// A directory that sets no `orderPriority` sorts after every directory that does, so adding the
+// key to ONE project doesn't displace all the others. Infinity rather than a big sentinel: no
+// integer a user could write should be able to outrank "unset".
+const UNSET_PRIORITY = Number.POSITIVE_INFINITY;
+const cellPriority = (c: Cell, priorityByCwd: Record<string, number>): number => (c.cwd ? (priorityByCwd[c.cwd] ?? UNSET_PRIORITY) : UNSET_PRIORITY);
+
 // Display order. "manual": the hand-arranged list as-is. "auto": a STABLE sort by
 // attention rank — equal-rank cells keep their manual order, so a status change
 // only floats that one cell to its bucket and doesn't reshuffle the rest.
-export function orderCells(cells: Cell[], statusByUid: Record<number, CellStatus>, mode: SortMode): Cell[] {
-  if (mode !== "auto") return cells;
+// "priority": the same stable shape, keyed on each directory's declared rank instead.
+//
+// Empty launch cells are held last by their own comparison level rather than by their key:
+// in "priority" every unset directory already keys to Infinity, so a key alone could not put
+// a launch cell after them. ("auto" reaches the same place via LAUNCH_RANK — this level is
+// what makes the two modes agree instead of coinciding.)
+export function orderCells(cells: Cell[], statusByUid: Record<number, CellStatus>, mode: SortMode, priorityByCwd: Record<string, number> = {}): Cell[] {
+  if (mode === "manual") return cells;
+  const key = mode === "priority" ? (c: Cell) => cellPriority(c, priorityByCwd) : (c: Cell) => cellRank(c, statusByUid);
+  const launchesLast = (c: Cell) => (isLaunchCell(c) ? 1 : 0);
   return cells
     .map((c, i) => ({ c, i }))
-    .sort((a, b) => cellRank(a.c, statusByUid) - cellRank(b.c, statusByUid) || a.i - b.i)
+    .sort((a, b) => launchesLast(a.c) - launchesLast(b.c) || key(a.c) - key(b.c) || a.i - b.i)
     .map((x) => x.c);
 }
 
@@ -385,8 +400,13 @@ export const visibleCells = (state: GridState): Cell[] => (zoomedUid(state) !== 
 // covers EVERY cell (incl. unmounted pages), or a status change on an off-screen page
 // would (mis)read as idle; GridView feeds it the server's full session status. While
 // zoomed the whole ordered list is shown (the filmstrip).
-export const visibleOrdered = (state: GridState, statusByUid: Record<number, CellStatus>): Cell[] => {
-  const ordered = orderCells(state.cells, statusByUid, state.sortMode);
+//
+// `priorityByCwd` is the same requirement for the "priority" mode, and it is a parameter
+// rather than an omission for a reason: defaulted to {} every directory reads as unset, so a
+// caller that forgot it would order priority mode differently from the grid — the exact drift
+// #720 exists to prevent.
+export const visibleOrdered = (state: GridState, statusByUid: Record<number, CellStatus>, priorityByCwd: Record<string, number> = {}): Cell[] => {
+  const ordered = orderCells(state.cells, statusByUid, state.sortMode, priorityByCwd);
   return zoomedUid(state) !== null ? ordered : pageSlice(ordered, state.page);
 };
 
@@ -414,7 +434,9 @@ export function switchPage(state: GridState, page: number): GridState {
 }
 
 const isUuid = (s: unknown): s is string => typeof s === "string" && UUID_RE.test(s);
-const asSortMode = (v: unknown): SortMode => (v === "auto" ? "auto" : "manual");
+// Anything unrecognised falls back to "manual" — including a mode written by a NEWER build
+// that this one doesn't know, where the hand-arranged order is the safe thing to show.
+const asSortMode = (v: unknown): SortMode => (v === "auto" || v === "priority" ? v : "manual");
 // Keep a persisted launcher only if well-formed; anything else drops to null so a
 // reloaded cell reconnects as a plain (Claude) session instead of a broken launcher.
 const asLauncher = (v: unknown): CellLauncher | null => {

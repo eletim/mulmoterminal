@@ -18,6 +18,7 @@ import { THEME_IDS } from "../../common/themeIds.js";
 import { isUsableModelId } from "../../common/modelIds.js";
 import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
 import { normalizeFontFamily, TERMINAL_FONT_FAMILY_MAX_CHARS, TERMINAL_FONT_FAMILY_SAFE_RE } from "../../common/terminalFontFamily.js";
+import { normalizeOrderPriority } from "../../common/orderPriority.js";
 import { SESSION_AGENTS } from "../../common/sessionAgent.js";
 import { NOTIFY_KINDS } from "../../common/notifyKinds.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
@@ -131,6 +132,16 @@ export const dirThemeField = themeIdSchema.nullable().catch(null);
 // usable size instead of discarding it, so `fontSize: 99` reads as "as big as allowed" rather
 // than silently falling back to the global size. writableDirConfigSchema below is the strict
 // one, so an out-of-range value is still reported where it can be fixed — at authoring time.
+// Not clamped like the font size: every integer is a usable rank, so there is nothing to pull
+// back into range. Anything else (a fraction, a string, absent) becomes null, which the grid
+// reads as "unset" and sorts last. Shares normalizeOrderPriority with the client's own parser
+// so the two boundaries can't disagree about what a rank is.
+export const dirOrderPriorityField = z
+  .unknown()
+  .transform((value) => normalizeOrderPriority(value))
+  .nullable()
+  .catch(null);
+
 export const dirFontSizeField = z
   .unknown()
   .transform((value) => normalizeFontSize(value))
@@ -321,6 +332,8 @@ const writableDirConfigSchema = z.object({
   // The pattern is the portable subset of the real rule — z.toJSONSchema drops a `.refine`, so
   // an exact check here would vanish from the shipped schema; normalizeFontFamily is the rule.
   fontFamily: z.string().min(1).max(TERMINAL_FONT_FAMILY_MAX_CHARS).regex(TERMINAL_FONT_FAMILY_SAFE_RE).optional(),
+  // Rank in the grid's "priority" sort mode, ascending. Omit to sort after everything that sets it.
+  orderPriority: z.number().int().optional(),
   sound: nonEmptyText.optional(),
   // Per-notification-kind sound, overriding `sound` for that kind. Each value is either
   // `preset:<id>` or a path relative to this directory, same as `sound`. partialRecord for

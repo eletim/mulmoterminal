@@ -56,12 +56,16 @@ describe("AppToolbar per-view buttons", () => {
   });
 
   it("offers the grid-running controls only in the grid", async () => {
+    // The ordering control's accessible name carries the CURRENT mode ("Grid cell ordering:
+    // manual (click for auto)"), because with three modes there is no binary aria-pressed to
+    // read it from — so match the stable prefix rather than a fixed string (#876).
+    const hasOrdering = (labels: string[]) => labels.some((label) => label.startsWith("Grid cell ordering:"));
     const grid = labelsOf(await mountAt("/terminals"));
     expect(grid).toContain("New terminal");
-    expect(grid).toContain("Toggle grid cell ordering");
+    expect(hasOrdering(grid)).toBe(true);
     const single = labelsOf(await mountAt("/chat"));
     expect(single).not.toContain("New terminal");
-    expect(single).not.toContain("Toggle grid cell ordering");
+    expect(hasOrdering(single)).toBe(false);
   });
 
   // The overlays render BELOW the header (`top-10`), so the header stays on screen while one

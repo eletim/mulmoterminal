@@ -56,7 +56,8 @@ import { registerNewTerminalHandler, type NewTerminalRequest } from "../composab
 import { usePendingScript } from "../composables/usePendingScript";
 import { reportActiveTerminals } from "../composables/useUnloadGuard";
 import { useAppConfig } from "../composables/useAppConfig";
-import { fetchDirConfig, invalidateDirConfig } from "../composables/useDirConfig";
+import { fetchDirConfig, invalidateDirConfig, useDirPriorities } from "../composables/useDirConfig";
+import { nextSortMode } from "./sortModeButton";
 import { usePubSub } from "../composables/usePubSub";
 import type { LaunchAgent } from "../../common/launchAgent";
 
@@ -115,9 +116,14 @@ const statusForSort = computed<Record<number, CellStatus>>(() => resolveCellStat
 // At-a-glance tally across ALL pages, for the toolbar summary.
 const statusCounts = computed(() => countByStatus(state.value.cells, statusForSort.value));
 const reorderable = computed(() => state.value.sortMode === "manual");
-// In "auto" mode the whole list is attention-sorted; "manual" keeps the hand-arranged order.
+// "priority" ranks cells by their directory's orderPriority, so like the status above it needs
+// a value for cells on pages that aren't mounted — hence the whole cwd set, not per-cell.
+const cellCwds = computed(() => [...new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => !!c))]);
+const { priorities: priorityByCwd } = useDirPriorities(cellCwds);
+// In "auto" mode the whole list is attention-sorted; "priority" orders by each directory's
+// declared rank; "manual" keeps the hand-arranged order.
 // The ONE ordering both the grid and the cockpit roster read, so the two can't drift (#720).
-const orderedCells = computed(() => orderCells(state.value.cells, statusForSort.value, state.value.sortMode));
+const orderedCells = computed(() => orderCells(state.value.cells, statusForSort.value, state.value.sortMode, priorityByCwd.value));
 // The grid: while a cell is zoomed, render EVERY cell (the filmstrip lines up all tabs' terminals,
 // live); otherwise just the active page's slice. A waiting cell from any page floats to the front.
 const displayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
@@ -354,7 +360,7 @@ const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScrip
 const onLaunch = (uid: number, pick: { index: number; label: string; cwd: string | null }) =>
   (state.value = launchInCell(state.value, uid, { index: pick.index, label: pick.label }, pick.cwd));
 const onMove = (uid: number, dir: -1 | 1) => (state.value = moveCell(state.value, uid, dir));
-const toggleSortMode = () => (state.value = setSortMode(state.value, state.value.sortMode === "auto" ? "manual" : "auto"));
+const toggleSortMode = () => (state.value = setSortMode(state.value, nextSortMode(state.value.sortMode)));
 const switchTo = (page: number) => (state.value = switchPage(state.value, page));
 
 // A script the single view's terminal-header Run menu handed off: run it in a spare
@@ -478,7 +484,7 @@ function configureAppearance() {
   <div class="flex flex-col h-screen w-screen overflow-hidden">
     <AppToolbar
       :add-terminal-active="launchOpen"
-      :auto-sort="state.sortMode === 'auto'"
+      :sort-mode="state.sortMode"
       :status-counts="statusCounts"
       :show-view-toggle="expandedUid !== null"
       :list-mode="listModeOn"
