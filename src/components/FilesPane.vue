@@ -9,6 +9,7 @@
 // calls `reload()` after a root change it has already cleared with the user.
 import { onBeforeUnmount, onMounted, ref, computed, nextTick, watch } from "vue";
 import { createEditor, langKindForFilename, type CmEditor } from "./cmEditor";
+import { expandedPaths, restoreOrder } from "./filesTreeState";
 
 interface Node {
   name: string;
@@ -25,7 +26,13 @@ interface Entry {
   size: number;
 }
 
-const props = defineProps<{ cwd: string | null; requestedPath?: string | null }>();
+/** What a host hands back so a revisited directory looks the way it was left. */
+export interface FilesPaneState {
+  openPath: string | null;
+  expanded: string[];
+}
+
+const props = defineProps<{ cwd: string | null; requestedPath?: string | null; initialState?: FilesPaneState | null }>();
 const emit = defineEmits<{ close: []; dirty: [boolean] }>();
 
 const roots = ref<Node[]>([]);
@@ -274,8 +281,31 @@ function teardown(): void {
 async function start(): Promise<void> {
   await nextTick();
   if (editorHost.value) editor = createEditor(editorHost.value, () => (dirty.value = true));
-  loadRoot();
+  await loadRoot();
+  await restore(props.initialState ?? null);
+  // An explicitly requested path wins over whatever was remembered — it is the more recent
+  // intent (a clicked path in terminal output).
   if (props.requestedPath) loadFile(props.requestedPath);
+}
+
+/** Put a remembered tree back: open its directories parents-first (each fetches its children),
+ *  then the file that was open. Anything since deleted simply isn't found and is skipped. */
+async function restore(state: FilesPaneState | null): Promise<void> {
+  if (!state) return;
+  for (const dirPath of restoreOrder(state.expanded)) {
+    const node = findNode(roots.value, dirPath);
+    if (node?.dir && !node.expanded) await toggleDir(node);
+  }
+  if (state.openPath) await loadFile(state.openPath);
+}
+
+function findNode(nodes: Node[], target: string): Node | null {
+  for (const node of nodes) {
+    if (node.path === target) return node;
+    const hit = findNode(node.children, target);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 // A second clicked path while the pane is already showing: nothing else changes, so
@@ -314,6 +344,8 @@ onBeforeUnmount(() => {
 // user" — the pane never watches `cwd` itself, because reacting to it would discard a buffer
 // the host may still be asking about.
 defineExpose({
+  /** What this pane looks like right now, for a host that will bring the user back here. */
+  snapshot: (): FilesPaneState => ({ openPath: openPath.value, expanded: expandedPaths(roots.value) }),
   reload: async () => {
     teardown();
     await start();

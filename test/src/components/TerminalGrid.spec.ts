@@ -9,14 +9,18 @@ import { setCockpitLines } from "../../../src/composables/cockpitLines";
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
 // The host drives the pane through reload()/confirmDiscard(); spies here are what let the
 // contract be asserted rather than the prop that merely claims it.
-const paneStub = vi.hoisted(() => ({ reload: vi.fn(), flush: vi.fn(async () => undefined) }));
+const paneStub = vi.hoisted(() => ({
+  reload: vi.fn(),
+  flush: vi.fn(async () => undefined),
+  snapshot: vi.fn(() => ({ openPath: "README.md", expanded: ["src"] })),
+}));
 vi.mock("../../../src/components/FilesPane.vue", () => ({
   default: {
     name: "FilesPane",
-    props: ["cwd", "requestedPath"],
+    props: ["cwd", "requestedPath", "initialState"],
     emits: ["close", "dirty"],
     setup: (_p: unknown, { expose, slots }: { expose: (e: Record<string, unknown>) => void; slots: { title?: () => VNode[] } }) => {
-      expose({ reload: paneStub.reload, flush: paneStub.flush });
+      expose({ reload: paneStub.reload, flush: paneStub.flush, snapshot: paneStub.snapshot });
       return () => h("div", { class: "stub-files-pane" }, slots.title?.());
     },
   },
@@ -383,6 +387,7 @@ describe("file pane beside the enlarged cell", () => {
     localStorage.clear();
     paneStub.reload.mockClear();
     paneStub.flush.mockClear();
+    paneStub.snapshot.mockClear();
     if (!window.matchMedia) {
       window.matchMedia = ((query: string) => ({
         matches: false,
@@ -511,6 +516,82 @@ describe("file pane beside the enlarged cell", () => {
     await w.setProps({ expandedUid: 1 });
     await flushPromises();
     expect(paneOf(w).element).toBe(before); // same instance, never torn down
+  });
+
+  // Coming back to a terminal should not mean opening the same three directories again. Only
+  // saved state is carried — the buffer went to disk (or the backup store) on the way out.
+  it("hands a cell's remembered tree back when the zoom returns to it", async () => {
+    const cells = [cell(1, "s1", "/one"), cell(2, "s2", "/two")];
+    const w = mountCockpit(cells, 1, []);
+    await openPane(w);
+    expect(paneOf(w).props("initialState")).toBeNull(); // never visited
+
+    paneStub.snapshot.mockReturnValueOnce({ openPath: "notes.md", expanded: ["docs"] });
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(paneOf(w).props("initialState")).toBeNull(); // cell 2 is new too
+
+    await w.setProps({ expandedUid: 1 });
+    await flushPromises();
+    expect(paneOf(w).props("initialState")).toEqual({ openPath: "notes.md", expanded: ["docs"] });
+  });
+
+  // Two terminals in the same repository is the ordinary case here. Keying the pane on the
+  // DIRECTORY left it bound to the cell it started on while the zoom moved to its neighbour —
+  // so the neighbour's snapshot was filed under the first cell, and its own tree never arrived.
+  it("re-roots and re-binds between two cells sharing a directory", async () => {
+    const w = mountCockpit([cell(1, "s1", "/same"), cell(2, "s2", "/same")], 1, []);
+    await openPane(w);
+    paneStub.snapshot.mockReturnValue({ openPath: "from-one.md", expanded: [] });
+
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(paneStub.reload).toHaveBeenCalledTimes(1); // it moved, despite the same cwd
+    expect(paneOf(w).props("initialState")).toBeNull(); // cell 2 has its own (empty) memory
+
+    paneStub.snapshot.mockReturnValue({ openPath: "from-two.md", expanded: [] });
+    await w.setProps({ expandedUid: 1 });
+    await flushPromises();
+    expect(paneOf(w).props("initialState")).toEqual({ openPath: "from-one.md", expanded: [] });
+  });
+
+  it("remembers across closing and re-opening the pane on the same cell", async () => {
+    const w = mountCockpit([cell(1, "s1", "/one"), cell(2)], 1, []);
+    await openPane(w);
+    paneStub.snapshot.mockReturnValueOnce({ openPath: "a.md", expanded: [] });
+
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await flushPromises();
+    await w.findComponent({ name: "TerminalCell" }).vm.$emit("toggle-files");
+    await flushPromises();
+    expect(paneOf(w).props("initialState")).toEqual({ openPath: "a.md", expanded: [] });
+  });
+
+  // A re-root that could not be saved out of never moved, so its snapshot belongs to the cell
+  // the pane is STILL on — filing it under the cell it failed to reach would hand another
+  // terminal a tree from somewhere else.
+  it("files a snapshot under the cell the pane is actually on", async () => {
+    const w = mountCockpit([cell(1, "s1", "/one"), cell(2, "s2", "/two")], 1, []);
+    await openPane(w);
+
+    paneStub.flush.mockResolvedValueOnce(false as unknown as undefined);
+    paneStub.snapshot.mockReturnValue({ openPath: "from-one.md", expanded: [] });
+    await w.setProps({ expandedUid: 2 });
+    await flushPromises();
+    expect(paneOf(w).props("cwd")).toBe("/one"); // stayed
+
+    // Now let it move, and come back: cell 1 gets its own tree, cell 2 has none.
+    paneStub.flush.mockResolvedValue(undefined);
+    await w.setProps({ expandedUid: 1 }); // the zoom returns to where the pane already is
+    await flushPromises();
+    await w.setProps({ expandedUid: 2 }); // and moves again, this time successfully
+    await flushPromises();
+    expect(paneOf(w).props("cwd")).toBe("/two");
+    expect(paneOf(w).props("initialState")).toBeNull();
+
+    await w.setProps({ expandedUid: 1 });
+    await flushPromises();
+    expect(paneOf(w).props("initialState")).toEqual({ openPath: "from-one.md", expanded: [] });
   });
 
   it("remembers being open across a remount, and the pane's own close puts it away", async () => {
