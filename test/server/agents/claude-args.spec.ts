@@ -121,3 +121,34 @@ describe("session summary prompt", () => {
     expect(promptValue(args)).toBe(SESSION_SUMMARY_PROMPT);
   });
 });
+
+// #872 was only ever appended by the ⧉ Open PR button, so PRs opened by the agent — nearly all
+// of them — carried nothing saying which clone they came from. The instruction now rides on the
+// session, with the name resolved server-side.
+describe("clone footer prompt", () => {
+  const promptValue = (args: string[]): string | undefined => args[args.indexOf("--append-system-prompt") + 1];
+
+  it("carries the exact line the PR body should end with", () => {
+    const value = promptValue(buildClaudeArgs(cfg({ workdirFooter: "work in myrepo3" })));
+    expect(value).toContain("work in myrepo3");
+    // Still ONE flag: given twice, which of the two wins is up to the CLI.
+    expect(buildClaudeArgs(cfg({ workdirFooter: "work in myrepo3" })).filter((a) => a === "--append-system-prompt")).toHaveLength(1);
+  });
+
+  it("keeps the closing-summary instruction alongside it", () => {
+    const value = promptValue(buildClaudeArgs(cfg({ workdirFooter: "work in myrepo3" })));
+    expect(value).toContain(SESSION_SUMMARY_PROMPT);
+  });
+
+  it.each([
+    ["the footer is switched off / not a repo", null],
+    ["nothing was resolved", undefined],
+  ])("says nothing about a clone when %s", (_case, footer) => {
+    expect(promptValue(buildClaudeArgs(cfg({ workdirFooter: footer })))).toBe(SESSION_SUMMARY_PROMPT);
+  });
+
+  // Same argv constraint as the summary prompt: this text reaches a Windows `.cmd` parser.
+  it("contains no ASCII double quote", () => {
+    expect(promptValue(buildClaudeArgs(cfg({ workdirFooter: "work in myrepo3" })))).not.toContain(String.fromCharCode(34));
+  });
+});
