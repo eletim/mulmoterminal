@@ -349,6 +349,8 @@ terminal stops receiving**, and only you know whether that trade is worth it for
 | `terminal-new` | Add a terminal at the **end** (same as the toolbar's `New terminal ＋`) | no |
 | `terminal-new-adjacent` | Add a terminal **right after the current one**, inheriting its working directory — the closest thing to "split this terminal" | yes |
 | `terminal-close` | **Close** the current terminal (same as its `✕`) | yes |
+| `copy` | **Copy** the terminal's selection. Acts only when something IS selected — with no selection the key reaches the shell untouched, which is what makes `Ctrl+C` bindable here without losing **interrupt** | no |
+| `paste` | **Paste** into the terminal | no |
 
 Most actions need a terminal to act *on*, and the zoomed cell is the only one the grid can name — an
 un-zoomed grid has no "current terminal", so those do nothing rather than guessing. **Bind at least one

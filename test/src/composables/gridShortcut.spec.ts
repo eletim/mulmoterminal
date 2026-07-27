@@ -102,3 +102,22 @@ describe("isEditableTarget", () => {
     expect(isEditableTarget("", [])).toBe(false);
   });
 });
+
+// #900: `copy` / `paste` share the one `keymap` block, but the grid handler must never claim
+// them — it ends every match with preventDefault(), and for `paste` that cancels the browser's
+// own paste, which IS the mechanism. They are decided in the terminal instead.
+describe("terminal-scoped actions never reach the grid", () => {
+  const keymap = { copy: "Ctrl+c", paste: "Ctrl+v", "zoom-next": "PageDown" };
+  const press = (k: string, ctrl = false) => ({ type: "keydown", key: k, shiftKey: false, altKey: false, ctrlKey: ctrl, metaKey: false });
+
+  it("refuses copy and paste in both zoomed and un-zoomed grids", () => {
+    [true, false].forEach((zoomed) => {
+      expect(gridShortcutFor(keymap, press("c", true), zoomed)).toBeNull();
+      expect(gridShortcutFor(keymap, press("v", true), zoomed)).toBeNull();
+    });
+  });
+
+  it("still resolves the grid's own actions", () => {
+    expect(gridShortcutFor(keymap, press("PageDown"), true)).toBe("zoom-next");
+  });
+});
