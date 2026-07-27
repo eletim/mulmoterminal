@@ -361,6 +361,7 @@ function onSession(id: string) {
           :session-id="activeId"
           :codex="singleAgent === 'codex'"
           :connect-key="connectKey"
+          :dir-cwd="effectiveCwd"
           :dir-name="singleDirConfig.name"
           :dir-badge-color="singleDirConfig.badgeColor"
           :dir-header-color="singleDirConfig.headerColor"

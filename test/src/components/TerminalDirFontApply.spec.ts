@@ -106,3 +106,19 @@ describe("Terminal.vue resolves its directory's look from its own cwd", () => {
     expect(setFontCalls).toHaveLength(0);
   });
 });
+
+// The single view leaves `cwd` unset on purpose — passing it would put `?cwd=` on the WebSocket
+// and change what the server connects to — so it hands the directory in separately. Without this
+// its palette would resolve only once the session reported back, i.e. a visible flash of the
+// app-wide theme first, which is the regression this hint exists to prevent.
+describe("Terminal.vue falls back to the dirCwd hint when it has no cwd", () => {
+  it("resolves the directory's font from dirCwd alone", async () => {
+    serveDirConfig({ fontSize: 18, fontFamily: "Cica, monospace" });
+    const Terminal = (await import("../../../src/components/Terminal.vue")).default;
+    const w = mount(Terminal, { props: { sessionId: null, connectKey: 1, persistKey: "hinted", dirCwd: "/proj/hinted" } });
+    await flushPromises();
+
+    expect(setFontCalls.at(-1)).toEqual({ size: 18, family: "Cica, monospace" });
+    w.unmount();
+  });
+});

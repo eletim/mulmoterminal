@@ -70,6 +70,10 @@ const props = defineProps<{
   // props, and four separate hosts each had to remember to pass them; two didn't, so a shell
   // cell silently ignored every directory setting (#902). The header props below stay, because
   // the CHROME around the terminal is the host's to style, not this component's.
+  //
+  // Which directory to read that from, for a host whose `cwd` is deliberately unset (the single
+  // view). Only a starting hint — the server-confirmed cwd wins as soon as it is known.
+  dirCwd?: string | null;
   dirName?: string | null;
   dirBadgeColor?: string | null;
   // The header row's own colors (matches the grid cell's row-1 header): background,
@@ -115,10 +119,17 @@ const statusClass = computed(() => {
 const serverCwd = computed(() => conn.connView.get(slotKey)?.serverCwd ?? props.cwd ?? null);
 
 // This terminal's directory settings, resolved HERE rather than handed down (#909). Keyed on the
-// server-confirmed cwd — which is strictly better than a host's copy, since the server may have
-// rejected the requested directory and started somewhere else. useDirConfig shares one fetch per
-// cwd, so a host that also reads the config for its own chrome costs nothing extra.
-const { config: dirConfig } = useDirConfig(serverCwd);
+// server-confirmed cwd — better than a host's copy, since the server may have rejected the
+// requested directory and started somewhere else. useDirConfig shares one fetch per cwd, so a host
+// that also reads the config for its own chrome costs nothing extra.
+//
+// `dirCwd` covers the one host that cannot supply `cwd`: the single view leaves it unset on purpose
+// (passing it would put `?cwd=` on the WebSocket and change what the server connects to), so
+// without a hint its palette would resolve only once the session reports back — a visible flash of
+// the app-wide theme first. Unlike the four style props this replaces, forgetting this one costs a
+// moment's delay, not a silently dead setting.
+const dirConfigCwd = computed(() => serverCwd.value ?? props.dirCwd ?? null);
+const { config: dirConfig } = useDirConfig(dirConfigCwd);
 
 // The running model, so header buttons/chips can substitute `${model}`.
 const { context: sessionContext } = useSessionContext(

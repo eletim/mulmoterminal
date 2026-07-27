@@ -39,6 +39,21 @@ started elsewhere, in which case the host's copy is wrong and this is right.
   (badge, header tint) costs nothing extra.
 - `LauncherCell` / `CommandCell` drop `useDirConfig` entirely — they never needed it for themselves.
 
+## The one host that cannot pass `cwd`
+
+Caught while reviewing the change, not by a bot: **the single view (`App.vue`) never passes `cwd`
+to `TerminalView`** — deliberately, because `cwd` goes onto the WebSocket query (`?cwd=`) and would
+change what the server connects to. It previously resolved its own config from
+`effectiveCwd = activeCwd ?? defaultCwd`, so the palette was right from the first frame.
+
+Keyed purely on `serverCwd`, that host would have had nothing until the session reported back — a
+visible flash of the app-wide theme first, in the common case where the single view sits in the
+default workspace. So `Terminal.vue` takes a `dirCwd` **hint**, used only until the server-confirmed
+cwd arrives, and only `App.vue` passes it.
+
+This is not the pattern the PR removes. Forgetting one of the four style props silently disabled the
+feature; forgetting `dirCwd` costs a moment's delay on one host and nothing else.
+
 ## What stays a prop
 
 `dirName`, `dirBadgeColor`, `dirHeaderColor`, `dirHeaderTextColor`, `dirButtonColor`. The **chrome
