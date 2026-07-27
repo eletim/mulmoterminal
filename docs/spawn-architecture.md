@@ -20,6 +20,7 @@ pty.spawn(CLAUDE_BIN, [
   // wiring:
   "--settings",        "<hooks json>",
   "--permission-mode", CLAUDE_PERMISSION_MODE,
+  "--append-system-prompt", "<closing-summary instruction>",
   "--mcp-config",      "<gui mcp json>",
   "--strict-mcp-config",
   "--allowedTools",    "<gui tool names>",
@@ -44,12 +45,13 @@ pty.spawn(CLAUDE_BIN, [
 | 5 | `--resume <uuid>` | existing sessions | Continue a prior conversation | The session must exist **in this cwd's project**; resuming under the wrong cwd → "not found" |
 | 6 | `--settings <hooks json>` | `hookSettingsJson()` | Injects hooks that `curl POST /api/hook` on `UserPromptSubmit` / `Stop` / `Notification` / `Pre`/`Post`ToolUse(`Failure`) → drives the sidebar **working / needs-attention** dots and the **Tools-pane history** | Remove → sidebar goes static, no tool-call history. The hook URL (`localhost:PORT`) must be reachable **from wherever claude runs** (today: same host) |
 | 7 | `--permission-mode <mode>` | `CLAUDE_PERMISSION_MODE` (env, default `auto`) | How claude handles tool approval | `auto`/`bypassPermissions` = hands-off; tightening makes it prompt more (in the terminal) |
-| 8 | `--mcp-config <gui mcp json>` | `mcpConfigJson()` → `{ type: "http", url: /mcp/<sessionId> }` | Registers the **GUI MCP** server that backs the panel plugins (`presentDocument`, `presentForm`, `generateImage`, …) | Remove → the GUI panel plugins stop working |
-| 9 | `--strict-mcp-config` | always | **Load ONLY** the MCP from `--mcp-config`; ignore the user's (`~/.claude.json`) and the project's (`.mcp.json`) MCP servers | Keeps the session minimal/predictable, **but disables all of the user's & workspace MCP servers** (see the decision below) |
-| 10 | `--allowedTools <gui tool names>` | `allowedToolNames()` | Auto-allow the GUI MCP tools so they don't trip a permission prompt | Remove → each GUI tool call prompts for approval |
-| 11 | `-- <initial prompt>` | `spawnBackgroundChat` only | First message for a headless-spawned session. `--` ends option parsing so a prompt starting with `-` can't be read as a flag | — |
-| 12 | `cols` / `rows` | `120` / `30` | Initial PTY size; the client sends a `resize` on connect | Cosmetic initial value only |
-| 13 | `name` | `xterm-256color` | `TERM` type for the PTY | Standard; rarely changed |
+| 8 | `--append-system-prompt <text>` | `SESSION_SUMMARY_PROMPT` (`server/agents/session-summary-prompt.ts`) | Asks the agent to end a reply with a **closing summary** — the conversation's standing request, what was achieved, what was not — when it hands control back. Not on every turn (#942) | Remove → returning to a cell means scrolling back to learn what was asked. Passed inline, not `--append-system-prompt-file`: the sandbox spawn cannot read a host path |
+| 9 | `--mcp-config <gui mcp json>` | `mcpConfigJson()` → `{ type: "http", url: /mcp/<sessionId> }` | Registers the **GUI MCP** server that backs the panel plugins (`presentDocument`, `presentForm`, `generateImage`, …) | Remove → the GUI panel plugins stop working |
+| 10 | `--strict-mcp-config` | always | **Load ONLY** the MCP from `--mcp-config`; ignore the user's (`~/.claude.json`) and the project's (`.mcp.json`) MCP servers | Keeps the session minimal/predictable, **but disables all of the user's & workspace MCP servers** (see the decision below) |
+| 11 | `--allowedTools <gui tool names>` | `allowedToolNames()` | Auto-allow the GUI MCP tools so they don't trip a permission prompt | Remove → each GUI tool call prompts for approval |
+| 12 | `-- <initial prompt>` | `spawnBackgroundChat` only | First message for a headless-spawned session. `--` ends option parsing so a prompt starting with `-` can't be read as a flag | — |
+| 13 | `cols` / `rows` | `120` / `30` | Initial PTY size; the client sends a `resize` on connect | Cosmetic initial value only |
+| 14 | `name` | `xterm-256color` | `TERM` type for the PTY | Standard; rarely changed |
 
 ## How skills & MCP get scoped (the `cwd` story)
 
@@ -95,7 +97,7 @@ trust-prompt flow, and the interaction with `--permission-mode`.
 
 ## Note for "run claude elsewhere" (e.g. Docker)
 
-Settings #6 (hook URL) and #8 (MCP URL) are `localhost`/`127.0.0.1` — they assume
+Settings #6 (hook URL) and #9 (MCP URL) are `localhost`/`127.0.0.1` — they assume
 claude runs on the **same host** as the server. If claude is ever run in a
 container, those must point at the host (e.g. `host.docker.internal`), and `cwd` /
 auth (`~/.claude`) must be mounted. (See the abandoned PR #30 for prior art.)
