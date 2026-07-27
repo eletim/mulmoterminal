@@ -13,6 +13,7 @@ import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setGlobalFontFamily } from "./terminalFontFamily";
 import { setActiveKeymap } from "./activeKeymap";
 import { setCockpitLines } from "./cockpitLines";
+import { setCopyOnSelect } from "./copyOnSelect";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
 // useAppConfig() caller — the beep player lives in the single view while the
@@ -292,6 +293,9 @@ export function useAppConfig() {
       // Keyboard shortcuts are opt-in: no `keymap` in config.json leaves this empty and
       // every shortcut stays off.
       setActiveKeymap(c.keymap);
+      // Copy-on-select, off unless config.json asks for it — it changes the clipboard with no
+      // key pressed, so it must never arrive by default.
+      setCopyOnSelect(c.copyOnSelect);
       // How far the cockpit roster clamps each line. Absent `cockpitLines` keeps 2/2/3.
       setCockpitLines(c.cockpitLines);
       // The terminal font stack (config.json-only, no Settings UI). Terminals already open

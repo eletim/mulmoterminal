@@ -9,17 +9,18 @@
 // and revised on its own — and so there is one place to reach for if this ever becomes
 // opt-out.
 //
-// It must contain NO `"`. On Windows a `.cmd`-installed Claude is launched through cmd.exe,
-// where the command line is parsed by cmd and then by the child's CRT, and the two disagree
-// about quoting — which is why the JSON payloads travel as files (#813). This is prose, so the
-// temptation is to quote a phrase inside it; that would put the only quote back into the argv.
-//
 // Two rules carry most of the weight and should survive any edit:
 //   - The exclusions are CLOSED, and they are about the reply, not its size. An earlier draft
 //     added "when in doubt, leave it out" to hold the noise down; probing it showed the model
 //     then skipped a finished one-file task too, which is exactly the moment worth summarizing.
 //   - The request to state is the conversation's, not the last message's. Refining details
 //     over several turns must not overwrite what was asked in the first place.
+//
+// One constraint on the CHARACTERS, not the wording: no ASCII double quote. This text rides in
+// the argv of a Windows spawn, where the whole point of moving the JSON payloads to files was
+// that nothing claude is launched with contains a quote for a `.cmd` parser to trip over
+// (#813). Typographic quotes are fine — they are not parser-significant — so quoting a phrase
+// is still available; it just cannot be done with `"`.
 export const SESSION_SUMMARY_PROMPT = `## Closing summary
 
 Close your reply with a short session summary whenever you hand control back to the user after
@@ -29,8 +30,8 @@ stands without scrolling back.
 
 Two things disqualify a reply, and only these two. You are still working — more tool calls
 coming, a plan half executed. Or there was no work to speak of: a factual question you answered
-from knowledge, a greeting, an acknowledgement. A small task still gets a summary; being only
-one file is not a reason to skip it.
+from knowledge, a greeting, an acknowledgement. A small task still gets a summary; “it was only
+one file” is not a reason to skip it.
 
 What it says, one or two sentences each:
 

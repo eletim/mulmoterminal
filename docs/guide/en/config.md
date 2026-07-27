@@ -87,6 +87,7 @@ Open it from the ⚙ in the toolbar.
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
+| `copyOnSelect` | Put a mouse selection on the clipboard the moment it settles, with no key pressed. **Off by default** (→ [Copy on select](#copy-on-select)) |
 | `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |
 | `cockpitLines` | How many lines each cockpit-roster row shows before clamping (default `2 / 2 / 3` → [Cockpit roster line counts](#cockpit-lines)) |
 | `fontFamily` | The font every terminal renders in — a CSS font-family stack (→ [Terminal font](#font-family)) |
@@ -507,6 +508,37 @@ before committing to one.
 > An **unknown action name only warns** and the app still starts — that is what a config written for a newer
 > MulmoTerminal looks like, and downgrading must not brick it. Further actions (reordering, page switching,
 > navigation) are tracked in [issue #829](https://github.com/receptron/mulmoterminal/issues/829).
+
+## Copy on select (`copyOnSelect`) {#copy-on-select}
+
+Drag over some terminal output and it is on your clipboard the moment you let go — no key pressed.
+The same behaviour PuTTY and iTerm2 have always had, and what Windows Terminal calls `copyOnSelect`.
+
+**Off unless you ask for it**, because it changes your clipboard when you may only have meant to
+highlight something while reading.
+
+```json
+{ "copyOnSelect": true }
+```
+
+Config file only — there is no Settings toggle. Restart the server to pick it up.
+
+It coexists with the [`copy` keymap action](#keymap): keep `copy` bound as well if you also want a
+key for it, for instance to copy a selection made with the keyboard.
+
+Two things it deliberately does **not** copy, both to protect what you already had on the clipboard:
+
+- **A selection that is only whitespace** — dragging across empty terminal space would otherwise
+  replace your clipboard with a run of spaces, silently. Use the `copy` binding if you really want
+  the indentation.
+- **The same text twice in a row**, which would only add a duplicate to your OS clipboard history.
+
+{: .note }
+> **Over plain `http://`, browsers give a page no clipboard access at all** — the API is restricted
+> to `https://` and `localhost`. MulmoTerminal falls back to asking xterm to copy the selection the
+> way the keyboard shortcut does, which does work there, but it needs the terminal to still hold the
+> keyboard focus. If a drag does not seem to land while you are on `http://<some-ip>:PORT`, that is
+> where to look first. Reaching the app at `http://localhost:PORT` has no such limit.
 
 ## Cockpit roster line counts (`cockpitLines`) {#cockpit-lines}
 
