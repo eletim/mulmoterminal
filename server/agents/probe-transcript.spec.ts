@@ -220,6 +220,19 @@ describe("the one-time sweep", () => {
     expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBeNull();
   });
 
+  // Codex review on #1030: several checkouts run side by side against one ~/.mulmoterminal, so two
+  // servers can start together. `stat` then write would let BOTH see no marker and both sweep,
+  // reopening the repeated-deletion window the marker exists to close.
+  it("lets only one of several simultaneous starts claim the sweep", async () => {
+    write("old-probe.jsonl", probe());
+
+    const contenders = await Promise.all(Array.from({ length: 5 }, () => sweepLegacyProbeTranscriptsOnce(cwd, marker)));
+
+    expect(contenders.filter((r) => r !== null)).toHaveLength(1);
+    expect(contenders.filter((r) => r === null)).toHaveLength(4);
+    expect(existsSync(path.join(projectSessionsDir(cwd), "old-probe.jsonl"))).toBe(false);
+  });
+
   // Codex review on #1030: a fresh install has no ~/.mulmoterminal yet. Writing the marker into a
   // directory that does not exist throws, the caller can only swallow it, and the sweep would then
   // delete on EVERY boot — the permanent window this design exists to close.

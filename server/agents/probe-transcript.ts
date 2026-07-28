@@ -146,27 +146,22 @@ export async function sweepLegacyProbeTranscripts(cwd: string): Promise<number> 
 }
 
 /** The sweep, run at most once on this machine — see the note at the top of this file. `marker` is
- *  the file whose existence means "already done". Returns the count, or null when it had already
- *  run (or when the right to run could not be claimed).
+ *  the file whose existence means "already done". Returns the count, or null when the right to run
+ *  could not be claimed (already swept, or another process got there first).
  *
- *  The marker is claimed BEFORE anything is deleted, and its directory is created first. Both
- *  matter for the same reason: if the claim is written afterwards and fails — a fresh install has
- *  no `~/.mulmoterminal` yet, and the caller cannot do anything with the error — the files are
- *  already gone AND the sweep runs again next boot, which is precisely the permanent deletion
- *  window this design exists to close (Codex review on #1030). Failing to claim means doing
- *  nothing; a crash mid-sweep leaves litter, which is the harmless direction. */
+ *  The claim is one exclusive create, and that is the whole mechanism. Not `stat` then write: two
+ *  servers starting together would both see no marker and both sweep, and several checkouts DO run
+ *  side by side against one `~/.mulmoterminal` (Codex review on #1030). `wx` is O_CREAT|O_EXCL —
+ *  the filesystem picks exactly one winner, however many ask.
+ *
+ *  Claiming before deleting is deliberate in the same way: failing to claim means deleting nothing,
+ *  and a crash mid-sweep leaves litter, which is the harmless direction. */
 export async function sweepLegacyProbeTranscriptsOnce(cwd: string, marker: string): Promise<number | null> {
   try {
-    await stat(marker);
-    return null;
-  } catch {
-    // not swept yet
-  }
-  try {
     await mkdir(path.dirname(marker), { recursive: true });
-    await writeFile(marker, JSON.stringify({ sweptAt_ms: Date.now() }), "utf8");
+    await writeFile(marker, JSON.stringify({ sweptAt_ms: Date.now() }), { encoding: "utf8", flag: "wx" });
   } catch {
-    return null; // cannot record that we swept, so do not sweep
+    return null; // already claimed, or the claim cannot be recorded — either way, do not sweep
   }
   return await sweepLegacyProbeTranscripts(cwd);
 }
