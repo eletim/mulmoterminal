@@ -5,13 +5,12 @@
 // Only the TAIL is read. A long Codex session's rollout runs to megabytes, the windows are written
 // on nearly every event, and the one that matters is the last — so reading the whole file to reach
 // its end would be the most expensive way to get the cheapest data source we have.
-import { readdirSync, statSync, openSync, readSync, closeSync, existsSync } from "node:fs";
+import { readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
 // Enough to hold several events even when one carries a large payload. A rollout whose last
 // rate_limits sits further back than this simply reports nothing, which the gauge already handles.
-const TAIL_BYTES = 256 * 1024;
 
 export const codexSessionsDir = (): string => path.join(os.homedir(), ".codex", "sessions");
 
@@ -55,25 +54,4 @@ export function walkForNewest(root: string, now_ms: number): string | null {
     // an unreadable subtree costs whatever it held, not the feature
   }
   return found.reduce<{ file: string; stamp_ms: number } | null>((best, c) => (best === null || c.stamp_ms > best.stamp_ms ? c : best), null)?.file ?? null;
-}
-
-/** The last lines of a file. The first is dropped: starting mid-file almost always lands inside a
- * line, and a half line is not JSON. */
-export function readTailLines(file: string): string[] {
-  let fd: number | null = null;
-  try {
-    const size = statSync(file).size;
-    const start = Math.max(0, size - TAIL_BYTES);
-    const length = size - start;
-    if (length <= 0) return [];
-    const buffer = Buffer.alloc(length);
-    fd = openSync(file, "r");
-    readSync(fd, buffer, 0, length, start);
-    const lines = buffer.toString("utf8").split("\n");
-    return start > 0 ? lines.slice(1) : lines;
-  } catch {
-    return [];
-  } finally {
-    if (fd !== null) closeSync(fd);
-  }
 }
