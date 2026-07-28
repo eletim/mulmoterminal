@@ -52,12 +52,15 @@ describe("copyOutcomeMessage", () => {
 
 // The fallback dialog's contract, after Codex flagged it (#995 review). Asserted on the
 // RENDERED dialog rather than on the source text: what matters is what a screen reader and the
-// Escape key actually meet.
+// keyboard actually meet.
 //
-// The pattern to match is TimelineOverlay's, the app's only other modal — role + aria-modal on
-// the BOX (the review found them on the backdrop), and Escape handled at the DOCUMENT. Bound to
-// the overlay element instead, Escape fires only while focus is already inside it, which reads
-// as "Escape sometimes works".
+// The pattern is the app's other modals (TimelineOverlay, SettingsModal): role + aria-modal on
+// the BOX (the review found them on the backdrop), and both Escape and the Tab trap handled at
+// the DOCUMENT — bound to the overlay element instead, they fire only while focus is already
+// inside it, which reads as "Escape sometimes works".
+//
+// The trap has to see the `textarea`: `trapTabKey`'s default selector is buttons only, which
+// would wrap Tab onto Close and leave the code itself unreachable from the keyboard.
 describe("the manual-copy dialog", () => {
   const REPLY = "here:\n\n```ts\nconst a = 1;\n```";
 
@@ -101,9 +104,32 @@ describe("the manual-copy dialog", () => {
     w.unmount();
   });
 
+  it("keeps Tab inside the dialog, textarea included", async () => {
+    const w = await withoutClipboard();
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
+    const text = dialog?.querySelector<HTMLTextAreaElement>('[data-testid="copy-block-text"]');
+    const close = dialog?.querySelector<HTMLButtonElement>("button");
+    if (!text || !close) throw new Error("the dialog is missing one of its focus stops");
+
+    // Forward off the last stop wraps to the first — which must be the textarea, not Close.
+    close.focus();
+    const forward = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    document.dispatchEvent(forward);
+    expect(document.activeElement).toBe(text);
+    expect(forward.defaultPrevented).toBe(true);
+
+    // …and backward off the first wraps to the last, so focus never reaches the page behind.
+    text.focus();
+    const back = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(back);
+    expect(document.activeElement).toBe(close);
+    w.unmount();
+  });
+
   it("closes on Escape raised at the document, with focus anywhere", async () => {
     const w = await withoutClipboard();
-    (document.activeElement as HTMLElement)?.blur();
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await flushPromises();
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();

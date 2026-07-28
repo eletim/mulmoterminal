@@ -10,6 +10,7 @@
 import { ref, onUnmounted } from "vue";
 import { fetchLastTurn } from "../composables/useHandoff";
 import { copyOutcomeFor, copyOutcomeMessage, clipboardAvailable, turnOf } from "./codeBlockCopy";
+import { trapTabKey, MODAL_FOCUSABLE } from "../utils/focusTrap";
 
 const props = defineProps<{ sessionId: string; cwd: string | null; agent: "claude" | "codex" }>();
 
@@ -18,6 +19,7 @@ const note = ref<string | null>(null);
 // Set when the text could not reach the clipboard and has to be selected by hand.
 const manual = ref<string | null>(null);
 const box = ref<HTMLTextAreaElement>();
+const modalEl = ref<HTMLElement | null>(null);
 let noteTimer: ReturnType<typeof setTimeout> | undefined;
 
 const flash = (message: string): void => {
@@ -27,7 +29,7 @@ const flash = (message: string): void => {
 };
 onUnmounted(() => {
   if (noteTimer) clearTimeout(noteTimer);
-  document.removeEventListener("keydown", onEscape);
+  document.removeEventListener("keydown", onKeydown);
 });
 
 async function copyLastBlock(): Promise<void> {
@@ -57,7 +59,7 @@ async function copyLastBlock(): Promise<void> {
 // Clipboard API at all, and "paste it into another app" is exactly what those users came for.
 async function showForManualCopy(text: string): Promise<void> {
   manual.value = text;
-  document.addEventListener("keydown", onEscape);
+  document.addEventListener("keydown", onKeydown);
   await new Promise((r) => requestAnimationFrame(r));
   // Focus AND select: the whole point of this dialog is that the text is ready to copy with
   // one key, or one long-press on a phone.
@@ -65,16 +67,26 @@ async function showForManualCopy(text: string): Promise<void> {
   box.value?.select();
 }
 
-// On the document, not the dialog: bound to the element it would only fire while focus is
-// already inside, which is the trap TimelineOverlay avoids the same way. Registered while open
-// so it cannot swallow Escape for anything else.
-function onEscape(e: KeyboardEvent): void {
-  if (e.key === "Escape") closeManual();
+// Modal keyboard behavior, same as TimelineOverlay and SettingsModal: Escape closes, Tab stays
+// inside. On the document rather than the dialog element — bound to the element it would only
+// fire while focus is already inside, so one click on the backdrop would kill Escape. Registered
+// only while open so it cannot swallow either key for anything else.
+//
+// MODAL_FOCUSABLE rather than the default selector: this dialog's first stop is the `textarea`
+// holding the code, and the default list is buttons only — the trap would then wrap Tab onto the
+// Close button and the text itself would be unreachable from the keyboard.
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape") {
+    closeManual();
+    return;
+  }
+  if (e.key !== "Tab" || !modalEl.value) return;
+  trapTabKey(e, modalEl.value, MODAL_FOCUSABLE);
 }
 
 function closeManual(): void {
   manual.value = null;
-  document.removeEventListener("keydown", onEscape);
+  document.removeEventListener("keydown", onKeydown);
 }
 </script>
 
@@ -104,6 +116,7 @@ function closeManual(): void {
   <Teleport to="body">
     <div v-if="manual !== null" class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.45)]" @click.self="closeManual">
       <div
+        ref="modalEl"
         class="flex max-h-[80vh] w-[min(640px,92vw)] flex-col gap-2 rounded-lg bg-panel p-4 text-fg shadow-[0_10px_40px_rgba(0,0,0,0.5)]"
         role="dialog"
         aria-modal="true"
