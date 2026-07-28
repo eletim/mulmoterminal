@@ -41,6 +41,7 @@ import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
 import { ptys } from "../session/registry.js";
 import { mountShortcutsRoutes } from "../backends/shortcuts.js";
+import { mountDecisionRoutes } from "./decision-routes.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
@@ -155,6 +156,10 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // Shared launcher favorites (GET/PUT /api/shortcuts) over the same
   // <workspace>/config/shortcuts.json MulmoClaude uses — backs the collections toolbar.
   mountShortcutsRoutes(app, { workspace: CLAUDE_CWD });
+
+  // Read-only decision log (GET /api/decisions?cwd=) — the questions a human was asked in this
+  // project and what they chose, read back out of Claude's own transcripts. Writes nothing.
+  mountDecisionRoutes(app);
 
   // Local voice input (POST /api/transcribe + model status/download) — macOS only,
   // whisper.cpp via @mulmoclaude/core/whisper. Models live in the shared
