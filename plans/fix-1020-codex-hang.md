@@ -7,7 +7,7 @@ Issue: #1020
 `codex exec` does not run slow on a bad run — it **stops**. The log of the timed-out attempt on
 #974 reads:
 
-```
+```text
 22:52:27  [{"url":".../issues/comments/5097680212", …   ← finished reading the PR thread
           (fifteen minutes with no output at all)
 23:07:24  ##[error]The operation was canceled.
@@ -61,16 +61,30 @@ case per branch:
 | stub | result |
 | --- | --- |
 | hangs forever | two attempts, then fail (exit 1) |
+| ignores TERM, hangs forever | two attempts (137 each), then fail |
+| **exits 124 itself, immediately** | **no retry** — not a deadline, see below |
+| **exits 137 itself, immediately** | **no retry** |
 | exits 3 immediately | **no retry**, exit 3 |
 | succeeds | exit 0, one attempt |
 | hangs once, then succeeds | **exit 0 on attempt 2** — the case actually being hit |
-| ignores TERM, hangs forever | two attempts (137 each), then fail |
 | ignores TERM once, then succeeds | **exit 0 on attempt 2** |
 
 Plus `bash -n` on the step's script and a YAML parse asserting the prompt still carries the
 `CODEX VERDICT:` marker the `gh-review-loop` skill reads.
 
 ## Review follow-up
+
+**CodeRabbit: `timeout` cannot tell its own deadline from the child exiting 124/137.** True — the
+codes are indistinguishable, so the *elapsed time* decides instead: a run that gave up before the
+deadline was codex failing on its own terms, not a hang, and retrying it would spend another five
+minutes reaching the same answer. Two stub cases pin it.
+
+**CodeRabbit: a retry can duplicate comments.** Real: if an attempt posts findings and then hangs,
+the retry runs the same prompt again. The prompt already tells the review to read the existing
+thread before posting; it now also says that an earlier attempt **of this same run** may have
+posted before being cut short, and to leave those comments alone rather than repeat them. Not
+airtight — a truly idempotent poster would need a per-run marker — but the observed hang (#974)
+happens *before* anything is posted, so this covers the case at hand without adding machinery.
 
 **Codex: 137 was being treated as "not a timeout".** Correct, and it would have defeated the whole
 change: with `--kill-after` set, a child that ignores TERM exits 137, and a process wedged on a

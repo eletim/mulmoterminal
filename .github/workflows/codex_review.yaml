@@ -196,7 +196,11 @@ jobs:
           Before posting your own findings, look at what's already
           on the PR — this PR may have had earlier review iterations
           (yours or another bot's) that are already addressed by
-          later commits. Read the existing thread:
+          later commits. An earlier ATTEMPT OF THIS SAME RUN may also
+          have posted before it was cut short, so if you find comments
+          that already say what you were going to say about the
+          current commit, leave them alone rather than repeating them.
+          Read the existing thread:
             gh api repos/${REPO}/issues/${PR_NUMBER}/comments --paginate
             gh api repos/${REPO}/pulls/${PR_NUMBER}/comments --paginate
           For every prior 'CODEX VERDICT: CHANGES REQUESTED' bullet,
@@ -237,20 +241,24 @@ jobs:
           # about a minute on a plain rerun of the same commit.
           for attempt in 1 2; do
             # `|| status=$?` rather than `if …; then`: after an `if`, $? is the IF statement's
-            # status (0), not the command's — the 124 below would never be seen.
+            # status (0), not the command's — the codes below would never be seen.
+            started=$SECONDS
             status=0
             timeout --signal=TERM --kill-after=30s "${CODEX_TIMEOUT_SECONDS}" \
               codex exec --sandbox danger-full-access "$PROMPT_TEXT" || status=$?
+            elapsed=$(( SECONDS - started ))
             if [ "$status" -eq 0 ]; then
               exit 0
             fi
-            # Both codes mean the deadline was hit: 124 when the child dies on TERM, 137 when it
-            # ignores TERM and `--kill-after` has to SIGKILL it. 137 is the one that matters here —
-            # a process wedged waiting on the model is exactly the kind that does not take TERM
-            # (measured: a child trapping TERM exits 137, not 124). Anything else is codex failing
-            # on its own terms (bad key, gh error), which a retry is unlikely to fix.
-            if [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; then
-              echo "::error::codex exec failed with status $status (not a timeout) — not retrying"
+            # A deadline hit is 124 (child died on TERM) or 137 (it ignored TERM, so --kill-after
+            # SIGKILLed it). 137 is the one that matters — a process wedged on a model call is
+            # exactly the kind that does not take TERM (measured: a child trapping TERM exits 137).
+            #
+            # But timeout(1) cannot tell ITS deadline from the child exiting 124/137 on its own,
+            # so the elapsed time decides: a run that gave up early was codex failing, not a hang,
+            # and retrying it would spend the deadline again to reach the same answer.
+            if { [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; } || [ "$elapsed" -lt "${CODEX_TIMEOUT_SECONDS}" ]; then
+              echo "::error::codex exec failed with status $status after ${elapsed}s (not a timeout) — not retrying"
               exit "$status"
             fi
             echo "::warning::codex exec hit the ${CODEX_TIMEOUT_SECONDS}s deadline on attempt $attempt (see #1020)"
