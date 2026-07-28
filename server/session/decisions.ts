@@ -66,27 +66,58 @@ function answerEnd(text: string, from: number, laterMarkers: number[]): number {
   return firstQuote < 0 ? text.length : firstQuote;
 }
 
-function answerFor(question: string, text: string, laterMarkers: number[]): string | null {
+// An answer that came from the offered options does not need delimiting at all: the labels are in
+// the tool input, so the answer can be RECOGNISED instead of guessed at. That makes quotes,
+// periods and preview blocks inside a label harmless, which is the whole class of edge case a
+// delimiter rule keeps having (Codex review). Multi-select joins the chosen labels with ", ".
+// Returns null when the text at `from` isn't a run of labels — i.e. the user wrote their own
+// answer, which is exactly the case the delimiter rule below still has to handle.
+function labelAnswer(text: string, from: number, options: DecisionOption[]): string | null {
+  const labels = options
+    .map((o) => o.label)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length); // longest first, so a label that prefixes another can't win
+  const chosen: string[] = [];
+  let at = from;
+  for (;;) {
+    const label = labels.find((l) => text.startsWith(l, at));
+    if (!label) return null;
+    chosen.push(label);
+    at += label.length;
+    if (text.startsWith('"', at)) return chosen.join(", ");
+    if (!text.startsWith(", ", at)) return null;
+    at += ", ".length;
+  }
+}
+
+/** `fromOptions` is carried out rather than re-derived from the text: a label may itself contain
+ *  `, `, so re-splitting a recognised run of labels would fail to recognise it a second time. */
+interface ParsedAnswer {
+  answer: string | null;
+  fromOptions: boolean;
+}
+
+function answerFor(question: string, text: string, laterMarkers: number[], options: DecisionOption[]): ParsedAnswer {
   const start = text.indexOf(markerOf(question));
-  if (start < 0) return null;
+  if (start < 0) return { answer: null, fromOptions: false };
   const from = start + markerOf(question).length;
-  return (
+  const recognised = labelAnswer(text, from, options);
+  if (recognised !== null) return { answer: recognised, fromOptions: true };
+  const answer =
     text
       .slice(from, answerEnd(text, from, laterMarkers))
       .replace(/",\s*$/, "") // the `", ` that separates this pair from the next
-      .trim() || null
-  );
+      .trim() || null;
+  return { answer, fromOptions: false };
 }
 
-// A multi-select answer comes back as the chosen labels joined by ", ", so every part has to be a
-// real label before the whole counts as chosen-from-options. Anything else is the user writing
-// their own answer, which is the case worth being able to find later.
-function classifyAnswer(answer: string | null, options: DecisionOption[]): DecisionAnswerKind {
-  if (answer === null) return "unanswered";
-  const labels = new Set(options.map((o) => o.label));
-  if (labels.has(answer)) return "option";
-  const parts = answer.split(", ");
-  return parts.length > 1 && parts.every((p) => labels.has(p)) ? "option" : "free-text";
+// For an answer the label matcher did not recognise: it can still equal a label outright (a shape
+// the matcher bails on, e.g. an unusual tail after it). Anything else is the user writing their
+// own answer, which is the case worth being able to find later.
+function classifyAnswer(parsed: ParsedAnswer, options: DecisionOption[]): DecisionAnswerKind {
+  if (parsed.answer === null) return "unanswered";
+  if (parsed.fromOptions) return "option";
+  return options.some((o) => o.label === parsed.answer) ? "option" : "free-text";
 }
 
 function questionsOf(input: unknown, text: string | null): DecisionQuestion[] {
@@ -103,8 +134,15 @@ function questionsOf(input: unknown, text: string | null): DecisionQuestion[] {
   return raw.filter(isRecord).map((q) => {
     const question = str(q.question);
     const options = optionsOf(q.options);
-    const answer = text === null ? null : answerFor(question, text, markers);
-    return { question, header: str(q.header), multiSelect: q.multiSelect === true, options, answer, answerKind: classifyAnswer(answer, options) };
+    const parsed = text === null ? { answer: null, fromOptions: false } : answerFor(question, text, markers, options);
+    return {
+      question,
+      header: str(q.header),
+      multiSelect: q.multiSelect === true,
+      options,
+      answer: parsed.answer,
+      answerKind: classifyAnswer(parsed, options),
+    };
   });
 }
 

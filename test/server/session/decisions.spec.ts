@@ -157,6 +157,45 @@ describe("decisionsFromJsonl", () => {
     expect([b.answer, b.answerKind]).toEqual(["あとで", "option"]);
   });
 
+  it('recognises a chosen option that itself contains `". ` — no delimiter guess can', () => {
+    // Codex's reproducer: a quote-period-space INSIDE the answer looks exactly like the harness's
+    // own tail. It cannot be told apart by delimiters, so a chosen answer is matched against the
+    // labels the question offered instead — those are in the tool input, and an exact match needs
+    // no guess. (A user's own free-text answer containing `". ` is still cut there; nothing in the
+    // string says where it ends, and truncating beats swallowing the harness's sentence.)
+    const label = 'He said "hi". Then left';
+    const q = { question: "どれ？", header: "h", multiSelect: false, options: [{ label, description: "" }] };
+    const raw = [
+      askLine({ id: "toolu_15", questions: [q] }),
+      resultLine("toolu_15", `The user answered: "どれ？"="${label}". Read the answers carefully.`),
+    ].join("\n");
+    const [got] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(got.answer).toBe(label);
+    expect(got.answerKind).toBe("option");
+  });
+
+  it("recognises multi-select labels that contain quotes and commas of their own", () => {
+    const a = { label: 'A: translate="no", 全体', description: "" };
+    const b = { label: "B: 個別", description: "" };
+    const q = { question: "どれ？", header: "h", multiSelect: true, options: [a, b] };
+    const raw = [askLine({ id: "toolu_16", questions: [q] }), resultLine("toolu_16", `The user answered: "どれ？"="${a.label}, ${b.label}". Continue.`)].join(
+      "\n",
+    );
+    const [got] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(got.answer).toBe(`${a.label}, ${b.label}`);
+    expect(got.answerKind).toBe("option");
+  });
+
+  it("does not mistake a free-text answer that merely starts with an option label", () => {
+    const raw = [
+      askLine({ id: "toolu_17", questions: [QUESTION] }),
+      resultLine("toolu_17", `The user answered: "${QUESTION.question}"="${GO_NOW.label} でもその前に確認したい". Continue.`),
+    ].join("\n");
+    const [got] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(got.answer).toBe(`${GO_NOW.label} でもその前に確認したい`);
+    expect(got.answerKind).toBe("free-text");
+  });
+
   it("matches a question that itself contains quotes", () => {
     // Real: `"context-menu の "New file" をクリックした後、…"="表示されて…"`. The question's own quotes
     // are inside the marker, so an exact marker match is unaffected by them.
