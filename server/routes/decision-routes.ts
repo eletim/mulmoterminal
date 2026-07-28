@@ -9,7 +9,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import type { DecisionRecord, DecisionsResponse } from "../../common/decisionLog.js";
-import { workspaceFromQuery } from "../config/workspace.js";
+import { existingWorkspaceFromQuery } from "../config/workspace.js";
 import { byNewest, createDecisionScan } from "../session/decisions.js";
 import { createFileCache, type FileStamp } from "../session/file-cache.js";
 import { projectSessionsDir } from "../session/project-dir.js";
@@ -89,9 +89,15 @@ export async function decisionsForCwd(cwd: string, limit: number): Promise<Decis
   return { decisions: perFile.flat().sort(byNewest).slice(0, limit), scanned: transcripts.length };
 }
 
+/** Same shape, no decisions: the requested directory is gone or was never one. A route that
+ *  REPORTS ON a directory must not fall back to the default workspace — the caller would render
+ *  another project's decisions under this one's name, and a stale preset (a project since
+ *  deleted) is exactly when that happens. */
+export const NO_DECISIONS: DecisionsResponse = { decisions: [], scanned: 0 };
+
 export function mountDecisionRoutes(app: Express): void {
   app.get("/api/decisions", async (req: Request, res: Response) => {
-    const cwd = workspaceFromQuery(req.query.cwd);
-    res.json(await decisionsForCwd(cwd, clampLimit(req.query.limit)));
+    const cwd = existingWorkspaceFromQuery(req.query.cwd);
+    res.json(cwd ? await decisionsForCwd(cwd, clampLimit(req.query.limit)) : NO_DECISIONS);
   });
 }
