@@ -244,9 +244,12 @@ jobs:
             if [ "$status" -eq 0 ]; then
               exit 0
             fi
-            # 124 is timeout(1)'s own code for "deadline hit" — the hang. Anything else is codex
-            # failing on its own terms (bad key, gh error), which a retry is unlikely to fix.
-            if [ "$status" -ne 124 ]; then
+            # Both codes mean the deadline was hit: 124 when the child dies on TERM, 137 when it
+            # ignores TERM and `--kill-after` has to SIGKILL it. 137 is the one that matters here —
+            # a process wedged waiting on the model is exactly the kind that does not take TERM
+            # (measured: a child trapping TERM exits 137, not 124). Anything else is codex failing
+            # on its own terms (bad key, gh error), which a retry is unlikely to fix.
+            if [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; then
               echo "::error::codex exec failed with status $status (not a timeout) — not retrying"
               exit "$status"
             fi

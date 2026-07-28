@@ -27,9 +27,12 @@ five more minutes of waiting and nothing else. It happened four times in two day
 The `codex exec` call gets its own deadline (`CODEX_TIMEOUT_SECONDS`, 300) and one retry. A healthy
 review takes 30s–2min, so five minutes is well clear of normal and far below the job's cap.
 
-Only a **timeout** is retried. `timeout(1)` reports 124 for its own deadline; any other non-zero
-status is codex failing on its own terms (a bad key, a `gh` error) and a retry would just spend
-another five minutes reaching the same conclusion.
+Only a **timeout** is retried, and that means **124 or 137**. `timeout(1)` reports 124 when the
+child dies on TERM and 137 when it ignores TERM and `--kill-after` has to SIGKILL it. 137 is the
+one that matters here: a process wedged waiting on the model is exactly the kind that does not take
+TERM. Measured — a child trapping TERM exits 137, not 124. Any other non-zero status is codex
+failing on its own terms (a bad key, a `gh` error), where a retry would just spend another five
+minutes reaching the same conclusion.
 
 The job's 15-minute cap stays as the backstop — two attempts plus overhead fit inside it.
 
@@ -61,9 +64,19 @@ case per branch:
 | exits 3 immediately | **no retry**, exit 3 |
 | succeeds | exit 0, one attempt |
 | hangs once, then succeeds | **exit 0 on attempt 2** — the case actually being hit |
+| ignores TERM, hangs forever | two attempts (137 each), then fail |
+| ignores TERM once, then succeeds | **exit 0 on attempt 2** |
 
 Plus `bash -n` on the step's script and a YAML parse asserting the prompt still carries the
 `CODEX VERDICT:` marker the `gh-review-loop` skill reads.
+
+## Review follow-up
+
+**Codex: 137 was being treated as "not a timeout".** Correct, and it would have defeated the whole
+change: with `--kill-after` set, a child that ignores TERM exits 137, and a process wedged on a
+model call is precisely one that ignores TERM. The first version retried only on 124, so the most
+likely real-world hang would have been classified as a genuine failure and not retried. Measured
+both paths locally before fixing, and added the two TERM-ignoring cases to the table above.
 
 ## What this does not do
 
