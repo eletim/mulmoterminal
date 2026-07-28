@@ -842,12 +842,7 @@ onUnmounted(() => {
           <span v-else class="shrink-0 text-[11px] text-muted">Not set</span>
           <code class="shrink-0 font-mono text-[10px] text-muted">{{ row.action }}</code>
         </div>
-        <div
-          v-for="row in sendKeyRows"
-          :key="`send-${row.key}`"
-          role="listitem"
-          class="flex items-center gap-2 rounded-md border border-border bg-elevated px-2.5 py-1.5"
-        >
+        <div v-for="row in sendKeyRows" :key="row.id" role="listitem" class="flex items-center gap-2 rounded-md border border-border bg-elevated px-2.5 py-1.5">
           <span class="min-w-0 flex-1 truncate text-[12px] text-fg"
             >Send <code class="font-mono text-[11px]">{{ row.label }}</code> to the terminal</span
           >

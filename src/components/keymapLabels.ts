@@ -34,6 +34,11 @@ export const keymapRows = (keymap: Partial<Record<KeymapAction, string>>): Keyma
 // because the user wrote it, so an unbound row cannot be shown and there is nothing to show at
 // all until they add one.
 export interface SendRow {
+  /** Stable and unique per row, for the list's `v-for` key. The binding string cannot serve:
+   *  two entries may claim the same keystroke (validation warns, but the config still loads),
+   *  and duplicate keys make Vue reuse DOM nodes across rows — one of the two would vanish from
+   *  the very screen that is meant to show what is configured. */
+  id: string;
   key: string;
   label: string;
 }
@@ -51,4 +56,5 @@ export function describeBytes(bytes: string): string {
     .join("");
 }
 
-export const sendRows = (keymap: Keymap): SendRow[] => (keymap.send ?? []).map((entry) => ({ key: entry.key, label: describeBytes(entry.bytes) }));
+export const sendRows = (keymap: Keymap): SendRow[] =>
+  (keymap.send ?? []).map((entry, i) => ({ id: `${i}:${entry.key}`, key: entry.key, label: describeBytes(entry.bytes) }));
