@@ -35,18 +35,40 @@ Open it from the ⚙ in the toolbar.
 
 ![Settings modal](../images/settings.png)
 
+Fifteen sections, in this order.
+
 | Item | Description |
 |---|---|
-| **THEME** | Midnight / Nord / Daylight / Solarized Light |
-| **TERMINAL FONT SIZE** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
-| **DIRECTORY APPEARANCE** | "🎨 Configure appearance…" — set a directory's name badge, colors, and header interactively |
-| **NOTIFICATION SOUNDS** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button (→ [Notification sounds](#sounds)) |
-| **WEB PUSH NOTIFICATIONS** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
-| **GOOGLE ACCOUNT** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
-| **PULL REQUEST REPOS** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
-| **LAUNCH COMMANDS** | Commands you can launch besides Claude in a grid cell (`{ label, command }`) |
-| **MCP SERVERS** | Your own MCP servers to add to single-view sessions |
-| **COST (ESTIMATED)** | Estimated cost readouts for Session / Today / Month |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light |
+| **Terminal font size** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
+| **Directory appearance** | "Configure appearance…" — set a directory's name badge, colors, terminal palette, and header interactively, through the `mulmoterminal-config` skill |
+| **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only (→ [When a setting isn't working](#dir-settings-preview)) |
+| **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button (→ [Notification sounds](#sounds)) |
+| **Voice input** | The language you **dictate in** (your browser's, per-clip detection, or a fixed one). Shown only on a machine that can transcribe |
+| **Web Push notifications** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
+| **Google account** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
+| **Pull request repos** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
+| **Launch commands** | Commands you can launch besides Claude in a grid cell (`{ label, command }`) |
+| **Phone quick commands** | Phrases offered as chips on the **phone's** terminal view. Tapping one fills the input box; it is sent when you press send. Can be limited to claude / codex / shell (`quickCommands`) |
+| **MCP servers** | Your own MCP servers to add to single-view sessions |
+| **Cost (estimated)** | Estimated cost readouts for Session / Today / Month |
+| **Keyboard shortcuts** | What is bound to what, read-only. **Everything starts as Not set** — you bind them in `keymap` (→ [Keyboard shortcuts](#keymap)) |
+| **Help & user guide** | Links into this guide |
+
+## When a setting isn't working — look here first {#dir-settings-preview}
+
+When a setting you wrote doesn't take, open **⚙ → Directory settings**. Per directory, it shows what
+that `.mulmoterminal.json` is **actually doing**.
+
+- **The values in force** — colors with a swatch. What you see is what is being used.
+- **Which file each came from** — the global `~/.mulmoterminal/config.json` or the project's
+  `<project>/.mulmoterminal.json`.
+- **`Dropped as invalid:`** — keys thrown away because the shape was wrong.
+- **`Not settings this app reads (a typo?):`** — keys this app never reads. `badgeColour` for
+  `badgeColor`, or a global-only setting written per-directory.
+
+**A setting that never took effect looks exactly like one you never made, until you can see this.**
+Most "my setting does nothing" reports are one of the last two lists.
 
 ## Global config `~/.mulmoterminal/config.json`
 

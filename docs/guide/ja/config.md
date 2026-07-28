@@ -35,18 +35,40 @@ nav_order: 4
 
 ![設定モーダル](../images/settings.png)
 
+上から順に、次の 15 セクションがあります。
+
 | 項目 | 内容 |
 |---|---|
-| **THEME** | Midnight / Nord / Daylight / Solarized Light |
-| **TERMINAL FONT SIZE** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
-| **DIRECTORY APPEARANCE** | 「🎨 Configure appearance…」— ディレクトリの名前バッジ・色・ヘッダーを対話的に設定 |
-| **NOTIFICATION SOUNDS** | どの瞬間に鳴らすか＋それぞれ何を鳴らすか。種類ごとに1行、プリセット選択と試聴ボタン付き（→ [通知音](#sounds)） |
-| **WEB PUSH NOTIFICATIONS** | 「Notify my devices when a task finishes」トグル（既定 OFF → [スマホ通知](notifications.html)） |
-| **GOOGLE ACCOUNT** | Calendar 連携用の Google サインイン（RemoteHost の Connect とは別物） |
-| **PULL REQUEST REPOS** | 横断 PR/Issue ビューが集約するリポ（`owner/repo`） |
-| **LAUNCH COMMANDS** | グリッドセルで Claude 以外に起動できるコマンド（`{ label, command }`） |
-| **MCP SERVERS** | 単一ビューのセッションに追加する自分の MCP サーバ |
-| **COST (ESTIMATED)** | Session / Today / Month の推定コスト表示 |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light |
+| **Terminal font size** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
+| **Directory appearance** | 「Configure appearance…」— ディレクトリの名前バッジ・色・ターミナルのパレット・ヘッダーを、`mulmoterminal-config` スキルで対話的に設定 |
+| **Directory settings** | 各ディレクトリの `.mulmoterminal.json` が**実際に何をしているか**。行を開くと、効いている値（色は見本付き）・**どのファイル由来か**・**検証で落ちたキー**・**このアプリが読まないキー**が出ます。読み取り専用（→ [設定が効かないとき](#dir-settings-preview)） |
+| **Notification sounds** | どの瞬間に鳴らすか＋それぞれ何を鳴らすか。種類ごとに1行、プリセット選択と試聴ボタン付き（→ [通知音](#sounds)） |
+| **Voice input** | 音声入力で**話す言語**（ブラウザの言語 / 発話ごとの自動検出 / 固定）。文字起こしできるマシンでだけ表示されます |
+| **Web Push notifications** | 「Notify my devices when a task finishes」トグル（既定 OFF → [スマホ通知](notifications.html)） |
+| **Google account** | Calendar 連携用の Google サインイン（RemoteHost の Connect とは別物） |
+| **Pull request repos** | 横断 PR/Issue ビューが集約するリポ（`owner/repo`） |
+| **Launch commands** | グリッドセルで Claude 以外に起動できるコマンド（`{ label, command }`） |
+| **Phone quick commands** | **スマホ**のターミナル表示にチップとして並ぶ定型文。タップで入力欄に入るだけで、送信は送信ボタンを押したとき。種別（claude / codex / shell）で出し分け可（`quickCommands`） |
+| **MCP servers** | 単一ビューのセッションに追加する自分の MCP サーバ |
+| **Cost (estimated)** | Session / Today / Month の推定コスト表示 |
+| **Keyboard shortcuts** | 今どのキーに何が割り当たっているかの一覧（読み取り専用）。**既定は全部 Not set** — 割り当ては `keymap` で行います（→ [キーボードショートカット](#keymap)） |
+| **Help & user guide** | このガイドへのリンク集 |
+
+## 設定が効かないとき — まずここを見る {#dir-settings-preview}
+
+書いたはずの設定が反映されないとき、**⚙ → Directory settings** を開いてください。ディレクトリごとに、
+その `.mulmoterminal.json` が**実際に何をしているか**が出ます。
+
+- **効いている値** — 色は見本付き。表示されている値が、いま本当に使われているものです
+- **どのファイル由来か** — グローバル (`~/.mulmoterminal/config.json`) とプロジェクト
+  (`<project>/.mulmoterminal.json`) のどちらから来たか
+- **`Dropped as invalid:`** — 書式が不正で**捨てられたキー**
+- **`Not settings this app reads (a typo?):`** — このアプリが**読まないキー**。`badgeColor` を
+  `badgeColour` と書いた、グローバル専用の設定をプロジェクト側に書いた、など
+
+**効かなかった設定と、そもそも書いていない設定は、この画面が無いと見分けがつきません。** 大半の
+「設定が効かない」は下の2つのどちらかです。
 
 ## グローバル設定 `~/.mulmoterminal/config.json`
 
