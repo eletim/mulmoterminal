@@ -118,7 +118,7 @@ export function decisionDigestMarkdown(records: DecisionRecord[], project: strin
   return [
     "# Decisions in this project",
     "",
-    `Project: \`${project}\`  `,
+    `Project: ${inlineLiteral(project)}  `,
     `Generated: ${generatedAt} by MulmoTerminal, from this project's Claude transcripts.`,
     "",
     "**This is a record of what happened, not a set of rules.** Every entry is a question that was",
