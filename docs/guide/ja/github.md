@@ -2,7 +2,8 @@
 title: GitHub — PR / Issue 横断ビュー
 layout: default
 parent: 日本語
-nav_order: 7
+nav_order: 9
+description: 登録したリポジトリの未マージ PR と Issue を 1 画面で見る、横断ビューの使い方。
 ---
 
 # GitHub — PR / Issue 横断ビュー
@@ -28,7 +29,7 @@ nav_order: 7
 
 ### 設定モーダルから（おすすめ）
 
-1. ツールバーの **⚙（設定）→ Pull request repos** を開きます。
+1. ツールバーの **Settings → Pull request repos** を開きます。
 2. 入力欄に **`owner/repo`**（例 `receptron/mulmoterminal`）を入れて **Add**。
 3. 追加したリポは一覧に並び、各行の **✕** で削除できます。
 
@@ -87,7 +88,7 @@ gh auth login
 
 ## 見えないときは
 
-- **「No repositories configured…」と出る。** → まだ登録がありません。**⚙ → Pull request repos** で `owner/repo` を追加。
+- **「No repositories configured…」と出る。** → まだ登録がありません。**Settings → Pull request repos** で `owner/repo` を追加。
 - **「gh not found…」と出る。** → GitHub CLI を入れて `gh auth login`。
 - **特定のリポだけエラー。** → 綴り（`owner/repo`）と、そのリポへの **`gh` のアクセス権**を確認。private なら権限が必要です。
 - **さっき出した PR が出ない。** → 自動更新はないので **↻ Reload**。それでも無ければ Open 状態か、`owner/repo` が正しいか確認。
