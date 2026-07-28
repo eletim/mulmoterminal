@@ -16,6 +16,7 @@ import {
   saveAppConfig,
   mergeConfigUpdate,
   toPublicAppConfig,
+  unknownKeysOf,
   type AppConfig,
 } from "./app-config.js";
 import { type HeaderConfig } from "./header-config.js";
@@ -72,6 +73,12 @@ export function getHeaderConfig(): HeaderConfig {
 
 // Whether to send a Web Push when a task finishes — read live at the Stop hook so a
 // settings toggle takes effect without a restart.
+// Whether the user opted in to MulmoTerminal writing on their issues (#979). Read live, like the
+// rest: turning it off must stop the next comment, not the next restart.
+export function getIssueWorkComments(): boolean {
+  return config.issueWorkComments;
+}
+
 export function getPushEnabled(): boolean {
   return config.pushEnabled;
 }
@@ -156,7 +163,9 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
     const next = mergeConfigUpdate(base, body);
     // Stage, persist, commit in-memory only on success — a failed write must not
     // leave GET exposing values that won't survive a restart.
-    if (!saveAppConfig(CONFIG_FILE, next)) return res.status(500).json({ error: "failed to persist config" });
+    // Carry the keys this build doesn't know straight back to disk. Another version's setting
+    // must not disappear because this one saved over it (#966).
+    if (!saveAppConfig(CONFIG_FILE, next, unknownKeysOf(loaded))) return res.status(500).json({ error: "failed to persist config" });
     config = next;
     res.json(configResponse());
   });

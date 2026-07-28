@@ -8,16 +8,12 @@
 // header's PR button — this module takes an already-resolved repo/branch so it stays free
 // of the config/header layer.
 import type { CiState } from "../../common/ghItems.js";
+import { issueCandidateFromBranch, issueRefFromPrBody, type PrPhase, type WorkItem } from "../../common/prPhase.js";
 import { runGh } from "./gh.js";
 import { rollupCiState } from "./prs.js";
 import { createTtlCache } from "./ttl-cache.js";
 import { branchQuery, type BranchQueryDeps } from "./branch-query.js";
 import { isRecord } from "../../common/isRecord.js";
-
-// Ordered roughly along the lifecycle so the client can pick a colour/label per phase.
-// `none` = no PR for this branch yet (still local work); `ready` = open, CI green, no
-// changes requested — i.e. waiting to merge.
-export type PrPhase = "none" | "draft" | "ci-failing" | "changes-requested" | "ci-running" | "ready" | "merged" | "closed";
 
 export interface ParsedPr {
   state: string; // OPEN | MERGED | CLOSED
@@ -25,6 +21,10 @@ export interface ParsedPr {
   reviewDecision: string; // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | ""
   ci: CiState; // passing | failing | pending | none
   url: string | null;
+  number: number | null;
+  // The PR description, read ONLY for its closing keyword (`Fixes #966`) — that is how the cell
+  // learns which issue its work belongs to.
+  body: string;
 }
 
 const toParsedPr = (o: Record<string, unknown>): ParsedPr => ({
@@ -33,6 +33,8 @@ const toParsedPr = (o: Record<string, unknown>): ParsedPr => ({
   reviewDecision: typeof o.reviewDecision === "string" ? o.reviewDecision : "",
   ci: rollupCiState(o.statusCheckRollup),
   url: typeof o.url === "string" ? o.url : null,
+  number: typeof o.number === "number" && Number.isSafeInteger(o.number) ? o.number : null,
+  body: typeof o.body === "string" ? o.body : "",
 });
 
 // Every PR in `gh pr list --json ...` output (empty on malformed / no PRs).
@@ -61,17 +63,15 @@ export function derivePrPhase(pr: ParsedPr | null): PrPhase {
   return "ready";
 }
 
-export interface PrPhaseResult {
-  phase: PrPhase;
-  url: string | null;
-}
+// Kept as the name the route and its spec already use; the shape is the shared wire type now.
+export type PrPhaseResult = WorkItem;
 
-const GH_FIELDS = "state,isDraft,reviewDecision,statusCheckRollup,url";
+const GH_FIELDS = "state,isDraft,reviewDecision,statusCheckRollup,url,number,body";
 const cache = createTtlCache<PrPhaseResult>();
 
 export type PrPhaseDeps = BranchQueryDeps;
 
-const NONE: PrPhaseResult = { phase: "none", url: null };
+const NONE: PrPhaseResult = { phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null };
 
 // The newest PR for `branch` in `state`. `ok` distinguishes "gh ran, no such PR" (pr:null)
 // from "gh failed" — the caller must not treat a failed open-PR query as "no open PR", or a
@@ -84,6 +84,27 @@ async function listPr(run: typeof runGh, repo: string, branch: string, state: "o
     return { ok: false, pr: null };
   }
 }
+
+// Which issue this branch's work belongs to. The PR's own `Fixes #N` is authoritative — the
+// author wrote it, and it is what GitHub will close. Only without one does the branch NAME get a
+// say, and then only as a candidate: `release/2026-07-28-hotfix` offers 2026 as readily as
+// `fix/966-…` offers 966, so it is confirmed against the repo before a cell claims it. A `gh`
+// failure here means "no issue" rather than a guess — the whole result is cached together, so
+// this costs at most one extra call per branch per TTL, and only for a branch with no PR body ref.
+async function resolveIssue(run: typeof runGh, repo: string, branch: string, pr: ParsedPr | null): Promise<{ number: number; url: string } | null> {
+  const fromBody = issueRefFromPrBody(pr?.body);
+  if (fromBody !== null) return { number: fromBody, url: issueUrl(repo, fromBody) };
+  const candidate = issueCandidateFromBranch(branch);
+  if (candidate === null) return null;
+  try {
+    const res = await run(["issue", "view", String(candidate), "--repo", repo, "--json", "number"]);
+    return res.ok ? { number: candidate, url: issueUrl(repo, candidate) } : null;
+  } catch {
+    return null;
+  }
+}
+
+const issueUrl = (repo: string, number: number): string => `https://github.com/${repo}/issues/${number}`;
 
 // The PR phase for `branch`. An OPEN PR (there's at most one per head branch) is the current
 // state, queried first so it can't be masked by stale merged/closed PRs from a reused head —
@@ -103,7 +124,14 @@ export async function phaseForRepoBranch(repo: string, branch: string, deps: PrP
     if (!all.ok) return NONE;
     pr = all.pr;
   }
-  const result: PrPhaseResult = { phase: derivePrPhase(pr), url: pr?.url ?? null };
+  const issue = await resolveIssue(run, repo, branch, pr);
+  const result: PrPhaseResult = {
+    phase: derivePrPhase(pr),
+    pr: pr?.number ?? null,
+    prUrl: pr?.url ?? null,
+    issue: issue?.number ?? null,
+    issueUrl: issue?.url ?? null,
+  };
   cache.set(key, result, now);
   return result;
 }

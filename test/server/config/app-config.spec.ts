@@ -258,6 +258,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     terminalSubmit: "cr",
     keymap: {},
     copyOnSelect: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -283,12 +284,13 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
-      copyOnSelect: true, // opt-in, so only `true` proves it persisted rather than defaulted
+      copyOnSelect: true,
+      issueWorkComments: false, // opt-in, so only `true` proves it persisted rather than defaulted
       prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
       cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
       fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
     };
-    expect(saveAppConfig(file, cfg)).toBe(true);
+    expect(saveAppConfig(file, cfg, {})).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
     expect(loadAppConfig(file)).toEqual(cfg);
     rmSync(dir, { recursive: true, force: true });
@@ -339,6 +341,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "cr",
       copyOnSelect: false,
+      issueWorkComments: false,
       prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
       fontFamily: null,
     });
@@ -442,6 +445,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     terminalSubmit: "cr" as const,
     keymap: {},
     copyOnSelect: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -450,7 +454,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, richConfig);
+    saveAppConfig(file, richConfig, {});
     const loaded = loadAppConfigResult(file);
     expect(loaded.status).toBe("ok");
     const base = loaded.status === "ok" ? loaded.config : loadAppConfig(file);
@@ -464,7 +468,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   it("a corrupt base is caught BEFORE merge, so the write path can refuse instead of wiping", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, richConfig);
+    saveAppConfig(file, richConfig, {});
     // Corrupt it the way a hand-edit would (append a stray token).
     writeFileSync(file, readFileSync(file, "utf8") + "  oops");
     const loaded = loadAppConfigResult(file);
@@ -502,6 +506,7 @@ describe("mergeConfigUpdate", () => {
     terminalSubmit: "cr",
     keymap: {},
     copyOnSelect: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -558,7 +563,7 @@ describe("mergeConfigUpdate", () => {
     const file = path.join(dir, "config.json");
     try {
       // "Another instance" persisted a full config (buttons + chips) to the shared file.
-      saveAppConfig(file, baseConfig());
+      saveAppConfig(file, baseConfig(), {});
       // A stale instance handles a chips-only POST: base must come from the re-read disk,
       // not its boot-time memory — so the disk's buttons survive.
       const disk = loadAppConfig(file);

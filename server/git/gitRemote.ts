@@ -1,39 +1,22 @@
 import type { Express, Request } from "express";
 import { spawn } from "node:child_process";
 import { resolveDirRequest } from "../files/dirRequest.js";
+import { parseRemoteRef, topSegments } from "./remote-ref.js";
 
-// Convert a git remote URL to its GitHub repository web URL, or null when the
-// remote isn't on github.com. Pure (no I/O) so it's exhaustively unit-tested.
-// Handles the common remote forms:
-//   git@github.com:owner/repo.git           (scp-like SSH)
-//   ssh://git@github.com[:port]/owner/repo  (SSH URL)
-//   https://[user[:token]@]github.com/owner/repo.git
-//   git://github.com/owner/repo.git
+// Convert a git remote URL to its GitHub repository web URL, or null when the remote isn't on
+// github.com. Pure (no I/O) so it's exhaustively unit-tested.
+//
+// The URL FORMS a remote can take live in remote-ref.ts — they belong to git, not to GitHub
+// (#981). What is GitHub's own is the two rules here: the host, and that a project is exactly
+// two path segments (owner/repo), so a deeper path is truncated rather than rejected.
+export const GITHUB_HOST = "github.com";
+const GITHUB_PATH_SEGMENTS = 2;
+
 export function parseGithubWebUrl(remoteUrl: string): string | null {
-  const url = remoteUrl.trim();
-  if (!url) return null;
-
-  // scp-like form has no scheme: user@host:path. Everything else (https/ssh/git
-  // URLs, with optional creds/port) is handled by the standard URL parser.
-  const scp = /^[^/@]+@([^/:]+):([^:]+)$/.exec(url);
-  const { host, rawPath } = scp ? { host: scp[1], rawPath: scp[2] } : fromUrl(url);
-  if (!host || host.toLowerCase() !== "github.com") return null;
-
-  const segments = rawPath
-    .replace(/\.git$/i, "")
-    .split("/")
-    .filter(Boolean);
-  if (segments.length < 2) return null;
-  return `https://github.com/${segments[0]}/${segments[1]}`;
-}
-
-function fromUrl(url: string): { host: string; rawPath: string } {
-  try {
-    const parsed = new URL(url);
-    return { host: parsed.hostname, rawPath: parsed.pathname.replace(/^\/+/, "") };
-  } catch {
-    return { host: "", rawPath: "" };
-  }
+  const ref = parseRemoteRef(remoteUrl);
+  if (!ref || ref.host !== GITHUB_HOST) return null;
+  const repo = topSegments(ref.path, GITHUB_PATH_SEGMENTS);
+  return repo ? `https://${GITHUB_HOST}/${repo}` : null;
 }
 
 // Read the dir's `origin` remote and map it to a GitHub web URL (null if the dir

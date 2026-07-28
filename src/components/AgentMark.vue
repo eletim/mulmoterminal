@@ -1,0 +1,33 @@
+<script setup lang="ts">
+// The two agents' marks, drawn rather than picked: Material Symbols is an icon set, not a brand
+// set, so anything from it (`code`, `auto_awesome`) says "generic AI thing" twice and leaves the
+// reader to work out which row is which. These are the shapes each tool is actually known by.
+//
+// Geometry only — no text, no logotype — and both inherit `currentColor`, so a window past its
+// warning threshold turns its mark amber along with its number rather than staying a fixed swatch
+// beside coloured text.
+defineProps<{ agent: "claude" | "codex" }>();
+
+// Anthropic's burst: spokes around a centre. Drawn from one radius so the arms stay even at the
+// 13px this renders at, where a hand-placed path goes lopsided.
+const SPOKES = 8;
+const spokeRotations = Array.from({ length: SPOKES }, (_, i) => (i * 360) / SPOKES);
+</script>
+
+<template>
+  <svg v-if="agent === 'claude'" viewBox="0 0 24 24" class="h-[13px] w-[13px] flex-none" fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+      <line v-for="rotation in spokeRotations" :key="rotation" x1="12" y1="12" x2="12" y2="3.5" :transform="`rotate(${rotation} 12 12)`" />
+    </g>
+  </svg>
+  <!-- Two crossed loops, not three. The knot's own six-fold form was tried first and measured at
+       the size it actually renders: three overlapping ellipses fill the middle in and the whole
+       thing reads as one dark blob, which distinguishes nothing. Two loops keep an open centre and
+       stay legible, at the cost of being a suggestion of the mark rather than a copy of it. -->
+  <svg v-else viewBox="0 0 24 24" class="h-[14px] w-[14px] flex-none" fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1.5">
+      <ellipse cx="12" cy="12" rx="4.5" ry="10" transform="rotate(45 12 12)" />
+      <ellipse cx="12" cy="12" rx="4.5" ry="10" transform="rotate(-45 12 12)" />
+    </g>
+  </svg>
+</template>

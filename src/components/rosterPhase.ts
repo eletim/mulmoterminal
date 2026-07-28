@@ -1,9 +1,9 @@
-// Display mapping for a cell's PR workflow phase in the cockpit roster. The phase values
-// mirror server/git/prPhase.ts's PrPhase (the /api/pr-phase response) — keep them in sync.
-export type PrPhase = "none" | "draft" | "ci-failing" | "changes-requested" | "ci-running" | "ready" | "merged" | "closed";
-
-export const isPrPhase = (v: unknown): v is PrPhase =>
-  v === "none" || v === "draft" || v === "ci-failing" || v === "changes-requested" || v === "ci-running" || v === "ready" || v === "merged" || v === "closed";
+// Display mapping for a cell's PR workflow phase — the label and tooltip the roster and the
+// header chip put on screen. The phase VALUES live in common/prPhase.ts, which both sides read;
+// this file used to redeclare them with a "keep them in sync" note, which is the drift the
+// common/ rule exists to prevent.
+export { isPrPhase, type PrPhase } from "../../common/prPhase";
+import type { PrPhase } from "../../common/prPhase";
 
 // Short badge text + a fuller tooltip. `none` (no PR yet) renders nothing — the roster just
 // shows the agent status until a PR exists.
