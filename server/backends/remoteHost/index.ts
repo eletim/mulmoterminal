@@ -21,6 +21,7 @@ import type { RunnerHealth } from "../../../common/remoteHostHealth.js";
 import { startResilientRunner } from "./resilientRunner.js";
 import { createHealthNotice } from "./healthNotice.js";
 import { createRemoteHostHandlers, type RemoteHostHandlerDeps } from "./handlers.js";
+import { firestoreSafeHandlers } from "./firestoreSafeResult.js";
 import { createSaveAttachment } from "./attachmentStore.js";
 import { buildIngestAttachments } from "./ingestAttachments.js";
 import { onExpire } from "./onExpire.js";
@@ -77,17 +78,21 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
     // Expired offline-queued startChat commands: delete the phone's staged Storage
     // uploads before the runner removes the doc (protocol v2 offline queue).
     onExpire,
-    handlers: createRemoteHostHandlers({
-      workspace: deps.workspace,
-      spawnChat: deps.spawnChat,
-      ingest,
-      listTerminalSessions: deps.listTerminalSessions,
-      captureTerminalScreen: deps.captureTerminalScreen,
-      writeToSession: deps.writeToSession,
-      canClearBox: deps.canClearBox,
-      submitSequence: deps.submitSequence,
-      launchTerminal: deps.launchTerminal,
-    }),
+    // Every reply passes the undefined guard before core writes it to Firestore (#1042).
+    handlers: firestoreSafeHandlers(
+      createRemoteHostHandlers({
+        workspace: deps.workspace,
+        spawnChat: deps.spawnChat,
+        ingest,
+        listTerminalSessions: deps.listTerminalSessions,
+        captureTerminalScreen: deps.captureTerminalScreen,
+        writeToSession: deps.writeToSession,
+        canClearBox: deps.canClearBox,
+        submitSequence: deps.submitSequence,
+        launchTerminal: deps.launchTerminal,
+      }),
+      (message) => log.warn(message),
+    ),
     log: { ...log, debug: () => undefined },
   });
 }
