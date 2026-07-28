@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { forEachJsonlLine, readTailLines } from "../../../server/infra/jsonl-file.js";
+import { forEachJsonlLine, readTailLines, readTailRecords } from "../../../server/infra/jsonl-file.js";
 
 // These two exist because `fs.readFile(file, "utf8")` throws past ~512 MB whatever the file holds,
 // which silently emptied the longest sessions (#998). What matters in a spec is therefore the
@@ -100,5 +100,41 @@ describe("readTailLines", () => {
   // rotated away must not take the roster down with it.
   it("returns no lines for a file that isn't there", () => {
     expect(readTailLines(path.join(dir, "missing.jsonl"))).toEqual([]);
+  });
+});
+
+describe("readTailRecords", () => {
+  it("parses the records at the end", () => {
+    const file = write("recs.jsonl", '{"n":1}\n{"n":2}\n{"n":3}\n');
+    expect(readTailRecords(file)).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+  });
+
+  // The partial first line a mid-file read leaves behind is not JSON, and neither is a corrupt
+  // one. Both are skipped rather than taking the whole read down.
+  it("skips a line that will not parse", () => {
+    const file = write("partial.jsonl", '{"n":1}\nnot json\n{"n":2}\n');
+    expect(readTailRecords(file)).toEqual([{ n: 1 }, { n: 2 }]);
+  });
+
+  it("skips a JSON line that is not an object", () => {
+    const file = write("scalar.jsonl", '{"n":1}\n42\n"text"\n[1,2]\n{"n":2}\n');
+    expect(readTailRecords(file)).toEqual([{ n: 1 }, { n: 2 }]);
+  });
+
+  it("has no records for an empty or missing file", () => {
+    expect(readTailRecords(write("none.jsonl", ""))).toEqual([]);
+    expect(readTailRecords(path.join(dir, "gone.jsonl"))).toEqual([]);
+  });
+
+  // The window has to hold a whole TURN, and one Claude record can carry an entire tool_result.
+  // On the 585 MB transcript here the last 256 KB was nine records — not one complete turn — which
+  // is why the default is 4 MB and not the codex rollout's 256 KB (#998).
+  it("reads far enough back to cover records that are individually huge", () => {
+    const fat = (i: number) => JSON.stringify({ i, blob: "x".repeat(200 * 1024) });
+    const file = write("fat.jsonl", `${[0, 1, 2, 3, 4, 5].map(fat).join("\n")}\n`);
+    const recs = readTailRecords(file);
+    // At 256 KB only the last record would survive; the default window keeps several.
+    expect(recs.length).toBeGreaterThan(1);
+    expect(recs.at(-1)).toMatchObject({ i: 5 });
   });
 });
