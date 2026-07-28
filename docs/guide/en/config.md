@@ -1194,7 +1194,7 @@ there to look at.
 
 | Variable | Default | Role |
 |---|---|---|
-| `CLAUDE_CWD` / `--cwd` | The directory you run `npx mulmoterminal` in (only `~/mulmoclaude` when the server is started directly) | The default working directory (the PTY's cwd); also set via `--cwd` |
+| `CLAUDE_CWD` / `--cwd` | The directory you run `npx mulmoterminal@latest` in (only `~/mulmoclaude` when the server is started directly) | The default working directory (the PTY's cwd); also set via `--cwd` |
 | `PORT` | `34567` | The server port |
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
 | `MULMOTERMINAL_ALLOWED_ORIGINS` | *(none)* | Extra browser origins allowed to attach a terminal, comma-separated. Only needed alongside a wider `MULMOTERMINAL_HOST` (→ [below](#bind-host)) |
@@ -1213,7 +1213,7 @@ point it elsewhere, which is why the warning below is based on **what the server
 loopback, because there is no other signal that it happened.
 
 ```bash
-MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # trusted networks only — see the caveat below
+MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal@latest   # trusted networks only — see the caveat below
 ```
 
 Binding wider is not by itself enough to open the page **from another machine**. The same-origin
@@ -1224,14 +1224,14 @@ fails to attach a terminal.
 Naming a single address does both at once:
 
 ```bash
-MULMOTERMINAL_HOST=192.168.11.6 npx mulmoterminal   # binds there AND accepts that origin
+MULMOTERMINAL_HOST=192.168.11.6 npx mulmoterminal@latest   # binds there AND accepts that origin
 ```
 
 A wildcard cannot: `0.0.0.0` means *every* interface, so there is no single address to accept —
 say which one you actually open.
 
 ```bash
-MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterminal
+MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterminal@latest
 ```
 
 `MULMOTERMINAL_ALLOWED_ORIGINS` takes a comma-separated list; each entry is a host (`nuc.local`,

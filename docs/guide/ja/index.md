@@ -120,7 +120,7 @@ MulmoTerminal は普段の開発ツールを操縦するコックピットなの
 | 任意 | `docker` | 実験的な Docker サンドボックス（単一ビュー・[OpenRouter](providers.html) とは併用不可） | [docs.docker.com](https://docs.docker.com/get-started/get-docker/) |
 
 必須以外が無くてもサーバは起動します（その行の機能が使えないだけ）。今のマシンに何が
-足りないかは **`npx mulmoterminal init`** で確認できます。上の全コマンドをチェックしたうえで、
+足りないかは **`npx mulmoterminal@latest init`** で確認できます。上の全コマンドをチェックしたうえで、
 Claude Code の履歴からランチャのディレクトリプリセットを作ってくれます。
 
 ## このガイドの読み方

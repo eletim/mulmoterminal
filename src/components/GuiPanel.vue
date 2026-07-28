@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
+import { usePubSub } from "../composables/usePubSub";
 import { getPlugin } from "../plugins-registry";
 import PluginFrame from "./PluginFrame.vue";
-import { CANVAS_TOOL_GROUP, toolsInGroup } from "../../common/toolGroups";
+import { TOOL_GROUPS, groupOfTool, toolsInGroup } from "../../common/toolGroups";
+import { TOOL_GROUPS_CHANNEL } from "../toolGroupsChannel";
 
 // The GUI panel renders the toolResults produced by GUI-protocol plugins. It
 // mirrors the terminal's active session: live results arrive on that session's
@@ -29,7 +31,7 @@ const props = defineProps<{
   // it mounted — and the empty-state hint below ("ask Claude to use one of these") is a LIE in
   // both cases: there is nothing to ask, or nothing that could answer. Absent/null means the
   // panel is usable, which keeps the single view (where it always is) unchanged.
-  unavailable?: "no-session" | "no-render-mcp" | null;
+  unavailable?: "no-session" | "no-canvas-mcp" | null;
 }>();
 const emit = defineEmits<{ toggleTools: [] }>();
 
@@ -77,19 +79,83 @@ async function onUpdateResult(existing: ToolResult, update: Partial<ToolResult>)
 
 const hasContent = computed(() => results.value.length > 0);
 
-// What each drawing tool produces, so the empty state says what asking for one would get rather
-// than only naming it. A Map for the same reason common/toolGroups.ts uses one, and consulted
-// with a fallback: the NAMES come from the group table, so a render tool added there shows up
-// here immediately — unnamed rather than missing, which is the failure that is noticed.
-const CANVAS_TOOL_HINTS = new Map<string, string>([
+// What each tool produces, so the empty state says what asking for one would get rather than
+// only naming it. A Map for the same reason common/toolGroups.ts uses one, and consulted with a
+// fallback: the NAMES come from the group table, so a tool added there shows up here
+// immediately — unnamed rather than missing, which is the failure that is noticed.
+const TOOL_HINTS = new Map<string, string>([
   ["presentDocument", "a formatted document, written in markdown"],
   ["presentForm", "a form to fill in and send back"],
   ["presentChart", "a chart from a set of data"],
   ["presentHtml", "a self-contained web page"],
+
+  ["presentCollection", "a collection from this workspace, laid out to browse"],
+  ["manageCollection", "reads and writes those collections and their schemas"],
+  ["manageAccounting", "reads and writes the workspace's books"],
+
+  ["generateImage", "an image generated from a prompt"],
+  ["presentMulmoScript", "a MulmoScript presentation, built and played here"],
+
+  ["google", "your linked Google account: Calendar, Tasks, Drive"],
+  ["readXPost", "one post on X, fetched by URL or id"],
+  ["searchX", "recent posts on X matching a query"],
 ]);
 
-// The complete render group, not a sample of it.
-const canvasTools = computed(() => toolsInGroup(CANVAS_TOOL_GROUP).map((name) => ({ name, hint: CANVAS_TOOL_HINTS.get(name) ?? "" })));
+// The tools the SERVER says this session has, asked for rather than reconstructed from the group
+// table. Two things make the static answer wrong: a grid cell reaches only the groups its
+// directory registered, and a plugin whose requiredEnv is unmet (searchX without X_BEARER_TOKEN)
+// is dropped at load — naming either in the hint below sends the user to a tool that was never
+// offered. `null` until the answer lands, which is NOT the same as "no tools": see toolSections.
+const availableTools = ref<string[] | null>(null);
+
+async function loadAvailableTools(sessionId: string | null) {
+  availableTools.value = null;
+  try {
+    const res = await fetch(sessionId ? `/api/tools?sessionId=${encodeURIComponent(sessionId)}` : "/api/tools");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json();
+    // Late reply for a session we have since walked away from would list another cell's tools.
+    if (sessionId !== props.sessionId) return;
+    if (!Array.isArray(body.tools)) return;
+    availableTools.value = body.tools.map((tool: { toolName?: unknown }) => tool?.toolName).filter((name: unknown): name is string => typeof name === "string");
+  } catch {
+    // Leave it unknown rather than empty — the hint falls back to the full list, which is a
+    // better answer than telling a working session it has nothing.
+  }
+}
+watch(() => props.sessionId, loadAvailableTools, { immediate: true });
+
+// The answer above is normally asked BEFORE it can be true: the browser is handed a session id
+// while claude is still being spawned, so its MCP client has not connected to the group URLs yet
+// and the server has not learned which tools this cell got. The same channel the grid's Canvas
+// button waits on says when that changes.
+const { subscribe: subscribeToolGroups } = usePubSub();
+const offToolGroups = subscribeToolGroups(TOOL_GROUPS_CHANNEL, (data) => {
+  const msg = data as { sessionId?: string };
+  if (msg?.sessionId && msg.sessionId === props.sessionId) loadAvailableTools(props.sessionId);
+});
+onBeforeUnmount(() => offToolGroups());
+
+// What this session can be asked for, grouped. Ordered by TOOL_GROUPS (blast radius, least
+// first) rather than by the order the server happened to list them, so the hint does not
+// reshuffle between cells, and a group with nothing available drops out entirely.
+//
+// While the answer is unknown, every group's members — the full list is what the panel showed
+// before it could ask at all, and it beats an empty one during the moment after a cell switch.
+const toolSections = computed(() =>
+  TOOL_GROUPS.map((group) => {
+    const known = availableTools.value;
+    const names = known ? known.filter((name) => groupOfTool(name) === group) : toolsInGroup(group);
+    // toolsInGroup order, not the server's: the group table is where the reading order was chosen.
+    const ordered = toolsInGroup(group).filter((name) => names.includes(name));
+    return { group, tools: ordered.map((name) => ({ name, hint: TOOL_HINTS.get(name) ?? "" })) };
+  }).filter((section) => section.tools.length > 0),
+);
+
+// A session with no GUI tools at all. The grid never reaches this — it reports `unavailable`
+// first, and that outranks — but "ask Claude to use one of these:" above an EMPTY list is a
+// dead end for any caller that does, so the hint is dropped rather than left dangling.
+const hasTools = computed(() => toolSections.value.some((section) => section.tools.length > 0));
 </script>
 
 <template>
@@ -123,21 +189,26 @@ const canvasTools = computed(() => toolsInGroup(CANVAS_TOOL_GROUP).map((name) =>
           <div class="font-medium text-secondary">Canvas is not enabled for this session</div>
           <p class="mt-1">
             Its agent was started without the drawing tools, so nothing can appear here. They are handed out at startup: turn on
-            <span class="whitespace-nowrap font-medium">CANVAS (render MCPs)</span> in this cell's launcher, then restart the cell.
+            <span class="whitespace-nowrap font-medium">CANVAS (render MCPs)</span> — or <span class="whitespace-nowrap font-medium">CANVAS (media MCPs)</span>,
+            for generated images and MulmoScript — in this cell's launcher, then restart the cell.
           </p>
         </template>
       </div>
-      <!-- The whole group is listed rather than an example or two: this is the only place the
-           tools are named, and a user reading "presentDocument or presentForm" has no way to
-           learn that a chart or a web page is also on offer. -->
+      <!-- Grouped, and the group is named: the switches in the launcher are per group, so a user
+           who wants a tool that isn't listed needs to know WHICH one to turn on. The heading is
+           dropped when there is only one — naming a division of one explains nothing. -->
+      <div v-else-if="!hasContent && !hasTools" data-testid="canvas-no-tools" class="text-[13px] text-dim">This session has no GUI tools.</div>
       <div v-else-if="!hasContent" data-testid="canvas-empty" class="text-[13px] text-dim">
-        Ask Claude to use one of these to render content here:
-        <ul class="mt-1.5 list-disc space-y-1 pl-4 marker:text-border">
-          <li v-for="tool in canvasTools" :key="tool.name">
-            <code class="rounded-[4px] bg-subtle px-[5px] py-px">{{ tool.name }}</code>
-            <template v-if="tool.hint"> &mdash; {{ tool.hint }}</template>
-          </li>
-        </ul>
+        Ask Claude to use one of these:
+        <div v-for="section in toolSections" :key="section.group" class="mt-1.5">
+          <div v-if="toolSections.length > 1" class="text-[11px] uppercase tracking-[0.05em] text-muted">{{ section.group }}</div>
+          <ul class="mt-1 list-disc space-y-1 pl-4 marker:text-border">
+            <li v-for="tool in section.tools" :key="tool.name">
+              <code class="rounded-[4px] bg-subtle px-[5px] py-px">{{ tool.name }}</code>
+              <template v-if="tool.hint"> &mdash; {{ tool.hint }}</template>
+            </li>
+          </ul>
+        </div>
       </div>
       <!-- Guarded as well as cleared on session change: a stale view rendered under an
            "unavailable" heading would contradict it. -->

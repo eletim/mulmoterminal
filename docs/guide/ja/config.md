@@ -1162,7 +1162,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 
 | 変数 | 既定 | 役割 |
 |---|---|---|
-| `CLAUDE_CWD` / `--cwd` | 実行したディレクトリ（`npx mulmoterminal`。サーバを直接起動した場合のみ `~/mulmoclaude`） | 既定の作業ディレクトリ（PTY の cwd）。`--cwd` でも指定可 |
+| `CLAUDE_CWD` / `--cwd` | 実行したディレクトリ（`npx mulmoterminal@latest`。サーバを直接起動した場合のみ `~/mulmoclaude`） | 既定の作業ディレクトリ（PTY の cwd）。`--cwd` でも指定可 |
 | `PORT` | `34567` | サーバのポート |
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | サーバが待ち受けるインターフェース（→ [下記](#bind-host)） |
 | `MULMOTERMINAL_ALLOWED_ORIGINS` | *(なし)* | ターミナルに接続してよいブラウザのオリジンを追加（カンマ区切り）。`MULMOTERMINAL_HOST` を広げたときにだけ必要（→ [下記](#bind-host)） |
@@ -1180,7 +1180,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 他に気づく手段が無いためです。
 
 ```bash
-MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # 信頼できる網でのみ — 下の注意を参照
+MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal@latest   # 信頼できる網でのみ — 下の注意を参照
 ```
 
 バインドを広げるだけでは、**別マシンのブラウザから開く**には足りません。ターミナルの WebSocket を守る
@@ -1191,14 +1191,14 @@ MULMOTERMINAL_HOST=0.0.0.0 npx mulmoterminal   # 信頼できる網でのみ —
 アドレスを 1 つ指定すれば、両方が同時に済みます。
 
 ```bash
-MULMOTERMINAL_HOST=192.168.11.6 npx mulmoterminal   # そこに束縛し、かつそのオリジンを許可する
+MULMOTERMINAL_HOST=192.168.11.6 npx mulmoterminal@latest   # そこに束縛し、かつそのオリジンを許可する
 ```
 
 ワイルドカードではこうなりません。`0.0.0.0` は**全**インターフェースを意味するので、許可すべき
 アドレスが 1 つに定まりません。実際に開くアドレスを指定してください。
 
 ```bash
-MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterminal
+MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterminal@latest
 ```
 
 `MULMOTERMINAL_ALLOWED_ORIGINS` はカンマ区切りで、各項目はホスト（`nuc.local`、`192.168.11.6`、

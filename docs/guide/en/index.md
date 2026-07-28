@@ -121,7 +121,7 @@ remaining row unlocks one feature.
 | Optional | `docker` | the experimental Docker sandbox (single view; can't be combined with [OpenRouter](providers.html)) | [docs.docker.com](https://docs.docker.com/get-started/get-docker/) |
 
 The server starts without the non-required ones — you only lose that row's feature. To see
-what's missing on this machine, run **`npx mulmoterminal init`**: it reports every tool above,
+what's missing on this machine, run **`npx mulmoterminal@latest init`**: it reports every tool above,
 then seeds the launcher's directory presets from your Claude Code history.
 
 ## How to read this guide
