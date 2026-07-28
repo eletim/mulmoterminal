@@ -39,7 +39,7 @@ MulmoTerminal — a browser terminal for parallel Claude Code and Codex agents �
 | Git status chip | `⎇ branch ●changes ↑ahead ↓behind`, always shown |
 | PR phase / work phase | Each roster row badges the branch's **PR state** (draft / CI fail / changes / ready / merged …) and the work phase (planning / editing) |
 | Model / context size | e.g. `Opus · ctx 35%` — the active model and how full the context is |
-| Activity timeline **Activity timeline** | Tool-call history (Bash / Read / Edit …) shown newest-first in a modal |
+| Activity timeline | Tool-call history (Bash / Read / Edit …) shown newest-first in a modal |
 | Cost (estimated) | Approximate **session / today / this month** cost in settings |
 | Worktree diff badge | Shows the amount of change on a worktree cell; click for the diff panel |
 | GUI panel | Renders diagrams, forms, images, and documents — plus HTML, **video/slides (MulmoCast)**, collections, and accounting — from the agent's tool calls (Claude / Codex both supported) |

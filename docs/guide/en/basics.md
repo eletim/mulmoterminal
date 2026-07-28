@@ -64,8 +64,8 @@ The header of a running cell has two rows. Together they capture that agent's **
 
 - **Row 1 (info):** status dot, directory, git chip (`⎇ branch ●changes`), **model / context size**,
   what that agent is **doing right now**, and expand / close.
-- **Row 2 (controls):** connection status, **Insert a file path** insert a file path, **Reveal in the file manager** reveal in the file manager (the default
-  buttons — [replaceable in config](config.html#header)), GitHub, and the **timeline ** (tool-call history).
+- **Row 2 (controls):** connection status, **Insert a file path**, **Reveal in the file manager** (the default
+  buttons — [replaceable in config](config.html#header)), GitHub, and **Activity timeline** (tool-call history).
 
 > **Status shows up as color.** A bluish border means **working** (thinking), **amber means awaiting input or a
 > permission** (Needs input), a **blue ring + glow means a finished, unreviewed turn** (Done — review; a green dot
