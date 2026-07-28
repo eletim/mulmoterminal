@@ -7,6 +7,11 @@ import { describe, it, expect, vi } from "vitest";
 import { undefinedPaths, stripUndefined, firestoreSafeHandlers } from "../../../server/backends/remoteHost/firestoreSafeResult";
 import { buildSessionList } from "../../../server/backends/remoteHost/terminalScreen";
 
+// A REAL hole, not `[1, undefined, 3]` — the two behave differently under map/flatMap, and the
+// hole is the case that slipped through. Built rather than written as `[1, , 3]`, which the
+// no-sparse-arrays lint rule forbids in source.
+const sparse = (): unknown[] => Object.assign(new Array<unknown>(3), { 0: 1, 2: 3 });
+
 describe("undefinedPaths", () => {
   it("says nothing about a value Firestore accepts", () => {
     expect(undefinedPaths({ a: 1, b: "x", c: null, d: [1, 2], e: {} })).toEqual([]);
@@ -20,6 +25,13 @@ describe("undefinedPaths", () => {
 
   it("names the index inside arrays", () => {
     expect(undefinedPaths({ sessions: [{ work: 1 }, { work: undefined }] })).toEqual(["sessions.1.work"]);
+  });
+
+  // flatMap/map SKIP the holes in a sparse array, so `[1, , 3]` reported clean and was then
+  // written with a hole Firestore rejects — the same silent-pass this function exists to stop
+  // (CodeRabbit review).
+  it("sees the holes in a sparse array", () => {
+    expect(undefinedPaths({ list: sparse() })).toEqual(["list.1"]);
   });
 
   it("finds every one, not just the first", () => {
@@ -50,6 +62,18 @@ describe("stripUndefined", () => {
   // An array index carries meaning — removing one would shift everything after it.
   it("keeps array positions by using null", () => {
     expect(stripUndefined({ list: [1, undefined, 3] })).toEqual({ list: [1, null, 3] });
+  });
+
+  it("fills a sparse array's holes, not just its explicit undefined", () => {
+    const out = stripUndefined({ list: sparse() });
+    expect(out).toEqual({ list: [1, null, 3] });
+    expect(out.list[1]).toBeNull(); // toEqual alone passes for a hole too
+  });
+
+  // A handler with no explicit return sends the whole reply as undefined. Warning about it and
+  // handing it back unchanged left the write just as broken (CodeRabbit review).
+  it("turns a root-level undefined into null", () => {
+    expect(stripUndefined(undefined)).toBeNull();
   });
 
   it("leaves a clean value untouched", () => {
@@ -90,6 +114,13 @@ describe("firestoreSafeHandlers", () => {
     await handlers.one();
     await handlers.two();
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns null when the handler returns nothing at all", async () => {
+    const warn = vi.fn();
+    const handlers = firestoreSafeHandlers({ list: () => undefined }, warn);
+    expect(await handlers.list()).toBeNull();
+    expect(String(warn.mock.calls[0][0])).toContain("(root)");
   });
 
   it("keeps the handler names the runner advertises as capabilities", () => {

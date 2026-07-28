@@ -21,7 +21,9 @@
 export function undefinedPaths(value: unknown, prefix = ""): string[] {
   if (value === undefined) return [prefix || "(root)"];
   if (value === null || typeof value !== "object") return [];
-  if (Array.isArray(value)) return value.flatMap((item, i) => undefinedPaths(item, prefix ? `${prefix}.${i}` : String(i)));
+  // Array.from, not flatMap: a SPARSE array's holes are skipped by flatMap/map, so `[1, , 3]`
+  // would be reported clean and then written with a hole Firestore rejects (CodeRabbit review).
+  if (Array.isArray(value)) return Array.from(value).flatMap((item, i) => undefinedPaths(item, prefix ? `${prefix}.${i}` : String(i)));
   return Object.entries(value).flatMap(([key, item]) => undefinedPaths(item, prefix ? `${prefix}.${key}` : key));
 }
 
@@ -30,8 +32,12 @@ export function undefinedPaths(value: unknown, prefix = ""): string[] {
  * `null` so the surrounding indexes still line up with what the sender meant.
  */
 export function stripUndefined<T>(value: T): T {
+  // The whole reply can be undefined — a handler with no explicit return. Warning about it and
+  // then handing it back unchanged left the write just as broken (CodeRabbit review); null is what
+  // core already substitutes for a missing result.
+  if (value === undefined) return null as T;
   if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map((item) => (item === undefined ? null : stripUndefined(item))) as T;
+  if (Array.isArray(value)) return Array.from(value, (item) => (item === undefined ? null : stripUndefined(item))) as T;
   const out: Record<string, unknown> = {};
   Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
     if (item !== undefined) out[key] = stripUndefined(item);
