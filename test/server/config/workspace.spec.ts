@@ -125,6 +125,35 @@ describe("canonical spelling of the accepted directory", () => {
     expect(existingWorkspace("./server")).toBeNull();
   });
 
+  // Codex review of #1016. Canonicalizing AFTER the stat returns a path nothing checked: `stat`
+  // resolves symlinks in the kernel, `path.resolve` is purely lexical, and the two part ways as
+  // soon as a `..` follows a symlink into a DIFFERENT parent.
+  //
+  //   <dir>/link -> <dir>/sub/target
+  //   <dir>/link/../sibling   kernel: link -> sub/target, .. -> sub  =>  <dir>/sub/sibling (exists)
+  //                           lexical:                                   <dir>/sibling     (does not)
+  //
+  // Stat-then-resolve therefore accepts the input and hands back <dir>/sibling, which was never
+  // validated and is not there. The invariant: whatever comes back was the thing that was checked.
+  it.skipIf(process.platform === "win32")("never returns a directory it did not stat", async () => {
+    const target = path.join(dir, "sub", "target");
+    const sibling = path.join(dir, "sub", "sibling");
+    await fs.mkdir(target, { recursive: true });
+    await fs.mkdir(sibling, { recursive: true });
+    const link = path.join(dir, "link");
+    await fs.symlink(target, link);
+
+    // Concatenated, NOT path.join: join collapses the `..` itself, so the string would never
+    // reach the kernel with a symlink still in front of it and the fixture would test nothing.
+    const viaLink = `${link}${path.sep}..${path.sep}sibling`;
+    // Guard the fixture itself: the divergence has to be real, or the assertion below is vacuous.
+    expect((await fs.stat(viaLink)).isDirectory()).toBe(true);
+    expect(path.resolve(viaLink)).toBe(path.join(dir, "sibling"));
+
+    const answer = existingWorkspace(viaLink);
+    expect(answer).toBeNull();
+  });
+
   it("keeps the filesystem root, whose separator is not trailing", () => {
     const root = path.parse(dir).root;
     expect(resolveWorkspace(root)).toBe(root);

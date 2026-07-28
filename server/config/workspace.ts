@@ -19,10 +19,19 @@ export function resolveWorkspace(cwd: string | null): string {
 // subscription uses, and the path recorded as a launcher preset. `/a/b/` passes both guards
 // below, so returning it unchanged made one directory into two names, and a `.mulmoterminal.json`
 // change announced as `/a/b` never reached a cell that had launched as `/a/b/` (#1002).
+// Canonicalize BEFORE the stat, so the directory that is checked is the one that is returned.
+// The two disagree: `stat` resolves symlinks in the kernel, `path.resolve` is purely lexical, so
+// `/x/link/../var` stats as `/var` (link -> /etc) while resolving to `/x/var`. Stat-then-resolve
+// would hand back a path nothing had validated, and usually one that does not exist.
+//
+// Lexical and NOT realpath, deliberately: the announcing side of the dir-config channel spells
+// the directory with `path.dirname`, which is lexical too, and canonicalizing only one side
+// physically would re-open the very mismatch below.
 export function existingWorkspace(cwd: string | null): string | null {
   if (!cwd || !path.isAbsolute(cwd)) return null;
+  const dir = canonicalDir(cwd);
   try {
-    return statSync(cwd).isDirectory() ? canonicalDir(cwd) : null;
+    return statSync(dir).isDirectory() ? dir : null;
   } catch {
     return null; // not a dir / doesn't exist
   }

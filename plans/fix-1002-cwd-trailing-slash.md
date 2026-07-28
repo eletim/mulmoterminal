@@ -98,3 +98,34 @@ expect(announced).toBe(resolveWorkspace(dir + path.sep));
 なお既存の `sanitizePresets` テストが `path: "/a"` という POSIX リテラルを期待していた。
 **Windows では `/a` はドライブ相対で `C:\a` に解決される**ため、正規化を入れた時点で非可搬に
 なる。期待値を `path.resolve` 経由に直した（CI は ubuntu/macOS のみだが、Windows は対応対象）。
+
+## レビューで直したところ: stat と resolve の順序 (#1016, Codex)
+
+最初の実装は **stat してから canonicalize** していた。Codex の指摘どおり、これは
+**検証していないパスを返し得る**回帰だった。
+
+`stat` はカーネルが symlink を辿り、`path.resolve` は純粋に字句的なので、**symlink の直後に
+`..` が来た瞬間に両者は別の場所を指す**:
+
+```
+<dir>/link -> <dir>/sub/target
+<dir>/link/../sibling   カーネル: link -> sub/target, .. -> sub  =>  <dir>/sub/sibling（存在する）
+                        字句    :                                    <dir>/sibling    （存在しない）
+```
+
+stat→resolve だと入力は受理され、`<dir>/sibling` が返る。誰も検証しておらず、たいてい存在しない。
+
+**canonicalize してから stat する**順に変えた。返す値が検証した値そのものになる。
+
+`realpath` は使わない。announce 側は `path.dirname`（字句）で綴るので、片側だけ物理解決すると
+#1002 の不一致が別の形で戻る。
+
+### テストのフィクスチャが 2 回間違っていた
+
+1 回目は symlink の親と対象の親が同じで、字句解決と一致してしまい**両方の順序で緑**だった。
+2 回目は `path.join(link, "..", "sibling")` と書いたが、**`path.join` は構築時に `..` を畳む**ので
+symlink を前に置いたままカーネルへ渡らず、フィクスチャ自体が ENOENT で落ちた。文字列連結で
+組み直して初めて対照実験が成立した（修正版=緑、stat→resolve=赤）。
+
+そのためテスト内にフィクスチャ自身のガードを入れてある — 乖離が本当に起きていることを
+先に assert しないと、本命の assert が空振りしても気づけない。
