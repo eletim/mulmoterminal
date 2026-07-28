@@ -90,6 +90,10 @@ export interface AppConfig {
   // meant to highlight, and it is also the only place in the app that writes the clipboard on
   // its own — the `copy` keymap action merely stands back and lets the browser do it.
   copyOnSelect: boolean;
+  // Leave a comment on the issue a cell is working on: once when the work starts, and again when
+  // its PR merges (#979). OFF unless asked for — it writes to GitHub, on issues that are often
+  // somebody else's, and the comment names the working directory it happened in.
+  issueWorkComments: boolean;
   // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
   // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
   // exist is a property of the machine the browser runs on — the same answer for every client
@@ -252,6 +256,10 @@ export function sanitizeWorklogEnabled(input: unknown): boolean {
   return input === true;
 }
 
+export function sanitizeIssueWorkComments(input: unknown): boolean {
+  return input === true;
+}
+
 export function sanitizeCopyOnSelect(input: unknown): boolean {
   return input === true;
 }
@@ -292,6 +300,7 @@ export const emptyConfig = (): AppConfig => ({
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
   copyOnSelect: false,
+  issueWorkComments: false,
   prWorkdirFooter: true,
   cockpitLines: { ...DEFAULT_COCKPIT_LINES },
   fontFamily: null,
@@ -331,6 +340,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
     copyOnSelect: sanitizeCopyOnSelect(o.copyOnSelect),
+    issueWorkComments: sanitizeIssueWorkComments(o.issueWorkComments),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
     cockpitLines: sanitizeCockpitLines(o.cockpitLines),
     fontFamily: normalizeFontFamily(o.fontFamily),
@@ -430,6 +440,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
     copyOnSelect: updated("copyOnSelect", sanitizeCopyOnSelect, base.copyOnSelect),
+    issueWorkComments: updated("issueWorkComments", sanitizeIssueWorkComments, base.issueWorkComments),
     fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
     cockpitLines: updated("cockpitLines", sanitizeCockpitLines, base.cockpitLines),
@@ -459,6 +470,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
     copyOnSelect: config.copyOnSelect,
+    issueWorkComments: config.issueWorkComments,
     prWorkdirFooter: config.prWorkdirFooter,
     cockpitLines: config.cockpitLines,
     fontFamily: config.fontFamily,
