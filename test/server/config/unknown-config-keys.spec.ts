@@ -149,7 +149,11 @@ describe("POST /api/config", () => {
   it("keeps an unknown key that was already in the file", async () => {
     const dir = tmp();
     try {
+      // Both, because `os.homedir()` reads USERPROFILE on Windows and HOME everywhere else —
+      // stubbing only HOME left the Windows run pointed at the real config, which is what the
+      // guard below caught (Windows daily CI on 2.5.1).
       vi.stubEnv("HOME", dir);
+      vi.stubEnv("USERPROFILE", dir);
       vi.resetModules();
       const { mountConfigRoutes, APP_CONFIG_FILE } = await import("../../../server/config/config-routes.js");
       // Guard before anything writes: a stub that didn't take would target the real config.
