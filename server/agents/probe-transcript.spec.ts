@@ -11,7 +11,7 @@ import {
   PROBE_TRANSCRIPT_MAX_BYTES,
 } from "./probe-transcript";
 import { PROBE_PROMPT } from "./rate-limit-probe";
-import { newProbeSessionId } from "./probe-session";
+import { newProbeSessionId, PROBE_SESSION_PREFIX } from "./probe-session";
 import { projectSessionsDir } from "../session/project-dir";
 
 // #1010: these functions DELETE files out of the user's ~/.claude. The predicate is the whole
@@ -101,6 +101,23 @@ describe("probe transcript removal", () => {
 
     expect(await removeProbeTranscript(cwd, "3f2504e0-4f89-41d3-9a0c-0305e82c3301")).toBe(false);
     expect(remains()).toEqual(["3f2504e0-4f89-41d3-9a0c-0305e82c3301.jsonl"]);
+  });
+
+  // Codex review on #1030: the id is joined into a path, so an id that only STARTS like a probe's
+  // could name a file anywhere. Pinned here as well as in probe-session.spec.ts, because this is
+  // the call that deletes — the two must not drift apart.
+  it("cannot be walked out of the sessions directory", async () => {
+    const outside = path.join(home, "precious.jsonl");
+    writeFileSync(outside, "someone's work");
+    // The first `..` fuses with the prefix into one literal segment that DESCENDS a level, so the
+    // climb needs two extra to break even. Asserted rather than assumed: an escape that falls
+    // short still deletes nothing, and the test would pass for the wrong reason.
+    const climb = path.relative(projectSessionsDir(cwd), outside).replaceAll(path.sep, "/");
+    const escape = `${PROBE_SESSION_PREFIX}../../${climb}`.replace(/\.jsonl$/, "");
+    expect(path.join(projectSessionsDir(cwd), `${escape}.jsonl`)).toBe(outside);
+
+    expect(await removeProbeTranscript(cwd, escape)).toBe(false);
+    expect(existsSync(outside)).toBe(true);
   });
 
   it("says so rather than throwing when there is nothing to remove", async () => {

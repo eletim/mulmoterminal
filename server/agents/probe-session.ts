@@ -14,13 +14,21 @@ import { randomBytes } from "node:crypto";
 
 export const PROBE_SESSION_PREFIX = "f0f0f0f0-1a7e-";
 
+// The WHOLE id, not just its opening. A caller builds a file path out of this
+// (`<sessions-dir>/<id>.jsonl`), so "starts with the prefix" would accept
+// `f0f0f0f0-1a7e-../../…` and resolve outside the directory — and the guard that reads as
+// protection would be granting it (Codex review on #1030). Anchored and hex-only, so no separator
+// or dot segment can survive.
+const PROBE_SESSION_ID_RE = /^f0f0f0f0-1a7e-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** A fresh id for one probe session. */
 export function newProbeSessionId(): string {
   const rest = randomBytes(8).toString("hex"); // 16 hex digits: 4 + 12
   return `${PROBE_SESSION_PREFIX}4${rest.slice(0, 3)}-8${rest.slice(3, 6)}-${rest.slice(4, 16)}`;
 }
 
-/** Whether an id belongs to a probe — used to keep those sessions out of the listings. */
+/** Whether an id belongs to a probe — used to keep those sessions out of the listings, and to
+ *  decide whether a transcript is ours to delete. */
 export function isProbeSessionId(id: string): boolean {
-  return id.startsWith(PROBE_SESSION_PREFIX);
+  return PROBE_SESSION_ID_RE.test(id);
 }
