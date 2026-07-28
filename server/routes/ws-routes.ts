@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
-import { SESSION_ID_RE } from "../config/env.js";
+import { PORT, SESSION_ID_RE } from "../config/env.js";
 import { resolveWorkspace } from "../config/workspace.js";
 import { getHeaderConfig } from "../config/config-routes.js";
 import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.js";
@@ -23,6 +23,11 @@ import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
 import { sandboxWouldRun } from "../session/pty-spawn.js";
+import { bufferEarlyFrames } from "../session/early-frames.js";
+import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
+import { codexGuiMcpServers } from "../session/mcp-config.js";
+import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
+import { TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups.js";
 import { handleCommandFrame } from "../session/pty-connection.js";
 import { closeWithError } from "../session/ws-frames.js";
 import { ProviderRefusedError } from "../session/provider-env.js";
@@ -200,17 +205,22 @@ function resolveCodexSession(requested: string | null): { sessionId: string; liv
   return { sessionId, live, resumeRolloutId };
 }
 
-function startCodexEntry(
-  deps: WsRouteDeps,
-  sessionId: string,
-  ws: WebSocket,
-  live: PtyEntry | undefined,
-  resumeRolloutId: string | null,
-  cwd: string,
-  attachGuiMcp: boolean,
-): PtyEntry {
+// Grouped rather than eight positional arguments: what this needs is a session to (re)attach,
+// a directory, and the GUI-tool decision — the last of which is now two values that only make
+// sense together (attach everything, or exactly these groups).
+interface CodexStart {
+  sessionId: string;
+  live: PtyEntry | undefined;
+  resumeRolloutId: string | null;
+  cwd: string;
+  attachGuiMcp: boolean;
+  mcpGroups: readonly ToolGroup[];
+}
+
+function startCodexEntry(deps: WsRouteDeps, ws: WebSocket, start: CodexStart): PtyEntry {
+  const { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups } = start;
   if (live) return deps.reattachPty(live, ws, sessionId);
-  return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, null); // interactive: no seed
+  return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, { mcpGroups }); // interactive: no seed
 }
 
 async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
@@ -312,7 +322,7 @@ function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: stri
 // configured launch command as a persistent, reattachable PTY. Reuses the /ws session
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
 // and is marked a dev-terminal session so it stays out of the chat sidebar.
-function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
   const { url, requested, cwd } = wsConnectionContext(req);
   const index = parseIndexParam(url.searchParams.get("launcher"));
   const shell = url.searchParams.get("shell") === "1";
@@ -323,22 +333,39 @@ function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: s
   markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
+  // Same reason as the codex path below — the browser's first frame is the terminal's geometry
+  // and it arrives while this is still reading files.
+  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+
+  // A launcher that runs codex gets the directory's registered tool groups too. The chip and the
+  // agent toggle land in the same cell and look the same, so a Canvas that lights up for one and
+  // never for the other reads as a broken feature. Only for a spawn, and only for codex — every
+  // other command is passed through untouched (see launcher-gui-mcp.ts).
+  const groups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
+  const launchCommand = launcherCommandWithGuiMcp(command, codexGuiMcpServers({ sessionId, port: PORT, groups, allTools: false }), process.platform);
+  if (ws.readyState !== ws.OPEN) {
+    console.log(`[ws/launch] client left before spawn — abandoning ${sessionId}`);
+    return early.discard();
+  }
+
   let entry: PtyEntry;
   try {
-    entry = startLaunchEntry(deps, sessionId, ws, live, command, cwd);
+    entry = startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd);
   } catch (err) {
     console.error(`[ws/launch] failed to start ${sessionId}: ${messageOf(err)}`);
+    early.discard();
     return closeWithError(ws, "Failed to start the launch command.");
   }
 
   ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
   ws.on("close", () => deps.handleClientClose(entry, ws, sessionId));
+  early.release((raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
 }
 
 // codex terminal (?cwd=<dir>, ?session=<id> to reattach/resume). ?gui=0 (grid dev terminal) runs
 // codex without the GUI MCP and keeps it out of the sidebar; absent (single view) attaches the GUI
 // MCP so codex drives the GUI panel like claude.
-function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
   const { url, requested, cwd } = wsConnectionContext(req);
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
@@ -346,16 +373,36 @@ function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: st
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
+  // The browser sends its first frame — the terminal's real geometry — as soon as the socket
+  // opens, and the read below is the first thing on this path that waits. Collected from here so
+  // that frame is replayed into the pty rather than dropped on the floor (see early-frames.ts).
+  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+
+  // A grid cell's GUI tools are whatever its DIRECTORY registered — the same switches claude's
+  // cells read, in the same file. claude picks them up itself; codex is handed resolved URLs at
+  // spawn, so the answer has to be read here, before the pty exists. Only for a spawn: a reattach
+  // keeps the tools its running process was started with.
+  const mcpGroups = !attachGuiMcp && !live ? await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []) : [];
+  // Reading files can take a moment; a client that left in that window would leave a pty nobody
+  // reaps, because the close handlers below are not wired yet (same guard as the claude path).
+  if (ws.readyState !== ws.OPEN) {
+    console.log(`[ws/codex] client left before spawn — abandoning ${sessionId}`);
+    return early.discard();
+  }
+
   let entry: PtyEntry;
   try {
-    entry = startCodexEntry(deps, sessionId, ws, live, resumeRolloutId, cwd, attachGuiMcp);
+    entry = startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups });
   } catch (err) {
     console.error(`[ws/codex] failed to start ${sessionId}: ${messageOf(err)}`);
+    early.discard();
     return closeWithError(ws, "Failed to start codex. Is the `codex` CLI installed and on your PATH?");
   }
 
   ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
   ws.on("close", () => deps.handleClientClose(entry, ws, sessionId));
+  // After the real listener is installed, so ordering holds for a frame that lands mid-replay.
+  early.release((raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
 }
 
 export function mountTerminalWebSockets(deps: WsRouteDeps) {
@@ -395,6 +442,6 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
 
   wss.on("connection", (ws, req) => void handleClaudeConnection(deps, ws, req));
   runWss.on("connection", (ws, req) => handleRunConnection(deps, ws, req));
-  runLaunchWss.on("connection", (ws, req) => handleLaunchConnection(deps, ws, req));
-  runCodexWss.on("connection", (ws, req) => handleCodexConnection(deps, ws, req));
+  runLaunchWss.on("connection", (ws, req) => void handleLaunchConnection(deps, ws, req));
+  runCodexWss.on("connection", (ws, req) => void handleCodexConnection(deps, ws, req));
 }
