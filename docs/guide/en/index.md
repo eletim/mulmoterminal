@@ -62,30 +62,31 @@ Sessions survive reloads, reconnects, and server restarts. Leave a long build ru
 
 ## What people say after switching
 
-From people who moved over from an IDE or a split terminal — what they were escaping, and what
-actually changed.
+> These are experiences reported by users who moved over from an IDE or a split terminal —
+> not benchmarks, and not claims we measured. Your setup may differ.
 
 ### "It stopped eating my memory"
 
 Keeping several agents apart by opening several IDE windows is expensive: each one brings its own
-editor, language server, extensions and file watchers. People hit that wall on **64 GB machines**.
-Here the agents are PTYs on a server and the UI is browser tabs, so a machine that used to stutter
-runs smoothly.
+editor, language server, extensions and file watchers. One user reported a **64 GB machine
+stuttering** under that load, and running smoothly after moving over — here the agents are PTYs on
+a server and the UI is browser tabs.
 
 ### "I stopped answering the wrong agent"
 
-Six panes of scrolling text look identical. People described **typing a reply into another agent's
-terminal**, and losing track of what they had asked in the first place. The problem isn't attention
-— it's that N identical panes means holding N contexts in your head.
+Six panes of scrolling text look identical. Users have described **typing a reply into another
+agent's terminal**, and losing track of what they had asked in the first place. As one put it, the
+windows all look the same, so switching between them costs time just to work out what you are
+looking at.
 
-Colour-coded state, a name badge and a per-directory colour move that out of your head and onto the
-screen.
+The problem isn't attention — it's that N identical panes means holding N contexts in your head.
+Colour-coded state, a name badge and a per-directory colour move that onto the screen instead.
 
 ### "Watching many and reading one stopped being a trade-off"
 
-Splitting a terminal six ways leaves every pane too small to read a 4,000-character answer without
-constant scrolling and resizing. So people quietly accept worse reading every time they add an
-agent.
+Splitting a terminal six ways leaves every pane too small to read a long answer without constant
+scrolling and resizing — one user described exactly that with a 4,000-character reply. So you
+quietly accept worse reading every time you add an agent.
 
 **Grid ↔ enlarge removes that.** Watch all of them, then blow one up and read it properly — the
 cockpit roster keeps the rest in view as text while you do.
@@ -93,11 +94,12 @@ cockpit roster keeps the rest in view as text while you do.
 ### "My existing sessions came with me"
 
 Sessions resume as-is — same `claude --resume`, same transcripts. Point it at a directory you
-already work in and your history is there. Nothing to migrate, nothing to redo.
+already work in and your history is there. Nothing to migrate, nothing to redo. One user said this
+alone made the switch worth it, having previously lost context to killed sessions.
 
 ---
 
-**You don't need ten agents for this to pay off.** People report the switch being worth it at
+**You don't need ten agents for this to pay off.** Users have reported the switch being worth it at
 **one to three** parallel sessions. The wins above are about not losing track, not about running
 more.
 
