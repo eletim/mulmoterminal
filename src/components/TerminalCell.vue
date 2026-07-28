@@ -2,7 +2,8 @@
 import { ref, computed, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
-import { useDirConfig, useDirColors } from "../composables/useDirConfig";
+import { useDirColors } from "../composables/useDirConfig";
+import { useCellChrome } from "../composables/useCellChrome";
 import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
 import { useWorkItem } from "../composables/useWorkItem";
@@ -13,7 +14,6 @@ import { unsavedWork } from "./unsavedWork";
 import { relativeTime as relativeTimeFrom, usageBadge } from "./cellDisplay";
 import { applyActivityPush, cellHeaderText } from "./cellActivity";
 import { preferredLaunchDir, shouldSyncLaunchDir } from "./launchDir";
-import { headerStyleFor, cellStyleFor } from "./cellHeaderStyle";
 import GitBranchChip from "./GitBranchChip.vue";
 import WorkItemChip from "./WorkItemChip.vue";
 import ModelContextBadge from "./ModelContextBadge.vue";
@@ -118,11 +118,7 @@ const connectKey = ref(0);
 const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
 // Per-directory overrides (<cwd>/.mulmoterminal.json): pins this cell's terminal
 // palette and shows a project badge. Re-fetched when the effective cwd changes.
-const { config: dirConfig } = useDirConfig(cwd);
-const headerStyle = computed(() => headerStyleFor(dirConfig.value.headerColor, dirConfig.value.headerTextColor));
-const cellStyle = computed(() =>
-  cellStyleFor(dirConfig.value.cellColor, dirConfig.value.cellBorderColor, dirConfig.value.dotColor, dirConfig.value.buttonColor),
-);
+const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(cwd);
 // What this cell is working on (PR + issue), for the `work` chip. Same directory, same kind of
 // poll as the git status below.
 const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd);
@@ -1149,9 +1145,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           :cwd="cwd"
           :codex="agent === 'codex'"
           :launch="launchChoice"
-          :dir-header-color="dirConfig.headerColor"
-          :dir-header-text-color="dirConfig.headerTextColor"
-          :dir-button-color="dirConfig.buttonColor"
           :hide-header="filmstrip"
           :expanded="expanded"
           :zoomed="zoomed"

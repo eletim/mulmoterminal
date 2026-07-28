@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch } from "vue";
 import DirBadge from "./DirBadge.vue";
-import { useDirConfig } from "../composables/useDirConfig";
+import { useCellChrome } from "../composables/useCellChrome";
 import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { RunCommand } from "./runCommand";
@@ -57,7 +57,7 @@ const termRef = ref<InstanceType<typeof TerminalView>>();
 
 // Same as LauncherCell (#914): the badge belongs to this cell's header, so it reads the config
 // here. A getter ref because the cwd lives inside the `command` object.
-const { config: dirConfig } = useDirConfig(toRef(() => props.command.cwd));
+const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(toRef(() => props.command.cwd));
 
 const dirDisplay = computed(() => formatCwd(props.command.cwd, props.home));
 
@@ -165,9 +165,9 @@ function onHeaderClick(event: MouseEvent) {
 </script>
 
 <template>
-  <div class="cell" :class="CELL_FRAME">
+  <div class="cell" :class="CELL_FRAME" :style="cellStyle">
     <div :class="CELL_INNER">
-      <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" @click="onHeaderClick">
+      <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" :style="headerStyle" @click="onHeaderClick">
         <span
           class="cell-dot"
           :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
