@@ -14,7 +14,6 @@ import os from "node:os";
 import path from "node:path";
 import { isRecord } from "../../common/isRecord.js";
 import {
-  parseJsonl,
   userPromptText,
   latestMeaningfulUserPromptFromParsed,
   latestAssistantTextFromParsed,
@@ -221,19 +220,25 @@ export async function sessionLastTurn(cwd: string, id: string, agent: "claude" |
 // Scan a session JSONL for a human-friendly title and last activity.
 export async function readSessionMeta(dir: string, file: string): Promise<SessionMeta> {
   const full = path.join(dir, file);
-  const [raw, stat] = await Promise.all([fs.readFile(full, "utf8"), fs.stat(full)]);
 
   let aiTitle: string | null = null;
   let lastPrompt: string | null = null;
   let firstUserMsg: string | null = null;
 
-  for (const o of parseJsonl(raw)) {
-    if (o.type === "ai-title" && o.aiTitle) aiTitle = String(o.aiTitle);
-    else if (o.type === "last-prompt" && o.lastPrompt) lastPrompt = String(o.lastPrompt);
-    else if (o.type === "user" && firstUserMsg === null) {
-      firstUserMsg = userPromptText(isRecord(o.message) ? o.message.content : undefined);
-    }
-  }
+  // Streamed like every other transcript reader (#998). This one was missed by that issue's own
+  // table, which is a fair warning about how easy the whole-file read is to reach for: three
+  // fields out of a file that reaches 585 MB, where reading it whole throws and the session list
+  // then shows a title of "(no title)".
+  const [, stat] = await Promise.all([
+    forEachJsonlRecord(full, (o) => {
+      if (o.type === "ai-title" && o.aiTitle) aiTitle = String(o.aiTitle);
+      else if (o.type === "last-prompt" && o.lastPrompt) lastPrompt = String(o.lastPrompt);
+      else if (o.type === "user" && firstUserMsg === null) {
+        firstUserMsg = userPromptText(isRecord(o.message) ? o.message.content : undefined);
+      }
+    }),
+    fs.stat(full),
+  ]);
 
   const id = path.basename(file, ".jsonl");
   const title = sessionListTitle({ liveAiTitle: aiTitles.get(id), diskAiTitle: aiTitle, diskLastPrompt: lastPrompt, firstUserMsg });

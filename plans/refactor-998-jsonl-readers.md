@@ -234,3 +234,22 @@ prompt to model (754 chars)
 The spec's fake generator took `(raw: string)`; it takes `ConversationTurn[]` now, and a new case
 asserts that what reaches the generator is what came out of the stream. Without that, the contract
 change would have been invisible to the tests.
+
+
+---
+
+# Phase 5 — the one the issue missed
+
+`readSessionMeta` also read the transcript whole. It is not in #998's table, which listed seven
+call sites; grepping for `fs.readFile` after phase 4 found it as the last one standing.
+
+It reads **three fields** — the AI title, the last prompt, the first user message — to build the
+session list's label. On a 585 MB transcript the read threw, was caught upstream, and the session
+appeared with no title.
+
+Streamed like the rest. With it, `parseJsonl` and `fs.readFile` are both **gone from
+session-reads.ts entirely**, which is the check worth keeping: not "did we fix the seven listed",
+but "does this module still hold a transcript in a string anywhere". It does not.
+
+Measured: 2624 ms on the 585 MB file, and the title comes back — `"Fix schema.json validation
+errors for shopping-lis…"` where before there was none.
