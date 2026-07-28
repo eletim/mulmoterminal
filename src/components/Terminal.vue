@@ -4,7 +4,7 @@ import { type ITheme } from "@xterm/xterm";
 import { FLIP_MS, shouldRefocusOnZoomChange } from "./cellFlip";
 import { terminalManagesAttention, terminalViewActive } from "./terminalViewActive";
 import { dragCarriesFiles, dropTextFromUriList, toInsertText } from "./dropPaths";
-import { dropUploadErrorMessage, uploadDroppedFile } from "./dropUpload";
+import { dropUploadErrorMessage, uploadDropBatch } from "./dropUpload";
 import { translateUiSentence } from "../utils/translateUi";
 import { useTheme, currentTermTheme, termThemeFor } from "../composables/useTheme";
 import { useDirConfig } from "../composables/useDirConfig";
@@ -376,6 +376,9 @@ const DROP_UPLOADING_EN = "Sending the dropped file to the terminal…";
 // The path hint would send the user to the file picker, which cannot help when the problem is
 // that nothing is running to receive the file.
 const DROP_NO_SESSION_EN = "Start the terminal first — there's no session yet to send the file to.";
+// A saved file belongs to the session it was uploaded for, which is the only one granted its
+// directory — so a path from before a session change names something this terminal cannot read.
+const DROP_SESSION_CHANGED_EN = "This terminal moved to a different session while the file was sending — drop it again.";
 // How many batches are queued or in flight. A count rather than a flag because a second drop
 // arriving mid-upload would otherwise have whichever finished first hide the indicator out from
 // under the other.
@@ -403,13 +406,10 @@ async function uploadAndInsert(files: File[]) {
   if (!session) return showDropMessage(DROP_NO_SESSION_EN);
   // Shown in English first and swapped when the (server-cached) translation lands, like the hint.
   void translateUiSentence(DROP_UPLOADING_EN, "mulmoterminal-ui").then((translated) => (dropUploadingText.value = translated));
-  const paths: string[] = [];
-  for (const file of files) {
-    const result = await uploadDroppedFile(session, file);
-    if (!result.ok) return showDropMessage(dropUploadErrorMessage(result.status));
-    paths.push(result.path);
-  }
-  insertText(toInsertText(paths));
+  const outcome = await uploadDropBatch(session, files, () => props.sessionId);
+  if (outcome.kind === "stale") return showDropMessage(DROP_SESSION_CHANGED_EN);
+  if (outcome.kind === "failed") return showDropMessage(dropUploadErrorMessage(outcome.status));
+  insertText(toInsertText(outcome.paths));
 }
 
 function onDragOver(e: DragEvent) {

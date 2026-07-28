@@ -35,6 +35,39 @@ export const isTooLargeToDrop = (size: number): boolean => size > MAX_DROP_BYTES
 // else would otherwise put `undefined` into the terminal as if it were a path.
 const isDropUploadResponse = (value: unknown): value is DropUploadResponse => isRecord(value) && typeof value.path === "string" && value.path !== "";
 
+export type DropBatchOutcome =
+  | { kind: "inserted"; paths: string[] }
+  | { kind: "failed"; status: number | null }
+  // The terminal moved to a different session while the bytes were in flight.
+  | { kind: "stale" };
+
+/** Upload one drop's files and say what should happen with the result.
+ *
+ *  Split from the component and given its dependencies so the policy — order, and what a
+ *  session change mid-upload means — can be tested without mounting a terminal.
+ *
+ *  `currentSession` is re-read rather than captured because a saved path belongs to ONE
+ *  session: `--add-dir` grants the directory at spawn, so handing these paths to whatever
+ *  session arrived in the meantime gives it a path it was never granted and cannot read. A
+ *  110 MiB upload is long enough for a reconnect that cannot resume to mint a new id under it. */
+export async function uploadDropBatch(
+  session: string,
+  files: readonly File[],
+  currentSession: () => string | null,
+  upload: (session: string, file: File) => Promise<DropUploadResult> = uploadDroppedFile,
+): Promise<DropBatchOutcome> {
+  const paths: string[] = [];
+  for (const file of files) {
+    if (currentSession() !== session) return { kind: "stale" };
+    const result = await upload(session, file);
+    if (!result.ok) return { kind: "failed", status: result.status };
+    paths.push(result.path);
+  }
+  // Checked again after the last upload: the switch can land while the final file is in flight,
+  // which the loop's own check would never see.
+  return currentSession() === session ? { kind: "inserted", paths } : { kind: "stale" };
+}
+
 export async function uploadDroppedFile(sessionId: string, file: File): Promise<DropUploadResult> {
   if (isTooLargeToDrop(file.size)) return { ok: false, status: 413 };
   const controller = new AbortController();
