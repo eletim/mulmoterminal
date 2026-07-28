@@ -4,7 +4,7 @@
 // return different shapes, the shortcut still sending the pre-#979 `{ phase, url }` (Codex
 // review). A client written against the typed shape would read `undefined` from it, and nothing
 // in the type system says so, because the route hands express a plain object.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -32,14 +32,35 @@ describe("GET /api/pr-phase", () => {
   });
 });
 
-// The write half (#979 Phase 2). The setting is off in a test process (no config file has been
-// loaded with it on), which is also the shipped default — so these pin that a client asking blind
-// gets a plain "no" and nothing reaches GitHub.
+// The write half (#979 Phase 2). Both collaborators are stubbed, and that is the point rather
+// than convenience: the route reads the REAL ~/.mulmoterminal/config.json at import, and the real
+// ensureWorkComment shells out to `gh`. An earlier version of this file did neither — so the day
+// the maintainer turned the setting on, running the suite posted a live comment on a public issue.
+vi.mock("../../../server/config/config-routes.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../server/config/config-routes.js")>()),
+  getIssueWorkComments: () => enabled,
+}));
+vi.mock("../../../server/git/work-comment.js", () => ({
+  ensureWorkComment: (...args: unknown[]) => {
+    ensureCalls.push(args);
+    return Promise.resolve({ posted: true });
+  },
+}));
+
+let enabled = false;
+const ensureCalls: unknown[][] = [];
+
 describe("POST /api/work-comment", () => {
+  beforeEach(() => {
+    enabled = false;
+    ensureCalls.length = 0;
+  });
+
   it("writes nothing while the setting is off, and says why", async () => {
     const res = await request(app).post("/api/work-comment").send({ cwd: process.cwd(), issue: 979, kind: "start" });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ posted: false, reason: "disabled" });
+    expect(ensureCalls).toHaveLength(0); // nothing even reached the gh layer
   });
 
   it.each([
@@ -52,5 +73,24 @@ describe("POST /api/work-comment", () => {
   ])("rejects %s with 400", async (_label, body) => {
     const res = await request(app).post("/api/work-comment").send(body);
     expect(res.status).toBe(400);
+    expect(ensureCalls).toHaveLength(0);
+  });
+
+  it("asks for the merged comment to close the issue, and the start comment not to", async () => {
+    enabled = true;
+    await request(app).post("/api/work-comment").send({ cwd: process.cwd(), issue: 979, pr: 987, kind: "merged" });
+    await request(app).post("/api/work-comment").send({ cwd: process.cwd(), issue: 979, kind: "start" });
+    expect(ensureCalls).toHaveLength(2);
+    expect(ensureCalls[0][2]).toBe("merged");
+    expect(ensureCalls[0][5]).toEqual({ closeIssue: true });
+    expect(ensureCalls[1][2]).toBe("start");
+    expect(ensureCalls[1][5]).toEqual({ closeIssue: false });
+  });
+
+  // The directory reaches the comment as a bare folder name, never the path (#979).
+  it("passes the directory as its basename", async () => {
+    enabled = true;
+    await request(app).post("/api/work-comment").send({ cwd: process.cwd(), issue: 979, kind: "start" });
+    expect(ensureCalls[0][3]).toBe(path.basename(process.cwd()));
   });
 });
