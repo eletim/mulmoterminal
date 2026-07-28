@@ -45,8 +45,13 @@ and the pre-4.6 Opus/Sonnet generations (200k) are correctly served by the fallb
 ## Where the code goes
 
 The decision — which window, what percentage, what to show when neither is knowable — moves out of
-`ModelContextBadge.vue` into `src/components/modelContextBadge.ts` and is unit tested directly, per
+`ModelContextBadge.vue` into `src/components/modelBadge.ts` and is unit tested directly, per
 CLAUDE.md's rule that logic must not live where only a mount can reach it. The component keeps the
-markup and the three `computed`s that read the result. The existing mount spec keeps the wiring
-assertions (renders / does not render, tooltip is attached); the table and the arithmetic are
-tested without mounting.
+markup and one `computed` that reads the result. The existing mount spec keeps the wiring assertions
+(renders / does not render, tooltip is attached); the table and the arithmetic are tested without
+mounting.
+
+`modelBadge.ts` rather than `modelContextBadge.ts`, because its spec would then be
+`modelContextBadge.spec.ts` — the same file as `ModelContextBadge.spec.ts` on a case-insensitive
+filesystem. macOS would silently merge the two; Linux CI would not, so the break would only ever
+show up on a developer's machine.
