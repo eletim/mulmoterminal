@@ -35,6 +35,8 @@ import { createClaudeSpawner } from "./session/spawn-claude.js";
 import { spawnPty } from "./session/pty-spawn.js";
 import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
+import { hasBinary } from "./infra/has-binary.js";
+import { newProbeSessionId } from "./agents/probe-session.js";
 import { newestRolloutFile, readTailLines, codexSessionsDir } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, writeRateLimitCache } from "./agents/rate-limit-persist.js";
@@ -297,14 +299,39 @@ const refreshCodexRateLimits = (): void => {
   const file = newestRolloutFile(codexSessionsDir(), Date.now());
   if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readTailLines(file)), Date.now());
 };
+// Whether a probe could even run. Checked before spawning rather than discovered by spawning
+// (#1011): a machine without `claude` used to fail so fast that it never reached the 90s timeout,
+// so the store learned nothing and the next poll tried again — a spawn attempt per poll.
+const claudeIsRunnable = (): boolean => {
+  try {
+    return hasBinary(CLAUDE_BIN);
+  } catch {
+    return false;
+  }
+};
+
 const startClaudeRateLimitProbe = (): void => {
+  // Belt and braces: the route has already refused to want a probe when claude is missing, but
+  // this is the last point before a spawn and the flag it would strand is set by the caller.
+  if (!claudeIsRunnable()) {
+    rateLimitStore.setClaudeAvailable(false);
+    rateLimitStore.setProbeInFlight(false);
+    return;
+  }
+  rateLimitStore.noteProbeStarted(Date.now());
   startRateLimitProbe({
     spawn: (args, cwd) => spawnPty(CLAUDE_BIN, args, cwd),
     host: "localhost",
     port: PORT,
     cwd: CLAUDE_CWD,
-    sessionId: randomUUID(),
-    onSettled: () => rateLimitStore.setProbeInFlight(false),
+    sessionId: newProbeSessionId(),
+    // A probe that settles WITHOUT the status line having reported is the "asked, heard nothing"
+    // case. report() has already moved the state on if anything arrived, so this only widens the
+    // gap when nothing did.
+    onSettled: () => {
+      rateLimitStore.noteProbeFailedIfNoReport(Date.now());
+      rateLimitStore.setProbeInFlight(false);
+    },
   });
 };
 
@@ -318,7 +345,13 @@ hideErrorStacks(app);
 // the hook and leave its tool-call entry stuck on "running").
 mountAppRoutes(app, {
   clientDir: __dirname,
-  rateLimits: { store: rateLimitStore, refreshCodex: refreshCodexRateLimits, startProbe: startClaudeRateLimitProbe, now_ms: () => Date.now() },
+  rateLimits: {
+    store: rateLimitStore,
+    refreshCodex: refreshCodexRateLimits,
+    startProbe: startClaudeRateLimitProbe,
+    claudeAvailable: claudeIsRunnable,
+    now_ms: () => Date.now(),
+  },
   isAllowedOrigin,
   publish: (channel, data) => pubsub?.publish(channel, data),
   sessionChannel,

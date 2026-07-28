@@ -13,6 +13,28 @@ export type { RateLimits, RateLimitWindow };
 export interface RateLimitSnapshot {
   claude: RateLimits | null;
   codex: RateLimits | null;
+  /** Why the Claude half is missing, when it is (#1011). The server's own words, so the two
+   *  cannot describe the same situation differently. */
+  claudeProbe?: ClaudeProbeState;
+}
+
+export type ClaudeProbeState = "ok" | "no-claude" | "no-windows" | "no-report";
+
+// What to put where the Claude figures would be. Silence is right for "we simply have not
+// measured yet", and wrong for the two states that will not resolve on their own: #1011 was a
+// probe loop nobody could see, burning the budget the gauge exists to report.
+const PROBE_NOTES: Record<ClaudeProbeState, string | null> = {
+  ok: null,
+  "no-claude": "Claude usage unavailable — the `claude` command was not found on PATH.",
+  "no-windows": "Claude usage unavailable — this account reports no 5h / 7d windows (API-key billing).",
+  "no-report": "Claude usage unavailable — the last check got no answer. Retrying, less often each time.",
+};
+
+/** A short line explaining an absent Claude gauge, or null when there is nothing worth saying —
+ *  either it is showing, or it has simply not been measured yet. */
+export function claudeProbeNote(snapshot: RateLimitSnapshot | null): string | null {
+  if (!snapshot || snapshot.claude) return null;
+  return PROBE_NOTES[snapshot.claudeProbe ?? "ok"];
 }
 
 export interface GaugeWindow {

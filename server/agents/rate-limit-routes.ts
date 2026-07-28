@@ -10,6 +10,7 @@
 // otherwise spend the user's quota on a probe. The GET stays a pure read.
 import type { Express } from "express";
 import { extractRateLimits } from "./statusline.js";
+import type { ProbeState } from "./rate-limit-store.js";
 import type { RateLimitSnapshot, RateLimitStore } from "./rate-limit-store.js";
 
 export interface RateLimitRouteDeps {
@@ -18,6 +19,9 @@ export interface RateLimitRouteDeps {
   refreshCodex: () => void;
   /** Spawn the Claude probe. Only called when the store says it is worth a query. */
   startProbe: () => void;
+  /** Whether `claude` could be launched right now — a PATH lookup, not a spawn. Asked on every
+   *  poll so the "not installed" state can clear itself when one appears (#1019). */
+  claudeAvailable: () => boolean;
   now_ms: () => number;
 }
 
@@ -33,6 +37,7 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
     const now = deps.now_ms();
     deps.store.noteAsked(now);
     deps.refreshCodex();
+    deps.store.setClaudeAvailable(deps.claudeAvailable());
     if (deps.store.wantsProbe(now)) {
       deps.store.setProbeInFlight(true);
       // Belt and braces. `startRateLimitProbe` reports its own setup failures rather than
@@ -44,11 +49,11 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
         deps.store.setProbeInFlight(false);
       }
     }
-    res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing()));
+    res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing(), deps.store.probeState()));
   });
 
   app.get("/api/rate-limits", (_req, res) => {
-    res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing()));
+    res.json(snapshotBody(deps.store.snapshot(), deps.store.isProbing(), deps.store.probeState()));
   });
 }
 
@@ -59,8 +64,13 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
 // `probing` is not decoration: a Claude probe takes most of a minute, so a client polling on its
 // normal interval paints Codex alone and keeps that half-gauge on screen for minutes. Saying a
 // reading is on its way is what lets the client wait for it instead.
-const snapshotBody = (snapshot: RateLimitSnapshot, probing: boolean) => ({
+// `claudeProbe` carries WHY the Claude half is missing, when it is. Without it the gauge cannot
+// tell "not measured yet" from "cannot be measured here", and #1011 showed what that costs: a
+// probe loop ran every 90 seconds for half an hour, spending the very budget the gauge reports,
+// with nothing on screen to hint at it.
+const snapshotBody = (snapshot: RateLimitSnapshot, probing: boolean, state: ProbeState) => ({
   claude: snapshot.claude?.limits ?? null,
   codex: snapshot.codex?.limits ?? null,
   probing,
+  claudeProbe: state.kind,
 });

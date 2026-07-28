@@ -41,9 +41,15 @@ export interface ProbeDeps {
 /**
  * Start one probe. Returns a stop function, called both by the timeout and by the report arriving.
  *
- * Failure has no branch of its own on purpose: a missing `claude`, a trust prompt nobody answered,
- * a login that expired — all of them look the same from here (no report before the timeout), and
- * all of them want the same response, which is to stop and leave the gauge showing what it had.
+ * Failure has no branch of its own HERE on purpose: a trust prompt nobody answered, a login that
+ * expired, a machine too slow to boot the TUI — all of them look the same from inside one probe
+ * (no report before the timeout), and all of them want the same response, which is to stop and
+ * leave the gauge showing what it had.
+ *
+ * Telling them apart is the CALLER's job, and it matters: `claude` missing is decided before this
+ * runs (a PATH lookup, not a spawn), and "a status line arrived carrying no windows" is decided by
+ * the report route. Both used to arrive here as the same silence, which is how a failing probe
+ * re-fired every 90 seconds forever (#1011).
  */
 export function startRateLimitProbe(deps: ProbeDeps): () => void {
   // Setup is inside the guard, not before it. It reaches the disk — a full or read-only tmp throws
@@ -81,7 +87,11 @@ export function startRateLimitProbe(deps: ProbeDeps): () => void {
   const timer = setTimeout(stop, PROBE_TIMEOUT_MS);
 
   try {
-    pty = deps.spawn(["--permission-mode", "auto", "--settings", settingsFile], deps.cwd);
+    // `--session-id` so the transcript claude writes has an id WE chose. Without it claude mints
+    // its own, and a session nobody asked for lands in /api/sessions and `claude --resume` with
+    // nothing to identify it by (#1010). The caller registers the same id as an internal helper,
+    // which is what keeps it out of the listing.
+    pty = deps.spawn(["--session-id", deps.sessionId, "--permission-mode", "auto", "--settings", settingsFile], deps.cwd);
     // The prompt has to arrive after the TUI is listening; there is no readiness signal to wait
     // for that is worth parsing, and sending early costs only this probe.
     setTimeout(() => {
