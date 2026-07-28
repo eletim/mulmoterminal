@@ -8,8 +8,14 @@ export type WorkCommentKind = "start" | "merged";
 // An HTML comment, so it is invisible in the rendered issue but survives a round-trip through the
 // GitHub API. Keyed by kind AND directory: the same issue worked on from a second clone is a
 // second, honest line in the thread, not a duplicate to suppress.
+//
+// The directory is percent-encoded, not interpolated raw: a folder may legally be called
+// `foo-->bar`, and that string ends the HTML comment early — the rest spills into the rendered
+// issue as text (Codex review). Encoding also keeps a newline or a backtick in a path from
+// reshaping the comment. Ordinary names encode to themselves, so markers already posted still
+// match.
 export function workCommentMarker(kind: WorkCommentKind, dir: string): string {
-  return `<!-- mulmoterminal:work:${kind} dir=${dir} -->`;
+  return `<!-- mulmoterminal:work:${kind} dir=${encodeURIComponent(dir)} -->`;
 }
 
 // The directory a comment names. The BASENAME only: the point is "which of my clones", and a full

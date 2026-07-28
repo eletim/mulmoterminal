@@ -74,6 +74,26 @@ describe("alreadyCommented", () => {
   it("says no for an empty thread", () => {
     expect(alreadyCommented([], "start", dir)).toBe(false);
   });
+
+  // A directory may legally be called `foo-->bar`, and that string closes the HTML comment early:
+  // the rest of the marker spills into the rendered issue as visible text (Codex review). The
+  // payload is encoded, so the comment stays a comment — and still round-trips.
+  it.each(["foo-->bar", "a b", "back`tick", "emoji-dir-名前"])("keeps the marker intact for a directory called %j", (odd) => {
+    const marker = workCommentMarker("start", odd);
+    expect(marker.indexOf("-->")).toBe(marker.length - 3); // exactly one terminator, at the end
+    expect(alreadyCommented([workCommentBody("start", odd, null)], "start", odd)).toBe(true);
+  });
+
+  // Encoding must not make two different directories look like one.
+  it("still tells two odd directories apart", () => {
+    expect(alreadyCommented([workCommentBody("start", "a b", null)], "start", "a%20b")).toBe(false);
+  });
+
+  // Markers written before the encoding existed must keep matching, or every issue gets a
+  // duplicate the first time the new build runs.
+  it("leaves an ordinary directory name byte-identical", () => {
+    expect(workCommentMarker("start", "mulmoterminal5")).toBe("<!-- mulmoterminal:work:start dir=mulmoterminal5 -->");
+  });
 });
 
 describe("ensureWorkComment", () => {
