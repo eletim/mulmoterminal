@@ -87,6 +87,22 @@ describe("POST /api/work-comment", () => {
     expect(ensureCalls[1][5]).toEqual({ closeIssue: false });
   });
 
+  // A write route must not fall back to the default workspace: a stale preset or a malformed
+  // request would otherwise comment on the workspace's repo — a different issue thread entirely
+  // (Codex review).
+  it.each([
+    ["no cwd at all", undefined],
+    ["a relative path", "some/where"],
+    ["a directory that does not exist", "/no/such/directory-for-mulmoterminal"],
+    ["a file rather than a directory", process.argv[1]],
+    ["a cwd that is not a string", 42],
+  ])("writes nothing for %s", async (_label, cwd) => {
+    enabled = true;
+    const res = await request(app).post("/api/work-comment").send({ cwd, issue: 979, kind: "start" });
+    expect(res.body).toEqual({ posted: false, reason: "no-cwd" });
+    expect(ensureCalls).toHaveLength(0);
+  });
+
   // The directory reaches the comment as a bare folder name, never the path (#979).
   it("passes the directory as its basename", async () => {
     enabled = true;

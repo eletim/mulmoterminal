@@ -46,7 +46,15 @@ async function workCommentHandler(req: Request, res: Response): Promise<void> {
     res.json({ posted: false, reason: "disabled" });
     return;
   }
-  const cwd = workspaceFromQuery(typeof body.cwd === "string" ? body.cwd : undefined);
+  // No fallback to the default workspace here, unlike every read route: this one WRITES on
+  // GitHub, and a request whose cwd is missing, relative, or names a directory that has since
+  // been deleted would then comment on the workspace's repo instead — somebody else's issue
+  // thread, from a stale or malformed request (Codex review).
+  const cwd = existingWorkspaceFromQuery(body.cwd);
+  if (!cwd) {
+    res.json({ posted: false, reason: "no-cwd" });
+    return;
+  }
   const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
   if (!repo) {
     res.json({ posted: false, reason: "no-repo" });
