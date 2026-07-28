@@ -7,7 +7,7 @@ import { useTerminalScrollSpeed } from "../composables/useTerminalScrollSpeed";
 import { previewNotify } from "../composables/useAttentionSound";
 import { useCost } from "../composables/useCost";
 import { activeKeymap } from "../composables/activeKeymap";
-import { keymapRows } from "./keymapLabels";
+import { keymapRows, sendRows } from "./keymapLabels";
 import { useGoogleLink } from "../composables/useGoogleLink";
 import { VOICE_LANGUAGES, voiceLanguage } from "../composables/voiceLanguage";
 import { fetchVoiceInputStatus } from "../composables/voiceModelStatus";
@@ -358,6 +358,7 @@ const { cost, error: costError, load: loadCost } = useCost();
 // Reactive, not a snapshot: /api/config is fetched asynchronously, so a modal opened before it
 // lands would otherwise sit on "Not set" for every action until it is closed and reopened.
 const shortcutRows = computed(() => keymapRows(activeKeymap.value));
+const sendKeyRows = computed(() => sendRows(activeKeymap.value));
 
 const modalEl = ref<HTMLElement>();
 
@@ -840,6 +841,18 @@ onUnmounted(() => {
           <code v-if="row.binding" class="shrink-0 rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg">{{ row.binding }}</code>
           <span v-else class="shrink-0 text-[11px] text-muted">Not set</span>
           <code class="shrink-0 font-mono text-[10px] text-muted">{{ row.action }}</code>
+        </div>
+        <div
+          v-for="row in sendKeyRows"
+          :key="`send-${row.key}`"
+          role="listitem"
+          class="flex items-center gap-2 rounded-md border border-border bg-elevated px-2.5 py-1.5"
+        >
+          <span class="min-w-0 flex-1 truncate text-[12px] text-fg"
+            >Send <code class="font-mono text-[11px]">{{ row.label }}</code> to the terminal</span
+          >
+          <code class="shrink-0 rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg">{{ row.key }}</code>
+          <code class="shrink-0 font-mono text-[10px] text-muted">send</code>
         </div>
       </div>
 

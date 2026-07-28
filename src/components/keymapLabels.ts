@@ -1,4 +1,4 @@
-import { KEYMAP_ACTIONS, type KeymapAction } from "../../common/keymap";
+import { KEYMAP_ACTIONS, type Keymap, type KeymapAction } from "../../common/keymap";
 
 // What each bindable action is called in the settings list.
 //
@@ -29,3 +29,26 @@ export interface KeymapRow {
 
 export const keymapRows = (keymap: Partial<Record<KeymapAction, string>>): KeymapRow[] =>
   KEYMAP_ACTIONS.map((action) => ({ action, label: LABELS[action], binding: keymap[action] ?? null }));
+
+// The `send` bindings, which have no fixed list to render: unlike an action, one exists only
+// because the user wrote it, so an unbound row cannot be shown and there is nothing to show at
+// all until they add one.
+export interface SendRow {
+  key: string;
+  label: string;
+}
+
+// C0 control characters have no glyph, so printing `bytes` raw would render an invisible row —
+// the caret spelling (`^E`) is how a terminal has always written them, and is what the user will
+// recognise from Ctrl+E. DEL is 0x7f, one past the C0 block, and carries the same notation.
+export function describeBytes(bytes: string): string {
+  return [...bytes]
+    .map((ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      if (code === 0x7f) return "^?";
+      return code < 0x20 ? `^${String.fromCharCode(code + 0x40)}` : ch;
+    })
+    .join("");
+}
+
+export const sendRows = (keymap: Keymap): SendRow[] => (keymap.send ?? []).map((entry) => ({ key: entry.key, label: describeBytes(entry.bytes) }));
