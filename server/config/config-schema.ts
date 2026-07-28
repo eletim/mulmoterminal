@@ -131,17 +131,25 @@ export const quickCommandSchema = z.object({
 // `extends` is optional. With it, `colors` is a diff over that built-in; without it, the client
 // requires the full THEME_VAR_KEYS set before painting (resolveThemeVars) — a half-applied theme
 // would otherwise inherit the rest from whatever was on the element before.
-export const customThemeSchema = z.object({
-  id: z
-    .string()
-    .regex(CUSTOM_THEME_ID_RE)
-    .refine((id) => !isBuiltinThemeId(id), {
-      message: "id shadows a built-in theme",
-    }),
-  label: z.string().trim().min(1).max(NAME_MAX_CHARS),
-  extends: z.enum(THEME_IDS).optional(),
-  colors: z.partialRecord(z.enum(THEME_VAR_KEYS), paletteColor),
-});
+export const customThemeSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(CUSTOM_THEME_ID_RE)
+      .refine((id) => !isBuiltinThemeId(id), {
+        message: "id shadows a built-in theme",
+      }),
+    label: z.string().trim().min(1).max(NAME_MAX_CHARS),
+    extends: z.enum(THEME_IDS).optional(),
+    colors: z.partialRecord(z.enum(THEME_VAR_KEYS), paletteColor),
+  })
+  // Enforced HERE, not only where it is painted (Codex review on #996): an incomplete theme with
+  // no base cannot be resolved, so keeping it puts an entry in the picker that silently falls
+  // back to the default when chosen — and reports "not defined" about a theme that plainly is.
+  // Dropping it at the boundary keeps the offer and the outcome the same thing.
+  .refine((theme) => theme.extends !== undefined || THEME_VAR_KEYS.every((key) => theme.colors[key]), {
+    message: "a theme with no `extends` must set every colour",
+  });
 export type CustomTheme = z.infer<typeof customThemeSchema>;
 
 // A user-added HTTP MCP server for the single-view session. `id` becomes the server name in

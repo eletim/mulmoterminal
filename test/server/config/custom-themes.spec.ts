@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { sanitizeCustomThemes, toPublicAppConfig, emptyConfig, mergeConfigUpdate } from "../../../server/config/app-config";
+import { THEME_VAR_KEYS } from "../../../common/themeVars";
 
 const theme = (over: Record<string, unknown> = {}) => ({
   id: "my-dark",
@@ -14,9 +15,17 @@ describe("sanitizeCustomThemes", () => {
     expect(sanitizeCustomThemes([theme()])).toEqual([theme()]);
   });
 
-  it("keeps a theme with no base — the full-palette form", () => {
-    const full = theme({ id: "solo", extends: undefined, colors: { "--bg-base": "#000010", "--text": "#ffffff" } });
-    expect(sanitizeCustomThemes([full])).toHaveLength(1);
+  it("keeps a theme with no base when it sets every colour", () => {
+    const complete = theme({ id: "solo", extends: undefined, colors: Object.fromEntries(THEME_VAR_KEYS.map((k) => [k, "#101820"])) });
+    expect(sanitizeCustomThemes([complete])).toHaveLength(1);
+  });
+
+  // Codex review on #996: this survived sanitization and appeared in the picker, but could not be
+  // resolved — so choosing it fell back to the default and reported "not defined" about a theme
+  // that is defined. An entry that cannot be painted has no business being offered.
+  it("drops a theme with no base and only some colours", () => {
+    const partial = theme({ id: "solo", extends: undefined, colors: { "--bg-base": "#000010", "--text": "#ffffff" } });
+    expect(sanitizeCustomThemes([partial])).toEqual([]);
   });
 
   // Someone reading the guide's description of Midnight has to get Midnight.
