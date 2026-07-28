@@ -45,11 +45,19 @@ describe("dirColorField", () => {
 });
 
 describe("dirThemeField", () => {
-  it("accepts a known theme id, else null", () => {
+  // Shape only, not existence (#996): a directory may pin a theme the user defined in the global
+  // config's `themes`, whose id no schema here can enumerate. Whether the id RESOLVES is decided
+  // by loadDirConfig, which can see the configured themes — see dir-config.spec.ts.
+  it("accepts any well-formed id", () => {
     expect(dirThemeField.parse("nord")).toBe("nord");
     expect(dirThemeField.parse("solarized")).toBe("solarized");
-    expect(dirThemeField.parse("solarized-light")).toBeNull(); // the correct id is `solarized`
-    expect(dirThemeField.parse("neon")).toBeNull();
+    expect(dirThemeField.parse("my-dark")).toBe("my-dark");
+  });
+
+  it("still refuses a shape that could not be an attribute value", () => {
+    expect(dirThemeField.parse("My Dark")).toBeNull();
+    expect(dirThemeField.parse("2cool")).toBeNull();
+    expect(dirThemeField.parse(7)).toBeNull();
   });
 });
 

@@ -275,7 +275,7 @@ function testKindSound(kind: NotifyKind) {
 }
 
 // Theme is applied immediately on click.
-const { themeId, themes, setTheme } = useTheme();
+const { themeId, themes, setTheme, missingThemeId } = useTheme();
 const themesEl = ref<HTMLElement>();
 
 // Terminal font size, applied immediately (like the theme). Per-browser, so a phone and a
@@ -323,13 +323,22 @@ async function onUnlinkGoogle() {
 // ARIA radiogroup keyboard contract: arrows move selection (and focus) within
 // the group, wrapping at the ends; only the checked radio is tabbable (roving
 // tabindex), so Tab enters/leaves the group as one stop.
+// Roving tabindex, with a floor: when the selection names a theme that isn't in the list — the
+// missing-theme case this build added (#996) — nothing matches and EVERY option would be
+// tabindex="-1", so a keyboard user could not reach the picker at all while the notice above it
+// says to pick one. The first option becomes the tab stop in that state.
+const hasSelectedTheme = computed(() => themes.value.some((t) => t.id === themeId.value));
+function isThemeTabStop(id: string, index: number): boolean {
+  return hasSelectedTheme.value ? themeId.value === id : index === 0;
+}
+
 function onThemeKey(e: KeyboardEvent, index: number) {
   const forward = e.key === "ArrowRight" || e.key === "ArrowDown";
   const backward = e.key === "ArrowLeft" || e.key === "ArrowUp";
   if (!forward && !backward) return;
   e.preventDefault();
-  const next = (index + (forward ? 1 : themes.length - 1)) % themes.length;
-  setTheme(themes[next].id);
+  const next = (index + (forward ? 1 : themes.value.length - 1)) % themes.value.length;
+  setTheme(themes.value[next].id);
   themesEl.value?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
 }
 
@@ -402,6 +411,13 @@ onUnmounted(() => {
       </div>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Theme</h3>
+      <p v-if="missingThemeId" class="mb-2 mt-1.5 text-[12px] text-[var(--warn-text,#e0a030)]" data-testid="theme-missing">
+        The selected theme <code>{{ missingThemeId }}</code> is not defined. Add it to <code>themes</code> in <code>~/.mulmoterminal/config.json</code>, or pick
+        one below. Your choice is kept until then.
+      </p>
+      <p class="mb-2 mt-1.5 text-[12px] text-dim">
+        Your own colour schemes go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in four.
+      </p>
       <div ref="themesEl" class="flex flex-wrap gap-2" role="radiogroup" aria-label="Theme">
         <button
           v-for="(t, i) in themes"
@@ -411,7 +427,7 @@ onUnmounted(() => {
           :class="themeId === t.id ? 'border-accent text-fg' : 'border-border text-muted hover:text-fg'"
           role="radio"
           :aria-checked="themeId === t.id"
-          :tabindex="themeId === t.id ? 0 : -1"
+          :tabindex="isThemeTabStop(t.id, i) ? 0 : -1"
           :title="t.label"
           @click="setTheme(t.id)"
           @keydown="onThemeKey($event, i)"

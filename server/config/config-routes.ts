@@ -65,6 +65,14 @@ export function getProviders(): Provider[] {
   return config.providers;
 }
 
+// The ids of the user's own colour schemes (#996), read live like the providers above. A
+// directory may pin one in its `.mulmoterminal.json`, and the dir loader needs to know which
+// names resolve — an id matching neither a built-in nor one of these is a typo, and is dropped
+// so it shows up in Settings' Directory settings instead of silently painting the default.
+export function getCustomThemeIds(): string[] {
+  return config.themes.map((theme) => theme.id);
+}
+
 // The global terminal-header buttons/chips — read live so /api/header reflects a config
 // change on the next fetch without a restart.
 export function getHeaderConfig(): HeaderConfig {
