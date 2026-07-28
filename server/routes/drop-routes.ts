@@ -35,7 +35,10 @@ export function mountDropRoutes(app: Express): void {
     // not running has nowhere it could be read from even if it were saved.
     if (!ptys.has(id)) return res.status(404).json({ error: "no such session" });
     const bytes: unknown = req.body;
-    if (!Buffer.isBuffer(bytes) || bytes.length === 0) return res.status(400).json({ error: "a non-empty body is required" });
+    // Length is NOT checked: an empty file is a real file, and refusing it here would mean the
+    // same drop succeeds in a browser that exposes the path and fails in one that does not —
+    // the browser-dependent behaviour this route exists to remove (found by Codex review).
+    if (!Buffer.isBuffer(bytes)) return res.status(400).json({ error: "a raw body is required" });
     try {
       const body: DropUploadResponse = { path: saveDrop(id, bytes, req.get("content-type") ?? FALLBACK_MIME, originalFilename(req)) };
       res.json(body);
