@@ -8,7 +8,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
-> 🆕 **[What's new in 2.5.2](v2.5.2.html)** — your own colour schemes in the theme picker, with four ready-made ones to paste in (as of 2026-07-28)
+> 🆕 **[What's new in 2.5.3](v2.5.3.html)** — a background probe stops spending the Claude budget it was measuring; upgrade even if you configure nothing (as of 2026-07-28)
 >
 > **Something looks wrong?** Type `/mulmoterminal-bug-report` in any session. The bundled skill hears the symptom out, checks your **real** config and version to see whether it is configuration or by design, searches the existing issues — and only helps you file one if none of that explains it, with the environment collected and secrets masked.
 

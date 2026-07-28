@@ -23,6 +23,7 @@ description: Configuring MulmoTerminal — the settings modal, per-project colou
 | Add **your own button** to the header | [Customizing the header](#header) |
 | Recolour the whole app **your way** | [Make your own colour scheme](#custom-themes) |
 | Tell an issue **you have started on it** | [issueWorkComments](#issue-work-comments) |
+| Stop agents **re-asking what you already decided** | [What this project already decided](#decision-digest) |
 | Open it from **another machine's browser** | [`MULMOTERMINAL_HOST`](#bind-host) |
 
 ---
@@ -1088,6 +1089,34 @@ Merged in #983. Work done in `mulmoterminal5`.
 **Off by default**, because it writes to GitHub on your behalf — often on an issue somebody else
 filed. Turn it on per machine, not per project: it lives in the global config.
 
+## What this project already decided (`decisionDigest`) {#decision-digest}
+
+An agent that asks you something you settled last week is not learning. This keeps a Markdown
+digest of the questions this project's sessions actually asked — the options each offered, and
+which one you picked — so an agent can read it before asking something similar.
+
+```json
+{ "decisionDigest": true }
+```
+
+- Written to `~/.mulmoterminal/decisions/<project>.md`, **never into your repository**.
+- Refreshed **when the server starts and every 6 hours**, for the directories this host is
+  actually working in.
+- Read by agents through the bundled **`mulmoterminal-decisions`** skill, which MulmoTerminal
+  mirrors into `~/.claude/skills/` like its other skills.
+- The digest holds **dated facts, not inferred rules**. "You always pick the recommended option"
+  is the kind of thing that reads convincingly and is wrong, and a wrong lesson applied silently
+  is worse than no lesson — so the file records what was asked and answered, and says so at the
+  top.
+- Decisions where you rejected every option and wrote your own answer are kept too. Those are the
+  ones worth reading: the question itself was wrong.
+
+**Off by default.** It is a vision-stage idea, and it writes a file that would otherwise not
+exist.
+
+This key has **no Settings-modal switch** — it lives only in `~/.mulmoterminal/config.json`, which
+is read once when the server starts. Edit the file, then **restart `mulmoterminal`**.
+
 ## Put your common commands in the Run menu (`script.json`)
 
 Your project's scripts that can run in a grid cell (dev server, tests, build, and so on).
@@ -1141,6 +1170,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | `pushEnabled` | The Web Push master switch (default `false` → [Mobile notifications](notifications.html)) |
 | `pushKinds` | Which moments push: `"finished"` (a turn ended) and/or `"waiting"` (the agent stopped to ask). Omit to keep both; `[]` for none (→ [Which moments push](notifications.html#kinds)) |
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
+| `decisionDigest` | Keep a Markdown digest of what this project already decided, for agents to read before asking again. **Off by default** (→ [What this project already decided](#decision-digest)) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
 | `themes` | Colour schemes you defined; they appear in Settings' theme picker (→ [Make your own colour scheme](#custom-themes)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |

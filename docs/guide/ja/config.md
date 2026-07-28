@@ -23,6 +23,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | ヘッダーに**自分のボタン**を足したい | [ヘッダーのカスタマイズ](#header) |
 | **自分の配色**でアプリ全体を染めたい | [自分の配色を作る](#custom-themes) |
 | issue に**着手を知らせたい** | [issueWorkComments](#issue-work-comments) |
+| **決めたことを何度も聞かれる**のをやめさせたい | [このプロジェクトで既に決めたこと](#decision-digest) |
 | **別のマシンのブラウザ**から開きたい | [`MULMOTERMINAL_HOST`](#bind-host) |
 
 ---
@@ -1061,6 +1062,31 @@ Merged in #983. Work done in `mulmoterminal5`.
 **既定は off** です。あなたの名前で GitHub に書き込み、しかも多くは他人が立てた issue だからです。
 グローバル設定なので、プロジェクト単位ではなくマシン単位で決めます。
 
+## このプロジェクトで既に決めたこと（`decisionDigest`） {#decision-digest}
+
+先週決めたことをもう一度聞いてくるエージェントは、学習していません。このプロジェクトの
+セッションが**実際に人間へ聞いた質問** — 提示した選択肢と、どれが選ばれたか — を Markdown に
+まとめておき、似たことを聞く前に読ませます。
+
+```json
+{ "decisionDigest": true }
+```
+
+- 書き出し先は `~/.mulmoterminal/decisions/<project>.md` で、**リポジトリの中には書きません**。
+- 更新は**サーバ起動時と 6 時間ごと**。対象はこのホストが実際に作業しているディレクトリだけです。
+- エージェント側は同梱スキル **`mulmoterminal-decisions`** 経由で読みます。他のスキルと同じく
+  `~/.claude/skills/` にミラーされます。
+- 中身は**日付つきの事実だけで、推論した規則は書きません**。「この人はいつも推奨案を選ぶ」の
+  たぐいは、それらしく読めてしまううえに間違っていることがあり、**間違った学習が黙って効くのが
+  一番まずい**からです。何を聞いて何と答えたかだけを載せ、その旨を冒頭に明記しています。
+- **どの選択肢も選ばず自分で書いた**回答も残します。むしろそちらが読む価値のある記録です —
+  質問そのものが的外れだった、という事実なので。
+
+**既定は off**。vision 段階のアイデアであり、放っておけば存在しないファイルを書くためです。
+
+このキーは **Settings に画面がありません**。`~/.mulmoterminal/config.json` だけにあり、この
+ファイルはサーバ起動時に一度だけ読まれます。書き換えたら **`mulmoterminal` を再起動**してください。
+
 ## よく使うコマンドを Run メニューに（`script.json`）
 
 グリッドセルで実行できるプロジェクトのスクリプト（dev サーバ・テスト・ビルドなど）。
@@ -1113,6 +1139,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `pushEnabled` | Web Push の master スイッチ（既定 `false` → [スマホ通知](notifications.html)） |
 | `pushKinds` | どの瞬間に飛ばすか：`"finished"`（ターン完了）と `"waiting"`（質問して停止）。**書かなければ両方**、`[]` でどれも飛ばさない（→ [どの瞬間に飛ぶか](notifications.html#kinds)） |
 | `worklogEnabled` / `worklogIntervalHours` | 定期 dev-work ログ（既定 OFF / 6 時間） |
+| `decisionDigest` | このプロジェクトで既に決めたことを Markdown にまとめ、エージェントが聞き直す前に読む。**既定 off**（→ [このプロジェクトで既に決めたこと](#decision-digest)） |
 | `terminalSubmit` | どのバイトを**送信**／**改行**とみなすか — `"cr"`（既定）または `"esc-cr"`（→ [Enter — 送信と改行](#terminal-submit)） |
 | `themes` | 自分で定義した配色。Settings のテーマ選択に並ぶ（→ [自分の配色を作る](#custom-themes)） |
 | `keymap` | ユーザ定義のキーボードショートカット。**既定は空——何も割り当てられていない**（→ [キーボードショートカット](#keymap)） |

@@ -4,6 +4,105 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.5.3 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.3.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.3.html))
+
+A background probe stops spending the budget it was measuring, and two opt-in settings arrive: raw
+key sequences to the terminal, and a record of what a project already decided.
+
+### The rate-limit probe stops re-firing every 90 seconds (#1019, closes #1011, refs #1010)
+
+The usage gauge reads Claude's windows by starting one hidden session and listening for its status
+line. When that session reported nothing, **no attempt was recorded** — so the "our reading is
+stale" half of the probe gate stayed true and the next poll started another probe immediately. One
+report counted 21 runs in half an hour, each one a real query against the very window the gauge
+exists to display.
+
+Four failures were collapsed into one silence, and they want different answers:
+
+| Failure | Before | Now |
+|---|---|---|
+| API-key billing (no `rate_limits` exists at all) | every 90s, forever | the status line *arriving* counts as an answer; asked again about hourly in case billing changes |
+| Unanswered trust prompt / expired login | every 90s | exponential backoff, 90s → 3m → 6m … capped at an hour |
+| `claude` not installed | spawn threw instantly, so it retried at the *polling* interval — faster than the timeout | decided before spawning, with a PATH lookup; recovers on its own when `claude` appears, no restart |
+| Slow boot, transient | every 90s | backoff, reset on success |
+
+The gauge now **says why** it cannot show Claude's numbers, in the place the figures would be
+(`claude usage n/a`, with the reason on hover). Previously "not measured yet" and "cannot be
+measured here" were indistinguishable, which is why a runaway loop ran unnoticed for half an hour.
+
+The probe's throwaway sessions also stop appearing in `/api/sessions`: it now passes its own
+`--session-id`, shaped so it can be recognised without anything being remembered — a process-memory
+set would forget its own sessions across a restart while their transcripts remained on disk.
+**Sessions created before upgrading still appear**, in the session list and in `claude --resume`,
+because they carry ordinary random ids; cleaning those up stays open as #1010.
+
+Also pulled out of `whisper.ts` on the way: `hasBinary` now lives in `server/infra/has-binary.ts`
+and reuses the Windows `.exe` / `.cmd` resolution, which the whisper copy never did.
+
+### Send raw key sequences to the terminal (#1023, closes #1005)
+
+`keymap` gains **`send`** — a binding that puts bytes into the focused terminal instead of running
+an app action. It started with wanting `Cmd+→` for end-of-line on a Mac:
+
+```json
+{ "keymap": { "send": [{ "key": "Cmd+ArrowRight", "bytes": "\u0005" }] } }
+```
+
+`bytes` reaches the PTY verbatim; control characters are written the way JSON writes them, and
+nothing re-escapes them. It is a **list** rather than a single field like every other keymap action,
+because each binding carries its own payload.
+
+### A record of what a project already decided (#1018, refs #1015)
+
+`decisionDigest` (**off by default**) keeps a Markdown digest of the questions a project's sessions
+actually asked a human — the options offered and the answer given — at
+`~/.mulmoterminal/decisions/<project>.md`, refreshed at startup and every 6 hours. `GET
+/api/decisions/digest?cwd=` serves it, and a bundled **`mulmoterminal-decisions`** skill is what
+agents read it through, so a question already settled does not get asked again.
+
+The digest holds **dated facts, never inferred rules** — "this user always picks the recommended
+option" reads convincingly and can be wrong, and a wrong lesson applied silently is the worst
+outcome. Answers where the user rejected every option and wrote their own are kept, because those
+say the question itself was wrong.
+
+This release also documents the setting in the guide, which #1018 shipped without.
+
+### Project colours reach every kind of cell (#1013, closes #1006)
+
+The six chrome colours in `.mulmoterminal.json` only ever took effect in Claude cells; Shell
+(launcher) and Command cells never defined the CSS variables and fell back to the defaults. Rather
+than adding the missing wiring to two more files — the same hole had been found three times — the
+wiring moved into one shared place so a new cell type cannot miss it.
+
+### A trailing slash in `cwd` no longer breaks live reload (#1016, fixes #1002)
+
+`existingWorkspace` validated a path without normalising it, so `/a/b/` passed every guard and
+became the effective cwd verbatim. That value is used downstream as the *identity* of a directory —
+PTY cwd, the cwd returned to the cell, the dir-config subscription key — so one directory had two
+names, and an announcement published for `/a/b` never reached a cell opened as `/a/b/`. Normalising
+at `resolveWorkspace`, the single gate all seven call sites pass through, fixes the chain at its
+source.
+
+### Sessions that survive a restart keep their folder on the phone (#1025, fixes #1021)
+
+A session still alive in tmux after a server restart appeared in the phone list with neither `cwd`
+nor a work item. The cause was not that tmux cannot be asked — it was that the server never
+remembered. `markDevTerminalSession()` already receives the cwd from its caller; it now records it,
+in a **separate** append-log file rather than by changing the shape of `dev-terminal-sessions.json`,
+which older versions parse and would drop entirely.
+
+### The phone session list carries each cell's issue / PR (#1017, refs #1014)
+
+Each row gains `work` — the issue and PR numbers, the headline and the phase — so a phone client can
+show what the header already shows. Data only; the display lives in another repo.
+
+### CI stops waiting 15 minutes on a hung review (#1022, closes #1020)
+
+`codex exec` does not run slow, it stops: the logs show the PR thread read, then fifteen silent
+minutes to the timeout. The job now cuts a hung run short and retries once.
+
 ## mulmoterminal@2.5.2 — 2026-07-28
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.2.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.2.html))
