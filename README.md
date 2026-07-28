@@ -876,7 +876,9 @@ Each grid cell's header shows two badges for its session, refreshed when a turn 
   current-gen Opus / Sonnet / Fable / Mythos, **200k** otherwise). A session running on a
   [provider model](#agents-claude--codex) shows that model's name and its published window
   (`Kimi K2.7 Code · ctx 12%`); a model in neither list keeps the label and hides the %,
-  since the window is never guessed.
+  since the window is never guessed. A reading **past 100%** shows `ctx ?` instead of the
+  number: the window is a hard cap, so an impossible percentage means the built-in window
+  table is out of date for that model rather than that the session is over-full.
 - **Token badge** — `⇡<in> ⇣<out>`: cumulative input (fresh + cache-read + cache-creation)
   and output tokens for the session, k/M-formatted, with a full breakdown in the tooltip.
 
