@@ -28,11 +28,17 @@ export interface WorkCommentResult {
 // of issues a session works on.
 const posted = new Set<string>();
 
+// The memo above only closes the door AFTER a write lands. Two polls arriving together — which is
+// the normal case with several tabs open — both find it open, both read the issue, and both post
+// (found by Codex review). Callers for the same key therefore share one in-flight run.
+const inflight = new Map<string, Promise<WorkCommentResult>>();
+
 const memoKey = (repo: string, issue: number, kind: WorkCommentKind, dir: string) => `${repo}#${issue}:${kind}:${dir}`;
 
 // Test-only: the memo outlives a single case otherwise, and "already posted" would leak across.
 export function clearWorkCommentMemo(): void {
   posted.clear();
+  inflight.clear();
 }
 
 interface IssueView {
@@ -68,9 +74,35 @@ export async function ensureWorkComment(
   pr: number | null,
   options: { closeIssue?: boolean } & WorkCommentDeps = {},
 ): Promise<WorkCommentResult> {
-  const run = options.runGh ?? runGh;
   const key = memoKey(repo, issue, kind, dir);
   if (posted.has(key)) return { posted: false, reason: "already" };
+
+  const running = inflight.get(key);
+  if (running) {
+    const result = await running;
+    // The one that did the work reports the write; this one wrote nothing. A FAILURE is passed
+    // through as-is, so a caller does not read "already" from a run that never posted.
+    return result.posted ? { posted: false, reason: "already" } : result;
+  }
+  const run = writeWorkComment(repo, issue, kind, dir, pr, options);
+  inflight.set(key, run);
+  try {
+    return await run;
+  } finally {
+    inflight.delete(key);
+  }
+}
+
+async function writeWorkComment(
+  repo: string,
+  issue: number,
+  kind: WorkCommentKind,
+  dir: string,
+  pr: number | null,
+  options: { closeIssue?: boolean } & WorkCommentDeps,
+): Promise<WorkCommentResult> {
+  const run = options.runGh ?? runGh;
+  const key = memoKey(repo, issue, kind, dir);
 
   const view = await viewIssue(run, repo, issue);
   if (!view) return { posted: false, reason: "gh-failed" };

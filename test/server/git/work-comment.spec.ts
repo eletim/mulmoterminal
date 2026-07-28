@@ -95,6 +95,56 @@ describe("ensureWorkComment", () => {
     expect(gh.did("view")).toBe(1); // the memo also spares gh the repeat lookups
   });
 
+  // Two tabs poll at the same moment: without a shared in-flight run both read the thread before
+  // either writes, both see nothing, and both comment (found by Codex review). The memo alone
+  // cannot help — it is only set after a write lands.
+  it("writes once when two callers arrive together", async () => {
+    let releaseView = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseView = resolve;
+    });
+    const calls: string[][] = [];
+    const run = async (args: string[]) => {
+      calls.push(args);
+      if (args[1] === "view") {
+        await held; // both callers are now inside, before either has written
+        return { ok: true, stdout: issueView([]), stderr: "" };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    };
+
+    const first = ensureWorkComment("o/r", 966, "start", "mulmoterminal5", null, { runGh: run });
+    const second = ensureWorkComment("o/r", 966, "start", "mulmoterminal5", null, { runGh: run });
+    releaseView();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(calls.filter((c) => c[1] === "comment")).toHaveLength(1);
+    expect([a.posted, b.posted].filter(Boolean)).toHaveLength(1); // exactly one reports the write
+    expect(a.posted ? b : a).toEqual({ posted: false, reason: "already" });
+  });
+
+  // The joiner must not read "already" from a run that wrote nothing, or the retry never happens.
+  it("passes a failure through to the caller that joined", async () => {
+    let releaseView = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseView = resolve;
+    });
+    const run = async (args: string[]) => {
+      if (args[1] === "view") {
+        await held;
+        return { ok: false, stdout: "", stderr: "boom" };
+      }
+      return { ok: true, stdout: "", stderr: "" };
+    };
+    const first = ensureWorkComment("o/r", 966, "start", "d", null, { runGh: run });
+    const second = ensureWorkComment("o/r", 966, "start", "d", null, { runGh: run });
+    releaseView();
+    expect(await Promise.all([first, second])).toEqual([
+      { posted: false, reason: "gh-failed" },
+      { posted: false, reason: "gh-failed" },
+    ]);
+  });
+
   // A restarted server has an empty memo; the thread is what stops it.
   it("stays quiet when a previous process already said it", async () => {
     const gh = fakeGh(issueView([workCommentBody("start", "mulmoterminal5", null)]));
