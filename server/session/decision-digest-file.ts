@@ -32,14 +32,26 @@ export async function writeDecisionDigest(cwd: string, now: Date): Promise<strin
   return file;
 }
 
-/** The digest as text, generating it if it isn't on disk yet — what the skill reads. Null when the
- *  feature is off, so a caller can tell "not enabled" from "nothing decided here". */
-export async function readDecisionDigest(cwd: string, now: Date): Promise<string | null> {
-  if (!getDecisionDigestEnabled()) return null;
+/** Three answers, never two: "switched off" and "on but I could not read it" send a reader in
+ *  opposite directions. Collapsing them was the bug — a failed read would have reported the
+ *  feature as off, and the skill would have skipped this project's history believing the user
+ *  never asked for it (Codex review). */
+export type DigestRead = { state: "disabled" } | { state: "ok"; markdown: string } | { state: "error"; message: string };
+
+/** The digest as text, generating it if it isn't on disk yet — what the skill reads. */
+export async function readDecisionDigest(cwd: string, now: Date): Promise<DigestRead> {
+  if (!getDecisionDigestEnabled()) return { state: "disabled" };
+  const file = decisionDigestPath(cwd);
   try {
-    return await fs.readFile(decisionDigestPath(cwd), "utf8");
+    return { state: "ok", markdown: await fs.readFile(file, "utf8") };
   } catch {
-    await writeDecisionDigest(cwd, now);
-    return await fs.readFile(decisionDigestPath(cwd), "utf8").catch(() => null);
+    // Not written yet (first run after switching it on) — build it now, and report a failure to
+    // build as a failure rather than as an absence.
+    try {
+      await writeDecisionDigest(cwd, now);
+      return { state: "ok", markdown: await fs.readFile(file, "utf8") };
+    } catch (e) {
+      return { state: "error", message: e instanceof Error ? e.message : String(e) };
+    }
   }
 }

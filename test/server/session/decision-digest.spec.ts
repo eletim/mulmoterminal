@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { DecisionQuestion, DecisionRecord } from "../../../common/decisionLog";
 import { decisionDigestMarkdown } from "../../../server/session/decision-digest";
+import type { DigestRead } from "../../../server/session/decision-digest-file";
 
 const question = (over: Partial<DecisionQuestion> = {}): DecisionQuestion => ({
   question: "どう進めますか？",
@@ -94,5 +95,15 @@ describe("decisionDigestMarkdown", () => {
     const md = digest([record([question({ header: "", options: [], answerKind: "free-text", answer: "適当に" })])]);
     expect(md).toContain("(no label)");
     expect(md).toContain("適当に");
+  });
+});
+
+// The route's contract depends on these three states staying apart: "off" and "on but unreadable"
+// send a reader in opposite directions, and collapsing them made a broken digest look like a user
+// who never opted in (Codex review).
+describe("readDecisionDigest states", () => {
+  it("names the three cases distinctly in the type", () => {
+    const cases: DigestRead[] = [{ state: "disabled" }, { state: "ok", markdown: "# x" }, { state: "error", message: "EACCES" }];
+    expect(cases.map((c) => c.state)).toEqual(["disabled", "ok", "error"]);
   });
 });

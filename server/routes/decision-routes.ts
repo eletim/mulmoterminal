@@ -37,8 +37,11 @@ export function mountDecisionRoutes(app: Express): void {
   app.get("/api/decisions/digest", async (req: Request, res: Response) => {
     const cwd = existingWorkspaceFromQuery(req.query.cwd);
     if (!cwd) return res.status(400).json({ enabled: null, error: "cwd must be an existing directory" });
-    const markdown = await readDecisionDigest(cwd, new Date());
-    if (markdown === null) return res.json({ enabled: false, markdown: null });
-    res.json({ enabled: true, markdown });
+    const digest = await readDecisionDigest(cwd, new Date());
+    if (digest.state === "disabled") return res.json({ enabled: false, markdown: null });
+    // On but unreadable is a 5xx, not `enabled: false`: a reader told the feature is off stops
+    // looking, and would skip a history the user did ask for (Codex review).
+    if (digest.state === "error") return res.status(500).json({ enabled: true, markdown: null, error: digest.message });
+    res.json({ enabled: true, markdown: digest.markdown });
   });
 }
