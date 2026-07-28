@@ -347,7 +347,6 @@ describe("loadAppConfig / saveAppConfig", () => {
       terminalSubmit: "cr",
       copyOnSelect: false,
       decisionDigest: false,
-      decisionDigest: false,
       issueWorkComments: false,
       prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
       fontFamily: null,
