@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
@@ -151,6 +151,35 @@ describe("pruneOrphanDrops", () => {
 
   it("reports nothing when the root has never been written", () => {
     expect(pruneOrphanDrops(new Set(), path.join(os.tmpdir(), `drops-spec-missing-${randomUUID()}`))).toEqual([]);
+  });
+
+  // On Linux os.tmpdir() is world-writable, so another user can pre-create the root as a link
+  // aimed wherever they like. Following it would have this function delete THEIR chosen
+  // directory's contents — the one code path here that removes anything.
+  it("refuses a root that is a symlink rather than following it", () => {
+    withRoot((root) => {
+      const real = path.join(root, "real");
+      const orphan = randomUUID();
+      mkdirSync(real, { recursive: true, mode: 0o700 });
+      mkdirSync(path.join(real, orphan), { recursive: true });
+      const link = path.join(root, "link");
+      symlinkSync(real, link, "dir");
+      expect(pruneOrphanDrops(new Set(), link)).toEqual([]);
+      expect(existsSync(path.join(real, orphan))).toBe(true);
+    });
+  });
+
+  // A root somebody else can write into is one they can plant entries in — including entries
+  // named like session ids, to aim the delete.
+  it.runIf(process.platform !== "win32")("refuses a root that is not private to this user", () => {
+    withRoot((root) => {
+      const open = path.join(root, "open");
+      const orphan = randomUUID();
+      mkdirSync(path.join(open, orphan), { recursive: true });
+      chmodSync(open, 0o777);
+      expect(pruneOrphanDrops(new Set(), open)).toEqual([]);
+      expect(existsSync(path.join(open, orphan))).toBe(true);
+    });
   });
 });
 

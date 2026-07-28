@@ -7,11 +7,12 @@
 // the host, which drives two rules here — the tree is 0700, and the sweep only ever removes a
 // directory whose name is a session id we could have minted. "The parent is ours" is not a
 // good enough reason to delete something we did not write.
-import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, renameSync, writeFileSync, type Stats } from "node:fs";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { removeQuietly } from "../infra/fs-cleanup.js";
+import { hasErrnoCode, messageOf } from "../errors.js";
 import { SESSION_ID_RE } from "../config/env.js";
 import { extensionForMime } from "../backends/remoteHost/attachment-path.js";
 
@@ -47,17 +48,57 @@ export function dropExtension(filename: string | null, mimeType: string): string
   return extensionForMime(mimeType);
 }
 
+/** Whether a directory is this user's alone.
+ *
+ *  It is `lstat` that is passed in, so a SYMLINK fails `isDirectory()` here instead of being
+ *  followed to whatever it points at — which is the attack this exists for: on Linux
+ *  `os.tmpdir()` is world-writable, so another user can pre-create our root as a link aimed at
+ *  a directory of their choosing, and every dropped file would then be written where they
+ *  decided rather than where we said.
+ *
+ *  Windows is exempt from the owner/mode half: its temp directory is per-user already, and Node
+ *  does not implement `mode` there, so the check would assert the platform, not the code. */
+function isPrivateToUs(stat: Stats): boolean {
+  if (!stat.isDirectory()) return false;
+  if (process.platform === "win32") return true;
+  const uid = process.getuid?.();
+  return (uid === undefined || stat.uid === uid) && (stat.mode & 0o077) === 0;
+}
+
+/** The drops root, created if missing and refused if it is not ours. Re-checked on every use
+ *  rather than trusted for having been made by us once. */
+function usableRoot(): string | null {
+  try {
+    // Deliberately NOT `recursive`: that silently accepts a directory that already exists, and
+    // one that already exists is exactly the case that has to be inspected instead of assumed.
+    mkdirSync(DROPS_ROOT, { mode: PRIVATE_MODE });
+    return DROPS_ROOT;
+  } catch (err) {
+    if (!hasErrnoCode(err) || err.code !== "EEXIST") {
+      console.warn(`[drops] could not create ${DROPS_ROOT}: ${messageOf(err)}`);
+      return null;
+    }
+  }
+  const stat = lstatSync(DROPS_ROOT, { throwIfNoEntry: false });
+  if (stat && isPrivateToUs(stat)) return DROPS_ROOT;
+  console.warn(`[drops] ${DROPS_ROOT} exists but is not a private directory of ours — dropped files will not be saved`);
+  return null;
+}
+
 /** Create the session's drop directory and return its path, or null when it could not be
  *  prepared. Never throws: a spawn must not fail because a drop target is unavailable — the
  *  caller simply grants no extra directory, and drops fall back to the old hint. */
 export function ensureDropsDir(sessionId: string): string | null {
   const dir = dropsDir(sessionId);
-  if (!dir) return null;
+  if (!dir || !usableRoot()) return null;
   try {
-    mkdirSync(dir, { recursive: true, mode: PRIVATE_MODE });
+    mkdirSync(dir, { mode: PRIVATE_MODE });
     return dir;
   } catch (err) {
-    console.warn(`[drops] could not create ${dir}: ${String(err)}`);
+    // Inside a root nobody else can write to, an existing session directory is one of ours from
+    // an earlier attach — the reattach path comes back through here on every server restart.
+    if (hasErrnoCode(err) && err.code === "EEXIST") return dir;
+    console.warn(`[drops] could not create ${dir}: ${messageOf(err)}`);
     return null;
   }
 }
@@ -97,11 +138,20 @@ export function cleanupSessionDrops(sessionId: string): void {
  *
  *  Returns the ids it dropped, for the boot log. */
 export function pruneOrphanDrops(liveIds: ReadonlySet<string>, root: string = DROPS_ROOT): string[] {
+  const stat = lstatSync(root, { throwIfNoEntry: false });
+  if (!stat) return []; // nothing has been dropped yet
+  // Never walk a root that is not ours. Removing entries from a directory somebody else
+  // controls — or from wherever their symlink points — is precisely the damage the ownership
+  // check exists to prevent, and this is the one code path here that deletes.
+  if (!isPrivateToUs(stat)) {
+    console.warn(`[drops] ${root} is not a private directory of ours — leaving it untouched`);
+    return [];
+  }
   let names: string[];
   try {
     names = readdirSync(root);
   } catch {
-    return []; // nothing has been dropped yet
+    return [];
   }
   const dropped: string[] = [];
   for (const name of names) {

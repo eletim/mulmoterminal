@@ -86,7 +86,7 @@ output you haven't seen) — driven by Claude/Codex activity hooks the server in
 *Besides the grid there's a **single view** for focusing on one agent: the conversation/terminal on the left, and a **GUI panel** ("Canvas") on the right where the agent's tool calls render as documents, forms, charts, images, and HTML — not just printed text. Switch between the two with the chat / grid icons in the toolbar. **The app opens on the grid** (`/`); the single view has its own URL, `/chat`, so you can bookmark either.*
 
 **Inserting a file path** — like a native terminal, you can put a file's absolute path into
-the prompt: **drag a file** onto the terminal, or click the **📎 file button** in the terminal
+the prompt: **drag a file** onto the terminal, or click the **file button** in the terminal
 header, which asks the local server to open the OS file dialog and inserts the chosen path. The
 path is inserted at the cursor — it is not submitted, so you can review it first.
 
@@ -97,7 +97,7 @@ machine**, where a local path would name nothing on the host — the file's byte
 instead, saved to a private per-session directory under the OS temp dir, and *that* path is
 inserted. The session is granted that directory at launch (Claude Code's `--add-dir`, bind-mounted
 in the sandbox too), so the agent reads it without a permission prompt; the copies are removed
-when the session ends, and any left by a crash are swept at the next start. Up to 110 MB per
+when the session ends, and any left by a crash are swept at the next start. Up to 110 MiB per
 file — the same ceiling as a phone attachment. **A session already running when you upgrade
 was launched without that grant**, so drops into it still prompt; new sessions don't.
 
@@ -1200,7 +1200,7 @@ same-origin-guarded.
 | `POST /api/translation` | Runtime UI-string translation. |
 | `GET /api/remote-host/status` · `POST /api/remote-host/{connect,disconnect}` | Companion phone-client link. Each response carries the command channel's `health` (`online` / `reconnecting` / `offline`, plus the last listener error), so the toolbar shows a dropped channel instead of the last state it happened to fetch. |
 | `POST /api/open-dir` · `POST /api/pick-file` | Reveal a dir in Finder/Explorer; OS file-picker → path (`{ directory: true }` opens the folder picker — used by the launcher's Working-directory 📁 button). |
-| `POST /api/session/:id/drop` | A dropped file whose path the browser withheld. **Raw bytes**, not JSON, under the file's own content type (base64 in JSON would cap real files near 18 MB, and a dropped `.json` would be parsed as a document); the original name rides percent-encoded in `x-drop-filename` and is used for its **suffix only**. Answers `{ path }` — absolute, inside the private per-session directory the session was granted at launch. 110 MB cap; 404 for a session this server isn't running. |
+| `POST /api/session/:id/drop` | A dropped file whose path the browser withheld. **Raw bytes**, not JSON, under the file's own content type (base64 in JSON would cap real files near 18 MB, and a dropped `.json` would be parsed as a document); the original name rides percent-encoded in `x-drop-filename` and is used for its **suffix only**. Answers `{ path }` — absolute, inside the private per-session directory the session was granted at launch. 110 MiB cap; 404 for a session this server isn't running. |
 
 The phone itself uses **none** of these routes — it reaches the host over Firestore command
 docs, not HTTP. Every command it can send, and the shapes it gets back, are in

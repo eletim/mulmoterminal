@@ -365,7 +365,7 @@ function onDrop(e: DragEvent) {
   const text = dropTextFromUriList(dt.getData("text/uri-list") || dt.getData("text/plain"));
   if (text) return insertText(text);
   const files = Array.from(dt.files);
-  if (files.length) void uploadAndInsert(files);
+  if (files.length) enqueueDrop(files);
   else showDropHint();
 }
 
@@ -373,25 +373,43 @@ function onDrop(e: DragEvent) {
 // argument list rather than arriving a word at a time. Sequential on purpose: these are whole
 // files, and several large ones at once would compete for the same upload.
 const DROP_UPLOADING_EN = "Sending the dropped file to the terminal…";
-const dropUploading = ref(false);
+// The path hint would send the user to the file picker, which cannot help when the problem is
+// that nothing is running to receive the file.
+const DROP_NO_SESSION_EN = "Start the terminal first — there's no session yet to send the file to.";
+// How many batches are queued or in flight. A count rather than a flag because a second drop
+// arriving mid-upload would otherwise have whichever finished first hide the indicator out from
+// under the other.
+const dropUploads = ref(0);
+const dropUploading = computed(() => dropUploads.value > 0);
 const dropUploadingText = ref(DROP_UPLOADING_EN);
+
+// Batches are serialized, not run in parallel: two racing uploads insert their paths in
+// COMPLETION order rather than the order they were dropped, so the terminal receives an
+// argument list the user did not choose — and a fast small file overtakes a slow large one
+// every time (found by Codex review).
+let dropChain: Promise<void> = Promise.resolve();
+function enqueueDrop(files: File[]) {
+  dropUploads.value += 1;
+  dropChain = dropChain
+    .then(() => uploadAndInsert(files))
+    // The chain has to survive a failure: a rejected link would silently swallow every batch
+    // dropped after it, for as long as the terminal stays open.
+    .catch((err) => console.error("[drop] could not send a dropped file", err))
+    .finally(() => (dropUploads.value -= 1));
+}
+
 async function uploadAndInsert(files: File[]) {
   const session = props.sessionId;
-  if (!session) return showDropHint(); // nothing running to receive them
-  dropUploading.value = true;
+  if (!session) return showDropMessage(DROP_NO_SESSION_EN);
   // Shown in English first and swapped when the (server-cached) translation lands, like the hint.
   void translateUiSentence(DROP_UPLOADING_EN, "mulmoterminal-ui").then((translated) => (dropUploadingText.value = translated));
-  try {
-    const paths: string[] = [];
-    for (const file of files) {
-      const result = await uploadDroppedFile(session, file);
-      if (!result.ok) return showDropMessage(dropUploadErrorMessage(result.status));
-      paths.push(result.path);
-    }
-    insertText(toInsertText(paths));
-  } finally {
-    dropUploading.value = false;
+  const paths: string[] = [];
+  for (const file of files) {
+    const result = await uploadDroppedFile(session, file);
+    if (!result.ok) return showDropMessage(dropUploadErrorMessage(result.status));
+    paths.push(result.path);
   }
+  insertText(toInsertText(paths));
 }
 
 function onDragOver(e: DragEvent) {
