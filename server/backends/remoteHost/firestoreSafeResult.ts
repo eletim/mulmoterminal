@@ -22,6 +22,15 @@
 // NOT `ignoreUndefinedProperties` on the Firestore instance: that setting makes this class of bug
 // disappear into "the value just doesn't arrive", with nothing logged and nothing to grep for.
 
+// Only a PLAIN object or an array is walked into. Firestore stores a Date, a Timestamp, a
+// GeoPoint, a DocumentReference and Bytes as themselves, and rebuilding one of those from its
+// entries turns it into `{}` — the guard would then destroy a valid value while looking for an
+// invalid one. Anything with a prototype of its own is left exactly as it came.
+const isPlainObject = (value: object): boolean => {
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
 /** Every path holding `undefined`, in `a.b.0.c` form. Empty when the value is safe to write. */
 export function undefinedPaths(value: unknown, prefix = ""): string[] {
   if (value === undefined) return [prefix || "(root)"];
@@ -29,6 +38,7 @@ export function undefinedPaths(value: unknown, prefix = ""): string[] {
   // Array.from, not flatMap: a SPARSE array's holes are skipped by flatMap/map, so `[1, , 3]`
   // would be reported clean and then written with a hole Firestore rejects (CodeRabbit review).
   if (Array.isArray(value)) return Array.from(value).flatMap((item, i) => undefinedPaths(item, prefix ? `${prefix}.${i}` : String(i)));
+  if (!isPlainObject(value)) return []; // a Date/Timestamp/Bytes holds no undefined to find
   return Object.entries(value).flatMap(([key, item]) => undefinedPaths(item, prefix ? `${prefix}.${key}` : key));
 }
 
@@ -43,6 +53,7 @@ export function stripUndefined<T>(value: T): T {
   if (value === undefined) return null as T;
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return Array.from(value, (item) => (item === undefined ? null : stripUndefined(item))) as T;
+  if (!isPlainObject(value)) return value; // rebuilding a Date from its entries would yield {}
   const out: Record<string, unknown> = {};
   Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
     if (item !== undefined) out[key] = stripUndefined(item);
@@ -57,8 +68,9 @@ export function stripUndefined<T>(value: T): T {
  * JSON from any of them, so the next `undefined` will come from somewhere else.
  */
 /**
- * Does `path` match `pattern`? `*` stands for exactly one segment, which is what makes an array
- * index expressible: `sessions.*.work` covers `sessions.0.work` and every sibling.
+ * Does `path` match `pattern`? `*` stands for exactly one segment — ANY segment, not just a
+ * numeric index, though an index is what it was added for (`sessions.*.work`). One segment and
+ * not more, so `a.*` cannot silence everything beneath `a`.
  */
 export function matchesPath(pattern: string, path: string): boolean {
   const patternParts = pattern.split(".");

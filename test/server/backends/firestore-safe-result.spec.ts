@@ -232,3 +232,39 @@ describe("buildSessionList — the shape that reached Firestore (#1042)", () => 
     expect(undefinedPaths({ sessions: listWith(new Map()) })).toEqual([]);
   });
 });
+
+// Firestore stores a Date, a Timestamp, a GeoPoint, a DocumentReference and Bytes as themselves.
+// Rebuilding one from its entries turns it into `{}` — the guard would then destroy a valid value
+// while hunting an invalid one (found by a local codex review; CodeRabbit was rate-limited).
+describe("values Firestore stores as themselves", () => {
+  const AT = new Date("2026-07-29T00:00:00Z");
+
+  it("hands a Date back as the same Date, not an empty object", () => {
+    expect(stripUndefined(AT)).toBeInstanceOf(Date);
+    expect(stripUndefined({ at: AT }).at).toBeInstanceOf(Date);
+  });
+
+  // A Firestore sentinel (serverTimestamp) is an ordinary class instance to us, so this is what
+  // stops the guard from flattening it on the activity-publish path.
+  it("hands any class instance back untouched", () => {
+    class Sentinel {
+      readonly kind = "serverTimestamp";
+    }
+    const sentinel = new Sentinel();
+    expect(stripUndefined({ at: sentinel }).at).toBe(sentinel);
+    expect(stripUndefined(new Map([["a", 1]]))).toBeInstanceOf(Map);
+  });
+
+  it("finds no undefined to report inside one", () => {
+    expect(undefinedPaths({ at: AT, bad: undefined })).toEqual(["bad"]);
+  });
+
+  // The point of the narrowing is to leave the ordinary case alone.
+  it("still cleans a plain object beside it", () => {
+    expect(stripUndefined({ at: AT, gone: undefined, keep: 1 })).toEqual({ at: AT, keep: 1 });
+  });
+
+  it("still walks a plain object nested under one", () => {
+    expect(undefinedPaths({ outer: { inner: undefined } })).toEqual(["outer.inner"]);
+  });
+});
