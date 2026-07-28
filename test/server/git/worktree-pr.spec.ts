@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
+import { makeTempDir } from "../../support/tempDir.js";
+import { writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { createWorktree, gitTopLevel } from "../../../server/git/worktrees.js";
 import { compareUrl, pushWorktree, createOrOpenPR } from "../../../server/git/worktree-pr.js";
@@ -34,10 +34,10 @@ describe("push / PR actions", () => {
     execFileSync("git", ["-C", dir, ...a], { stdio: "ignore" });
 
   beforeEach(async () => {
-    home = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-pr-home-")));
+    home = makeTempDir("mt-pr-home-");
     process.env.MULMOTERMINAL_HOME = home;
-    repo = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-pr-repo-")));
-    remote = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-pr-remote-")));
+    repo = makeTempDir("mt-pr-repo-");
+    remote = makeTempDir("mt-pr-remote-");
     if (!hasGit) return;
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
     execFileSync("git", ["init", "--bare", "-b", "main", remote], { stdio: "ignore" });

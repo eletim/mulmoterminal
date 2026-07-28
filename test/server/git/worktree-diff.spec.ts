@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { makeTempDir } from "../../support/tempDir.js";
+import { rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { createWorktree } from "../../../server/git/worktrees.js";
 import { worktreeDiff } from "../../../server/git/worktree-diff.js";
@@ -24,9 +24,9 @@ describe("worktreeDiff", () => {
     execFileSync("git", ["-C", dir, ...a], { stdio: "ignore" });
 
   beforeEach(() => {
-    home = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-diff-home-")));
+    home = makeTempDir("mt-diff-home-");
     process.env.MULMOTERMINAL_HOME = home;
-    repo = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-diff-repo-")));
+    repo = makeTempDir("mt-diff-repo-");
     if (!hasGit) return;
     g(repo, "init", "-b", "main");
     g(repo, "config", "user.email", "t@t.t");

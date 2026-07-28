@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { makeTempDir } from "../../support/tempDir.js";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { repoRootSync } from "../../../server/git/repo-root-sync";
 import { repoRoot } from "../../../server/git/worktrees";
@@ -15,7 +15,7 @@ let worktree = "";
 beforeAll(() => {
   // `.native`, not plain realpathSync: on a Windows runner os.tmpdir() is the 8.3 short form
   // (C:\Users\RUNNER~1\…) and only the native resolver expands it to the long name git reports.
-  base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "mt-reporoot-")));
+  base = makeTempDir("mt-reporoot-");
   main = path.join(base, "myrepo");
   mkdirSync(main);
   const git = (args: string[], cwd = main) =>
@@ -57,7 +57,7 @@ describe("repoRootSync", () => {
   });
 
   it("returns null outside a repository", () => {
-    const plain = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-norepo-")));
+    const plain = makeTempDir("mt-norepo-");
     expect(repoRootSync(plain)).toBeNull();
     rmSync(plain, { recursive: true, force: true });
   });

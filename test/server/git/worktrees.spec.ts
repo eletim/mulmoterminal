@@ -1,8 +1,8 @@
 import { canSymlink } from "../../support/canSymlink.js";
+import { makeTempDir } from "../../support/tempDir.js";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, existsSync, realpathSync, symlinkSync } from "node:fs";
+import { writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { rmDirRetrying, GIT_TEST_TIMEOUT_MS } from "./wtTestUtil.js";
 import {
@@ -69,9 +69,9 @@ describe("git worktree lifecycle", () => {
   beforeEach(async () => {
     // realpath: git resolves symlinks (macOS /tmp -> /private/var), and the engine
     // keys the managed root off git's toplevel, so the test dirs must match that.
-    home = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-wt-home-")));
+    home = makeTempDir("mt-wt-home-");
     process.env.MULMOTERMINAL_HOME = home;
-    repo = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-wt-repo-")));
+    repo = makeTempDir("mt-wt-repo-");
     if (!hasGit) return;
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
     const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
@@ -163,7 +163,7 @@ describe("git worktree lifecycle", () => {
       const wt = await createWorktree(repo, "real"); // creates the managed root dir
       if (!wt) throw new Error("expected a worktree");
       const root = worktreesRoot(repo);
-      const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-wt-outside-")));
+      const outside = makeTempDir("mt-wt-outside-");
       const link = path.join(root, "escape");
       symlinkSync(outside, link); // <root>/escape -> /outside (canonicalizes out of the root)
       try {
@@ -178,7 +178,7 @@ describe("git worktree lifecycle", () => {
   );
 
   it("gitTopLevel returns null for a non-repo dir", async () => {
-    const plain = mkdtempSync(path.join(tmpdir(), "mt-wt-plain-"));
+    const plain = makeTempDir("mt-wt-plain-");
     expect(await gitTopLevel(plain)).toBeNull();
     rmDirRetrying(plain);
   });

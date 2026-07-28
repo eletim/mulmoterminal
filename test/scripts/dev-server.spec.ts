@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
+import { makeTempDir } from "../support/tempDir.js";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 // The supervisor's whole reason to exist: unlike `node --watch`, it must RESTART the backend
@@ -25,12 +25,12 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("dev-server supervisor", () => {
   it("restarts the backend after it crashes on boot", async () => {
-    dir = mkdtempSync(path.join(os.tmpdir(), "dev-server-test-"));
+    dir = makeTempDir("dev-server-test-");
     const boots = path.join(dir, "boots.log");
     const stub = path.join(dir, "stub.mjs");
     // Each boot appends its pid, then crashes immediately — so a second line proves a restart.
     writeFileSync(stub, `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(boots)}, process.pid + "\\n");\nprocess.exit(1);\n`);
-    const watchDir = mkdtempSync(path.join(os.tmpdir(), "dev-server-watch-")); // empty — isolates crash-restart from reload
+    const watchDir = makeTempDir("dev-server-watch-"); // empty — isolates crash-restart from reload
 
     child = spawn(process.execPath, [SUPERVISOR], {
       env: { ...process.env, DEV_SERVER_ENTRY: stub, DEV_SERVER_WATCH: watchDir },
@@ -60,7 +60,7 @@ describe("dev-server supervisor", () => {
   it.skipIf(process.platform === "win32")(
     "restarts the backend when a watched source file changes",
     async () => {
-      dir = mkdtempSync(path.join(os.tmpdir(), "dev-server-test-"));
+      dir = makeTempDir("dev-server-test-");
       const boots = path.join(dir, "boots.log");
       const stub = path.join(dir, "stub.mjs");
       // A backend that boots (records its pid) and STAYS ALIVE — so a second boot can only come
@@ -71,7 +71,7 @@ describe("dev-server supervisor", () => {
       );
       // realpathSync expands a Windows 8.3 short path (os.tmpdir() → C:\Users\RUNNER~1\…), which
       // fs.watch is unreliable on (see docs/windows-gotchas.md).
-      const watchDir = realpathSync(mkdtempSync(path.join(os.tmpdir(), "dev-server-watch-")));
+      const watchDir = makeTempDir("dev-server-watch-");
 
       child = spawn(process.execPath, [SUPERVISOR], {
         env: { ...process.env, DEV_SERVER_ENTRY: stub, DEV_SERVER_WATCH: watchDir },

@@ -16,3 +16,10 @@ import path from "node:path";
 export function makeTempDir(prefix: string): string {
   return realpathSync.native(mkdtempSync(path.join(tmpdir(), prefix)));
 }
+
+/** The same, for a spec that creates its directory with the promises API. Resolving stays sync —
+ *  `fs/promises` has no `.native`, and this is one stat on a directory just created. */
+export async function makeTempDirAsync(prefix: string): Promise<string> {
+  const { mkdtemp } = await import("node:fs/promises");
+  return realpathSync.native(await mkdtemp(path.join(tmpdir(), prefix)));
+}

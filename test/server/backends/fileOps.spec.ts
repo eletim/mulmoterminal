@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { makeTempDir } from "../../support/tempDir.js";
+import { mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 
 import { createFileOps } from "../../../server/backends/fileOps.js";
@@ -12,7 +12,7 @@ describe("createFileOps", () => {
   let ops: ReturnType<typeof createFileOps>;
 
   beforeEach(() => {
-    base = mkdtempSync(path.join(tmpdir(), "mt-fileops-"));
+    base = makeTempDir("mt-fileops-");
     root = path.join(base, "root");
     mkdirSync(root);
     ops = createFileOps(() => root, "test");
