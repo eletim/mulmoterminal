@@ -29,20 +29,31 @@ export const EMPTY_WORK_ITEM: Readonly<WorkItem> = { phase: "none", pr: null, pr
 // says "related to #12" is not working on #12.
 // One character class for the separator, not `\s*:?\s+`: two adjacent whitespace quantifiers
 // backtrack super-linearly on a long body, and a PR description is user input.
-const CLOSING_KEYWORD = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[:\s]+#(\d+)/i;
+//
+// `[1-9]\d*` rather than `\d+`: there is no issue #0, and `#0123` is not issue 123 — both are
+// typos, and a typo that renders as a link to somebody else's issue is worse than no chip.
+const CLOSING_KEYWORD = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[:\s]+#([1-9]\d*)/i;
+
+// Digits from a body or a branch name are unbounded, and `Number("9".repeat(20))` is 1e20 — which
+// would render in the chip as "#1e+20" and link nowhere. Anything past the safe-integer range is
+// not an issue number (found by Codex review).
+function toIssueNumber(digits: string): number | null {
+  const n = Number(digits);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 
 // The issue a PR body says it closes, or null. Deliberately blind to the full-URL form
 // (`Fixes https://github.com/o/r/issues/12`): that can name ANOTHER repository, and a number
 // shown next to this cell's PR has to belong to the same repo to be clickable and true.
 export function issueRefFromPrBody(body: string | null | undefined): number | null {
   const found = typeof body === "string" ? CLOSING_KEYWORD.exec(body) : null;
-  return found ? Number(found[1]) : null;
+  return found ? toIssueNumber(found[1]) : null;
 }
 
 // A branch named after its issue the way this repo names them: `fix/966-preserve-unknown-keys`.
 // Requires a type prefix and a hyphen after the digits, so `chore/dep-updates-20260728` is not
 // read as issue #20260728.
-const BRANCH_ISSUE = /^[a-z][a-z-]*\/(0|[1-9]\d*)-/;
+const BRANCH_ISSUE = /^[a-z][a-z-]*\/([1-9]\d*)-/;
 
 // A CANDIDATE, never an answer: `release/2026-07-28-hotfix` yields 2026 here, and no pattern can
 // tell that apart from a branch for issue #2026 — the year and the number have the same shape.
@@ -50,7 +61,5 @@ const BRANCH_ISSUE = /^[a-z][a-z-]*\/(0|[1-9]\d*)-/;
 // somebody else's issue. Named for the doubt so a call site can't forget it.
 export function issueCandidateFromBranch(branch: string | null | undefined): number | null {
   const found = typeof branch === "string" ? BRANCH_ISSUE.exec(branch) : null;
-  if (!found) return null;
-  const n = Number(found[1]);
-  return n > 0 ? n : null;
+  return found ? toIssueNumber(found[1]) : null;
 }

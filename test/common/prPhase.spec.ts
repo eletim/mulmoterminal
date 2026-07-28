@@ -41,6 +41,20 @@ describe("issueRefFromPrBody", () => {
   it("ignores the full-URL form, which may point at another repo", () => {
     expect(issueRefFromPrBody("Fixes https://github.com/other/repo/issues/12")).toBeNull();
   });
+
+  // Boundaries (found by Codex review). A typo must not become a link: there is no issue #0,
+  // "#0123" is not issue 123, and 20 digits parse to 1e20 — which would render as "#1e+20".
+  it.each([
+    ["zero", "Fixes #0"],
+    ["a leading zero", "Fixes #0123"],
+    ["more digits than a number can hold exactly", `Fixes #${"9".repeat(20)}`],
+  ])("declines %s", (_label, body) => {
+    expect(issueRefFromPrBody(body)).toBeNull();
+  });
+
+  it("still reads the largest issue number that stays exact", () => {
+    expect(issueRefFromPrBody(`Fixes #${Number.MAX_SAFE_INTEGER}`)).toBe(Number.MAX_SAFE_INTEGER);
+  });
 });
 
 describe("issueCandidateFromBranch", () => {
@@ -72,6 +86,8 @@ describe("issueCandidateFromBranch", () => {
     ["digits not at the front of the name", "fix/x-966"],
     ["no hyphen after the digits", "fix/966"],
     ["a leading zero", "fix/0966-x"],
+    ["zero itself", "fix/0-x"],
+    ["more digits than a number can hold exactly", `fix/${"9".repeat(20)}-x`],
     ["empty", ""],
     ["null", null],
     ["undefined", undefined],
