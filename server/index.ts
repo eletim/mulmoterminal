@@ -49,6 +49,7 @@ import type { SpawnDeps } from "./session/spawn-deps.js";
 import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { createToolStores } from "./session/tool-store.js";
+import { writeDecisionDigest } from "./session/decision-digest-file.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
@@ -541,6 +542,20 @@ const scheduledSessions = createScheduledSessionRegistry({
 const SCHEDULED_SWEEP_INTERVAL_MS = 60 * 60_000;
 void scheduledSessions.sweep();
 setInterval(() => void scheduledSessions.sweep(), SCHEDULED_SWEEP_INTERVAL_MS).unref();
+
+// The decision digest (#1015): rewritten at startup and every few hours, but only for the
+// directories this host actually works in, and only while the setting is on (checked inside
+// writeDecisionDigest, so turning it off stops the next tick rather than needing a restart).
+// Hours rather than minutes because a decision is a human act — a handful a day at most.
+const DECISION_DIGEST_INTERVAL_MS = 6 * 60 * 60_000;
+
+function refreshDecisionDigests(): void {
+  const dirs = new Set<string>([CLAUDE_CWD, ...[...ptys.values()].map((entry) => entry.cwd)]);
+  for (const dir of dirs) void writeDecisionDigest(dir, new Date()).catch(() => {});
+}
+
+refreshDecisionDigests();
+setInterval(refreshDecisionDigests, DECISION_DIGEST_INTERVAL_MS).unref();
 
 function spawnScheduledChat(message: string): void {
   const sessionId = randomUUID();
