@@ -196,6 +196,31 @@ describe("decisionsFromJsonl", () => {
     expect(got.answerKind).toBe("free-text");
   });
 
+  it("keeps a free-text answer whose own quoted phrase is followed by a period", () => {
+    // Codex's reproducer, with the harness's real trailing sentence: a bare `". ` occurs inside
+    // the answer, so the specific sentence is what marks the end. No label matching can help here
+    // — the user wrote this answer rather than choosing one.
+    const answer = 'He said "yes". then continued';
+    const raw = [
+      askLine({ id: "toolu_18", questions: [QUESTION] }),
+      resultLine("toolu_18", `The user answered: "${QUESTION.question}"="${answer}". Read the answers carefully — they may request clarification.`),
+    ].join("\n");
+    const [got] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(got.answer).toBe(answer);
+    expect(got.answerKind).toBe("free-text");
+  });
+
+  it("still ends a free-text answer sensibly when the harness's wording is one we have not seen", () => {
+    // The fallback tier: an unknown trailing sentence, so the generic `". ` rule applies and the
+    // answer is cut at its own quoted phrase. Pinned deliberately — losing characters is the
+    // accepted failure here, and swallowing the harness's sentence into the answer is not.
+    const raw = [
+      askLine({ id: "toolu_19", questions: [QUESTION] }),
+      resultLine("toolu_19", `The user answered: "${QUESTION.question}"="He said "yes". then continued". Some future sentence.`),
+    ].join("\n");
+    expect(decisionsFromJsonl(raw, "f")[0].questions[0].answer).toBe('He said "yes');
+  });
+
   it("matches a question that itself contains quotes", () => {
     // Real: `"context-menu の "New file" をクリックした後、…"="表示されて…"`. The question's own quotes
     // are inside the marker, so an exact marker match is unaffected by them.

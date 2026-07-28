@@ -37,15 +37,21 @@ const resultText = (content: unknown): string => {
 // only start after the previous answer closed, and those markers are exact (a question's own
 // quotes are inside the marker, so they never confuse it). Only the LAST answer has no marker
 // after it, and there the harness's own tail is the boundary.
-const ANSWER_TAILS = [". ", ".\n", " selected preview:"];
+// The harness's actual trailing text, matched as far as it is known: a bare `". ` also occurs
+// INSIDE answers (`He said "yes". then continued` — Codex review), so a generic period test alone
+// cuts a real answer short. These specific strings cannot appear by accident, so they are tried
+// first; the generic pair below is the fallback for wording we have not seen, where a truncated
+// answer still beats swallowing the harness's own sentence into it.
+const HARNESS_TAILS = [". Read the answers carefully", ". You can now continue", " selected preview:"];
+const GENERIC_TAILS = [". ", ".\n"];
 
 const markerOf = (question: string): string => `"${question}"="`;
 
-// The first quote at or after `from` that the harness's trailing text follows, or -1.
-function tailQuote(text: string, from: number): number {
+// The first quote at or after `from` that one of `tails` follows (or that ends the text), or -1.
+function tailQuote(text: string, from: number, tails: string[]): number {
   for (let i = text.indexOf('"', from); i >= 0; i = text.indexOf('"', i + 1)) {
     const rest = text.slice(i + 1);
-    if (rest === "" || ANSWER_TAILS.some((tail) => rest.startsWith(tail))) return i;
+    if (rest === "" || tails.some((tail) => rest.startsWith(tail))) return i;
   }
   return -1;
 }
@@ -59,9 +65,11 @@ function tailQuote(text: string, from: number): number {
 // something the user said.
 function answerEnd(text: string, from: number, laterMarkers: number[]): number {
   const next = laterMarkers.filter((m) => m > from).sort((a, b) => a - b)[0];
-  const tail = tailQuote(text, from);
-  const bounds = [next, tail >= 0 ? tail : undefined].filter((n): n is number => n !== undefined);
+  const known = tailQuote(text, from, HARNESS_TAILS);
+  const bounds = [next, known >= 0 ? known : undefined].filter((n): n is number => n !== undefined);
   if (bounds.length > 0) return Math.min(...bounds);
+  const generic = tailQuote(text, from, GENERIC_TAILS);
+  if (generic >= 0) return generic;
   const firstQuote = text.indexOf('"', from);
   return firstQuote < 0 ? text.length : firstQuote;
 }
