@@ -45,6 +45,19 @@ export function parseDevTerminalCwds(contents: string, isValidId: (id: string) =
 }
 
 /**
+ * Fill `target` from a log, WITHOUT overwriting what is already there.
+ *
+ * Hydration is async and a reconnect can record a cwd before it finishes; the in-memory value then
+ * came from a live connection and the file's is older by definition. Overwriting it would answer
+ * with the directory a session used to be in (found by Codex review).
+ */
+export function hydrateCwdsInto(target: Map<string, string>, contents: string, isValidId: (id: string) => boolean): void {
+  parseDevTerminalCwds(contents, isValidId).forEach((cwd, id) => {
+    if (!target.has(id)) target.set(id, cwd);
+  });
+}
+
+/**
  * What to append for a session.
  *
  * The newline goes BEFORE the record, exactly as in the id log: a file that ended without one

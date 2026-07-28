@@ -3,7 +3,7 @@
 // may be older or newer than the one that wrote it, and appended to by several instances at once,
 // so what a line means — and what an unusable one costs — is pinned here.
 import { describe, it, expect } from "vitest";
-import { devTerminalCwdLine, parseDevTerminalCwds } from "../../../server/session/dev-terminal-cwds";
+import { devTerminalCwdLine, hydrateCwdsInto, parseDevTerminalCwds } from "../../../server/session/dev-terminal-cwds";
 
 const ID_A = "bf488420-850f-4dcb-931c-727614d6eaf7";
 const ID_B = "33149419-234b-4d31-bd8c-341290f4c090";
@@ -60,5 +60,31 @@ describe("devTerminalCwdLine", () => {
   it("round-trips through the parser", () => {
     const line = devTerminalCwdLine(ID_A, "/work/one");
     expect(parseDevTerminalCwds(`existing content${line}`, isValidId).get(ID_A)).toBe("/work/one");
+  });
+});
+
+// Hydration reads the file asynchronously at boot, and a cell reconnecting in that window records
+// its cwd first. The file's value is older by definition — overwriting the fresh one would answer
+// with the directory a session used to be in (found by Codex review).
+describe("hydrateCwdsInto", () => {
+  it("fills what is missing", () => {
+    const target = new Map<string, string>();
+    hydrateCwdsInto(target, devTerminalCwdLine(ID_A, "/work/one"), isValidId);
+    expect(target.get(ID_A)).toBe("/work/one");
+  });
+
+  it("does not overwrite a cwd recorded while it was reading", () => {
+    const target = new Map([[ID_A, "/work/live"]]);
+    hydrateCwdsInto(target, devTerminalCwdLine(ID_A, "/work/from-disk"), isValidId);
+    expect(target.get(ID_A)).toBe("/work/live");
+  });
+
+  it("still fills the OTHER ids in the same file", () => {
+    const target = new Map([[ID_A, "/work/live"]]);
+    hydrateCwdsInto(target, `${devTerminalCwdLine(ID_A, "/work/from-disk")}${devTerminalCwdLine(ID_B, "/work/two")}`, isValidId);
+    expect([...target]).toEqual([
+      [ID_A, "/work/live"],
+      [ID_B, "/work/two"],
+    ]);
   });
 });

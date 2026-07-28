@@ -14,7 +14,7 @@ import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { devTerminalSessionLine, parseDevTerminalSessionIds } from "./dev-terminal-sessions.js";
-import { devTerminalCwdLine, parseDevTerminalCwds } from "./dev-terminal-cwds.js";
+import { devTerminalCwdLine, hydrateCwdsInto } from "./dev-terminal-cwds.js";
 import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
 import type { Activity, KnownSession, PtyEntry } from "./types.js";
@@ -155,8 +155,7 @@ const DEV_TERMINAL_CWDS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-cwds.
 
 export const devTerminalCwdsHydrated: Promise<void> = (async () => {
   try {
-    const contents = await fs.readFile(DEV_TERMINAL_CWDS_FILE, "utf8");
-    parseDevTerminalCwds(contents, isValidSessionId).forEach((cwd, id) => sessionCwds.set(id, cwd));
+    hydrateCwdsInto(sessionCwds, await fs.readFile(DEV_TERMINAL_CWDS_FILE, "utf8"), isValidSessionId);
   } catch {
     // absent on first run, unreadable => nothing remembered; the list degrades to today's behaviour
   }
