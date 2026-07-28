@@ -615,7 +615,7 @@ onUnmounted(() => {
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Link a Google account so the <code>google</code> tool and your phone can read and create <strong>Calendar</strong> events. Sign-in opens in a new tab
         and finishes on <strong>this machine</strong>, so use a browser here — over a remote connection, run
-        <code>npx mulmoterminal google login</code> instead. The link is shared with MulmoClaude.
+        <code>npx mulmoterminal@latest google login</code> instead. The link is shared with MulmoClaude.
       </p>
       <p v-if="googleSecretHint" data-testid="google-warn" class="mb-3 mt-1.5 text-[12px] text-err-text">{{ googleSecretHint }}</p>
       <div class="mb-3 flex items-center gap-2.5">
