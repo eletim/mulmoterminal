@@ -79,17 +79,17 @@ so a very large unsaved buffer may not get out.
 
 | Feature | Description |
 |---|---|
+| File attach | **Drag & drop** a file onto the terminal, or use **Insert a file path** to pick one in the OS dialog — the **absolute path is inserted** |
 | Script execution | Run a command from that directory's `script.json`. From a running session's **Run** menu it launches in **a spare cell next door**, so the conversation isn't interrupted (an empty cell's launcher runs it in place) |
 | Skill menu (**Run a skill in the current session**) | Lists the skills available in that directory (`.claude/skills`); picking one runs its `/<slug>` **in the current session**. Working-dir skills show first; narrow the list with `skills` in `.mulmoterminal.json` |
+| Git actions | One click from a worktree cell: **commit (ask Claude) / push / Open PR** |
+| Copy & paste | **`copyOnSelect`** copies the moment you finish selecting (off by default), and copy / paste can be bound to keys (`keymap`). Both are opt-in, because a bound key stops reaching the program inside the terminal ([config](config.html#copy-on-select)) |
 | Summarize output (AI) | Pass terminal output to `claude -p` and summarize **errors / warnings / cause / how to fix** |
 | Copy as prompt | Copy command + directory + summary + follow-up and paste it into any session |
 | Cross-terminal talk | **Bring another terminal's last turn** brings another cell's last turn into this one; **Exchange** does an **automatic round-trip** — send, wait for the other agent's answer, bring it back (great for Claude ↔ Codex mutual review) |
-| Git actions | One click from a worktree cell: **commit (ask Claude) / push / Open PR** |
-| File attach | **Drag & drop** a file onto the terminal, or use **Insert a file path** to pick one in the OS dialog — the **absolute path is inserted** |
-| Copy & paste | **`copyOnSelect`** copies the moment you finish selecting (off by default), and copy / paste can be bound to keys (`keymap`). Both are opt-in, because a bound key stops reaching the program inside the terminal ([config](config.html#copy-on-select)) |
+| Launch commands | Start something other than Claude (`Shell` / `codex` / anything) as a **persistent terminal** |
 | Voice input | Dictate into the prompt via microphone transcription. Settings picks **the language you dictate in** (per browser) — your browser's, per-clip detection, or a fixed one; speaking a language the mic isn't expecting comes back **translated** into the one it is |
 | MCP servers | Join your own HTTP MCP servers to sessions via the MCP SERVERS setting |
-| Launch commands | Start something other than Claude (`Shell` / `codex` / anything) as a **persistent terminal** |
 | `/mulmoterminal-bug-report` | Something looks broken? The bundled skill hears the symptom, checks whether it is actually configuration or by design (reading your real config and version), searches the existing issues, and only then helps you file one — with the environment collected and secrets masked |
 
 ## 4. Extend — a DSL to fit you
