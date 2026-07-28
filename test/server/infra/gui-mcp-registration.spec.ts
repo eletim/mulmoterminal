@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { guiMcpUrlTemplate, registeredGuiMcpGroups } from "../../../server/infra/gui-mcp-registration.js";
 import { TOOL_GROUPS } from "../../../common/toolGroups.js";
+import { canSymlink } from "../../support/canSymlink.js";
 
 // The url is registered ONCE, into the user's own Claude Code config, and then read at every
 // connect. It has to stay a template: the port and session id are only known per spawn, and
@@ -93,7 +94,11 @@ describe("registeredGuiMcpGroups", () => {
   });
 
   // Claude Code keys local scope by its own resolved cwd; ours is canonicalized only lexically.
-  it("matches a directory reached through a symlink", async () => {
+  // Creating a symlink on Windows needs Developer Mode or elevation, so the fixture cannot be
+  // built there and the test would assert against a link that was never made. What is under test
+  // (a symlinked cwd still resolves to its registration) only arises where symlinks exist. Same
+  // probe as worktrees.spec.ts.
+  it.skipIf(!canSymlink)("matches a directory reached through a symlink", async () => {
     const link = path.join(root, "link");
     symlinkSync(cwd, link);
     writeClaudeConfig({ projects: { [cwd]: { mcpServers: { "mulmoterminal-render": {} } } } });

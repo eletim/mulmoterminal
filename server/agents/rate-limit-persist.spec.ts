@@ -42,7 +42,11 @@ describe("createRateLimitCacheWriter", () => {
     expect(cachedPercent(file)).toBe(11);
   });
 
-  it("keeps the file private", () => {
+  // Windows has no POSIX mode bits — `chmod` there only really moves the read-only flag, so the
+  // file comes back 0o666. The behaviour under test (0600 on the platforms that have it) is
+  // unchanged; asserting it on Windows tests Node's emulation, not our code. Same skip as
+  // session-settings.spec.ts, which guards the identical assertion.
+  it.skipIf(process.platform === "win32")("keeps the file private", () => {
     createRateLimitCacheWriter(file)(snapshot(10));
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
