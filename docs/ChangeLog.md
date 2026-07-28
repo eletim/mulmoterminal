@@ -4,6 +4,49 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.5.2 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.2.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.2.html))
+
+Four built-in themes become as many as you like, and the reasoning behind a change now outlives the
+terminal it was made in.
+
+### Your own colour scheme in the theme picker (#1001, closes #996)
+
+A colour scheme written into `themes` in `~/.mulmoterminal/config.json` appears in Settings' theme
+picker beside the built-in four, and recolours the whole app — grid, headers, panels and the
+terminals. A theme `extends` one of the built-ins and overrides only the tokens it cares about, so
+three colours make a complete theme.
+
+Two decisions are worth knowing about. The light-theme rules in `style.css` now key on
+`:root[data-appearance="light"]` instead of enumerating the built-in ids — with the id list, a
+custom light theme kept the dark-background status pills and became unreadable. And
+`themeIdSchema` validates the SHAPE of an id rather than an enum, so a directory's
+`.mulmoterminal.json` can pin a custom theme; whether that id exists is checked where the global
+`themes` list is in scope.
+
+The guide ships four complete sample schemes — Van Gogh (Arles), Mondrian, Picasso Blue, Matisse —
+each with every token filled in and a note on why the colour is where it is.
+
+### A decision log for the workspace (#999, closes #997)
+
+Sessions record the decisions they make into a workspace log, so the reasoning behind a change is
+still there after the terminal that made it is gone.
+
+### Windows CI is green again (#1007)
+
+Three specs assumed POSIX-shaped paths and a Unix-shaped `HOME`: `realpathSync` hands back the 8.3
+short name on a Windows runner (only `realpathSync.native` expands it), git prints POSIX separators
+even on Windows, and `os.homedir()` reads `USERPROFILE` rather than `HOME`. Tests only — no
+implementation changed, and `docs/windows-gotchas.md` was corrected where it had sent the author to
+the wrong resolver.
+
+### Documentation (#1009 and follow-ups)
+
+The `#782` notes no longer name the canvas renderer as the suspect for the scrollbar and selection
+problem — the cause was tmux. The context-window figures were reworded so they do not read as
+measurements nobody took.
+
 ## mulmoterminal@2.5.1 — 2026-07-28
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.1.html))
