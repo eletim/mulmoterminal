@@ -318,17 +318,17 @@ function summarizeToolInput(input: unknown): string {
 // Chronological tool_use events from a transcript, for the activity timeline. Each
 // assistant turn may carry several tool_use blocks; text blocks are ignored.
 export function timelineFromJsonl(raw: string): TimelineEvent[] {
-  const events: TimelineEvent[] = [];
-  for (const o of parseJsonl(raw)) {
-    if (o.type !== "assistant" || !isRecord(o.message) || !Array.isArray(o.message.content)) continue;
-    const ts = typeof o.timestamp === "string" ? o.timestamp : "";
-    for (const block of o.message.content) {
-      if (isRecord(block) && block.type === "tool_use" && typeof block.name === "string") {
-        events.push({ ts, tool: block.name, summary: summarizeToolInput(block.input) });
-      }
-    }
-  }
-  return events;
+  return parseJsonl(raw).flatMap(timelineEventsIn);
+}
+
+/** The events one record contributes — so a caller streaming a transcript (#998) applies the same
+ *  rule per record instead of restating it. */
+export function timelineEventsIn(o: Record<string, unknown>): TimelineEvent[] {
+  if (o.type !== "assistant" || !isRecord(o.message) || !Array.isArray(o.message.content)) return [];
+  const ts = typeof o.timestamp === "string" ? o.timestamp : "";
+  return o.message.content.flatMap((block) =>
+    isRecord(block) && block.type === "tool_use" && typeof block.name === "string" ? [{ ts, tool: block.name, summary: summarizeToolInput(block.input) }] : [],
+  );
 }
 
 // The tool names the agent ran in the CURRENT turn — since the last real user prompt —
@@ -339,16 +339,29 @@ export function timelineFromJsonl(raw: string): TimelineEvent[] {
 // A fresh user prompt resets; tool-result user turns don't (userPromptText is null for them).
 // Reuses readSessionSummary's single parse.
 export function currentTurnToolNamesFromParsed(records: Record<string, unknown>[]): string[] {
+  const scan = createCurrentTurnToolScan();
+  records.forEach((o) => scan.add(o));
+  return scan.names();
+}
+
+/** The same rule, fed one record at a time. It is already a fold — reset on a user prompt, append
+ *  on a tool_use — so a streaming caller (#998) keeps the exact semantics rather than approximating
+ *  them with a window. That matters: measured across the eight largest transcripts here, the
+ *  longest single turn spans 3,615 records, so ANY fixed window would drop a turn's early edits and
+ *  report `planning` for a turn that has already been implementing. */
+export function createCurrentTurnToolScan() {
   let names: string[] = [];
-  for (const o of records) {
-    if (o.type === "user" && userPromptText(isRecord(o.message) ? o.message.content : undefined) !== null) {
-      names = []; // a fresh user prompt starts a new turn
-      continue;
-    }
-    if (o.type !== "assistant" || !isRecord(o.message) || !Array.isArray(o.message.content)) continue;
-    for (const block of o.message.content) {
-      if (isRecord(block) && block.type === "tool_use" && typeof block.name === "string") names.push(block.name);
-    }
-  }
-  return names;
+  return {
+    add(o: Record<string, unknown>) {
+      if (o.type === "user" && userPromptText(isRecord(o.message) ? o.message.content : undefined) !== null) {
+        names = []; // a fresh user prompt starts a new turn
+        return;
+      }
+      if (o.type !== "assistant" || !isRecord(o.message) || !Array.isArray(o.message.content)) return;
+      for (const block of o.message.content) {
+        if (isRecord(block) && block.type === "tool_use" && typeof block.name === "string") names.push(block.name);
+      }
+    },
+    names: (): string[] => names,
+  };
 }

@@ -16,14 +16,9 @@ import { isRecord } from "../../common/isRecord.js";
 import {
   parseJsonl,
   userPromptText,
-  aiTitleFromParsed,
-  countUserTurnsFromParsed,
   latestMeaningfulUserPromptFromParsed,
   latestAssistantTextFromParsed,
-  sessionUsageFromParsed,
-  latestTurnContextFromParsed,
-  timelineFromJsonl,
-  currentTurnToolNamesFromParsed,
+  timelineEventsIn,
   type SessionUsage,
   type LatestTurnContext,
   type TimelineEvent,
@@ -34,7 +29,8 @@ import { sessionListTitle } from "./sessionListTitle.js";
 import { activity, aiTitles, codexRolloutIds, hiddenSessions, knownSessions } from "./registry.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
-import { readTailRecords } from "../infra/jsonl-file.js";
+import { forEachJsonlRecord, readTailRecords } from "../infra/jsonl-file.js";
+import { createSummaryScan } from "./summary-scan.js";
 import { partitionPending } from "./partitionPending.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
@@ -138,20 +134,23 @@ export async function readSessionSummary(cwd: string, id: string): Promise<Sessi
   }
   const cached = sessionSummaryCache.get(file, stamp);
   if (cached) return cached;
-  let records: Record<string, unknown>[];
+  // Streamed, never held: the transcript reaches 585 MB here, which is past what one string can
+  // be — and reading it whole is what emptied the longest sessions (#998).
+  const scan = createSummaryScan();
   try {
-    records = parseJsonl(await fs.readFile(file, "utf8"));
+    await forEachJsonlRecord(file, (record) => scan.add(record));
   } catch {
     return EMPTY_SUMMARY;
   }
+  const parts = scan.finish(LAST_RESPONSE_MAX);
   const summary: SessionSummary = {
-    lastPrompt: latestMeaningfulUserPromptFromParsed(records),
-    aiTitle: aiTitleFromParsed(records),
-    lastResponse: latestAssistantTextFromParsed(records)?.slice(0, LAST_RESPONSE_MAX) ?? null,
-    userTurns: countUserTurnsFromParsed(records),
-    usage: sessionUsageFromParsed(records),
-    context: latestTurnContextFromParsed(records),
-    workPhase: classifyWorkPhase(currentTurnToolNamesFromParsed(records)),
+    lastPrompt: parts.lastPrompt,
+    aiTitle: parts.aiTitle,
+    lastResponse: parts.lastResponse,
+    userTurns: parts.userTurns,
+    usage: parts.usage,
+    context: parts.context,
+    workPhase: classifyWorkPhase(parts.toolNames),
   };
   sessionSummaryCache.set(file, stamp, summary);
   return summary;
@@ -161,13 +160,22 @@ export async function readSessionSummary(cwd: string, id: string): Promise<Sessi
 // payload stays bounded on a long session. A missing transcript is an empty list.
 const TIMELINE_MAX_EVENTS = 300;
 export async function sessionTimeline(cwd: string, id: string): Promise<{ events: TimelineEvent[]; truncated: boolean }> {
+  // Streamed, and only the newest TIMELINE_MAX_EVENTS are kept — the payload was already capped,
+  // so holding the whole transcript to then throw most of it away was the expensive part (#998).
+  const events: TimelineEvent[] = [];
+  let total = 0;
   try {
-    const raw = await fs.readFile(path.join(projectSessionsDir(cwd), `${id}.jsonl`), "utf8");
-    const all = timelineFromJsonl(raw);
-    return { events: all.slice(-TIMELINE_MAX_EVENTS), truncated: all.length > TIMELINE_MAX_EVENTS };
+    await forEachJsonlRecord(path.join(projectSessionsDir(cwd), `${id}.jsonl`), (record) => {
+      for (const event of timelineEventsIn(record)) {
+        total += 1;
+        events.push(event);
+        if (events.length > TIMELINE_MAX_EVENTS) events.shift();
+      }
+    });
   } catch {
     return { events: [], truncated: false };
   }
+  return { events, truncated: total > TIMELINE_MAX_EVENTS };
 }
 
 // A session's last COMPLETED exchange, read from whichever log its agent keeps: Claude's

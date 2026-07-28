@@ -5,6 +5,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { Express } from "express";
+import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { parseJsonl } from "./transcript.js";
 import { isRecord } from "../../common/isRecord.js";
 import { projectSessionsDir } from "./project-dir.js";
@@ -97,16 +98,26 @@ function assistantUsageTurn(o: Record<string, unknown>): UsageTurn | null {
 // Total dollar cost of a transcript, summed per assistant turn. Turns whose model
 // has no known price are excluded from usd and counted in `unpricedTurns`.
 export function costFromJsonl(raw: string): JsonlCost {
-  const turns = parseJsonl(raw)
-    .map(assistantUsageTurn)
-    .filter((t): t is UsageTurn => t !== null);
-  return turns.reduce<JsonlCost>(
-    (acc, turn) => {
-      const { usd, priced } = costForUsage(turn.usage, turn.model);
-      return priced ? { usd: acc.usd + usd, unpricedTurns: acc.unpricedTurns } : { usd: acc.usd, unpricedTurns: acc.unpricedTurns + 1 };
+  const scan = createCostScan();
+  parseJsonl(raw).forEach((record) => scan.add(record));
+  return scan.total();
+}
+
+/** The same accumulation, fed one record at a time — for a caller streaming a transcript too
+ *  large to hold as a string (#998). The pricing rule stays in costForUsage either way. */
+export function createCostScan() {
+  let usd = 0;
+  let unpricedTurns = 0;
+  return {
+    add(record: Record<string, unknown>) {
+      const turn = assistantUsageTurn(record);
+      if (!turn) return;
+      const priced = costForUsage(turn.usage, turn.model);
+      if (priced.priced) usd += priced.usd;
+      else unpricedTurns += 1;
     },
-    { usd: 0, unpricedTurns: 0 },
-  );
+    total: (): JsonlCost => ({ usd, unpricedTurns }),
+  };
 }
 
 // ── project-scoped aggregation (today / month) ─────────────────────────────────
@@ -143,7 +154,9 @@ async function statJsonlFiles(dir: string): Promise<FileStat[]> {
 
 async function readFileCost(dir: string, file: string): Promise<JsonlCost> {
   try {
-    return costFromJsonl(await fs.readFile(path.join(dir, file), "utf8"));
+    const scan = createCostScan();
+    await forEachJsonlRecord(path.join(dir, file), (record) => scan.add(record));
+    return scan.total();
   } catch {
     return { usd: 0, unpricedTurns: 0 };
   }
