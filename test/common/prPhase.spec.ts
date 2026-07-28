@@ -108,6 +108,6 @@ describe("isPrPhase", () => {
 
 describe("EMPTY_WORK_ITEM", () => {
   it("is the nothing-to-show shape", () => {
-    expect(EMPTY_WORK_ITEM).toEqual({ phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null });
+    expect(EMPTY_WORK_ITEM).toEqual({ phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null, prTitle: null, issueTitle: null });
   });
 });
