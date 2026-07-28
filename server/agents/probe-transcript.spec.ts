@@ -8,6 +8,7 @@ import {
   removeProbeTranscript,
   sweepLegacyProbeTranscripts,
   sweepLegacyProbeTranscriptsOnce,
+  probeSweepMarker,
   PROBE_TRANSCRIPT_MAX_BYTES,
 } from "./probe-transcript";
 import { PROBE_PROMPT } from "./rate-limit-probe";
@@ -182,13 +183,13 @@ describe("the one-time sweep", () => {
   const realHome = os.homedir();
   let home: string;
   let cwd: string;
-  let marker: string;
+  let stateDir: string;
 
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), "mt-probe-once-"));
     Object.defineProperty(os, "homedir", { value: () => home, configurable: true });
     cwd = path.join(home, "project");
-    marker = path.join(home, "probe-sweep.json");
+    stateDir = path.join(home, "state");
     mkdirSync(projectSessionsDir(cwd), { recursive: true });
   });
 
@@ -202,22 +203,22 @@ describe("the one-time sweep", () => {
   it("sweeps the first time and records that it did", async () => {
     write("old-probe.jsonl", probe());
 
-    expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBe(1);
-    expect(existsSync(marker)).toBe(true);
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBe(1);
+    expect(existsSync(probeSweepMarker(stateDir, cwd))).toBe(true);
   });
 
   it("never touches a transcript typed after that, however identical it looks", async () => {
-    expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBe(0);
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBe(0);
     // Someone types the probe's exact words, by hand, the next day.
     write("a-person-typed-this.jsonl", probe());
 
-    expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBeNull();
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBeNull();
     expect(existsSync(path.join(projectSessionsDir(cwd), "a-person-typed-this.jsonl"))).toBe(true);
   });
 
   it("records the sweep even when it found nothing, so the right to delete is not re-earned", async () => {
-    expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBe(0);
-    expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBeNull();
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBe(0);
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBeNull();
   });
 
   // Codex review on #1030: several checkouts run side by side against one ~/.mulmoterminal, so two
@@ -226,7 +227,7 @@ describe("the one-time sweep", () => {
   it("lets only one of several simultaneous starts claim the sweep", async () => {
     write("old-probe.jsonl", probe());
 
-    const contenders = await Promise.all(Array.from({ length: 5 }, () => sweepLegacyProbeTranscriptsOnce(cwd, marker)));
+    const contenders = await Promise.all(Array.from({ length: 5 }, () => sweepLegacyProbeTranscriptsOnce(cwd, stateDir)));
 
     expect(contenders.filter((r) => r !== null)).toHaveLength(1);
     expect(contenders.filter((r) => r === null)).toHaveLength(4);
@@ -237,11 +238,11 @@ describe("the one-time sweep", () => {
   // directory that does not exist throws, the caller can only swallow it, and the sweep would then
   // delete on EVERY boot — the permanent window this design exists to close.
   it("creates the marker's directory, so a fresh install still only sweeps once", async () => {
-    const unmade = path.join(home, "not-created-yet", "probe-sweep.json");
+    const unmade = path.join(home, "not-created-yet");
     write("old-probe.jsonl", probe());
 
     expect(await sweepLegacyProbeTranscriptsOnce(cwd, unmade)).toBe(1);
-    expect(existsSync(unmade)).toBe(true);
+    expect(existsSync(probeSweepMarker(unmade, cwd))).toBe(true);
 
     write("a-person-typed-this.jsonl", probe());
     expect(await sweepLegacyProbeTranscriptsOnce(cwd, unmade)).toBeNull();
@@ -251,13 +252,31 @@ describe("the one-time sweep", () => {
   // Claimed before anything is deleted: if the claim cannot be written, the safe answer is to
   // delete nothing rather than to delete and forget having done so.
   it("deletes nothing when it cannot record that it swept", async () => {
-    // A path whose parent is a FILE can never be created.
-    const blocked = path.join(home, "blocker", "probe-sweep.json");
-    mkdirSync(path.dirname(path.dirname(blocked)), { recursive: true });
+    // A state dir whose own parent is a FILE can never be created.
     writeFileSync(path.join(home, "blocker"), "not a directory");
+    const blocked = path.join(home, "blocker", "state");
     write("old-probe.jsonl", probe());
 
     expect(await sweepLegacyProbeTranscriptsOnce(cwd, blocked)).toBeNull();
     expect(existsSync(path.join(projectSessionsDir(cwd), "old-probe.jsonl"))).toBe(true);
+  });
+
+  // Observed during Claude review, not flagged by a bot. The sweep's scope is ONE project
+  // directory, so the record of having swept has to be per directory too. A single machine-wide
+  // marker would let the first CLAUDE_CWD claim it and leave a second one holding its legacy
+  // probes forever — half of #1010, and silently.
+  it("sweeps each workspace once, not the machine once", async () => {
+    const other = path.join(home, "other-workspace");
+    mkdirSync(projectSessionsDir(other), { recursive: true });
+    write("old-probe.jsonl", probe());
+    writeFileSync(path.join(projectSessionsDir(other), "old-probe.jsonl"), probe());
+
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBe(1);
+    expect(await sweepLegacyProbeTranscriptsOnce(other, stateDir)).toBe(1);
+    expect(existsSync(path.join(projectSessionsDir(other), "old-probe.jsonl"))).toBe(false);
+
+    // …and still only once each.
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, stateDir)).toBeNull();
+    expect(await sweepLegacyProbeTranscriptsOnce(other, stateDir)).toBeNull();
   });
 });

@@ -23,7 +23,7 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { forEachJsonlLine } from "../infra/jsonl-file.js";
-import { projectSessionsDir } from "../session/project-dir.js";
+import { encodeProjectDirName, projectSessionsDir } from "../session/project-dir.js";
 import { isProbeSessionId } from "./probe-session.js";
 import { PROBE_PROMPT } from "./rate-limit-probe.js";
 
@@ -145,9 +145,15 @@ export async function sweepLegacyProbeTranscripts(cwd: string): Promise<number> 
   return removed;
 }
 
-/** The sweep, run at most once on this machine — see the note at the top of this file. `marker` is
- *  the file whose existence means "already done". Returns the count, or null when the right to run
- *  could not be claimed (already swept, or another process got there first).
+/** Where the "already swept" claim for one workspace lives. Named after the workspace on purpose:
+ *  the sweep's scope is a project directory, so the record of having done it has to be per
+ *  directory too. A single machine-wide marker would let the FIRST workspace claim it and leave a
+ *  second `CLAUDE_CWD` holding its legacy probes forever — half of #1010, silently. */
+export const probeSweepMarker = (stateDir: string, cwd: string): string => path.join(stateDir, `probe-sweep-${encodeProjectDirName(path.resolve(cwd))}.json`);
+
+/** The sweep, run at most once per workspace — see the note at the top of this file. Returns the
+ *  count, or null when the right to run could not be claimed (already swept, or another process
+ *  got there first).
  *
  *  The claim is one exclusive create, and that is the whole mechanism. Not `stat` then write: two
  *  servers starting together would both see no marker and both sweep, and several checkouts DO run
@@ -156,10 +162,11 @@ export async function sweepLegacyProbeTranscripts(cwd: string): Promise<number> 
  *
  *  Claiming before deleting is deliberate in the same way: failing to claim means deleting nothing,
  *  and a crash mid-sweep leaves litter, which is the harmless direction. */
-export async function sweepLegacyProbeTranscriptsOnce(cwd: string, marker: string): Promise<number | null> {
+export async function sweepLegacyProbeTranscriptsOnce(cwd: string, stateDir: string): Promise<number | null> {
+  const marker = probeSweepMarker(stateDir, cwd);
   try {
-    await mkdir(path.dirname(marker), { recursive: true });
-    await writeFile(marker, JSON.stringify({ sweptAt_ms: Date.now() }), { encoding: "utf8", flag: "wx" });
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(marker, JSON.stringify({ cwd, sweptAt_ms: Date.now() }), { encoding: "utf8", flag: "wx" });
   } catch {
     return null; // already claimed, or the claim cannot be recorded — either way, do not sweep
   }

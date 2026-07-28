@@ -351,7 +351,7 @@ const startClaudeRateLimitProbe = (): void => {
 // content test cannot tell those files from a person who typed the probe's exact words, so the
 // window in which that matters is closed rather than reopened on every boot (Codex review on
 // #1030). It also means a 500MB transcript directory is read once, not once per `yarn dev` save.
-void sweepLegacyProbeTranscriptsOnce(CLAUDE_CWD, path.join(MULMOTERMINAL_HOME, "probe-sweep.json")).catch(() => {});
+void sweepLegacyProbeTranscriptsOnce(CLAUDE_CWD, MULMOTERMINAL_HOME).catch(() => {});
 
 // Codex costs nothing to read, so it is current before the first browser arrives.
 refreshCodexRateLimits();
