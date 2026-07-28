@@ -83,7 +83,8 @@ import type { TaskDefinition } from "@mulmoclaude/core/scheduler";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
-import { allowedToolNames } from "./infra/plugins-registry.js";
+import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
+
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
@@ -142,6 +143,14 @@ const sessionChannel = (id: string) => `session:${id}`;
 // only hidden translation workers are actually shown it, see the /mcp route) so the
 // worker can call it without a permission prompt.
 const GUI_MCP_TOOLS = [...allowedToolNames(), "mcp__mulmoterminal-gui__submitTranslation"].join(",");
+
+// What a GRID cell pre-approves. A grid cell is never handed --mcp-config: its GUI tools come
+// from the user's OWN per-folder MCP config (`claude mcp add -s local`, `.mcp.json`), so
+// MulmoTerminal cannot know which groups a directory registered — and does not need to. It
+// names the auto-allowed groups unconditionally; entries for a server the session didn't
+// register match nothing. Only `render` is here: it cannot act outside the Canvas panel, so
+// running it without a prompt is the point. Every other group keeps Claude Code's own prompt.
+const GRID_MCP_TOOLS = autoAllowedToolNames().join(",");
 
 // The panel's per-session stores. `publish` is a closure rather than the pubsub object
 // because pub/sub only exists once the HTTP server does, and these are built before it.
@@ -219,6 +228,7 @@ const spawnDeps: SpawnDeps = {
   codexModel: CODEX_MODEL,
   permissionMode: CLAUDE_PERMISSION_MODE,
   guiMcpTools: GUI_MCP_TOOLS,
+  gridMcpTools: GRID_MCP_TOOLS,
   outputBufferLimit: OUTPUT_BUFFER_LIMIT,
   hookSettingsJson: (host, sessionId, env) => hookSettingsJson({ host, port: PORT, sessionId, env }),
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.

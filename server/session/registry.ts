@@ -14,6 +14,8 @@ import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { devTerminalSessionLine, parseDevTerminalSessionIds } from "./dev-terminal-sessions.js";
+import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
+import type { ToolGroup } from "../../common/toolGroups.js";
 import type { Activity, KnownSession, PtyEntry } from "./types.js";
 
 // Per-session "working" state, driven by Claude hooks (see /api/hook):
@@ -140,6 +142,81 @@ export function markDevTerminalSession(id: string): void {
   if (!SESSION_ID_RE.test(id) || devTerminalSessions.has(id)) return;
   devTerminalSessions.add(id);
   appendDevTerminalSession(id);
+}
+
+// Which GUI tool groups a session actually has. Learned from the group URLs it connects to
+// (see session-tool-groups.ts) rather than configured here — a grid cell's GUI tools come
+// from the user's own per-folder MCP config, which we do not read. Read it through
+// sessionToolGroups() so callers can't mutate the stored set.
+const toolGroupsBySession = new Map<string, Set<ToolGroup>>();
+const SESSION_TOOL_GROUPS_FILE = path.join(MULMOTERMINAL_HOME, "session-tool-groups.json");
+
+async function readPersistedToolGroups(): Promise<SessionToolGroup[]> {
+  try {
+    return parseSessionToolGroups(await fs.readFile(SESSION_TOOL_GROUPS_FILE, "utf8"), isValidSessionId);
+  } catch {
+    return [];
+  }
+}
+
+// Ids a spawn has already superseded this process. Hydration reads the log as it was BEFORE
+// that spawn's reset marker could be appended, so without this it would put the old groups
+// back — the reset would win in the file and lose in memory.
+const resetToolGroupSessions = new Set<string>();
+
+export const sessionToolGroupsHydrated: Promise<void> = (async () => {
+  for (const { sessionId, group } of await readPersistedToolGroups()) {
+    if (resetToolGroupSessions.has(sessionId)) continue;
+    addToolGroupInMemory(sessionId, group);
+  }
+})();
+
+let toolGroupsPersist: Promise<void> = Promise.resolve();
+function appendSessionToolGroup(sessionId: string, group: ToolGroup): void {
+  toolGroupsPersist = toolGroupsPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(SESSION_TOOL_GROUPS_FILE, sessionToolGroupLine(sessionId, group)))
+    .catch((e) => console.error(`[session-tool-groups] failed to persist: ${messageOf(e)}`));
+}
+
+function addToolGroupInMemory(sessionId: string, group: ToolGroup): boolean {
+  const groups = toolGroupsBySession.get(sessionId) ?? new Set<ToolGroup>();
+  if (groups.has(group)) return false;
+  groups.add(group);
+  toolGroupsBySession.set(sessionId, groups);
+  return true;
+}
+
+// Note that a session reached us on a group's URL, then persist. A no-op once known, so the
+// per-request MCP calls (one server is built per request) don't append on every tool call.
+export function markSessionToolGroup(sessionId: string, group: ToolGroup): void {
+  if (!SESSION_ID_RE.test(sessionId)) return;
+  if (addToolGroupInMemory(sessionId, group)) appendSessionToolGroup(sessionId, group);
+}
+
+export function sessionToolGroups(sessionId: string): ToolGroup[] {
+  return [...(toolGroupsBySession.get(sessionId) ?? [])];
+}
+
+// Forget what a session had, because it is being replaced. Called on every claude spawn for the
+// id: the new process gets whatever the user's MCP config says NOW, so carrying the old answer
+// forward would keep asserting a capability the user may have just switched off. The marker is
+// appended rather than the file rewritten, for the same reason nothing else here is rewritten.
+// UNCONDITIONAL, and that is the point. Skipping the marker when the in-memory set looks empty
+// was wrong twice over on a resume at boot: hydration may not have run yet, so "empty" means
+// "not read yet" rather than "nothing there" — and the marker is the only thing that survives to
+// the NEXT restart, where a process-local memo would be gone and the log replayed from scratch.
+// One line per claude spawn, in a file that already grows per learned group.
+export function resetSessionToolGroups(sessionId: string): void {
+  if (!SESSION_ID_RE.test(sessionId)) return;
+  // Both flags set synchronously, before any await: a read landing between here and the append
+  // must not see the replaced process's capabilities, and hydration must not restore them.
+  resetToolGroupSessions.add(sessionId);
+  toolGroupsBySession.set(sessionId, new Set());
+  toolGroupsPersist = toolGroupsPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(SESSION_TOOL_GROUPS_FILE, sessionToolGroupLine(sessionId, TOOL_GROUP_RESET)))
+    .catch((e) => console.error(`[session-tool-groups] failed to persist reset: ${messageOf(e)}`));
 }
 
 // Restore the `working` + blocked/done (`waiting`) flags across a server restart (e.g. a
