@@ -74,4 +74,17 @@ describe("RateLimitGauge", () => {
     expect(note(wrapper).attributes("title")).toContain("not found on PATH");
     wrapper.unmount();
   });
+
+  // Codex review on #1047: hiding the row is only half of it. The row carries an aria-label, and a
+  // screen reader announcing a percentage that is not on screen is worse than one announcing none.
+  it("does not announce a percentage it has stopped showing", async () => {
+    const half = { fiveHour: { usedPercentage: 83, resetsAt_sec: inHours(-1) }, sevenDay: { usedPercentage: 40, resetsAt_sec: inHours(9) } };
+    const wrapper = await showGauge(body({ claude: half, claudeProbe: "ok" }));
+
+    const spoken = wrapper.findAll("[aria-label]").map((el) => el.attributes("aria-label") ?? "");
+    expect(spoken.join(" ")).toContain("7d 40% used");
+    expect(spoken.join(" ")).not.toContain("83");
+    expect(wrapper.text()).not.toContain("83");
+    wrapper.unmount();
+  });
 });

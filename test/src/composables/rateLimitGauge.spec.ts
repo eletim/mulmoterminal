@@ -95,6 +95,22 @@ describe("gaugeTitle", () => {
     expect(gaugeTitle("codex", null, NOW)).toBe("");
     expect(gaugeTitle("codex", { fiveHour: null, sevenDay: null }, NOW)).toBe("");
   });
+
+  // This string is also the aria-label, so it has to agree with what is on screen. Filtering only
+  // the rendered rows left the spoken text announcing a percentage the gauge had dropped.
+  it("leaves out a window the gauge no longer shows", () => {
+    const past = Math.floor(NOW / 1000) - 60;
+    const limits = { fiveHour: window(83, past), sevenDay: window(40, Math.floor(NOW / 1000) + 3600) };
+
+    expect(gaugeWindows(limits, NOW).map((w) => w.label)).toEqual(["7d"]);
+    expect(gaugeTitle("claude", limits, NOW)).not.toContain("83");
+    expect(gaugeTitle("claude", limits, NOW)).toContain("7d 40% used");
+  });
+
+  it("says nothing at all when every window it holds has expired", () => {
+    const past = Math.floor(NOW / 1000) - 60;
+    expect(gaugeTitle("claude", { fiveHour: window(83, past), sevenDay: null }, NOW)).toBe("");
+  });
 });
 
 // #1011 / #1010: an absent Claude gauge used to be indistinguishable from a probe loop running

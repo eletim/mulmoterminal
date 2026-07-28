@@ -64,16 +64,30 @@ const MIN_PER_HOUR = 60;
 // cannot prove it is stale, so it stays.
 const expired = (window: RateLimitWindow, now_ms: number): boolean => window.resetsAt_sec !== null && window.resetsAt_sec * MS_PER_SEC <= now_ms;
 
-const gaugeWindow = (label: string, window: RateLimitWindow | null, now_ms: number): GaugeWindow[] =>
-  window === null || expired(window, now_ms) ? [] : [{ label, percent: Math.round(window.usedPercentage), warn: window.usedPercentage >= WARN_PERCENT }];
+/** The windows worth saying anything about, in reading order.
+ *
+ *  ONE list, feeding both the figures and the hover / aria text. Deciding twice is how the two came
+ *  apart: filtering only the rendered rows left the spoken label announcing a percentage the screen
+ *  had deliberately dropped (Codex review on #1047). */
+const liveWindows = (limits: RateLimits | null, now_ms: number): { label: string; window: RateLimitWindow }[] => {
+  if (!limits) return [];
+  const labelled = [
+    { label: "5h", window: limits.fiveHour },
+    { label: "7d", window: limits.sevenDay },
+  ];
+  return labelled.flatMap(({ label, window }) => (window !== null && !expired(window, now_ms) ? [{ label, window }] : []));
+};
 
 /** The windows to render for one agent, in the order they are shown. Empty when the agent has
  * reported nothing — which covers "not installed", "API-key billing", "no session yet" and a
  * reading that has outlived its window alike, because there is nothing worth saying differently
  * about any of them. */
 export function gaugeWindows(limits: RateLimits | null, now_ms: number): GaugeWindow[] {
-  if (!limits) return [];
-  return [...gaugeWindow("5h", limits.fiveHour, now_ms), ...gaugeWindow("7d", limits.sevenDay, now_ms)];
+  return liveWindows(limits, now_ms).map(({ label, window }) => ({
+    label,
+    percent: Math.round(window.usedPercentage),
+    warn: window.usedPercentage >= WARN_PERCENT,
+  }));
 }
 
 export interface AgentGauge {
@@ -110,13 +124,13 @@ export function resetsIn(resetsAt_sec: number | null, now_ms: number): string {
   return hours ? `resets in ${hours}h ${minutes}m` : `resets in ${minutes}m`;
 }
 
-/** The hover text for one agent — the same numbers plus when each window resets. */
+/** The hover text for one agent — the same numbers plus when each window resets. Also the
+ *  `aria-label`, which is why it is built from the SAME list the figures come from: a screen reader
+ *  announcing a percentage that is not on screen is worse than one announcing nothing. */
 export function gaugeTitle(agent: string, limits: RateLimits | null, now_ms: number): string {
-  if (!limits) return "";
-  const parts = [
-    ...(limits.fiveHour ? [`5h ${Math.round(limits.fiveHour.usedPercentage)}% used${suffix(resetsIn(limits.fiveHour.resetsAt_sec, now_ms))}`] : []),
-    ...(limits.sevenDay ? [`7d ${Math.round(limits.sevenDay.usedPercentage)}% used${suffix(resetsIn(limits.sevenDay.resetsAt_sec, now_ms))}`] : []),
-  ];
+  const parts = liveWindows(limits, now_ms).map(
+    ({ label, window }) => `${label} ${Math.round(window.usedPercentage)}% used${suffix(resetsIn(window.resetsAt_sec, now_ms))}`,
+  );
   return parts.length ? `${agent} rate limit — ${parts.join(" · ")}` : "";
 }
 
