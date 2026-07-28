@@ -626,7 +626,8 @@ const remoteViewMutateHandler: RequestHandler<{ slug: string; viewId: string }> 
 // data (real thumbnails) the phone gets.
 const remoteViewItemsHandler: RequestHandler<{ slug: string; viewId: string }> = async (req, res) => {
   const { slug, viewId } = req.params;
-  const request = { offset: clampViewOffset(req.query.offset), limit: clampViewLimit(req.query.limit), fields: normalizeFields(csvParam(req.query.fields)) };
+  const fields = normalizeFields(csvParam(req.query.fields));
+  const request = { offset: clampViewOffset(req.query.offset), limit: clampViewLimit(req.query.limit), ...(fields ? { fields } : {}) };
   const collection = await resolveCollection(res, slug);
   if (!collection) return;
   const result = await remoteViewItems(collection, viewId, request);

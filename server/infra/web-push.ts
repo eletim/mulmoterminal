@@ -9,4 +9,4 @@ import { currentIdToken } from "../backends/remoteHost/session.js";
 // session the push came from rather than the home screen (mulmoserver#75). It is
 // never a replacement for the notification: both receivers drop a data-only message.
 export const sendWebPush = (title: string, body: string, data?: Record<string, string>): Promise<SendPushResult | null> =>
-  sendPush(title, body, { getIdToken: currentIdToken, data });
+  sendPush(title, body, { getIdToken: currentIdToken, ...(data ? { data } : {}) });
