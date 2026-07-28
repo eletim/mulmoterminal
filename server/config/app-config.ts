@@ -96,6 +96,11 @@ export interface AppConfig {
   // its PR merges (#979). OFF unless asked for — it writes to GitHub, on issues that are often
   // somebody else's, and the comment names the working directory it happened in.
   issueWorkComments: boolean;
+  // Keep a Markdown digest of the decisions this project's sessions asked for, refreshed on a
+  // timer, for an agent to read before asking something similar (#1015). OFF unless asked for:
+  // it is a vision-stage idea rather than something every user needs, and it writes a file
+  // (under ~/.mulmoterminal/decisions/) that would otherwise never exist.
+  decisionDigest: boolean;
   // Colour schemes the user defined, offered in Settings alongside the four built-ins (#996).
   // Server-side rather than per-browser (like `fontFamily`, unlike `fontSize`): a palette you
   // authored is an asset you want on every browser you open the app from. WHICH one is selected
@@ -291,6 +296,10 @@ export function sanitizeCopyOnSelect(input: unknown): boolean {
   return input === true;
 }
 
+export function sanitizeDecisionDigest(input: unknown): boolean {
+  return input === true;
+}
+
 // Inverted against every other boolean here: this one defaults ON, so anything that is not
 // an explicit `false` — including a missing key, which is what every existing config file
 // has — leaves it enabled.
@@ -328,6 +337,7 @@ export const emptyConfig = (): AppConfig => ({
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
   copyOnSelect: false,
+  decisionDigest: false,
   issueWorkComments: false,
   prWorkdirFooter: true,
   cockpitLines: { ...DEFAULT_COCKPIT_LINES },
@@ -369,6 +379,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
     copyOnSelect: sanitizeCopyOnSelect(o.copyOnSelect),
+    decisionDigest: sanitizeDecisionDigest(o.decisionDigest),
     issueWorkComments: sanitizeIssueWorkComments(o.issueWorkComments),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
     cockpitLines: sanitizeCockpitLines(o.cockpitLines),
@@ -470,6 +481,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
     copyOnSelect: updated("copyOnSelect", sanitizeCopyOnSelect, base.copyOnSelect),
+    decisionDigest: updated("decisionDigest", sanitizeDecisionDigest, base.decisionDigest),
     issueWorkComments: updated("issueWorkComments", sanitizeIssueWorkComments, base.issueWorkComments),
     fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
@@ -501,6 +513,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
     copyOnSelect: config.copyOnSelect,
+    decisionDigest: config.decisionDigest,
     issueWorkComments: config.issueWorkComments,
     prWorkdirFooter: config.prWorkdirFooter,
     cockpitLines: config.cockpitLines,

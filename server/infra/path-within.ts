@@ -29,6 +29,20 @@ const normalize = (p: string, platform: NodeJS.Platform): string => {
   return platform === "win32" ? resolved.toLowerCase() : resolved;
 };
 
+/** One spelling per directory, for a path that is STORED rather than compared: `/a/b/` and
+ *  `/a/b` name one directory, and `path.resolve` is the whole rule (it drops the trailing
+ *  separator except on a filesystem root, and collapses `.` / `..`).
+ *
+ *  Case is deliberately NOT folded here, unlike `normalize` above. That one exists to compare;
+ *  this value is handed to a PTY, shown in the UI, and written to config.json, and lowercasing
+ *  a Windows path would corrupt all three. Fold when comparing (`isSamePath`), never when keeping.
+ *
+ *  **Absolute input only** — `path.resolve` splices a relative string onto the server's own cwd,
+ *  which invents a directory the caller never named. Every caller checks `isAbsolute` first. */
+export function canonicalDir(dir: string, platform: NodeJS.Platform = process.platform): string {
+  return platformPath(platform).resolve(dir);
+}
+
 /** Do these name the same path? Both sides are resolved first, so a drive-relative or
  *  un-normalized spelling of the same directory still matches. */
 export function isSamePath(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {

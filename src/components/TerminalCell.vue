@@ -2,18 +2,19 @@
 import { ref, computed, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
-import { useDirConfig, useDirColors } from "../composables/useDirConfig";
+import { useDirColors } from "../composables/useDirConfig";
+import { useCellChrome } from "../composables/useCellChrome";
 import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
 import { useWorkItem } from "../composables/useWorkItem";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
 import DirBadge from "./DirBadge.vue";
 import { isCellContext, isCellUsage, type CellContext, type CellUsage } from "./cellPayload";
+import { CANVAS_TOOL_GROUP } from "../../common/toolGroups";
 import { unsavedWork } from "./unsavedWork";
 import { relativeTime as relativeTimeFrom, usageBadge } from "./cellDisplay";
 import { applyActivityPush, cellHeaderText } from "./cellActivity";
 import { preferredLaunchDir, shouldSyncLaunchDir } from "./launchDir";
-import { headerStyleFor, cellStyleFor } from "./cellHeaderStyle";
 import GitBranchChip from "./GitBranchChip.vue";
 import WorkItemChip from "./WorkItemChip.vue";
 import ModelContextBadge from "./ModelContextBadge.vue";
@@ -118,11 +119,7 @@ const connectKey = ref(0);
 const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
 // Per-directory overrides (<cwd>/.mulmoterminal.json): pins this cell's terminal
 // palette and shows a project badge. Re-fetched when the effective cwd changes.
-const { config: dirConfig } = useDirConfig(cwd);
-const headerStyle = computed(() => headerStyleFor(dirConfig.value.headerColor, dirConfig.value.headerTextColor));
-const cellStyle = computed(() =>
-  cellStyleFor(dirConfig.value.cellColor, dirConfig.value.cellBorderColor, dirConfig.value.dotColor, dirConfig.value.buttonColor),
-);
+const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(cwd);
 // What this cell is working on (PR + issue), for the `work` chip. Same directory, same kind of
 // poll as the git status below.
 const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd);
@@ -291,6 +288,41 @@ async function refreshUsage() {
   if (data && badgeReq === latestBadgeReq) applyBadges(data);
 }
 
+// Canvas output this cell has produced that nobody has looked at. The grid is a TRIAGE board,
+// so the drawing itself stays in the expanded view — but without a signal here, output on an
+// un-expanded cell leaves no trace at all and is only discovered by expanding it. A count, not
+// a preview: reading belongs in the pane.
+//
+// Counted from LIVE arrivals only, with no history replay: "unseen" means "since you last
+// looked", and nine cells each fetching a session's stored results to compute a badge would
+// cost more than the badge is worth.
+//
+// Deliberately NOT folded into the attention colours: an unread drawing is not the same as an
+// agent blocked on a permission prompt, and letting it raise amber would spend the one signal
+// that means "you are needed here".
+const unseenCanvas = ref(0);
+let unsubscribeCanvas: (() => void) | undefined;
+
+function watchCanvasOutput(id: string | null) {
+  unsubscribeCanvas?.();
+  unsubscribeCanvas = undefined;
+  unseenCanvas.value = 0;
+  if (!id) return;
+  unsubscribeCanvas = subscribe(`session:${id}`, () => {
+    // Already looking at it: arrivals land in a pane the user can see, so nothing is unseen.
+    if (props.expanded && props.rightPane === "canvas") return;
+    unseenCanvas.value += 1;
+  });
+}
+watch(sessionId, watchCanvasOutput, { immediate: true });
+// Opening the pane on this cell clears the count — that IS having looked.
+watch(
+  () => props.expanded && props.rightPane === "canvas",
+  (looking) => {
+    if (looking) unseenCanvas.value = 0;
+  },
+);
+
 onMounted(() => {
   unsubscribe = subscribe("sessions", (d) => {
     if (isActivityMsg(d) && d.id === sessionId.value) applyActivity(d);
@@ -309,10 +341,12 @@ onMounted(() => {
     loadResumable();
     loadScripts();
     loadWorktrees();
+    loadCanvasEnabled();
   }
 });
 onUnmounted(() => {
   unsubscribe?.();
+  unsubscribeCanvas?.();
   offReconnect?.();
   if (resumableTimer) clearTimeout(resumableTimer);
 });
@@ -375,6 +409,7 @@ function fillDir(path: string) {
   loadResumable();
   loadScripts();
   loadWorktrees();
+  loadCanvasEnabled();
 }
 
 // The folder button: the browser can't open a native folder chooser, so the local server does
@@ -485,6 +520,65 @@ const worktrees = ref<Worktree[]>([]);
 const worktreeTask = ref("");
 let worktreesReq = 0;
 
+// Whether this directory lets its agents draw into the Canvas panel. NOT MulmoTerminal state:
+// it is a `render`-group MCP server registered in Claude Code's own local-scope config for this
+// directory, so the switch reads and writes through /api/gui-mcp-groups and `claude mcp list`
+// stays the one place it can be seen. Read per directory, like the worktree list above.
+const canvasDir = ref<string | null>(null);
+const canvasEnabled = ref(false);
+const canvasBusy = ref(false);
+const canvasError = ref<string | null>(null);
+let canvasReq = 0;
+
+async function loadCanvasEnabled() {
+  const dir = dirInput.value.trim() || props.defaultCwd;
+  const reqId = ++canvasReq;
+  if (launched.value || !dir) {
+    canvasDir.value = null;
+    return;
+  }
+  try {
+    const res = await fetch(`/api/gui-mcp-groups?cwd=${encodeURIComponent(dir)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    // A slower reply for a directory the user has since moved off would show its answer under
+    // the new directory's name.
+    if (reqId !== canvasReq) return;
+    canvasDir.value = dir;
+    canvasEnabled.value = Array.isArray(data.groups) && data.groups.includes(CANVAS_TOOL_GROUP);
+    canvasError.value = null;
+  } catch {
+    // No switch rather than one whose position is a guess — flipping a wrong "off" would run
+    // `claude mcp remove` on a registration the user may actually have.
+    if (reqId === canvasReq) canvasDir.value = null;
+  }
+}
+
+// Writes into the user's Claude Code config, so a failure is surfaced and the checkbox is put
+// back — a switch that shows "on" for a registration that was never written is the worst state.
+async function applyCanvas() {
+  const dir = canvasDir.value;
+  if (!dir) return;
+  const wanted = canvasEnabled.value;
+  canvasBusy.value = true;
+  canvasError.value = null;
+  try {
+    const res = await fetch("/api/gui-mcp-groups", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cwd: dir, group: CANVAS_TOOL_GROUP, enabled: wanted }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || "claude mcp failed");
+  } catch (e) {
+    canvasEnabled.value = !wanted;
+    canvasError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    canvasBusy.value = false;
+  }
+}
+
 async function loadWorktrees() {
   const dir = dirInput.value.trim() || props.defaultCwd;
   const reqId = ++worktreesReq;
@@ -523,6 +617,7 @@ async function createWorktreeAndLaunch() {
     const wt = await res.json();
     if (typeof wt.path === "string") {
       worktreeTask.value = "";
+      await carryCanvasInto(wt.path);
       launchIn(wt.path);
     }
   } catch {
@@ -530,7 +625,30 @@ async function createWorktreeAndLaunch() {
   }
 }
 
-const reuseWorktree = (w: Worktree) => launchIn(w.path);
+const reuseWorktree = async (w: Worktree) => {
+  await carryCanvasInto(w.path);
+  launchIn(w.path);
+};
+
+// Claude Code keys local-scope MCP config by the CLI's working directory, and a worktree launch
+// starts claude in the WORKTREE — not in the repository the switch above was set for. Without
+// this the session gets no render tools even though the launcher plainly says Canvas is on.
+//
+// Copied rather than moved: the repository keeps its own registration, and a worktree is a
+// throwaway room that should start out like the repo it came from. Failures are swallowed —
+// the launch itself is what the user asked for, and the Canvas button will report the truth.
+async function carryCanvasInto(worktreePath: string) {
+  if (!canvasEnabled.value || !canvasDir.value || worktreePath === canvasDir.value) return;
+  try {
+    await fetch("/api/gui-mcp-groups", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cwd: worktreePath, group: CANVAS_TOOL_GROUP, enabled: true }),
+    });
+  } catch {
+    // best-effort — a worktree without the registration still launches, just without Canvas
+  }
+}
 
 // Remove a managed worktree (＋ its branch). A dirty one is confirmed first so work
 // is never discarded silently.
@@ -563,6 +681,7 @@ watch([dirInput, () => props.defaultCwd], () => {
     loadResumable();
     loadScripts();
     loadWorktrees();
+    loadCanvasEnabled();
   }, 300);
 });
 
@@ -762,6 +881,7 @@ function teardown() {
   loadResumable();
   loadScripts();
   loadWorktrees();
+  loadCanvasEnabled();
 }
 
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
@@ -1038,8 +1158,12 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             <CellChromeButtons
               :expanded="expanded"
               :files-open="filesOpen"
+              :right-pane="rightPane"
+              :canvas-available="canvasAvailable"
               @toggle-expand="emit('toggle-expand')"
               @toggle-files="emit('toggle-files')"
+              @toggle-canvas="emit('toggle-canvas')"
+              @toggle-tools="emit('toggle-tools')"
               @close="close"
             />
           </span>
@@ -1082,6 +1206,20 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                thumbnail, leaving only dir + what it's doing + a zoom button. -->
             <template v-if="!filmstrip">
               <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
+              <!-- Unread Canvas output. Same chip vocabulary as the branch / context / token
+                   chips beside it, deliberately: this is one more thing to triage at a glance,
+                   not a new kind of alert. Clicking expands the cell with the pane open. -->
+              <button
+                v-if="unseenCanvas > 0"
+                type="button"
+                data-testid="cell-canvas-chip"
+                class="inline-flex flex-none cursor-pointer items-center gap-1 rounded-[10px] border border-border bg-elevated px-[7px] py-px font-mono text-[11px] hover:bg-hover"
+                :title="`${unseenCanvas} unread from the agent — open the canvas`"
+                :aria-label="`${unseenCanvas} unread canvas results`"
+                @click.stop="emit('open-canvas')"
+              >
+                <span class="material-symbols-outlined text-[13px]" aria-hidden="true">draw</span>{{ unseenCanvas }}
+              </button>
               <template v-for="chip in cellChips" :key="chip.key">
                 <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
                 <WorkItemChip v-else-if="chip.builtin === 'work'" :item="workItem" />
@@ -1132,8 +1270,12 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             <CellChromeButtons
               :expanded="expanded"
               :files-open="filesOpen"
+              :right-pane="rightPane"
+              :canvas-available="canvasAvailable"
               @toggle-expand="emit('toggle-expand')"
               @toggle-files="emit('toggle-files')"
+              @toggle-canvas="emit('toggle-canvas')"
+              @toggle-tools="emit('toggle-tools')"
               @close="close"
             />
           </span>
@@ -1149,9 +1291,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           :cwd="cwd"
           :codex="agent === 'codex'"
           :launch="launchChoice"
-          :dir-header-color="dirConfig.headerColor"
-          :dir-header-text-color="dirConfig.headerTextColor"
-          :dir-button-color="dirConfig.buttonColor"
           :hide-header="filmstrip"
           :expanded="expanded"
           :zoomed="zoomed"
@@ -1554,6 +1693,31 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         </label>
         <!-- Codex has its own model configuration and doesn't read this one. -->
         <ModelPicker v-if="agent === 'claude'" v-model="launchChoice" />
+        <!-- Canvas is a per-DIRECTORY registration in Claude Code's own MCP config, not a
+             per-launch choice — but it only takes effect when a session starts, so this is
+             where it belongs: decided before the thing it configures exists. Claude only;
+             codex reaches the GUI tools by another route. -->
+        <label v-if="agent === 'claude' && canvasDir" class="flex w-full max-w-[360px] items-center justify-between gap-2">
+          <!-- The group is named, not just the feature: the switch registers ONE MCP server
+               (`mulmoterminal-render`) and the other groups are added with `claude mcp add`, so
+               a label reading only "Canvas" would suggest it covers all of them. `normal-case`
+               on the suffix — the section labels around it are uppercased by class, and
+               "(RENDER MCPS)" reads as a different thing than the server it names. -->
+          <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">Canvas <span class="normal-case">(render MCPs)</span></span>
+          <span class="flex items-center gap-2">
+            <span v-if="canvasBusy" class="font-sans text-[11px] text-dim">saving…</span>
+            <span v-else-if="canvasError" class="font-sans text-[11px] text-err-text" :title="canvasError">failed</span>
+            <input
+              v-model="canvasEnabled"
+              data-testid="cell-canvas-toggle"
+              type="checkbox"
+              class="h-3.5 w-3.5 cursor-pointer accent-accent"
+              :disabled="canvasBusy"
+              :aria-label="`Register the render MCP group so the agent can draw in ${canvasDir}`"
+              @change="applyCanvas"
+            />
+          </span>
+        </label>
         <div v-if="isGitRepo" data-testid="cell-worktrees" class="flex w-full max-w-[360px] flex-col items-stretch gap-1.5">
           <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or isolate in a worktree (git repo)</span>
           <div class="flex gap-1.5">

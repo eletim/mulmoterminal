@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch } from "vue";
 import DirBadge from "./DirBadge.vue";
-import { useDirConfig } from "../composables/useDirConfig";
+import { useCellChrome } from "../composables/useCellChrome";
 import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import { formatCwd } from "./cwdDisplay";
@@ -59,7 +59,7 @@ const finished = ref(false);
 
 // The name badge is CHROME — this cell's own header, not the terminal canvas (#914). The
 // canvas side resolves itself inside Terminal.vue (#911); this is the other half of that line.
-const { config: dirConfig } = useDirConfig(toRef(props, "cwd"));
+const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(toRef(props, "cwd"));
 
 const dirDisplay = computed(() => formatCwd(props.cwd, props.home));
 const target = computed(() => (isShellLauncher(props.launcher) ? { shell: true as const } : { index: props.launcher.index }));
@@ -80,9 +80,9 @@ function relaunch() {
 </script>
 
 <template>
-  <div class="cell" :class="CELL_FRAME">
+  <div class="cell" :class="CELL_FRAME" :style="cellStyle">
     <div :class="CELL_INNER">
-      <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" @click="onHeaderClick">
+      <div class="cell-header" :class="[CELL_HEADER, expanded ? '' : `is-zoomable ${CELL_HEADER_ZOOMABLE}`]" :style="headerStyle" @click="onHeaderClick">
         <span
           class="cell-dot"
           :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
@@ -106,8 +106,12 @@ function relaunch() {
           <CellChromeButtons
             :expanded="expanded"
             :files-open="filesOpen"
+            :right-pane="rightPane"
+            :canvas-available="canvasAvailable"
             @toggle-expand="emit('toggle-expand')"
             @toggle-files="emit('toggle-files')"
+            @toggle-canvas="emit('toggle-canvas')"
+            @toggle-tools="emit('toggle-tools')"
             @close="emit('close')"
           />
         </span>

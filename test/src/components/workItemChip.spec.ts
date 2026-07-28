@@ -36,8 +36,24 @@ describe("hasWorkToShow", () => {
 
 describe("parseWorkItem", () => {
   it("reads the server's shape", () => {
-    const parsed = parseWorkItem({ phase: "ready", pr: 977, prUrl: "https://x/pull/977", issue: 966, issueUrl: "https://x/issues/966" });
-    expect(parsed).toEqual({ phase: "ready", pr: 977, prUrl: "https://x/pull/977", issue: 966, issueUrl: "https://x/issues/966" });
+    const parsed = parseWorkItem({
+      phase: "ready",
+      pr: 977,
+      prUrl: "https://x/pull/977",
+      issue: 966,
+      issueUrl: "https://x/issues/966",
+      prTitle: "the change",
+      issueTitle: "the report",
+    });
+    expect(parsed).toEqual({
+      phase: "ready",
+      pr: 977,
+      prUrl: "https://x/pull/977",
+      issue: 966,
+      issueUrl: "https://x/issues/966",
+      prTitle: "the change",
+      issueTitle: "the report",
+    });
   });
 
   // A proxy answering HTML, or an older server that only knows `phase`/`url`, must not put

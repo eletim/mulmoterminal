@@ -91,6 +91,11 @@ export function getPushEnabled(): boolean {
   return config.pushEnabled;
 }
 
+// Read live so toggling the setting takes effect on the next timer tick, without a restart.
+export function getDecisionDigestEnabled(): boolean {
+  return config.decisionDigest;
+}
+
 // Which kinds of push the user wants (#850). Read live so unticking one in Settings takes
 // effect on the very next hook, without a restart.
 export function getPushKinds(): PushKind[] {

@@ -51,16 +51,26 @@ import type { SpawnDeps } from "./session/spawn-deps.js";
 import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { createToolStores } from "./session/tool-store.js";
+import { writeDecisionDigest } from "./session/decision-digest-file.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
-import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
+import {
+  agentFromPaneCommand,
+  buildSessionList,
+  captureSessionScreen,
+  sessionWorkSummary,
+  type SessionScreenMeta,
+  type SessionWorkSummary,
+} from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
 import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
-import { currentBranch } from "./git/git-status.js";
+import { currentBranch, gitStatus } from "./git/git-status.js";
+import { phaseForRepoBranch } from "./git/prPhase.js";
+import { repoFromWebUrl } from "./config/header-context.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
@@ -85,7 +95,8 @@ import type { TaskDefinition } from "@mulmoclaude/core/scheduler";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
-import { allowedToolNames } from "./infra/plugins-registry.js";
+import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
+
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
@@ -144,6 +155,14 @@ const sessionChannel = (id: string) => `session:${id}`;
 // only hidden translation workers are actually shown it, see the /mcp route) so the
 // worker can call it without a permission prompt.
 const GUI_MCP_TOOLS = [...allowedToolNames(), "mcp__mulmoterminal-gui__submitTranslation"].join(",");
+
+// What a GRID cell pre-approves. A grid cell is never handed --mcp-config: its GUI tools come
+// from the user's OWN per-folder MCP config (`claude mcp add -s local`, `.mcp.json`), so
+// MulmoTerminal cannot know which groups a directory registered — and does not need to. It
+// names the auto-allowed groups unconditionally; entries for a server the session didn't
+// register match nothing. Only `render` is here: it cannot act outside the Canvas panel, so
+// running it without a prompt is the point. Every other group keeps Claude Code's own prompt.
+const GRID_MCP_TOOLS = autoAllowedToolNames().join(",");
 
 // The panel's per-session stores. `publish` is a closure rather than the pubsub object
 // because pub/sub only exists once the HTTP server does, and these are built before it.
@@ -221,6 +240,7 @@ const spawnDeps: SpawnDeps = {
   codexModel: CODEX_MODEL,
   permissionMode: CLAUDE_PERMISSION_MODE,
   guiMcpTools: GUI_MCP_TOOLS,
+  gridMcpTools: GRID_MCP_TOOLS,
   outputBufferLimit: OUTPUT_BUFFER_LIMIT,
   hookSettingsJson: (host, sessionId, env) => hookSettingsJson({ host, port: PORT, sessionId, env }),
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
@@ -430,8 +450,33 @@ const remoteHostSpawnChat = (message: string) => {
 // shell and ran an agent inside it. Null when neither can say.
 const agentOfSession = (id: string): SessionAgent | null => ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id));
 
-const remoteHostListTerminalSessions = async () =>
-  buildSessionList({
+// What each session's directory is working on, resolved once per DIRECTORY before the list is
+// built: `detailOf` below is synchronous, and cells sharing a checkout share an answer (#1014).
+// phaseForRepoBranch caches per (repo, branch), so a grid of twenty cells costs a handful of gh
+// calls at most, and none at all between polls inside the TTL.
+const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWorkSummary>> => {
+  const out = new Map<string, SessionWorkSummary>();
+  await Promise.all(
+    [...new Set(cwds.filter((cwd) => cwd !== ""))].map(async (cwd) => {
+      try {
+        const status = await gitStatus(cwd);
+        if (!status.repo || !status.branch) return;
+        const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
+        if (!repo) return;
+        const summary = sessionWorkSummary(await phaseForRepoBranch(repo, status.branch));
+        if (summary) out.set(cwd, summary);
+      } catch {
+        // best-effort: a directory that cannot be resolved simply carries no work item
+      }
+    }),
+  );
+  return out;
+};
+
+const remoteHostListTerminalSessions = async () => {
+  const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? "";
+  const work = await workByCwd([...ptys.keys()].map(cwdOfSession));
+  return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
     isResumable: await resumableSessionPredicate(),
@@ -443,10 +488,12 @@ const remoteHostListTerminalSessions = async () =>
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => ({
       title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
-      cwd: ptys.get(id)?.cwd ?? "",
+      cwd: cwdOfSession(id),
       agent: agentOfSession(id),
+      work: work.get(cwdOfSession(id)),
     }),
   });
+};
 
 // Write a chunk to a session's live PTY for the phone's terminal input (#445).
 // Only sessions attached in THIS process are writable: a tmux session that outlived
@@ -574,6 +621,20 @@ const scheduledSessions = createScheduledSessionRegistry({
 const SCHEDULED_SWEEP_INTERVAL_MS = 60 * 60_000;
 void scheduledSessions.sweep();
 setInterval(() => void scheduledSessions.sweep(), SCHEDULED_SWEEP_INTERVAL_MS).unref();
+
+// The decision digest (#1015): rewritten at startup and every few hours, but only for the
+// directories this host actually works in, and only while the setting is on (checked inside
+// writeDecisionDigest, so turning it off stops the next tick rather than needing a restart).
+// Hours rather than minutes because a decision is a human act — a handful a day at most.
+const DECISION_DIGEST_INTERVAL_MS = 6 * 60 * 60_000;
+
+function refreshDecisionDigests(): void {
+  const dirs = new Set<string>([CLAUDE_CWD, ...[...ptys.values()].map((entry) => entry.cwd)]);
+  for (const dir of dirs) void writeDecisionDigest(dir, new Date()).catch(() => {});
+}
+
+refreshDecisionDigests();
+setInterval(refreshDecisionDigests, DECISION_DIGEST_INTERVAL_MS).unref();
 
 function spawnScheduledChat(message: string): void {
   const sessionId = randomUUID();

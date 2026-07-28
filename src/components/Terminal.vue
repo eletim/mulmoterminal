@@ -78,9 +78,6 @@ const props = defineProps<{
   dirBadgeColor?: string | null;
   // The header row's own colors (matches the grid cell's row-1 header): background,
   // text, and the icon buttons. Hex #rrggbb or null for the theme default.
-  dirHeaderColor?: string | null;
-  dirHeaderTextColor?: string | null;
-  dirButtonColor?: string | null;
 }>();
 const emit = defineEmits<{
   (e: "session" | "cwd", value: string): void;
@@ -195,7 +192,10 @@ function effectiveFont(): conn.TerminalFont {
   return { size: dirSize ?? fontSize.value, family: dirFamily ?? globalFontFamily.value };
 }
 const dirBadgeStyle = computed(() => badgeStyleFor(props.dirBadgeColor));
-const headerStyle = computed(() => terminalHeaderStyleFor(props.dirHeaderColor, props.dirHeaderTextColor, props.dirButtonColor));
+// From this terminal's OWN dirConfig, like the theme and font above (#909). Handing these down as
+// props is what left the Shell and Command cells uncoloured for three releases (#1006): a host
+// that forgets one gets a silently dead setting, and nothing fails.
+const headerStyle = computed(() => terminalHeaderStyleFor(dirConfig.value.headerColor, dirConfig.value.headerTextColor, dirConfig.value.buttonColor));
 
 // Voice input: a mic in the header transcribes speech (locally, via whisper.cpp)
 // and inserts it at the prompt for the user to review and submit — same channel as
