@@ -183,7 +183,7 @@ forced rather than chosen. What to know before that day:
 |---|---|
 | Move to | `@xterm/addon-webgl`. **`0.19.0` is stable and xterm-6 era** — published 51 s after `@xterm/xterm@6.0.0`, the same pairing as 5.4.0/0.17.0 and 5.5.0/0.18.0. No beta needed; the `0.20.0-beta` line peers `@xterm/xterm@^6.1.0-beta`, i.e. the NEXT core. (#782's first comment says "要 beta" — that is wrong.) |
 | Why not the DOM renderer | It drops the dependency, but re-opens the CJK drift #314 closed. That drift is **font-environment specific and does not reproduce headlessly**, so CI cannot protect it — it comes back as a user report. |
-| Settle first | The WebGL **context limit** (~16 concurrent in Chrome). `release()` runs only for ephemeral slots and the explicit close button, so terminals on other tabs stay live — the cap is reachable, and #965's reporter ran 22 cells. Needs `onContextLoss` handling and a decision about disposing off-screen terminals. |
+| Settle first | The WebGL **context limit** — browsers cap concurrent contexts and evict the oldest (order of ten; not measured here, so measure before relying on a number). This app is unusually exposed: a persisted slot **deliberately keeps its connection alive** when its view goes away (`Terminal.vue` calls `detach`, not `release` — that IS the persistence), so live terminals accumulate across tabs rather than tracking what is on screen. #965's reporter ran 22 cells. Needs `onContextLoss` handling and a decision about disposing off-screen terminals. |
 | Also | WebGL is unavailable on GPU blocklists / GPU-less VMs / some remote desktops. Keep the same best-effort load + DOM fallback this site already has. |
 
 **Debugging note:** the canvas renderer
