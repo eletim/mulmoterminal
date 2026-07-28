@@ -275,3 +275,76 @@ describe("startResilientRunner", () => {
     expect(captured).toHaveLength(2);
   });
 });
+
+// The silent failure (#823's core-side leftover): core's presence heartbeat swallows its own
+// write errors, so the beats the phone reads can stop landing while the listener never errors.
+// Nothing in the wrapper above fires for that — the runner reported itself green for as long
+// as the process lived. `checkAlive` is the sensor; these pin that a negative answer reaches
+// the SAME recovery a listener death does, and that a healthy one changes nothing.
+describe("startResilientRunner — presence liveness", () => {
+  const PROBE_MS = 90_000;
+  const settle = (clock: ReturnType<typeof fakeClock>) => clock.advance(SETTLE_MS);
+
+  it("re-subscribes when the host stops being visible, with no listener error at all", async () => {
+    let alive: boolean | null = true;
+    const { clock, runner, health } = setup({ checkAlive: () => Promise.resolve(alive) });
+    expect(runner.started).toHaveLength(1);
+
+    alive = false;
+    clock.advance(PROBE_MS);
+    await vi.waitFor(() => expect(health.map((h) => h.state)).toContain("reconnecting"));
+
+    clock.advance(60_000); // let the backoff elapse
+    expect(runner.started.length).toBeGreaterThan(1);
+    expect(health.at(-1)?.lastError).toContain("presence");
+  });
+
+  it("treats a probe that cannot reach the server as the outage it is", async () => {
+    const { clock, health } = setup({ checkAlive: () => Promise.reject(new Error("unavailable")) });
+    clock.advance(PROBE_MS);
+    await vi.waitFor(() => expect(health.at(-1)?.lastError).toContain("unavailable"));
+    expect(health.at(-1)?.state).toBe("reconnecting");
+  });
+
+  it("keeps asking, and stays quiet, while the host is still visible", async () => {
+    const checkAlive = vi.fn(() => Promise.resolve(true));
+    const { clock, runner, health } = setup({ checkAlive });
+    for (let i = 0; i < 3; i++) {
+      clock.advance(PROBE_MS);
+      await vi.waitFor(() => expect(checkAlive).toHaveBeenCalledTimes(i + 1));
+    }
+    expect(runner.started).toHaveLength(1); // never torn down
+    expect(health.every((h) => h.state === "online")).toBe(true);
+  });
+
+  it("does not act on an answer it cannot judge", async () => {
+    // A host that has never announced, or a core that moved the document. Reconnecting
+    // against that would loop forever with nothing actually wrong.
+    const { clock, runner } = setup({ checkAlive: () => Promise.resolve(null) });
+    clock.advance(PROBE_MS * 3);
+    await vi.waitFor(() => expect(runner.started).toHaveLength(1));
+  });
+
+  it("stops probing once the runner is stopped", async () => {
+    const checkAlive = vi.fn(() => Promise.resolve(true));
+    const { clock, stop } = setup({ checkAlive });
+    stop();
+    clock.advance(PROBE_MS * 3);
+    expect(checkAlive).not.toHaveBeenCalled();
+  });
+
+  it("resumes probing after a recovery, so a second silent death is caught too", async () => {
+    let alive: boolean | null = true;
+    const checkAlive = vi.fn(() => Promise.resolve(alive));
+    const { clock, runner, health } = setup({ checkAlive });
+
+    runner.die(); // an ordinary listener death
+    clock.advance(60_000); // backoff, then a fresh launch
+    settle(clock); // …which survives its settle window
+    expect(health.at(-1)?.state).toBe("online");
+
+    alive = false;
+    clock.advance(PROBE_MS);
+    await vi.waitFor(() => expect(health.at(-1)?.state).toBe("reconnecting"));
+  });
+});
