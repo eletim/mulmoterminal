@@ -105,8 +105,7 @@ interface ParsedAnswer {
   fromOptions: boolean;
 }
 
-function answerFor(question: string, text: string, laterMarkers: number[], options: DecisionOption[]): ParsedAnswer {
-  const start = text.indexOf(markerOf(question));
+function answerFor(question: string, text: string, start: number, laterMarkers: number[], options: DecisionOption[]): ParsedAnswer {
   if (start < 0) return { answer: null, fromOptions: false };
   const from = start + markerOf(question).length;
   const recognised = labelAnswer(text, from, options);
@@ -128,21 +127,35 @@ function classifyAnswer(parsed: ParsedAnswer, options: DecisionOption[]): Decisi
   return options.some((o) => o.label === parsed.answer) ? "option" : "free-text";
 }
 
+// Each question's marker position, found in order and never re-finding an earlier one: two
+// questions in the same call can carry identical text (a pair of "どれ？"s), and searching from the
+// start for both would give them the same marker — so the second would inherit the first one's
+// answer (Codex review). -1 for a question whose marker isn't there at all.
+function markerPositions(questions: string[], text: string): number[] {
+  const positions: number[] = [];
+  let cursor = 0;
+  for (const question of questions) {
+    const at = text.indexOf(markerOf(question), cursor);
+    positions.push(at);
+    if (at >= 0) cursor = at + markerOf(question).length;
+  }
+  return positions;
+}
+
 function questionsOf(input: unknown, text: string | null): DecisionQuestion[] {
-  const raw = isRecord(input) && Array.isArray(input.questions) ? input.questions : [];
-  // Every question's marker position, so each answer can be bounded by the next question rather
-  // than by the first quote it happens to contain.
-  const markers =
+  const raw = (isRecord(input) && Array.isArray(input.questions) ? input.questions : []).filter(isRecord);
+  const starts =
     text === null
-      ? []
-      : raw
-          .filter(isRecord)
-          .map((q) => text.indexOf(markerOf(str(q.question))))
-          .filter((i) => i >= 0);
-  return raw.filter(isRecord).map((q) => {
+      ? raw.map(() => -1)
+      : markerPositions(
+          raw.map((q) => str(q.question)),
+          text,
+        );
+  return raw.map((q, i) => {
     const question = str(q.question);
     const options = optionsOf(q.options);
-    const parsed = text === null ? { answer: null, fromOptions: false } : answerFor(question, text, markers, options);
+    const later = starts.slice(i + 1).filter((at) => at >= 0);
+    const parsed = text === null ? { answer: null, fromOptions: false } : answerFor(question, text, starts[i], later, options);
     return {
       question,
       header: str(q.header),

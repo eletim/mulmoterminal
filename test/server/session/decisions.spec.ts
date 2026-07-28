@@ -221,6 +221,21 @@ describe("decisionsFromJsonl", () => {
     expect(decisionsFromJsonl(raw, "f")[0].questions[0].answer).toBe('He said "yes');
   });
 
+  it("gives two identically-worded questions their own answers", () => {
+    // Both markers are the same string, so searching from the start for each one found the first
+    // twice and the second question inherited the first's answer (Codex review).
+    const q = (options: { label: string; description: string }[]) => ({ question: "どれ？", header: "h", multiSelect: false, options });
+    const first = q([{ label: "A", description: "" }]);
+    const second = q([{ label: "B", description: "" }]);
+    const raw = [
+      askLine({ id: "toolu_20", questions: [first, second] }),
+      resultLine("toolu_20", `The user answered: "どれ？"="A", "どれ？"="B". Read the answers carefully.`),
+    ].join("\n");
+    const [a, b] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect([a.answer, a.answerKind]).toEqual(["A", "option"]);
+    expect([b.answer, b.answerKind]).toEqual(["B", "option"]);
+  });
+
   it("matches a question that itself contains quotes", () => {
     // Real: `"context-menu の "New file" をクリックした後、…"="表示されて…"`. The question's own quotes
     // are inside the marker, so an exact marker match is unaffected by them.
