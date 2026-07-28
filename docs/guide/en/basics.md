@@ -48,9 +48,9 @@ Empty cells in the grid show a **launcher form**. This is where you choose **wha
 | Part | Role |
 |---|---|
 | **Claude / Codex** toggle | Choose the **agent** to run in this cell |
-| **WORKING DIRECTORY** | Enter the working directory (`▶` to launch). Frequently used directories are offered as clickable *cwd preset* **chips** that fill the field (the chip's ▶ launches right away) |
+| **WORKING DIRECTORY** | Enter the working directory (the play button launches it). Frequently used directories are offered as clickable *cwd preset* **chips** that fill the field (the chip's play button launches right away) |
 | **Model picker** (when Claude is selected) | Pick the backend / model for this session only (→ [providers](providers.html)) |
-| **OR ISOLATE IN A WORKTREE** | In a git repo, enter a task name and hit **＋ New worktree** to create an isolated worktree and launch there |
+| **OR ISOLATE IN A WORKTREE** | In a git repo, enter a task name and hit **New worktree** to create an isolated worktree and launch there |
 | **OR LAUNCH** | Start a non-agent **launch command** (`Shell` / `codex` / anything) as a persistent terminal |
 
 ## Reading a cell — "what each agent is doing and where"
@@ -61,8 +61,8 @@ The header of a running cell has two rows. Together they capture that agent's **
 
 - **Row 1 (info):** status dot, directory, git chip (`⎇ branch ●changes`), **model / context size**,
   what that agent is **doing right now**, and expand / close.
-- **Row 2 (controls):** connection status, 📎 insert a file path, 📂 reveal in the file manager (the default
-  buttons — [replaceable in config](config.html#header)), GitHub, and the **timeline 🕘** (tool-call history).
+- **Row 2 (controls):** connection status, **Insert a file path** insert a file path, **Reveal in the file manager** reveal in the file manager (the default
+  buttons — [replaceable in config](config.html#header)), GitHub, and the **timeline ** (tool-call history).
 
 > **Status shows up as color.** A bluish border means **working** (thinking), **amber means awaiting input or a
 > permission** (Needs input), a **blue ring + glow means a finished, unreviewed turn** (Done — review; a green dot
@@ -71,14 +71,14 @@ The header of a running cell has two rows. Together they capture that agent's **
 
 ## Tiling many, pages, and reordering
 
-- Add cells with **New terminal (＋)** in the toolbar. Up to **9 cells** per page; overflow moves to the next page (tab).
+- Add cells with **New terminal** in the toolbar. Up to **9 cells** per page; overflow moves to the next page (tab).
 - The ordering button cycles three modes — **auto** (attention-first: cells needing you float up), **manual** (arrange them yourself with each cell's move buttons), and **priority** (the order each project declares as `orderPriority` in its `.mulmoterminal.json`, see [Configuration](config.html#order-priority)).
 
 ![Agents running in parallel](../images/grid-2x2.png)
 
 ## Zooming into one (the cockpit roster)
 
-Hit a cell's **⤢** (expand) to show that agent large — and next to it, the **cockpit roster**: a text list
+Hit a cell's **Expand** (expand) to show that agent large — and next to it, the **cockpit roster**: a text list
 with one row per session (the default). Each row carries the directory, an **AI summary**, the last prompt,
 the latest reply, a status word (running / planning / done / idle …), and the branch's **PR phase** badge
 (draft / CI fail / changes / ready / merged …). **Click a row to swap** which terminal is enlarged; the ⋮ menu
@@ -87,8 +87,8 @@ along it is — this is the main screen for running many agents.
 
 ![The cockpit roster — a summary list of every session on the left, one agent enlarged on the right](../images/cockpit-roster.png)
 
-The **▤ / ☰** button in the top-right corner switches between the roster and the **filmstrip** (a thumbnail
-strip; click a thumbnail's header margin to switch cells). **⤡** returns to the grid.
+The **Show list roster / Show thumbnail strip** button in the top-right corner switches between the roster and the **filmstrip** (a thumbnail
+strip; click a thumbnail's header margin to switch cells). **Restore** returns to the grid.
 
 ![Zoom (filmstrip view)](../images/grid-zoom.png)
 
@@ -122,7 +122,7 @@ Two behaviours worth knowing:
 - **They stop at both ends** rather than wrapping. With only two terminals this means roughly half of your
   presses do nothing: previous-on-the-first and next-on-the-last are deliberately no-ops.
 
-Collapsing with **⤡** returns you to the page holding the terminal you were just looking at, not the page you
+Collapsing with **Restore** returns you to the page holding the terminal you were just looking at, not the page you
 originally zoomed in from.
 
 {: .warning }

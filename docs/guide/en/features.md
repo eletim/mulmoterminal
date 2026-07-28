@@ -21,9 +21,9 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 |---|---|
 | Parallel terminals | Up to **9 cells** per page; overflow adds a new **page (tab)**. Cells auto-sort by state (needs-you first) |
 | Status colors + sound | Working (blue) / **awaiting input (amber)** / **done, review it (blue ring)** / idle. Know you've been "called" without watching |
-| Cockpit roster | While zoomed with `⤢`, a **one-row-per-session text list** beside the terminal (directory, AI summary, prompt, latest reply, status word). Click a row to swap; `▤ / ☰` toggles the thumbnail filmstrip |
+| Cockpit roster | While zoomed with **Expand**, a **one-row-per-session text list** beside the terminal (directory, AI summary, prompt, latest reply, status word). Click a row to swap; **Show list roster / Show thumbnail strip** toggles the thumbnail filmstrip |
 | Keyboard: switch the enlarged terminal | While zoomed, bound keys walk the enlargement along the on-screen order. **Opt-in — nothing is bound by default**; add a `keymap` to `config.json` ([config](config.html#keymap)) |
-| Add / close / reorder cells | `New terminal ＋`, each cell's `✕`, and `◀ ▶` in reorder mode. Ordering is **auto** (attention first), **manual**, or **priority** (what each project declared in `orderPriority` — [config](config.html#order-priority)) |
+| Add / close / reorder cells | **New terminal**, each cell's close button, and **Move left / Move right** in reorder mode. Ordering is **auto** (attention first), **manual**, or **priority** (what each project declared in `orderPriority` — [config](config.html#order-priority)) |
 | Six kinds of notification sound | Besides finished and input-waiting: a Run cell succeeding or failing, a session exiting, and a PR going red. **Only the first two are on by default**; the rest are opt-in ([config](config.html#sounds)) |
 | Worktree isolation | Git worktrees so many agents can run on the same repo without colliding |
 | Session persistence (tmux) | If tmux is available, each session runs inside tmux and **reconnects** across reloads and server restarts |
@@ -37,7 +37,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Git status chip | `⎇ branch ●changes ↑ahead ↓behind`, always shown |
 | PR phase / work phase | Each roster row badges the branch's **PR state** (draft / CI fail / changes / ready / merged …) and the work phase (planning / editing) |
 | Model / context size | e.g. `Opus · ctx 35%` — the active model and how full the context is |
-| Activity timeline 🕘 | Tool-call history (Bash / Read / Edit …) shown newest-first in a modal |
+| Activity timeline **Activity timeline** | Tool-call history (Bash / Read / Edit …) shown newest-first in a modal |
 | Cost (estimated) | Approximate **session / today / this month** cost in settings |
 | Worktree diff badge | Shows the amount of change on a worktree cell; click for the diff panel |
 | GUI panel | Renders diagrams, forms, images, and documents — plus HTML, **video/slides (MulmoCast)**, collections, and accounting — from the agent's tool calls (Claude / Codex both supported) |
@@ -50,7 +50,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 
 ### Editing files beside a terminal
 
-Enlarging a grid cell (**⤢**) puts a **folder** toggle in its header. It splits the enlarged
+Enlarging a grid cell (**Expand**) puts a **folder** toggle in its header. It splits the enlarged
 area in two: terminal on the left, the file explorer + editor on the right, rooted at that
 cell's directory and unable to reach above it. Drag the divider to resize, or focus it and use
 ←/→, Home, End. It works in both zoomed layouts, follows the enlargement as you move between
@@ -79,13 +79,13 @@ so a very large unsaved buffer may not get out.
 
 | Feature | Description |
 |---|---|
-| Script execution | Run a command from that directory's `script.json`. From a running session's ▶ Run menu it launches in **a spare cell next door**, so the conversation isn't interrupted (an empty cell's launcher runs it in place) |
-| ⚡ Skill menu | Lists the skills available in that directory (`.claude/skills`); picking one runs its `/<slug>` **in the current session**. Working-dir skills show first; narrow the list with `skills` in `.mulmoterminal.json` |
-| ✦ Summarize / Explain | Pass terminal output to `claude -p` and summarize **errors / warnings / cause / how to fix** |
-| ⧉ Copy as prompt | Copy command + directory + summary + follow-up and paste it into any session |
-| 💬 / ⇄ Cross-terminal talk | 💬 brings another cell's last turn into this one; **⇄ Exchange** does an **automatic round-trip** — send, wait for the other agent's answer, bring it back (great for Claude ↔ Codex mutual review) |
-| Git actions | One click from a worktree cell: **commit (ask Claude) / push / ⧉ Open PR** |
-| File attach | **Drag & drop** a file onto the terminal, or use 📎 to pick one in the OS dialog — the **absolute path is inserted** |
+| Script execution | Run a command from that directory's `script.json`. From a running session's **Run** menu it launches in **a spare cell next door**, so the conversation isn't interrupted (an empty cell's launcher runs it in place) |
+| Skill menu (**Run a skill in the current session**) | Lists the skills available in that directory (`.claude/skills`); picking one runs its `/<slug>` **in the current session**. Working-dir skills show first; narrow the list with `skills` in `.mulmoterminal.json` |
+| Summarize output (AI) | Pass terminal output to `claude -p` and summarize **errors / warnings / cause / how to fix** |
+| Copy as prompt | Copy command + directory + summary + follow-up and paste it into any session |
+| Cross-terminal talk | **Bring another terminal's last turn** brings another cell's last turn into this one; **Exchange** does an **automatic round-trip** — send, wait for the other agent's answer, bring it back (great for Claude ↔ Codex mutual review) |
+| Git actions | One click from a worktree cell: **commit (ask Claude) / push / Open PR** |
+| File attach | **Drag & drop** a file onto the terminal, or use **Insert a file path** to pick one in the OS dialog — the **absolute path is inserted** |
 | Copy & paste | **`copyOnSelect`** copies the moment you finish selecting (off by default), and copy / paste can be bound to keys (`keymap`). Both are opt-in, because a bound key stops reaching the program inside the terminal ([config](config.html#copy-on-select)) |
 | Voice input | Dictate into the prompt via microphone transcription. Settings picks **the language you dictate in** (per browser) — your browser's, per-clip detection, or a fixed one; speaking a language the mic isn't expecting comes back **translated** into the one it is |
 | MCP servers | Join your own HTTP MCP servers to sessions via the MCP SERVERS setting |

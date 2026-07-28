@@ -11,13 +11,13 @@ nav_order: 4
 - TOC
 {:toc}
 
-Settings live in three places: the **settings modal (⚙)**, the **global config `~/.mulmoterminal/config.json`**, and the **per-project `<project>/.mulmoterminal.json`**. Buttons and chips are merged from both files.
+Settings live in three places: the **settings modal (Settings)**, the **global config `~/.mulmoterminal/config.json`**, and the **per-project `<project>/.mulmoterminal.json`**. Buttons and chips are merged from both files.
 
 {: .highlight }
 > **You don't have to hand-write any of this.** Run **`/mulmoterminal-config`** in any MulmoTerminal
 > session and the bundled skill walks you through it with checkboxes and colour presets, then writes
-> a valid file — for the current directory or several of your recent ones at once. (The ⚙ →
-> **🎨 Configure appearance…** button starts the same skill.)
+> a valid file — for the current directory or several of your recent ones at once. (Settings →
+> **Configure appearance…** button starts the same skill.)
 >
 > It is also how you find the settings that have **no UI at all** and exist only in
 > `~/.mulmoterminal/config.json`: [`providers`](#providers) (another model),
@@ -29,9 +29,9 @@ Settings live in three places: the **settings modal (⚙)**, the **global config
 
 ---
 
-## Settings modal (⚙)
+## Settings modal (Settings)
 
-Open it from the ⚙ in the toolbar.
+Open it from **Settings** (the gear) in the toolbar.
 
 ![Settings modal](../images/settings.png)
 
@@ -57,7 +57,7 @@ Fifteen sections, in this order.
 
 ## When a setting isn't working — look here first {#dir-settings-preview}
 
-When a setting you wrote doesn't take, open **⚙ → Directory settings**. Per directory, it shows what
+When a setting you wrote doesn't take, open **Settings → Directory settings**. Per directory, it shows what
 that `.mulmoterminal.json` is **actually doing**.
 
 - **The values in force** — colors with a swatch. What you see is what is being used.
@@ -95,7 +95,7 @@ Most "my setting does nothing" reports are one of the last two lists.
 
 | Key | Role |
 |---|---|
-| `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, ▶ to launch) |
+| `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch) |
 | `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell |
 | `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
@@ -118,7 +118,7 @@ Most "my setting does nothing" reports are one of the last two lists.
 
 Six moments can beep, each with its own sound and its own switch. Running many agents at once
 is what turns notifications into noise, so **only the first two are on by default** — the rest
-are opt-in, from **Settings → NOTIFICATION SOUNDS** or the config file.
+are opt-in, from **Settings → Notification sounds** or the config file.
 
 | Kind | When | Default |
 | --- | --- | --- |
@@ -184,7 +184,7 @@ If you keep several checkouts of the same repo side by side — `myrepo`, `myrep
 a PR on GitHub says nothing about which one it came from. From a cell you can reach its PR; the
 other direction is a guess.
 
-So a PR created with **⧉ Open PR** ends its body with the name of the clone the work happened in:
+So a PR created with **Open PR** ends its body with the name of the clone the work happened in:
 
 ```
 work in myrepo3
@@ -207,7 +207,7 @@ control, so it is read from the file each time a PR is created.
 
 Notes:
 
-- Only PRs **this app creates** get the line. Pressing ⧉ Open PR again on a branch that already
+- Only PRs **this app creates** get the line. Pressing Open PR again on a branch that already
   has a PR just opens it — the line is never appended twice.
 - Editing the PR body on GitHub afterwards is fine; nothing rewrites it later.
 - If the line can't be added (no `gh`, a network error), the PR is still created and opened —
@@ -369,20 +369,20 @@ terminal stops receiving**, and only you know whether that trade is worth it for
 | `zoom-next` | Move the enlargement to the **next** terminal in the on-screen order | yes |
 | `zoom-prev` | Same, to the **previous** one | yes |
 | `next-attention` | **Move to the next terminal worth looking at** — awaiting input first, then finished-and-unreviewed, then idle; cells mid-turn are skipped. Cycles. **Never enlarges or collapses**: zoomed it moves which terminal is enlarged, un-zoomed it moves the keyboard focus there (the focused cell lifts), switching page if needed | no |
-| `terminal-new` | Add a terminal at the **end** (same as the toolbar's `New terminal ＋`) | no |
+| `terminal-new` | Add a terminal at the **end** (same as the toolbar's **New terminal**) | no |
 | `terminal-new-adjacent` | Add a terminal **right after the current one**, inheriting its working directory — the closest thing to "split this terminal" | yes |
-| `terminal-close` | **Close** the current terminal (same as its `✕`) | yes |
+| `terminal-close` | **Close** the current terminal (same as its close button) | yes |
 | `copy` | **Copy** the terminal's selection. Acts only when something IS selected — with no selection the key reaches the shell untouched, which is what makes `Ctrl+C` bindable here without losing **interrupt** | no |
 | `paste` | **Paste** into the terminal | no |
 
 Most actions need a terminal to act *on*, and the zoomed cell is the only one the grid can name — an
 un-zoomed grid has no "current terminal", so those do nothing rather than guessing. **Bind at least one
 of `zoom-toggle` / `next-attention`**: without a way in, every "needs a zoomed cell" action stays out of
-reach until you click `⤢` with the mouse. The zoom moves **stop at
+reach until you click **Expand** with the mouse. The zoom moves **stop at
 both ends** instead of wrapping. See [Basics → switching the enlarged terminal](basics.html#keyboard-zoom-switch).
 
 {: .warning }
-> **`terminal-close` closes immediately, with no confirmation** — the same as clicking the cell's `✕`, which
+> **`terminal-close` closes immediately, with no confirmation** — the same as clicking the cell's close button, which
 > ends that session. Bind it to something you won't hit by accident.
 
 ### Ready-made keymaps
@@ -394,7 +394,7 @@ already have and edit from there. Every key below is checked against the traps i
 **Minimal — just get into the zoom and back**
 
 The two that matter most: without one of these, every "needs a zoomed cell" action is out of
-reach until you click `⤢`.
+reach until you click **Expand**.
 
 ```json
 { "keymap": { "zoom-toggle": "F8", "next-attention": "F9" } }
@@ -649,7 +649,7 @@ itself (xterm)**. `colors` overrides xterm's ITheme — `background` / `foregrou
 
 ```json
 {
-  "name": "🌌 van-gogh",
+  "name": "van-gogh",
   "headerColor": "#0b1a4a",
   "headerTextColor": "#f2e29b",
   "colors": { "background": "#0a1330", "foreground": "#f2e29b", "cursor": "#f5b301" }
@@ -718,7 +718,7 @@ This is where MulmoTerminal's **Extend** pillar lives. Shape the header of a run
 Any developer can turn their frequent actions into a single click and surface only the information they want to see — that's what this is for.
 
 **Buttons** (`buttons`) — action buttons that act on a running session. Display is an `emoji` or an `icon` (a Material Symbol name) plus a `label`; `order` controls the sort.
-With none set, you get a **built-in starter set**: 📎 insert a file path · 📂 reveal in the file manager · 📁 browse files in the app · 🖥 new terminal here · 🔗 this branch's PR (git repos, only when a PR exists) · 🌐 open on GitHub (git repos). Setting `buttons` at any level **replaces the whole default set** (it is _not_ merged on top) — so listing your own, even a **shorter** list, is how you trim, reorder, or swap them.
+With none set, you get a **built-in starter set**: **Insert a file path** insert a file path · **Reveal in the file manager** reveal in the file manager · 📁 browse files in the app · 🖥 new terminal here · 🔗 this branch's PR (git repos, only when a PR exists) · 🌐 open on GitHub (git repos). Setting `buttons` at any level **replaces the whole default set** (it is _not_ merged on top) — so listing your own, even a **shorter** list, is how you trim, reorder, or swap them.
 
 ```json
 {
@@ -746,9 +746,9 @@ With none set, you get a **built-in starter set**: 📎 insert a file path · �
 - Built-in `dir` / `git` / `diff` / `ctx` / `usage` / `status` / `tools` … shown in the order you list them; omit one to hide it.
 - Custom `{ label, text, when }` … read-only text (`text` expands `${variables}`).
 
-### ⚡ Skill menu filter (`skills`)
+### Skill menu (**Run a skill in the current session**) filter (`skills`)
 
-The header's **⚡ Skill ▾** lists the skills available in that directory
+The header's **Skill ▾** lists the skills available in that directory
 (`<project>/.claude/skills` and `~/.claude/skills`). Working-dir (project) skills come
 first, then user-scope ones. Picking one runs the skill **in the current session**
 (Claude: `/<slug>`; Codex: `Use the "<slug>" skill.`).
