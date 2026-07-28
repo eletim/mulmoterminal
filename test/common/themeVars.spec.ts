@@ -5,6 +5,7 @@ import {
   isBuiltinThemeId,
   resolveThemeVars,
   relativeLuminance,
+  normalizeHexColor,
   isLightTheme,
   termThemeFromVars,
   type ThemeVars,
@@ -78,9 +79,30 @@ describe("relativeLuminance / isLightTheme", () => {
     expect(isLightTheme(full({ "--bg-base": "#ffffff" }))).toBe(true);
   });
 
-  it("returns null for anything that isn't a six-digit hex", () => {
+  // Codex review on #996: the schema accepts #rgb / #rgba / #rrggbb / #rrggbbaa, so a check that
+  // read only the six-digit form called `#fff` unmeasurable — and a white theme dark, which is
+  // exactly the case the status-pill switch exists for.
+  it("reads every hex form the config accepts", () => {
+    expect(isLightTheme(full({ "--bg-base": "#fff" }))).toBe(true);
+    expect(isLightTheme(full({ "--bg-base": "#000" }))).toBe(false);
+    expect(isLightTheme(full({ "--bg-base": "#FFFFFF" }))).toBe(true);
+    // alpha is dropped, not composited — what is behind a translucent base is unknowable here
+    expect(isLightTheme(full({ "--bg-base": "#ffff" }))).toBe(true);
+    expect(isLightTheme(full({ "--bg-base": "#ffffff80" }))).toBe(true);
+    expect(relativeLuminance("#fff")).toBe(relativeLuminance("#ffffff"));
+  });
+
+  it("normalizes the short forms to six digits", () => {
+    expect(normalizeHexColor("#ABC")).toBe("#aabbcc");
+    expect(normalizeHexColor("#abcd")).toBe("#aabbcc");
+    expect(normalizeHexColor("#a1b2c3d4")).toBe("#a1b2c3");
+    expect(normalizeHexColor("rgb(0,0,0)")).toBeNull();
+    expect(normalizeHexColor("#ab")).toBeNull();
+  });
+
+  it("returns null for anything that isn't a hex colour", () => {
     expect(relativeLuminance("rgb(0,0,0)")).toBeNull();
-    expect(relativeLuminance("#fff")).toBeNull();
+    expect(relativeLuminance("var(--x)")).toBeNull();
   });
 
   // A theme whose background can't be measured is treated as dark — the default the app has

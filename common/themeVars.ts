@@ -74,10 +74,29 @@ function channel(hex: string, at: number): number {
   return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
 }
 
-/** Relative luminance (WCAG) of a `#rrggbb`. Returns null for anything else. */
+/** `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` as `#rrggbb`, or null. The config schema accepts
+ *  every one of those forms, so anything reading a colour has to expand the short ones — a
+ *  luminance check that understood only the six-digit form would read `#fff` as unmeasurable and
+ *  call a white theme dark (Codex review on #996).
+ *
+ *  Alpha is dropped rather than composited: what a translucent `--bg-base` ends up looking like
+ *  depends on what is behind it, which nothing here can know. The opaque colour is the closest
+ *  honest answer, and `--bg-base` is the one variable where translucency makes least sense. */
+export function normalizeHexColor(color: string): string | null {
+  const hex = color.trim().toLowerCase();
+  if (!/^#[0-9a-f]{3,8}$/.test(hex)) return null;
+  const digits = hex.slice(1);
+  if (digits.length === 3 || digits.length === 4) {
+    return `#${[...digits.slice(0, 3)].map((d) => d + d).join("")}`;
+  }
+  if (digits.length === 6 || digits.length === 8) return `#${digits.slice(0, 6)}`;
+  return null;
+}
+
+/** Relative luminance (WCAG) of any hex colour the config accepts. Null for anything else. */
 export function relativeLuminance(color: string): number | null {
-  const hex = color.trim();
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const hex = normalizeHexColor(color);
+  if (!hex) return null;
   return 0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5);
 }
 
