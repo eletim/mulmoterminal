@@ -21,7 +21,11 @@ export const PROBE_TIMEOUT_MS = 90_000;
 
 // The question. Anything answerable without tools, because the point is to cause ONE API response
 // — the cheapest thing that makes `rate_limits` appear.
-const PROBE_PROMPT = "reply with the single character: .";
+//
+// Exported because it is also the only thing that identifies a transcript written by a probe that
+// predates `--session-id` (#1010). Change it and those become unrecognisable — which is a reason
+// to leave it alone, not a reason to keep the two copies in sync.
+export const PROBE_PROMPT = "reply with the single character: .";
 
 export interface ProbePty {
   write(data: string): void;

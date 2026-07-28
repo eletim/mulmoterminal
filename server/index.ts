@@ -37,6 +37,7 @@ import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
 import { hasBinary } from "./infra/has-binary.js";
 import { newProbeSessionId } from "./agents/probe-session.js";
+import { removeProbeTranscript, sweepLegacyProbeTranscripts } from "./agents/probe-transcript.js";
 import { newestRolloutFile, readTailLines, codexSessionsDir } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, writeRateLimitCache } from "./agents/rate-limit-persist.js";
@@ -310,6 +311,11 @@ const claudeIsRunnable = (): boolean => {
   }
 };
 
+// Long enough for claude's own final write to land after the PTY is killed. Deleting into that
+// window loses the race and the file comes back — and a transcript that reappears reads exactly
+// like the bug this fixes (#1010).
+const TRANSCRIPT_FLUSH_MS = 5_000;
+
 const startClaudeRateLimitProbe = (): void => {
   // Belt and braces: the route has already refused to want a probe when claude is missing, but
   // this is the last point before a spawn and the flag it would strand is set by the caller.
@@ -319,21 +325,30 @@ const startClaudeRateLimitProbe = (): void => {
     return;
   }
   rateLimitStore.noteProbeStarted(Date.now());
+  const sessionId = newProbeSessionId();
   startRateLimitProbe({
     spawn: (args, cwd) => spawnPty(CLAUDE_BIN, args, cwd),
     host: "localhost",
     port: PORT,
     cwd: CLAUDE_CWD,
-    sessionId: newProbeSessionId(),
+    sessionId,
     // A probe that settles WITHOUT the status line having reported is the "asked, heard nothing"
     // case. report() has already moved the state on if anything arrived, so this only widens the
     // gap when nothing did.
     onSettled: () => {
       rateLimitStore.noteProbeFailedIfNoReport(Date.now());
       rateLimitStore.setProbeInFlight(false);
+      // Hiding it from /api/sessions is not enough: `claude --resume` reads the transcript
+      // directory itself, so the probe has to take its own file with it (#1010).
+      setTimeout(() => void removeProbeTranscript(CLAUDE_CWD, sessionId).catch(() => {}), TRANSCRIPT_FLUSH_MS).unref();
     },
   });
 };
+
+// Probes that ran before their ids identified them left transcripts nothing can address by name —
+// 41 of one reporter's 50 listed sessions (#1010). Swept once, at startup, so the pile from before
+// the upgrade goes rather than only stopping growing.
+void sweepLegacyProbeTranscripts(CLAUDE_CWD).catch(() => {});
 
 // Codex costs nothing to read, so it is current before the first browser arrives.
 refreshCodexRateLimits();
