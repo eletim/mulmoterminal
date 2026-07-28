@@ -37,7 +37,7 @@ import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
 import { hasBinary } from "./infra/has-binary.js";
 import { newProbeSessionId } from "./agents/probe-session.js";
-import { removeProbeTranscript, sweepLegacyProbeTranscripts } from "./agents/probe-transcript.js";
+import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
 import { newestRolloutFile, readTailLines, codexSessionsDir } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, writeRateLimitCache } from "./agents/rate-limit-persist.js";
@@ -346,9 +346,11 @@ const startClaudeRateLimitProbe = (): void => {
 };
 
 // Probes that ran before their ids identified them left transcripts nothing can address by name —
-// 41 of one reporter's 50 listed sessions (#1010). Swept once, at startup, so the pile from before
-// the upgrade goes rather than only stopping growing.
-void sweepLegacyProbeTranscripts(CLAUDE_CWD).catch(() => {});
+// 41 of one reporter's 50 listed sessions (#1010). Swept ONCE on this machine, never again: the
+// content test cannot tell those files from a person who typed the probe's exact words, so the
+// window in which that matters is closed rather than reopened on every boot (Codex review on
+// #1030). It also means a 500MB transcript directory is read once, not once per `yarn dev` save.
+void sweepLegacyProbeTranscriptsOnce(CLAUDE_CWD, path.join(MULMOTERMINAL_HOME, "probe-sweep.json")).catch(() => {});
 
 // Codex costs nothing to read, so it is current before the first browser arrives.
 refreshCodexRateLimits();
