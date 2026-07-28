@@ -8,6 +8,8 @@
 import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
 import { EMPTY_WORK_ITEM, isPrPhase, type WorkItem } from "../../common/prPhase";
 import { isRecord } from "../../common/isRecord";
+import { isIssueWorkCommentsEnabled } from "./issueWorkComments";
+import type { WorkCommentKind } from "../../common/workComment";
 
 const POLL_MS = 30_000;
 
@@ -48,6 +50,32 @@ export function hasWorkToShow(item: WorkItem): boolean {
   return item.pr !== null || item.issue !== null;
 }
 
+// What the cell should tell the issue, comparing the poll before with the poll now (#979 Phase 2).
+// A cell arriving on an issue says so once; a PR turning `merged` reports the merge. Everything
+// else — an unchanged state, a phase moving inside the review loop — says nothing.
+//
+// "Arriving" includes the first poll after a reload, on purpose: this side cannot know what was
+// already said, only the issue can. The server is idempotent, so re-asking is the design, not a
+// leak — see server/git/work-comment.ts.
+export function workCommentToPost(before: WorkItem, now: WorkItem): WorkCommentKind | null {
+  if (now.issue === null) return null;
+  if (now.phase === "merged" && before.phase !== "merged") return "merged";
+  if (now.phase === "merged" || now.phase === "closed") return null;
+  return before.issue === now.issue ? null : "start";
+}
+
+async function postWorkComment(cwd: string, item: WorkItem, kind: WorkCommentKind): Promise<void> {
+  try {
+    await fetch("/api/work-comment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cwd, issue: item.issue, pr: item.pr, kind }),
+    });
+  } catch {
+    // Best-effort: the next transition (or the next reload) asks again, and the server dedupes.
+  }
+}
+
 export function useWorkItem(cwd: Ref<string | null>) {
   const item = ref<WorkItem>({ ...EMPTY_WORK_ITEM });
   let req = 0;
@@ -65,7 +93,11 @@ export function useWorkItem(cwd: Ref<string | null>) {
       const res = await fetch(`/api/pr-phase?cwd=${encodeURIComponent(dir)}`);
       if (!res.ok) return;
       const data: unknown = await res.json();
-      if (my === req) item.value = parseWorkItem(data);
+      if (my !== req) return;
+      const next = parseWorkItem(data);
+      const kind = isIssueWorkCommentsEnabled() ? workCommentToPost(item.value, next) : null;
+      item.value = next;
+      if (kind) void postWorkComment(dir, next, kind);
     } catch {
       // leave the last value; the next tick retries
     }

@@ -3,11 +3,11 @@
 // that dir — and none of them touch session state, which is why they come out of index.ts
 // first (#548 step 2). Dependencies are all already-extracted modules, so nothing is
 // injected; the mount only needs the app.
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
 import { workspaceFromQuery, existingWorkspaceFromQuery } from "../config/workspace.js";
 import { normalizeAgent } from "./routeParams.js";
-import { getHeaderConfig } from "../config/config-routes.js";
+import { getHeaderConfig, getIssueWorkComments } from "../config/config-routes.js";
 import { publicDirConfig, dirSoundFor, loadDirConfig, dirConfigDetail, MISSING_DIR_CONFIG_DETAIL } from "../config/dir-config.js";
 import { readSoundPreset } from "../config/sound-presets.js";
 import { isNotifyKind } from "../../common/notifyKinds.js";
@@ -18,8 +18,45 @@ import { gitStatus } from "../git/git-status.js";
 import { resolveGithubUrl } from "../git/gitRemote.js";
 import { phaseForRepoBranch } from "../git/prPhase.js";
 import { EMPTY_WORK_ITEM } from "../../common/prPhase.js";
+import { ensureWorkComment } from "../git/work-comment.js";
+import { workCommentDirLabel } from "../../common/workComment.js";
+import { isRecord } from "../../common/isRecord.js";
 import { prUrlForBranch } from "../git/pr-for-branch.js";
 import { applySkillFilter, discoverSkills } from "../backends/remoteHost/skills.js";
+
+// "This comment should exist on that issue" (#979 Phase 2). A POST, not a GET, because it writes
+// on GitHub — and idempotent, because the caller is a poll: every tab re-asks on every tick, and
+// ensureWorkComment collapses that to one comment.
+//
+// Opt-in: with the setting off it does nothing and says so, rather than 403 — the client asks
+// blind, and a disabled feature is not an error.
+async function workCommentHandler(req: Request, res: Response): Promise<void> {
+  const body: unknown = req.body ?? {};
+  if (!isRecord(body)) {
+    res.status(400).json({ error: "body must be an object" });
+    return;
+  }
+  const kind = body.kind === "start" || body.kind === "merged" ? body.kind : null;
+  const issue = positiveInt(body.issue);
+  if (!kind || issue === null) {
+    res.status(400).json({ error: "kind must be start|merged and issue a positive integer" });
+    return;
+  }
+  if (!getIssueWorkComments()) {
+    res.json({ posted: false, reason: "disabled" });
+    return;
+  }
+  const cwd = workspaceFromQuery(typeof body.cwd === "string" ? body.cwd : undefined);
+  const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
+  if (!repo) {
+    res.json({ posted: false, reason: "no-repo" });
+    return;
+  }
+  const result = await ensureWorkComment(repo, issue, kind, workCommentDirLabel(cwd), positiveInt(body.pr), { closeIssue: kind === "merged" });
+  res.json(result);
+}
+
+const positiveInt = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v > 0 ? v : null);
 
 export function mountDirRoutes(app: Express): void {
   // GRID-ONLY (dev_tool): the `script.json` entries a cell's launcher offers for its
@@ -86,6 +123,8 @@ export function mountDirRoutes(app: Express): void {
     if (!repo || !status.branch) return res.json({ ...EMPTY_WORK_ITEM });
     res.json(await phaseForRepoBranch(repo, status.branch));
   });
+
+  app.post("/api/work-comment", workCommentHandler);
 
   // The resolved terminal-header config (buttons + chips) for a session: global config merged with the
   // dir's, with `when` evaluated and ${vars} substituted for this session's live context. `chips:null`

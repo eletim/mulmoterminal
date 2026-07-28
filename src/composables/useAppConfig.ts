@@ -14,6 +14,7 @@ import { setGlobalFontFamily } from "./terminalFontFamily";
 import { setActiveKeymap } from "./activeKeymap";
 import { setCockpitLines } from "./cockpitLines";
 import { setCopyOnSelect } from "./copyOnSelect";
+import { setIssueWorkComments } from "./issueWorkComments";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
 // useAppConfig() caller — the beep player lives in the single view while the
@@ -303,6 +304,8 @@ export function useAppConfig() {
       // Copy-on-select, off unless config.json asks for it — it changes the clipboard with no
       // key pressed, so it must never arrive by default.
       setCopyOnSelect(c.copyOnSelect);
+      // Whether a cell may comment on the issue it is working on (#979). Off unless opted in.
+      setIssueWorkComments(c.issueWorkComments);
       // How far the cockpit roster clamps each line. Absent `cockpitLines` keeps 2/2/3.
       setCockpitLines(c.cockpitLines);
       // The terminal font stack (config.json-only, no Settings UI). Terminals already open

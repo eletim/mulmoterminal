@@ -14,6 +14,7 @@ import { mountDirRoutes } from "../../../server/routes/dir-routes";
 import { EMPTY_WORK_ITEM } from "../../../common/prPhase";
 
 const app = express();
+app.use(express.json());
 mountDirRoutes(app);
 
 describe("GET /api/pr-phase", () => {
@@ -28,5 +29,28 @@ describe("GET /api/pr-phase", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// The write half (#979 Phase 2). The setting is off in a test process (no config file has been
+// loaded with it on), which is also the shipped default — so these pin that a client asking blind
+// gets a plain "no" and nothing reaches GitHub.
+describe("POST /api/work-comment", () => {
+  it("writes nothing while the setting is off, and says why", async () => {
+    const res = await request(app).post("/api/work-comment").send({ cwd: process.cwd(), issue: 979, kind: "start" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ posted: false, reason: "disabled" });
+  });
+
+  it.each([
+    ["an unknown kind", { issue: 979, kind: "shipped" }],
+    ["no kind", { issue: 979 }],
+    ["no issue", { kind: "start" }],
+    ["issue zero", { issue: 0, kind: "start" }],
+    ["a fractional issue", { issue: 1.5, kind: "start" }],
+    ["an issue that is not a number", { issue: "979", kind: "start" }],
+  ])("rejects %s with 400", async (_label, body) => {
+    const res = await request(app).post("/api/work-comment").send(body);
+    expect(res.status).toBe(400);
   });
 });

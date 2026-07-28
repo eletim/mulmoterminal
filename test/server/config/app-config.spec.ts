@@ -258,6 +258,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     terminalSubmit: "cr",
     keymap: {},
     copyOnSelect: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -283,7 +284,8 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
-      copyOnSelect: true, // opt-in, so only `true` proves it persisted rather than defaulted
+      copyOnSelect: true,
+      issueWorkComments: false, // opt-in, so only `true` proves it persisted rather than defaulted
       prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
       cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
       fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
@@ -339,6 +341,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "cr",
       copyOnSelect: false,
+      issueWorkComments: false,
       prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
       fontFamily: null,
     });
@@ -442,6 +445,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     terminalSubmit: "cr" as const,
     keymap: {},
     copyOnSelect: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
@@ -502,6 +506,7 @@ describe("mergeConfigUpdate", () => {
     terminalSubmit: "cr",
     keymap: {},
     copyOnSelect: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
