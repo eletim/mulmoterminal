@@ -96,48 +96,57 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.45)]" @click.self="emit('close')">
-    <div
-      ref="modalEl"
-      data-testid="tl-modal"
-      class="flex max-h-[80vh] w-[min(640px,92vw)] flex-col overflow-hidden rounded-lg bg-panel text-fg shadow-[0_10px_40px_rgba(0,0,0,0.5)]"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Activity timeline"
-      tabindex="-1"
-    >
-      <div class="flex items-center gap-2 border-b border-b-[color-mix(in_srgb,currentColor_15%,transparent)] px-3.5 py-2.5">
-        <span class="font-semibold">Activity</span>
-        <span data-testid="tl-count" class="text-[0.8rem] opacity-60"
-          >{{ events.length }} step{{ events.length === 1 ? "" : "s" }}{{ truncated ? "+" : "" }}</span
-        >
-        <button
-          type="button"
-          data-testid="tl-close"
-          class="ml-auto cursor-pointer border-0 bg-transparent text-[0.95rem] text-inherit"
-          aria-label="Close timeline"
-          @click="emit('close')"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">close</span>
-        </button>
-      </div>
-      <div class="overflow-y-auto py-1.5">
-        <p v-if="loading" data-testid="tl-empty" class="px-3.5 py-6 text-center opacity-60">Loading…</p>
-        <p v-else-if="error" data-testid="tl-empty" class="px-3.5 py-6 text-center opacity-60">Couldn't load the timeline.</p>
-        <p v-else-if="events.length === 0" data-testid="tl-empty" class="px-3.5 py-6 text-center opacity-60">No tool activity yet.</p>
-        <ol v-else class="m-0 list-none p-0">
-          <li
-            v-for="(ev, idx) in reversed()"
-            :key="idx"
-            data-testid="tl-row"
-            class="flex items-baseline gap-2.5 px-3.5 py-[5px] text-[0.82rem] odd:bg-[color-mix(in_srgb,currentColor_5%,transparent)]"
+  <!-- Teleported to body, NOT rendered in place (#968). This root is `fixed`, and the cell it
+       is used from grows with `transform: scale` while focused — a transformed ancestor becomes
+       the containing block for `position: fixed`, so the modal took the CELL's rect instead of
+       the viewport's and the cell's `overflow: hidden` cropped the rest. Clicking the header's
+       history button focuses that cell, so the ordinary path into this modal was the broken one.
+       On the definition rather than at the call site: the component is then correct wherever it
+       is used. -->
+  <Teleport to="body">
+    <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.45)]" @click.self="emit('close')">
+      <div
+        ref="modalEl"
+        data-testid="tl-modal"
+        class="flex max-h-[80vh] w-[min(640px,92vw)] flex-col overflow-hidden rounded-lg bg-panel text-fg shadow-[0_10px_40px_rgba(0,0,0,0.5)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Activity timeline"
+        tabindex="-1"
+      >
+        <div class="flex items-center gap-2 border-b border-b-[color-mix(in_srgb,currentColor_15%,transparent)] px-3.5 py-2.5">
+          <span class="font-semibold">Activity</span>
+          <span data-testid="tl-count" class="text-[0.8rem] opacity-60"
+            >{{ events.length }} step{{ events.length === 1 ? "" : "s" }}{{ truncated ? "+" : "" }}</span
           >
-            <span class="flex-none text-[0.75rem] tabular-nums opacity-[0.55]">{{ formatTime(ev.ts) }}</span>
-            <span data-testid="tl-tool" class="min-w-[4.5em] flex-none font-semibold">{{ ev.tool }}</span>
-            <span class="flex-auto truncate font-[ui-monospace,monospace] opacity-85" :title="ev.summary">{{ ev.summary }}</span>
-          </li>
-        </ol>
+          <button
+            type="button"
+            data-testid="tl-close"
+            class="ml-auto cursor-pointer border-0 bg-transparent text-[0.95rem] text-inherit"
+            aria-label="Close timeline"
+            @click="emit('close')"
+          >
+            <span class="material-symbols-outlined" aria-hidden="true">close</span>
+          </button>
+        </div>
+        <div class="overflow-y-auto py-1.5">
+          <p v-if="loading" data-testid="tl-empty" class="px-3.5 py-6 text-center opacity-60">Loading…</p>
+          <p v-else-if="error" data-testid="tl-empty" class="px-3.5 py-6 text-center opacity-60">Couldn't load the timeline.</p>
+          <p v-else-if="events.length === 0" data-testid="tl-empty" class="px-3.5 py-6 text-center opacity-60">No tool activity yet.</p>
+          <ol v-else class="m-0 list-none p-0">
+            <li
+              v-for="(ev, idx) in reversed()"
+              :key="idx"
+              data-testid="tl-row"
+              class="flex items-baseline gap-2.5 px-3.5 py-[5px] text-[0.82rem] odd:bg-[color-mix(in_srgb,currentColor_5%,transparent)]"
+            >
+              <span class="flex-none text-[0.75rem] tabular-nums opacity-[0.55]">{{ formatTime(ev.ts) }}</span>
+              <span data-testid="tl-tool" class="min-w-[4.5em] flex-none font-semibold">{{ ev.tool }}</span>
+              <span class="flex-auto truncate font-[ui-monospace,monospace] opacity-85" :title="ev.summary">{{ ev.summary }}</span>
+            </li>
+          </ol>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
