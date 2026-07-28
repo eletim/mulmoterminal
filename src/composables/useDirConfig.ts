@@ -1,7 +1,13 @@
 import { ref, watch, onScopeDispose, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import type { ITheme } from "@xterm/xterm";
-import { isThemeId, type ThemeId } from "./useTheme";
+import { type ThemeId } from "./useTheme";
+import { CUSTOM_THEME_ID_RE } from "../../common/themeVars";
+
+// Any id the app could paint: a built-in or one the user defined. Membership is not checked here
+// — the server already dropped an id that resolves to nothing, and this parser cannot see the
+// user's `themes` (#996).
+const isUsableThemeId = (value: unknown): value is ThemeId => typeof value === "string" && CUSTOM_THEME_ID_RE.test(value);
 // Shared with the server config schema so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
@@ -72,7 +78,11 @@ function parse(c: unknown): DirConfig {
     fontSize: normalizeFontSize(c.fontSize),
     fontFamily: normalizeFontFamily(c.fontFamily),
     orderPriority: normalizeOrderPriority(c.orderPriority),
-    theme: isThemeId(c.theme) ? c.theme : null,
+    // Shape, not membership (#996): the id may name a theme the user defined in config.json,
+    // which this parser cannot enumerate. `isThemeId` here would drop exactly those — the server
+    // has already refused an id that resolves to nothing (server/config/dir-config.ts), and
+    // termThemeFor() resolves what survives.
+    theme: isUsableThemeId(c.theme) ? c.theme : null,
     colors: parseColors(c.colors),
     hasSound: c.hasSound === true,
   };

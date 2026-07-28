@@ -277,7 +277,6 @@ describe("loadAppConfig / saveAppConfig", () => {
       quickCommands: [],
       userMcpServers: [{ id: "weather", url: "http://localhost:9000/mcp" }],
       themes: [],
-      themes: [],
       buttons: [{ id: "pr", label: "PR", run: "shell" as const, cmd: "gh pr create" }],
       chips: ["dir", "git"],
       pushEnabled: true,

@@ -80,6 +80,28 @@ describe("useDirConfig fontSize", () => {
   });
 });
 
+describe("useDirConfig theme", () => {
+  it("keeps a built-in id", async () => {
+    serve({ theme: "nord" });
+    expect((await read("/proj/theme-builtin"))?.theme).toBe("nord");
+  });
+
+  // Codex review on #996: the server keeps an id naming a theme the user defined, but this
+  // parser dropped everything except the four built-ins — so pinning a custom theme in
+  // .mulmoterminal.json did nothing, silently, with both halves looking correct on their own.
+  it("keeps an id the user defined, which this build cannot enumerate", async () => {
+    serve({ theme: "my-dark" });
+    expect((await read("/proj/theme-custom"))?.theme).toBe("my-dark");
+  });
+
+  it("still drops a shape that could not be a theme id", async () => {
+    serve({ theme: "My Dark" });
+    expect((await read("/proj/theme-bad-shape"))?.theme).toBeNull();
+    serve({ theme: 7 });
+    expect((await read("/proj/theme-bad-type"))?.theme).toBeNull();
+  });
+});
+
 describe("useDirConfig fontFamily", () => {
   it("adopts the stack the directory pins", async () => {
     serve({ fontFamily: "'Cica', monospace" });
