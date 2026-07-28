@@ -45,7 +45,7 @@ async function login(): Promise<number> {
 
 function printHelp(): void {
   console.log(`
-Usage: npx mulmoterminal google <command>
+Usage: npx mulmoterminal@latest google <command>
 
 Commands:
   login    Link a Google account (browser consent, on this machine)

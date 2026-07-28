@@ -322,7 +322,7 @@ function runServer(port, noOpen, cwd, onChild) {
 
 function printHelp() {
   console.log(`
-Usage: npx mulmoterminal [command] [options]
+Usage: npx mulmoterminal@latest [command] [options]
 
 Commands:
   (none)            Start the server (default)
