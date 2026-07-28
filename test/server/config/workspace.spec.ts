@@ -86,3 +86,47 @@ describe("existingWorkspace", () => {
     expect(existingWorkspaceFromQuery(undefined)).toBeNull();
   });
 });
+
+// #1002. These guards let `/a/b/` through — it is absolute and it stats as a directory — and the
+// value they return is the identity the directory is known by from then on: the PTY's cwd, the cwd
+// echoed back to the cell, the key its dir-config subscription uses, and the recorded preset.
+// Returned verbatim, one directory had two names, and a `.mulmoterminal.json` change announced on
+// the canonical one never reached a cell launched from the other.
+describe("canonical spelling of the accepted directory", () => {
+  let dir = "";
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "mt-ws-canon-"));
+  });
+  afterAll(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("drops a trailing separator — the shape tab-completion leaves behind", () => {
+    expect(resolveWorkspace(dir + path.sep)).toBe(dir);
+    expect(existingWorkspace(dir + path.sep)).toBe(dir);
+    expect(workspaceFromQuery(dir + path.sep)).toBe(dir);
+    expect(existingWorkspaceFromQuery(dir + path.sep)).toBe(dir);
+  });
+
+  it("collapses . and .. inside an absolute path", () => {
+    expect(resolveWorkspace(path.join(dir, "sub", ".."))).toBe(dir);
+    expect(resolveWorkspace(path.join(dir, "."))).toBe(dir);
+  });
+
+  it("leaves an already-canonical path untouched", () => {
+    expect(resolveWorkspace(dir)).toBe(dir);
+  });
+
+  // The guard order matters: canonicalizing BEFORE the isAbsolute check would splice a relative
+  // string onto the server's own cwd and hand back a directory the client never asked for.
+  it("still refuses a relative path rather than resolving it against the server's cwd", () => {
+    expect(existingWorkspace("server")).toBeNull();
+    expect(existingWorkspace("./server")).toBeNull();
+  });
+
+  it("keeps the filesystem root, whose separator is not trailing", () => {
+    const root = path.parse(dir).root;
+    expect(resolveWorkspace(root)).toBe(root);
+  });
+});

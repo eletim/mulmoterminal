@@ -1,6 +1,7 @@
 import { statSync } from "node:fs";
 import path from "node:path";
 import { CLAUDE_CWD } from "./env.js";
+import { canonicalDir } from "../infra/path-within.js";
 
 // Validate a client-supplied workspace dir: must be an absolute, existing
 // directory. Anything else (relative, missing, a file) falls back to CLAUDE_CWD,
@@ -13,10 +14,15 @@ export function resolveWorkspace(cwd: string | null): string {
 // asked about. Falling back there is a correctness bug rather than a safe default: the caller
 // would render another directory's answer under the requested directory's name — and a stale
 // preset (a project since deleted) is exactly when it happens.
+// Canonical, not verbatim: this return value is the identity a directory is known by everywhere
+// downstream — the PTY's cwd, the cwd echoed back to the cell, the key its dir-config
+// subscription uses, and the path recorded as a launcher preset. `/a/b/` passes both guards
+// below, so returning it unchanged made one directory into two names, and a `.mulmoterminal.json`
+// change announced as `/a/b` never reached a cell that had launched as `/a/b/` (#1002).
 export function existingWorkspace(cwd: string | null): string | null {
   if (!cwd || !path.isAbsolute(cwd)) return null;
   try {
-    return statSync(cwd).isDirectory() ? cwd : null;
+    return statSync(cwd).isDirectory() ? canonicalDir(cwd) : null;
   } catch {
     return null; // not a dir / doesn't exist
   }

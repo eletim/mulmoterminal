@@ -6,16 +6,39 @@ import { type CwdPreset } from "./config-schema.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 import { isRecord } from "../../common/isRecord.js";
+import { canonicalDir } from "../infra/path-within.js";
 const isPreset = (v: unknown): v is CwdPreset => isRecord(v) && typeof v.label === "string" && typeof v.path === "string";
 
-// Normalize arbitrary input into clean presets: keep only {label,path} objects,
-// trim, drop entries missing either field, and cap the count.
+// A preset's path in the one spelling the rest of the app uses. Trailing separators are what a
+// shell's tab-completion leaves on a path the user pastes into the launch form, and they used to
+// be stored verbatim — so once the server started reporting the canonical cwd back (#1002), the
+// same directory would be recorded a SECOND time and show two chips.
+//
+// Absolute only: `path.resolve` would splice a relative entry onto the server's own cwd and
+// invent a directory the user never named. A relative preset can't launch anyway (the workspace
+// guard rejects it), so it is left exactly as written rather than silently repointed.
+const presetPath = (raw: string): string => {
+  const trimmed = raw.trim();
+  return path.isAbsolute(trimmed) ? canonicalDir(trimmed) : trimmed;
+};
+
+// Normalize arbitrary input into clean presets: keep only {label,path} objects, trim, canonicalize
+// the path, drop entries missing either field, collapse duplicates, and cap the count.
 export function sanitizePresets(input: unknown, max = 50): CwdPreset[] {
   if (!Array.isArray(input)) return [];
-  return input
+  const cleaned = input
     .filter(isPreset)
-    .map((p) => ({ label: p.label.trim(), path: p.path.trim() }))
-    .filter((p) => p.label && p.path)
+    .map((p) => ({ label: p.label.trim(), path: presetPath(p.path) }))
+    .filter((p) => p.label && p.path);
+  // Deduped AFTER canonicalizing, keeping the first: the list is most-recently-used order, so the
+  // survivor is the newer entry and its label (which the user may have renamed) is the one kept.
+  const seen = new Set<string>();
+  return cleaned
+    .filter((p) => {
+      if (seen.has(p.path)) return false;
+      seen.add(p.path);
+      return true;
+    })
     .slice(0, max);
 }
 

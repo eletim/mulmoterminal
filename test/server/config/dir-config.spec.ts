@@ -12,6 +12,7 @@ import {
   MISSING_DIR_CONFIG_DETAIL,
 } from "../../../server/config/dir-config";
 import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
+import { resolveWorkspace } from "../../../server/config/workspace";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
 const EMPTY = {
@@ -248,6 +249,20 @@ describe("dirConfigWriteTarget", () => {
     for (const tool of ["Write", "Edit", "MultiEdit"]) {
       expect(dirConfigWriteTarget(tool, { file_path: file })).toBe(projDir);
     }
+  });
+
+  // #1002 — the invariant the live reload rests on: the cwd ANNOUNCED when a .mulmoterminal.json
+  // is written has to be the same STRING as the cwd the cell showing that directory is keyed by.
+  // The two are produced by different code (path.dirname here, the workspace guard there) and are
+  // matched by exact equality on the client, so nothing but this keeps them spelled the same.
+  // A directory launched as `/a/b/` — what a shell's tab-completion leaves in the launch form —
+  // was announced as `/a/b`, and the cell never heard about its own config file.
+  it("announces the same cwd string the workspace guard hands the cell", () => {
+    const dir = tmp();
+    const launchedAs = dir + path.sep;
+    const announced = dirConfigWriteTarget("Write", { file_path: path.join(dir, ".mulmoterminal.json") }, launchedAs);
+    expect(announced).toBe(resolveWorkspace(launchedAs));
+    expect(announced).toBe(dir);
   });
 
   it("resolves a relative path against the SESSION cwd, not the server's", () => {
