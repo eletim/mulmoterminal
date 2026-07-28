@@ -18,6 +18,7 @@ import { createRemoteHost, startHostRunner, type RemoteHostLifecycle } from "@mu
 import { publish, clear, listFor } from "@mulmoclaude/core/notifier";
 
 import type { RunnerHealth } from "../../../common/remoteHostHealth.js";
+import { createPresenceProbe } from "./presenceProbe.js";
 import { startResilientRunner } from "./resilientRunner.js";
 import { createHealthNotice } from "./healthNotice.js";
 import { createRemoteHostHandlers, type RemoteHostHandlerDeps } from "./handlers.js";
@@ -72,6 +73,9 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
         start: (runnerOptions) => startHostRunner(currentFirestore(), channel, handlers, runnerOptions),
         options,
         onHealth,
+        // Asks whether the phone can still see us, instead of waiting to be told otherwise:
+        // core's presence writes swallow their own failures, so silence proves nothing.
+        checkAlive: createPresenceProbe({ firestore: currentFirestore, channel }),
         log,
       }),
     // Expired offline-queued startChat commands: delete the phone's staged Storage

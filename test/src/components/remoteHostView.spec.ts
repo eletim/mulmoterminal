@@ -2,7 +2,7 @@
 // so a dead subscription still showed green — the exact reason a dropped channel went
 // unnoticed until the phone failed to connect.
 import { describe, it, expect } from "vitest";
-import { remoteHostView } from "../../../src/components/remoteHostView.js";
+import { remoteHostAlarm, remoteHostView } from "../../../src/components/remoteHostView.js";
 
 describe("remoteHostView", () => {
   it("is Online only when the lifecycle is connected AND the channel is up", () => {
@@ -40,5 +40,42 @@ describe("remoteHostView", () => {
     const states = [remoteHostView(true, "online"), remoteHostView(true, "reconnecting"), remoteHostView(true, "offline")];
     expect(new Set(states.map((view) => view.icon)).size).toBe(3);
     expect(new Set(states.map((view) => view.toneClass)).size).toBe(3);
+  });
+});
+
+// The toolbar icon is the only part visible without opening anything, and offline used to
+// render there as nothing at all — the same grey `phonelink` as a link that was never set up.
+describe("remoteHostAlarm", () => {
+  const loaded = true;
+  const parked = true;
+
+  it("raises alarm for a link that was set up and is now unreachable", () => {
+    expect(remoteHostAlarm(remoteHostView(false, "offline"), parked, loaded)).toBe(true);
+    expect(remoteHostAlarm(remoteHostView(true, "offline"), parked, loaded)).toBe(true);
+  });
+
+  it("stays quiet for someone who never connected the phone", () => {
+    // Most people never use this. A toolbar permanently red for a feature they did not ask
+    // for is worse than silence.
+    expect(remoteHostAlarm(remoteHostView(false, "offline"), false, loaded)).toBe(false);
+  });
+
+  it("stays quiet after an explicit Disconnect", () => {
+    // Disconnect drops the parked blob, so choosing to switch the link off is not an alarm.
+    expect(remoteHostAlarm(remoteHostView(false, "offline"), false, loaded)).toBe(false);
+  });
+
+  it("stays quiet while the runner is healing itself", () => {
+    expect(remoteHostAlarm(remoteHostView(true, "reconnecting"), parked, loaded)).toBe(false);
+  });
+
+  it("stays quiet when online", () => {
+    expect(remoteHostAlarm(remoteHostView(true, "online"), parked, loaded)).toBe(false);
+  });
+
+  it("stays quiet until the server has answered once", () => {
+    // Every ref starts at its disconnected default, so without this a page load would flash
+    // red before the first status arrives.
+    expect(remoteHostAlarm(remoteHostView(false, "offline"), parked, false)).toBe(false);
   });
 });

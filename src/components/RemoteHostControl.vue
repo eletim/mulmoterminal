@@ -17,7 +17,7 @@ import { auth } from "../config/firebase";
 // so they're unit-testable without mounting this Firebase-importing component.
 import { healthOrFallback, loadStoredSession, persistSession, reconnectAction, type FetchResult, type RemoteHostStatus } from "./remoteHostSession";
 import { registerRemoteHostSelfHeal } from "./remoteHostSelfHeal";
-import { remoteHostView } from "./remoteHostView";
+import { remoteHostAlarm, remoteHostView } from "./remoteHostView";
 import { usePubSub } from "../composables/usePubSub";
 import type { RunnerHealth } from "../../common/remoteHostHealth";
 
@@ -31,11 +31,26 @@ const error = ref<string | null>(null);
 const status = ref<RemoteHostStatus>({ connected: false, uid: null });
 const health = ref<RunnerHealth>({ state: "offline", lastError: null, changedAt: 0 });
 const popoverRef = useTemplateRef<InstanceType<typeof ToolbarPopover>>("popover");
+// Every ref above starts at its disconnected default, so nothing may raise alarm until the
+// server has actually answered once.
+const loaded = ref(false);
+// Mirrors the parked blob rather than reading localStorage per render — Vue cannot observe
+// storage, so a computed over it would answer with whatever was true at the first render and
+// keep the alarm on after a Disconnect. Every write goes through rememberSession below.
+const parked = ref(loadStoredSession() !== null);
+
+function rememberSession(blob: string | null): void {
+  persistSession(blob);
+  parked.value = blob !== null;
+}
 
 // "Online" only while the channel is actually subscribed — a runner re-subscribing after
 // an outage says so, instead of showing green while the phone still can't reach us (#823).
 const view = computed(() => remoteHostView(status.value.connected, health.value.state));
 const isReconnecting = computed(() => view.value.reconnecting);
+// The toolbar icon itself, not just the panel behind it: an offline link that only shows up
+// after opening the popover is one nobody looks at until the phone already failed.
+const alarm = computed(() => remoteHostAlarm(view.value, parked.value, loaded.value));
 
 function onPopoverOpen() {
   refreshStatus().catch(() => undefined);
@@ -64,6 +79,7 @@ async function fetchStatus(url: string, method: "GET" | "POST", body?: unknown):
 function applyOk(result: Extract<FetchResult, { ok: true }>): void {
   status.value = result.status;
   health.value = result.health;
+  loaded.value = true;
 }
 
 async function refreshStatus() {
@@ -72,7 +88,7 @@ async function refreshStatus() {
     applyOk(result);
     // Keep the parked blob fresh (the refresh token can rotate) — but never clear
     // it on a disconnected status, so an auto-reconnect still has it.
-    if (result.session) persistSession(result.session);
+    if (result.session) rememberSession(result.session);
     error.value = null;
   } else {
     error.value = result.error;
@@ -92,8 +108,8 @@ async function tryAutoReconnect() {
   const res = await fetchStatus("/api/remote-host/reconnect", "POST", { session: blob });
   if (res.ok) applyOk(res);
   const action = reconnectAction(res);
-  if (action === "park" && res.ok) persistSession(res.session);
-  else if (action === "drop") persistSession(null);
+  if (action === "park" && res.ok) rememberSession(res.session);
+  else if (action === "drop") rememberSession(null);
 }
 
 async function onConnect() {
@@ -112,7 +128,7 @@ async function onConnect() {
       return;
     }
     applyOk(res);
-    persistSession(res.session); // park the session for popup-free reconnect after a restart
+    rememberSession(res.session); // park the session for popup-free reconnect after a restart
     popoverRef.value?.close();
   } catch (err) {
     error.value = errorText(err);
@@ -127,7 +143,7 @@ async function onDisconnect() {
   const res = await fetchStatus("/api/remote-host/disconnect", "POST");
   if (res.ok) {
     applyOk(res);
-    persistSession(null); // forget the parked session on an explicit disconnect
+    rememberSession(null); // forget the parked session on an explicit disconnect
     popoverRef.value?.close();
   } else {
     error.value = res.error;
@@ -163,7 +179,7 @@ onUnmounted(() => stopSelfHeal?.());
     trigger-label="Remote host"
     pane-class="w-[300px] gap-2 p-2.5 font-sans"
     pane-label="Remote host"
-    :trigger-class="{ connected: view.online }"
+    :trigger-class="{ connected: view.online, disconnected: alarm }"
     @open="onPopoverOpen"
   >
     <div class="flex items-center gap-1.5">

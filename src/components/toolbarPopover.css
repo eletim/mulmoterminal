@@ -31,6 +31,13 @@
 .toolbar-popover-btn.connected {
   color: #35c46a;
 }
+/* And the opposite: a link that WAS set up and is now unreachable. Here rather than as a
+   utility class for the same cascade reason as its sibling above — a single-class utility
+   loses to `.toolbar-popover-btn.active`, so the alarm would vanish exactly while the user
+   has the panel open reading about it. */
+.toolbar-popover-btn.disconnected {
+  color: var(--err-strong);
+}
 .toolbar-popover-btn .material-symbols-outlined {
   font-size: 19px;
   line-height: 1;
