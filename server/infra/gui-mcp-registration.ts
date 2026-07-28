@@ -12,6 +12,9 @@
 // The url is a TEMPLATE, not a resolved address. Claude Code expands `${VAR}` in an MCP url at
 // connect time, and the two moving parts (our port, the session id) are only known per spawn —
 // they are set on each session's environment (see session/mcp-config.ts guiMcpEnv).
+import { readFile, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import { spawnCaptureAsync } from "./spawnCapture.js";
 import { toolGroupServerId, type ToolGroup } from "../../common/toolGroups.js";
 
@@ -45,17 +48,80 @@ export function unregisterGuiMcpGroup(bin: string, cwd: string, group: ToolGroup
   return claudeMcp(bin, cwd, ["remove", toolGroupServerId(group), "-s", "local"]);
 }
 
-// Which groups this directory has registered, read back from the CLI rather than remembered:
-// the user can add or remove one with `claude mcp` behind our back, and a cached answer would
-// then describe a directory that no longer exists as described.
-export async function registeredGuiMcpGroups(bin: string, cwd: string, groups: readonly ToolGroup[]): Promise<ToolGroup[]> {
-  const { status, stdout } = await spawnCaptureAsync(bin, ["mcp", "list"], { cwd });
-  if (status !== 0) return [];
-  return groups.filter((group) => listMentionsServer(stdout, toolGroupServerId(group)));
+// Claude Code's own config file, which is where `claude mcp add -s local` writes. It defaults to
+// ~/.claude.json and moves WITH CLAUDE_CONFIG_DIR — a user who relocated their Claude Code config
+// must not see every directory reported as having nothing registered.
+const claudeConfigFile = (): string => path.join(process.env.CLAUDE_CONFIG_DIR?.trim() || homedir(), ".claude.json");
+
+async function readJsonObject(file: string): Promise<Record<string, unknown> | null> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    // Absent, unreadable or half-written (Claude Code rewrites this file live). Nothing
+    // registered is the honest answer, and it is also the safe one: the switch renders OFF, and
+    // turning it on re-registers rather than removing anything.
+    return null;
+  }
 }
 
-// `claude mcp list` prints `<id>: <command or url> - <status>` per line. Matched at the start of
-// a line so a server whose URL happens to contain another group's id is not counted twice.
-export function listMentionsServer(listOutput: string, serverId: string): boolean {
-  return listOutput.split("\n").some((line) => line.trimStart().startsWith(`${serverId}:`));
+// `mcpServers` is a JSON object keyed by server id. Read with Object.keys on an own-property
+// check rather than indexed lookups, so a key like `constructor` in the user's file cannot
+// resolve through Object.prototype (same reason common/toolGroups.ts uses a Map).
+const serverIdsIn = (value: unknown): string[] => (value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value as object) : []);
+
+const ownProp = (obj: unknown, key: string): unknown =>
+  obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key) ? (obj as Record<string, unknown>)[key] : undefined;
+
+// The servers a scope holds. Every scope spells them the same way — `{ mcpServers: { <id>: … } }`
+// — a per-directory entry under `projects` included.
+const scopeServerIds = (scope: unknown): string[] => serverIdsIn(ownProp(scope, "mcpServers"));
+
+// Every `.mcp.json` a session started in these directories would pick up.
+//
+// Project scope is NOT `<cwd>/.mcp.json` alone: Claude Code walks UP from its working directory
+// and takes every one it finds on the way. Measured against the real CLI — a file two levels up
+// is listed, one ABOVE the enclosing git root is listed (so this is a directory walk, not a repo
+// lookup), and a nearer file does not shadow a farther one, they merge. A cell launched in
+// `/repo/packages/app` therefore receives what `/repo/.mcp.json` registers, and reading only the
+// leaf reported the Canvas switch as off on a directory that has it.
+//
+// Both spellings of the directory, for the symlink reason above: Claude walks from its resolved
+// cwd, whose ancestors can differ from the lexical ones. Deduped, so the usual case (they are the
+// same path) reads each file once.
+function projectMcpFiles(...dirs: readonly string[]): string[] {
+  const files = new Set<string>();
+  for (const dir of dirs) {
+    for (let current = dir, parent = path.dirname(current); ; current = parent, parent = path.dirname(current)) {
+      files.add(path.join(current, ".mcp.json"));
+      if (parent === current) break; // reached the filesystem root
+    }
+  }
+  return [...files];
+}
+
+// Which groups this directory has registered. Read from Claude Code's config FILES, not from
+// `claude mcp list`: that command health-checks every registered server before it prints, which
+// costs seconds of network round-trips (more when one of the user's servers is down) — and the
+// launcher runs this every time it opens, so the Canvas switch appeared late and moved the rows
+// under it. The files are the same source `claude mcp list` reads, minus the probing, so the
+// answer still follows a registration the user made with the CLI behind our back.
+//
+// All three scopes, because that is what the CLI shows and what the session will actually get:
+// local (ours, keyed by directory), project (every `.mcp.json` up the tree), user (global).
+export async function registeredGuiMcpGroups(cwd: string, groups: readonly ToolGroup[]): Promise<ToolGroup[]> {
+  // Claude Code keys local scope by its OWN process.cwd(), which the OS resolves symlinks in,
+  // while the path we are asked about is canonicalized only lexically (see existingWorkspace).
+  // Both spellings are looked up so a directory reached through a symlink still matches.
+  const real = await realpath(cwd).catch(() => cwd);
+  const projectFiles = projectMcpFiles(cwd, real);
+  const [config, ...projects] = await Promise.all([claudeConfigFile(), ...projectFiles].map(readJsonObject));
+  const perDir = ownProp(config, "projects");
+  const ids = new Set([
+    ...scopeServerIds(config),
+    ...scopeServerIds(ownProp(perDir, cwd)),
+    ...(real === cwd ? [] : scopeServerIds(ownProp(perDir, real))),
+    ...projects.flatMap(scopeServerIds),
+  ]);
+  return groups.filter((group) => ids.has(toolGroupServerId(group)));
 }
