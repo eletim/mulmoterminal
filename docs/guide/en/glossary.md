@@ -1,0 +1,111 @@
+---
+title: Glossary
+layout: default
+parent: English
+nav_order: 5
+description: Vibe coding, parallel agents, AI coding agents, git worktrees, the cockpit roster — the words this guide uses, tied to what you actually see on screen in MulmoTerminal.
+---
+
+# Glossary — the words this guide uses
+{: .no_toc }
+
+MulmoTerminal is a **browser terminal** for running several **AI coding agents** — **Claude Code**
+and **Codex** — side by side. This page lines up the vocabulary with the part of the screen it
+refers to.
+
+- TOC
+{:toc}
+
+---
+
+## Vibe coding
+
+Building software by describing what you want, taking the code the AI writes, and steering it in
+conversation. Andrej Karpathy named it in 2025; by 2026 it is an ordinary way to work (Collins made
+it Word of the Year).
+
+MulmoTerminal is where you do that **in a terminal**. Instead of living in an editor, the loop is
+**ask, watch, ask again**. One agent needs nothing more than `claude` in a shell — it is when you
+start running **several at once** that you lose track of which one is waiting for you. That is the
+problem this app exists for.
+
+→ [Basics](basics.html)
+
+## AI coding agent / CLI agent
+
+An AI that runs on the command line, reads your codebase, writes files, runs tests, and opens PRs.
+**Claude Code** (Anthropic) and **Codex CLI** (OpenAI) are the two this app launches, per cell — so
+you can put the same task to both and compare, or have one review the other.
+
+→ [Claude and Codex together](basics.html#claude-and-codex) · [Cross-terminal talk](features.html)
+
+## Parallel agents / multi-agent
+
+Running several agents at the same time. While one thinks you can move another forward — what runs
+out is **your attention**, not the machine's. The grid solves that with colour and sound.
+
+- **Awaiting input** is amber; a **finished turn** gets a blue ring
+- You only pick up the cells that called you
+- A sound and a phone push mean you notice without watching the screen
+
+→ [Basics](basics.html) · [Mobile notifications](notifications.html)
+
+## Grid / cell
+
+The **grid** is the screen that holds several agents (and the one the app opens on). A **cell** is
+one square: a Claude or Codex session, a shell, or a single command. Nine cells per page; overflow
+opens another page (tab).
+
+→ [Basics](basics.html)
+
+## Cockpit roster
+
+The **one-row-per-session list** beside an enlarged cell: directory, AI summary, latest prompt,
+latest reply, status word, PR phase. It is how you stay zoomed into one agent while still reading
+where all the others stand.
+
+→ [Basics](basics.html) · [Row length](config.html#cockpit-lines)
+
+## Single view / GUI panel (Canvas)
+
+The screen for one agent (`/chat`): conversation on the left, **GUI panel** on the right, where the
+agent's tool calls render as diagrams, forms, images, documents, HTML and slides rather than printed
+text.
+
+## git worktree
+
+A git feature that checks out another branch of the same repository into its own directory, so
+**several agents can work one repository without colliding**. That is what makes parallel work
+practical. A cell's launcher can create a worktree and start the session inside it.
+
+→ [Scenarios](scenarios.html)
+
+## Session persistence (tmux)
+
+Each session runs inside tmux, so **a page reload or a server restart reconnects** instead of losing
+it. Without tmux the sessions are plain PTYs and a restart ends them.
+
+## RemoteHost (from your phone)
+
+**Web Push to your phone** when a turn finishes or an agent stops to ask, plus watching, replying,
+and starting a terminal from the phone — so walking away doesn't mean missing the call.
+
+→ [Mobile notifications](notifications.html) · [From your phone](phone.html)
+
+## Run cell / scripts
+
+A **throwaway cell** for one command from `script.json` (`yarn dev`, `yarn test`, …). When it fails,
+**Summarize output (AI)** turns the log into errors, cause, and how to fix.
+
+→ [Configuration](config.html#put-your-common-commands-in-the-run-menu-scriptjson)
+
+## Provider
+
+An Anthropic-compatible backend Claude Code can talk to. Register OpenRouter and a session can run
+**a model other than Claude**.
+
+→ [Using another model via OpenRouter](providers.html)
+
+---
+
+Next: [Configuration](config.html)

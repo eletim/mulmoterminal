@@ -2,7 +2,8 @@
 title: Mobile notifications (Web Push)
 layout: default
 parent: English
-nav_order: 6
+nav_order: 8
+description: Web Push to your phone when a turn finishes or an agent stops to ask — how to leave your desk while parallel agents keep working.
 ---
 
 # Mobile notifications (Web Push)
@@ -29,13 +30,13 @@ in two places: the **terminal side** and the **phone side**.
 
 ## 1. Terminal side (mulmoterminal)
 
-1. Open the **📱 RemoteHost** control in the toolbar (`phonelink` icon) and click
+1. Open the **RemoteHost** control in the toolbar (`phonelink` icon) and click
    **Connect (Google sign-in)**. A Google sign-in popup opens — sign in with the
    **same Google account** you'll use on the phone.
-2. In **Settings (⚙) → Web Push notifications**, turn on
+2. In **Settings → Web Push notifications**, turn on
    **"Notify my devices when a task finishes"** (off by default).
 
-> ⚠️ This is **not** the **Google account** section in Settings (⚙) — that one links a
+> ⚠️ This is **not** the **Google account** section in Settings — that one links a
 > Calendar account for tools. Notifications use the **Connect** button in the RemoteHost panel.
 
 That's it — a background task finishing now sends a push to your phone.
@@ -97,7 +98,7 @@ hidden background sessions, the translation worker — never push.
 
 ## Which moments push, and how to choose {#kinds}
 
-Two moments raise a push, and **Settings (⚙) → Web Push notifications** has a checkbox for
+Two moments raise a push, and **Settings → Web Push notifications** has a checkbox for
 each. Untick one and that moment stops notifying, while the other keeps working.
 
 | Setting | Fires when | Looks like | How often |
