@@ -323,6 +323,15 @@ async function onUnlinkGoogle() {
 // ARIA radiogroup keyboard contract: arrows move selection (and focus) within
 // the group, wrapping at the ends; only the checked radio is tabbable (roving
 // tabindex), so Tab enters/leaves the group as one stop.
+// Roving tabindex, with a floor: when the selection names a theme that isn't in the list — the
+// missing-theme case this build added (#996) — nothing matches and EVERY option would be
+// tabindex="-1", so a keyboard user could not reach the picker at all while the notice above it
+// says to pick one. The first option becomes the tab stop in that state.
+const hasSelectedTheme = computed(() => themes.value.some((t) => t.id === themeId.value));
+function isThemeTabStop(id: string, index: number): boolean {
+  return hasSelectedTheme.value ? themeId.value === id : index === 0;
+}
+
 function onThemeKey(e: KeyboardEvent, index: number) {
   const forward = e.key === "ArrowRight" || e.key === "ArrowDown";
   const backward = e.key === "ArrowLeft" || e.key === "ArrowUp";
@@ -418,7 +427,7 @@ onUnmounted(() => {
           :class="themeId === t.id ? 'border-accent text-fg' : 'border-border text-muted hover:text-fg'"
           role="radio"
           :aria-checked="themeId === t.id"
-          :tabindex="themeId === t.id ? 0 : -1"
+          :tabindex="isThemeTabStop(t.id, i) ? 0 : -1"
           :title="t.label"
           @click="setTheme(t.id)"
           @keydown="onThemeKey($event, i)"
