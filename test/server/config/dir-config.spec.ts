@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { makeTempDir } from "../../support/tempDir.js";
+import { writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import {
   resolveDirSound,
@@ -14,7 +14,7 @@ import {
 import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
 import { resolveWorkspace } from "../../../server/config/workspace";
 
-const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
+const tmp = () => makeTempDir("mt-dircfg-");
 const EMPTY = {
   name: null,
   badgeColor: null,

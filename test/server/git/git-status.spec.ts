@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { makeTempDir } from "../../support/tempDir.js";
+import { rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { gitStatus } from "../../../server/git/git-status.js";
 
@@ -22,7 +22,7 @@ describe("gitStatus", () => {
     execFileSync("git", ["-C", dir, ...a], { stdio: "ignore" });
 
   beforeEach(() => {
-    repo = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-gitstatus-")));
+    repo = makeTempDir("mt-gitstatus-");
     if (!hasGit) return;
     g(repo, "init", "-b", "main");
     g(repo, "config", "user.email", "t@t.t");
@@ -36,7 +36,7 @@ describe("gitStatus", () => {
   });
 
   it("reports repo:false for a non-git dir", async () => {
-    const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-nogit-")));
+    const outside = makeTempDir("mt-nogit-");
     const s = await gitStatus(outside);
     expect(s.repo).toBe(false);
     rmSync(outside, { recursive: true, force: true });
@@ -52,7 +52,7 @@ describe("gitStatus", () => {
   });
 
   it.skipIf(!hasGit)("shows the branch on an unborn branch (git init, no commit yet)", async () => {
-    const fresh = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-unborn-")));
+    const fresh = makeTempDir("mt-unborn-");
     g(fresh, "init", "-b", "main"); // no commit — unborn HEAD
     const s = await gitStatus(fresh);
     expect(s.repo).toBe(true);
@@ -80,7 +80,7 @@ describe("gitStatus", () => {
 
   it.skipIf(!hasGit)("reports ahead vs a local upstream", async () => {
     // A second clone acting as the "remote" so HEAD has an upstream to be ahead of.
-    const remote = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-remote-")));
+    const remote = makeTempDir("mt-remote-");
     g(repo, "clone", "--bare", repo, remote);
     g(repo, "remote", "add", "origin", remote);
     g(repo, "push", "-u", "origin", "main");

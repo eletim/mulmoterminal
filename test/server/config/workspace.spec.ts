@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { makeTempDirAsync } from "../../support/tempDir.js";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { resolveWorkspace, workspaceFromQuery, existingWorkspace, existingWorkspaceFromQuery } from "../../../server/config/workspace.js";
 import { CLAUDE_CWD } from "../../../server/config/env.js";
@@ -12,7 +12,7 @@ describe("resolveWorkspace", () => {
   let file = "";
 
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "mt-ws-"));
+    dir = await makeTempDirAsync("mt-ws-");
     file = path.join(dir, "a-file");
     await fs.writeFile(file, "");
   });
@@ -47,7 +47,7 @@ describe("resolveWorkspace", () => {
 
 describe("workspaceFromQuery", () => {
   it("resolves a string query", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mt-wsq-"));
+    const dir = await makeTempDirAsync("mt-wsq-");
     expect(workspaceFromQuery(dir)).toBe(dir);
     await fs.rm(dir, { recursive: true, force: true });
   });
@@ -96,7 +96,7 @@ describe("canonical spelling of the accepted directory", () => {
   let dir = "";
 
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "mt-ws-canon-"));
+    dir = await makeTempDirAsync("mt-ws-canon-");
   });
   afterAll(async () => {
     await fs.rm(dir, { recursive: true, force: true });

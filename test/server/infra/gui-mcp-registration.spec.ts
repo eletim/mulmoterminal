@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { makeTempDir } from "../../support/tempDir.js";
+import { rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import path from "node:path";
 
 import { guiMcpUrlTemplate, registeredGuiMcpGroups } from "../../../server/infra/gui-mcp-registration.js";
@@ -46,7 +46,7 @@ describe("registeredGuiMcpGroups", () => {
     // the code under test resolves, and the comparison fails for a reason that has nothing to do
     // with symlinks. On macOS both expand /var -> /private/var, which is why this was already
     // realpath'd at all.
-    root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "gui-mcp-")));
+    root = makeTempDir("gui-mcp-");
     home = path.join(root, "home");
     cwd = path.join(root, "repo");
     mkdirSync(home);
