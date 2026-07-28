@@ -120,6 +120,13 @@ export interface DecisionScan {
   finish(fallbackSessionId: string): DecisionRecord[];
 }
 
+const mentionsPendingAsk = (line: string, awaiting: Map<string, Ask>): boolean => {
+  for (const id of awaiting.keys()) {
+    if (line.includes(id)) return true;
+  }
+  return false;
+};
+
 export function createDecisionScan(): DecisionScan {
   const asks: Ask[] = [];
   const awaiting = new Map<string, Ask>();
@@ -128,18 +135,18 @@ export function createDecisionScan(): DecisionScan {
       // Substring tests before JSON.parse. Only a handful of lines in a transcript are a question
       // or its answer, and parsing the rest is what makes scanning a large session expensive; a
       // false positive here costs one parse and is then rejected on structure.
-      if (line.includes(ASK_TOOL)) {
-        const o = parseLine(line);
-        if (o) collectAsks(o, asks, awaiting);
-        return;
-      }
-      if (awaiting.size === 0) return;
-      for (const id of awaiting.keys()) {
-        if (!line.includes(id)) continue;
-        const o = parseLine(line);
-        if (o) collectAnswer(o, awaiting);
-        return;
-      }
+      //
+      // BOTH tests run on every candidate line, and neither short-circuits the other: a line can
+      // carry the word AskUserQuestion and still be somebody's answer — "AskUserQuestion って
+      // 何？" typed as a free-text answer is the case both reviewers caught, and it would have
+      // recorded a question the user did answer as unanswered.
+      const isAsk = line.includes(ASK_TOOL);
+      const isAnswer = awaiting.size > 0 && mentionsPendingAsk(line, awaiting);
+      if (!isAsk && !isAnswer) return;
+      const o = parseLine(line);
+      if (!o) return;
+      if (isAsk) collectAsks(o, asks, awaiting);
+      if (isAnswer) collectAnswer(o, awaiting);
     },
     finish(fallbackSessionId) {
       return asks

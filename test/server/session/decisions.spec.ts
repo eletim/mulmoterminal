@@ -104,6 +104,19 @@ describe("decisionsFromJsonl", () => {
     expect(decisionsFromJsonl(raw, "f")[0].questions[0].answerKind).toBe("option");
   });
 
+  it("still collects an answer whose own text mentions AskUserQuestion", () => {
+    // The line-level prefilter that skips JSON.parse used to treat "this line contains
+    // AskUserQuestion" as "this line is a question" and return early, so an answer that happened
+    // to say the word was never collected and the question read as unanswered (Codex + CodeRabbit).
+    const raw = [
+      askLine({ id: "toolu_10", questions: [QUESTION] }),
+      resultLine("toolu_10", `The user answered: "${QUESTION.question}"="AskUserQuestion って何？". Read the answers carefully.`),
+    ].join("\n");
+    const [q] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(q.answer).toBe("AskUserQuestion って何？");
+    expect(q.answerKind).toBe("free-text");
+  });
+
   it("keeps a question that was never answered, rather than dropping it", () => {
     // A session interrupted mid-question is itself a fact worth having: it was asked, and the
     // decision never happened.
