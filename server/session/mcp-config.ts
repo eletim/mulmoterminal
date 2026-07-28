@@ -8,6 +8,8 @@
 // so the precedence rule below could not be tested without booting the server (#548).
 import { rewriteLoopbackForDocker } from "../infra/sandbox.js";
 import type { UserMcpServer } from "../config/config-schema.js";
+import { toolGroupServerId, type ToolGroup } from "../../common/toolGroups.js";
+import type { GuiMcpServer } from "../agents/codex-args.js";
 
 export interface McpConfigInput {
   sessionId: string;
@@ -35,6 +37,48 @@ const GUI_SERVER_ID = "mulmoterminal-gui";
 // simply never reads these, and a session that starts in one view is not worth special-casing.
 export function guiMcpEnv(sessionId: string, port: string | number): Record<string, string> {
   return { MULMOTERMINAL_PORT: String(port), MULMOTERMINAL_SESSION_ID: sessionId };
+}
+
+// The same two surfaces, spelled for CODEX, which takes them as `-c mcp_servers.<id>.url=` at
+// spawn instead of reading a config file. It has no `${VAR}` expansion, so unlike the template
+// above these are resolved here — which is possible precisely because they are built per spawn.
+//
+// The GROUPS are the directory's, read from Claude Code's config by the caller: one switch in the
+// launcher, both agents. A grid cell whose directory registered nothing gets an empty list and
+// therefore no GUI tools, which is what it had before.
+//
+// AUTO-APPROVAL does not carry over cleanly, and the difference is decided here. claude is handed
+// a list of TOOLS (`--allowedTools`, from AUTO_ALLOWED_TOOLS) and that list deliberately withholds
+// the ones that can spend money — presentDocument resolves image placeholders through the image
+// backend, and the whole `media` group generates. codex approves per SERVER, so the same list
+// cannot be expressed: a group is waved through as a whole, or every call in it asks.
+//
+// It is waved through, by the owner's decision (2026-07-28). Prompting on every drawing call is
+// what the flag was added to the single view to avoid, and the single view has carried the whole
+// GUI MCP — generateImage included — approved wholesale since it was wired. So a codex cell can
+// spend on presentDocument / generateImage / presentMulmoScript without asking, and a claude cell
+// in the same directory still asks. That asymmetry is intentional and it is codex's approval
+// model, not an oversight.
+//
+// If it should ever be narrowed, this is the one place: `autoApprove` is a per-server property so
+// the policy stays a value here rather than a flag scattered through the argv builder.
+export function codexGuiMcpServers({
+  sessionId,
+  host = DEFAULT_HOST,
+  port,
+  groups,
+  allTools,
+}: {
+  sessionId: string;
+  host?: string;
+  port: string | number;
+  groups: readonly ToolGroup[];
+  /** The single view, which carries every tool on one URL rather than a URL per group. */
+  allTools: boolean;
+}): GuiMcpServer[] {
+  const base = `http://${host}:${port}/api/mcp`;
+  if (allTools) return [{ id: GUI_SERVER_ID, url: `${base}/${sessionId}`, autoApprove: true }];
+  return groups.map((group) => ({ id: toolGroupServerId(group), url: `${base}/${group}/${sessionId}`, autoApprove: true }));
 }
 
 export function mcpConfigJson({ sessionId, host = DEFAULT_HOST, port, userMcpServers, sandbox = false }: McpConfigInput): string {
