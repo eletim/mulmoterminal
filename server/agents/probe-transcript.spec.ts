@@ -185,4 +185,32 @@ describe("the one-time sweep", () => {
     expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBe(0);
     expect(await sweepLegacyProbeTranscriptsOnce(cwd, marker)).toBeNull();
   });
+
+  // Codex review on #1030: a fresh install has no ~/.mulmoterminal yet. Writing the marker into a
+  // directory that does not exist throws, the caller can only swallow it, and the sweep would then
+  // delete on EVERY boot — the permanent window this design exists to close.
+  it("creates the marker's directory, so a fresh install still only sweeps once", async () => {
+    const unmade = path.join(home, "not-created-yet", "probe-sweep.json");
+    write("old-probe.jsonl", probe());
+
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, unmade)).toBe(1);
+    expect(existsSync(unmade)).toBe(true);
+
+    write("a-person-typed-this.jsonl", probe());
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, unmade)).toBeNull();
+    expect(existsSync(path.join(projectSessionsDir(cwd), "a-person-typed-this.jsonl"))).toBe(true);
+  });
+
+  // Claimed before anything is deleted: if the claim cannot be written, the safe answer is to
+  // delete nothing rather than to delete and forget having done so.
+  it("deletes nothing when it cannot record that it swept", async () => {
+    // A path whose parent is a FILE can never be created.
+    const blocked = path.join(home, "blocker", "probe-sweep.json");
+    mkdirSync(path.dirname(path.dirname(blocked)), { recursive: true });
+    writeFileSync(path.join(home, "blocker"), "not a directory");
+    write("old-probe.jsonl", probe());
+
+    expect(await sweepLegacyProbeTranscriptsOnce(cwd, blocked)).toBeNull();
+    expect(existsSync(path.join(projectSessionsDir(cwd), "old-probe.jsonl"))).toBe(true);
+  });
 });

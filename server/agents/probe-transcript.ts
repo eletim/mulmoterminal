@@ -20,8 +20,9 @@
 // files written before this version existed, so it runs ONCE, ever. After that a person can type
 // the probe's exact words and nothing will touch it.
 
-import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { forEachJsonlLine } from "../infra/jsonl-file.js";
 import { projectSessionsDir } from "../session/project-dir.js";
 import { isProbeSessionId } from "./probe-session.js";
 import { PROBE_PROMPT } from "./rate-limit-probe.js";
@@ -60,9 +61,16 @@ const usesTools = (content: unknown): boolean =>
  *  user messages, and that is the whole difference. A probe also never reaches for a tool — true
  *  of all 84 probe transcripts measured — so a one-turn conversation that did is somebody's work. */
 export function isProbeTranscript(jsonl: string): boolean {
+  return probeVerdict(jsonl.split("\n"));
+}
+
+/** The same decision over a line SOURCE rather than one string, so a caller that streams a file
+ *  never has to hold it — a transcript on a working machine reaches 585 MB, past the point where
+ *  `readFile(…, "utf8")` throws outright (#998). */
+const probeVerdict = (lines: Iterable<string>): boolean => {
   let userText: string | null = null;
   let userCount = 0;
-  for (const line of jsonl.split("\n")) {
+  for (const line of lines) {
     const found = probeEvidenceIn(line);
     if (found === null) continue;
     if (found === "tool") return false;
@@ -70,7 +78,7 @@ export function isProbeTranscript(jsonl: string): boolean {
     userText = found.said;
   }
   return userCount === 1 && userText === PROBE_PROMPT;
-}
+};
 
 /** What one transcript line contributes to the decision: a user's words, the fact that a tool was
  *  used, or nothing worth counting. */
@@ -121,9 +129,15 @@ export async function sweepLegacyProbeTranscripts(cwd: string): Promise<number> 
 }
 
 /** The sweep, run at most once on this machine — see the note at the top of this file. `marker` is
- *  the file whose existence means "already done"; it is written even when nothing was found, so a
- *  clean install does not keep re-earning the right to delete. Returns the count, or null when it
- *  had already run. */
+ *  the file whose existence means "already done". Returns the count, or null when it had already
+ *  run (or when the right to run could not be claimed).
+ *
+ *  The marker is claimed BEFORE anything is deleted, and its directory is created first. Both
+ *  matter for the same reason: if the claim is written afterwards and fails — a fresh install has
+ *  no `~/.mulmoterminal` yet, and the caller cannot do anything with the error — the files are
+ *  already gone AND the sweep runs again next boot, which is precisely the permanent deletion
+ *  window this design exists to close (Codex review on #1030). Failing to claim means doing
+ *  nothing; a crash mid-sweep leaves litter, which is the harmless direction. */
 export async function sweepLegacyProbeTranscriptsOnce(cwd: string, marker: string): Promise<number | null> {
   try {
     await stat(marker);
@@ -131,15 +145,24 @@ export async function sweepLegacyProbeTranscriptsOnce(cwd: string, marker: strin
   } catch {
     // not swept yet
   }
-  const removed = await sweepLegacyProbeTranscripts(cwd);
-  await writeFile(marker, JSON.stringify({ sweptAt_ms: Date.now(), removed }), "utf8");
-  return removed;
+  try {
+    await mkdir(path.dirname(marker), { recursive: true });
+    await writeFile(marker, JSON.stringify({ sweptAt_ms: Date.now() }), "utf8");
+  } catch {
+    return null; // cannot record that we swept, so do not sweep
+  }
+  return await sweepLegacyProbeTranscripts(cwd);
 }
 
 const removeIfProbe = async (file: string): Promise<boolean> => {
   try {
     if ((await stat(file)).size > PROBE_TRANSCRIPT_MAX_BYTES) return false;
-    if (!isProbeTranscript(await readFile(file, "utf8"))) return false;
+    // Streamed rather than read whole, like every other transcript reader here (#998): the size
+    // check above already excludes the giants, so this is belt and braces — but a reader that
+    // takes the whole file is exactly the bug that made the longest sessions look empty.
+    const lines: string[] = [];
+    await forEachJsonlLine(file, (line) => lines.push(line));
+    if (!probeVerdict(lines)) return false;
     await rm(file);
     return true;
   } catch {
