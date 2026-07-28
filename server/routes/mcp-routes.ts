@@ -47,7 +47,7 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
       submitTranslationTool: translationWorkerIds.has(sessionId),
       group,
     });
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const transport = new StreamableHTTPServerTransport({});
     res.on("close", () => {
       transport.close();
       server.close();

@@ -132,7 +132,8 @@ const getRemoteView: CommandHandlers["getRemoteView"] = async (params: JsonObjec
 const getRemoteViewItems: CommandHandlers["getRemoteViewItems"] = async (params: JsonObject) => {
   const slug = String(params.slug ?? "");
   const viewId = String(params.viewId ?? "");
-  const request = { offset: clampOffset(params.offset), limit: clampLimit(params.limit), fields: normalizeFields(params.fields) };
+  const fields = normalizeFields(params.fields);
+  const request = { offset: clampOffset(params.offset), limit: clampLimit(params.limit), ...(fields ? { fields } : {}) };
   const collection = await loadCollection(slug);
   if (!collection) throw new Error(`collection '${slug}' not found`);
   const result = await remoteViewItems(collection, viewId, request);

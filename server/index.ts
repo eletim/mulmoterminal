@@ -507,12 +507,17 @@ const remoteHostListTerminalSessions = async () => {
     isGridSession: (id) => devTerminalSessions.has(id),
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
-    detailOf: (id) => ({
-      title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
-      cwd: cwdOfSession(id),
-      agent: agentOfSession(id),
-      work: work.get(cwdOfSession(id)),
-    }),
+    detailOf: (id) => {
+      // Spread the work item in only when there IS one. `work: map.get(...)` leaves the key behind
+      // holding undefined, and Firestore then refuses the entire reply rather than that one field.
+      const summary = work.get(cwdOfSession(id));
+      return {
+        title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
+        cwd: cwdOfSession(id),
+        agent: agentOfSession(id),
+        ...(summary ? { work: summary } : {}),
+      };
+    },
   });
 };
 
