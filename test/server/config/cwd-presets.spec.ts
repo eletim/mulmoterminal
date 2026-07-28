@@ -31,8 +31,11 @@ describe("savePresets / loadPresets", () => {
     const dir = tmp();
     const file = path.join(dir, "nested", "config.json"); // nested → mkdir is exercised
     expect(savePresets(file, [{ label: "x", path: "/x" }])).toBe(true);
+    // savePresets writes what it is given; canonicalisation happens on the way back IN
+    // (sanitizePresets, #1002). So the file keeps the literal, and only the load is resolved —
+    // which on Windows is where `/x` picks up the current drive.
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ cwdPresets: [{ label: "x", path: "/x" }] });
-    expect(loadPresets(file)).toEqual([{ label: "x", path: "/x" }]);
+    expect(loadPresets(file)).toEqual([{ label: "x", path: path.resolve("/x") }]);
     rmSync(dir, { recursive: true, force: true });
   });
 
