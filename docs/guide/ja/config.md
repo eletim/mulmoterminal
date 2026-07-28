@@ -53,7 +53,7 @@ nav_order: 4
 
 ツールバーの **Settings**（歯車）から開きます。
 
-![設定モーダル](../images/settings.png)
+![設定モーダル — Theme / Terminal font size / Directory appearance / Directory settings（acme-web の行を開いた状態）/ Notification sounds](../images/config-settings-modal.png)
 
 上から順に、次の 15 セクションがあります。
 
@@ -86,6 +86,11 @@ nav_order: 4
 - **`Dropped as invalid:`** — 書式が不正で**捨てられたキー**
 - **`Not settings this app reads (a typo?):`** — このアプリが**読まないキー**。`badgeColor` を
   `badgeColour` と書いた、グローバル専用の設定をプロジェクト側に書いた、など
+
+![Directory settings — 効いている値（色は見本付き）・由来のファイル・読まれなかったキー](../images/config-dir-settings.png)
+
+*上の例では `badgeColour`（`badgeColor` の綴り違い）と `fontSize2` が「読まないキー」として
+警告色で出ています。書いたのに何も起きなかった設定は、ここに出ます。*
 
 **効かなかった設定と、そもそも書いていない設定は、この画面が無いと見分けがつきません。** 大半の
 「設定が効かない」は下の2つのどちらかです。
@@ -723,6 +728,14 @@ PR 作成のたびにファイルから読み直しています）。
 ```json
 { "scripts": [ { "label": "dev", "command": "yarn dev" }, { "label": "test", "command": "yarn test", "cwd": "." } ] }
 ```
+
+書いたスクリプトは、空きセルのランチャに **OR RUN A SCRIPT** として並びます。
+
+![空きセルのランチャ — 上が cwdPresets のチップ（左端の細い線がそのディレクトリの色）、OR RUN A SCRIPT が script.json、OR LAUNCH が launchers](../images/config-launcher-chips.png)
+
+*1 枚に 3 つの設定が出ています：上のチップが `cwdPresets`、
+**OR RUN A SCRIPT** がこの `script.json`、**OR LAUNCH** が `launchers`。チップ左端の細い線は、
+その[ディレクトリに設定した色](#per-dir)です。*
 
 ## 全キー一覧 — `~/.mulmoterminal/config.json`（リファレンス）
 

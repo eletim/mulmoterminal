@@ -53,7 +53,7 @@ Settings live in three places: the **settings modal (Settings)**, the **global c
 
 Open it from **Settings** (the gear) in the toolbar.
 
-![Settings modal](../images/settings.png)
+![The Settings modal — Theme, Terminal font size, Directory appearance, Directory settings (acme-web expanded), Notification sounds](../images/config-settings-modal.png)
 
 Fifteen sections, in this order.
 
@@ -86,6 +86,11 @@ that `.mulmoterminal.json` is **actually doing**.
 - **`Dropped as invalid:`** — keys thrown away because the shape was wrong.
 - **`Not settings this app reads (a typo?):`** — keys this app never reads. `badgeColour` for
   `badgeColor`, or a global-only setting written per-directory.
+
+![Directory settings — the values in force with colour swatches, the file they came from, and the keys that were never read](../images/config-dir-settings.png)
+
+*Here `badgeColour` (a misspelt `badgeColor`) and `fontSize2` are called out as keys the app
+never reads. A setting you wrote that did nothing shows up in exactly this line.*
 
 **A setting that never took effect looks exactly like one you never made, until you can see this.**
 Most "my setting does nothing" reports are one of the last two lists.
@@ -746,6 +751,14 @@ Your project's scripts that can run in a grid cell (dev server, tests, build, an
 ```json
 { "scripts": [ { "label": "dev", "command": "yarn dev" }, { "label": "test", "command": "yarn test", "cwd": "." } ] }
 ```
+
+What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT**.
+
+![An empty cell's launcher — cwd preset chips on top (the thin stripe is that directory's colour), OR RUN A SCRIPT from script.json, OR LAUNCH from launchers](../images/config-launcher-chips.png)
+
+*Three settings in one frame: the chips on top are `cwdPresets`, **OR RUN A SCRIPT** is this
+`script.json`, and **OR LAUNCH** is `launchers`. The thin stripe down a chip's left edge is the
+[colour set for that directory](#per-dir).*
 
 ## Every key — `~/.mulmoterminal/config.json` (reference)
 
