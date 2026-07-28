@@ -732,8 +732,25 @@ With none set, you get a **built-in starter set**: 📎 insert a file path · �
 { "chips": ["ctx", "git", { "label": "env", "text": "⎇ ${branch}", "when": "isGitRepo" }] }
 ```
 
-- Built-in `dir` / `git` / `diff` / `ctx` / `usage` / `status` / `tools` … shown in the order you list them; omit one to hide it.
+- Built-in `dir` / `git` / `work` / `diff` / `ctx` / `usage` / `status` / `tools` … shown in the order you list them; omit one to hide it.
 - Custom `{ label, text, when }` … read-only text (`text` expands `${variables}`).
+
+#### `work` — which PR / issue this cell is on {#work-chip}
+
+`#977 → #966`: the branch's pull request, and the issue that PR closes. With a screen full of
+cells it is the only thing that answers "which of these is the one I asked about", which is how a
+PR ends up half-finished after the cell was reused for something else.
+
+- The issue comes from the PR's own `Fixes #966`. Without a PR, from the branch name
+  (`fix/966-…`) — and only after MulmoTerminal has confirmed that issue exists, so a branch like
+  `release/2026-07-28-hotfix` doesn't claim issue #2026.
+- **It disappears the moment the PR is merged** (or is closed). The work is over; a badge left
+  behind is worse than none.
+- Before a PR exists the issue shows on its own. A cell with neither shows nothing.
+- It needs `gh` installed and logged in, and a GitHub remote — same as the header's PR button.
+
+It is in the default set, so a header you have never configured shows it. **If you set `chips`
+yourself, add `"work"` to the list** — a configured list is the whole list.
 
 ### ⚡ Skill menu filter (`skills`)
 
