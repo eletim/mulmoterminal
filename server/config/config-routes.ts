@@ -73,6 +73,12 @@ export function getHeaderConfig(): HeaderConfig {
 
 // Whether to send a Web Push when a task finishes — read live at the Stop hook so a
 // settings toggle takes effect without a restart.
+// Whether the user opted in to MulmoTerminal writing on their issues (#979). Read live, like the
+// rest: turning it off must stop the next comment, not the next restart.
+export function getIssueWorkComments(): boolean {
+  return config.issueWorkComments;
+}
+
 export function getPushEnabled(): boolean {
   return config.pushEnabled;
 }

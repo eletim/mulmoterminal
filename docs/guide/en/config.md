@@ -103,6 +103,37 @@ A typo survives the same way — `copyOnSlect` stays in the file rather than bei
 That is the intended trade: a setting that "doesn't work" is easier to spot when the line is still
 there to look at.
 
+## Telling the issue you are on it (`issueWorkComments`) {#issue-work-comments}
+
+The `work` chip tells **you** which cell is on which issue. This tells **the issue** — so the
+person who filed it, and anyone else with a checkout, can see it is being worked on.
+
+```json
+{ "issueWorkComments": true }
+```
+
+With it on, a cell leaves at most two comments per issue:
+
+```
+Working on this in `mulmoterminal5`.
+```
+
+```
+Merged in #983. Work done in `mulmoterminal5`.
+```
+
+- The directory is the **folder name only** — never the path above it. It answers "which of my
+  clones", and these land on public issues.
+- On merge it also **closes the issue if it is still open**. A PR whose body says `Fixes #966`
+  has already been closed by GitHub, so usually there is nothing to do.
+- **Once each.** Every open tab re-asks on every poll, and a reload asks again; the comment
+  carries an invisible marker that MulmoTerminal reads back, so the second ask writes nothing.
+  Work the same issue from a second clone and you get a second line, which is the honest answer.
+- Needs `gh` installed and logged in. Without it, nothing is written and nothing breaks.
+
+**Off by default**, because it writes to GitHub on your behalf — often on an issue somebody else
+filed. Turn it on per machine, not per project: it lives in the global config.
+
 ## Notification sounds (`soundKinds` / `sounds`) {#sounds}
 
 Six moments can beep, each with its own sound and its own switch. Running many agents at once

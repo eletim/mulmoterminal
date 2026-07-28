@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import WorkItemChip from "../../../src/components/WorkItemChip.vue";
-import { hasWorkToShow, parseWorkItem } from "../../../src/composables/useWorkItem";
+import { hasWorkToShow, parseWorkItem, workCommentToPost } from "../../../src/composables/useWorkItem";
 import { EMPTY_WORK_ITEM, type WorkItem } from "../../../common/prPhase";
 
 const item = (over: Partial<WorkItem> = {}): WorkItem => ({ ...EMPTY_WORK_ITEM, ...over });
@@ -112,5 +112,63 @@ describe("WorkItemChip", () => {
   it.each(["merged", "closed"] as const)("renders nothing at all once %s", (phase) => {
     const w = mount(WorkItemChip, { props: { item: item({ phase, pr: 977, issue: 966 }) } });
     expect(w.find('[data-testid="work-chip"]').exists()).toBe(false);
+  });
+});
+
+// Which transition is worth telling the issue about (#979 Phase 2). The client only decides WHEN
+// to ask; the server decides whether anything gets written, so the bar here is "did the cell's
+// situation actually change", not "has this been said before".
+describe("workCommentToPost", () => {
+  it("announces a cell arriving on an issue", () => {
+    expect(workCommentToPost(item(), item({ phase: "none", issue: 979 }))).toBe("start");
+  });
+
+  // A reload starts from nothing, and this side cannot know what was already said — the server's
+  // idempotency is what makes re-asking correct.
+  it("announces again after a reload, and lets the server dedupe", () => {
+    expect(workCommentToPost({ ...EMPTY_WORK_ITEM }, item({ phase: "ready", pr: 983, issue: 979 }))).toBe("start");
+  });
+
+  it("says nothing while the same issue keeps being worked on", () => {
+    const before = item({ phase: "ci-running", pr: 983, issue: 979 });
+    expect(workCommentToPost(before, item({ phase: "ready", pr: 983, issue: 979 }))).toBeNull();
+  });
+
+  it("announces the merge", () => {
+    const before = item({ phase: "ready", pr: 983, issue: 979 });
+    expect(workCommentToPost(before, item({ phase: "merged", pr: 983, issue: 979 }))).toBe("merged");
+  });
+
+  // The burst this rule exists to prevent: switching the setting on, or just reloading, with
+  // cells parked on branches whose PRs merged weeks ago. Arriving at "merged" is not watching a
+  // merge, and those issues are finished — commenting on (and closing) them would be noise on
+  // somebody else's thread.
+  it("does not announce a merge it did not watch happen", () => {
+    const arrived = item({ phase: "merged", pr: 983, issue: 979 });
+    expect(workCommentToPost({ ...EMPTY_WORK_ITEM }, arrived)).toBeNull();
+  });
+
+  it("does not announce a merge for a PR it had not seen before", () => {
+    const before = item({ phase: "ready", pr: 900, issue: 800 });
+    expect(workCommentToPost(before, item({ phase: "merged", pr: 983, issue: 979 }))).toBeNull();
+  });
+
+  it("announces the merge only once", () => {
+    const merged = item({ phase: "merged", pr: 983, issue: 979 });
+    expect(workCommentToPost(merged, merged)).toBeNull();
+  });
+
+  it("says nothing about a cell with no issue", () => {
+    expect(workCommentToPost(item(), item({ phase: "ready", pr: 983 }))).toBeNull();
+  });
+
+  // Switching a cell to a branch whose PR is already merged is not this cell doing the merge.
+  it("does not announce a start for work that is already merged or closed", () => {
+    expect(workCommentToPost(item(), item({ phase: "closed", pr: 983, issue: 979 }))).toBeNull();
+  });
+
+  it("announces the new issue when a cell moves to a different one", () => {
+    const before = item({ phase: "ready", pr: 983, issue: 979 });
+    expect(workCommentToPost(before, item({ phase: "none", issue: 966 }))).toBe("start");
   });
 });
