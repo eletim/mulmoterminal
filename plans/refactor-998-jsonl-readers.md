@@ -54,7 +54,6 @@ file fits in the window.
 
 ## Next
 
-3. the three whole-file scans → line stream
 4. the title reader → head
 
 ---
@@ -106,3 +105,54 @@ Real content, 13 ms. Before this it was an exception caught into an empty turn.
 The 64 MB refusal existed because reading whole was unaffordable. Nothing sets `tooLarge` any more.
 The constant and the flag stay for the moment: `tooLarge` reaches the UI (`useHandoff`,
 `codeBlockCopy`), and removing a wire field is its own change rather than a rider on this one.
+
+
+---
+
+# Phase 3 — the three whole-file scans
+
+`readSessionSummary`, `sessionTimeline` and `readFileCost` each needed every record, so a tail
+cannot serve them. They stream instead.
+
+## Nothing re-implements a rule
+
+Every one of these was already a fold over records; the only thing holding it to an array was
+`parseJsonl(readFile(...))`. So each existing `…FromParsed` rule is kept exactly as it is and fed a
+window instead of the file:
+
+- **`createSummaryScan`** — the fields that need every record (usage, user turns, the AI title)
+  accumulate as records arrive; the ones describing the END of the session (last prompt, last reply,
+  model/context, current tools) read a bounded 400-record tail. Each is still computed by the
+  original function, on a one-record or tail-sized window.
+- **`timelineEventsIn(record)`** — the per-record half of `timelineFromJsonl`, which now calls it.
+  The caller keeps only the newest 300 events, which the payload was already capped to: holding the
+  whole transcript in order to throw most of it away was the expensive part.
+- **`createCostScan`** — the same accumulation one record at a time. `costForUsage` is untouched,
+  so pricing lives in one place.
+
+## Equivalence is the test
+
+`summary-scan.spec.ts` asserts the scan against **the original functions on the same records**
+rather than against hand-written expectations, so the two cannot drift: empty session, one exchange,
+several turns, a turn in progress, competing AI titles, records that are neither user nor assistant,
+an assistant turn with no usage — and the two properties that pull in opposite directions:
+
+- usage and turn counts must see **every** record (a tail-only fold would under-report a long
+  session's cost)
+- last prompt / last reply must describe the **end** (and not be dragged back by what came before)
+
+## Measured on the real file
+
+One pass over the 585 MB transcript, all three scans at once:
+
+```text
+2557ms, RSS 475MB
+  userTurns : 95
+  usage in  : 6,107 tokens
+  model     : claude-opus-4-8  ctx=69,820
+  cost      : $1072.63 (0 unpriced)
+  timeline  : 1539 events
+```
+
+Every one of those was empty or zero before — including the cost, which #998 noted was being
+summed into the project total as **$0**.

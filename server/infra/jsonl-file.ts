@@ -32,6 +32,21 @@ export async function forEachJsonlLine(file: string, onLine: (line: string) => v
   }
 }
 
+/** Every record in a JSONL file, one at a time — the whole-file counterpart to readTailRecords.
+ *  Nothing is kept: `onRecord` decides what survives, which is how a summary distils hundreds of
+ *  megabytes into a handful of fields. Malformed and non-object lines are skipped. */
+export async function forEachJsonlRecord(file: string, onRecord: (record: Record<string, unknown>) => void): Promise<void> {
+  await forEachJsonlLine(file, (line) => {
+    if (!line.trim()) return;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed)) onRecord(parsed);
+    } catch {
+      // Skip malformed lines, exactly as parseJsonl does.
+    }
+  });
+}
+
 /** The parsed records at the END of a JSONL file — what every "what happened last" reader wants.
  *  Bounded: it reads `tailBytes`, so a 585 MB transcript costs the same as a 1 KB one. Malformed
  *  lines are skipped, which also covers the partial line a mid-file read can leave behind. */
