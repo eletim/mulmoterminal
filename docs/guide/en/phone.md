@@ -61,7 +61,7 @@ that was relaying your keystrokes is gone.
 The replies above are short. For the sentences you send over and over — "PR作って",
 "マージして", "テスト通して" — add your own chips.
 
-**Settings (⚙) → Phone quick commands.** Give each one a **label** (the chip's face, keep it
+**Settings → Phone quick commands.** Give each one a **label** (the chip's face, keep it
 short) and the **text** it inserts. They're empty until you add some, so nothing appears on the
 phone until then.
 

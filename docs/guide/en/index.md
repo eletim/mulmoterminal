@@ -32,7 +32,7 @@ Stay zoomed into one agent while a text list tracks **every session's AI summary
 instruction, latest reply, and PR phase** (draft / CI fail / ready / merged …). This is the
 main screen for running many agents. → [Basics](basics.html)
 
-### 📱 Phone push & remote control — walk away, get called back
+### Phone push & remote control — walk away, get called back
 
 ![Push notifications on a phone's lock screen](../images/push-lock-screen.jpg)
 
@@ -42,7 +42,7 @@ and answer with one tap (**yes / no / continue**). → [Mobile notifications](no
 ### 🌿 Worktree isolation & one-click PRs
 
 **Git worktrees** let several agents work the same repo without colliding — diff panel, commit,
-push, and **⧉ Open PR**, all from the cell. → [Scenarios](scenarios.html)
+push, and **Open PR**, all from the cell. → [Scenarios](scenarios.html)
 
 ### 🖼️ The GUI panel — a screen beside the terminal
 
@@ -62,10 +62,10 @@ As you run more and more terminals and AI agents (**Claude Code** / **Codex**)�
 - 📊 you **lose track of which one is doing what** (their status)
 - 📁 you can't tell **which directory** each is in
 - 💭 even when you know the dir, **what did I even ask it?** (you forget the instruction)
-- 🔔 an agent **finishes and you don't notice** — it waits on you, or you wait on it
+- an agent **finishes and you don't notice** — it waits on you, or you wait on it
 - 💥 close the tab or the terminal drops, and **the session is gone**
 - 🌿 you want to check git or open a folder, but keep **typing commands for it**
-- ⚡ all you really wanted was to **work fast with the terminal as your hub** —
+- all you really wanted was to **work fast with the terminal as your hub** —
 
 AI agents take minutes per task. Babysit one and your hands sit idle; add more and keeping track gets harder.
 The bottleneck isn't the CPU or the terminal — it's **your attention**.
@@ -76,7 +76,7 @@ The bottleneck isn't the CPU or the terminal — it's **your attention**.
 |---|---|
 | Can't tell the **status** of many terminals | Lay them out in a grid; **status colors** (working = blue / awaiting input = amber / done-review = blue ring) + a sound, at a glance (→ [Basics](basics.html)) |
 | Don't know **which directory** | Each cell shows its dir, a **project name badge, and colors**. Color-code to tell them apart (→ [Config](config.html#per-dir)) |
-| **Forget the instruction** | The cell header always shows the **latest instruction / what it's doing**; 🕘 shows the **tool-call history** (→ [Feature reference](features.html)) |
+| **Forget the instruction** | The cell header always shows the **latest instruction / what it's doing**; **Activity timeline** shows the **tool-call history** (→ [Feature reference](features.html)) |
 | Want to **know it's done** | Input-waiting turns **amber**, a finished turn gets a **blue ring**, both **play a sound** — plus a **Web Push to your phone** (→ [Mobile notifications](notifications.html)) |
 | Want the **session to survive** | **tmux persistence** keeps it alive across reload, reconnect, and server restart |
 | Open **git / a dir** quickly | A git status chip; open **the OS file manager (Finder/Explorer) / the in-app files / a PR** in one click |
@@ -89,7 +89,7 @@ The bottleneck isn't the CPU or the terminal — it's **your attention**.
 3. **Automate & investigate** — run scripts in one click (in a **spare cell** next to a running session); when one fails, **turn a wall of logs into a short AI diagnosis**.
 4. **Extend (DSL)** — header buttons/chips, launchers, and per-project config via **a small DSL** — it fits any developer.
 
-## 🚀 Get started
+## Get started
 
 If the [`claude`](https://claude.com/claude-code) CLI (Claude Code) runs on your machine and you have **Node ≥ 22.9**,
 one command starts it:

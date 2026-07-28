@@ -28,7 +28,7 @@ both effective **immediately** (no restart).
 
 ### From the Settings modal (recommended)
 
-1. Open **⚙ (Settings) → Pull request repos**.
+1. Open **Settings → Pull request repos**.
 2. Type an **`owner/repo`** (e.g. `receptron/mulmoterminal`) and click **Add**.
 3. Added repos are listed; remove any with its **✕**.
 
@@ -87,7 +87,7 @@ gh auth login
 
 ## If nothing shows up
 
-- **"No repositories configured…"** → nothing registered yet. Add `owner/repo` under **⚙ → Pull request repos**.
+- **"No repositories configured…"** → nothing registered yet. Add `owner/repo` under **Settings → Pull request repos**.
 - **"gh not found…"** → install the GitHub CLI and run `gh auth login`.
 - **One repo errors** → check the spelling (`owner/repo`) and your **`gh` access** to it (private repos need permission).
 - **A PR you just opened is missing** → there's no auto-refresh, so hit **↻ Reload**. Still missing? Confirm it's open and the `owner/repo` is right.

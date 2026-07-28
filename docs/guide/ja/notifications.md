@@ -24,13 +24,13 @@ nav_order: 6
 
 ## ① ターミナル側の設定（mulmoterminal）
 
-1. ツールバーの **📱 RemoteHost**（`phonelink` アイコン）を開き、**Connect（Google サインイン）**を
+1. ツールバーの **RemoteHost**（`phonelink` アイコン）を開き、**Connect（Google サインイン）**を
    クリックします。Google のサインインポップアップが開くので、スマホと**同じ Google アカウント**で
    サインインします。
-2. **設定（⚙）→ Web Push notifications** の
+2. **Settings → Web Push notifications** の
    **「Notify my devices when a task finishes」** を ON にします（既定は OFF）。
 
-> ⚠️ 設定（⚙）にある **Google account**（カレンダー連携用）とは**別物**です。
+> ⚠️ Settings にある **Google account**（カレンダー連携用）とは**別物**です。
 > 通知に使うのは RemoteHost パネルの **Connect** のほうです。
 
 これで、バックグラウンドのタスクが完了するたびにスマホへ通知が飛びます。
@@ -92,7 +92,7 @@ mulmoserver PWA は通知の受け口であるだけでなく、**リモコン**
 
 ## どの瞬間に飛ぶか・どう選ぶか {#kinds}
 
-Push が飛ぶ瞬間は2種類あり、**設定（⚙）→ Web Push notifications** にそれぞれのチェックボックスが
+Push が飛ぶ瞬間は2種類あり、**Settings → Web Push notifications** にそれぞれのチェックボックスが
 あります。片方を外せばその瞬間だけ通知が止まり、もう片方は生きたままです。
 
 | 設定 | 飛ぶタイミング | 見た目 | 頻度 |
