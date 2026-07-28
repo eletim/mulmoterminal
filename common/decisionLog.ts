@@ -40,7 +40,10 @@ export interface DecisionRecord {
 
 export interface DecisionsResponse {
   decisions: DecisionRecord[];
-  /** How many transcripts were read. Bounded, so a caller can tell a quiet project from a
-   *  truncated scan. */
+  /** How many transcripts were read successfully. Bounded, so a caller can tell a quiet project
+   *  from a truncated scan. */
   scanned: number;
+  /** How many could not be read at all. Reported rather than folded into `scanned`, because a
+   *  read that failed is missing decisions — not a session that had none. */
+  unreadable: number;
 }

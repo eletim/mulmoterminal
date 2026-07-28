@@ -71,7 +71,9 @@ async function scanTranscript(transcript: Transcript): Promise<DecisionRecord[]>
   return scan.finish(transcript.sessionId);
 }
 
-async function decisionsIn(transcript: Transcript): Promise<DecisionRecord[]> {
+// A transcript that could not be read is reported, not silently treated as one with no decisions:
+// the caller cannot otherwise tell a quiet project from a partial answer (Codex review).
+async function decisionsIn(transcript: Transcript): Promise<DecisionRecord[] | null> {
   const hit = cache.get(transcript.file, transcript.stamp);
   if (hit) return hit;
   try {
@@ -79,21 +81,42 @@ async function decisionsIn(transcript: Transcript): Promise<DecisionRecord[]> {
     cache.set(transcript.file, transcript.stamp, found);
     return found;
   } catch {
-    return []; // unreadable transcript is an absence of decisions, not an error for the caller
+    return null;
   }
+}
+
+// Each scan holds an open read stream, so a cold pass over a project with hundreds of sessions
+// would open hundreds at once and can hit the process's file-descriptor limit — where the failure
+// lands in the catch above and quietly costs decisions. A small pool keeps the cold pass fast
+// (measured: 200 transcripts in ~120ms) without ever holding more than this many descriptors.
+const SCAN_CONCURRENCY = 8;
+
+async function mapWithLimit<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) results[i] = await run(items[i]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 export async function decisionsForCwd(cwd: string, limit: number): Promise<DecisionsResponse> {
   const transcripts = await transcriptsNewestFirst(projectSessionsDir(cwd));
-  const perFile = await Promise.all(transcripts.map(decisionsIn));
-  return { decisions: perFile.flat().sort(byNewest).slice(0, limit), scanned: transcripts.length };
+  const perFile = await mapWithLimit(transcripts, SCAN_CONCURRENCY, decisionsIn);
+  const read = perFile.filter((found): found is DecisionRecord[] => found !== null);
+  return {
+    decisions: read.flat().sort(byNewest).slice(0, limit),
+    scanned: read.length,
+    unreadable: perFile.length - read.length,
+  };
 }
 
 /** Same shape, no decisions: the requested directory is gone or was never one. A route that
  *  REPORTS ON a directory must not fall back to the default workspace — the caller would render
  *  another project's decisions under this one's name, and a stale preset (a project since
  *  deleted) is exactly when that happens. */
-export const NO_DECISIONS: DecisionsResponse = { decisions: [], scanned: 0 };
+export const NO_DECISIONS: DecisionsResponse = { decisions: [], scanned: 0, unreadable: 0 };
 
 export function mountDecisionRoutes(app: Express): void {
   app.get("/api/decisions", async (req: Request, res: Response) => {

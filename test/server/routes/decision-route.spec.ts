@@ -46,9 +46,9 @@ describe("GET /api/decisions", () => {
     try {
       const res = await get({ cwd: dir });
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ decisions: [], scanned: 0 });
+      expect(res.body).toEqual({ decisions: [], scanned: 0, unreadable: 0 });
       // Named individually so a future shape change has to face each field.
-      expect(Object.keys(res.body).sort()).toEqual(["decisions", "scanned"]);
+      expect(Object.keys(res.body).sort()).toEqual(["decisions", "scanned", "unreadable"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
