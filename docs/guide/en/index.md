@@ -60,36 +60,46 @@ Sessions survive reloads, reconnects, and server restarts. Leave a long build ru
 
 ---
 
-## What people switched away from
+## What people say after switching
 
-Unprompted write-ups from people who moved over. Both are in Japanese, and both are worth
-reading in full if you're weighing the same move.
+From people who moved over from an IDE or a split terminal — what they were escaping, and what
+actually changed.
 
-> **"Not eating my memory is just the best."**
-> "My 64 GB machine used to stutter. Now it's smooth."
-> "Just not losing context to a killed session makes the switch worth it."
->
-> — [VSCodeからMulmoTerminalへ移籍した話](https://qiita.com/tanaka_taro_JP_KYUSYU/items/1355c98e73e16f66eb53)
-> (Qiita, moved from VS Code on Windows)
+### "It stopped eating my memory"
 
-> **"Running several agents in parallel" and "reading one output properly" — you can have both
-> at the same time.**
->
-> Splitting a terminal six ways left every pane too small to read a 4,000-character answer
-> without constant scrolling and resizing. The grid ↔ enlarge switch is described as removing
-> that trade-off.
->
-> — [VS Code拡張もターミナル6分割もいらなくなるかもしれない](https://note.com/kazu098/n/n45f007a50034)
-> (note, moved from the Claude Code VS Code extension)
+Keeping several agents apart by opening several IDE windows is expensive: each one brings its own
+editor, language server, extensions and file watchers. People hit that wall on **64 GB machines**.
+Here the agents are PTYs on a server and the UI is browser tabs, so a machine that used to stutter
+runs smoothly.
 
-Two things come up in almost every account, and **neither is about running *more* agents**:
+### "I stopped answering the wrong agent"
 
-- **Memory.** Several IDE windows to keep several agents apart is expensive; browser tabs are not.
-- **Telling them apart.** Six panes of scrolling text look identical — people described answering
-  one agent in another agent's terminal, and losing track of what they had asked.
+Six panes of scrolling text look identical. People described **typing a reply into another agent's
+terminal**, and losing track of what they had asked in the first place. The problem isn't attention
+— it's that N identical panes means holding N contexts in your head.
 
-The colour-coded grid exists for the second one. And the parallel count does not have to be
-high: people report the switch paying off at **one to three** sessions, not ten.
+Colour-coded state, a name badge and a per-directory colour move that out of your head and onto the
+screen.
+
+### "Watching many and reading one stopped being a trade-off"
+
+Splitting a terminal six ways leaves every pane too small to read a 4,000-character answer without
+constant scrolling and resizing. So people quietly accept worse reading every time they add an
+agent.
+
+**Grid ↔ enlarge removes that.** Watch all of them, then blow one up and read it properly — the
+cockpit roster keeps the rest in view as text while you do.
+
+### "My existing sessions came with me"
+
+Sessions resume as-is — same `claude --resume`, same transcripts. Point it at a directory you
+already work in and your history is there. Nothing to migrate, nothing to redo.
+
+---
+
+**You don't need ten agents for this to pay off.** People report the switch being worth it at
+**one to three** parallel sessions. The wins above are about not losing track, not about running
+more.
 
 ---
 
