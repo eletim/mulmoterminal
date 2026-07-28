@@ -1,11 +1,13 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 
 import { cleanupSessionDrops, dropExtension, dropsDir, ensureDropsDir, pruneOrphanDrops, saveDrop } from "../../../server/session/session-drops.js";
+import { canSymlink } from "../../support/canSymlink.js";
+import { makeTempDir } from "../../support/tempDir.js";
 
 const SESSION = randomUUID();
 
@@ -108,7 +110,7 @@ describe("ensureDropsDir", () => {
 
 describe("pruneOrphanDrops", () => {
   const withRoot = (run: (root: string) => void) => {
-    const root = mkdtempSync(path.join(os.tmpdir(), "drops-spec-"));
+    const root = makeTempDir("drops-spec-");
     try {
       run(root);
     } finally {
@@ -156,7 +158,7 @@ describe("pruneOrphanDrops", () => {
   // On Linux os.tmpdir() is world-writable, so another user can pre-create the root as a link
   // aimed wherever they like. Following it would have this function delete THEIR chosen
   // directory's contents — the one code path here that removes anything.
-  it("refuses a root that is a symlink rather than following it", () => {
+  it.runIf(canSymlink)("refuses a root that is a symlink rather than following it", () => {
     withRoot((root) => {
       const real = path.join(root, "real");
       const orphan = randomUUID();
