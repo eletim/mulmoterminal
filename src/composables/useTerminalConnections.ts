@@ -48,6 +48,7 @@ import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
+import { sendBytesFor, type Keymap, type KeymapKeyEvent } from "../../common/keymap";
 import { getActiveKeymap } from "./activeKeymap";
 import { isCopyOnSelectEnabled } from "./copyOnSelect";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
@@ -71,6 +72,23 @@ type EnterHandlerEvent = EnterKeyEvent & { preventDefault: () => void };
 export function makeEnterHandler(getMode: () => TerminalSubmitMode, send: (data: string) => void): (e: EnterHandlerEvent) => boolean {
   return (e) => {
     const bytes = enterKeyOverride(getMode(), e);
+    if (bytes === null) return true;
+    e.preventDefault();
+    send(bytes);
+    return false;
+  };
+}
+
+// The user's `keymap.send` bindings, turned into bytes on this terminal's PTY (#1005) — the
+// same three lines as the Enter handler above, and `preventDefault()` matters here for the same
+// reason: without it xterm leaves the browser to fire a keypress that arrives as stray input.
+//
+// Per terminal rather than on the grid's handler, because the bytes go to ONE pty — the one
+// whose xterm saw the key — and the grid has no such subject when nothing is enlarged.
+type SendHandlerEvent = KeymapKeyEvent & { type: string; isComposing?: boolean; preventDefault: () => void };
+export function makeSendHandler(getKeymap: () => Keymap, send: (data: string) => void): (e: SendHandlerEvent) => boolean {
+  return (e) => {
+    const bytes = sendBytesFor(getKeymap(), e);
     if (bytes === null) return true;
     e.preventDefault();
     send(bytes);
@@ -335,10 +353,19 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
   };
   term.onData(send);
   const onEnter = makeEnterHandler(() => effectiveSubmitMode(c), send);
+  const onSend = makeSendHandler(getActiveKeymap, send);
   // Clipboard first: it answers for at most two bindings and, when it answers, the key must
   // NOT be turned into bytes. Returning false here (without preventDefault) is what lets the
   // browser run the copy/paste xterm already listens for — see common/terminalClipboard.ts.
-  term.attachCustomKeyEventHandler((e) => (clipboardActionFor(getActiveKeymap(), e, term.hasSelection()) ? false : onEnter(e)));
+  //
+  // Then `send`, then Enter. Order only decides a key bound BOTH ways, and it settles it the way
+  // the more specific binding should win: copy/paste answer for at most two keys, and a `send`
+  // on Enter is someone deliberately overriding the submit behaviour for this one keystroke.
+  term.attachCustomKeyEventHandler((e) => {
+    if (clipboardActionFor(getActiveKeymap(), e, term.hasSelection())) return false;
+    if (!onSend(e)) return false;
+    return onEnter(e);
+  });
 }
 
 // Linkify file paths in the output, scoped to the session's live cwd (read lazily, since

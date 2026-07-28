@@ -37,7 +37,21 @@ export const isKeymapAction = (value: unknown): value is KeymapAction => typeof 
 //     ^C. A handler that has already swallowed the key cannot change its mind.
 export const TERMINAL_SCOPED_ACTIONS: readonly KeymapAction[] = ["copy", "paste"];
 
-export type Keymap = Partial<Record<KeymapAction, string>>;
+// A key that puts BYTES into the focused terminal instead of running an app action (#1005) —
+// Cmd+Right as Ctrl+E for end-of-line, say, or Alt+B for word-back.
+//
+// A LIST, where every action above is a single field, because the two are shaped differently:
+// an action is one behaviour that a key is pointed at, while every send binding carries its own
+// payload. `{ "send": "\u0005" }` could only ever name one key.
+//
+// `bytes` goes to the PTY verbatim. Control characters are written the way JSON writes them
+// (`"\u0005"` is Ctrl+E); nothing here interprets or re-escapes them.
+export interface SendBinding {
+  key: string;
+  bytes: string;
+}
+
+export type Keymap = Partial<Record<KeymapAction, string>> & { send?: SendBinding[] };
 
 // A parsed binding. `key` is matched against `KeyboardEvent.key` exactly as the browser
 // reports it, so it is case-sensitive for printable characters ("a" and "A" differ, the
@@ -108,6 +122,26 @@ export function actionForKey(keymap: Keymap, e: KeymapKeyEvent): KeymapAction | 
   return null;
 }
 
+const isSendBinding = (value: unknown): value is SendBinding =>
+  typeof value === "object" && value !== null && typeof (value as SendBinding).key === "string" && typeof (value as SendBinding).bytes === "string";
+
+// The bytes this keydown should put into the terminal, or null when it is not a send binding.
+//
+// Only reachable for keys the GRID did not claim: its handler listens on `window` in the capture
+// phase and calls stopPropagation(), so an action and a send binding on one keystroke is not a
+// race — the action always wins and the send silently never fires. validateKeymap warns about it
+// for that reason.
+//
+// First match wins, so a keystroke listed twice uses the earlier entry.
+export function sendBytesFor(keymap: Keymap, e: KeymapKeyEvent & { type: string; isComposing?: boolean }): string | null {
+  if (e.type !== "keydown" || e.isComposing) return null;
+  for (const entry of keymap.send ?? []) {
+    const binding = parseKeyBinding(entry.key);
+    if (binding && matchesBinding(binding, e)) return entry.bytes;
+  }
+  return null;
+}
+
 // What is wrong with one `keymap` entry. `fatal` separates a typo the user clearly meant to
 // work (a binding we cannot parse — the shortcut would silently never fire) from an action
 // name we simply do not know, which is what a config written for a NEWER version looks like
@@ -127,38 +161,74 @@ export function validateKeymap(input: unknown): KeymapProblem[] {
     return [{ action: "keymap", binding: input, reason: "`keymap` must be an object of action -> key binding", fatal: true }];
   }
   const entries = Object.entries(input as Record<string, unknown>);
-  const bound = new Map<string, { action: KeymapAction; binding: string }[]>();
+  // A claim on one keystroke. `rank` is DISPATCH order, so the winner can be named: every action
+  // outranks every send binding, because the grid's handler runs in the capture phase and stops
+  // the event before the terminal — see sendBytesFor.
+  const bound = new Map<string, Claim[]>();
+  const claim = (parsed: KeyBinding, entry: Claim): void => {
+    const key = canonicalBinding(parsed); // as PARSED: "Shift+PageUp" and "shift+pageup" are one keystroke
+    bound.set(key, [...(bound.get(key) ?? []), entry]);
+  };
   const problems = entries.flatMap(([action, binding]): KeymapProblem[] => {
+    if (action === "send") return sendProblems(binding, claim);
     if (!isKeymapAction(action)) {
-      return [{ action, binding, reason: `unknown action (known: ${KEYMAP_ACTIONS.join(", ")})`, fatal: false }];
+      return [{ action, binding, reason: `unknown action (known: ${KEYMAP_ACTIONS.join(", ")}, send)`, fatal: false }];
     }
     if (typeof binding !== "string") return [{ action, binding, reason: "binding must be a string", fatal: true }];
     const parsed = parseKeyBinding(binding);
     if (parsed === null) {
       return [{ action, binding, reason: 'unparseable key binding — expected e.g. "PageDown" or "Shift+PageUp"', fatal: true }];
     }
-    // Grouped as PARSED, since "Shift+PageUp" and "shift+pageup" are one keystroke.
-    const key = canonicalBinding(parsed);
-    bound.set(key, [...(bound.get(key) ?? []), { action, binding }]);
+    claim(parsed, { label: action, binding, rank: KEYMAP_ACTIONS.indexOf(action) });
     return [];
   });
   return [...problems, ...duplicateWarnings(bound)];
 }
 
-// Two actions on one keystroke: only one can fire, so the others silently never work.
+interface Claim {
+  label: string;
+  binding: string;
+  rank: number;
+}
+
+// Everything wrong with the `send` list, claiming the keystrokes that are well-formed.
 //
-// The winner is decided the way `actionForKey` decides it — first in KEYMAP_ACTIONS order —
-// NOT by which came first in the config file. Reporting the config-order winner would name
-// the wrong action whenever the two orders disagree, which is worse than not naming one.
-function duplicateWarnings(bound: Map<string, { action: KeymapAction; binding: string }[]>): KeymapProblem[] {
+// Fatal throughout, for the reason the module header gives: a send binding is invisible until
+// the key is pressed, so a dropped one is indistinguishable from a shortcut that "doesn't work".
+// Empty `bytes` is fatal too — it would take the key away from the terminal and put nothing back.
+function sendProblems(input: unknown, claim: (parsed: KeyBinding, entry: Claim) => void): KeymapProblem[] {
+  if (!Array.isArray(input)) {
+    return [{ action: "send", binding: input, reason: "`send` must be an array of { key, bytes }", fatal: true }];
+  }
+  return input.flatMap((entry, i): KeymapProblem[] => {
+    const label = `send[${i}]`;
+    if (!isSendBinding(entry)) return [{ action: label, binding: entry, reason: "expected { key: string, bytes: string }", fatal: true }];
+    const parsed = parseKeyBinding(entry.key);
+    if (parsed === null) {
+      return [{ action: label, binding: entry.key, reason: 'unparseable key binding — expected e.g. "Cmd+ArrowRight"', fatal: true }];
+    }
+    if (entry.bytes === "") {
+      return [{ action: label, binding: entry.key, reason: "`bytes` is empty — the key would be taken from the terminal and nothing sent", fatal: true }];
+    }
+    // Ranked after every action, matching who actually wins (see the `bound` comment above).
+    claim(parsed, { label, binding: entry.key, rank: KEYMAP_ACTIONS.length + i });
+    return [];
+  });
+}
+
+// Two claims on one keystroke: only one can fire, so the others silently never work.
+//
+// The winner is the one DISPATCH picks, not the one written first in the config file. Reporting
+// the config-order winner would name the wrong entry whenever the two orders disagree, which is
+// worse than not naming one.
+function duplicateWarnings(bound: Map<string, Claim[]>): KeymapProblem[] {
   return [...bound.values()].flatMap((claims) => {
     if (claims.length < 2) return [];
-    const byDispatch = [...claims].sort((a, b) => KEYMAP_ACTIONS.indexOf(a.action) - KEYMAP_ACTIONS.indexOf(b.action));
-    const [winner, ...losers] = byDispatch;
-    return losers.map(({ action, binding }) => ({
-      action,
+    const [winner, ...losers] = [...claims].sort((a, b) => a.rank - b.rank);
+    return losers.map(({ label, binding }) => ({
+      action: label,
       binding,
-      reason: `same keystroke as \`${winner.action}\` — only \`${winner.action}\` will fire`,
+      reason: `same keystroke as \`${winner.label}\` — only \`${winner.label}\` will fire`,
       fatal: false,
     }));
   });
@@ -172,8 +242,16 @@ const canonicalBinding = (b: KeyBinding): string => `${b.shift ? "S" : ""}${b.al
 // rest of the config treats one bad entry.
 export function sanitizeKeymap(input: unknown): Keymap {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return {};
-  const entries = Object.entries(input as Record<string, unknown>).filter(
+  const raw = input as Record<string, unknown>;
+  const entries = Object.entries(raw).filter(
     (entry): entry is [KeymapAction, string] => isKeymapAction(entry[0]) && typeof entry[1] === "string" && parseKeyBinding(entry[1]) !== null,
   );
-  return Object.fromEntries(entries);
+  const send = sanitizeSendBindings(raw.send);
+  return { ...Object.fromEntries(entries), ...(send.length ? { send } : {}) };
 }
+
+// An entry survives only if it names a parseable key AND carries bytes to send. An empty `send`
+// is dropped entirely rather than kept as `[]`, so an absent and an emptied list look the same
+// to everything downstream.
+const sanitizeSendBindings = (input: unknown): SendBinding[] =>
+  Array.isArray(input) ? input.filter(isSendBinding).filter((entry) => entry.bytes !== "" && parseKeyBinding(entry.key) !== null) : [];

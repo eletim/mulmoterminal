@@ -833,6 +833,50 @@ awaiting input first, then finished-and-unreviewed, then idle, skipping whatever
 { "keymap": { "next-attention": "F9", "zoom-toggle": "F8" } }
 ```
 
+### Sending keys to the terminal (`send`) {#keymap-send}
+
+The actions above drive MulmoTerminal. `send` does the opposite: it puts **bytes straight into the
+terminal**, so a key your shell or agent already understands can be reached from a key your keyboard
+actually has. The request that added it was `Cmd`+`→` for **end of line** on a Mac.
+
+```json
+{
+  "keymap": {
+    "send": [
+      { "key": "Cmd+ArrowRight", "bytes": "\u0005" },
+      { "key": "Cmd+ArrowLeft",  "bytes": "\u0001" }
+    ]
+  }
+}
+```
+
+`\u0005` is `Ctrl`+`E` (end of line) and `\u0001` is `Ctrl`+`A` (start of line) — both understood by
+`readline`, by Claude Code's input, and by codex. Write control characters the way JSON writes them,
+`\uXXXX`; nothing re-interprets the value, it reaches the program exactly as given.
+
+A **list**, not one binding per action like everything else on this page, because each entry carries
+its own payload — one `send` field could only ever name one key.
+
+| Want | `bytes` | Is |
+|---|---|---|
+| Start / end of line | `\u0001` / `\u0005` | `Ctrl`+`A` / `Ctrl`+`E` |
+| Back / forward one word | `\u001bb` / `\u001bf` | `Alt`+`B` / `Alt`+`F` |
+| Delete to end of line | `\u000b` | `Ctrl`+`K` |
+| Escape (leave a TUI mode) | `\u001b` | `Esc` |
+
+The bytes go to the terminal **the key was pressed in** — the one your cursor is in, not "the
+enlarged one".
+
+{: .warning }
+> **An action beats a `send` on the same keystroke, always.** They are not decided in the same place:
+> app actions are claimed before the terminal ever sees the key, so the `send` silently never fires.
+> MulmoTerminal **warns** at startup naming both. An empty `"bytes"` is refused outright — it would
+> take the key away from the terminal and put nothing back.
+
+Bound entries are listed in **Settings → Keyboard shortcuts** alongside the actions, written in the
+caret notation a terminal uses (`^E`), so you can see what a key will send without decoding
+`\uXXXX`.
+
 ### Binding syntax
 
 `Modifier+Modifier+Key`. The key is matched against the browser's `KeyboardEvent.key` value.

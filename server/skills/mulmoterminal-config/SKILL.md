@@ -342,6 +342,41 @@ never add one they did not request.
 | `copy` | Copy the terminal's selection. Acts ONLY when something is selected, so `Ctrl+C` stays usable as interrupt — with no selection the key reaches the program untouched | no |
 | `paste` | Paste into the terminal | no |
 
+### Sending raw keys to the terminal — `keymap.send`
+
+The actions above drive MulmoTerminal. `send` does the opposite: it puts **bytes straight into the
+terminal**, so a key the shell or agent already understands can be reached from a key the keyboard
+has. The motivating request was `Cmd+Right` for end-of-line on a Mac.
+
+```json
+{
+  "keymap": {
+    "send": [
+      { "key": "Cmd+ArrowRight", "bytes": "\u0005" },
+      { "key": "Cmd+ArrowLeft",  "bytes": "\u0001" }
+    ]
+  }
+}
+```
+
+A **list**, unlike every action above, because each entry carries its own payload. Control characters
+are written the way JSON writes them (`\uXXXX`) and are NOT re-interpreted — the value reaches the
+program exactly as written.
+
+| Want | `bytes` | Is |
+|---|---|---|
+| Start / end of line | `\u0001` / `\u0005` | `Ctrl+A` / `Ctrl+E` |
+| Back / forward one word | `\u001bb` / `\u001bf` | `Alt+B` / `Alt+F` |
+| Delete to end of line | `\u000b` | `Ctrl+K` |
+| Escape | `\u001b` | `Esc` |
+
+Two rules to state when writing one:
+
+- **An action beats a `send` on the same keystroke, always** — they are decided in different places
+  and the action is claimed first, so the `send` silently never fires. The server warns at startup.
+- **Empty `"bytes"` is refused** and stops the server: it would take the key from the terminal and
+  put nothing back.
+
 **Offer one of these starter sets rather than inventing keys** — each is checked against the traps
 below, and the guide documents them at
 [Configuration → Keyboard shortcuts](https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap):
