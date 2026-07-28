@@ -32,7 +32,7 @@ server   ── node-pty  ── tmux (persistence)  ── agent (claude / code
 | Package | Pin | Why it's load-bearing |
 |---|---|---|
 | `@xterm/xterm` | `^6.0.0` | 6.0 changed the scrollbar (VS Code-style overlay) and internals. The DOM/link/scroll code assumes 6.x. |
-| `@xterm/addon-canvas` | `^0.7.0` | ⚠️ **Peers on `@xterm/xterm@^5`** — an xterm-5 renderer running on xterm-6. There is **no stable xterm-6 canvas addon** (even `0.8.0-beta` peers `^5`). Suspected cause of the scrollbar / selection-auto-scroll problems (#782). See [Renderer](#renderer-canvas-vs-dom). |
+| `@xterm/addon-canvas` | `^0.7.0` | **Peers on `@xterm/xterm@^5`** — an xterm-5 renderer running on xterm-6, deliberately. There is **no xterm-6 canvas addon** (even `0.8.0-beta` peers `^5`), so this cannot be repaired by bumping. It is not known to break anything; it was once blamed for #782/#783 and measurement cleared it. See [Renderer](#renderer-canvas-vs-dom) for what to move to when an xterm bump does break it. |
 | `@xterm/addon-web-links` | `^0.12.0` | Linkifies visible `http(s)://` URLs. |
 | `@xterm/addon-clipboard` | `^0.2.0` | OSC 52 clipboard write (auto-copy → browser clipboard). |
 | `@xterm/addon-fit` | `^0.11.0` | Size the grid to the container. |
@@ -168,9 +168,25 @@ calling the render callback, so a renderer that throws still repaints on the nex
 ### Renderer (canvas vs DOM)
 
 The **canvas renderer** (`@xterm/addon-canvas`, added to fix CJK glyph drift — long Japanese lines
-spilling off the right edge with the DOM renderer) draws each glyph in a fixed cell. But the addon
-is xterm-5-era on xterm-6 (see the version table), and is the suspected cause of #782. See the
-CAVEAT comment at the `loadAddon(new CanvasAddon())` site. **Debugging note:** the canvas renderer
+spilling off the right edge with the DOM renderer) draws each glyph in a fixed cell. The addon is
+xterm-5-era on xterm-6 (see the version table), which looks alarming and **has not actually broken
+anything**: it was once named the suspected cause of #782 and #783, and measurement disproved both
+(#782 is tmux owning the scrollback and reproduces with the addon off; #783 was tmux stripping
+hyperlinks, fixed in #785). WebGL was never evaluated against it — #314 needed a fixed grid, canvas
+gave one, and `@xterm/addon-webgl` has never been a dependency.
+
+**The mismatch still costs something, just not what was assumed.** There is no xterm-6 canvas
+release, so the day an xterm bump breaks this addon, bumping it is not an option — the move is
+forced rather than chosen. What to know before that day:
+
+| | |
+|---|---|
+| Move to | `@xterm/addon-webgl`. **`0.19.0` is stable and xterm-6 era** — published 51 s after `@xterm/xterm@6.0.0`, the same pairing as 5.4.0/0.17.0 and 5.5.0/0.18.0. No beta needed; the `0.20.0-beta` line peers `@xterm/xterm@^6.1.0-beta`, i.e. the NEXT core. (#782's first comment says "要 beta" — that is wrong.) |
+| Why not the DOM renderer | It drops the dependency, but re-opens the CJK drift #314 closed. That drift is **font-environment specific and does not reproduce headlessly**, so CI cannot protect it — it comes back as a user report. |
+| Settle first | The WebGL **context limit** — browsers cap concurrent contexts and evict the oldest (order of ten; not measured here, so measure before relying on a number). This app is unusually exposed: a persisted slot **deliberately keeps its connection alive** when its view goes away (`Terminal.vue` calls `detach`, not `release` — that IS the persistence), so live terminals accumulate across tabs rather than tracking what is on screen. #965's reporter ran 22 cells. Needs `onContextLoss` handling and a decision about disposing off-screen terminals. |
+| Also | WebGL is unavailable on GPU blocklists / GPU-less VMs / some remote desktops. Keep the same best-effort load + DOM fallback this site already has. |
+
+**Debugging note:** the canvas renderer
 paints to `<canvas>`, so terminal text and link decorations are **not in the DOM** — headless
 inspection (`.xterm-rows`, `elementFromPoint`) sees nothing. To debug links/selection headlessly,
 force the DOM renderer or observe effects (`window.open`, buffer state) instead of reading the canvas.
@@ -202,10 +218,14 @@ or `terminal-overrides` capability. The isolation test: write the sequence **dir
 
 ## Known issues / open items
 
-- **#782 — scrollbar not shown / selection doesn't auto-scroll** (open). Likely the xterm-5 canvas
-  addon on xterm-6, but the scrollbar (auto-hide VS Code overlay) reproduced on the DOM renderer
-  too, so it may be two roots. Fix is a renderer decision (WebGL vs DOM), which needs on-device QA
-  (CJK drift, scrollbar, selection). See #782 for the full analysis.
+- **#782 — scrollbar not shown / selection doesn't auto-scroll** (open). **Root cause is tmux, not
+  the renderer** — every session runs inside tmux, tmux redraws the screen, so the outer xterm
+  receives only the visible screen and the scrollback lives in tmux's copy-mode. Hence nothing for
+  the scrollbar to show, and selection reaching only what is on screen. Measured: with tmux off the
+  same xterm keeps 305 lines and the scrollbar tracks; with the canvas addon off, nothing changes.
+  A fix is a design decision about handing the wheel to tmux copy-mode (see #782), which collides
+  with the #729/#737 mouse swallow. **Do not reach for a renderer swap** — that hypothesis is dead,
+  and this entry said otherwise until it was corrected.
 - **Selection & copy/paste** — several sharp edges:
   - macOS: selection is **Option+drag** (`macOptionClickForcesSelection`), not plain drag.
   - You can only select what's on screen: a Claude/Codex TUI runs in the **alternate buffer**,
@@ -224,7 +244,7 @@ looking) — flag them for QA on the release.
 
 | Area | Check in code | Needs user QA |
 |---|---|---|
-| Renderer / CJK | canvas addon still loads; `@xterm/addon-canvas` peer vs `@xterm/xterm` major (mismatch = red flag) | long Japanese line doesn't drift off the right edge |
+| Renderer / CJK | canvas addon still **loads** (the console warns when it falls back to DOM). The peer-major mismatch is expected and is not the check — a silent fallback is, because the CJK grid goes with it | long Japanese line doesn't drift off the right edge |
 | Scrollbar / selection | — (no unit coverage) | scrollbar visible + synced; Option+drag selects; selection auto-scrolls past the visible screen (#782) |
 | OSC 8 links | tmux `terminal-features '*:hyperlinks'` present; xterm `linkHandler` set | click Claude statusline `PR #NNNN` → opens the PR (no confirm dialog) |
 | OSC 52 clipboard | tmux `Ms` override + `set-clipboard on` present (`planMsOverride`) | Claude auto-copy reaches the browser clipboard |
