@@ -112,6 +112,27 @@ describe("createSummaryScan agrees with the whole-array fold", () => {
     expect(result).toEqual(folded(records));
   });
 
+  // Codex on #1037, round 2. Both of these are fallbacks the original rules have and a naive
+  // "remember the newest X" loses.
+  it("uses a last-prompt record when the transcript has no user line", () => {
+    const records = [{ type: "last-prompt", lastPrompt: "recorded by the hook" }, assistant("a")];
+    expect(scanned(records).lastPrompt).toBe("recorded by the hook");
+    expect(scanned(records)).toEqual(folded(records));
+  });
+
+  it("prefers a real user line over a last-prompt record", () => {
+    const records = [{ type: "last-prompt", lastPrompt: "recorded" }, user("typed"), assistant("a")];
+    expect(scanned(records).lastPrompt).toBe("typed");
+  });
+
+  // The context comes from the LAST assistant message as a unit — model and tokens together. A
+  // final turn that names no model reports null, not the model from an earlier turn.
+  it("reports the last assistant turn's context even when that turn names no model", () => {
+    const records = [user("q"), assistant("a"), assistant("b", { model: undefined })];
+    expect(scanned(records).context).toEqual(folded(records).context);
+    expect(scanned(records).context.model).toBeNull();
+  });
+
   it("truncates a long reply at the caller's cap", () => {
     const long = "x".repeat(RESPONSE_MAX + 50);
     expect(scanned([user("q"), assistant(long)]).lastResponse).toHaveLength(RESPONSE_MAX);

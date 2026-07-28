@@ -30,6 +30,7 @@ import {
   sessionUsageFromParsed,
 } from "./transcript.js";
 import type { LatestTurnContext, SessionUsage } from "./transcript.js";
+import { isRecord } from "../../common/isRecord.js";
 
 export interface SummaryParts {
   lastPrompt: string | null;
@@ -46,12 +47,16 @@ export function createSummaryScan() {
   let userTurns = 0;
   let aiTitle: string | null = null;
   const toolScan = createCurrentTurnToolScan();
-  // User records only — `latestMeaningfulUserPrompt` walks back for the newest NON-trivial one, so
-  // it needs them all, and a session has far fewer user turns than records.
-  const userRecords: Record<string, unknown>[] = [];
+  // The records the prompt rule reads: `user` lines, and the `last-prompt` record it falls back to
+  // when a transcript has none (a hook writes that one). Keeping user records alone dropped the
+  // fallback and reported null — Codex caught it. Still far fewer than the transcript.
+  const promptRecords: Record<string, unknown>[] = [];
   // Whatever produced these most recently, so a long run of tool calls afterwards cannot bury them.
   let lastAssistantText: string | null = null;
-  let lastContext: LatestTurnContext | null = null;
+  // The last assistant MESSAGE, not the last context that named a model: the rule reads model and
+  // tokens off the same final turn as a unit, so a turn naming no model reports null rather than
+  // an earlier turn's model (Codex).
+  let lastAssistantRecord: Record<string, unknown> | null = null;
 
   return {
     add(record: Record<string, unknown>) {
@@ -66,22 +71,21 @@ export function createSummaryScan() {
       usage.cacheCreationTokens += perRecord.cacheCreationTokens;
       aiTitle = aiTitleFromParsed(one) ?? aiTitle;
       toolScan.add(record);
-      if (record.type === "user") userRecords.push(record);
+      if (record.type === "user" || record.type === "last-prompt") promptRecords.push(record);
       // `?? previous` rather than an unconditional assign: an assistant record carrying only a
       // tool_use has no text, and must not blank out the reply the user is looking at.
       lastAssistantText = latestAssistantTextFromParsed(one) ?? lastAssistantText;
-      const context = latestTurnContextFromParsed(one);
-      if (context.model !== null) lastContext = context;
+      if (record.type === "assistant" && isRecord(record.message)) lastAssistantRecord = record;
     },
 
     finish(responseMax: number): SummaryParts {
       return {
-        lastPrompt: latestMeaningfulUserPromptFromParsed(userRecords),
+        lastPrompt: latestMeaningfulUserPromptFromParsed(promptRecords),
         aiTitle,
         lastResponse: lastAssistantText?.slice(0, responseMax) ?? null,
         userTurns,
         usage,
-        context: lastContext ?? latestTurnContextFromParsed([]),
+        context: latestTurnContextFromParsed(lastAssistantRecord ? [lastAssistantRecord] : []),
         toolNames: toolScan.names(),
       };
     },

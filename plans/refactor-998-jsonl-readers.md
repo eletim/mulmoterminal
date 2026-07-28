@@ -182,3 +182,24 @@ correct but cheaper — RSS fell from 475 MB to 378 MB.
 The reply and model use `?? previous` rather than an unconditional assign: an assistant record
 carrying only a `tool_use` has no text and no model, and must not blank out what the user is
 looking at.
+
+
+## Review follow-up 2: the fallbacks a "newest X" fold loses
+
+Codex, second round — two more places where remembering "the newest X" is not the same as running
+the rule:
+
+**`lastPrompt` lost the `last-prompt` fallback.** The rule prefers real `user` lines but falls back
+to a `last-prompt` record (written by a hook) when a transcript has none. Keeping only `user`
+records dropped that entirely, so such a transcript reported `null`. Both record types are kept now.
+
+**`context` drifted.** The rule takes the LAST assistant message and reads model and tokens off it
+**as a unit**, deliberately — "so a new model is never shown with a prior turn's context tokens".
+Remembering the last context that *named a model* is a different thing: a final turn with no model
+would report an earlier turn's. The scan keeps the last assistant record and runs the rule on it.
+
+Checked `lastResponse` for the same class of mistake and it is safe: its rule resolves within a
+single record.
+
+The lesson each time is the same — the fold has to be the RULE applied to a smaller window, never a
+paraphrase of what the rule seemed to do.
