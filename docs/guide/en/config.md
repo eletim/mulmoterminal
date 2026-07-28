@@ -311,6 +311,11 @@ recolours the whole app — grid background, headers, panels, and the terminals 
 - **The terminal's own colours are derived**: background from `--bg-base`, text from `--term-fg`,
   selection from `--term-selection`. The 16 ANSI colours come from whatever `extends` names.
 
+**Restart `mulmoterminal` after editing.** The global config is read once at server start, so a
+new theme — or a colour you just tweaked — does not arrive on a page reload alone. It is the same
+rule as every other key in that file, and it is the one that trips people up while iterating on a
+palette.
+
 The twenty variables:
 
 | Variable | What it colours |
@@ -322,6 +327,202 @@ The twenty variables:
 | `--accent` / `--accent-bg` / `--accent-bg-hover` / `--on-accent` | The accent, and text drawn on it |
 | `--text` / `--text-secondary` / `--text-muted` / `--text-dim` | Four levels of text |
 | `--term-fg` / `--term-selection` | Terminal text and selection |
+
+### How to build one
+
+You don't have to decide twenty colours up front. **Start with three and add only what bothers you.**
+
+1. **Pick a base** — `"extends": "midnight"` for a dark scheme, `"daylight"` for a light one.
+   Everything you don't write comes from there.
+2. **Change the ground and the accent** — `--bg-base` (the page) and `--accent` (links, selected
+   outlines, emphasis). Those two alone already read as a different theme.
+3. **Sort out the surfaces** — `--bg-panel` (modals, cards) and `--bg-deep` (one layer back). Too
+   close to the ground and a panel stops looking like a panel.
+4. **Set the text** — `--text` and `--term-fg`. **Pure black or pure white rarely sits well.**
+5. **Add the touch states** — `--bg-hover` / `--bg-selected` / `--border`.
+
+Restart the server and reload the page after each step to see it.
+
+{: .highlight }
+> **Take the accent from the ground's complement.** A yellow accent on a yellow ground sinks —
+> links and selection outlines disappear into it. That is why the Van Gogh below puts orange on
+> its wheat-yellow ground and reserves blue for selection.
+
+### Samples
+
+Paste any of these into `themes`. All four were actually used in the app before being written down.
+
+![The Settings theme picker — Mondrian, Van Gogh (Arles), Picasso Blue and Matisse sitting next to the four built-ins](../images/config-custom-themes.png)
+
+#### Van Gogh — the Arles years
+
+Wheat-field yellow for the ground, a sunflower's centre for the accent. **All-yellow goes flat and
+swallows the text**, so selection and hover carry the Arles sky instead. The text is brown rather
+than black — his own outlines were.
+
+```jsonc
+{
+  "themes": [
+    {
+      "id": "van-gogh",
+      "label": "Van Gogh (Arles)",
+      "extends": "daylight",
+      "colors": {
+        "--bg-base": "#fbf1d3",  // pale wheat; also what decides light vs dark
+        "--bg-deep": "#f0dfa8",
+        "--bg-panel": "#fffcf0",
+        "--bg-subtle": "#f8ecc4",
+        "--bg-elevated": "#fffcf0",
+        "--bg-input": "#fffdf7",
+        "--bg-hover": "#f6e2a2",
+        "--bg-selected": "#cfe0f7",  // the Arles sky — the complement of all that yellow
+        "--bg-selected-hover": "#b6d1f2",
+        "--border": "#c08a1e",  // the ochre outline of a sunflower
+        "--accent": "#c05f00",  // a sunflower's centre
+        "--accent-bg": "#c05f00",
+        "--accent-bg-hover": "#a44f00",
+        "--on-accent": "#fffcf0",
+        "--text": "#3a2c10",  // brown, not black — his own outlines
+        "--text-secondary": "#57451a",
+        "--text-muted": "#7b6835",
+        "--text-dim": "#9c8a5c",
+        "--term-fg": "#3a2c10",  // the terminal takes the same brown
+        "--term-selection": "#f5d98a"
+      }
+    }
+  ]
+}
+```
+
+#### Mondrian
+
+Off-white with **black borders**, a red accent, and primary yellow for selection. Pushing
+`--border` all the way to black is what makes the screen divide like one of the compositions.
+
+<details markdown="1">
+<summary>Show the JSON</summary>
+
+```json
+{
+  "id": "mondrian",
+  "label": "Mondrian",
+  "extends": "daylight",
+  "colors": {
+    "--bg-base": "#f4f1ea",
+    "--bg-deep": "#e7e3d9",
+    "--bg-panel": "#ffffff",
+    "--bg-subtle": "#f7f5f0",
+    "--bg-elevated": "#ffffff",
+    "--bg-input": "#ffffff",
+    "--bg-hover": "#ffe8a3",
+    "--bg-selected": "#ffd60a",
+    "--bg-selected-hover": "#f5c400",
+    "--border": "#14110f",
+    "--accent": "#d10a11",
+    "--accent-bg": "#d10a11",
+    "--accent-bg-hover": "#a90810",
+    "--on-accent": "#ffffff",
+    "--text": "#14110f",
+    "--text-secondary": "#2b2722",
+    "--text-muted": "#5d564c",
+    "--text-dim": "#8a8175",
+    "--term-fg": "#14110f",
+    "--term-selection": "#ffe066"
+  }
+}
+```
+
+</details>
+
+#### Picasso — the Blue Period
+
+One blue throughout, with ochre kept for the accent. It is a dark theme, but a bluish white
+(`#dbe7ef`) for `--text` gives it a coldness Midnight doesn't have.
+
+<details markdown="1">
+<summary>Show the JSON</summary>
+
+```json
+{
+  "id": "picasso-blue",
+  "label": "Picasso Blue",
+  "extends": "midnight",
+  "colors": {
+    "--bg-base": "#0d2438",
+    "--bg-deep": "#081a2a",
+    "--bg-panel": "#12344e",
+    "--bg-subtle": "#173f5c",
+    "--bg-elevated": "#143a47",
+    "--bg-input": "#071624",
+    "--bg-hover": "#1c4d70",
+    "--bg-selected": "#215a82",
+    "--bg-selected-hover": "#2a6d9c",
+    "--border": "#1e4c6b",
+    "--accent": "#e0a33e",
+    "--accent-bg": "#b8802a",
+    "--accent-bg-hover": "#cf9333",
+    "--on-accent": "#0d2438",
+    "--text": "#dbe7ef",
+    "--text-secondary": "#b9cfdd",
+    "--text-muted": "#89a4b6",
+    "--text-dim": "#65808f",
+    "--term-fg": "#dbe7ef",
+    "--term-selection": "#1c4d70"
+  }
+}
+```
+
+</details>
+
+#### Matisse
+
+Cream ground, shocking pink. **Borders and selection go green** — the complementary pairing of the
+cut-outs. The accent is loud, so `--text` is a greenish black to steady it.
+
+<details markdown="1">
+<summary>Show the JSON</summary>
+
+```json
+{
+  "id": "matisse",
+  "label": "Matisse",
+  "extends": "daylight",
+  "colors": {
+    "--bg-base": "#fdf6ec",
+    "--bg-deep": "#f2e7d8",
+    "--bg-panel": "#ffffff",
+    "--bg-subtle": "#fbf0e2",
+    "--bg-elevated": "#ffffff",
+    "--bg-input": "#ffffff",
+    "--bg-hover": "#ffd9e4",
+    "--bg-selected": "#bfe3c9",
+    "--bg-selected-hover": "#a5d8b4",
+    "--border": "#1f6f4a",
+    "--accent": "#e5397f",
+    "--accent-bg": "#c92c6c",
+    "--accent-bg-hover": "#e5397f",
+    "--on-accent": "#ffffff",
+    "--text": "#16281f",
+    "--text-secondary": "#284437",
+    "--text-muted": "#4f6b5c",
+    "--text-dim": "#7d9487",
+    "--term-fg": "#16281f",
+    "--term-selection": "#bfe3c9"
+  }
+}
+```
+
+</details>
+
+### When it doesn't work
+
+| What you see | Why |
+|---|---|
+| **It isn't in the picker** | The `id` matches a built-in, a colour isn't valid, or there is no `extends` and colours are missing. None of those are read |
+| **Edits change nothing** | The server wasn't restarted. The global config is read once, at start |
+| **You picked it and got the default** | The definition isn't being found; the theme picker says so |
+| **Status colours are hard to read** | Light vs dark is derived from `--bg-base`. A mid-tone ground can land on the wrong side — commit to light or dark |
+| **Panels have vanished** | `--bg-panel` is too close to `--bg-base` |
 
 A project's `.mulmoterminal.json` can name your theme in [`theme`](#per-dir) too — but that pins
 **only the terminal palette** for that directory's cells; the chrome around them stays on whatever
@@ -859,7 +1060,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 `script.json`, and **OR LAUNCH** is `launchers`. The thin stripe down a chip's left edge is the
 [colour set for that directory](#per-dir).*
 
-## Every key — `~/.mulmoterminal/config.json` (reference)
+## Every key — `~/.mulmoterminal/config.json` (reference) {#all-keys}
 
 ```json
 {

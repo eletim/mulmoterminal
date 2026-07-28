@@ -302,6 +302,11 @@ MulmoTerminal の「**拡張**」の柱がここ。稼働中ターミナルの�
 - **ターミナルの中身の色は自動で決まります**。背景は `--bg-base`、文字は `--term-fg`、選択は
   `--term-selection`。ANSI 16 色は `extends` 先から受け継ぎます
 
+**書き換えたら `mulmoterminal` を再起動してください。** グローバル設定はサーバ起動時に一度だけ
+読まれるので、`themes` を足しても・色を変えても、ページのリロードだけでは反映されません
+（[全キー一覧](#all-keys)の他の設定と同じ扱いです）。
+配色を詰めているときはここでつまずきやすいので、先に書いておきます。
+
 指定できる変数は次の 20 個です。
 
 | 変数 | 何の色か |
@@ -313,6 +318,201 @@ MulmoTerminal の「**拡張**」の柱がここ。稼働中ターミナルの�
 | `--accent` / `--accent-bg` / `--accent-bg-hover` / `--on-accent` | アクセント色と、その上に載る文字 |
 | `--text` / `--text-secondary` / `--text-muted` / `--text-dim` | 文字の 4 段階 |
 | `--term-fg` / `--term-selection` | ターミナルの文字色・選択範囲 |
+
+### 作る手順
+
+いきなり 20 色を決める必要はありません。**3 色から始めて、気になったところだけ足す**のが早いです。
+
+1. **土台を選ぶ** — 暗い配色にしたいなら `"extends": "midnight"`、明るいなら `"daylight"`。
+   書かなかった色はここから来ます
+2. **地とアクセントを変える** — `--bg-base`（画面全体の地）と `--accent`（リンク・選択枠・強調）。
+   この 2 つだけで、もう別のテーマに見えます
+3. **面の重なりを整える** — `--bg-panel`（モーダルやカード）と `--bg-deep`（一段奥）。地との差が
+   小さすぎると、パネルが浮いて見えなくなります
+4. **文字を決める** — `--text` と `--term-fg`。**真っ黒・真っ白にしないほうが馴染みます**
+5. **触った感触を足す** — `--bg-hover` / `--bg-selected` / `--border`
+
+各段階で、サーバを再起動してブラウザをリロードすれば確認できます。
+
+{: .highlight }
+> **アクセントは地の補色から選ぶと失敗しにくい。** 黄色い地に黄色いアクセントを置くと、リンクも
+> 選択枠も沈みます。下の Van Gogh が地を黄にしてアクセントをオレンジ、選択を青にしているのは
+> そのためです。
+
+### サンプル
+
+そのまま `themes` に貼れます。4 つとも実際にこのアプリで使って確かめたものです。
+
+![Settings のテーマ選択 — 組み込み 4 つの隣に、自分で定義した Mondrian / Van Gogh (Arles) / Picasso Blue / Matisse が並ぶ](../images/config-custom-themes.png)
+
+#### Van Gogh — アルル時代
+
+麦畑の黄を地にして、ひまわりの中心のオレンジをアクセントに。**黄一色にすると平板になって文字も沈む**ので、
+選択とホバーにアルルの空の青を差しています。文字を黒ではなく焦茶にしているのは、彼の輪郭線の色です。
+
+```jsonc
+{
+  "themes": [
+    {
+      "id": "van-gogh",
+      "label": "Van Gogh (Arles)",
+      "extends": "daylight",
+      "colors": {
+        "--bg-base": "#fbf1d3",  // 麦畑の淡い黄。明暗判定もこの色から
+        "--bg-deep": "#f0dfa8",
+        "--bg-panel": "#fffcf0",
+        "--bg-subtle": "#f8ecc4",
+        "--bg-elevated": "#fffcf0",
+        "--bg-input": "#fffdf7",
+        "--bg-hover": "#f6e2a2",
+        "--bg-selected": "#cfe0f7",  // アルルの空の青 — 黄の補色を差す
+        "--bg-selected-hover": "#b6d1f2",
+        "--border": "#c08a1e",  // ひまわりの輪郭のオークル
+        "--accent": "#c05f00",  // ひまわりの中心
+        "--accent-bg": "#c05f00",
+        "--accent-bg-hover": "#a44f00",
+        "--on-accent": "#fffcf0",
+        "--text": "#3a2c10",  // 黒ではなく焦茶（ゴッホの輪郭線）
+        "--text-secondary": "#57451a",
+        "--text-muted": "#7b6835",
+        "--text-dim": "#9c8a5c",
+        "--term-fg": "#3a2c10",  // 端末の文字も同じ焦茶に
+        "--term-selection": "#f5d98a"
+      }
+    }
+  ]
+}
+```
+
+#### Mondrian
+
+生成りの白に**黒い枠線**、赤のアクセント、選択は原色の黄。`--border` を思い切って黒に振ると、
+コンポジションの黒い罫のように画面が分割されて見えます。
+
+<details markdown="1">
+<summary>JSON を見る</summary>
+
+```json
+{
+  "id": "mondrian",
+  "label": "Mondrian",
+  "extends": "daylight",
+  "colors": {
+    "--bg-base": "#f4f1ea",
+    "--bg-deep": "#e7e3d9",
+    "--bg-panel": "#ffffff",
+    "--bg-subtle": "#f7f5f0",
+    "--bg-elevated": "#ffffff",
+    "--bg-input": "#ffffff",
+    "--bg-hover": "#ffe8a3",
+    "--bg-selected": "#ffd60a",
+    "--bg-selected-hover": "#f5c400",
+    "--border": "#14110f",
+    "--accent": "#d10a11",
+    "--accent-bg": "#d10a11",
+    "--accent-bg-hover": "#a90810",
+    "--on-accent": "#ffffff",
+    "--text": "#14110f",
+    "--text-secondary": "#2b2722",
+    "--text-muted": "#5d564c",
+    "--text-dim": "#8a8175",
+    "--term-fg": "#14110f",
+    "--term-selection": "#ffe066"
+  }
+}
+```
+
+</details>
+
+#### Picasso — 青の時代
+
+深い青で統一し、アクセントだけ黄土色に。暗いテーマですが、`--text` を青みがかった白（`#dbe7ef`）に
+することで、Midnight とは違う冷たさが出ます。
+
+<details markdown="1">
+<summary>JSON を見る</summary>
+
+```json
+{
+  "id": "picasso-blue",
+  "label": "Picasso Blue",
+  "extends": "midnight",
+  "colors": {
+    "--bg-base": "#0d2438",
+    "--bg-deep": "#081a2a",
+    "--bg-panel": "#12344e",
+    "--bg-subtle": "#173f5c",
+    "--bg-elevated": "#143a47",
+    "--bg-input": "#071624",
+    "--bg-hover": "#1c4d70",
+    "--bg-selected": "#215a82",
+    "--bg-selected-hover": "#2a6d9c",
+    "--border": "#1e4c6b",
+    "--accent": "#e0a33e",
+    "--accent-bg": "#b8802a",
+    "--accent-bg-hover": "#cf9333",
+    "--on-accent": "#0d2438",
+    "--text": "#dbe7ef",
+    "--text-secondary": "#b9cfdd",
+    "--text-muted": "#89a4b6",
+    "--text-dim": "#65808f",
+    "--term-fg": "#dbe7ef",
+    "--term-selection": "#1c4d70"
+  }
+}
+```
+
+</details>
+
+#### Matisse
+
+生成りの地にショッキングピンク。**枠線と選択を緑**にして、切り絵の補色の組み合わせを作っています。
+アクセントが強い分、`--text` は緑寄りの黒にして落ち着かせています。
+
+<details markdown="1">
+<summary>JSON を見る</summary>
+
+```json
+{
+  "id": "matisse",
+  "label": "Matisse",
+  "extends": "daylight",
+  "colors": {
+    "--bg-base": "#fdf6ec",
+    "--bg-deep": "#f2e7d8",
+    "--bg-panel": "#ffffff",
+    "--bg-subtle": "#fbf0e2",
+    "--bg-elevated": "#ffffff",
+    "--bg-input": "#ffffff",
+    "--bg-hover": "#ffd9e4",
+    "--bg-selected": "#bfe3c9",
+    "--bg-selected-hover": "#a5d8b4",
+    "--border": "#1f6f4a",
+    "--accent": "#e5397f",
+    "--accent-bg": "#c92c6c",
+    "--accent-bg-hover": "#e5397f",
+    "--on-accent": "#ffffff",
+    "--text": "#16281f",
+    "--text-secondary": "#284437",
+    "--text-muted": "#4f6b5c",
+    "--text-dim": "#7d9487",
+    "--term-fg": "#16281f",
+    "--term-selection": "#bfe3c9"
+  }
+}
+```
+
+</details>
+
+### うまくいかないとき
+
+| 症状 | 原因 |
+|---|---|
+| **ピッカーに出てこない** | `id` が組み込みと同じ / `colors` に不正な値 / `extends` 無しで色が足りない。いずれも読まれません |
+| **書き換えたのに変わらない** | サーバを再起動していない。グローバル設定は起動時に一度だけ読まれます |
+| **選択したのに既定の色になる** | 定義が見つかっていません。Settings のテーマ選択に理由が出ます |
+| **ステータスの色が読みにくい** | `--bg-base` の明るさで自動判定しています。地を中間色にすると判定が意図とずれることがあるので、明るくするか暗くするか寄せてください |
+| **パネルが見えない** | `--bg-panel` と `--bg-base` の差が小さすぎます |
 
 プロジェクトごとの `.mulmoterminal.json` の [`theme`](#per-dir) にも、ここで定義した id を書けます。
 ただし**そのディレクトリのセルは、ターミナルの中身の配色だけ**が変わります（ヘッダーなどのクロームは
@@ -834,7 +1034,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 *1 枚に 3 つの設定が出ています：上のチップが `cwdPresets`、**OR RUN A SCRIPT** がこの `script.json`、
 **OR LAUNCH** が `launchers`。チップ左端の細い線は、その[ディレクトリに設定した色](#per-dir)です。*
 
-## 全キー一覧 — `~/.mulmoterminal/config.json`（リファレンス）
+## 全キー一覧 — `~/.mulmoterminal/config.json`（リファレンス） {#all-keys}
 
 ```json
 {
