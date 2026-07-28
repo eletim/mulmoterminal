@@ -31,8 +31,8 @@ describe("savePresets / loadPresets", () => {
     const dir = tmp();
     const file = path.join(dir, "nested", "config.json"); // nested → mkdir is exercised
     expect(savePresets(file, [{ label: "x", path: "/x" }])).toBe(true);
-    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ cwdPresets: [{ label: "x", path: "/x" }] });
-    expect(loadPresets(file)).toEqual([{ label: "x", path: "/x" }]);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ cwdPresets: [{ label: "x", path: path.resolve("/x") }] });
+    expect(loadPresets(file)).toEqual([{ label: "x", path: path.resolve("/x") }]);
     rmSync(dir, { recursive: true, force: true });
   });
 

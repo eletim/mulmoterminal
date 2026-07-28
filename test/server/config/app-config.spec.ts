@@ -269,7 +269,9 @@ describe("loadAppConfig / saveAppConfig", () => {
     const dir = tmp();
     const file = path.join(dir, "nested", "config.json"); // nested → mkdir is exercised
     const cfg = {
-      cwdPresets: [{ label: "x", path: "/x" }],
+      // Canonical already: saving canonicalises (#1002), and on Windows that adds the current
+      // drive — a POSIX literal here would not survive its own round trip.
+      cwdPresets: [{ label: "x", path: path.resolve("/x") }],
       soundFile: "/s.wav",
       soundKinds: [...DEFAULT_SOUND_KINDS],
       sounds: {},
@@ -326,7 +328,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       }),
     );
     expect(loadAppConfig(file)).toEqual({
-      cwdPresets: [{ label: "a", path: "/a" }],
+      cwdPresets: [{ label: "a", path: path.resolve("/a") }],
       soundFile: null,
       soundKinds: [...DEFAULT_SOUND_KINDS],
       sounds: {},
@@ -366,7 +368,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
     writeFileSync(file, JSON.stringify({ cwdPresets: [{ label: "a", path: "/a" }] }));
-    expect(loadAppConfig(file)).toEqual({ ...base, cwdPresets: [{ label: "a", path: "/a" }] });
+    expect(loadAppConfig(file)).toEqual({ ...base, cwdPresets: [{ label: "a", path: path.resolve("/a") }] });
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -393,7 +395,7 @@ describe("loadAppConfigResult (missing vs corrupt vs ok)", () => {
     const file = path.join(dir, "config.json");
     writeFileSync(file, JSON.stringify({ cwdPresets: [{ label: "a", path: "/a" }], pushEnabled: true }));
     const loaded = loadAppConfigResult(file);
-    expect(loaded).toMatchObject({ status: "ok", config: { cwdPresets: [{ label: "a", path: "/a" }], pushEnabled: true } });
+    expect(loaded).toMatchObject({ status: "ok", config: { cwdPresets: [{ label: "a", path: path.resolve("/a") }], pushEnabled: true } });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -433,7 +435,7 @@ describe("backupCorruptConfig", () => {
 // that a merge writes back. This is what a POST /api/config write path must do.
 describe("#741 corrupt config is not silently wiped by a partial update", () => {
   const richConfig = {
-    cwdPresets: [{ label: "proj", path: "/proj" }],
+    cwdPresets: [{ label: "proj", path: path.resolve("/proj") }],
     soundFile: null,
     soundKinds: [...DEFAULT_SOUND_KINDS],
     sounds: {},

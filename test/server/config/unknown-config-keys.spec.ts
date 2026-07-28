@@ -117,7 +117,7 @@ describe("carrying unknown keys through a save (#966)", () => {
       const onDisk = JSON.parse(readFileSync(file, "utf8"));
       expect(onDisk.futureFeature).toEqual({ mode: "fast" }); // the whole point
       expect(onDisk.prRepos).toEqual(["o/r"]); // and the known fields still round-trip
-      expect(onDisk.cwdPresets).toEqual([{ label: "x", path: "/x" }]);
+      expect(onDisk.cwdPresets).toEqual([{ label: "x", path: path.resolve("/x") }]);
     });
   });
 
