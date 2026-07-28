@@ -23,6 +23,7 @@ MulmoTerminal's features, organized by the **four pillars** (Supervise / See / A
 | Status colors + sound | Working (blue) / **awaiting input (amber)** / **done, review it (blue ring)** / idle. Know you've been "called" without watching |
 | Cockpit roster | While zoomed with `⤢`, a **one-row-per-session text list** beside the terminal (directory, AI summary, prompt, latest reply, status word). Click a row to swap; `▤ / ☰` toggles the thumbnail filmstrip |
 | Keyboard: switch the enlarged terminal | While zoomed, bound keys walk the enlargement along the on-screen order. **Opt-in — nothing is bound by default**; add a `keymap` to `config.json` ([config](config.html#keymap)) |
+| Rate-limit gauge | The **5h / 7d** windows your Claude (and Codex) subscription shares across every session, always visible in the grid header. Running many agents is what burns them fastest, and nothing else in the app showed them. Shown only once an agent reports; hover for when each window resets |
 | Add / close / reorder cells | `New terminal ＋`, each cell's `✕`, and `◀ ▶` in reorder mode |
 | Worktree isolation | Git worktrees so many agents can run on the same repo without colliding |
 | Session persistence (tmux) | If tmux is available, each session runs inside tmux and **reconnects** across reloads and server restarts |

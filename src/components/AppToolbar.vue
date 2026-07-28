@@ -3,6 +3,7 @@ import { computed, ref, useTemplateRef } from "vue";
 import { useRoute } from "vue-router";
 import { router } from "../router";
 import NotificationBell from "./NotificationBell.vue";
+import RateLimitGauge from "./RateLimitGauge.vue";
 import RemoteHostControl from "./RemoteHostControl.vue";
 import LauncherButton from "./LauncherButton.vue";
 import { useShortcuts } from "../composables/useShortcuts";
@@ -197,6 +198,7 @@ function showPrs(): void {
           <span class="h-2 w-2 rounded-full bg-current" />{{ statusCounts.working }}
         </span>
       </span>
+      <RateLimitGauge v-if="inGrid" />
     </nav>
     <NotificationBell class="ml-auto" />
     <RemoteHostControl />
