@@ -17,6 +17,7 @@ import { loadScripts } from "../files/scripts.js";
 import { gitStatus } from "../git/git-status.js";
 import { resolveGithubUrl } from "../git/gitRemote.js";
 import { phaseForRepoBranch } from "../git/prPhase.js";
+import { EMPTY_WORK_ITEM } from "../../common/prPhase.js";
 import { prUrlForBranch } from "../git/pr-for-branch.js";
 import { applySkillFilter, discoverSkills } from "../backends/remoteHost/skills.js";
 
@@ -79,7 +80,10 @@ export function mountDirRoutes(app: Express): void {
     const cwd = workspaceFromQuery(req.query.cwd);
     const status = await gitStatus(cwd);
     const repo = status.repo && status.branch ? repoFromWebUrl(await resolveGithubUrl(cwd)) : null;
-    if (!repo || !status.branch) return res.json({ phase: "none", url: null });
+    // The same shape as the resolved path, not a two-field subset: a dir with no GitHub remote
+    // is a normal answer, and a route that changes its response shape by branch is a trap for
+    // the next reader of the contract (Codex review).
+    if (!repo || !status.branch) return res.json({ ...EMPTY_WORK_ITEM });
     res.json(await phaseForRepoBranch(repo, status.branch));
   });
 

@@ -209,7 +209,7 @@ describe("dirConfigJsonSchema", () => {
     expect(json).toContain('"required":["id","label","run","cmd"]'); // shell needs cmd
     expect(json).toContain('"required":["id","label","run","text"]'); // input needs text
     expect(json).toContain('"required":["id","label","run","open"]'); // open needs open
-    expect(json).toContain('"enum":["dir","git","ctx","usage","status","diff","tools"]'); // chip string = builtin ids only
+    expect(json).toContain('"enum":["dir","git","work","ctx","usage","status","diff","tools"]'); // chip string = builtin ids only
   });
 
   // The runtime truncates past these caps and drops whitespace-only strings, so a schema that

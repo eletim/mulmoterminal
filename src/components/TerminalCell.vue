@@ -5,6 +5,7 @@ import { usePubSub } from "../composables/usePubSub";
 import { useDirConfig, useDirColors } from "../composables/useDirConfig";
 import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
+import { useWorkItem } from "../composables/useWorkItem";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
 import DirBadge from "./DirBadge.vue";
 import { isCellContext, isCellUsage, type CellContext, type CellUsage } from "./cellPayload";
@@ -14,6 +15,7 @@ import { applyActivityPush, cellHeaderText } from "./cellActivity";
 import { preferredLaunchDir, shouldSyncLaunchDir } from "./launchDir";
 import { headerStyleFor, cellStyleFor } from "./cellHeaderStyle";
 import GitBranchChip from "./GitBranchChip.vue";
+import WorkItemChip from "./WorkItemChip.vue";
 import ModelContextBadge from "./ModelContextBadge.vue";
 import ModelPicker from "./ModelPicker.vue";
 import type { LaunchChoice } from "./wsUrl";
@@ -120,6 +122,9 @@ const headerStyle = computed(() => headerStyleFor(dirConfig.value.headerColor, d
 const cellStyle = computed(() =>
   cellStyleFor(dirConfig.value.cellColor, dirConfig.value.cellBorderColor, dirConfig.value.dotColor, dirConfig.value.buttonColor),
 );
+// What this cell is working on (PR + issue), for the `work` chip. Same directory, same kind of
+// poll as the git status below.
+const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd);
 // Live git status (branch/dirty/ahead·behind) for the header chip. `refreshGit`
 // is called alongside loadDiff() so a finished turn's changes show immediately.
 const { status: gitStatus, refresh: refreshGit } = useGitStatus(cwd);
@@ -172,8 +177,8 @@ const context = ref<CellContext | null>(null);
 // (git/diff/ctx/usage) render in that order — others are hidden — and custom chips render as text. `dir`,
 // the project badge, the status dot/activity, and the row-2 tools timeline stay structural.
 const { chips: headerChips } = useHeaderButtons({ cwd, session: sessionId, agent, model: computed(() => context.value?.model ?? null) });
-const ROW1_BUILTIN_CHIPS = new Set(["git", "diff", "ctx", "usage"]);
-const DEFAULT_CELL_CHIP_IDS = ["git", "diff", "ctx", "usage"];
+const ROW1_BUILTIN_CHIPS = new Set(["git", "work", "diff", "ctx", "usage"]);
+const DEFAULT_CELL_CHIP_IDS = ["git", "work", "diff", "ctx", "usage"];
 interface CellChipView {
   key: string;
   builtin: string | null;
@@ -983,6 +988,7 @@ watch(working, (now, prev) => {
     loadDiff();
     refreshUsage();
     refreshGit(); // branch/dirty may have changed (commit, checkout, edits)
+    void refreshWorkItem(); // a turn that pushed or opened a PR changes what this cell is on
   }
 });
 
@@ -1077,6 +1083,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
               <template v-for="chip in cellChips" :key="chip.key">
                 <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
+                <WorkItemChip v-else-if="chip.builtin === 'work'" :item="workItem" />
                 <button
                   v-else-if="chip.builtin === 'diff' && showDiffBadge && diff"
                   type="button"
