@@ -51,6 +51,38 @@ describe("parseWorkItem", () => {
     expect(parseWorkItem(data)).toEqual(EMPTY_WORK_ITEM);
   });
 
+  // The URLs are rendered as `<a href>`. A scheme the browser executes on click has no business
+  // reaching that attribute, whatever the response says (Codex review).
+  it.each([
+    ["javascript", "javascript:alert(1)"],
+    ["JavaScript with padding", "  javascript:alert(1)"],
+    ["uppercase javascript", "JAVASCRIPT:alert(1)"],
+    ["data", "data:text/html,<script>alert(1)</script>"],
+    ["vbscript", "vbscript:msgbox(1)"],
+    ["a relative path", "/o/r/pull/977"],
+    ["a bare word", "not-a-url"],
+    ["a scheme that is not https", "ftp://example.com/pull/977"],
+  ])("refuses %s as a link", (_label, url) => {
+    const parsed = parseWorkItem({ phase: "ready", pr: 977, prUrl: url, issue: 966, issueUrl: url });
+    expect(parsed.prUrl).toBeNull();
+    expect(parsed.issueUrl).toBeNull();
+    expect(parsed.pr).toBe(977); // the number still shows; only the link is withheld
+  });
+
+  it.each([
+    ["github.com", "https://github.com/o/r/pull/977"],
+    ["a GitHub Enterprise host", "https://ghe.internal/o/r/pull/977"],
+  ])("keeps %s", (_label, url) => {
+    expect(parseWorkItem({ phase: "ready", pr: 977, prUrl: url }).prUrl).toBe(url);
+  });
+
+  // There is no PR #0 and no negative issue (CodeRabbit review).
+  it.each([0, -3])("refuses %i as an identifier", (n) => {
+    const parsed = parseWorkItem({ phase: "ready", pr: n, issue: n });
+    expect(parsed.pr).toBeNull();
+    expect(parsed.issue).toBeNull();
+  });
+
   it("drops field values of the wrong type rather than showing them", () => {
     expect(parseWorkItem({ phase: "ready", pr: "977", prUrl: 3, issue: 1.5, issueUrl: "" })).toEqual({ ...EMPTY_WORK_ITEM, phase: "ready" });
   });
