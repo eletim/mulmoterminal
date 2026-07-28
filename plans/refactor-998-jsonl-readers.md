@@ -52,9 +52,7 @@ file, a missing file (tail returns none, the stream rejects), and the boundary c
 thing exists for — a tail that starts mid-file drops its first, partial line, but keeps it when the
 file fits in the window.
 
-## Next
-
-4. the title reader → head
+All four phases are done.
 
 ---
 
@@ -203,3 +201,36 @@ single record.
 
 The lesson each time is the same — the fold has to be the RULE applied to a smaller window, never a
 paraphrase of what the rule seemed to do.
+
+
+---
+
+# Phase 4 — the title reader
+
+`generateAndStoreTitle` read the transcript whole and passed the string to `generateTitle`, which
+then took `titleWindow(...)` of it — the last few user turns plus the last assistant reply. So the
+whole file was held in order to keep six turns.
+
+It streams now, and the contract changes with it: `TitleDeps.generateTitle` takes **turns**, not a
+raw transcript. `generateTitleFromTurns` is the entry point; `generateHeaderTitle(raw)` stays for
+callers that already have a string, and simply parses then delegates.
+
+One streamed pass yields both things the caller needs — the turns for the title, and the user-turn
+count for the "has it moved on enough to re-title" bookkeeping, which used to be a second full
+parse via `countUserTurnsFromJsonl`.
+
+## Measured on the real file
+
+```text
+2498ms  turns=1097 -> window=6
+userTurns=95
+prompt to model (754 chars)
+```
+
+585 MB in, 754 characters out. Before this the read threw and the session was never titled.
+
+## Note
+
+The spec's fake generator took `(raw: string)`; it takes `ConversationTurn[]` now, and a new case
+asserts that what reaches the generator is what came out of the stream. Without that, the contract
+change would have been invisible to the tests.

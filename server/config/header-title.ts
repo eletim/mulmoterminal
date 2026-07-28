@@ -111,7 +111,13 @@ export interface GenerateTitleDeps {
 // to title yet. Never throws — a failed/timed-out CLI yields null so the header falls
 // back to the last prompt.
 export async function generateHeaderTitle(rawTranscript: string, deps: GenerateTitleDeps = {}): Promise<string | null> {
-  const turns = titleWindow(conversationTurnsFromJsonl(rawTranscript));
+  return generateTitleFromTurns(conversationTurnsFromJsonl(rawTranscript), deps);
+}
+
+/** The same, from turns already extracted — so a caller that streamed the transcript (#998) is not
+ *  forced to rebuild it as one string, which past ~512 MB it cannot do at all. */
+export async function generateTitleFromTurns(allTurns: ConversationTurn[], deps: GenerateTitleDeps = {}): Promise<string | null> {
+  const turns = titleWindow(allTurns);
   if (turns.length === 0) return null;
   const runClaude = deps.runClaude ?? runClaudeHeadless;
   try {

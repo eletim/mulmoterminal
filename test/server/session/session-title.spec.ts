@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ConversationTurn } from "../../../server/session/transcript.js";
 import { createTitleManager } from "../../../server/session/session-title.js";
 import {
   aiTitles,
@@ -51,15 +52,17 @@ afterEach(async () => {
 
 // The real generator shells out to the claude CLI; the fake keeps these tests fast,
 // deterministic, and runnable without an API key.
-function setup(now = () => 1_000_000, generateTitle: (raw: string) => Promise<string | null> = async () => "Generated title") {
+function setup(now = () => 1_000_000, generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title") {
   const published: string[] = [];
-  const summarized: string[] = [];
+  // Turns, not a raw transcript — the manager streams the file now (#998), so what the generator
+  // receives is what came out of that stream.
+  const summarized: ConversationTurn[][] = [];
   const mgr = createTitleManager({
     publishActivity: (id) => published.push(id),
     now,
-    generateTitle: (raw) => {
-      summarized.push(raw);
-      return generateTitle(raw);
+    generateTitle: (turns) => {
+      summarized.push(turns);
+      return generateTitle(turns);
     },
   });
   return { ...mgr, published, summarized };
@@ -204,6 +207,21 @@ describe("maybeGenerateTitle", () => {
     release("Generated title");
     await first;
     expect(published).toEqual([SESSION]);
+  });
+
+  // The generator is handed the transcript's TURNS, read by streaming the file (#998) rather than
+  // slurping it — which is what lets a session past ~512 MB be titled at all.
+  it("hands the generator the turns it streamed out of the transcript", async () => {
+    const { maybeGenerateTitle, summarized } = setup();
+    const assistantTurn = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Added it." }] } });
+    await writeTranscript([userTurn("add a retry to the uploader"), assistantTurn]);
+    titlePending.add(SESSION);
+    await maybeGenerateTitle(SESSION, cwd);
+    await vi.waitFor(() => expect(summarized).toHaveLength(1));
+    expect(summarized[0]).toEqual([
+      { role: "user", text: "add a retry to the uploader" },
+      { role: "assistant", text: "Added it." },
+    ]);
   });
 
   it("clears the in-flight mark even when generation fails", async () => {
