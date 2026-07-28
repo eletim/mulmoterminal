@@ -104,6 +104,70 @@ describe("decisionsFromJsonl", () => {
     expect(decisionsFromJsonl(raw, "f")[0].questions[0].answerKind).toBe("option");
   });
 
+  it('keeps an answer that contains quotes of its own (real: `translate="no"`)', () => {
+    // 35 of the 554 recorded result strings carry quotes beyond the pair structure, and nothing
+    // escapes them. Truncating at the first one stopped the answer matching its option label,
+    // which silently moved a chosen option into the free-text bucket (Codex review).
+    const q = {
+      question: "修正方針はどれにしますか？",
+      header: "方針",
+      multiSelect: false,
+      options: [{ label: 'A: #app に translate="no"（推奨）', description: "d" }],
+    };
+    const raw = [
+      askLine({ id: "toolu_11", questions: [q] }),
+      resultLine(
+        "toolu_11",
+        `Your questions have been answered: "修正方針はどれにしますか？"="A: #app に translate="no"（推奨）" selected preview:\nindex.html\n  <div id="app" translate="no"></div>`,
+      ),
+    ].join("\n");
+    const [got] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(got.answer).toBe('A: #app に translate="no"（推奨）');
+    expect(got.answerKind).toBe("option");
+  });
+
+  it("bounds a quoted answer by the next question rather than by its own quotes", () => {
+    const q1 = { question: "どう出す？", header: "h1", multiSelect: false, options: [{ label: 'aria-label="x" を付ける', description: "" }] };
+    const q2 = { question: "いつやる？", header: "h2", multiSelect: false, options: [{ label: "あとで", description: "" }] };
+    const raw = [
+      askLine({ id: "toolu_12", questions: [q1, q2] }),
+      resultLine("toolu_12", `The user answered: "どう出す？"="aria-label="x" を付ける", "いつやる？"="あとで". Read the answers carefully.`),
+    ].join("\n");
+    const [a, b] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect([a.answer, a.answerKind]).toEqual(['aria-label="x" を付ける', "option"]);
+    expect([b.answer, b.answerKind]).toEqual(["あとで", "option"]);
+  });
+
+  it("stops at the preview block that sits between one answer and the next question", () => {
+    // The shape that broke a first attempt at this: with previews, the harness writes
+    // `"Q1"="A1" selected preview:\n<diagram>, "Q2"="A2"`. Bounding an answer only by the next
+    // question's marker swallowed the whole diagram into A1 — 39 real answers got longer and
+    // stopped matching their option labels, which is worse than truncating them.
+    const q1 = { question: "どう扱いますか？", header: "h1", multiSelect: false, options: [{ label: "入力欄に戻して手動送信", description: "" }] };
+    const q2 = { question: "いつやる？", header: "h2", multiSelect: false, options: [{ label: "あとで", description: "" }] };
+    const raw = [
+      askLine({ id: "toolu_14", questions: [q1, q2] }),
+      resultLine(
+        "toolu_14",
+        `The user answered: "どう扱いますか？"="入力欄に戻して手動送信" selected preview:\n[buffer]\n └ メッセージ2, "いつやる？"="あとで". Continue.`,
+      ),
+    ].join("\n");
+    const [a, b] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect([a.answer, a.answerKind]).toEqual(["入力欄に戻して手動送信", "option"]);
+    expect([b.answer, b.answerKind]).toEqual(["あとで", "option"]);
+  });
+
+  it("matches a question that itself contains quotes", () => {
+    // Real: `"context-menu の "New file" をクリックした後、…"="表示されて…"`. The question's own quotes
+    // are inside the marker, so an exact marker match is unaffected by them.
+    const q = { question: 'context-menu の "New file" をクリックした後、入力フィールドは表示されましたか？', header: "確認", multiSelect: false, options: [] };
+    const raw = [
+      askLine({ id: "toolu_13", questions: [q] }),
+      resultLine("toolu_13", `Your questions have been answered: "${q.question}"="表示されて文字も打てるが Enter で何も起きない". You can now continue.`),
+    ].join("\n");
+    expect(decisionsFromJsonl(raw, "f")[0].questions[0].answer).toBe("表示されて文字も打てるが Enter で何も起きない");
+  });
+
   it("still collects an answer whose own text mentions AskUserQuestion", () => {
     // The line-level prefilter that skips JSON.parse used to treat "this line contains
     // AskUserQuestion" as "this line is a question" and return early, so an answer that happened

@@ -26,20 +26,56 @@ const resultText = (content: unknown): string => {
     .join("\n");
 };
 
-// The answer to one question, out of the tool_result's prose. The harness writes the answers as
-// `"<question>"="<answer>"` pairs behind one of several lead-ins ("The user answered:", "Your
-// questions have been answered:"), and appends its own trailing sentence — and sometimes a
-// `selected preview:` block — after the closing quote. So the answer is read from the marker up
-// to the FIRST closing quote rather than by splitting the sentence, which keeps it independent of
-// wording we do not control. An answer containing a literal `"` would truncate there; none of the
-// 900 recorded on this machine does.
-function answerFor(question: string, text: string): string | null {
-  const marker = `"${question}"="`;
-  const start = text.indexOf(marker);
+// Answers are unquoted prose inside quotes: the harness writes `"<question>"="<answer>"` pairs
+// behind a lead-in ("The user answered:", "Your questions have been answered:") and escapes
+// nothing, so an answer may contain `"` of its own — measured, 35 of 554 recorded result strings
+// do, e.g. `"A: #app に translate="no"（推奨）"`. Stopping at the first quote truncated those, and a
+// truncated answer stops matching its option label, which lands it in the free-text bucket this
+// whole record exists to keep meaningful.
+//
+// So the end of an answer is found structurally wherever possible: another question's marker can
+// only start after the previous answer closed, and those markers are exact (a question's own
+// quotes are inside the marker, so they never confuse it). Only the LAST answer has no marker
+// after it, and there the harness's own tail is the boundary.
+const ANSWER_TAILS = [". ", ".\n", " selected preview:"];
+
+const markerOf = (question: string): string => `"${question}"="`;
+
+// The first quote at or after `from` that the harness's trailing text follows, or -1.
+function tailQuote(text: string, from: number): number {
+  for (let i = text.indexOf('"', from); i >= 0; i = text.indexOf('"', i + 1)) {
+    const rest = text.slice(i + 1);
+    if (rest === "" || ANSWER_TAILS.some((tail) => rest.startsWith(tail))) return i;
+  }
+  return -1;
+}
+
+// Where this answer ends: whichever comes FIRST of the next question's marker and the harness's
+// own tail. Both are needed and neither alone is right — measured on real results. A preview block
+// is written between an answer and the next question, so bounding only by the next marker swallows
+// it; and a tail search alone runs past the next question, because the tail it finds belongs to
+// the LAST answer in the string. If neither is found the shape is one we don't know, and the first
+// quote is the floor: truncating loses characters, while over-capturing files unrelated text as
+// something the user said.
+function answerEnd(text: string, from: number, laterMarkers: number[]): number {
+  const next = laterMarkers.filter((m) => m > from).sort((a, b) => a - b)[0];
+  const tail = tailQuote(text, from);
+  const bounds = [next, tail >= 0 ? tail : undefined].filter((n): n is number => n !== undefined);
+  if (bounds.length > 0) return Math.min(...bounds);
+  const firstQuote = text.indexOf('"', from);
+  return firstQuote < 0 ? text.length : firstQuote;
+}
+
+function answerFor(question: string, text: string, laterMarkers: number[]): string | null {
+  const start = text.indexOf(markerOf(question));
   if (start < 0) return null;
-  const from = start + marker.length;
-  const end = text.indexOf('"', from);
-  return (end < 0 ? text.slice(from) : text.slice(from, end)).trim() || null;
+  const from = start + markerOf(question).length;
+  return (
+    text
+      .slice(from, answerEnd(text, from, laterMarkers))
+      .replace(/",\s*$/, "") // the `", ` that separates this pair from the next
+      .trim() || null
+  );
 }
 
 // A multi-select answer comes back as the chosen labels joined by ", ", so every part has to be a
@@ -55,10 +91,19 @@ function classifyAnswer(answer: string | null, options: DecisionOption[]): Decis
 
 function questionsOf(input: unknown, text: string | null): DecisionQuestion[] {
   const raw = isRecord(input) && Array.isArray(input.questions) ? input.questions : [];
+  // Every question's marker position, so each answer can be bounded by the next question rather
+  // than by the first quote it happens to contain.
+  const markers =
+    text === null
+      ? []
+      : raw
+          .filter(isRecord)
+          .map((q) => text.indexOf(markerOf(str(q.question))))
+          .filter((i) => i >= 0);
   return raw.filter(isRecord).map((q) => {
     const question = str(q.question);
     const options = optionsOf(q.options);
-    const answer = text === null ? null : answerFor(question, text);
+    const answer = text === null ? null : answerFor(question, text, markers);
     return { question, header: str(q.header), multiSelect: q.multiSelect === true, options, answer, answerKind: classifyAnswer(answer, options) };
   });
 }
