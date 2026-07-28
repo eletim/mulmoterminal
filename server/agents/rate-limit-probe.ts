@@ -64,7 +64,7 @@ export function startRateLimitProbe(deps: ProbeDeps): () => void {
   try {
     const dir = mkdtempSync(path.join(tmpdir(), "mt-ratelimit-"));
     const file = path.join(dir, "settings.json");
-    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command: statusLineCommand(deps.host, deps.port, deps.sessionId) } }), {
+    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command: statusLineCommand(deps.host, deps.port) } }), {
       mode: 0o600,
     });
     settings = { dir, file };

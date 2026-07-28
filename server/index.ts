@@ -38,10 +38,9 @@ import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
 import { hasBinary } from "./infra/has-binary.js";
 import { newProbeSessionId } from "./agents/probe-session.js";
 import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
-import { newestRolloutFile, codexSessionsDir } from "./agents/codex-rollout.js";
-import { readTailLines } from "./infra/jsonl-file.js";
+import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
-import { rateLimitCacheFile, readRateLimitCache, writeRateLimitCache } from "./agents/rate-limit-persist.js";
+import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
@@ -296,10 +295,24 @@ const isAllowedOrigin = createIsAllowedOrigin(browserHostnames);
 // probe that cannot launch simply never reports, which is the same as having no data yet.
 // Seeded from the last run so the header has numbers the moment the grid opens. Probing at boot
 // instead would spend a query on every restart — once per SAVE under `yarn dev`.
-const rateLimitStore = createRateLimitStore(readRateLimitCache(rateLimitCacheFile()), (snapshot) => writeRateLimitCache(rateLimitCacheFile(), snapshot));
+// Stopping the probe the moment its answer lands. Without this the PTY was held for the full
+// PROBE_TIMEOUT_MS — the status line arrives in seconds, so most of that minute and a half was a
+// live `claude` process with nothing left to say, and `probing: true` kept every browser polling at
+// seconds rather than minutes for the whole of it.
+//
+// Only a report carrying WINDOWS ends it. The status line also fires before the first API response,
+// when `rate_limits` is not there yet (see statusline.ts) — stopping on that would kill the probe
+// just before the thing it was spawned to collect.
+let stopClaudeRateLimitProbe: (() => void) | null = null;
+
+const writeRateLimitCacheIfChanged = createRateLimitCacheWriter(rateLimitCacheFile());
+const rateLimitStore = createRateLimitStore(readRateLimitCache(rateLimitCacheFile()), (snapshot, agent) => {
+  writeRateLimitCacheIfChanged(snapshot);
+  if (agent === "claude") stopClaudeRateLimitProbe?.();
+});
 const refreshCodexRateLimits = (): void => {
   const file = newestRolloutFile(codexSessionsDir(), Date.now());
-  if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readTailLines(file)), Date.now());
+  if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readRolloutTail(file)), Date.now());
 };
 // Whether a probe could even run. Checked before spawning rather than discovered by spawning
 // (#1011): a machine without `claude` used to fail so fast that it never reached the 90s timeout,
@@ -327,7 +340,7 @@ const startClaudeRateLimitProbe = (): void => {
   }
   rateLimitStore.noteProbeStarted(Date.now());
   const sessionId = newProbeSessionId();
-  startRateLimitProbe({
+  stopClaudeRateLimitProbe = startRateLimitProbe({
     spawn: (args, cwd) => spawnPty(CLAUDE_BIN, args, cwd),
     host: "localhost",
     port: PORT,
@@ -337,6 +350,9 @@ const startClaudeRateLimitProbe = (): void => {
     // case. report() has already moved the state on if anything arrived, so this only widens the
     // gap when nothing did.
     onSettled: () => {
+      // Cleared here rather than by whoever called stop(): `stop()` is idempotent, but a stale
+      // reference would let the NEXT probe be killed by a late report belonging to this one.
+      stopClaudeRateLimitProbe = null;
       rateLimitStore.noteProbeFailedIfNoReport(Date.now());
       rateLimitStore.setProbeInFlight(false);
       // Hiding it from /api/sessions is not enough: `claude --resume` reads the transcript

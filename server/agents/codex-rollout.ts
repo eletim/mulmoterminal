@@ -8,9 +8,21 @@
 import { readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { readTailLines } from "../infra/jsonl-file.js";
 
 // Enough to hold several events even when one carries a large payload. A rollout whose last
 // rate_limits sits further back than this simply reports nothing, which the gauge already handles.
+const CODEX_ROLLOUT_TAIL_BYTES = 256 * 1024;
+
+/** The tail of one rollout, at the size Codex needs.
+ *
+ *  A function rather than an exported number, so no caller can reach `readTailLines` without it.
+ *  That is exactly how the size was lost: moving to the shared reader (#998) left the call site
+ *  passing no size, which silently inherited a default meant for a Claude transcript — 4 MB
+ *  instead of 256 KB, measured at 0.5 ms → 7.9 ms per poll against a 5.9 MB rollout, on the
+ *  request path, for the same answer every time. A remembered argument regresses in silence; a
+ *  named reader cannot. */
+export const readRolloutTail = (file: string): string[] => readTailLines(file, CODEX_ROLLOUT_TAIL_BYTES);
 
 export const codexSessionsDir = (): string => path.join(os.homedir(), ".codex", "sessions");
 

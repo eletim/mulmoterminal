@@ -86,7 +86,13 @@ export function shouldProbe(now_ms: number, gate: ProbeGate): boolean {
   return gate.reportedAt_ms === null || now_ms - gate.reportedAt_ms > RATE_LIMIT_STALE_MS;
 }
 
-export function createRateLimitStore(initial: RateLimitSnapshot = {}, onChange: (snapshot: RateLimitSnapshot) => void = () => {}) {
+/** Told after a report that carried windows. The agent is part of it because the two callers want
+ *  different things from it: the cache wants the snapshot, while the probe wants to know its own
+ *  answer is in — a Claude report with windows is the moment holding the PTY open stops buying
+ *  anything. */
+export type RateLimitChange = (snapshot: RateLimitSnapshot, agent: RateLimitAgent) => void;
+
+export function createRateLimitStore(initial: RateLimitSnapshot = {}, onChange: RateLimitChange = () => {}) {
   const byAgent: RateLimitSnapshot = { ...initial };
   let lastAskedAt_ms: number | null = null;
   let probeInFlight = false;
@@ -112,7 +118,7 @@ export function createRateLimitStore(initial: RateLimitSnapshot = {}, onChange: 
       }
       if (!limits) return;
       byAgent[agent] = { limits, reportedAt_ms: now_ms };
-      onChange({ ...byAgent });
+      onChange({ ...byAgent }, agent);
     },
     snapshot(): RateLimitSnapshot {
       return { ...byAgent };
