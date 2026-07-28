@@ -26,6 +26,12 @@
 // GeoPoint, a DocumentReference and Bytes as themselves, and rebuilding one of those from its
 // entries turns it into `{}` — the guard would then destroy a valid value while looking for an
 // invalid one. Anything with a prototype of its own is left exactly as it came.
+//
+// An object literal from ANOTHER realm (vm, a worker) has a different Object.prototype and so
+// reads as "not plain" here, and its `undefined` would go unreported. That is the safe direction
+// to be wrong in: skipping one means a write fails loudly at Firestore, while recursing into a
+// sentinel replaces a real value with {} and nobody ever hears about it. Replies are built in this
+// realm and JSON.parse returns this realm's objects, so nothing takes that path today.
 const isPlainObject = (value: object): boolean => {
   const proto: unknown = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;

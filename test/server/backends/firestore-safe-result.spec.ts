@@ -4,6 +4,7 @@
 // is what emptied the phone's session list in #1042. These pin the guard that stands in front of
 // the write, and the shape of the session list that tripped it.
 import { describe, it, expect, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 import { undefinedPaths, stripUndefined, firestoreSafeHandlers, matchesPath } from "../../../server/backends/remoteHost/firestoreSafeResult";
 import { buildSessionList } from "../../../server/backends/remoteHost/terminalScreen";
 
@@ -266,5 +267,15 @@ describe("values Firestore stores as themselves", () => {
 
   it("still walks a plain object nested under one", () => {
     expect(undefinedPaths({ outer: { inner: undefined } })).toEqual(["outer.inner"]);
+  });
+
+  // Pins the direction the narrowing is allowed to be wrong in. An object from another realm reads
+  // as "not plain", so its undefined goes unreported — which fails the write loudly at Firestore.
+  // The opposite mistake, recursing into a sentinel, replaces a real value with {} in silence.
+  // Nothing takes this path today (replies are built here; JSON.parse returns this realm).
+  it("skips a foreign-realm object rather than risking a sentinel", () => {
+    const foreign: unknown = runInNewContext("({ a: 1, bad: undefined })");
+    expect(undefinedPaths(foreign)).toEqual([]);
+    expect(stripUndefined({ nested: foreign })).toEqual({ nested: foreign });
   });
 });
