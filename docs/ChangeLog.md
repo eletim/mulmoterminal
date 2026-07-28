@@ -4,6 +4,69 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.5.1 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.1.html))
+
+The Windows folder picker is the dialog Explorer actually uses, a reply's last code block can be
+copied without dragging the terminal's indentation along, and a cell can tell an issue that it is
+being worked on.
+
+### Windows: the Explorer-style folder picker (#1004, fixes #1003)
+
+The Working-directory picker opened the legacy "Browse For Folder" tree — no address bar, no path
+box — so reaching a project meant clicking down the hierarchy. `winArgs()` used
+`System.Windows.Forms.FolderBrowserDialog` under the stock `powershell` (5.1 / .NET Framework),
+which has no modern mode; the file picker was already the Explorer-style `OpenFileDialog`, so only
+the folder one had been left behind.
+
+It now asks the shell for its own `IFileOpenDialog` with `FOS_PICKFOLDERS`. PowerShell 7 would have
+been the smaller change (its `FolderBrowserDialog` is modern), but `pwsh` is not installed by
+default on Windows 11, so that would only have fixed it for people who had already installed it.
+The COM interop is wrapped in a `try`/`catch` that falls back to the old dialog: a runtime that
+cannot compile the interop costs the nicer dialog, not the ability to choose a folder.
+
+Reported by an external contributor with the cause already located down to the function.
+
+### Copy the last code block of the latest reply (#995, fixes #865)
+
+A cell-header button puts the last fenced code block of the agent's most recent reply on the
+clipboard. Selecting it in the terminal instead carries every line's leading whitespace, which
+mangles a paste into Discord or Slack — this reads the original text from the agent's transcript
+rather than off the screen.
+
+### Tell the issue you are working on it (#987, #979 Phase 2)
+
+With `"issueWorkComments": true` in `~/.mulmoterminal/config.json`, a cell comments once on the
+issue it is working on, and again when its PR merges — closing the issue if GitHub has not already.
+The comment names the working directory by folder name only, never the path, since these land on
+public issues.
+
+Off by default: it writes to GitHub under the user's account, often on an issue somebody else
+filed. The design problem was idempotency rather than posting — the caller is a poll, so every open
+tab re-asks on every tick and a reload asks again. A per-key in-flight collapse handles concurrent
+asks, a process memo handles repeats, and an invisible marker in the issue thread handles a
+restarted server. A merge is only announced when this session watched it happen, so switching the
+setting on does not comment on issues that were finished weeks ago.
+
+### `Opus · ctx 290%` (#986)
+
+`CONTEXT_WINDOWS` is a prefix-matched list and `claude-opus-5` matched none of the `opus-4-x`
+entries, falling back to `opus` (200k) against a real 1M window — exactly five times too small.
+Opus 5 is listed now, and a percentage that cannot be real is no longer displayed.
+
+### Guide audit (#994)
+
+The configuration, feature-list, basics and advanced pages (8 files across both languages) were
+brought back in line with the implementation after 2.2.0–2.4.0, reordered so the most-reached-for
+settings come first, given headings that can be found by symptom, and illustrated with three
+screenshots of the Settings modal.
+
+### Characterization tests for the `gh` argv (#988, part of #981)
+
+Pins what the four read-side features ask `gh` for, so moving them behind a forge interface can be
+shown to keep the observable behaviour identical. Tests only — no implementation touched.
+
 ## mulmoterminal@2.5.0 — 2026-07-28
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.0.html))
