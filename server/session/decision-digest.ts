@@ -24,7 +24,14 @@ const dateOf = (ts: string): string => (ts.length >= 10 ? ts.slice(0, 10) : "unk
 // evidence. Instead every quoted value is put where it cannot pretend to be part of the document
 // — a fence longer than any backtick run inside it, so nothing can close it early — and the
 // document says in its own words that fenced content is data.
-const longestBacktickRun = (text: string): number => Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+// Iterative rather than `Math.max(...runs)`: the text is untrusted, and spreading a few hundred
+// thousand matches into a call overflows the stack — which would fail the whole project's digest
+// on one pasted file (Codex review).
+function longestBacktickRun(text: string): number {
+  let longest = 0;
+  for (const match of text.matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
+  return longest;
+}
 
 // A block fence is at least three; an inline one only has to out-run what it wraps.
 const blockFence = (text: string): string => "`".repeat(Math.max(3, longestBacktickRun(text) + 1));

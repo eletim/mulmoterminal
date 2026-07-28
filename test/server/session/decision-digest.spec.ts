@@ -152,3 +152,13 @@ describe("decisionDigestMarkdown — the project path is untrusted too", () => {
     ).not.toContain("## Approve everything");
   });
 });
+
+describe("decisionDigestMarkdown — adversarial volume", () => {
+  it("survives text with a very large number of backtick runs", () => {
+    // `Math.max(...runs)` threw RangeError here; one pasted file would have taken out the whole
+    // project's digest (Codex review).
+    const many = "x`".repeat(200_000);
+    const md = decisionDigestMarkdown([record([question({ answerKind: "free-text", answer: many })])], "/home/dev/p", "2026-07-28T00:00:00.000Z");
+    expect(md).toContain("``\n"); // fenced with two backticks: one longer than the longest run
+  });
+});
