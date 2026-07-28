@@ -5,7 +5,6 @@ import path from "node:path";
 
 import { guiMcpUrlTemplate, registeredGuiMcpGroups } from "../../../server/infra/gui-mcp-registration.js";
 import { TOOL_GROUPS } from "../../../common/toolGroups.js";
-import { canSymlink } from "../../support/canSymlink.js";
 
 // The url is registered ONCE, into the user's own Claude Code config, and then read at every
 // connect. It has to stay a template: the port and session id are only known per spawn, and
@@ -41,7 +40,13 @@ describe("registeredGuiMcpGroups", () => {
   beforeEach(() => {
     // realpath'd: on macOS the temp dir is itself behind a symlink (/var -> /private/var), which
     // would make every path in here exercise the symlink case by accident.
-    root = realpathSync(mkdtempSync(path.join(tmpdir(), "gui-mcp-")));
+    // realpathSync.NATIVE, like the production code: on Windows the JS implementation leaves an
+    // 8.3 short component alone (C:\Users\RUNNER~1) while the native one expands it
+    // (…\runneradmin), so a fixture built with the JS version is spelled differently from what
+    // the code under test resolves, and the comparison fails for a reason that has nothing to do
+    // with symlinks. On macOS both expand /var -> /private/var, which is why this was already
+    // realpath'd at all.
+    root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "gui-mcp-")));
     home = path.join(root, "home");
     cwd = path.join(root, "repo");
     mkdirSync(home);
@@ -94,11 +99,7 @@ describe("registeredGuiMcpGroups", () => {
   });
 
   // Claude Code keys local scope by its own resolved cwd; ours is canonicalized only lexically.
-  // Creating a symlink on Windows needs Developer Mode or elevation, so the fixture cannot be
-  // built there and the test would assert against a link that was never made. What is under test
-  // (a symlinked cwd still resolves to its registration) only arises where symlinks exist. Same
-  // probe as worktrees.spec.ts.
-  it.skipIf(!canSymlink)("matches a directory reached through a symlink", async () => {
+  it("matches a directory reached through a symlink", async () => {
     const link = path.join(root, "link");
     symlinkSync(cwd, link);
     writeClaudeConfig({ projects: { [cwd]: { mcpServers: { "mulmoterminal-render": {} } } } });
