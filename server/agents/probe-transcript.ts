@@ -61,24 +61,34 @@ const usesTools = (content: unknown): boolean =>
  *  user messages, and that is the whole difference. A probe also never reaches for a tool — true
  *  of all 84 probe transcripts measured — so a one-turn conversation that did is somebody's work. */
 export function isProbeTranscript(jsonl: string): boolean {
-  return probeVerdict(jsonl.split("\n"));
+  const scan = newProbeScan();
+  for (const line of jsonl.split("\n")) scanProbeLine(scan, line);
+  return probeScanVerdict(scan);
 }
 
-/** The same decision over a line SOURCE rather than one string, so a caller that streams a file
- *  never has to hold it — a transcript on a working machine reaches 585 MB, past the point where
- *  `readFile(…, "utf8")` throws outright (#998). */
-const probeVerdict = (lines: Iterable<string>): boolean => {
-  let userText: string | null = null;
-  let userCount = 0;
-  for (const line of lines) {
-    const found = probeEvidenceIn(line);
-    if (found === null) continue;
-    if (found === "tool") return false;
-    if (++userCount > 1) return false; // a conversation, whatever it quotes
-    userText = found.said;
+/** What a transcript has shown so far. Three fields rather than the lines themselves, so a caller
+ *  reading a file line by line holds this and nothing else — collecting the lines into an array
+ *  first would put the whole transcript in memory, which is the shape of the bug #998 fixed. */
+interface ProbeScan {
+  users: number;
+  said: string | null;
+  tool: boolean;
+}
+
+const newProbeScan = (): ProbeScan => ({ users: 0, said: null, tool: false });
+
+const scanProbeLine = (scan: ProbeScan, line: string): void => {
+  const found = probeEvidenceIn(line);
+  if (found === null) return;
+  if (found === "tool") {
+    scan.tool = true;
+    return;
   }
-  return userCount === 1 && userText === PROBE_PROMPT;
+  scan.users++;
+  if (scan.users === 1) scan.said = found.said;
 };
+
+const probeScanVerdict = (scan: ProbeScan): boolean => !scan.tool && scan.users === 1 && scan.said === PROBE_PROMPT;
 
 /** What one transcript line contributes to the decision: a user's words, the fact that a tool was
  *  used, or nothing worth counting. */
@@ -124,8 +134,15 @@ export async function sweepLegacyProbeTranscripts(cwd: string): Promise<number> 
   } catch {
     return 0; // no transcripts for this project yet
   }
-  const removed = await Promise.all(names.map((name) => removeIfProbe(path.join(dir, name))));
-  return removed.filter(Boolean).length;
+  // One at a time, not Promise.all. This directory holds 454 files on the machine this was written
+  // on, and opening them all at once can exhaust the file-descriptor limit — which matters more
+  // here than anywhere else, because the sweep gets ONE run: a file skipped by an EMFILE is a file
+  // nothing will ever come back for. It runs at startup, off the request path, so it can be slow.
+  let removed = 0;
+  for (const name of names) {
+    if (await removeIfProbe(path.join(dir, name))) removed++;
+  }
+  return removed;
 }
 
 /** The sweep, run at most once on this machine — see the note at the top of this file. `marker` is
@@ -157,12 +174,12 @@ export async function sweepLegacyProbeTranscriptsOnce(cwd: string, marker: strin
 const removeIfProbe = async (file: string): Promise<boolean> => {
   try {
     if ((await stat(file)).size > PROBE_TRANSCRIPT_MAX_BYTES) return false;
-    // Streamed rather than read whole, like every other transcript reader here (#998): the size
-    // check above already excludes the giants, so this is belt and braces — but a reader that
-    // takes the whole file is exactly the bug that made the longest sessions look empty.
-    const lines: string[] = [];
-    await forEachJsonlLine(file, (line) => lines.push(line));
-    if (!probeVerdict(lines)) return false;
+    // Line by line into a fixed-size scan, never into a string or an array: taking a whole
+    // transcript is the bug #998 fixed, and the size check above is a second guard rather than the
+    // only one — a file can grow between the stat and the read.
+    const scan = newProbeScan();
+    await forEachJsonlLine(file, (line) => scanProbeLine(scan, line));
+    if (!probeScanVerdict(scan)) return false;
     await rm(file);
     return true;
   } catch {

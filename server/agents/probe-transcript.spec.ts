@@ -148,6 +148,23 @@ describe("probe transcript removal", () => {
     expect(await sweepLegacyProbeTranscripts(path.join(home, "never-used"))).toBe(0);
   });
 
+  // Observed during Claude review, not flagged by a bot. This directory holds 454 files on the
+  // machine this was written on, and opening them all at once exhausts the file-descriptor limit:
+  // measured at `ulimit -n 128`, reading 600 files with Promise.all died with EMFILE having read
+  // NONE, while one-at-a-time read all 600. It matters more here than elsewhere because the sweep
+  // gets ONE run — a file skipped by an EMFILE is one nothing ever comes back for.
+  //
+  // This test covers the count, not the limit: it cannot lower `ulimit` for its own process, so on
+  // a machine with a high one it would pass either way. The measurement above is the evidence.
+  it("gets through a directory of many transcripts", async () => {
+    const count = 600;
+    for (let i = 0; i < count; i++) write(`probe-${i}.jsonl`, probe());
+    write("real.jsonl", [userLine("mine"), userLine("also mine")].join("\n"));
+
+    expect(await sweepLegacyProbeTranscripts(cwd)).toBe(count);
+    expect(remains()).toEqual(["real.jsonl"]);
+  });
+
   it("only looks inside the project it was given", async () => {
     const other = path.join(home, "other-project");
     mkdirSync(projectSessionsDir(other), { recursive: true });
