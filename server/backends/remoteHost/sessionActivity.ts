@@ -10,6 +10,7 @@
 // Deliberately fire-and-forget: the caller sits on the synchronous hook path that
 // serves Claude Code's own requests, and a Firestore hiccup must never disturb it.
 import { deleteDoc, doc, serverTimestamp, setDoc, type DocumentReference, type Firestore } from "firebase/firestore";
+import { stripUndefined } from "./firestoreSafeResult.js";
 import type { WorkPhase } from "../../session/workPhase.js";
 
 export interface SessionActivity {
@@ -76,7 +77,12 @@ export function createSessionActivityPublisher(deps: SessionActivityPublisherDep
     published.set(sessionId, key);
     const rev = (revisions.get(sessionId) ?? 0) + 1;
     revisions.set(sessionId, rev);
-    deps.store.write(uid, deps.hostId, sessionId, { ...activity, rev, at: serverTimestamp() }).catch((error: unknown) => {
+    // The other write that reaches Firestore. `SessionActivity` has optional fields, so an
+    // `event: undefined` from any caller would take this doc down the same way a stray undefined
+    // took down the session list — and here the loss is silent, since nothing awaits the result.
+    // `serverTimestamp()` is a sentinel object, which is why the guard only walks plain objects.
+    const payload = stripUndefined({ ...activity, rev, at: serverTimestamp() });
+    deps.store.write(uid, deps.hostId, sessionId, payload).catch((error: unknown) => {
       // The dedup entry is recorded optimistically, so a failed write would otherwise
       // swallow every later publish of the SAME state and leave the phone stale until
       // some different transition happened. Release it so the next one retries —

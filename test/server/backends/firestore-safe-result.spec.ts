@@ -4,6 +4,7 @@
 // is what emptied the phone's session list in #1042. These pin the guard that stands in front of
 // the write, and the shape of the session list that tripped it.
 import { describe, it, expect, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 import { undefinedPaths, stripUndefined, firestoreSafeHandlers, matchesPath } from "../../../server/backends/remoteHost/firestoreSafeResult";
 import { buildSessionList } from "../../../server/backends/remoteHost/terminalScreen";
 
@@ -230,5 +231,51 @@ describe("buildSessionList — the shape that reached Firestore (#1042)", () => 
   it("produces a list Firestore will accept", () => {
     expect(undefinedPaths({ sessions: listWith(new Map([["/work/with-work", WORK]])) })).toEqual([]);
     expect(undefinedPaths({ sessions: listWith(new Map()) })).toEqual([]);
+  });
+});
+
+// Firestore stores a Date, a Timestamp, a GeoPoint, a DocumentReference and Bytes as themselves.
+// Rebuilding one from its entries turns it into `{}` — the guard would then destroy a valid value
+// while hunting an invalid one (found by a local codex review; CodeRabbit was rate-limited).
+describe("values Firestore stores as themselves", () => {
+  const AT = new Date("2026-07-29T00:00:00Z");
+
+  it("hands a Date back as the same Date, not an empty object", () => {
+    expect(stripUndefined(AT)).toBeInstanceOf(Date);
+    expect(stripUndefined({ at: AT }).at).toBeInstanceOf(Date);
+  });
+
+  // A Firestore sentinel (serverTimestamp) is an ordinary class instance to us, so this is what
+  // stops the guard from flattening it on the activity-publish path.
+  it("hands any class instance back untouched", () => {
+    class Sentinel {
+      readonly kind = "serverTimestamp";
+    }
+    const sentinel = new Sentinel();
+    expect(stripUndefined({ at: sentinel }).at).toBe(sentinel);
+    expect(stripUndefined(new Map([["a", 1]]))).toBeInstanceOf(Map);
+  });
+
+  it("finds no undefined to report inside one", () => {
+    expect(undefinedPaths({ at: AT, bad: undefined })).toEqual(["bad"]);
+  });
+
+  // The point of the narrowing is to leave the ordinary case alone.
+  it("still cleans a plain object beside it", () => {
+    expect(stripUndefined({ at: AT, gone: undefined, keep: 1 })).toEqual({ at: AT, keep: 1 });
+  });
+
+  it("still walks a plain object nested under one", () => {
+    expect(undefinedPaths({ outer: { inner: undefined } })).toEqual(["outer.inner"]);
+  });
+
+  // Pins the direction the narrowing is allowed to be wrong in. An object from another realm reads
+  // as "not plain", so its undefined goes unreported — which fails the write loudly at Firestore.
+  // The opposite mistake, recursing into a sentinel, replaces a real value with {} in silence.
+  // Nothing takes this path today (replies are built here; JSON.parse returns this realm).
+  it("skips a foreign-realm object rather than risking a sentinel", () => {
+    const foreign: unknown = runInNewContext("({ a: 1, bad: undefined })");
+    expect(undefinedPaths(foreign)).toEqual([]);
+    expect(stripUndefined({ nested: foreign })).toEqual({ nested: foreign });
   });
 });
