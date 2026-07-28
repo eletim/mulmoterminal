@@ -1,10 +1,9 @@
 // Scanning a project's Claude transcripts for the decisions they hold (#997), separated from the
 // HTTP route because the digest writer (#1015) reads the same thing on a timer.
-import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import readline from "node:readline";
 import type { DecisionRecord, DecisionsResponse } from "../../common/decisionLog.js";
+import { forEachJsonlLine } from "../infra/jsonl-file.js";
 import { byNewest, createDecisionScan } from "./decisions.js";
 import { createFileCache, type FileStamp } from "./file-cache.js";
 import { projectSessionsDir } from "./project-dir.js";
@@ -48,14 +47,7 @@ async function transcriptsNewestFirst(dir: string): Promise<Transcript[]> {
 // a JS string can hold, and reading it whole would drop exactly the longest sessions (#998).
 async function scanTranscript(transcript: Transcript): Promise<DecisionRecord[]> {
   const scan = createDecisionScan();
-  const input = createReadStream(transcript.file, "utf8");
-  const lines = readline.createInterface({ input, crlfDelay: Infinity });
-  try {
-    for await (const line of lines) scan.addLine(line);
-  } finally {
-    lines.close();
-    input.destroy();
-  }
+  await forEachJsonlLine(transcript.file, (line) => scan.addLine(line));
   return scan.finish(transcript.sessionId);
 }
 
