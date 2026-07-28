@@ -415,12 +415,16 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   // A fixed-grid renderer makes that structurally impossible.
   //
   // CAVEAT — version mismatch: @xterm/addon-canvas is xterm-5 era (its peerDependency is
-  // `@xterm/xterm@^5`, and there is no stable xterm-6 build — even 0.8.0-beta still peers ^5), but the
-  // app runs @xterm/xterm@6. It renders, but this xterm-5 renderer on xterm-6 internals is the
-  // suspected cause of broken selection auto-scroll + scrollbar (#782) and OSC 8 link click (#783),
-  // all of which regressed when this was introduced. Don't just bump the addon; the real fix is a
-  // renderer decision — WebGL keeps the fixed grid (so the CJK drift above stays fixed), the DOM
-  // renderer drops the dependency but risks that drift. Read #782 before touching this.
+  // `@xterm/xterm@^5`, and there is no xterm-6 build — even 0.8.0-beta still peers ^5), but the app
+  // runs @xterm/xterm@6. It renders, and it is NOT known to break anything: an earlier version of
+  // this comment named it the suspected cause of #782 (selection auto-scroll + scrollbar) and #783
+  // (OSC 8 links), and measurement disproved both. #782 is tmux owning the scrollback — the outer
+  // xterm only ever receives the visible screen — and reproduced identically with the addon off.
+  // #783 was tmux stripping hyperlinks (fixed in #785). Neither is a reason to change renderer.
+  //
+  // What the mismatch DOES mean is that a future xterm bump cannot be repaired by bumping this
+  // addon, because no such release exists — see the Renderer section of docs/terminal-notes.md for
+  // what to move to on the day it breaks, and what to settle before moving.
   // Best-effort: if the canvas renderer can't initialise, xterm keeps the DOM renderer.
   try {
     term.loadAddon(new CanvasAddon());
