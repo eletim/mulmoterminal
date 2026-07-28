@@ -4,6 +4,63 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.5.0 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.0.html))
+
+The rate-limit windows every session shares are now on screen instead of a `/usage` command away,
+and a config written by a newer version survives being read by an older one.
+
+### The 5h / 7d windows, in the grid header (#387, #976)
+
+Both windows, for Claude **and** Codex, visible whenever the grid is. Running a grid of agents is
+what burns them fastest and nothing in the app showed them; the only way to look was to type
+`/usage`, which happens after wondering rather than before.
+
+Where the numbers come from differs per agent, and that decided the design:
+
+- **Codex writes both windows into its own session file**, so reading them costs nothing.
+- **Claude has no such file.** The figures exist only in the payload handed to a `statusLine`
+  command, and only after a session's first API response — verified by measurement, along with the
+  fact that `claude -p` never invokes a status line at all. So MulmoTerminal runs a **hidden session
+  of its own**, asks one trivial question, reads the answer, and closes it.
+
+That query spends the budget the gauge reports, so it runs **only while a browser is showing the
+gauge** and only when the held value is over ten minutes old. The last reading is cached, so opening
+the grid shows numbers immediately rather than after a probe.
+
+A missing window is never drawn as `0%`. Upstream has removed `rate_limits` from the payload once
+already (anthropics/claude-code#40094), and a gauge reading zero when the truth is 86% is the worst
+thing this data could do.
+
+### Which PR / issue a cell is working on (#979, #983)
+
+Each cell's header now says what that cell is on, as `#977 → #966` — the branch's PR, and the issue
+that PR closes. It **disappears the moment the PR is merged or closed**, so a stale chip cannot
+outlive the work.
+
+The issue comes from the PR body's closing keyword (`Fixes #966`), which the author wrote on purpose.
+A branch named `fix/966-…` is treated as a **candidate only** and shown after confirming the issue
+exists — `release/2026-07-28-hotfix` would otherwise be reported as issue #2026, and no pattern can
+tell a year from an issue number.
+
+**If you have configured `chips` yourself, add `"work"` to see it.** A configured list is the whole
+list, as it always has been; the default set already includes it.
+
+### An older version no longer erases a newer version's settings (#966, #977)
+
+`~/.mulmoterminal/config.json` is shared by every instance on the machine. An older build rebuilt
+the file from the fields it knew, so any setting added by a newer one was **silently deleted** the
+next time the older one saved — which a preset being recorded on launch is enough to trigger. Found
+while testing `copyOnSelect` against a running 2.2.0. Unknown keys now survive a write untouched.
+
+### Also
+
+- **Which clone made a PR** is appended in more of the paths that create one, not only the button (#974).
+- **The activity timeline** no longer renders underneath the panel it was opened from (#968, #980).
+- **Focus after leaving zoom** returns to the terminal instead of being dropped (#965, #967).
+- Dependency updates (#975), and a refactor of the remote-host parsing (#981, #982).
+
 ## mulmoterminal@2.4.0 — 2026-07-28
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.4.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.4.0.html))
