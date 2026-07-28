@@ -40,6 +40,7 @@ MulmoTerminal — a browser terminal for parallel Claude Code and Codex agents �
 | PR phase / work phase | Each roster row badges the branch's **PR state** (draft / CI fail / changes / ready / merged …) and the work phase (planning / editing) |
 | Model / context size | e.g. `Opus · ctx 35%` — the active model and how full the context is |
 | Activity timeline | Tool-call history (Bash / Read / Edit …) shown newest-first in a modal |
+| Copy the last code block | A cell-header button puts the **last fenced block of the latest reply** on the clipboard, taken from the agent's own transcript rather than the screen — so no line wrapping or leading spaces come with it and it pastes cleanly into Discord / Slack / email. Where the browser blocks clipboard access (any address that is not https or localhost, i.e. from your phone) it shows the block selected for copying by hand instead |
 | Cost (estimated) | Approximate **session / today / this month** cost in settings |
 | Worktree diff badge | Shows the amount of change on a worktree cell; click for the diff panel |
 | GUI panel | Renders diagrams, forms, images, and documents — plus HTML, **video/slides (MulmoCast)**, collections, and accounting — from the agent's tool calls (Claude / Codex both supported) |

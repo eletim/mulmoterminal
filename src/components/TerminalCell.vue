@@ -22,6 +22,7 @@ import type { LaunchChoice } from "./wsUrl";
 import type { RunCommand } from "./runCommand";
 import { useHeaderButtons } from "../composables/useHeaderButtons";
 import TimelineOverlay from "./TimelineOverlay.vue";
+import CopyCodeBlock from "./CopyCodeBlock.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { CwdPreset } from "./presets";
@@ -1275,6 +1276,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 {{ askMsg }}
               </p>
             </span>
+            <CopyCodeBlock v-if="sessionId" :class="CELL_BTN" :session-id="sessionId" :cwd="cwd" :agent="agent === 'codex' ? 'codex' : 'claude'" />
             <button
               v-if="sessionId && agent !== 'codex'"
               class="cell-btn"
