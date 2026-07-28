@@ -21,6 +21,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | セッションに**別のフォルダも見せたい** | [複数フォルダ](#add-dirs) |
 | **Claude 以外のモデル**で動かしたい | [プロバイダ](#providers) |
 | ヘッダーに**自分のボタン**を足したい | [ヘッダーのカスタマイズ](#header) |
+| **自分の配色**でアプリ全体を染めたい | [自分の配色を作る](#custom-themes) |
 | issue に**着手を知らせたい** | [issueWorkComments](#issue-work-comments) |
 | **別のマシンのブラウザ**から開きたい | [`MULMOTERMINAL_HOST`](#bind-host) |
 
@@ -60,7 +61,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 
 | 項目 | 内容 |
 |---|---|
-| **Theme** | Midnight / Nord / Daylight / Solarized Light |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light、および[自分で定義した配色](#custom-themes) |
 | **Terminal font size** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
 | **Directory appearance** | 「Configure appearance…」— ディレクトリの名前バッジ・色・ターミナルのパレット・ヘッダーを、`mulmoterminal-config` スキルで対話的に設定 |
 | **Directory settings** | 各ディレクトリの `.mulmoterminal.json` が**実際に何をしているか**。行を開くと、効いている値（色は見本付き）・**どのファイル由来か**・**検証で落ちたキー**・**このアプリが読まないキー**が出ます。読み取り専用（→ [設定が効かないとき](#dir-settings-preview)） |
@@ -270,6 +271,55 @@ MulmoTerminal の「**拡張**」の柱がここ。稼働中ターミナルの�
 ```
 
 - スキル名（slug）は英数字始まりで `a-z 0-9 - _` のみ。存在しない slug は無視されます。
+
+## 自分の配色を作る（`themes`） {#custom-themes}
+
+組み込みの 4 つ（Midnight / Nord / Daylight / Solarized Light）以外の配色を、`~/.mulmoterminal/config.json`
+の `themes` に定義すると **Settings のテーマ選択に並びます**。選ぶとアプリ全体（グリッド背景・ヘッダー・
+パネル・ターミナルの中身）がその配色になります。
+
+```json
+{
+  "themes": [
+    {
+      "id": "my-dark",
+      "label": "My Dark",
+      "extends": "midnight",
+      "colors": { "--bg-base": "#101820", "--bg-panel": "#16202c", "--accent": "#ff8c00" }
+    }
+  ]
+}
+```
+
+- **`extends`** — 組み込みのどれかを土台にして、**変えたい色だけ**書きます。省略もできますが、その場合は
+  下の変数を**すべて**書く必要があります（欠けたままだと、直前のテーマの色が残った混ざりものになるため、
+  適用されません）
+- **`id`** — 小文字・数字・ハイフン。**組み込みと同じ id は使えません**（`midnight` などを名乗る定義は
+  読まれず、[設定が効かないとき](#dir-settings-preview)に「読まないキー」として出ます）
+- **`colors`** の値は `#rrggbb` 形式のみ。CSS にそのまま入る値なので、ここは厳しく検証しています
+- **明るい配色は自動で判別されます**。`--bg-base` の明るさから判断し、ステータス表示（完了・待機・
+  エラーの色）を明るい背景向けに切り替えます。何も書く必要はありません
+- **ターミナルの中身の色は自動で決まります**。背景は `--bg-base`、文字は `--term-fg`、選択は
+  `--term-selection`。ANSI 16 色は `extends` 先から受け継ぎます
+
+指定できる変数は次の 20 個です。
+
+| 変数 | 何の色か |
+|---|---|
+| `--bg-base` | 画面の地の色（テーマの明暗判定もこれ） |
+| `--bg-deep` / `--bg-panel` / `--bg-subtle` / `--bg-elevated` / `--bg-input` | 一段深い背景・パネル・淡い面・浮いた面・入力欄 |
+| `--bg-hover` / `--bg-selected` / `--bg-selected-hover` | ホバー・選択中・選択中のホバー |
+| `--border` | 枠線 |
+| `--accent` / `--accent-bg` / `--accent-bg-hover` / `--on-accent` | アクセント色と、その上に載る文字 |
+| `--text` / `--text-secondary` / `--text-muted` / `--text-dim` | 文字の 4 段階 |
+| `--term-fg` / `--term-selection` | ターミナルの文字色・選択範囲 |
+
+プロジェクトごとの `.mulmoterminal.json` の [`theme`](#per-dir) にも、ここで定義した id を書けます。
+ただし**そのディレクトリのセルは、ターミナルの中身の配色だけ**が変わります（ヘッダーなどのクロームは
+Settings で選んだテーマのまま）。
+
+**選んだテーマが見つからないとき** — 別のマシンで開いた、定義を消した、など — 見た目は既定に戻り、
+Settings に理由が出ます。選択そのものは保持されるので、定義が戻れば自動で元の配色に戻ります。
 
 ## Enter — 送信と改行（`terminalSubmit`） {#terminal-submit}
 
@@ -822,6 +872,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `pushKinds` | どの瞬間に飛ばすか：`"finished"`（ターン完了）と `"waiting"`（質問して停止）。**書かなければ両方**、`[]` でどれも飛ばさない（→ [どの瞬間に飛ぶか](notifications.html#kinds)） |
 | `worklogEnabled` / `worklogIntervalHours` | 定期 dev-work ログ（既定 OFF / 6 時間） |
 | `terminalSubmit` | どのバイトを**送信**／**改行**とみなすか — `"cr"`（既定）または `"esc-cr"`（→ [Enter — 送信と改行](#terminal-submit)） |
+| `themes` | 自分で定義した配色。Settings のテーマ選択に並ぶ（→ [自分の配色を作る](#custom-themes)） |
 | `keymap` | ユーザ定義のキーボードショートカット。**既定は空——何も割り当てられていない**（→ [キーボードショートカット](#keymap)） |
 | `copyOnSelect` | マウスで選択し終えた時点で、キーを押さずにクリップボードへ入れる。**既定 OFF**（→ [選択したらコピー](#copy-on-select)） |
 | `prWorkdirFooter` | 作成した PR の本文末尾に `work in <クローン名>` を書く（→ [この PR はどのクローンの作業か](#pr-workdir-footer)）。**既定 ON**、`false` で無効 |

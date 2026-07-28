@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -201,9 +201,23 @@ describe("loadDirConfig", () => {
     cleanup();
   });
 
+  // A theme id naming neither a built-in nor a configured custom theme is a typo. Dropping it
+  // is what puts the key in the "ignored" list Settings shows — kept, it would paint the default
+  // and look like the setting was never made (#996).
   it("drops an unknown theme and a malformed color", () => {
     const { dir, cleanup } = withConfig({ theme: "neon", badgeColor: "red" });
     expect(loadDirConfig(dir)).toEqual(EMPTY);
+    cleanup();
+  });
+
+  // The other half of the same rule: an id the user actually defined in the global config's
+  // `themes` is a real theme, and a directory may pin it (#996).
+  it("keeps a theme id the global config defines", async () => {
+    const routes = await import("../../../server/config/config-routes");
+    const spy = vi.spyOn(routes, "getCustomThemeIds").mockReturnValue(["my-dark"]);
+    const { dir, cleanup } = withConfig({ theme: "my-dark" });
+    expect(loadDirConfig(dir).theme).toBe("my-dark");
+    spy.mockRestore();
     cleanup();
   });
 

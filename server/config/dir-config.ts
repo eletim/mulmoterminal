@@ -19,6 +19,16 @@ import {
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
+import { isBuiltinThemeId } from "../../common/themeVars.js";
+import { getCustomThemeIds } from "./config-routes.js";
+
+// A theme id this app can actually paint: a built-in, or one the user defined in the global
+// config's `themes` (#996). Anything else is a typo — dropped here so the key lands in the
+// "ignored" list Settings shows, rather than being kept and quietly rendering the default.
+function resolvableTheme(id: string | null): string | null {
+  if (id === null) return null;
+  return isBuiltinThemeId(id) || getCustomThemeIds().includes(id) ? id : null;
+}
 import { writtenFilePath } from "../files/tool-writes.js";
 import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds.js";
 import { parsePresetRef } from "../../common/notifySounds.js";
@@ -165,7 +175,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       fontSize: dirFontSizeField.parse(raw.fontSize),
       fontFamily: dirFontFamilyField.parse(raw.fontFamily),
       orderPriority: dirOrderPriorityField.parse(raw.orderPriority),
-      theme: dirThemeField.parse(raw.theme),
+      theme: resolvableTheme(dirThemeField.parse(raw.theme)),
       colors: dirColorsField.parse(raw.colors),
       sound: resolveDirSound(base, raw.sound),
       sounds: resolveDirSounds(base, raw.sounds),

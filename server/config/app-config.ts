@@ -11,12 +11,14 @@ import {
   quickCommandSchema,
   userMcpServerSchema,
   providerSchema,
+  customThemeSchema,
   type CwdPreset,
   type Provider,
   type Launcher,
   type UserMcpServer,
   type HeaderButton,
   type HeaderChip,
+  type CustomTheme,
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
@@ -94,11 +96,36 @@ export interface AppConfig {
   // its PR merges (#979). OFF unless asked for — it writes to GitHub, on issues that are often
   // somebody else's, and the comment names the working directory it happened in.
   issueWorkComments: boolean;
+  // Colour schemes the user defined, offered in Settings alongside the four built-ins (#996).
+  // Server-side rather than per-browser (like `fontFamily`, unlike `fontSize`): a palette you
+  // authored is an asset you want on every browser you open the app from. WHICH one is selected
+  // stays in localStorage, because "the dark one on this laptop" is a per-device answer.
+  themes: CustomTheme[];
   // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
   // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
   // exist is a property of the machine the browser runs on — the same answer for every client
   // of one host. A directory's `.mulmoterminal.json` fontFamily overrides it.
   fontFamily: string | null;
+}
+
+// A user-defined colour scheme (#996). `extends` names a built-in to start from, so a theme
+// that only recolours the accent is three lines; without it `colors` has to be complete.
+const CUSTOM_THEMES_MAX = 24;
+export function sanitizeCustomThemes(input: unknown): CustomTheme[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: CustomTheme[] = [];
+  for (const value of input) {
+    const parsed = customThemeSchema.safeParse(value);
+    // A built-in id is refused rather than merged into: the guide describes what Midnight looks
+    // like, and someone who reads it has to get that. `isUsableCustomThemeId` is inside the
+    // schema, so a shadowing entry lands in the "dropped" list the Directory-settings panel shows.
+    if (!parsed.success || seen.has(parsed.data.id)) continue;
+    seen.add(parsed.data.id);
+    out.push(parsed.data);
+    if (out.length >= CUSTOM_THEMES_MAX) break;
+  }
+  return out;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -290,6 +317,7 @@ export const emptyConfig = (): AppConfig => ({
   launchers: [],
   quickCommands: [],
   userMcpServers: [],
+  themes: [],
   buttons: null,
   chips: null,
   pushEnabled: false,
@@ -330,6 +358,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     launchers: sanitizeLaunchers(o.launchers),
     quickCommands: sanitizeQuickCommands(o.quickCommands),
     userMcpServers: sanitizeUserMcpServers(o.userMcpServers),
+    themes: sanitizeCustomThemes(o.themes),
     buttons: sanitizeButtons(o.buttons),
     chips: sanitizeChips(o.chips),
     pushEnabled: sanitizePushEnabled(o.pushEnabled),
@@ -430,6 +459,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     launchers: updated("launchers", sanitizeLaunchers, base.launchers),
     quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
     userMcpServers: updated("userMcpServers", sanitizeUserMcpServers, base.userMcpServers),
+    themes: updated("themes", sanitizeCustomThemes, base.themes),
     buttons: updated("buttons", sanitizeButtons, base.buttons),
     chips: updated("chips", sanitizeChips, base.chips),
     pushEnabled: updated("pushEnabled", sanitizePushEnabled, base.pushEnabled),
@@ -461,6 +491,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     launchers: config.launchers,
     quickCommands: config.quickCommands,
     userMcpServers: config.userMcpServers,
+    themes: config.themes,
     buttons: config.buttons,
     chips: config.chips,
     pushEnabled: config.pushEnabled,

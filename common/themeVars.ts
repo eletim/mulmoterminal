@@ -1,0 +1,105 @@
+// A custom theme's colours, and the rules that turn a user's `themes` entry into something the
+// app can paint with. Shared across the build boundary for the same reason THEME_COLOR_KEYS is
+// (see themeColors.ts): the server VALIDATES a config against these keys and the client APPLIES
+// it, so a key known to one side and not the other would be accepted and then silently ignored.
+
+import { THEME_IDS, type ThemeId } from "./themeIds.js";
+
+// The CSS custom properties one theme sets, mirroring the `:root[data-theme=...]` blocks in
+// src/style.css. A theme with no `extends` has to supply every one of them — a half-painted
+// theme is worse than none, because the missing half falls back to whatever the previous theme
+// left on the element.
+export const THEME_VAR_KEYS = [
+  "--bg-base",
+  "--bg-deep",
+  "--bg-panel",
+  "--bg-subtle",
+  "--bg-elevated",
+  "--bg-input",
+  "--bg-hover",
+  "--bg-selected",
+  "--bg-selected-hover",
+  "--border",
+  "--accent",
+  "--accent-bg",
+  "--accent-bg-hover",
+  "--on-accent",
+  "--text",
+  "--text-secondary",
+  "--text-muted",
+  "--text-dim",
+  "--term-fg",
+  "--term-selection",
+] as const;
+
+export type ThemeVarKey = (typeof THEME_VAR_KEYS)[number];
+export type ThemeVars = Record<ThemeVarKey, string>;
+
+/** An id a user may give a custom theme: lowercase, digits and dashes, so it is safe both as a
+ *  `data-theme` attribute value and as something to type into a `.mulmoterminal.json`. */
+export const CUSTOM_THEME_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+
+export function isBuiltinThemeId(id: string): id is ThemeId {
+  return (THEME_IDS as readonly string[]).includes(id);
+}
+
+/** Whether an id may be used for a CUSTOM theme. Built-in ids are refused rather than merged
+ *  into: someone reading the guide's description of Midnight has to get Midnight. */
+export function isUsableCustomThemeId(id: unknown): id is string {
+  return typeof id === "string" && CUSTOM_THEME_ID_RE.test(id) && !isBuiltinThemeId(id);
+}
+
+export interface CustomThemeInput {
+  id: string;
+  label: string;
+  /** A built-in theme to start from. Omitted means `colors` must be complete. */
+  extends?: ThemeId;
+  colors: Partial<ThemeVars>;
+}
+
+/** The full variable set for a theme: the base it extends, with its own colours on top.
+ *  `builtins` supplies the base sets so this stays pure — the client reads them from the
+ *  stylesheet's source of truth, the specs from a fixture. */
+export function resolveThemeVars(theme: CustomThemeInput, builtins: Record<ThemeId, ThemeVars>): ThemeVars | null {
+  const base = theme.extends ? builtins[theme.extends] : null;
+  const merged = { ...(base ?? {}), ...theme.colors } as Partial<ThemeVars>;
+  const missing = THEME_VAR_KEYS.filter((key) => !merged[key]);
+  // No base and an incomplete list is the one case we cannot paint: report it rather than
+  // leaving the gaps to whatever the previously applied theme put on the element.
+  return missing.length ? null : (merged as ThemeVars);
+}
+
+function channel(hex: string, at: number): number {
+  const value = parseInt(hex.slice(at, at + 2), 16) / 255;
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+/** Relative luminance (WCAG) of a `#rrggbb`. Returns null for anything else. */
+export function relativeLuminance(color: string): number | null {
+  const hex = color.trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  return 0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5);
+}
+
+// Above this, the chrome is treated as a light theme. The status pills (ok / warn / err) come in
+// a dark-background set and a light-background set, and picking the wrong one leaves them
+// unreadable — which is why this is derived rather than declared: a theme author who never
+// thinks about it still gets legible pills.
+const LIGHT_LUMINANCE_THRESHOLD = 0.4;
+
+export function isLightTheme(vars: ThemeVars): boolean {
+  const luminance = relativeLuminance(vars["--bg-base"]);
+  return luminance !== null && luminance > LIGHT_LUMINANCE_THRESHOLD;
+}
+
+/** The xterm palette a theme's variables imply. xterm draws on a canvas and cannot read CSS
+ *  variables, so the same colours have to reach it as values — derived here rather than asked
+ *  for twice, since two copies of one colour is two chances to change only one. The 16 ANSI
+ *  colours are NOT derived: they come from the base theme, which is what `extends` is for. */
+export function termThemeFromVars(vars: ThemeVars): { background: string; foreground: string; selectionBackground: string } {
+  return {
+    background: vars["--bg-base"],
+    foreground: vars["--term-fg"],
+    selectionBackground: vars["--term-selection"],
+  };
+}

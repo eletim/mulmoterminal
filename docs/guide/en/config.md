@@ -21,6 +21,7 @@ description: Configuring MulmoTerminal — the settings modal, per-project colou
 | Let a session **see another folder** | [Several folders](#add-dirs) |
 | Run on **a model other than Claude** | [Providers](#providers) |
 | Add **your own button** to the header | [Customizing the header](#header) |
+| Recolour the whole app **your way** | [Make your own colour scheme](#custom-themes) |
 | Tell an issue **you have started on it** | [issueWorkComments](#issue-work-comments) |
 | Open it from **another machine's browser** | [`MULMOTERMINAL_HOST`](#bind-host) |
 
@@ -60,7 +61,7 @@ Fifteen sections, in this order.
 
 | Item | Description |
 |---|---|
-| **Theme** | Midnight / Nord / Daylight / Solarized Light |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light, plus [any you defined yourself](#custom-themes) |
 | **Terminal font size** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
 | **Directory appearance** | "Configure appearance…" — set a directory's name badge, colors, terminal palette, and header interactively, through the `mulmoterminal-config` skill |
 | **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only (→ [When a setting isn't working](#dir-settings-preview)) |
@@ -279,6 +280,56 @@ show everything.**
 ```
 
 - Skill names (slugs) must start alphanumeric and contain only `a-z 0-9 - _`; a slug that doesn't resolve is ignored.
+
+## Make your own colour scheme (`themes`) {#custom-themes}
+
+Beyond the four built-ins (Midnight / Nord / Daylight / Solarized Light), define your own in
+`themes` in `~/.mulmoterminal/config.json` and it **appears in Settings' theme picker**. Picking it
+recolours the whole app — grid background, headers, panels, and the terminals themselves.
+
+```json
+{
+  "themes": [
+    {
+      "id": "my-dark",
+      "label": "My Dark",
+      "extends": "midnight",
+      "colors": { "--bg-base": "#101820", "--bg-panel": "#16202c", "--accent": "#ff8c00" }
+    }
+  ]
+}
+```
+
+- **`extends`** — start from a built-in and write **only what you want changed**. You can omit it,
+  but then `colors` has to carry **every** variable below: a partial set is not applied at all,
+  because the gaps would keep the previous theme's colours and give you a mix of two palettes.
+- **`id`** — lowercase, digits and dashes. **A built-in id is refused** (an entry calling itself
+  `midnight` is not read, and shows up under [When a setting isn't working](#dir-settings-preview)).
+- **`colors`** values must be `#rrggbb`. They go straight into CSS, so this is validated strictly.
+- **Light schemes are detected, not declared.** The lightness of `--bg-base` decides it, and the
+  status colours (done / waiting / error) switch to their light-background set. Nothing to write.
+- **The terminal's own colours are derived**: background from `--bg-base`, text from `--term-fg`,
+  selection from `--term-selection`. The 16 ANSI colours come from whatever `extends` names.
+
+The twenty variables:
+
+| Variable | What it colours |
+|---|---|
+| `--bg-base` | The page itself (and what decides light vs dark) |
+| `--bg-deep` / `--bg-panel` / `--bg-subtle` / `--bg-elevated` / `--bg-input` | Deeper background, panels, subtle fills, raised surfaces, inputs |
+| `--bg-hover` / `--bg-selected` / `--bg-selected-hover` | Hover, selected, selected-and-hovered |
+| `--border` | Borders |
+| `--accent` / `--accent-bg` / `--accent-bg-hover` / `--on-accent` | The accent, and text drawn on it |
+| `--text` / `--text-secondary` / `--text-muted` / `--text-dim` | Four levels of text |
+| `--term-fg` / `--term-selection` | Terminal text and selection |
+
+A project's `.mulmoterminal.json` can name your theme in [`theme`](#per-dir) too — but that pins
+**only the terminal palette** for that directory's cells; the chrome around them stays on whatever
+Settings selected.
+
+**If the selected theme is missing** — another machine, a deleted definition — the app paints the
+default and Settings says why. The selection itself is kept, so the moment the definition is back
+you are on your own colours again.
 
 ## Enter — submit vs. newline (`terminalSubmit`) {#terminal-submit}
 
@@ -846,6 +897,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | `pushKinds` | Which moments push: `"finished"` (a turn ended) and/or `"waiting"` (the agent stopped to ask). Omit to keep both; `[]` for none (→ [Which moments push](notifications.html#kinds)) |
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `terminalSubmit` | Which bytes mean **submit** vs **newline** — `"cr"` (default) or `"esc-cr"` (→ [Enter — submit vs. newline](#terminal-submit)) |
+| `themes` | Colour schemes you defined; they appear in Settings' theme picker (→ [Make your own colour scheme](#custom-themes)) |
 | `keymap` | User-defined keyboard shortcuts. **Empty by default — nothing is bound** (→ [Keyboard shortcuts](#keymap)) |
 | `copyOnSelect` | Put a mouse selection on the clipboard the moment it settles, with no key pressed. **Off by default** (→ [Copy on select](#copy-on-select)) |
 | `prWorkdirFooter` | End a created PR's body with `work in <clone>` (→ [Which clone made this PR](#pr-workdir-footer)). **On by default**; `false` opts out |

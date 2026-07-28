@@ -275,7 +275,7 @@ function testKindSound(kind: NotifyKind) {
 }
 
 // Theme is applied immediately on click.
-const { themeId, themes, setTheme } = useTheme();
+const { themeId, themes, setTheme, missingThemeId } = useTheme();
 const themesEl = ref<HTMLElement>();
 
 // Terminal font size, applied immediately (like the theme). Per-browser, so a phone and a
@@ -328,8 +328,8 @@ function onThemeKey(e: KeyboardEvent, index: number) {
   const backward = e.key === "ArrowLeft" || e.key === "ArrowUp";
   if (!forward && !backward) return;
   e.preventDefault();
-  const next = (index + (forward ? 1 : themes.length - 1)) % themes.length;
-  setTheme(themes[next].id);
+  const next = (index + (forward ? 1 : themes.value.length - 1)) % themes.value.length;
+  setTheme(themes.value[next].id);
   themesEl.value?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
 }
 
@@ -402,6 +402,13 @@ onUnmounted(() => {
       </div>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Theme</h3>
+      <p v-if="missingThemeId" class="mb-2 mt-1.5 text-[12px] text-[var(--warn-text,#e0a030)]" data-testid="theme-missing">
+        The selected theme <code>{{ missingThemeId }}</code> is not defined. Add it to <code>themes</code> in <code>~/.mulmoterminal/config.json</code>, or pick
+        one below. Your choice is kept until then.
+      </p>
+      <p class="mb-2 mt-1.5 text-[12px] text-dim">
+        Your own colour schemes go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in four.
+      </p>
       <div ref="themesEl" class="flex flex-wrap gap-2" role="radiogroup" aria-label="Theme">
         <button
           v-for="(t, i) in themes"

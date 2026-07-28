@@ -11,6 +11,8 @@ import type { SoundConfig } from "./useAttentionSound";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setGlobalFontFamily } from "./terminalFontFamily";
+import { setCustomThemes } from "./customThemes";
+import { refreshTheme } from "./useTheme";
 import { setActiveKeymap } from "./activeKeymap";
 import { setCockpitLines } from "./cockpitLines";
 import { setCopyOnSelect } from "./copyOnSelect";
@@ -311,6 +313,11 @@ export function useAppConfig() {
       // The terminal font stack (config.json-only, no Settings UI). Terminals already open
       // re-fit when this lands — a different face means different cell metrics.
       setGlobalFontFamily(c.fontFamily);
+      // The user's own colour schemes (#996). Re-applied after loading, because the selected id
+      // may name one of these: until the config arrives it resolves to nothing, and the app is
+      // painted with the default.
+      setCustomThemes(c.themes);
+      refreshTheme();
       await migrateLegacyRecents();
     } catch {
       // the app still works; presets are just unavailable
