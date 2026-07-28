@@ -11,8 +11,13 @@
 // log line below names `result.sessions.3.work`.
 //
 // Strip rather than throw: a missing optional field costs one row's worth of detail, while a
-// throw costs the user every session in the list — the very outcome this exists to prevent. The
-// warning is what keeps it from being silent, because a stripped key IS a bug on the sending side.
+// throw costs the user every session in the list — the very outcome this exists to prevent.
+//
+// Whether that removal is WORTH SAYING OUT LOUD is a separate question, and it has two answers.
+// An `undefined` where none belongs is a bug in the sender and has to be findable. An optional
+// field that simply has no value this time is normal, and warning about it every poll teaches
+// everyone to ignore the log. So the caller declares which paths are the second kind; everything
+// else is treated as the first.
 //
 // NOT `ignoreUndefinedProperties` on the Firestore instance: that setting makes this class of bug
 // disappear into "the value just doesn't arrive", with nothing logged and nothing to grep for.
@@ -51,22 +56,50 @@ export function stripUndefined<T>(value: T): T {
  * Applied to the whole table rather than to the one handler that broke: the reply is free-form
  * JSON from any of them, so the next `undefined` will come from somewhere else.
  */
+/**
+ * Does `path` match `pattern`? `*` stands for exactly one segment, which is what makes an array
+ * index expressible: `sessions.*.work` covers `sessions.0.work` and every sibling.
+ */
+export function matchesPath(pattern: string, path: string): boolean {
+  const patternParts = pattern.split(".");
+  const pathParts = path.split(".");
+  return patternParts.length === pathParts.length && patternParts.every((part, i) => part === "*" || part === pathParts[i]);
+}
+
+export interface FirestoreSafeOptions {
+  warn?: (message: string) => void;
+  /**
+   * Per handler, the paths where `undefined` is a legitimate "no value this time" rather than a
+   * bug. Those are stripped in silence; everything else is stripped AND reported.
+   *
+   * Keyed by handler name so the declaration reads as a property of that reply's shape, and so two
+   * handlers that happen to share a field name do not silence each other.
+   */
+  expectedUndefined?: Readonly<Record<string, readonly string[]>>;
+}
+
 // `...args: never[]` rather than a single param: a handler that ignores its params is written
 // without one, and it still has to fit here.
 type AnyHandler = (...args: never[]) => unknown;
 
-export function firestoreSafeHandlers<T extends Record<string, AnyHandler>>(handlers: T, warn: (message: string) => void = console.warn): T {
-  const wrapped = Object.entries(handlers).map(([name, handler]) => [
-    name,
-    async (...args: never[]) => {
-      const result: unknown = await (handler as AnyHandler)(...args);
-      const paths = undefinedPaths(result);
-      if (paths.length > 0) {
-        warn(`[remote-host] ${name} returned undefined at ${paths.join(", ")} — dropped, because Firestore refuses the whole write`);
-        return stripUndefined(result);
-      }
-      return result;
-    },
-  ]);
-  return Object.fromEntries(wrapped) as T;
+/** The paths worth reporting: those the caller did not declare as legitimately absent. */
+function unexpectedPaths(paths: readonly string[], expected: readonly string[]): string[] {
+  return paths.filter((path) => !expected.some((pattern) => matchesPath(pattern, path)));
+}
+
+function guardOne(name: string, handler: AnyHandler, options: FirestoreSafeOptions): AnyHandler {
+  const warn = options.warn ?? console.warn;
+  const expected = options.expectedUndefined?.[name] ?? [];
+  return async (...args: never[]) => {
+    const result: unknown = await handler(...args);
+    const unexpected = unexpectedPaths(undefinedPaths(result), expected);
+    if (unexpected.length > 0) {
+      warn(`[remote-host] ${name} returned undefined at ${unexpected.join(", ")} — dropped, because Firestore refuses the whole write`);
+    }
+    return stripUndefined(result);
+  };
+}
+
+export function firestoreSafeHandlers<T extends Record<string, AnyHandler>>(handlers: T, options: FirestoreSafeOptions = {}): T {
+  return Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, guardOne(name, handler as AnyHandler, options)])) as T;
 }

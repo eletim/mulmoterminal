@@ -4,7 +4,7 @@
 // is what emptied the phone's session list in #1042. These pin the guard that stands in front of
 // the write, and the shape of the session list that tripped it.
 import { describe, it, expect, vi } from "vitest";
-import { undefinedPaths, stripUndefined, firestoreSafeHandlers } from "../../../server/backends/remoteHost/firestoreSafeResult";
+import { undefinedPaths, stripUndefined, firestoreSafeHandlers, matchesPath } from "../../../server/backends/remoteHost/firestoreSafeResult";
 import { buildSessionList } from "../../../server/backends/remoteHost/terminalScreen";
 
 // A REAL hole, not `[1, undefined, 3]` — the two behave differently under map/flatMap, and the
@@ -82,10 +82,34 @@ describe("stripUndefined", () => {
   });
 });
 
+describe("matchesPath", () => {
+  it("matches an exact path", () => {
+    expect(matchesPath("a.b", "a.b")).toBe(true);
+    expect(matchesPath("a.b", "a.c")).toBe(false);
+  });
+
+  // The reason `*` exists: an array index cannot be written out.
+  it("lets * stand for one segment", () => {
+    expect(matchesPath("sessions.*.work", "sessions.0.work")).toBe(true);
+    expect(matchesPath("sessions.*.work", "sessions.17.work")).toBe(true);
+  });
+
+  // One segment, not many — or `a.*` would silence everything beneath `a`.
+  it("does not let * span segments", () => {
+    expect(matchesPath("a.*", "a.b.c")).toBe(false);
+    expect(matchesPath("a.*.c", "a.c")).toBe(false);
+  });
+
+  it("requires the same depth", () => {
+    expect(matchesPath("a.b", "a.b.c")).toBe(false);
+    expect(matchesPath("a.b.c", "a.b")).toBe(false);
+  });
+});
+
 describe("firestoreSafeHandlers", () => {
   it("passes a clean reply straight through, with no warning", async () => {
     const warn = vi.fn();
-    const handlers = firestoreSafeHandlers({ list: () => ({ sessions: [{ id: "a" }] }) }, warn);
+    const handlers = firestoreSafeHandlers({ list: () => ({ sessions: [{ id: "a" }] }) }, { warn });
     expect(await handlers.list()).toEqual({ sessions: [{ id: "a" }] });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -94,7 +118,7 @@ describe("firestoreSafeHandlers", () => {
   // the outcome this exists to prevent.
   it("strips a bad reply and says where it was", async () => {
     const warn = vi.fn();
-    const handlers = firestoreSafeHandlers({ list: () => ({ sessions: [{ id: "a", work: undefined }] }) }, warn);
+    const handlers = firestoreSafeHandlers({ list: () => ({ sessions: [{ id: "a", work: undefined }] }) }, { warn });
     expect(await handlers.list()).toEqual({ sessions: [{ id: "a" }] });
     expect(warn).toHaveBeenCalledOnce();
     expect(String(warn.mock.calls[0][0])).toContain("sessions.0.work");
@@ -103,14 +127,14 @@ describe("firestoreSafeHandlers", () => {
 
   it("awaits an async handler before checking it", async () => {
     const warn = vi.fn();
-    const handlers = firestoreSafeHandlers({ list: () => Promise.resolve({ a: undefined }) }, warn);
+    const handlers = firestoreSafeHandlers({ list: () => Promise.resolve({ a: undefined }) }, { warn });
     expect(await handlers.list()).toEqual({});
     expect(warn).toHaveBeenCalledOnce();
   });
 
   it("covers every handler in the table, not just the one that broke", async () => {
     const warn = vi.fn();
-    const handlers = firestoreSafeHandlers({ one: () => ({ a: undefined }), two: () => ({ b: undefined }) }, warn);
+    const handlers = firestoreSafeHandlers({ one: () => ({ a: undefined }), two: () => ({ b: undefined }) }, { warn });
     await handlers.one();
     await handlers.two();
     expect(warn).toHaveBeenCalledTimes(2);
@@ -118,9 +142,56 @@ describe("firestoreSafeHandlers", () => {
 
   it("returns null when the handler returns nothing at all", async () => {
     const warn = vi.fn();
-    const handlers = firestoreSafeHandlers({ list: () => undefined }, warn);
+    const handlers = firestoreSafeHandlers({ list: () => undefined }, { warn });
     expect(await handlers.list()).toBeNull();
     expect(String(warn.mock.calls[0][0])).toContain("(root)");
+  });
+
+  // Two kinds of undefined. One is a bug in the sender and has to be findable; the other is an
+  // optional field with no value this time, and warning about it every poll teaches everyone to
+  // ignore the log. Both are stripped — Firestore leaves no choice — but only one is reported.
+  it("strips a declared-optional path without saying anything", async () => {
+    const warn = vi.fn();
+    const handlers = firestoreSafeHandlers(
+      { list: () => ({ sessions: [{ id: "a", work: undefined }] }) },
+      { warn, expectedUndefined: { list: ["sessions.*.work"] } },
+    );
+    expect(await handlers.list()).toEqual({ sessions: [{ id: "a" }] });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("still reports the paths that were NOT declared", async () => {
+    const warn = vi.fn();
+    const handlers = firestoreSafeHandlers(
+      { list: () => ({ sessions: [{ id: "a", work: undefined, oops: undefined }] }) },
+      { warn, expectedUndefined: { list: ["sessions.*.work"] } },
+    );
+    await handlers.list();
+    expect(warn).toHaveBeenCalledOnce();
+    const message = String(warn.mock.calls[0][0]);
+    expect(message).toContain("sessions.0.oops");
+    expect(message).not.toContain("sessions.0.work"); // the declared one is not noise
+  });
+
+  // The declaration is a property of ONE reply's shape; two handlers sharing a field name must not
+  // silence each other.
+  it("does not let one handler's declaration cover another's", async () => {
+    const warn = vi.fn();
+    const handlers = firestoreSafeHandlers(
+      { list: () => ({ work: undefined }), other: () => ({ work: undefined }) },
+      { warn, expectedUndefined: { list: ["work"] } },
+    );
+    await handlers.list();
+    expect(warn).not.toHaveBeenCalled();
+    await handlers.other();
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("warns about everything when nothing is declared", async () => {
+    const warn = vi.fn();
+    const handlers = firestoreSafeHandlers({ list: () => ({ a: undefined }) }, { warn });
+    await handlers.list();
+    expect(warn).toHaveBeenCalledOnce();
   });
 
   it("keeps the handler names the runner advertises as capabilities", () => {
