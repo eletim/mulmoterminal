@@ -101,6 +101,7 @@ import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
+import { pruneOrphanDrops } from "./session/session-drops.js";
 
 // Per-session activity flags, driven by Claude hooks (see /api/hook).
 
@@ -745,8 +746,12 @@ server.listen(Number(PORT), BIND_HOST, () => {
   // A crash never reaches reap(), so settings files — one of which may hold a provider's API
   // token — outlive the sessions that used them. Anything not backed by a surviving tmux
   // session is an orphan: a PTY without tmux died with the server that owned it.
-  const droppedSettings = pruneOrphanSettings(new Set(surviving));
+  const liveSessionIds = new Set(surviving);
+  const droppedSettings = pruneOrphanSettings(liveSessionIds);
   if (droppedSettings.length) console.log(`[settings] removed ${droppedSettings.length} orphaned session settings file(s)`);
+  // Dropped files are the same story: copies in tmp that only their session referred to.
+  const droppedDrops = pruneOrphanDrops(liveSessionIds);
+  if (droppedDrops.length) console.log(`[drops] removed ${droppedDrops.length} orphaned session drop director(ies)`);
   if (sandboxEnabled()) {
     if (!sandboxPlatformSupported()) {
       console.log("[sandbox] MULMOTERMINAL_SANDBOX set but only supported on macOS for now — using host spawn");

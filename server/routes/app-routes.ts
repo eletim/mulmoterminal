@@ -23,6 +23,7 @@ import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountRepoRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
 import { mountGuiMcpRoutes } from "../routes/gui-mcp-routes.js";
+import { mountDropRoutes } from "../routes/drop-routes.js";
 import { mountOpenDirRoute } from "../files/open-dir.js";
 import { mountGitRemoteRoute } from "../git/gitRemote.js";
 import { mountWorktreeRoutes } from "../git/worktree-routes.js";
@@ -80,12 +81,19 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   const clientDir = deps.clientDir;
-  app.use(express.json({ limit: "25mb" }));
 
-  // Before any route: one same-origin gate for every state-changing request, so a site the
-  // user visits cannot drive this server through their browser. Individual routes keep their
-  // own checks — this is the floor, not a replacement.
+  // Before any route AND before any body parser: one same-origin gate for every state-changing
+  // request, so a site the user visits cannot drive this server through their browser. Ahead of
+  // the parsers so a request that is going to be refused is never handed a body to parse — the
+  // gate reads only method, path and origin. Individual routes keep their own checks — this is
+  // the floor, not a replacement.
   app.use(sameOriginGuard(deps.isAllowedOrigin));
+
+  // Ahead of express.json, carrying its own raw parser: a dropped file is bytes under its own
+  // content type, and a dropped .json would otherwise be parsed as a document rather than saved.
+  mountDropRoutes(app);
+
+  app.use(express.json({ limit: "25mb" }));
 
   // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat,
   // manageAccounting, manageCollection (routes/plugin-routes.ts). ALL of them must precede
