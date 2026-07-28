@@ -135,7 +135,8 @@ export function resolveDirSound(cwd: string, input: unknown): string | null {
   if (!isWithin(base, resolved)) return null;
   if (!existsSync(resolved) || !statSync(resolved).isFile()) return null;
   try {
-    if (!isWithin(realpathSync(base), realpathSync(resolved))) return null;
+    // .native for the 8.3 reason in files/pathContainment.ts — one spelling of a Windows path.
+    if (!isWithin(realpathSync.native(base), realpathSync.native(resolved))) return null;
   } catch {
     return null;
   }

@@ -1,3 +1,4 @@
+import { canSymlink } from "../../support/canSymlink.js";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync, realpathSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -64,17 +65,6 @@ describe("git worktree lifecycle", () => {
   // Creating a symlink needs privilege / Developer Mode on Windows; where it's denied
   // we can't build the escape fixture. The behaviour under test (containment survives a
   // symlink escape) only matters where symlinks exist, so skipping there loses nothing.
-  const canSymlink = (() => {
-    const probeDir = mkdtempSync(path.join(tmpdir(), "mt-wt-symprobe-"));
-    try {
-      symlinkSync(probeDir, path.join(probeDir, "l"));
-      return true;
-    } catch {
-      return false;
-    } finally {
-      rmDirRetrying(probeDir);
-    }
-  })();
 
   beforeEach(async () => {
     // realpath: git resolves symlinks (macOS /tmp -> /private/var), and the engine

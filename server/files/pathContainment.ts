@@ -105,7 +105,11 @@ export function namesAWindowsDevice(rel: string, platform: NodeJS.Platform = pro
 
 function realpathOr(p: string): string {
   try {
-    return fs.realpathSync(p);
+    // .native, not the JS implementation: on Windows only the native call expands an 8.3 short
+    // component (C:\Users\RUNNER~1 -> ...\runneradmin). Both sides of the containment check
+    // below go through here, so they agree either way — but a caller comparing against a path
+    // resolved elsewhere would not. Same reason git/worktrees.ts uses it.
+    return fs.realpathSync.native(p);
   } catch {
     return p; // doesn't exist yet (a new file being written) — use the lexical path
   }

@@ -12,7 +12,8 @@
 // The url is a TEMPLATE, not a resolved address. Claude Code expands `${VAR}` in an MCP url at
 // connect time, and the two moving parts (our port, the session id) are only known per spawn —
 // they are set on each session's environment (see session/mcp-config.ts guiMcpEnv).
-import { readFile, realpath } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawnCaptureAsync } from "./spawnCapture.js";
@@ -109,11 +110,23 @@ function projectMcpFiles(...dirs: readonly string[]): string[] {
 //
 // All three scopes, because that is what the CLI shows and what the session will actually get:
 // local (ours, keyed by directory), project (every `.mcp.json` up the tree), user (global).
+const realpathOr = (p: string): string => {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return p; // gone, or not reachable — the lexical spelling is the best answer left
+  }
+};
+
 export async function registeredGuiMcpGroups(cwd: string, groups: readonly ToolGroup[]): Promise<ToolGroup[]> {
   // Claude Code keys local scope by its OWN process.cwd(), which the OS resolves symlinks in,
   // while the path we are asked about is canonicalized only lexically (see existingWorkspace).
   // Both spellings are looked up so a directory reached through a symlink still matches.
-  const real = await realpath(cwd).catch(() => cwd);
+  // realpathSync.NATIVE: fs/promises has no native variant, and on Windows the JS implementation
+  // leaves an 8.3 short component alone (C:\Users\RUNNER~1) where the native one expands it
+  // (…\runneradmin). Comparing the two spellings never matches. One stat on a path already in
+  // the page cache — the async form bought nothing here. Same call as git/worktrees.ts.
+  const real = realpathOr(cwd);
   const projectFiles = projectMcpFiles(cwd, real);
   const [config, ...projects] = await Promise.all([claudeConfigFile(), ...projectFiles].map(readJsonObject));
   const perDir = ownProp(config, "projects");
