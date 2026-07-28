@@ -4,6 +4,90 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.6.0 — 2026-07-29
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.6.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.6.0.html))
+
+The release that stops long sessions from reading as empty ones. A transcript that grew past half a
+gigabyte made its own session show no title, no timeline and a cost of $0 — and nothing errored.
+
+### A 585 MB transcript no longer reads as an empty session (#1033, #1034, #1037, #1041, #1043, closes #998)
+
+`fs.readFile(file, "utf8")` throws past ~512 MB **whatever the file contains** — V8's maximum string
+length, not a memory limit. Nine read sites took a whole transcript that way and each caught the
+error and returned "nothing here", so **the biggest and most-used sessions rendered as the emptiest
+ones**: no title, an empty tool timeline, `$0` spent. Measured on a real 585 MB transcript, not
+constructed.
+
+Rewritten in five phases, behaviour-preserving at each step, around one shared reader
+(`server/infra/jsonl-file.ts`): a bounded tail for "what happened last", a line stream for "scan
+everything". Two traps are pinned by tests, because both produced a fix that looked right and was
+not:
+
+- **A window must not paraphrase the rule it replaces.** Folding "the newest X" by hand loses the
+  fallbacks and cross-record semantics of the original. Each phase feeds the ORIGINAL function a
+  smaller window, and a test compares the streamed result against the whole-array result on the same
+  records.
+- **A window sized by guess is worse than no fix.** 256 KB looked generous and held nine records of
+  that transcript — not one complete turn — so the exception disappeared while the screen stayed
+  empty, which is indistinguishable from a new session. The tail is 4 MB, measured against the six
+  largest transcripts on a working machine.
+
+### The usage probe stops holding a session open, and stops leaving transcripts behind (#1030, #1047, closes #1010)
+
+Two ends of the same hidden Claude session that reads the 5h / 7d windows.
+
+**Its transcripts are gone.** Hiding them from `/api/sessions` was half an answer — `claude --resume`
+reads the transcript directory itself, so the file has to go. A probe now deletes its own; the ones
+left by older versions are swept **once per workspace**, and that "once" is the point: a probe types
+its prompt into the real TUI, so what claude records is byte-for-byte what a person typing the same
+thing produces. No field separates them. The window in which a content guess can be wrong is closed
+rather than reopened on every boot. The guess itself was measured over 7719 transcripts: "contains
+the probe prompt" matched 6 real conversations, one of them 974 messages long; "has exactly one user
+message, and it IS the prompt, and no tool was used" matched 85 and nothing else.
+
+**It stops the moment its answer lands.** The status line arrives in seconds; the probe was holding a
+live `claude` process for the full 90-second timeout after that, and `probing: true` kept every
+browser polling at seconds rather than minutes for the whole of it. Only a report carrying windows
+ends it — the status line also fires before the first API response, when there are no windows yet.
+
+**An expired figure is no longer shown as if it were current.** A reading whose reset time has passed
+describes a budget that has already rolled over, so it is dropped — and dropping it is what makes the
+"why is this missing" note appear. Previously a cached figure suppressed that note, so uninstalling
+`claude` left yesterday's percentage on screen saying nothing.
+
+Also in this pass: Codex's rollout tail had silently gone from 256 KB to 4 MB when the shared reader
+arrived (0.5 ms → 7.9 ms per poll on a 5.9 MB rollout, on the request path), the rate-limit cache was
+written synchronously on every poll even when unchanged, and the probe's status line sent an
+`x-mt-session` header that route has never read.
+
+### The editor colours the languages you actually open (#1038)
+
+The Files view opened `.vue` as plain text. The file tree was not at fault — the editor knew three
+syntax modes: markdown, JS/TS, JSON. Everything else fell through to `text`, so `.py`, `.rs`, `.css`
+and `.yaml` were colourless too. Eleven languages added, including `.vue` / `.svelte` / `.astro`
+(HTML), `.py`, `.rs`, `.go`, `.java`, `.sh`, `.sql`, `.xml`, `.yaml`.
+
+### The phone session list works again (#1044, fixes #1042)
+
+A regression from #1017: `work` reached Firestore as `undefined`, and `updateDoc()` rejects the whole
+document for that — so the reply carrying the session list was never written and the phone showed
+**no sessions at all**, timing out after 30 seconds. Not a missing row: the entire list.
+
+### A host that has gone quiet says so (#1046, fixes #1045)
+
+The Mac's toolbar stayed **Online (green)** while the phone said **offline**, and keeping the tab open
+did not fix it — the earlier listener-recovery work (#823 / #825) covered a different path. Presence
+is written by a 60-second heartbeat, and when those writes started failing nobody was told. The host
+now detects that its own presence has stopped landing and shows offline in red, so the two ends agree.
+
+### Smaller fixes
+
+- **`npx mulmoterminal` is now `npx mulmoterminal@latest` everywhere** in the docs and in `init`'s
+  closing hint (#1035, #1036) — without `@latest`, npx can run a cached older copy.
+- **Windows CI**: preset paths are resolved before comparison, closing a gap left by #1002 (#1029).
+- The editor's syntax highlighting is shown in the guide with a screenshot (#1039).
+
 ## mulmoterminal@2.5.3 — 2026-07-28
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.3.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.3.html))
