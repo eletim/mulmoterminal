@@ -129,6 +129,38 @@ dotfiles are server-only. The 45 extensions both sides agree on live in
 
 ---
 
+## What people switched away from
+
+Unprompted write-ups from people who moved over — both in Japanese, both worth reading in full
+if you're weighing the same move.
+
+> **"Not eating my memory is just the best."**
+> "My 64 GB machine used to stutter. Now it's smooth."
+> "Just not losing context to a killed session makes the switch worth it."
+>
+> — [VSCodeからMulmoTerminalへ移籍した話](https://qiita.com/tanaka_taro_JP_KYUSYU/items/1355c98e73e16f66eb53)
+> (Qiita, moved from VS Code on Windows)
+
+> **"Running several agents in parallel" and "reading one output properly" — you can have both
+> at the same time.**
+>
+> Splitting a terminal six ways made every pane too small to read a 4,000-character answer
+> without constant scrolling and resizing. The grid ↔ enlarge switch removes that trade-off.
+>
+> — [VS Code拡張もターミナル6分割もいらなくなるかもしれない](https://note.com/kazu098/n/n45f007a50034)
+> (note, moved from the Claude Code VS Code extension)
+
+Two things come up in almost every account, and neither is about running *more* agents:
+
+- **Memory.** Several IDE windows to keep several agents apart is expensive; browser tabs are not.
+- **Telling them apart.** Six panes of scrolling text look identical — people described answering
+  one agent in another agent's terminal, and losing track of what they had asked.
+
+That is what the colour-coded grid is for. Fewer agents than you expect is fine: people report
+the switch paying off at **one to three** parallel sessions, not ten.
+
+---
+
 ## Install & run
 
 Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
