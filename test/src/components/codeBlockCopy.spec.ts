@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mount, flushPromises } from "@vue/test-utils";
 import { copyOutcomeFor, copyOutcomeMessage, type CopyOutcome } from "../../../src/components/codeBlockCopy";
 
 // #865. Three of the four outcomes are not errors, and the value of separating them is that
@@ -46,5 +47,66 @@ describe("copyOutcomeMessage", () => {
   it("does not call any of them a failure — none is something a retry fixes", () => {
     const messages = (["no-code", "too-large", "no-turn"] as const).map((kind) => copyOutcomeMessage({ kind }));
     messages.forEach((m) => expect(m.toLowerCase()).not.toContain("error"));
+  });
+});
+
+// The fallback dialog's contract, after Codex flagged it (#995 review). Asserted on the
+// RENDERED dialog rather than on the source text: what matters is what a screen reader and the
+// Escape key actually meet.
+//
+// The pattern to match is TimelineOverlay's, the app's only other modal — role + aria-modal on
+// the BOX (the review found them on the backdrop), and Escape handled at the DOCUMENT. Bound to
+// the overlay element instead, Escape fires only while focus is already inside it, which reads
+// as "Escape sometimes works".
+describe("the manual-copy dialog", () => {
+  const REPLY = "here:\n\n```ts\nconst a = 1;\n```";
+
+  // No Clipboard API is exactly the situation the dialog exists for: any address that is not
+  // https or localhost, i.e. reaching this app from a phone.
+  const withoutClipboard = async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    vi.doMock("../../../src/composables/useHandoff", () => ({
+      fetchLastTurn: async () => ({ prompt: null, reply: REPLY, text: "", tooLarge: false }),
+    }));
+    const { default: CopyCodeBlock } = await import("../../../src/components/CopyCodeBlock.vue");
+    const w = mount(CopyCodeBlock, { props: { sessionId: "s", cwd: "/x", agent: "claude" as const } });
+    await w.find("button").trigger("click");
+    await flushPromises();
+    await new Promise((r) => requestAnimationFrame(r));
+    return w;
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = "";
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("marks the BOX as the modal, not the backdrop", async () => {
+    const w = await withoutClipboard();
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.getAttribute("aria-modal")).toBe("true");
+    expect(dialog?.getAttribute("tabindex")).toBe("-1");
+    // The backdrop is the element that fills the screen; the dialog must not be it.
+    expect(dialog?.className).not.toContain("inset-0");
+    w.unmount();
+  });
+
+  it("puts the text in, selected, so one key copies it", async () => {
+    const w = await withoutClipboard();
+    const box = document.body.querySelector<HTMLTextAreaElement>('[data-testid="copy-block-text"]');
+    expect(box?.value).toBe("const a = 1;");
+    expect(document.activeElement).toBe(box);
+    w.unmount();
+  });
+
+  it("closes on Escape raised at the document, with focus anywhere", async () => {
+    const w = await withoutClipboard();
+    (document.activeElement as HTMLElement)?.blur();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    w.unmount();
   });
 });
