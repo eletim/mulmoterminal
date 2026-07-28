@@ -8,7 +8,7 @@
 // own module: the dependency runs one way. One of them also WRITES — collectPendingSessions
 // drops a session from knownSessions once disk has it — so "reads" describes the direction
 // of the data, not a guarantee of purity.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -18,9 +18,7 @@ import {
   userPromptText,
   aiTitleFromParsed,
   countUserTurnsFromParsed,
-  latestMeaningfulUserPromptFromJsonl,
   latestMeaningfulUserPromptFromParsed,
-  latestAssistantTextFromJsonl,
   latestAssistantTextFromParsed,
   sessionUsageFromParsed,
   latestTurnContextFromParsed,
@@ -35,7 +33,8 @@ import { classifyWorkPhase, type WorkPhase } from "./workPhase.js";
 import { sessionListTitle } from "./sessionListTitle.js";
 import { activity, aiTitles, codexRolloutIds, hiddenSessions, knownSessions } from "./registry.js";
 import { projectSessionsDir } from "./project-dir.js";
-import { lastTurnFromClaudeParsed, lastTurnFromCodexRollout, EMPTY_TURN, type LastTurn } from "./last-turn.js";
+import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
+import { readTailRecords } from "../infra/jsonl-file.js";
 import { partitionPending } from "./partitionPending.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
@@ -50,8 +49,9 @@ export const LAST_RESPONSE_MAX = 400;
 // the PREVIOUS turn's text — for that caller, null has to stay null.
 export function readLatestResponse(id: string, cwd: string): string | null {
   try {
-    const raw = readFileSync(path.join(projectSessionsDir(cwd), `${id}.jsonl`), "utf8");
-    const text = latestAssistantTextFromJsonl(raw);
+    // The tail, not the file: a transcript reaches 585 MB, which readFile cannot hold at all —
+    // and the newest reply is in the last few lines either way (#998).
+    const text = latestAssistantTextFromParsed(readTailRecords(path.join(projectSessionsDir(cwd), `${id}.jsonl`)));
     return text ? text.slice(0, LAST_RESPONSE_MAX) : null;
   } catch {
     return null; // no transcript yet / unreadable
@@ -93,8 +93,7 @@ export function claudeOnDiskSessionIds(): Set<string> {
 // there's no transcript yet (a never-prompted session) or it can't be read.
 export async function latestUserPrompt(cwd: string, id: string): Promise<string | null> {
   try {
-    const raw = await fs.readFile(path.join(projectSessionsDir(cwd), `${id}.jsonl`), "utf8");
-    return latestMeaningfulUserPromptFromJsonl(raw);
+    return latestMeaningfulUserPromptFromParsed(readTailRecords(path.join(projectSessionsDir(cwd), `${id}.jsonl`)));
   } catch {
     return null;
   }
@@ -180,32 +179,32 @@ async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
   const file = codexRolloutPath(codexSessionsRoot(), rolloutId);
   if (!file) return EMPTY_TURN;
   try {
-    return lastTurnFromCodexRollout(await fs.readFile(file, "utf8"));
+    // Same reasoning as the Claude path below: the newest turn is at the end, so a rollout that
+    // grew past what a string can hold no longer takes the feature with it (#998).
+    return lastTurnFromCodexRolloutDocs(readTailRecords(file));
   } catch {
     return EMPTY_TURN;
   }
 }
 
-// Reading a transcript costs its whole size: the file is slurped as one string and every line
-// is JSON.parsed, all synchronously once the read resolves. Measured over 10,506 real
-// transcripts the median is 0.1 MB — but 13 exceed 100 MB, the largest is 585 MB, and a 440 MB
-// one took 1930 ms to yield a 334-character reply. That is 1.9 seconds with the event loop
-// stopped, i.e. every terminal in the app frozen. Past ~512 MB the read cannot even complete —
-// it exceeds V8's maximum string length and throws, which the catch below turns into an empty
-// turn, so the user sees a button that does nothing (#865).
+// The tail, not the whole file — which is what #865 said the fix would be and #998 forced.
 //
-// So: refuse loudly instead. `tooLarge` lets the caller say WHY nothing came back, which is the
-// difference between a bug report and a known limit. Reading only the file's tail would lift the
-// cap altogether and is the obvious next step if anyone hits this in practice.
+// Reading it whole cost its full size: measured over 10,506 real transcripts the median is 0.1 MB,
+// but 13 exceed 100 MB, the largest is 585 MB, and a 440 MB one took 1930 ms to yield a
+// 334-character reply — 1.9 seconds with the event loop stopped, every terminal in the app frozen.
+// Past ~512 MB the read could not complete at all (V8's maximum string length), so the button did
+// nothing. The last turn is in the last few lines either way, so the size of the file behind it
+// stopped mattering: the same read now costs 256 KB whatever the transcript weighs.
+//
+// `LAST_TURN_MAX_BYTES` / `tooLarge` are consequently dead as a limit. They stay for now because
+// `tooLarge` reaches the UI (useHandoff, codeBlockCopy) and removing a wire field is its own
+// change; nothing sets it any more.
 export const LAST_TURN_MAX_BYTES = 64 * 1024 * 1024;
 
 export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex"): Promise<LastTurn> {
   if (agent === "codex") return codexLastTurn(id);
-  const file = path.join(projectSessionsDir(cwd), `${id}.jsonl`);
   try {
-    const { size } = await fs.stat(file);
-    if (size > LAST_TURN_MAX_BYTES) return { ...EMPTY_TURN, tooLarge: true };
-    return lastTurnFromClaudeParsed(parseJsonl(await fs.readFile(file, "utf8")));
+    return lastTurnFromClaudeParsed(readTailRecords(path.join(projectSessionsDir(cwd), `${id}.jsonl`)));
   } catch {
     return EMPTY_TURN; // no transcript on disk yet
   }

@@ -10,9 +10,13 @@
 // so a reader picks one instead of writing a third.
 import { createReadStream, closeSync, openSync, readSync, statSync } from "node:fs";
 import readline from "node:readline";
+import { isRecord } from "../../common/isRecord.js";
 
-/** Enough of the end to hold the last turn, with room to spare. */
-const DEFAULT_TAIL_BYTES = 256 * 1024;
+// How much of the end to read. 256 KB was the codex rollout's window and is nowhere near enough
+// for a Claude transcript: one record holds a whole tool_result, so on the 585 MB file here the
+// last 256 KB is NINE records — not one complete turn. Measured across the six largest transcripts
+// on this machine, 4 MB yields 110-1000 records, which covers a turn with room to spare.
+const DEFAULT_TAIL_BYTES = 4 * 1024 * 1024;
 
 /** Every line, in order, without ever materialising the file. `onLine` is called with each line
  *  as it arrives, so the caller decides what to keep — which is the point: a summary keeps a
@@ -26,6 +30,23 @@ export async function forEachJsonlLine(file: string, onLine: (line: string) => v
     lines.close();
     input.destroy();
   }
+}
+
+/** The parsed records at the END of a JSONL file — what every "what happened last" reader wants.
+ *  Bounded: it reads `tailBytes`, so a 585 MB transcript costs the same as a 1 KB one. Malformed
+ *  lines are skipped, which also covers the partial line a mid-file read can leave behind. */
+export function readTailRecords(file: string, tailBytes?: number): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const line of readTailLines(file, tailBytes)) {
+    if (!line.trim()) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed)) out.push(parsed);
+    } catch {
+      // Not JSON — a half line from the read boundary, or a corrupt one. Either way, skip it.
+    }
+  }
+  return out;
 }
 
 /** The last lines of a file. The first is dropped when the read started mid-file: that boundary
