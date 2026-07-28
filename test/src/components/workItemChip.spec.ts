@@ -139,6 +139,20 @@ describe("workCommentToPost", () => {
     expect(workCommentToPost(before, item({ phase: "merged", pr: 983, issue: 979 }))).toBe("merged");
   });
 
+  // The burst this rule exists to prevent: switching the setting on, or just reloading, with
+  // cells parked on branches whose PRs merged weeks ago. Arriving at "merged" is not watching a
+  // merge, and those issues are finished — commenting on (and closing) them would be noise on
+  // somebody else's thread.
+  it("does not announce a merge it did not watch happen", () => {
+    const arrived = item({ phase: "merged", pr: 983, issue: 979 });
+    expect(workCommentToPost({ ...EMPTY_WORK_ITEM }, arrived)).toBeNull();
+  });
+
+  it("does not announce a merge for a PR it had not seen before", () => {
+    const before = item({ phase: "ready", pr: 900, issue: 800 });
+    expect(workCommentToPost(before, item({ phase: "merged", pr: 983, issue: 979 }))).toBeNull();
+  });
+
   it("announces the merge only once", () => {
     const merged = item({ phase: "merged", pr: 983, issue: 979 });
     expect(workCommentToPost(merged, merged)).toBeNull();

@@ -59,8 +59,14 @@ export function hasWorkToShow(item: WorkItem): boolean {
 // leak — see server/git/work-comment.ts.
 export function workCommentToPost(before: WorkItem, now: WorkItem): WorkCommentKind | null {
   if (now.issue === null) return null;
-  if (now.phase === "merged" && before.phase !== "merged") return "merged";
-  if (now.phase === "merged" || now.phase === "closed") return null;
+  // "Merged" is only reportable when this session WATCHED it happen: the same PR was here on the
+  // previous poll and was not merged yet. Arriving at a merged state is not the same event — a
+  // reload, or a cell left on last month's branch, would otherwise announce (and try to close)
+  // issues that were finished long ago, all at once, the first time the setting is switched on.
+  if (now.phase === "merged") return before.pr !== null && before.pr === now.pr && before.phase !== "merged" ? "merged" : null;
+  if (now.phase === "closed") return null;
+  // "Start" is safe to repeat after a reload — it is a standing fact, not an event, and the
+  // server writes it at most once per (issue, directory).
   return before.issue === now.issue ? null : "start";
 }
 
