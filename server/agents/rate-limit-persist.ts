@@ -50,14 +50,6 @@ export function readRateLimitCache(file: string): RateLimitSnapshot {
   }
 }
 
-export function writeRateLimitCache(file: string, snapshot: RateLimitSnapshot): void {
-  try {
-    writeFileSync(file, JSON.stringify(snapshot), { mode: 0o600 });
-  } catch {
-    // the next report will try again
-  }
-}
-
 /**
  * A writer that skips a write when nothing changed. Worth having because the caller is a request
  * handler and the write is synchronous: Codex is re-read on EVERY poll, and its windows move once

@@ -8,8 +8,6 @@
 
 import type { RateLimits, RateLimitWindow } from "../../common/rateLimits";
 
-export type { RateLimits, RateLimitWindow };
-
 export interface RateLimitSnapshot {
   claude: RateLimits | null;
   codex: RateLimits | null;
