@@ -86,11 +86,19 @@ const byLiveThenTitle = (a: TerminalSessionSummary, b: TerminalSessionSummary): 
 export function buildSessionList({ liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
   const live = new Set(liveIds);
   const ids = [...new Set([...liveIds, ...tmuxIds])].filter(isResumable).filter(isGridSession);
-  return ids
-    .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
-    .filter((session) => session.title !== "" || session.live)
-    .map((session) => ({ ...session, title: session.title || session.id }))
-    .sort(byLiveThenTitle);
+  return (
+    ids
+      .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
+      .filter((session) => session.title !== "" || session.live)
+      .map((session) => ({ ...session, title: session.title || session.id }))
+      // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding
+      // `undefined`. A caller writing `work: map.get(cwd)` leaves the key behind, the spreads above
+      // carry it through, and Firestore then refuses the entire reply: every session vanishes from
+      // the phone rather than one row losing its badge (#1042). Dropped here, at the type that
+      // declares it optional, so a future `detailOf` cannot reintroduce it.
+      .map(({ work, ...rest }) => (work ? { ...rest, work } : rest))
+      .sort(byLiveThenTitle)
+  );
 }
 
 export interface ScreenSource {
