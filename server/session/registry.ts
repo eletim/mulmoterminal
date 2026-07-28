@@ -14,6 +14,7 @@ import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { devTerminalSessionLine, parseDevTerminalSessionIds } from "./dev-terminal-sessions.js";
+import { devTerminalCwdLine, parseDevTerminalCwds } from "./dev-terminal-cwds.js";
 import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
 import type { Activity, KnownSession, PtyEntry } from "./types.js";
@@ -138,10 +139,42 @@ function appendDevTerminalSession(id: string): void {
 // Record a grid/dev-terminal session id, then persist. A no-op once the id is known,
 // so repeated reattaches of the same cell — or a reconnect after a reboot — don't
 // rewrite the file.
-export function markDevTerminalSession(id: string): void {
+export function markDevTerminalSession(id: string, cwd?: string): void {
+  // The cwd is recorded even for an id we already knew: this is the one place that sees a cell's
+  // directory, and a session relaunched somewhere else must not keep answering with the old one.
+  if (SESSION_ID_RE.test(id) && cwd) rememberSessionCwd(id, cwd);
   if (!SESSION_ID_RE.test(id) || devTerminalSessions.has(id)) return;
   devTerminalSessions.add(id);
   appendDevTerminalSession(id);
+}
+
+// Where each grid session was started, for the sessions this process did not spawn (#1021). Live
+// ones answer from `ptys`, which is the truer source — it knows where claude actually runs.
+const sessionCwds = new Map<string, string>();
+const DEV_TERMINAL_CWDS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-cwds.json");
+
+export const devTerminalCwdsHydrated: Promise<void> = (async () => {
+  try {
+    const contents = await fs.readFile(DEV_TERMINAL_CWDS_FILE, "utf8");
+    parseDevTerminalCwds(contents, isValidSessionId).forEach((cwd, id) => sessionCwds.set(id, cwd));
+  } catch {
+    // absent on first run, unreadable => nothing remembered; the list degrades to today's behaviour
+  }
+})();
+
+/** The remembered directory for a session, or null. */
+export function sessionCwd(id: string): string | null {
+  return sessionCwds.get(id) ?? null;
+}
+
+let devTerminalCwdPersist: Promise<void> = Promise.resolve();
+function rememberSessionCwd(id: string, cwd: string): void {
+  if (sessionCwds.get(id) === cwd) return; // already the answer; appending would only grow the log
+  sessionCwds.set(id, cwd);
+  devTerminalCwdPersist = devTerminalCwdPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(DEV_TERMINAL_CWDS_FILE, devTerminalCwdLine(id, cwd)))
+    .catch((e) => console.error(`[dev-terminal-cwds] failed to persist: ${messageOf(e)}`));
 }
 
 // Which GUI tool groups a session actually has. Learned from the group URLs it connects to

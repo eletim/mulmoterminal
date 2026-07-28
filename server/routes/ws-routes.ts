@@ -235,7 +235,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
   // it's excluded from the chat sidebar (see devTerminalSessions). This is the single
   // choke point for every grid attach — new, resumed, or reattached — so the mark is
   // recorded (and re-recorded after a reboot when the cell reconnects) exactly once.
-  if (!attachGuiMcp) markDevTerminalSession(sessionId);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, cwd);
 
   // Tell the browser which session this is (it learns the id of new sessions) and
   // the EFFECTIVE cwd — where claude really runs. On reattach that's the live
@@ -307,7 +307,7 @@ function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: s
   const resolved = resolveLaunchSession(deps, requested, index, shell);
   if (!resolved) return closeWithError(ws, "Launcher not found — check Settings → Launch commands.");
   const { sessionId, live, command } = resolved;
-  markDevTerminalSession(sessionId);
+  markDevTerminalSession(sessionId, cwd);
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
   let entry: PtyEntry;
@@ -330,7 +330,7 @@ function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: st
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
-  if (!attachGuiMcp) markDevTerminalSession(sessionId);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, cwd);
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
   let entry: PtyEntry;
