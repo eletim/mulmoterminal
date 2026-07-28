@@ -20,9 +20,19 @@ export interface WorkItem {
   prUrl: string | null;
   issue: number | null;
   issueUrl: string | null;
+  // Titles, for the surfaces that have room for words rather than a number — the phone's session
+  // list above all, where "#987" alone says nothing about which request is running (#1014).
+  prTitle: string | null;
+  issueTitle: string | null;
 }
 
-export const EMPTY_WORK_ITEM: Readonly<WorkItem> = { phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null };
+export const EMPTY_WORK_ITEM: Readonly<WorkItem> = { phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null, prTitle: null, issueTitle: null };
+
+// One line for a surface with room for one: what the work is FOR beats what was done about it, so
+// the issue's title wins when there is one. Null when neither side has a title to show.
+export function workItemHeadline(item: WorkItem): string | null {
+  return item.issueTitle ?? item.prTitle ?? null;
+}
 
 // GitHub's closing keywords, as GitHub itself matches them: any of these, then optional
 // whitespace/colon, then #N. Anything else in the body is a mention, not a link — a PR that

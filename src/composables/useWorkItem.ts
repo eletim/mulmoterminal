@@ -21,6 +21,8 @@ const numberOrNull = (v: unknown): number | null => (typeof v === "number" && Nu
 // `javascript:` in that attribute runs on click. https only — github.com and GitHub Enterprise
 // both serve it, and the cost of refusing anything else is a missing hyperlink next to a number
 // that still shows (found by Codex review).
+const textOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v : null);
+
 const safeHttpsUrl = (v: unknown): string | null => {
   if (typeof v !== "string" || v === "") return null;
   try {
@@ -40,6 +42,10 @@ export function parseWorkItem(data: unknown): WorkItem {
     prUrl: safeHttpsUrl(data.prUrl),
     issue: numberOrNull(data.issue),
     issueUrl: safeHttpsUrl(data.issueUrl),
+    // The chip shows numbers, not words — the titles ride along for the phone (#1014), and are
+    // parsed here so the wire type has one reader rather than two disagreeing ones.
+    prTitle: textOrNull(data.prTitle),
+    issueTitle: textOrNull(data.issueTitle),
   };
 }
 

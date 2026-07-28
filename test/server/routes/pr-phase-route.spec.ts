@@ -25,7 +25,7 @@ describe("GET /api/pr-phase", () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual(EMPTY_WORK_ITEM);
       // Named individually so a future shape change has to face each field, not just a deep-equal.
-      expect(Object.keys(res.body).sort()).toEqual(["issue", "issueUrl", "phase", "pr", "prUrl"]);
+      expect(Object.keys(res.body).sort()).toEqual(["issue", "issueTitle", "issueUrl", "phase", "pr", "prTitle", "prUrl"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

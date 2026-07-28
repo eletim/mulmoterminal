@@ -53,12 +53,21 @@ import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSession
 import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
-import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
+import {
+  agentFromPaneCommand,
+  buildSessionList,
+  captureSessionScreen,
+  sessionWorkSummary,
+  type SessionScreenMeta,
+  type SessionWorkSummary,
+} from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
 import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
-import { currentBranch } from "./git/git-status.js";
+import { currentBranch, gitStatus } from "./git/git-status.js";
+import { phaseForRepoBranch } from "./git/prPhase.js";
+import { repoFromWebUrl } from "./config/header-context.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
@@ -397,8 +406,33 @@ const remoteHostSpawnChat = (message: string) => {
 // shell and ran an agent inside it. Null when neither can say.
 const agentOfSession = (id: string): SessionAgent | null => ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id));
 
-const remoteHostListTerminalSessions = async () =>
-  buildSessionList({
+// What each session's directory is working on, resolved once per DIRECTORY before the list is
+// built: `detailOf` below is synchronous, and cells sharing a checkout share an answer (#1014).
+// phaseForRepoBranch caches per (repo, branch), so a grid of twenty cells costs a handful of gh
+// calls at most, and none at all between polls inside the TTL.
+const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWorkSummary>> => {
+  const out = new Map<string, SessionWorkSummary>();
+  await Promise.all(
+    [...new Set(cwds.filter((cwd) => cwd !== ""))].map(async (cwd) => {
+      try {
+        const status = await gitStatus(cwd);
+        if (!status.repo || !status.branch) return;
+        const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
+        if (!repo) return;
+        const summary = sessionWorkSummary(await phaseForRepoBranch(repo, status.branch));
+        if (summary) out.set(cwd, summary);
+      } catch {
+        // best-effort: a directory that cannot be resolved simply carries no work item
+      }
+    }),
+  );
+  return out;
+};
+
+const remoteHostListTerminalSessions = async () => {
+  const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? "";
+  const work = await workByCwd([...ptys.keys()].map(cwdOfSession));
+  return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
     isResumable: await resumableSessionPredicate(),
@@ -410,10 +444,12 @@ const remoteHostListTerminalSessions = async () =>
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => ({
       title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
-      cwd: ptys.get(id)?.cwd ?? "",
+      cwd: cwdOfSession(id),
       agent: agentOfSession(id),
+      work: work.get(cwdOfSession(id)),
     }),
   });
+};
 
 // Write a chunk to a session's live PTY for the phone's terminal input (#445).
 // Only sessions attached in THIS process are writable: a tmux session that outlived

@@ -8,7 +8,7 @@
 // header's PR button — this module takes an already-resolved repo/branch so it stays free
 // of the config/header layer.
 import type { CiState } from "../../common/ghItems.js";
-import { issueCandidateFromBranch, issueRefFromPrBody, type PrPhase, type WorkItem } from "../../common/prPhase.js";
+import { EMPTY_WORK_ITEM, issueCandidateFromBranch, issueRefFromPrBody, type PrPhase, type WorkItem } from "../../common/prPhase.js";
 import { runGh } from "./gh.js";
 import { rollupCiState } from "./prs.js";
 import { createTtlCache } from "./ttl-cache.js";
@@ -22,6 +22,7 @@ export interface ParsedPr {
   ci: CiState; // passing | failing | pending | none
   url: string | null;
   number: number | null;
+  title: string;
   // The PR description, read ONLY for its closing keyword (`Fixes #966`) — that is how the cell
   // learns which issue its work belongs to.
   body: string;
@@ -34,6 +35,7 @@ const toParsedPr = (o: Record<string, unknown>): ParsedPr => ({
   ci: rollupCiState(o.statusCheckRollup),
   url: typeof o.url === "string" ? o.url : null,
   number: typeof o.number === "number" && Number.isSafeInteger(o.number) ? o.number : null,
+  title: typeof o.title === "string" ? o.title : "",
   body: typeof o.body === "string" ? o.body : "",
 });
 
@@ -66,12 +68,12 @@ export function derivePrPhase(pr: ParsedPr | null): PrPhase {
 // Kept as the name the route and its spec already use; the shape is the shared wire type now.
 export type PrPhaseResult = WorkItem;
 
-const GH_FIELDS = "state,isDraft,reviewDecision,statusCheckRollup,url,number,body";
+const GH_FIELDS = "state,isDraft,reviewDecision,statusCheckRollup,url,number,body,title";
 const cache = createTtlCache<PrPhaseResult>();
 
 export type PrPhaseDeps = BranchQueryDeps;
 
-const NONE: PrPhaseResult = { phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null };
+const NONE: PrPhaseResult = { ...EMPTY_WORK_ITEM };
 
 // The newest PR for `branch` in `state`. `ok` distinguishes "gh ran, no such PR" (pr:null)
 // from "gh failed" — the caller must not treat a failed open-PR query as "no open PR", or a
@@ -91,14 +93,34 @@ async function listPr(run: typeof runGh, repo: string, branch: string, state: "o
 // `fix/966-…` offers 966, so it is confirmed against the repo before a cell claims it. A `gh`
 // failure here means "no issue" rather than a guess — the whole result is cached together, so
 // this costs at most one extra call per branch per TTL, and only for a branch with no PR body ref.
-async function resolveIssue(run: typeof runGh, repo: string, branch: string, pr: ParsedPr | null): Promise<{ number: number; url: string } | null> {
+async function resolveIssue(run: typeof runGh, repo: string, branch: string, pr: ParsedPr | null): Promise<ResolvedIssue | null> {
   const fromBody = issueRefFromPrBody(pr?.body);
-  if (fromBody !== null) return { number: fromBody, url: issueUrl(repo, fromBody) };
-  const candidate = issueCandidateFromBranch(branch);
-  if (candidate === null) return null;
+  // The branch-derived candidate has to be confirmed to exist anyway, so its title rides along on
+  // a call that was already being made. A body reference is trusted without the lookup — asking
+  // for the TITLE is what adds a call there, and only there (#1014).
+  const number = fromBody ?? issueCandidateFromBranch(branch);
+  if (number === null) return null;
   try {
-    const res = await run(["issue", "view", String(candidate), "--repo", repo, "--json", "number"]);
-    return res.ok ? { number: candidate, url: issueUrl(repo, candidate) } : null;
+    const res = await run(["issue", "view", String(number), "--repo", repo, "--json", "number,title"]);
+    if (res.ok) return { number, url: issueUrl(repo, number), title: issueTitleFrom(res.stdout) };
+    // A body reference stands even when the lookup fails: the PR author named it, and losing the
+    // number because `gh` blinked would be worse than showing it without a title.
+    return fromBody === null ? null : { number: fromBody, url: issueUrl(repo, fromBody), title: null };
+  } catch {
+    return fromBody === null ? null : { number: fromBody, url: issueUrl(repo, fromBody), title: null };
+  }
+}
+
+interface ResolvedIssue {
+  number: number;
+  url: string;
+  title: string | null;
+}
+
+function issueTitleFrom(stdout: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    return isRecord(parsed) && typeof parsed.title === "string" && parsed.title !== "" ? parsed.title : null;
   } catch {
     return null;
   }
@@ -131,6 +153,8 @@ export async function phaseForRepoBranch(repo: string, branch: string, deps: PrP
     prUrl: pr?.url ?? null,
     issue: issue?.number ?? null,
     issueUrl: issue?.url ?? null,
+    prTitle: pr?.title ? pr.title : null,
+    issueTitle: issue?.title ?? null,
   };
   cache.set(key, result, now);
   return result;
