@@ -1,0 +1,172 @@
+import { describe, it, expect } from "vitest";
+import { byNewest, decisionsFromJsonl } from "../../../server/session/decisions";
+
+// The fixtures below are the shapes actually found in ~/.claude/projects on 2026-07-28 — both
+// tool_result lead-ins, a free-text answer, a `selected preview:` tail, and a question that was
+// never answered. Invented shapes would test the parser against a transcript nobody writes.
+
+const askLine = (opts: { id: string; ts?: string; questions: unknown[] }) =>
+  JSON.stringify({
+    type: "assistant",
+    cwd: "/Users/isamu/ss/llm/mulmoterminal4",
+    sessionId: "sesn-1",
+    timestamp: opts.ts ?? "2026-07-27T08:41:43.600Z",
+    message: { content: [{ type: "tool_use", id: opts.id, name: "AskUserQuestion", input: { questions: opts.questions } }] },
+  });
+
+const resultLine = (id: string, text: string) =>
+  JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: text }] } });
+
+const GO_NOW = { label: "今から実装する（推奨）", description: "origin/main から feature ブランチを切り…" };
+const WAIT = { label: "報告者の 2.2.0 実機確認を待つ", description: "keymap 側の確認結果が出てから着手" };
+const QUESTION = { question: "copyOnSelect の実装を今から進めますか？", header: "進め方", multiSelect: false, options: [GO_NOW, WAIT] };
+
+describe("decisionsFromJsonl", () => {
+  it("reads the question, its options with their descriptions, and the chosen answer", () => {
+    const raw = [
+      askLine({ id: "toolu_1", questions: [QUESTION] }),
+      resultLine("toolu_1", `The user answered: "${QUESTION.question}"="${GO_NOW.label}". Read the answers carefully — they may request clarification.`),
+    ].join("\n");
+
+    expect(decisionsFromJsonl(raw, "fallback")).toEqual([
+      {
+        sessionId: "sesn-1",
+        cwd: "/Users/isamu/ss/llm/mulmoterminal4",
+        ts: "2026-07-27T08:41:43.600Z",
+        toolUseId: "toolu_1",
+        questions: [
+          {
+            question: QUESTION.question,
+            header: "進め方",
+            multiSelect: false,
+            options: [GO_NOW, WAIT],
+            answer: GO_NOW.label,
+            answerKind: "option",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("reads the other lead-in the harness uses", () => {
+    const raw = [
+      askLine({ id: "toolu_2", questions: [QUESTION] }),
+      resultLine("toolu_2", `Your questions have been answered: "${QUESTION.question}"="${WAIT.label}". You can now continue with these answers in mind.`),
+    ].join("\n");
+    expect(decisionsFromJsonl(raw, "f")[0].questions[0].answer).toBe(WAIT.label);
+  });
+
+  it("marks an answer the user wrote themselves as free-text — the options were wrong, not the choice", () => {
+    // Real: the user answered a "how should we handle http://" question with "what even is
+    // copyOnSelect?". Recording that as just another answer would lose the only interesting part.
+    const raw = [
+      askLine({ id: "toolu_3", questions: [QUESTION] }),
+      resultLine("toolu_3", `The user answered: "${QUESTION.question}"="copyOnSelectってなに？windows固有の機能？". Read the answers carefully.`),
+    ].join("\n");
+    const [q] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(q.answer).toBe("copyOnSelectってなに？windows固有の機能？");
+    expect(q.answerKind).toBe("free-text");
+  });
+
+  it("stops at the closing quote when the harness appends a preview block after it", () => {
+    const raw = [
+      askLine({ id: "toolu_4", questions: [QUESTION] }),
+      resultLine("toolu_4", `The user answered: "${QUESTION.question}"="${GO_NOW.label}" selected preview:\n正常時:  Opus · ctx 58%. Continue.`),
+    ].join("\n");
+    expect(decisionsFromJsonl(raw, "f")[0].questions[0].answer).toBe(GO_NOW.label);
+  });
+
+  it("pairs each question in a multi-question call with its own answer", () => {
+    const second = { question: "何がまだ決まっていませんか？", header: "論点", multiSelect: true, options: [{ label: "設計方針", description: "d" }] };
+    const raw = [
+      askLine({ id: "toolu_5", questions: [QUESTION, second] }),
+      resultLine(
+        "toolu_5",
+        `Your questions have been answered: "${QUESTION.question}"="${WAIT.label}", "${second.question}"="設計方針". You can now continue.`,
+      ),
+    ].join("\n");
+    const [a, b] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect([a.answer, a.answerKind]).toEqual([WAIT.label, "option"]);
+    expect([b.answer, b.answerKind, b.multiSelect]).toEqual(["設計方針", "option", true]);
+  });
+
+  it("counts every chosen label of a multi-select answer as chosen-from-options", () => {
+    const q = {
+      question: "どれ？",
+      header: "h",
+      multiSelect: true,
+      options: [
+        { label: "A", description: "" },
+        { label: "B", description: "" },
+      ],
+    };
+    const raw = [askLine({ id: "toolu_6", questions: [q] }), resultLine("toolu_6", `The user answered: "どれ？"="A, B". Continue.`)].join("\n");
+    expect(decisionsFromJsonl(raw, "f")[0].questions[0].answerKind).toBe("option");
+  });
+
+  it("keeps a question that was never answered, rather than dropping it", () => {
+    // A session interrupted mid-question is itself a fact worth having: it was asked, and the
+    // decision never happened.
+    const raw = askLine({ id: "toolu_7", questions: [QUESTION] });
+    const [q] = decisionsFromJsonl(raw, "f")[0].questions;
+    expect(q.answer).toBeNull();
+    expect(q.answerKind).toBe("unanswered");
+  });
+
+  it("falls back to the given session id when the line carries none", () => {
+    const raw = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "toolu_8", name: "AskUserQuestion", input: { questions: [QUESTION] } }] },
+    });
+    const [d] = decisionsFromJsonl(raw, "from-filename");
+    expect([d.sessionId, d.cwd, d.ts]).toEqual(["from-filename", null, ""]);
+  });
+
+  it("ignores every other tool and every other line", () => {
+    const raw = [
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "ls" } }] } }),
+      JSON.stringify({ type: "user", message: { content: "just a prompt" } }),
+      "not json at all",
+      "",
+    ].join("\n");
+    expect(decisionsFromJsonl(raw, "f")).toEqual([]);
+  });
+
+  it("survives a malformed AskUserQuestion input without throwing", () => {
+    const raw = [
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "a", name: "AskUserQuestion", input: { questions: "nope" } }] } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "b", name: "AskUserQuestion", input: {} }] } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "c", name: "AskUserQuestion", input: { questions: [{}] } }] } }),
+    ].join("\n");
+    const found = decisionsFromJsonl(raw, "f");
+    expect(found).toHaveLength(1); // only the one with a (blank) question survives
+    expect(found[0].questions[0]).toEqual({ question: "", header: "", multiSelect: false, options: [], answer: null, answerKind: "unanswered" });
+  });
+
+  it("reads a tool_result written as content blocks, not just as a string", () => {
+    const raw = [
+      askLine({ id: "toolu_9", questions: [QUESTION] }),
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_9", content: [{ type: "text", text: `The user answered: "${QUESTION.question}"="${GO_NOW.label}".` }] },
+          ],
+        },
+      }),
+    ].join("\n");
+    expect(decisionsFromJsonl(raw, "f")[0].questions[0].answer).toBe(GO_NOW.label);
+  });
+});
+
+describe("byNewest", () => {
+  const at = (ts: string): { ts: string } => ({ ts });
+
+  it("orders newest first and sinks a record with no timestamp", () => {
+    const sorted = [at(""), at("2026-07-27T08:00:00Z"), at("2026-07-28T09:00:00Z")]
+      .map((r) => ({ ...r, sessionId: "s", cwd: null, toolUseId: "t", questions: [] }))
+      .sort(byNewest)
+      .map((r) => r.ts);
+    expect(sorted).toEqual(["2026-07-28T09:00:00Z", "2026-07-27T08:00:00Z", ""]);
+  });
+});
