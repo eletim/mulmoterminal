@@ -186,10 +186,26 @@ async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
   }
 }
 
+// Reading a transcript costs its whole size: the file is slurped as one string and every line
+// is JSON.parsed, all synchronously once the read resolves. Measured over 10,506 real
+// transcripts the median is 0.1 MB — but 13 exceed 100 MB, the largest is 585 MB, and a 440 MB
+// one took 1930 ms to yield a 334-character reply. That is 1.9 seconds with the event loop
+// stopped, i.e. every terminal in the app frozen. Past ~512 MB the read cannot even complete —
+// it exceeds V8's maximum string length and throws, which the catch below turns into an empty
+// turn, so the user sees a button that does nothing (#865).
+//
+// So: refuse loudly instead. `tooLarge` lets the caller say WHY nothing came back, which is the
+// difference between a bug report and a known limit. Reading only the file's tail would lift the
+// cap altogether and is the obvious next step if anyone hits this in practice.
+export const LAST_TURN_MAX_BYTES = 64 * 1024 * 1024;
+
 export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex"): Promise<LastTurn> {
   if (agent === "codex") return codexLastTurn(id);
+  const file = path.join(projectSessionsDir(cwd), `${id}.jsonl`);
   try {
-    return lastTurnFromClaudeParsed(parseJsonl(await fs.readFile(path.join(projectSessionsDir(cwd), `${id}.jsonl`), "utf8")));
+    const { size } = await fs.stat(file);
+    if (size > LAST_TURN_MAX_BYTES) return { ...EMPTY_TURN, tooLarge: true };
+    return lastTurnFromClaudeParsed(parseJsonl(await fs.readFile(file, "utf8")));
   } catch {
     return EMPTY_TURN; // no transcript on disk yet
   }
