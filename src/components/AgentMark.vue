@@ -20,13 +20,14 @@ const spokeRotations = Array.from({ length: SPOKES }, (_, i) => (i * 360) / SPOK
       <line v-for="rotation in spokeRotations" :key="rotation" x1="12" y1="12" x2="12" y2="3.5" :transform="`rotate(${rotation} 12 12)`" />
     </g>
   </svg>
-  <!-- OpenAI's knot, as three interlocking loops. An outline rather than the filled mark: at this
-       size a fill collapses into a blob, while the loops still read as the shape. -->
-  <svg v-else viewBox="0 0 24 24" class="h-[13px] w-[13px] flex-none" fill="none" aria-hidden="true">
-    <g stroke="currentColor" stroke-width="1.7">
-      <ellipse cx="12" cy="12" rx="4" ry="9.5" />
-      <ellipse cx="12" cy="12" rx="4" ry="9.5" transform="rotate(60 12 12)" />
-      <ellipse cx="12" cy="12" rx="4" ry="9.5" transform="rotate(120 12 12)" />
+  <!-- Two crossed loops, not three. The knot's own six-fold form was tried first and measured at
+       the size it actually renders: three overlapping ellipses fill the middle in and the whole
+       thing reads as one dark blob, which distinguishes nothing. Two loops keep an open centre and
+       stay legible, at the cost of being a suggestion of the mark rather than a copy of it. -->
+  <svg v-else viewBox="0 0 24 24" class="h-[14px] w-[14px] flex-none" fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1.5">
+      <ellipse cx="12" cy="12" rx="4.5" ry="10" transform="rotate(45 12 12)" />
+      <ellipse cx="12" cy="12" rx="4.5" ry="10" transform="rotate(-45 12 12)" />
     </g>
   </svg>
 </template>
