@@ -35,6 +35,7 @@ import { createClaudeSpawner } from "./session/spawn-claude.js";
 import { spawnPty } from "./session/pty-spawn.js";
 import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
+import { hasBinary } from "./infra/has-binary.js";
 import { newestRolloutFile, readTailLines, codexSessionsDir } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, writeRateLimitCache } from "./agents/rate-limit-persist.js";
@@ -46,7 +47,7 @@ import { generateHeaderTitle } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys } from "./session/registry.js";
+import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys, rememberProbeSession } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { createToolStores } from "./session/tool-store.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
@@ -277,14 +278,42 @@ const refreshCodexRateLimits = (): void => {
   const file = newestRolloutFile(codexSessionsDir(), Date.now());
   if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readTailLines(file)), Date.now());
 };
+// Whether a probe could even run. Checked before spawning rather than discovered by spawning
+// (#1011): a machine without `claude` used to fail so fast that it never reached the 90s timeout,
+// so the store learned nothing and the next poll tried again — a spawn attempt per poll.
+const claudeIsRunnable = (): boolean => {
+  try {
+    return hasBinary(CLAUDE_BIN);
+  } catch {
+    return false;
+  }
+};
+
 const startClaudeRateLimitProbe = (): void => {
+  if (!claudeIsRunnable()) {
+    rateLimitStore.noteNoClaude();
+    rateLimitStore.setProbeInFlight(false);
+    return;
+  }
+  rateLimitStore.noteClaudeFound();
+  rateLimitStore.noteProbeStarted(Date.now());
+  // Registered BEFORE the spawn, like every other hidden session: claude writes its transcript
+  // as soon as it starts, and a listing served in between would show a chat nobody asked for.
+  const probeSessionId = randomUUID();
+  rememberProbeSession(probeSessionId);
   startRateLimitProbe({
     spawn: (args, cwd) => spawnPty(CLAUDE_BIN, args, cwd),
     host: "localhost",
     port: PORT,
     cwd: CLAUDE_CWD,
-    sessionId: randomUUID(),
-    onSettled: () => rateLimitStore.setProbeInFlight(false),
+    sessionId: probeSessionId,
+    // A probe that settles WITHOUT the status line having reported is the "asked, heard nothing"
+    // case. report() has already moved the state on if anything arrived, so this only widens the
+    // gap when nothing did.
+    onSettled: () => {
+      rateLimitStore.noteProbeFailedIfNoReport(Date.now());
+      rateLimitStore.setProbeInFlight(false);
+    },
   });
 };
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { agentGauges, gaugeWindows, gaugeTitle, resetsIn, WARN_PERCENT } from "../../../src/composables/rateLimitGauge";
+import { agentGauges, gaugeWindows, gaugeTitle, resetsIn, claudeProbeNote, WARN_PERCENT } from "../../../src/composables/rateLimitGauge";
+import type { RateLimitSnapshot } from "../../../src/composables/rateLimitGauge";
 
 const window = (usedPercentage: number, resetsAt_sec: number | null = null) => ({ usedPercentage, resetsAt_sec });
 const NOW = 1_700_000_000_000;
@@ -78,5 +79,28 @@ describe("gaugeTitle", () => {
   it("is empty when there is nothing to say", () => {
     expect(gaugeTitle("codex", null, NOW)).toBe("");
     expect(gaugeTitle("codex", { fiveHour: null, sevenDay: null }, NOW)).toBe("");
+  });
+});
+
+// #1011 / #1010: an absent Claude gauge used to be indistinguishable from a probe loop running
+// every 90 seconds in the background. The note is how a user finds out that nothing is coming —
+// and, for two of the three reasons, that nothing will come until they change something.
+describe("claudeProbeNote", () => {
+  const snap = (over: Partial<RateLimitSnapshot> = {}): RateLimitSnapshot => ({ claude: null, codex: null, ...over });
+
+  it("says nothing while the figures are showing", () => {
+    expect(claudeProbeNote(snap({ claude: { fiveHour: { usedPercentage: 5, resetsAt_sec: null }, sevenDay: null }, claudeProbe: "no-report" }))).toBeNull();
+  });
+
+  it("says nothing when it simply has not been measured yet", () => {
+    expect(claudeProbeNote(snap())).toBeNull();
+    expect(claudeProbeNote(snap({ claudeProbe: "ok" }))).toBeNull();
+    expect(claudeProbeNote(null)).toBeNull();
+  });
+
+  it("names the reason when there is one", () => {
+    expect(claudeProbeNote(snap({ claudeProbe: "no-claude" }))).toContain("PATH");
+    expect(claudeProbeNote(snap({ claudeProbe: "no-windows" }))).toContain("API-key");
+    expect(claudeProbeNote(snap({ claudeProbe: "no-report" }))).toContain("Retrying");
   });
 });

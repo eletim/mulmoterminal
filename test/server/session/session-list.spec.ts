@@ -15,7 +15,7 @@ const pending = (id: string, mtime: number): SessionRow => ({
 });
 const ids = (rows: SessionRow[]) => rows.map((r) => r.id);
 const filter = (over: Partial<Parameters<typeof selectSessionRows>[1]> = {}) => ({
-  isTranslationWorker: never,
+  isInternalHelper: never,
   isDevTerminal: never,
   includePending: true,
   limit: 50,
@@ -33,7 +33,7 @@ describe("selectSessionRows", () => {
 
   it("drops translation workers — they are internal helpers, not chats", () => {
     const rows = [disk("keep", 2), disk("worker", 3)];
-    expect(ids(selectSessionRows(rows, filter({ isTranslationWorker: (id) => id === "worker" })))).toEqual(["keep"]);
+    expect(ids(selectSessionRows(rows, filter({ isInternalHelper: (id) => id === "worker" })))).toEqual(["keep"]);
   });
 
   // The rule with history: hiding grid sessions from the CHAT sidebar must not hide them
@@ -68,7 +68,7 @@ describe("selectSessionRows", () => {
 
   it("filters before capping, so a hidden row cannot consume a slot", () => {
     const rows = [disk("worker", 9), disk("a", 2), disk("b", 1)];
-    expect(ids(selectSessionRows(rows, filter({ isTranslationWorker: (id) => id === "worker", limit: 2 })))).toEqual(["a", "b"]);
+    expect(ids(selectSessionRows(rows, filter({ isInternalHelper: (id) => id === "worker", limit: 2 })))).toEqual(["a", "b"]);
   });
 
   it("does not mutate the caller's array", () => {

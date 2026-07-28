@@ -7,7 +7,7 @@
 // question, not the first.
 import { computed, onMounted, onUnmounted } from "vue";
 import { useRateLimits } from "../composables/useRateLimits";
-import { agentGauges, gaugeTitle } from "../composables/rateLimitGauge";
+import { agentGauges, gaugeTitle, claudeProbeNote } from "../composables/rateLimitGauge";
 import AgentMark from "./AgentMark.vue";
 
 const { snapshot, start, stop } = useRateLimits();
@@ -18,12 +18,24 @@ const gauges = computed(() => agentGauges(snapshot.value));
 // Read once per render rather than per window, so the two figures in a row cannot disagree about
 // what time it is.
 const titleFor = (agent: "claude" | "codex") => gaugeTitle(agent, snapshot.value?.[agent] ?? null, Date.now());
+// Shown in place of the Claude figures when they cannot arrive. Not an error banner: it sits
+// where the numbers would be, in the muted colour, because it is the same kind of information —
+// "here is what we know about your usage" (#1011).
+const probeNote = computed(() => claudeProbeNote(snapshot.value));
 </script>
 
 <template>
   <!-- Nothing at all until something reports: an agent that is not installed, is on API-key
        billing, or has not run yet all arrive here as an empty list, and an empty gauge would be
        one more thing to explain rather than information. -->
+  <span
+    v-if="probeNote"
+    class="ml-1.5 inline-flex flex-none items-center border-l border-border pl-2.5 font-mono text-[12px] leading-none text-dim"
+    role="note"
+    :title="probeNote"
+    data-testid="rate-limit-note"
+    >claude usage n/a</span
+  >
   <span
     v-for="gauge in gauges"
     :key="gauge.agent"

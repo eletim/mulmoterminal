@@ -89,6 +89,24 @@ export const claimedCodexRollouts = new Set<string>();
 // a transient internal helper, not a chat the user should see in the sidebar.
 export const translationWorkerIds = new Set<string>();
 
+// Session ids created by the rate-limit probe (#387). Filtered out of /api/sessions for the same
+// reason the translation workers are — nobody asked for these chats, they exist to read a number
+// (#1010). Bounded: a long-running server would otherwise hold every id it ever probed, and the
+// listing only ever renders the newest few anyway.
+const PROBE_ID_MEMORY = 1000;
+const probeIdOrder: string[] = [];
+export const probeSessionIds = new Set<string>();
+
+export function rememberProbeSession(id: string): void {
+  if (probeSessionIds.has(id)) return;
+  probeSessionIds.add(id);
+  probeIdOrder.push(id);
+  while (probeIdOrder.length > PROBE_ID_MEMORY) {
+    const evicted = probeIdOrder.shift();
+    if (evicted) probeSessionIds.delete(evicted);
+  }
+}
+
 // Session ids that belong to the multi-terminal GRID — dev terminals, spawned with
 // gui=0 (no GUI MCP; see the ?gui handling in the WS connection handler). They're
 // FILTERED OUT of the chat sidebar's /api/sessions so a grid terminal never surfaces
