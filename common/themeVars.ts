@@ -39,6 +39,16 @@ export type ThemeVars = Record<ThemeVarKey, string>;
  *  `data-theme` attribute value and as something to type into a `.mulmoterminal.json`. */
 export const CUSTOM_THEME_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
+/** Whether a value could name a theme — built-in OR user-defined.
+ *
+ *  The result is `string`, deliberately NOT `ThemeId`: that is the CLOSED set of four built-ins,
+ *  and a guard claiming it while custom ids flow through would let downstream code treat a
+ *  four-way switch as exhaustive (Codex review on #996). Membership is not checked here — the
+ *  server drops an id that resolves to nothing, and termThemeFor() resolves what survives. */
+export function isThemeIdLike(value: unknown): value is string {
+  return typeof value === "string" && CUSTOM_THEME_ID_RE.test(value);
+}
+
 export function isBuiltinThemeId(id: string): id is ThemeId {
   return (THEME_IDS as readonly string[]).includes(id);
 }

@@ -2,7 +2,7 @@ import { ref, computed } from "vue";
 import type { ITheme } from "@xterm/xterm";
 import { THEME_IDS, type ThemeId } from "../../common/themeIds";
 import { applyCustomTheme, clearCustomTheme, customTermTheme, customThemeList, findCustomTheme, readBuiltinVars } from "./customThemes";
-import { isLightTheme, resolveThemeVars, type ThemeVars } from "../../common/themeVars";
+import { isLightTheme, isThemeIdLike, resolveThemeVars, type ThemeVars } from "../../common/themeVars";
 
 export type { ThemeId };
 
@@ -104,9 +104,6 @@ export function isThemeId(value: unknown): value is ThemeId {
 // A stored selection may name a theme the user defined, which this build cannot enumerate — so
 // the id is kept if it LOOKS like one, and whether it resolves is decided when painting. That is
 // what lets a selection survive a machine that hasn't got the config yet (#996).
-function isSelectableThemeId(value: unknown): value is string {
-  return typeof value === "string" && /^[a-z][a-z0-9-]{0,31}$/.test(value);
-}
 
 // Set when the selected id names neither a built-in nor a resolvable custom theme. The app paints
 // the default and Settings says why — the alternative, which this app shipped until now, is a
@@ -129,7 +126,7 @@ function builtins(): Record<ThemeId, ThemeVars> {
 function loadThemeId(): string {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return isSelectableThemeId(stored) ? stored : DEFAULT_THEME;
+    return isThemeIdLike(stored) ? stored : DEFAULT_THEME;
   } catch {
     return DEFAULT_THEME;
   }

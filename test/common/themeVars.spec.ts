@@ -3,6 +3,7 @@ import {
   THEME_VAR_KEYS,
   isUsableCustomThemeId,
   isBuiltinThemeId,
+  isThemeIdLike,
   resolveThemeVars,
   relativeLuminance,
   normalizeHexColor,
@@ -41,6 +42,22 @@ describe("isUsableCustomThemeId", () => {
     expect(isUsableCustomThemeId("solarized")).toBe(false);
     expect(isBuiltinThemeId("midnight")).toBe(true);
     expect(isBuiltinThemeId("my-dark")).toBe(false);
+  });
+});
+
+// Codex review on #996: the client's dir-config guard claimed `value is ThemeId` (the closed set
+// of four) while custom ids flowed through it, so anything downstream was free to treat a
+// four-way switch as exhaustive. ThemeIdLike is the honest type for "built-in or user-defined".
+describe("isThemeIdLike", () => {
+  it("accepts both a built-in id and a user-defined one", () => {
+    expect(isThemeIdLike("midnight")).toBe(true);
+    expect(isThemeIdLike("my-dark")).toBe(true);
+  });
+
+  it("refuses a shape that could not be an id", () => {
+    expect(isThemeIdLike("My Dark")).toBe(false);
+    expect(isThemeIdLike(7)).toBe(false);
+    expect(isThemeIdLike(null)).toBe(false);
   });
 });
 
