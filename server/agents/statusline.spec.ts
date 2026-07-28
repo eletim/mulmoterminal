@@ -56,11 +56,16 @@ describe("extractRateLimits", () => {
 // clobber — a whole class of risk that disappeared rather than being handled.
 
 describe("statusLineCommand", () => {
-  it("posts stdin to /api/rate-limits tagged with the session, printing nothing", () => {
-    const cmd = statusLineCommand("localhost", 34567, "abc-123");
+  it("posts stdin to /api/rate-limits, printing nothing", () => {
+    const cmd = statusLineCommand("localhost", 34567);
     expect(cmd).toContain("http://localhost:34567/api/rate-limits");
-    expect(cmd).toContain("-H 'x-mt-session: abc-123'");
     expect(cmd).toContain("-d @-");
     expect(cmd).toContain(">/dev/null 2>&1");
+  });
+
+  // It used to send `x-mt-session`, which that route has never read. An identifier nobody checks
+  // reads as a guarantee the code does not make, so it is gone rather than left as decoration.
+  it("does not send an identifier the route never verifies", () => {
+    expect(statusLineCommand("localhost", 34567)).not.toContain("x-mt-session");
   });
 });

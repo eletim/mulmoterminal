@@ -14,14 +14,21 @@ const { snapshot, start, stop } = useRateLimits();
 onMounted(start);
 onUnmounted(stop);
 
-const gauges = computed(() => agentGauges(snapshot.value));
-// Read once per render rather than per window, so the two figures in a row cannot disagree about
-// what time it is.
-const titleFor = (agent: "claude" | "codex") => gaugeTitle(agent, snapshot.value?.[agent] ?? null, Date.now());
-// Shown in place of the Claude figures when they cannot arrive. Not an error banner: it sits
-// where the numbers would be, in the muted colour, because it is the same kind of information —
-// "here is what we know about your usage" (#1011).
-const probeNote = computed(() => claudeProbeNote(snapshot.value));
+// The clock is read ONCE per reading, and everything derived from it comes out of the same pass:
+// the figures, the hover text, and the decision to drop a window whose reset has gone by. Reading
+// Date.now() separately in each of those let them disagree — a window could be dropped as expired
+// while its own hover text still counted down.
+//
+// `probeNote` sits where the numbers would be, in the muted colour, because it is the same kind of
+// information: "here is what we know about your usage" (#1011).
+const view = computed(() => {
+  const reading = snapshot.value;
+  const now_ms = Date.now();
+  return { now_ms, gauges: agentGauges(reading, now_ms), note: claudeProbeNote(reading, now_ms) };
+});
+const gauges = computed(() => view.value.gauges);
+const probeNote = computed(() => view.value.note);
+const titleFor = (agent: "claude" | "codex") => gaugeTitle(agent, snapshot.value?.[agent] ?? null, view.value.now_ms);
 </script>
 
 <template>

@@ -41,8 +41,10 @@ export function extractRateLimits(payload: unknown): RateLimits | null {
 // courtesy — Claude Code renders a row for the statusLine whether or not it writes anything, and
 // #388 measured that row. The probe's terminal is never shown to anyone, which is the whole reason
 // the probe exists instead of injecting this into the user's own cells.
-export function statusLineCommand(host: string, port: string | number, sessionId: string): string {
-  return (
-    `curl -s -X POST http://${host}:${port}/api/rate-limits ` + `-H 'content-type: application/json' -H 'x-mt-session: ${sessionId}' -d @- >/dev/null 2>&1`
-  );
+//
+// No `x-mt-session` here, unlike the hook command next door. That one is read and acted on
+// (hook-routes.ts); this route has no notion of which session a reading came from and never had —
+// so sending an id was a claim of identity nobody checked, which is worse than not making it.
+export function statusLineCommand(host: string, port: string | number): string {
+  return `curl -s -X POST http://${host}:${port}/api/rate-limits ` + `-H 'content-type: application/json' -d @- >/dev/null 2>&1`;
 }

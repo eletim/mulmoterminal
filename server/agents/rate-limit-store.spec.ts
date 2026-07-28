@@ -100,6 +100,21 @@ describe("createRateLimitStore", () => {
     expect(store.snapshot().claude?.limits).toEqual(limits);
   });
 
+  // Which agent reported is what lets the caller end a probe the moment its own answer lands, and
+  // only then: the status line also fires before the first API response, carrying no windows, and
+  // stopping on THAT would kill the probe just short of what it was spawned for.
+  it("names the agent whose report carried windows, and says nothing for one without", () => {
+    const seen: string[] = [];
+    const store = createRateLimitStore({}, (_snapshot, agent) => seen.push(agent));
+
+    store.report("claude", null, NOW);
+    expect(seen).toEqual([]);
+
+    store.report("codex", limits, NOW);
+    store.report("claude", limits, NOW);
+    expect(seen).toEqual(["codex", "claude"]);
+  });
+
   it("wants a probe only once someone has asked", () => {
     const store = createRateLimitStore();
     expect(store.wantsProbe(NOW)).toBe(false);

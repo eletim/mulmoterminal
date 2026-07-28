@@ -31,9 +31,14 @@ const PROBE_NOTES: Record<ClaudeProbeState, string | null> = {
 };
 
 /** A short line explaining an absent Claude gauge, or null when there is nothing worth saying —
- *  either it is showing, or it has simply not been measured yet. */
-export function claudeProbeNote(snapshot: RateLimitSnapshot | null): string | null {
-  if (!snapshot || snapshot.claude) return null;
+ *  either it is showing, or it has simply not been measured yet.
+ *
+ *  Keyed on whether anything is actually DRAWN, not on whether a reading is held: a reading whose
+ *  window has already reset is held but not drawn, and that is exactly when the reader most needs
+ *  the reason. Checking `snapshot.claude` instead let a stale cached figure suppress the note —
+ *  uninstall `claude` and the gauge would go on showing yesterday's percentage, silently. */
+export function claudeProbeNote(snapshot: RateLimitSnapshot | null, now_ms: number): string | null {
+  if (!snapshot || gaugeWindows(snapshot.claude, now_ms).length > 0) return null;
   return PROBE_NOTES[snapshot.claudeProbe ?? "ok"];
 }
 
@@ -48,15 +53,27 @@ export interface GaugeWindow {
 // thing that will stop the work.
 export const WARN_PERCENT = 75;
 
-const gaugeWindow = (label: string, window: RateLimitWindow | null): GaugeWindow[] =>
-  window === null ? [] : [{ label, percent: Math.round(window.usedPercentage), warn: window.usedPercentage >= WARN_PERCENT }];
+const MS_PER_SEC = 1000;
+const SEC_PER_MIN = 60;
+const MIN_PER_HOUR = 60;
+
+// A window whose reset time has PASSED says nothing about now: the budget it describes has already
+// rolled over, so the percentage belongs to a window that no longer exists. Dropping it is the same
+// rule as the one at the top of this file — a figure we cannot vouch for is worse than no figure,
+// and "83% used" from before a reset reads exactly like 83% used today. `resetsAt` unknown means we
+// cannot prove it is stale, so it stays.
+const expired = (window: RateLimitWindow, now_ms: number): boolean => window.resetsAt_sec !== null && window.resetsAt_sec * MS_PER_SEC <= now_ms;
+
+const gaugeWindow = (label: string, window: RateLimitWindow | null, now_ms: number): GaugeWindow[] =>
+  window === null || expired(window, now_ms) ? [] : [{ label, percent: Math.round(window.usedPercentage), warn: window.usedPercentage >= WARN_PERCENT }];
 
 /** The windows to render for one agent, in the order they are shown. Empty when the agent has
- * reported nothing — which covers "not installed", "API-key billing" and "no session yet" alike,
- * because there is nothing worth saying differently about any of them. */
-export function gaugeWindows(limits: RateLimits | null): GaugeWindow[] {
+ * reported nothing — which covers "not installed", "API-key billing", "no session yet" and a
+ * reading that has outlived its window alike, because there is nothing worth saying differently
+ * about any of them. */
+export function gaugeWindows(limits: RateLimits | null, now_ms: number): GaugeWindow[] {
   if (!limits) return [];
-  return [...gaugeWindow("5h", limits.fiveHour), ...gaugeWindow("7d", limits.sevenDay)];
+  return [...gaugeWindow("5h", limits.fiveHour, now_ms), ...gaugeWindow("7d", limits.sevenDay, now_ms)];
 }
 
 export interface AgentGauge {
@@ -72,19 +89,15 @@ export interface AgentGauge {
  * agent mark appears only when there are two — a solo user of either tool should not have to read
  * a symbol that distinguishes nothing.
  */
-export function agentGauges(snapshot: RateLimitSnapshot | null): AgentGauge[] {
-  const claude = gaugeWindows(snapshot?.claude ?? null);
-  const codex = gaugeWindows(snapshot?.codex ?? null);
+export function agentGauges(snapshot: RateLimitSnapshot | null, now_ms: number): AgentGauge[] {
+  const claude = gaugeWindows(snapshot?.claude ?? null, now_ms);
+  const codex = gaugeWindows(snapshot?.codex ?? null, now_ms);
   const both = claude.length > 0 && codex.length > 0;
   return [
     ...(claude.length ? [{ agent: "claude" as const, marked: both, windows: claude }] : []),
     ...(codex.length ? [{ agent: "codex" as const, marked: both, windows: codex }] : []),
   ];
 }
-
-const MS_PER_SEC = 1000;
-const SEC_PER_MIN = 60;
-const MIN_PER_HOUR = 60;
 
 /** "resets in 2h 15m", or "" when the reset is unknown or already past. The hover text says when
  * the number stops mattering, which is the question that follows "how much is left". */

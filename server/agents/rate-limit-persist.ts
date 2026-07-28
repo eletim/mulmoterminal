@@ -57,3 +57,26 @@ export function writeRateLimitCache(file: string, snapshot: RateLimitSnapshot): 
     // the next report will try again
   }
 }
+
+/**
+ * A writer that skips a write when nothing changed. Worth having because the caller is a request
+ * handler and the write is synchronous: Codex is re-read on EVERY poll, and its windows move once
+ * every few minutes at most, so the unguarded version wrote the same bytes on the event loop a few
+ * times a minute — more often while a probe is in flight and the client polls at seconds.
+ *
+ * A failed write leaves the remembered text alone, so the next report retries rather than assuming
+ * the file holds something it does not.
+ */
+export function createRateLimitCacheWriter(file: string): (snapshot: RateLimitSnapshot) => void {
+  let written: string | null = null;
+  return (snapshot) => {
+    const json = JSON.stringify(snapshot);
+    if (json === written) return;
+    try {
+      writeFileSync(file, json, { mode: 0o600 });
+      written = json;
+    } catch {
+      // the next report will try again
+    }
+  };
+}
