@@ -56,9 +56,11 @@ import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClient
 import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountSpaFallback } from "../infra/spa-fallback.js";
+import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
+  rateLimits: RateLimitRouteDeps;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
@@ -255,6 +257,9 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // terminal output and returns a short Errors/Warnings/cause/fix summary (issue #246).
   // Same-origin guarded like the other local-action routes.
   mountCommandSummaryRoute(app, { isAllowedOrigin: deps.isAllowedOrigin });
+
+  // The 5h / 7d rate-limit gauge (#387): where the probe reports and where the header reads.
+  mountRateLimitRoutes(app, deps.rateLimits);
 
   // GET /api/cost — estimated $ cost (session + today/month roll-up) for a project's
   // sessions, from public per-model pricing. Read-only; shown in the Settings modal (#245).
