@@ -24,7 +24,7 @@ color-coded so you see at a glance which are **working**, which **need you**, an
 ping to your phone when a task finishes. One `npx` command, no Electron, no config.
 
 ```bash
-npx mulmoterminal        # starts on http://localhost:34567 and opens your browser
+npx mulmoterminal@latest        # starts on http://localhost:34567 and opens your browser
 ```
 
 > **Something looks wrong?** Type `/mulmoterminal-bug-report` in any MulmoTerminal session. The
@@ -146,17 +146,17 @@ Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
 
 The server starts without any of the non-required rows; you just lose that row's feature,
 and the header/panel for it says so. `git` and `gh` are marked required because losing them
-costs whole views rather than one button. `npx mulmoterminal init` (below) reports which of
+costs whole views rather than one button. `npx mulmoterminal@latest init` (below) reports which of
 these it can find.
 
 ```bash
-npx mulmoterminal           # start on http://localhost:34567 and open the browser
+npx mulmoterminal@latest           # start on http://localhost:34567 and open the browser
 # or install globally:
 npm install -g mulmoterminal
 mulmoterminal
 ```
 
-**First-run setup (optional).** `npx mulmoterminal init` checks your environment (Node ≥ 22.9
+**First-run setup (optional).** `npx mulmoterminal@latest init` checks your environment (Node ≥ 22.9
 and every CLI in the table above), seeds the launcher's **directory
 presets** from the projects in your Claude Code history, and writes `~/.mulmoterminal/config.json`.
 It's **idempotent** — re-run it any time to refresh the presets; it overwrites the managed parts
@@ -166,7 +166,7 @@ and keeps your other settings. When `claude` is installed it can hand off to the
 **Google account (optional).** Link a Google account to enable the chat's `google` tool and the
 phone's `google.calendar.*` commands: read/create events on any calendar (not just your primary),
 list the calendars you've subscribed to, and read the colour palettes. Sign in from
-**Settings → Google account**, or run `npx mulmoterminal google login` — the CLI is the fallback
+**Settings → Google account**, or run `npx mulmoterminal@latest google login` — the CLI is the fallback
 for when you're driving MulmoTerminal from another machine, since consent finishes on a loopback
 listener and needs a browser **on the host**. Either way it needs a Desktop OAuth client JSON saved
 as `~/.secrets/client_secret_*.json`; the refresh token lands in `~/.config/mulmo/google-token.json`
@@ -200,11 +200,11 @@ directory you run the command from), `--port <n>` (default 34567), `--no-open`,
 `--version`, `--help`.
 
 ```bash
-npx mulmoterminal --cwd ./my-project   # work in a specific directory
+npx mulmoterminal@latest --cwd ./my-project   # work in a specific directory
 ```
 
 The published package ships the server (run via `tsx`) plus the pre-built web UI;
-`npx mulmoterminal` checks for the `claude` CLI, picks a free port, starts the
+`npx mulmoterminal@latest` checks for the `claude` CLI, picks a free port, starts the
 server, and opens the browser. For local development from a clone, see
 [Running](#running).
 
@@ -426,7 +426,7 @@ Requires **Node ≥ 22.9** (uses `node --env-file-if-exists`) and the `claude` C
 ## Configuration
 
 The server is configured entirely through environment variables, optionally
-loaded from a `.env` file. `npx mulmoterminal` reads the `.env` **in the
+loaded from a `.env` file. `npx mulmoterminal@latest` reads the `.env` **in the
 directory you run it from**; the npm scripts read the one in the repo root. The
 `.env` is optional — every variable below has a default, so the server runs
 without one.
@@ -441,7 +441,7 @@ the `claude` / `codex` sessions themselves.
 | `PORT`        | `34567`        | Backend HTTP/WebSocket port (prod: the URL you open). |
 | `CLIENT_PORT` | `6856`         | Vite dev-server port (dev only: the URL you open with `yarn dev`). |
 | `CLAUDE_BIN` | `claude`       | The Claude Code binary to spawn. On Windows a bare name is resolved on `PATH` before it reaches the PTY layer (which matches file names exactly): to the `.exe` when there is one, otherwise to the `.cmd` shim an npm-global install leaves, run through `cmd.exe`. |
-| `CLAUDE_CWD` | current dir    | Working directory each `claude` PTY runs in; determines which project's sessions the sidebar lists. Via `npx mulmoterminal` it defaults to the directory you ran the command from (override with `--cwd <dir>`, relative allowed); when the server is run directly it falls back to `~/mulmoclaude`. A value read from `.env` must be an absolute path (`~` is not expanded). |
+| `CLAUDE_CWD` | current dir    | Working directory each `claude` PTY runs in; determines which project's sessions the sidebar lists. Via `npx mulmoterminal@latest` it defaults to the directory you ran the command from (override with `--cwd <dir>`, relative allowed); when the server is run directly it falls back to `~/mulmoclaude`. A value read from `.env` must be an absolute path (`~` is not expanded). |
 | `CLAUDE_PERMISSION_MODE` | `auto` | Permission mode passed to each `claude` spawn. |
 | `MT_TITLE_MODEL` | `haiku` | Model used for the cell header's AI title (a cheap/fast model summarizing the recent turns). Accepts a `--model` alias or a full model id. |
 | `CODEX_BIN`  | `codex`        | The Codex CLI binary to spawn. |
