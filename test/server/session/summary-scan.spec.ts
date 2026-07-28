@@ -85,6 +85,33 @@ describe("createSummaryScan agrees with the whole-array fold", () => {
     expect(result).toEqual(folded(many));
   });
 
+  // Codex on #1037: the current turn's tools were read from a fixed 400-record window, so a long
+  // turn's early edits fell out of it and workPhase regressed from implementing to planning. A turn
+  // has no bound — measured across the eight largest transcripts here, the longest spans 3,615
+  // records — so this asserts a turn far past any window keeps the tool it opened with.
+  it("keeps a tool from the START of a turn that runs longer than the tail window", () => {
+    const records = [user("do the thing"), toolCall("Edit"), ...Array.from({ length: 900 }, () => toolCall("Read"))];
+    const result = scanned(records);
+    expect(result.toolNames[0]).toBe("Edit");
+    expect(result).toEqual(folded(records));
+  });
+
+  // …and the reset still happens: a NEW prompt drops the previous turn's tools however long ago.
+  it("forgets the previous turn's tools once a new prompt arrives", () => {
+    const records = [user("first"), toolCall("Edit"), ...Array.from({ length: 900 }, () => toolCall("Read")), user("second"), toolCall("Grep")];
+    expect(scanned(records).toolNames).toEqual(["Grep"]);
+  });
+
+  // The same trap as the prompt and the tools: a reply or a model that only appears BEFORE a long
+  // run of tool calls must still be reported. Reaching for a record window loses all three.
+  it("reports the reply and model from a turn that then ran far past the window", () => {
+    const records = [user("q"), assistant("the answer"), ...Array.from({ length: 900 }, () => toolCall("Read"))];
+    const result = scanned(records);
+    expect(result.lastResponse).toBe("the answer");
+    expect(result.context.model).toBe("claude-opus-5");
+    expect(result).toEqual(folded(records));
+  });
+
   it("truncates a long reply at the caller's cap", () => {
     const long = "x".repeat(RESPONSE_MAX + 50);
     expect(scanned([user("q"), assistant(long)]).lastResponse).toHaveLength(RESPONSE_MAX);

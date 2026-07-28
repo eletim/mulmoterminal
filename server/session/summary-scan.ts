@@ -4,26 +4,32 @@
 // which is the pass that cannot run at all on a transcript past ~512 MB (#998). Each field was
 // already a fold over the records — the only thing holding them together was the array.
 //
-// So this keeps every existing `…FromParsed` rule exactly as it is and feeds each one a window
-// rather than the file: the fields that genuinely need every record (usage, turn counts, the AI
-// title) accumulate as records arrive, and the ones that only describe the END of the session
-// (last prompt, last reply, model/context, current tools) read a bounded tail buffer. Nothing here
-// re-implements a rule; splitting them apart is the whole change.
+// **No windows.** The first draft kept a tail of the last N records and read the "what happened
+// recently" fields off it. That is wrong, and Codex caught the first instance: a turn has no
+// bound — measured across the eight largest transcripts on this machine, the longest spans 3,615
+// records — so a window silently drops a turn's early tool calls, then its prompt, then the reply
+// and model that preceded a long run of tool results. Every field here therefore folds over every
+// record, keeping only what it needs:
+//
+//   - counts and totals → running numbers
+//   - "the newest X"    → the last X seen, replaced as it arrives
+//   - the current turn  → reset on each user prompt (the rule already works that way)
+//
+// The per-record memory is a handful of strings and one array that empties every turn, so a
+// 585 MB transcript costs the same as a small one.
+//
+// Every rule still lives in its `…FromParsed` function: each is fed a one-record or few-record
+// window rather than reimplemented here.
 import {
   aiTitleFromParsed,
   countUserTurnsFromParsed,
-  currentTurnToolNamesFromParsed,
+  createCurrentTurnToolScan,
   latestAssistantTextFromParsed,
   latestMeaningfulUserPromptFromParsed,
   latestTurnContextFromParsed,
   sessionUsageFromParsed,
 } from "./transcript.js";
 import type { LatestTurnContext, SessionUsage } from "./transcript.js";
-
-// How many records to keep for the "what happened at the end" fields. A turn spans several
-// records (prompt, assistant text, tool calls, results), and `currentTurnToolNames` walks back to
-// the last user prompt — 400 covers that with room to spare while staying a fixed cost.
-const TAIL_RECORDS = 400;
 
 export interface SummaryParts {
   lastPrompt: string | null;
@@ -36,12 +42,16 @@ export interface SummaryParts {
 }
 
 export function createSummaryScan() {
-  // Whole-file folds, kept as running state.
   const usage: SessionUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
   let userTurns = 0;
   let aiTitle: string | null = null;
-  // Ring of the most recent records, for the end-of-session fields.
-  const tail: Record<string, unknown>[] = [];
+  const toolScan = createCurrentTurnToolScan();
+  // User records only — `latestMeaningfulUserPrompt` walks back for the newest NON-trivial one, so
+  // it needs them all, and a session has far fewer user turns than records.
+  const userRecords: Record<string, unknown>[] = [];
+  // Whatever produced these most recently, so a long run of tool calls afterwards cannot bury them.
+  let lastAssistantText: string | null = null;
+  let lastContext: LatestTurnContext | null = null;
 
   return {
     add(record: Record<string, unknown>) {
@@ -55,20 +65,24 @@ export function createSummaryScan() {
       usage.cacheReadTokens += perRecord.cacheReadTokens;
       usage.cacheCreationTokens += perRecord.cacheCreationTokens;
       aiTitle = aiTitleFromParsed(one) ?? aiTitle;
-
-      tail.push(record);
-      if (tail.length > TAIL_RECORDS) tail.shift();
+      toolScan.add(record);
+      if (record.type === "user") userRecords.push(record);
+      // `?? previous` rather than an unconditional assign: an assistant record carrying only a
+      // tool_use has no text, and must not blank out the reply the user is looking at.
+      lastAssistantText = latestAssistantTextFromParsed(one) ?? lastAssistantText;
+      const context = latestTurnContextFromParsed(one);
+      if (context.model !== null) lastContext = context;
     },
 
     finish(responseMax: number): SummaryParts {
       return {
-        lastPrompt: latestMeaningfulUserPromptFromParsed(tail),
+        lastPrompt: latestMeaningfulUserPromptFromParsed(userRecords),
         aiTitle,
-        lastResponse: latestAssistantTextFromParsed(tail)?.slice(0, responseMax) ?? null,
+        lastResponse: lastAssistantText?.slice(0, responseMax) ?? null,
         userTurns,
         usage,
-        context: latestTurnContextFromParsed(tail),
-        toolNames: currentTurnToolNamesFromParsed(tail),
+        context: lastContext ?? latestTurnContextFromParsed([]),
+        toolNames: toolScan.names(),
       };
     },
   };

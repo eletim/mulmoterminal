@@ -120,10 +120,12 @@ Every one of these was already a fold over records; the only thing holding it to
 `parseJsonl(readFile(...))`. So each existing `…FromParsed` rule is kept exactly as it is and fed a
 window instead of the file:
 
-- **`createSummaryScan`** — the fields that need every record (usage, user turns, the AI title)
-  accumulate as records arrive; the ones describing the END of the session (last prompt, last reply,
-  model/context, current tools) read a bounded 400-record tail. Each is still computed by the
-  original function, on a one-record or tail-sized window.
+- **`createSummaryScan`** — every field folds over every record, keeping only what it needs: counts
+  as running numbers, "the newest X" as the last one seen, the current turn's tools reset on each
+  user prompt. Each is still computed by its original function, fed a one-record window.
+
+  The first draft read the "recent" fields off a 400-record tail instead. That was wrong — see the
+  review follow-up below.
 - **`timelineEventsIn(record)`** — the per-record half of `timelineFromJsonl`, which now calls it.
   The caller keeps only the newest 300 events, which the payload was already capped to: holding the
   whole transcript in order to throw most of it away was the expensive part.
@@ -156,3 +158,27 @@ One pass over the 585 MB transcript, all three scans at once:
 
 Every one of those was empty or zero before — including the cost, which #998 noted was being
 summed into the project total as **$0**.
+
+
+## Review follow-up: no windows
+
+**Codex: a fixed 400-record window drops a long turn's early tool calls**, regressing `workPhase`
+from `implementing` to `planning`. Correct, and measurable: across the eight largest transcripts
+here the longest single turn spans **3,615 records**. A turn has no bound, so no window is safe.
+
+Fixing that exposed two more of the same, each caught by writing the test first:
+
+| field | what a window loses |
+| --- | --- |
+| current tools | a turn's early `Edit`, so the phase reads as planning |
+| last prompt | the prompt itself, once its turn runs long — the summary reported `null` |
+| last reply / model | a reply that preceded a long run of tool results |
+
+So the tail is gone entirely. Each field now keeps its own minimum: user records for the prompt
+rule (far fewer than records), the last non-empty assistant text, the last context that named a
+model, and the tool scan that empties itself every turn. On the real 585 MB file this is not just
+correct but cheaper — RSS fell from 475 MB to 378 MB.
+
+The reply and model use `?? previous` rather than an unconditional assign: an assistant record
+carrying only a `tool_use` has no text and no model, and must not blank out what the user is
+looking at.
