@@ -69,6 +69,8 @@ HTML (including `.vue`, `.svelte` and `.astro`), CSS/SCSS, YAML, XML/SVG, Python
 Java/Kotlin, C/C++/Objective-C, PHP and SQL are fetched the first time you open one — so such a
 file may appear as plain text for a moment before the colours arrive. Anything else stays plain.
 
+![The Files view with a .vue file open — the file tree on the left, and the editor colouring imports, types and strings](../images/editor-syntax-highlight.png)
+
 **Editing is safe against the agent working in the same directory.**
 
 | What happens | Why |

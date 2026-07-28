@@ -69,6 +69,8 @@ MulmoTerminal（Claude Code / Codex を並列に回すブラウザ端末）の�
 Go・Java/Kotlin・C/C++/Objective-C・PHP・SQL は、その種類を最初に開いたときに取りに行くので、
 一瞬プレーンテキストで表示されてから色がつくことがあります。それ以外は色なしのままです。
 
+![Files ビューで .vue を開いたところ。左がファイルツリー、右のエディタで import・型・文字列に色がついている](../images/editor-syntax-highlight.png)
+
 **同じディレクトリで動いているエージェントとの編集競合に対して安全です。**
 
 | どうなるか | なぜ |
