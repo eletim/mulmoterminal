@@ -9,7 +9,8 @@
 // (getWorkspaceRoot) rather than a MulmoClaude paths module, and containment
 // uses MulmoTerminal's containedPath. Results are cached by (path, mtime,
 // maxEdge) so repeated pages / "load more" scrolls never re-decode the source.
-import { readFile, realpath, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 
 import { getWorkspaceRoot } from "@mulmoclaude/core/collection/server";
 
@@ -73,7 +74,9 @@ export function createThumbnailResolver(resize: ResizeToJpeg = sharpResize) {
     if (typeof relPath !== "string" || relPath.length === 0) return null;
     let root: string;
     try {
-      root = await realpath(getWorkspaceRoot());
+      // .native, for the Windows 8.3 reason in files/pathContainment.ts. fs/promises has no
+      // native variant, so this is the sync call.
+      root = realpathSync.native(getWorkspaceRoot());
     } catch {
       return null;
     }

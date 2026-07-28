@@ -95,7 +95,7 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
         submitSequence: deps.submitSequence,
         launchTerminal: deps.launchTerminal,
       }),
-      (message) => log.warn(message),
+      { warn: (message) => log.warn(message) },
     ),
     log: { ...log, debug: () => undefined },
   });
