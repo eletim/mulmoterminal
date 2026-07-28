@@ -64,6 +64,11 @@ once per directory, so a second terminal in the same repository still starts on 
 The same editor still opens full-screen from a **Files** header button or by clicking a file
 path an agent printed.
 
+**The editor colours the language it is showing.** Markdown, JS/TS and JSON are always ready;
+HTML (including `.vue`, `.svelte` and `.astro`), CSS/SCSS, YAML, XML/SVG, Python, Rust, Go,
+Java/Kotlin, C/C++/Objective-C, PHP and SQL are fetched the first time you open one — so such a
+file may appear as plain text for a moment before the colours arrive. Anything else stays plain.
+
 **Editing is safe against the agent working in the same directory.**
 
 | What happens | Why |

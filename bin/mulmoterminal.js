@@ -155,7 +155,10 @@ async function runInit(initArgs) {
     return;
   }
   if (hasClaude) log("Later: run `claude` in any project and use  /mulmoterminal-config");
-  log("Setup done. Start MulmoTerminal:  npx mulmoterminal");
+  // Pinned to @latest: an unpinned `npx` reuses whatever it already has cached, so the very
+  // command printed for someone to type next would start an older version than the one they
+  // just set up with.
+  log("Setup done. Start MulmoTerminal:  npx mulmoterminal@latest");
 }
 
 // `npx mulmoterminal google <command>` — Google account linking. Consent needs a
