@@ -13,7 +13,9 @@ let main = "";
 let worktree = "";
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(path.join(tmpdir(), "mt-reporoot-")));
+  // `.native`, not plain realpathSync: on a Windows runner os.tmpdir() is the 8.3 short form
+  // (C:\Users\RUNNER~1\…) and only the native resolver expands it to the long name git reports.
+  base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "mt-reporoot-")));
   main = path.join(base, "myrepo");
   mkdirSync(main);
   const git = (args: string[], cwd = main) =>
@@ -31,23 +33,27 @@ beforeAll(() => {
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
+// git prints POSIX separators even on Windows, and these resolvers return whatever their input
+// used, so the two disagree on shape while naming the same directory. Compare the resolved form.
+const norm = (p: string | null): string | null => (p === null ? null : path.resolve(p));
+
 describe("repoRootSync", () => {
   it("finds the checkout a directory belongs to", () => {
-    expect(repoRootSync(main)).toBe(main);
+    expect(norm(repoRootSync(main))).toBe(norm(main));
     const nested = path.join(main, "a", "b");
     mkdirSync(nested, { recursive: true });
-    expect(repoRootSync(nested)).toBe(main);
+    expect(norm(repoRootSync(nested))).toBe(norm(main));
   });
 
   // The point of the whole thing: from inside a linked worktree the answer is the MAIN
   // checkout, because that is what names the clone (the branch is already on the PR).
   it("answers with the main checkout from inside a linked worktree", () => {
-    expect(repoRootSync(worktree)).toBe(main);
+    expect(norm(repoRootSync(worktree))).toBe(norm(main));
   });
 
   it("agrees with the async resolver the rest of the server uses", async () => {
-    expect(repoRootSync(main)).toBe(await repoRoot(main));
-    expect(repoRootSync(worktree)).toBe(await repoRoot(worktree));
+    expect(norm(repoRootSync(main))).toBe(norm(await repoRoot(main)));
+    expect(norm(repoRootSync(worktree))).toBe(norm(await repoRoot(worktree)));
   });
 
   it("returns null outside a repository", () => {
