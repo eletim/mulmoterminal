@@ -2,7 +2,8 @@
 title: GitHub — PR / Issue 横断ビュー
 layout: default
 parent: 日本語
-nav_order: 7
+nav_order: 9
+description: 登録したリポジトリの未マージ PR と Issue を 1 画面で見る、横断ビューの使い方。
 ---
 
 # GitHub — PR / Issue 横断ビュー

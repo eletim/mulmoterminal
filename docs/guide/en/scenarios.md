@@ -3,6 +3,7 @@ title: Scenarios
 layout: default
 parent: English
 nav_order: 2
+description: Practical parallel-agent workflows: isolating work in a git worktree, working across repositories, having AI summarise a failed script, and running Claude and Codex side by side.
 ---
 
 # Scenarios — usage by scenario
@@ -12,6 +13,7 @@ nav_order: 2
 {:toc}
 
 MulmoTerminal's four pillars — **Supervise / See / Automate & investigate / Extend** — shown as real development workflows.
+Parallel agents, git worktrees, Claude and Codex side by side: the vocabulary is in the [glossary](glossary.html).
 
 ---
 

@@ -3,6 +3,7 @@ title: 設定方法
 layout: default
 parent: 日本語
 nav_order: 4
+description: MulmoTerminal の設定方法。設定モーダル、プロジェクトごとの色と名前、Enter の挙動、通知音、フォント、キーボードショートカット、環境変数まで、症状から引ける形で。
 ---
 
 ## やりたいことから探す

@@ -2,6 +2,12 @@
 
 **Run a whole team of coding agents from your browser — and actually keep up with them.**
 
+A **browser terminal** for **parallel AI coding agents**: several **Claude Code** and **Codex**
+sessions side by side, each in its own cell, with the one that needs you marked in colour. Vibe
+coding with a single agent needs nothing but a shell — this is for when you run several and lose
+track of which is waiting. Sessions survive a reload (tmux), work isolates in **git worktrees**,
+and a **phone push** reaches you when a turn finishes.
+
 ### 📖 Documentation — **[receptron.github.io/mulmoterminal](https://receptron.github.io/mulmoterminal/)**
 
 - **User guide:** [English](https://receptron.github.io/mulmoterminal/guide/en/) — the grid

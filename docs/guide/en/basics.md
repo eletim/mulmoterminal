@@ -3,6 +3,7 @@ title: Basics
 layout: default
 parent: English
 nav_order: 1
+description: Running several AI coding agents (Claude Code, Codex) in parallel from a browser terminal — how to read a cell, what the status colours mean, and the cockpit roster. Vibe coding with the terminal as your hub.
 ---
 
 # Basics — what you can do in the grid today
@@ -15,7 +16,9 @@ nav_order: 1
 
 ## The grid is "a board of agents"
 
-The grid view is the screen for **supervising many AI agents in parallel**. Each cell is one independent
+The grid view is the screen for **supervising many AI coding agents (Claude Code, Codex) in
+parallel**. Vibe coding with one agent needs one terminal; going **parallel** is what makes this
+screen necessary. Each cell is one independent
 agent (or terminal). While one is thinking, you push another cell forward and pick up **only the ones that
 call you** — **amber** for a cell awaiting input or a permission, a **blue ring** for a turn that finished and
 awaits review — the goal is to run many agents solo instead of babysitting them all.

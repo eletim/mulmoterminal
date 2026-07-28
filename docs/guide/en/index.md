@@ -3,6 +3,7 @@ title: English
 layout: default
 nav_order: 3
 has_children: true
+description: A browser-terminal cockpit for running several AI coding agents (Claude Code, Codex) in parallel — the grid, the cockpit roster, git worktrees and phone push. Vibe coding, parallelised.
 ---
 
 # MulmoTerminal Guide (English)
@@ -12,11 +13,15 @@ has_children: true
 > **Something looks wrong?** Type `/mulmoterminal-bug-report` in any session. The bundled skill hears the symptom out, checks your **real** config and version to see whether it is configuration or by design, searches the existing issues — and only helps you file one if none of that explains it, with the environment collected and secrets masked.
 
 **Run a whole team of AI coding agents (Claude Code / Codex) in parallel, on one board** —
-MulmoTerminal is the cockpit for that. The headline features first.
+MulmoTerminal is the cockpit for that — a browser terminal, so it doesn't care which editor you use.
 
-## ✨ Highlights
+**Vibe coding with one agent needs nothing but a shell.** What this app is for is the moment you run
+**parallel agents** and lose track of which one is waiting on you. The vocabulary is in the
+[glossary](glossary.html). The headline features first.
 
-### 🎛️ The grid — a cockpit for parallel agents
+## Highlights
+
+### The grid — a cockpit for parallel agents
 
 ![A board of parallel AI-agent terminals](../images/grid-2x2.png)
 
@@ -24,7 +29,7 @@ One independent agent per cell. **Status colors** (working = blue / awaiting inp
 done-review = blue ring) and an **attention sound** mean you pick up only the cells that call
 you — no babysitting. → [Basics](basics.html)
 
-### 📋 The cockpit roster — everyone's progress, one row each
+### The cockpit roster — everyone's progress, one row each
 
 ![The cockpit roster — a summary list of every session beside one enlarged agent](../images/cockpit-roster.png)
 
@@ -39,17 +44,17 @@ main screen for running many agents. → [Basics](basics.html)
 Finished and input-waiting turns send a **Web Push to your phone**; open the live screen there
 and answer with one tap (**yes / no / continue**). → [Mobile notifications](notifications.html)
 
-### 🌿 Worktree isolation & one-click PRs
+### Worktree isolation & one-click PRs
 
 **Git worktrees** let several agents work the same repo without colliding — diff panel, commit,
 push, and **Open PR**, all from the cell. → [Scenarios](scenarios.html)
 
-### 🖼️ The GUI panel — a screen beside the terminal
+### The GUI panel — a screen beside the terminal
 
 The agent's tool calls render as **diagrams, forms, images, documents, and video/slides
 (MulmoCast)**. Your agent hands you an interface, not just printed text. → [Feature reference](features.html)
 
-### ♻️ tmux persistence — sessions don't die
+### tmux persistence — sessions don't die
 
 Sessions survive reloads, reconnects, and server restarts. Leave a long build running and come back.
 

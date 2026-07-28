@@ -3,12 +3,13 @@ title: Feature reference
 layout: default
 parent: English
 nav_order: 3
+description: Every MulmoTerminal feature: parallel terminals, the cockpit roster, git worktrees, the GUI panel, phone push, and Claude Code / Codex support.
 ---
 
 # Feature reference
 {: .no_toc }
 
-MulmoTerminal's features, organized by the **four pillars** (Supervise / See / Automate & investigate / Extend). For how to use them, see [Basics](basics.html) and [Scenarios](scenarios.html).
+MulmoTerminal — a browser terminal for parallel Claude Code and Codex agents — organized by the **four pillars** (Supervise / See / Automate & investigate / Extend). For how to use them, see [Basics](basics.html) and [Scenarios](scenarios.html).
 
 - TOC
 {:toc}

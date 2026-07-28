@@ -3,6 +3,7 @@ title: 応用編
 layout: default
 parent: 日本語
 nav_order: 2
+description: 並列エージェントの実践シナリオ。git worktree で隔離する、複数リポジトリを横断する、スクリプトの失敗を AI に要約させる、Claude と Codex を併用する。
 ---
 
 # 応用編 — ユーザーシナリオ別の使い方
@@ -12,6 +13,7 @@ nav_order: 2
 {:toc}
 
 MulmoTerminal の 4 本柱——**監督 / 可視化 / 自動化・調査 / 拡張**——を、実際の開発の流れに落として紹介します。
+並列エージェント・git worktree・Claude と Codex の併用といった言葉は[用語集](glossary.html)に。
 
 ---
 

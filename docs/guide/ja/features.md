@@ -3,12 +3,13 @@ title: 機能一覧
 layout: default
 parent: 日本語
 nav_order: 3
+description: MulmoTerminal の機能一覧。並列ターミナル、コックピットロスター、git worktree、GUI パネル、スマホ通知、Claude Code / Codex 対応をまとめて。
 ---
 
 # 機能一覧
 {: .no_toc }
 
-MulmoTerminal の機能を **4 本柱**（監督 / 可視化 / 自動化・調査 / 拡張）で整理します。使い方は[基本編](basics.html)・[応用編](scenarios.html)へ。
+MulmoTerminal（Claude Code / Codex を並列に回すブラウザ端末）の機能を **4 本柱**（監督 / 可視化 / 自動化・調査 / 拡張）で整理します。言葉の意味は[用語集](glossary.html)に。使い方は[基本編](basics.html)・[応用編](scenarios.html)へ。
 
 - TOC
 {:toc}
