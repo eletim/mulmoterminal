@@ -71,6 +71,19 @@ function resolveClaudeSession(requested: string | null, cwd: string): SessionRes
 // session id, and the resolved cwd. A non-UUID session id is treated as "no
 // session" — it could otherwise smuggle path/flag fragments into
 // sessionExistsOnDisk / --resume — and cwd (?cwd=<abs>) falls back to CLAUDE_CWD.
+/**
+ * Where a session actually runs, for the value that gets REMEMBERED (#1021).
+ *
+ * A reattach often carries no `?cwd=` — and `resolveWorkspace` answers the default workspace when
+ * it is missing, so trusting the request would record CLAUDE_CWD for a session running somewhere
+ * else entirely, and the phone would later show that directory's PR (found by Codex review). The
+ * live PTY knows where claude really is; the request only decides where a NEW one will spawn.
+ * Same rule the `session` message already follows when it reports the cwd back to the browser.
+ */
+export function effectiveSessionCwd(liveCwd: string | undefined, requestCwd: string): string {
+  return liveCwd ?? requestCwd;
+}
+
 function wsConnectionContext(req: { url?: string }): { url: URL; requested: string | null; cwd: string } {
   const url = new URL(req.url ?? "/", "http://localhost");
   const raw = url.searchParams.get("session");
@@ -235,7 +248,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
   // it's excluded from the chat sidebar (see devTerminalSessions). This is the single
   // choke point for every grid attach — new, resumed, or reattached — so the mark is
   // recorded (and re-recorded after a reboot when the cell reconnects) exactly once.
-  if (!attachGuiMcp) markDevTerminalSession(sessionId);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
 
   // Tell the browser which session this is (it learns the id of new sessions) and
   // the EFFECTIVE cwd — where claude really runs. On reattach that's the live
@@ -307,7 +320,7 @@ function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: s
   const resolved = resolveLaunchSession(deps, requested, index, shell);
   if (!resolved) return closeWithError(ws, "Launcher not found — check Settings → Launch commands.");
   const { sessionId, live, command } = resolved;
-  markDevTerminalSession(sessionId);
+  markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
   let entry: PtyEntry;
@@ -330,7 +343,7 @@ function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: st
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
-  if (!attachGuiMcp) markDevTerminalSession(sessionId);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
   let entry: PtyEntry;

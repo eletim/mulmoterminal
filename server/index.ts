@@ -46,7 +46,7 @@ import { generateHeaderTitle } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys } from "./session/registry.js";
+import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys, sessionCwd } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { createToolStores } from "./session/tool-store.js";
 import { writeDecisionDigest } from "./session/decision-digest-file.js";
@@ -441,8 +441,11 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
 };
 
 const remoteHostListTerminalSessions = async () => {
-  const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? "";
-  const work = await workByCwd([...ptys.keys()].map(cwdOfSession));
+  // A live PTY knows where claude actually runs, so it wins. A session that outlived this process
+  // has none — that is what the remembered cwd is for (#1021), and without it the phone shows the
+  // row with no directory and no work item.
+  const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
+  const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
   return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
