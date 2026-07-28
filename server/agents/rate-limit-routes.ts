@@ -19,6 +19,9 @@ export interface RateLimitRouteDeps {
   refreshCodex: () => void;
   /** Spawn the Claude probe. Only called when the store says it is worth a query. */
   startProbe: () => void;
+  /** Whether `claude` could be launched right now — a PATH lookup, not a spawn. Asked on every
+   *  poll so the "not installed" state can clear itself when one appears (#1019). */
+  claudeAvailable: () => boolean;
   now_ms: () => number;
 }
 
@@ -34,6 +37,7 @@ export function mountRateLimitRoutes(app: Express, deps: RateLimitRouteDeps): vo
     const now = deps.now_ms();
     deps.store.noteAsked(now);
     deps.refreshCodex();
+    deps.store.setClaudeAvailable(deps.claudeAvailable());
     if (deps.store.wantsProbe(now)) {
       deps.store.setProbeInFlight(true);
       // Belt and braces. `startRateLimitProbe` reports its own setup failures rather than

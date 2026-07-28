@@ -172,13 +172,26 @@ describe("probe outcomes", () => {
     expect(s.probeState()).toEqual({ kind: "no-report", failures: 2 });
   });
 
-  it("a missing claude is its own state, and clears when one appears", () => {
+  // Codex review on #1019: `no-claude` refuses to probe, so a check that only ran inside the probe
+  // path could never clear itself — installing claude left the gauge unavailable until a restart.
+  // The availability answer therefore comes from the caller on every poll, not from the probe.
+  it("a missing claude is its own state, and clears the moment one appears", () => {
     const s = store();
-    s.noteNoClaude();
+    s.noteAsked(NOW);
+    s.setClaudeAvailable(false);
     expect(s.probeState()).toEqual({ kind: "no-claude" });
     expect(s.wantsProbe(NOW)).toBe(false);
-    s.noteClaudeFound();
+    s.setClaudeAvailable(true);
     expect(s.probeState()).toEqual({ kind: "ok" });
+    expect(s.wantsProbe(NOW)).toBe(true);
+  });
+
+  it("does not erase a real failure just because claude is still installed", () => {
+    const s = store();
+    s.noteProbeStarted(NOW - 1000);
+    s.noteProbeFailedIfNoReport(NOW);
+    s.setClaudeAvailable(true);
+    expect(s.probeState()).toEqual({ kind: "no-report", failures: 1 });
   });
 
   // The gap runs from when the attempt ENDED. Measured from the start it would be no gap at all

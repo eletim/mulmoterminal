@@ -157,12 +157,16 @@ export function createRateLimitStore(initial: RateLimitSnapshot = {}, onChange: 
       const failures = state.kind === "no-report" ? state.failures + 1 : 1;
       state = { kind: "no-report", failures };
     },
-    /** `claude` could not be resolved, so no probe was spawned. */
-    noteNoClaude(): void {
-      state = { kind: "no-claude" };
-    },
-    /** `claude` is resolvable again — clears only the reason that says otherwise. */
-    noteClaudeFound(): void {
+    /** Whether `claude` can be launched at all, told to the store by whoever can look.
+     *
+     *  Called on every poll rather than only before a probe: `no-claude` refuses to probe, so a
+     *  check that only ran inside the probe path could never clear itself — install claude and the
+     *  gauge would stay unavailable until a restart (Codex review on #1019). */
+    setClaudeAvailable(available: boolean): void {
+      if (!available) {
+        state = { kind: "no-claude" };
+        return;
+      }
       if (state.kind === "no-claude") state = { kind: "ok" };
     },
     probeState(): ProbeState {
