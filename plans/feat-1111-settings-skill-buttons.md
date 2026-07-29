@@ -90,6 +90,19 @@ chatId を返すようにした——`hidden` にすると呼び出し側は自�
 **容量を決めている関数に判定させる**のが正しく、`hidden: room` という反転したフラグも消える。
 そのために `showSpawnedSession()` を切り出した（非 hidden な spawn がやっていることを、独立した一手に）。
 
+### セルは agent も持たなければならない
+
+spawn は Claude/Codex/Antigravity トグル（`launchAgent`）に従う。`Cell.agent` は「claude は不在」なので、
+`{ session, cwd }` だけのセルは **codex の session を claude として** 扱い、再接続が `/ws/codex` では
+なく claude のエンドポイントに向かう。旧 single view 経路は `openSessionFn(id, { agent })` で agent を
+受け取っていたので、この取り落ちは grid 経路を足したときに入ったもの。
+
+- `startCollectionChat` は `SpawnedChat { id, agent }` を返す。agent が id と一緒に旅するのは、受け取った
+  側がトグルを読み直すと **1 つの事実に 2 つの出所** ができるため。
+- `sessionCell()`（`shellCell` と同じ形）を `gridTabs` に置く。claude のときは **キーを書かない** —
+  `exactOptionalPropertyTypes` の下では `agent: undefined` の明示と不在は別物で、永続セルが通る JSON を
+  生き残るのは後者だけ。`setCellAgent` のコメントが警告している罠と同じもの。
+
 single view から押したときは今のまま single view で開く。押した画面で開く、が両方向で同じ規則になる。
 
 ## テスト
@@ -104,12 +117,18 @@ single view から押したときは今のまま single view で開く。押し�
 | 何を | なぜ |
 |---|---|
 | セルが 1 個増え、`/mulmoterminal-theme` が種として渡る | 幸せな経路 |
+| claude では `agent` キーが**付かない** | 明示 `undefined` は JSON を生き残らない |
+| codex / antigravity ではセルに**その agent が載る** | 載せ忘れると claude として繋ぎに行く |
 | single view のオープナが**呼ばれない** | 飛んでいた回帰そのもの |
 | 現在ページが満杯（9 セル）でも**画面に見える** | 見えないセルは「押しても何も起きない」と区別できない |
 | 81 セル（上限）では single view にフォールバックする | session を失わない |
 
-4 本すべて、実装をわざと壊して落ちることを確認済み（`hidden: false` に戻す / セル挿入を消す /
-`page` ジャンプを消す / `room` を常に true にする）。
+全て、実装をわざと壊して落ちることを確認済み（セル挿入を消す / 同一性判定を外す / `page` ジャンプを
+消す / `sessionCell` を常に書く・一切書かないの両方向）。
+
+`launchAgent` は export された ref を直接動かす。`vi.resetModules()` だとテストとコンポーネントに
+**別の** `useChatLauncher` のコピーが渡り、片方が登録したオープナがもう片方から見えなくなる
+（実際にそれで既存テストが落ちた）。
 
 ## 非目標
 
