@@ -32,11 +32,17 @@ describe("phaseDisplay", () => {
 });
 
 describe("mergeSessionMeta", () => {
-  const shown = { lastPrompt: "fix the login bug", aiTitle: "Login fix", lastResponse: "done", workPhase: "implementing" as const };
+  const shown = {
+    lastPrompt: "fix the login bug",
+    aiTitle: "Login fix",
+    lastResponse: "done",
+    memo: "ship before the demo",
+    workPhase: "implementing" as const,
+  };
 
   it("takes what the fetch returned", () => {
-    const merged = mergeSessionMeta(shown, { lastPrompt: "new task", aiTitle: "New", lastResponse: "ok", workPhase: "planning" });
-    expect(merged).toEqual({ lastPrompt: "new task", aiTitle: "New", lastResponse: "ok", workPhase: "planning" });
+    const merged = mergeSessionMeta(shown, { lastPrompt: "new task", aiTitle: "New", lastResponse: "ok", memo: "review only", workPhase: "planning" });
+    expect(merged).toEqual({ lastPrompt: "new task", aiTitle: "New", lastResponse: "ok", memo: "review only", workPhase: "planning" });
   });
 
   // The text fields MERGE: the summary can transiently miss a transcript, and blanking every
@@ -52,6 +58,15 @@ describe("mergeSessionMeta", () => {
   // session kept showing the title of the conversation the user had just ended (#1085).
   it("drops the summary when the fetch says there is none", () => {
     expect(mergeSessionMeta(shown, { aiTitle: null }).aiTitle).toBeNull();
+  });
+
+  // The memo follows aiTitle, not the prompt, for the same reason (#1105): it lives only in the
+  // server's memo map, so a null is the user having ERASED it. Merged like the prompt, an erased
+  // memo would come back on the very next poll — 4 seconds after the user cleared the box.
+  it("keeps the memo when the fetch omits it, and erases it on a null", () => {
+    expect(mergeSessionMeta(shown, {}).memo).toBe("ship before the demo");
+    expect(mergeSessionMeta(shown, { memo: null }).memo).toBeNull();
+    expect(mergeSessionMeta(shown, { memo: "rewritten" }).memo).toBe("rewritten");
   });
 
   // The other two DO fall back to the transcript, which can transiently miss — so for them a
@@ -84,7 +99,13 @@ describe("mergeSessionMeta", () => {
   });
 
   it("starts from nothing for a session it has not seen", () => {
-    expect(mergeSessionMeta(EMPTY_SESSION_META, { lastPrompt: "first" })).toEqual({ lastPrompt: "first", aiTitle: null, lastResponse: null, workPhase: null });
+    expect(mergeSessionMeta(EMPTY_SESSION_META, { lastPrompt: "first" })).toEqual({
+      lastPrompt: "first",
+      aiTitle: null,
+      lastResponse: null,
+      memo: null,
+      workPhase: null,
+    });
   });
 
   it("does not mutate what it was given", () => {
