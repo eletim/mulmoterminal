@@ -89,7 +89,12 @@ export function effectiveSessionCwd(liveCwd: string | undefined, requestCwd: str
   return liveCwd ?? requestCwd;
 }
 
-function wsConnectionContext(req: { url?: string }): { url: URL; requested: string | null; cwd: string } {
+// The slice of Node's IncomingMessage the upgrade handlers read. Structural rather than the
+// real type so a test can hand over a literal; `| undefined` because IncomingMessage.url is
+// genuinely absent on some upgrades.
+type WsUpgradeRequest = { url?: string | undefined; headers?: unknown };
+
+function wsConnectionContext(req: WsUpgradeRequest): { url: URL; requested: string | null; cwd: string } {
   const url = new URL(req.url ?? "/", "http://localhost");
   const raw = url.searchParams.get("session");
   const requested = raw && SESSION_ID_RE.test(raw) ? raw : null;
@@ -223,7 +228,7 @@ function startCodexEntry(deps: WsRouteDeps, ws: WebSocket, start: CodexStart): P
   return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, { mcpGroups }); // interactive: no seed
 }
 
-async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   // ?session=<id> resumes an existing conversation; absent => fresh session. For
   // new sessions we generate the id ourselves (--session-id) so the server always
   // knows the current session's id, even before any file exists.
@@ -314,7 +319,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
 // in an ephemeral PTY. `?index=<n>&cwd=<dir>` runs <dir>/script.json[n]; `?buttonId=<id>&cwd&session&
 // agent&model` runs a header run:"shell" button, re-resolved from config against the session context with
 // shell-escaped ${vars}. When the socket closes, the process is killed.
-function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   void startRunTerminal(deps, ws, new URL(req.url ?? "/", "http://localhost"));
 }
 
@@ -322,7 +327,7 @@ function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: stri
 // configured launch command as a persistent, reattachable PTY. Reuses the /ws session
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
 // and is marked a dev-terminal session so it stays out of the chat sidebar.
-async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   const { url, requested, cwd } = wsConnectionContext(req);
   const index = parseIndexParam(url.searchParams.get("launcher"));
   const shell = url.searchParams.get("shell") === "1";
@@ -365,7 +370,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
 // codex terminal (?cwd=<dir>, ?session=<id> to reattach/resume). ?gui=0 (grid dev terminal) runs
 // codex without the GUI MCP and keeps it out of the sidebar; absent (single view) attaches the GUI
 // MCP so codex drives the GUI panel like claude.
-async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   const { url, requested, cwd } = wsConnectionContext(req);
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 

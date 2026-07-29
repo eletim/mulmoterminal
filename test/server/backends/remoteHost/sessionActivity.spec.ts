@@ -8,7 +8,14 @@ const UID = "user-1";
 const HOST = "mulmoterminal";
 
 const recorder = () => {
-  const writes: Array<{ sessionId: string; rev: number; working: boolean; waiting: boolean; event?: string | null; workPhase?: WorkPhase | null }> = [];
+  const writes: Array<{
+    sessionId: string;
+    rev: number;
+    working: boolean;
+    waiting: boolean;
+    event?: string | null | undefined;
+    workPhase?: WorkPhase | null | undefined;
+  }> = [];
   const removes: string[] = [];
   const store: SessionActivityStore = {
     write: async (_uid, _hostId, sessionId, payload) => {

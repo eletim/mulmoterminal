@@ -14,16 +14,13 @@ import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
 import { failPendingTranslation } from "../session/translation-worker.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
-import { publishesDirConfig, toolHookRecord } from "../session/tool-hook.js";
+import { publishesDirConfig, toolHookRecord, type ToolCallEnd, type ToolCallStart } from "../session/tool-hook.js";
 
 // The header shows one line, so a longer prompt is stored truncated rather than in full.
 
 export interface HookDeps extends SessionActivityDeps {
-  recordToolCallStart: (sessionId: string, call: { toolUseId?: string; toolName?: string; toolInput?: unknown }) => Promise<void>;
-  recordToolCallEnd: (
-    sessionId: string,
-    call: { toolUseId?: string; toolName?: string; toolInput?: unknown; toolOutput?: unknown; durationMs?: number; status: "completed" | "failed" },
-  ) => Promise<void>;
+  recordToolCallStart: (sessionId: string, call: ToolCallStart) => Promise<void>;
+  recordToolCallEnd: (sessionId: string, call: ToolCallEnd) => Promise<void>;
   /** Tell clients watching that directory to re-read its .mulmoterminal.json. */
   publishDirConfig: (cwd: string) => void;
   publishFileWrite: (file: string) => void;

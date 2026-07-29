@@ -29,15 +29,16 @@ export interface ClaudeArgsInput {
   model?: string | null;
   // Extra directories the session may read/edit (#908). Absolute, existing, deduped by the
   // config layer — this builder only places them.
-  addDirs?: string[] | null;
+  addDirs?: string[] | null | undefined;
   // What `--append-system-prompt` carries, already assembled (see appended-prompt.ts), or null
   // when every section of it is switched off — the flag is then left out entirely. Resolved by
   // the caller: which sections apply is a config decision, and this builder only places argv.
   //
   // Required, unlike the other optional fields: they default to adding nothing, while forgetting
   // this one would silently drop an instruction every session used to carry. A new spawn path has
-  // to answer for it, and `null` is how it says no.
-  appendedPrompt: string | null;
+  // to answer for it, and `null` is how it says no. `undefined` is in the type but the KEY is
+  // still mandatory — a value that was never resolved can arrive, but a caller cannot omit it.
+  appendedPrompt: string | null | undefined;
 }
 
 export function buildClaudeArgs(input: ClaudeArgsInput): string[] {

@@ -24,6 +24,14 @@ export interface SessionActivity {
   workPhase?: WorkPhase | null;
 }
 
+// What a caller may hand to `publish`. Deliberately looser than SessionActivity: a host that
+// has not observed one of these writes the key holding `undefined`, and stripUndefined removes
+// it before the write. The stored doc must not carry such a key — see the note in publish.
+export interface SessionActivityInput extends Omit<SessionActivity, "event" | "workPhase"> {
+  event?: string | null | undefined;
+  workPhase?: WorkPhase | null | undefined;
+}
+
 // `rev` is monotonic per session so a watcher can distinguish "changed again" from a
 // re-delivered snapshot; `at` dates it for staleness checks.
 export interface SessionActivityDoc extends SessionActivity {
@@ -63,13 +71,13 @@ export function createSessionActivityPublisher(deps: SessionActivityPublisherDep
   // Every field the phone renders belongs in the key: a turn that moves planning → implementing,
   // or a waiting one that changes from blocked to done, keeps the same working/waiting pair and
   // would otherwise be deduped away — leaving the phone showing the superseded status (#727).
-  const stateKey = ({ working, waiting, event, workPhase }: SessionActivity): string => `${working}:${waiting}:${event ?? ""}:${workPhase ?? ""}`;
+  const stateKey = ({ working, waiting, event, workPhase }: SessionActivityInput): string => `${working}:${waiting}:${event ?? ""}:${workPhase ?? ""}`;
 
   // Not every caller of the host's publishActivity is a state transition — generating
   // an AI title or clearing the header republishes an unchanged working/waiting pair.
   // Those must not bill a write, nor wake a watching phone into refetching a screen
   // that did not change.
-  const publish = (sessionId: string, activity: SessionActivity): void => {
+  const publish = (sessionId: string, activity: SessionActivityInput): void => {
     const uid = deps.uid();
     if (!uid) return;
     const key = stateKey(activity);
@@ -81,7 +89,14 @@ export function createSessionActivityPublisher(deps: SessionActivityPublisherDep
     // `event: undefined` from any caller would take this doc down the same way a stray undefined
     // took down the session list — and here the loss is silent, since nothing awaits the result.
     // `serverTimestamp()` is a sentinel object, which is why the guard only walks plain objects.
-    const payload = stripUndefined({ ...activity, rev, at: serverTimestamp() });
+    const { event, workPhase, ...rest } = activity;
+    const payload = stripUndefined<SessionActivityDoc>({
+      ...rest,
+      ...(event === undefined ? {} : { event }),
+      ...(workPhase === undefined ? {} : { workPhase }),
+      rev,
+      at: serverTimestamp(),
+    });
     deps.store.write(uid, deps.hostId, sessionId, payload).catch((error: unknown) => {
       // The dedup entry is recorded optimistically, so a failed write would otherwise
       // swallow every later publish of the SAME state and leave the phone stale until
