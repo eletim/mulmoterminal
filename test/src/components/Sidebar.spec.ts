@@ -83,6 +83,62 @@ describe("Sidebar", () => {
     expect(wrapper.emitted("update:filter")?.[0]).toEqual(["unread"]);
   });
 
+  // The behaviour the feature is for: a scheduled collection refresh must not sit in the
+  // list the user reads, and must still be one click away (#1060).
+  it("leaves background workers out of the default list", () => {
+    const wrapper = mountSidebar({
+      sessions: [row({ id: "chat" }), row({ id: "refresh", hidden: true })],
+    });
+    const items = wrapper.findAll('[data-testid="session-item"]');
+    expect(items).toHaveLength(1);
+    expect(items[0].text()).toContain("chat");
+  });
+
+  it("shows only background workers under the background filter", () => {
+    const wrapper = mountSidebar({
+      sessions: [row({ id: "chat" }), row({ id: "refresh", hidden: true })],
+      filter: "background",
+    });
+    const items = wrapper.findAll('[data-testid="session-item"]');
+    expect(items).toHaveLength(1);
+    expect(items[0].text()).toContain("refresh");
+  });
+
+  it("emits update:filter when the background chip is clicked, with its count", async () => {
+    const wrapper = mountSidebar({
+      sessions: [row({ id: "chat" }), row({ id: "refresh", hidden: true })],
+    });
+    const backgroundChip = wrapper.findAll("[aria-pressed]")[2];
+    expect(backgroundChip.text()).toContain("(1)");
+    await backgroundChip.trigger("click");
+    expect(wrapper.emitted("update:filter")?.[0]).toEqual(["background"]);
+  });
+
+  // No collections, no chip: an installation that never spawns a worker should not carry a
+  // permanently empty filter.
+  it("hides the background chip when there is nothing behind it", () => {
+    const wrapper = mountSidebar({ sessions: [row({ id: "chat" })] });
+    expect(wrapper.findAll("[aria-pressed]")).toHaveLength(2);
+  });
+
+  // ...unless it is the chip in use — the last worker finishing must not pull the selected
+  // filter out from under the user.
+  it("keeps the background chip while it is the active filter", () => {
+    const wrapper = mountSidebar({ sessions: [row({ id: "chat" })], filter: "background" });
+    const chips = wrapper.findAll("[aria-pressed]");
+    expect(chips).toHaveLength(3);
+    expect(chips[2].text()).toContain("Background");
+    expect(wrapper.text()).toContain("No background sessions");
+  });
+
+  // A project whose only sessions are workers has rows to list and no chats; "No sessions
+  // yet" would report that as an empty project.
+  it("says which filter came up empty, not that the project has no sessions", () => {
+    const wrapper = mountSidebar({ sessions: [row({ id: "refresh", hidden: true })] });
+    expect(wrapper.text()).toContain("No chat sessions");
+    expect(wrapper.text()).not.toContain("No sessions yet");
+  });
+
   it("emits refresh when the sort button is clicked", async () => {
     const wrapper = mountSidebar({ sessions: [row({ id: "a" })] });
     await wrapper.find('[aria-label="Sort by most recent"]').trigger("click");

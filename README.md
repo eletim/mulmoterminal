@@ -1414,6 +1414,16 @@ Key rules:
 - Brand-new sessions appear in the sidebar **immediately** (before their `.jsonl`
   exists) via the in-memory `knownSessions` registry + a `created` push; an
   unused one disappears when its PTY is reaped.
+- **Background workers get their own filter.** A session nobody started by hand —
+  a collection's scheduled refresh, or a plugin's `spawnBackgroundChat`
+  `hidden: true` — is listed under the **Background** chip instead of among the
+  chats, so a refresh schedule doesn't fill the history. It stays openable (a
+  MulmoTerminal session is a live terminal, so a row you can't reach is a process
+  you can't stop), and it is put on the same count+age retention as the
+  scheduler's own sessions. The chip appears only when there is one to show. A
+  **manual** collection Refresh is a normal visible session — unchanged. The
+  marking is persisted (`~/.mulmoterminal/background-sessions.json`), so a worker
+  stays out of the chat list after it finishes and after a restart.
 
 ---
 
