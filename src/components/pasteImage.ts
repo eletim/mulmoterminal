@@ -14,13 +14,28 @@ import { isPasteableImageMime } from "../../common/pastedImageTypes";
 // too. Intercepting those would break pasting text, the terminal's most-used gesture.
 // text/html WITHOUT text/plain — an image copied from a page — is still treated as an image,
 // which is the useful reading of that paste here.
-export function shouldInterceptImagePaste(types: readonly string[]): boolean {
-  return types.some(isPasteableImageMime) && !types.includes("text/plain");
+//
+// `itemTypes` is not a second opinion on the same data — on Windows + Chrome it is the ONLY
+// place the MIME appears. There `types` is `["Files"]` alone and `items[0].type` is
+// `image/png`, so a types-only check declined the paste, and with no text on the clipboard
+// either xterm had nothing to paste: a silent no-op on the very platform #938 was filed from
+// (measured on Windows 11 + Chrome 150 by the reporter).
+export function shouldInterceptImagePaste(types: readonly string[], itemTypes: readonly string[] = []): boolean {
+  if (types.includes("text/plain")) return false;
+  return types.some(isPasteableImageMime) || itemTypes.some(isPasteableImageMime);
 }
 
 /** The image file on the clipboard, or null when this paste isn't one to intercept. */
 export function pastedImageFile(clipboard: DataTransfer | null): File | null {
-  if (!clipboard || !shouldInterceptImagePaste(clipboard.types)) return null;
-  const item = [...clipboard.items].find((entry) => entry.kind === "file" && isPasteableImageMime(entry.type));
+  if (!clipboard) return null;
+  const items = [...clipboard.items];
+  if (
+    !shouldInterceptImagePaste(
+      clipboard.types,
+      items.map((entry) => entry.type),
+    )
+  )
+    return null;
+  const item = items.find((entry) => entry.kind === "file" && isPasteableImageMime(entry.type));
   return item?.getAsFile() ?? null;
 }

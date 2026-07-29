@@ -7,6 +7,25 @@ describe("shouldInterceptImagePaste", () => {
     expect(shouldInterceptImagePaste(["Files", "image/png"])).toBe(true);
   });
 
+  // The shape Windows + Chrome actually sends: `types` is ["Files"] alone and the MIME lives
+  // only on the item. A types-only check declined it, and with no text on the clipboard either
+  // xterm had nothing to paste — a silent no-op on the platform #938 was filed from, found by
+  // the reporter on Windows 11 + Chrome 150 and not covered by this file until now.
+  it("intercepts a screenshot whose MIME is only on the item (Windows + Chrome)", () => {
+    expect(shouldInterceptImagePaste(["Files"], ["image/png"])).toBe(true);
+  });
+
+  // Without the item types there is nothing to go on, and declining is what used to happen.
+  it("cannot judge Files alone", () => {
+    expect(shouldInterceptImagePaste(["Files"])).toBe(false);
+  });
+
+  // The text guard still wins over an image found on the items — copying rich text out of an
+  // editor can carry both, and pasting text is what a terminal is for.
+  it("still leaves a paste that carries text to xterm, whichever side names the image", () => {
+    expect(shouldInterceptImagePaste(["Files", "text/plain"], ["image/png"])).toBe(false);
+  });
+
   // An image copied from a web page carries text/html but no text/plain. Saving it is the
   // useful reading of that paste — there is no text to lose.
   it("intercepts an image that came with markup but no text", () => {
@@ -57,5 +76,10 @@ describe("pastedImageFile", () => {
   it("returns null for an image type the server cannot save", () => {
     const svg = new File(["<svg/>"], "a.svg", { type: "image/svg+xml" });
     expect(pastedImageFile(clipboard(["image/svg+xml"], [{ kind: "file", type: "image/svg+xml", file: svg }]))).toBeNull();
+  });
+
+  // End to end for the Windows shape: the decision and the file both have to come off `items`.
+  it("returns the image file when only the item names the type (Windows + Chrome)", () => {
+    expect(pastedImageFile(clipboard(["Files"], [{ kind: "file", type: "image/png", file: png }]))).toBe(png);
   });
 });
