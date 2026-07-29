@@ -12,10 +12,9 @@ import { codexRolloutPath } from "../agents/codex-sessions.js";
 import { trackCodexActivity } from "./codex-activity-track.js";
 import { claimedCodexRollouts, codexRolloutIds, ptys } from "./registry.js";
 import { ptySpawn } from "./pty-spawn.js";
-import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
+import { ptyStartLine } from "./pty-exit-log.js";
+import { wireAgentPtyRelay } from "./pty-relay.js";
 import { attachCodexAutoRun } from "./draft-injection.js";
-import { sendExitAndClose, sendFrame } from "./ws-frames.js";
-import { appendBoundedOutput } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 
@@ -30,21 +29,6 @@ const activityDepsFor = (sessionId: string, entry: PtyEntry, deps: SpawnDeps) =>
 });
 
 export function createCodexSpawner(deps: SpawnDeps) {
-  // `spawnedAtMs` is carried in rather than read here: the exit line's most useful field is how
-  // long the process lived, and a codex that dies inside the startup window never started (#1078).
-  function wireCodexRelay(entry: PtyEntry, sessionId: string, spawnedAtMs: number, onOutput?: (data: string) => void): void {
-    entry.term.onData((data) => {
-      entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
-      sendFrame(entry.ws, { type: "output", data });
-      onOutput?.(data);
-    });
-    entry.term.onExit(({ exitCode, signal }) => {
-      console.log(ptyExitLine({ agent: "codex", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd: entry.cwd, sessionId }));
-      sendExitAndClose(entry.ws, exitCode, signal);
-      deps.reap(sessionId);
-    });
-  }
-
   // codex persists its rollout only after the first user turn, so watch a FRESH session's lifetime
   // (stop once its pty is gone) and capture the minted id so a later cold reconnect can
   // `codex resume <id>`. Attribution is unambiguous-only (see pickFreshSession).
@@ -106,7 +90,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
     // A seed prompt is typed into codex's input box after it settles (not a CLI arg — see
     // attachCodexAutoRun), so a long collection-action prompt can't overflow tmux's command limit.
     const autoRun = initialPrompt ? attachCodexAutoRun(entry, initialPrompt) : undefined;
-    wireCodexRelay(entry, sessionId, spawnedAtMs, autoRun);
+    wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps, autoRun);
     return entry;
   }
 

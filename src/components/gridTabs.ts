@@ -1,4 +1,5 @@
 import type { RunCommand } from "./runCommand";
+import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 
 // The grid is ONE flat, ordered list of terminal cells, split into pages of 9
@@ -27,8 +28,8 @@ export interface Cell {
   command?: RunCommand | null | undefined;
   // A running launcher (shell/codex/custom). Persistent & reattachable like a session.
   launcher?: CellLauncher | null;
-  // The agent this cell runs. "codex" reconnects via /ws/codex; absent = Claude (the default).
-  agent?: "codex";
+  // The agent this cell runs. "codex" / "antigravity"; absent = Claude (the default).
+  agent?: "codex" | "antigravity";
 }
 // How the grid orders its cells. "manual": the user's hand-arranged order (the move buttons);
 // "auto": attention-first, recomputed from each cell's live status; "priority": the rank each
@@ -112,12 +113,16 @@ export function setCwd(state: GridState, uid: number, cwd: string): GridState {
   return { ...state, cells: state.cells.map((c) => (c.uid === uid ? { ...c, cwd } : c)) };
 }
 
-// Record which agent a cell launched (only "codex" is stored; Claude is the default/absent) so a
-// reloaded cell reconnects to the right endpoint.
-export function setCellAgent(state: GridState, uid: number, agent: "claude" | "codex"): GridState {
+// Claude is stored as the ABSENCE of the field, so a cell written before the field existed and a
+// cell running Claude are the same thing on disk. Used when READING a persisted cell; the writer
+// below has to go further and drop the key entirely.
+const storedCellAgent = (agent: TerminalAgent): Cell["agent"] => (agent === "claude" ? undefined : agent);
+
+// Record which agent a cell launched, so a reloaded cell reconnects to the right endpoint.
+export function setCellAgent(state: GridState, uid: number, agent: TerminalAgent): GridState {
   // Claude is the ABSENT case, so switching back to it removes the key rather than setting it
   // to undefined — a persisted cell round-trips through JSON, where only the former survives.
-  const applied = ({ agent: _previous, ...rest }: Cell): Cell => (agent === "codex" ? { ...rest, agent } : rest);
+  const applied = ({ agent: _previous, ...rest }: Cell): Cell => (agent === "claude" ? rest : { ...rest, agent });
   return { ...state, cells: state.cells.map((c) => (c.uid === uid ? applied(c) : c)) };
 }
 
@@ -471,7 +476,7 @@ export function parseGridState(raw: string | null): GridState | null {
       session: c.session,
       cwd: c.cwd,
       launcher: asLauncher(c.launcher),
-      agent: c.agent === "codex" ? "codex" : undefined,
+      agent: storedCellAgent(asTerminalAgent(c.agent)),
     }));
     const expandedIdx = running.findIndex((c: Cell) => c.uid === parsed.expanded);
     const expanded = typeof parsed.expanded === "number" && expandedIdx >= 0 ? expandedIdx : null;

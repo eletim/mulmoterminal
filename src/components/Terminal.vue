@@ -16,6 +16,7 @@ import { terminalHeaderStyleFor } from "./cellHeaderStyle";
 import { useVoiceInput } from "../composables/useVoiceInput";
 import { useGitStatus } from "../composables/useGitStatus";
 import * as conn from "../composables/useTerminalConnections";
+import type { TerminalAgent } from "../../common/sessionAgent";
 import RunMenu from "./RunMenu.vue";
 import SkillMenu from "./SkillMenu.vue";
 import { skillSeed } from "./skillSeed";
@@ -54,8 +55,9 @@ const props = defineProps<{
   // (`{ shell: true }`) — persistent & reattachable, connects to /ws/launch instead of
   // resuming a Claude session.
   launcher?: { index: number } | { shell: true } | null;
-  // A first-class codex session — connects to /ws/codex instead of /ws (Claude).
-  codex?: boolean;
+  // Which agent this terminal runs. Anything but "claude" connects to that agent's own
+  // endpoint (/ws/codex, /ws/antigravity) instead of /ws. Absent means Claude.
+  agent?: TerminalAgent;
   // Provider/model picked in the launch form, for this session only (#584).
   launch?: LaunchChoice | null;
   runMenu?: boolean;
@@ -98,7 +100,7 @@ function currentTarget(): conn.ConnTarget {
     devTerminal: !!props.devTerminal,
     command: props.command ?? null,
     launcher: props.launcher ?? null,
-    codex: !!props.codex,
+    agent: props.agent ?? "claude",
     launch: props.launch ?? null,
   };
 }
@@ -142,7 +144,7 @@ const headerButtonsCwd = computed(() => (props.command || props.launcher ? null 
 const { buttons: headerButtons } = useHeaderButtons({
   cwd: headerButtonsCwd,
   session: computed(() => props.sessionId),
-  agent: computed<"claude" | "codex">(() => (props.codex ? "codex" : "claude")),
+  agent: computed(() => props.agent ?? "claude"),
   model: computed(() => sessionContext.value?.model ?? null),
 });
 
@@ -159,7 +161,7 @@ function onHeaderButton(button: HeaderButton): void {
     label: button.label,
     cwd: serverCwd.value,
     session: props.sessionId,
-    agent: props.codex ? "codex" : "claude",
+    agent: props.agent ?? "claude",
     model: sessionContext.value?.model ?? null,
   };
   emit("run", command);
@@ -167,7 +169,7 @@ function onHeaderButton(button: HeaderButton): void {
 // A skill picked from the header Skill menu runs IN this session (not a spare cell
 // like a script): type its invocation and submit, exactly like a `run:"input"` button.
 function onSkill(slug: string): void {
-  conn.submitText(slotKey, skillSeed(slug, props.codex ?? false));
+  conn.submitText(slotKey, skillSeed(slug, props.agent ?? "claude"));
 }
 
 // Git status chip — single view only. In the grid the embedding TerminalCell shows
