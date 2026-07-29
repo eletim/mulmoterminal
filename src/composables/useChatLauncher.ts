@@ -34,10 +34,12 @@ export function registerChatOpener(fn: OpenSessionFn): void {
 }
 
 /** Spawn a new chat seeded with `prompt`; when not hidden, make it visible. With
- *  `draft`, the prompt is prefilled in the input box but NOT submitted. */
-export async function startCollectionChat(prompt: string, opts: { hidden?: boolean; draft?: boolean } = {}): Promise<void> {
+ *  `draft`, the prompt is prefilled in the input box but NOT submitted. Returns the new session's
+ *  id (null if nothing was spawned) — `hidden` callers need it to put the session somewhere of
+ *  their own, since suppressing the opener otherwise leaves them no handle on what they started. */
+export async function startCollectionChat(prompt: string, opts: { hidden?: boolean; draft?: boolean } = {}): Promise<string | null> {
   const message = prompt.trim();
-  if (!message) return;
+  if (!message) return null;
   const agent = launchAgent.value;
   // codex has no editable-draft path (it auto-runs the seed), so a draft only applies to claude.
   const draft = agent === "claude" && opts.draft === true;
@@ -50,14 +52,15 @@ export async function startCollectionChat(prompt: string, opts: { hidden?: boole
     });
     if (!res.ok) {
       console.error(`[startChat] spawn failed: HTTP ${res.status}`);
-      return;
+      return null;
     }
     const data = (await res.json()) as { jsonData?: { chatId?: unknown } };
     chatId = typeof data?.jsonData?.chatId === "string" ? data.jsonData.chatId : undefined;
   } catch (err) {
     console.error("[startChat] spawn failed", err);
-    return;
+    return null;
   }
   // hidden=false → bring the new terminal session into view for the user (as the right agent).
   if (chatId && !opts.hidden) openSessionFn?.(chatId, { draft, agent });
+  return chatId ?? null;
 }

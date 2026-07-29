@@ -17,12 +17,14 @@ vi.mock("../../../src/composables/useGridActivity", () => ({
   useGridActivity: () => ({ activity: new Map([[IDS.blocked, { working: false, waiting: true, event: "Notification" }]]) }),
 }));
 
+type FetchUrl = string | URL | Request; // what a fetch stub's first argument can be
+
 // Config GET hydrates pushEnabled=true; capture POSTs so we can assert the toggle saves.
 const posts: Array<{ url: string; body: unknown }> = [];
 beforeEach(() => {
   posts.length = 0;
   localStorage.clear();
-  globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
     const u = String(url);
     if (u.includes("/api/config")) {
       if (init?.method === "POST") posts.push({ url: u, body: init.body });
@@ -359,6 +361,113 @@ describe("GridView keyboard shortcuts (#829)", () => {
     await press("F7");
     expect(gridOf(w).props("expandedUid")).toBeNull();
     expect(focused).toEqual([]);
+    w.unmount();
+  });
+});
+
+// A Settings skill button pressed in the GRID opens the skill's session as a grid CELL. It used to
+// route to the single view, which put the user on a different screen than the one they pressed the
+// button on (reported against #1111's first cut).
+const SkillSettingsStub = {
+  name: "SettingsModal",
+  props: ["cwd", "sessionId"],
+  emits: ["launch-skill", "close"],
+  template: "<button class=\"launch-theme\" @click=\"$emit('launch-skill', 'mulmoterminal-theme')\" />",
+};
+const CellsStub = { name: "TerminalGrid", props: ["cells"], template: '<div class="cells-stub" />' };
+
+describe("GridView skill launch (#1111)", () => {
+  const SPAWNED = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+
+  const mountWithSpawn = async () => {
+    const spawns: unknown[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("spawnBackgroundChat")) {
+        spawns.push(JSON.parse(String(init?.body)));
+        return { ok: true, json: async () => ({ jsonData: { chatId: SPAWNED } }) } as Response;
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const w = mount((await import("../../../src/components/GridView.vue")).default, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+    await w.find(".open-settings").trigger("click");
+    await w.find(".launch-theme").trigger("click");
+    await flushPromises();
+    return { w, spawns };
+  };
+
+  it("seeds the skill's slash command and shows the session in a cell of its own", async () => {
+    const { w, spawns } = await mountWithSpawn();
+    expect(spawns).toEqual([{ message: "/mulmoterminal-theme", draft: false, agent: "claude" }]);
+    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null; cwd: string | null }>;
+    const spawned = cells.filter((c) => c.session === SPAWNED);
+    expect(spawned).toHaveLength(1);
+    // Seeded with the directory the server spawns these in, so the cell's header isn't blank while
+    // claude boots (/api/config reports it as `cwd`, stubbed to /w above).
+    expect(spawned[0].cwd).toBe("/w");
+    w.unmount();
+  });
+
+  // The regression itself: handing the session to the single-view opener is what yanked the user
+  // out of the grid. The grid must adopt it instead, so that opener stays untouched.
+  it("does not hand the session to the single view's opener", async () => {
+    const openSession = vi.fn();
+    (await import("../../../src/composables/useChatLauncher")).registerChatOpener(openSession);
+    const { w } = await mountWithSpawn();
+    expect(openSession).not.toHaveBeenCalled();
+    w.unmount();
+  });
+});
+
+// Two conditions the launch depends on, varied — neither is exercised by the happy path above, and
+// both fail as "pressing the button did nothing", which is the complaint that produced this code.
+describe("GridView skill launch — capacity and placement (#1111)", () => {
+  const SPAWNED = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  // A distinct UUID per cell: parseGridState keeps only cells whose session is a valid one.
+  const filledGrid = (count: number) =>
+    JSON.stringify({
+      cells: Array.from({ length: count }, (_, i) => ({ uid: i, session: `eeeeeeee-eeee-eeee-eeee-${String(i).padStart(12, "0")}`, cwd: "/w" })),
+      expanded: null,
+      page: 0,
+      sortMode: "manual",
+    });
+
+  const launchFrom = async (persisted: string | null) => {
+    if (persisted) localStorage.setItem("grid_v2", persisted);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("spawnBackgroundChat")) return { ok: true, json: async () => ({ jsonData: { chatId: SPAWNED } }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const w = mount((await import("../../../src/components/GridView.vue")).default, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+    await w.find(".open-settings").trigger("click");
+    await w.find(".launch-theme").trigger("click");
+    await flushPromises();
+    return w;
+  };
+
+  // A cell appended past the current page is invisible, which is indistinguishable from a button
+  // that did nothing. insertCellAfter jumps to the new cell's page; this pins that it does.
+  it("shows the new cell on screen when the current page is already full", async () => {
+    const w = await launchFrom(filledGrid(9)); // PAGE_SIZE — page 0 has no room left
+    const visible = (w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>).map((c) => c.session);
+    expect(visible).toContain(SPAWNED);
+    w.unmount();
+  });
+
+  // At the cap insertCellAfter drops the cell, so adopting it here would spawn a live agent with
+  // nowhere in the grid to appear. It falls back to the single view's opener instead of vanishing.
+  it("falls back to the single view rather than losing the session when the grid is full", async () => {
+    const openSession = vi.fn();
+    (await import("../../../src/composables/useChatLauncher")).registerChatOpener(openSession);
+    const w = await launchFrom(filledGrid(81)); // MAX_TERMINALS
+    expect(openSession).toHaveBeenCalledWith(SPAWNED, expect.objectContaining({ agent: "claude" }));
     w.unmount();
   });
 });
