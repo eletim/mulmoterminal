@@ -33,7 +33,11 @@ export interface ClaudeArgsInput {
   // What `--append-system-prompt` carries, already assembled (see appended-prompt.ts), or null
   // when every section of it is switched off — the flag is then left out entirely. Resolved by
   // the caller: which sections apply is a config decision, and this builder only places argv.
-  appendedPrompt?: string | null;
+  //
+  // Required, unlike the other optional fields: they default to adding nothing, while forgetting
+  // this one would silently drop an instruction every session used to carry. A new spawn path has
+  // to answer for it, and `null` is how it says no.
+  appendedPrompt: string | null;
 }
 
 export function buildClaudeArgs(input: ClaudeArgsInput): string[] {

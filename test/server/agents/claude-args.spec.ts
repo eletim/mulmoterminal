@@ -137,9 +137,13 @@ describe("appended system prompt", () => {
 
   // The flag has to VANISH, not carry an empty string: `--append-system-prompt ""` would leave
   // the next flag's value ambiguous to read and pointlessly parsed by the CLI.
+  //
+  // `undefined` is unreachable through the type — the field is required precisely so a new spawn
+  // path cannot drop the prompt by forgetting it — but the builder still has to place argv, not
+  // adjudicate, if one arrives from JS or from a value that was never resolved.
   it.each([
     ["every section is switched off", null],
-    ["the caller resolved nothing", undefined],
+    ["nothing was resolved at all", undefined],
   ])("omits the flag entirely when %s", (_case, appendedPrompt) => {
     expect(buildClaudeArgs(cfg({ appendedPrompt }))).not.toContain("--append-system-prompt");
   });
