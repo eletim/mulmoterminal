@@ -32,30 +32,31 @@ function* tsFiles(dir: string): Generator<string> {
   }
 }
 
-/** Files reading `req.headers.origin` straight into the predicate, however the predicate is
- *  reached (`isAllowedOrigin(...)`, `deps.isAllowedOrigin(...)`). */
+/** Files handing a request's Origin header straight to the predicate. Matched on the whole
+ *  argument rather than the exact `req.headers.origin` spelling, so renaming the parameter or
+ *  wrapping the line does not slip past. */
 function directPredicateCallers(): string[] {
   const files: string[] = [];
   for (const file of tsFiles(SERVER_DIR)) {
-    if (/isAllowedOrigin\(\s*req\.headers\.origin/.test(readFileSync(file, "utf-8"))) {
+    if (/isAllowedOrigin\([^)]*headers\.origin/.test(readFileSync(file, "utf-8"))) {
       files.push(path.relative(SERVER_DIR, file).split(path.sep).join("/"));
     }
   }
   return files.sort();
 }
 
+const usesHelper = (file: string): boolean => /requestOriginAllowed\(/.test(readFileSync(path.join(SERVER_DIR, file), "utf-8"));
+
 describe("per-route origin guards", () => {
   it("go through requestOriginAllowed, not the predicate directly", () => {
     expect(directPredicateCallers()).toEqual([...DIRECT_CALLERS].sort());
   });
 
-  // The allowlist above is only meaningful while the helper is what the routes actually use.
-  it("are what the route files use", () => {
-    const users = [...tsFiles(SERVER_DIR)]
-      .filter((file) => /requestOriginAllowed\(req/.test(readFileSync(file, "utf-8")))
-      .map((file) => path.relative(SERVER_DIR, file).split(path.sep).join("/"));
-    expect(users).toContain("backends/remoteHost/routes.ts");
-    expect(users).toContain("backends/google.ts");
-    expect(users.length).toBeGreaterThanOrEqual(7);
+  // The allowlist above would also be satisfied by a route that dropped its guard entirely, so
+  // the two #1094 routes are named: theirs is the GET that must stay reachable AND the POST that
+  // must stay gated, which is exactly what the helper decides between.
+  it("are what the two routes from #1094 use", () => {
+    expect(usesHelper("backends/remoteHost/routes.ts")).toBe(true);
+    expect(usesHelper("backends/google.ts")).toBe(true);
   });
 });
