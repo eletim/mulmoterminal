@@ -8,7 +8,7 @@ import SessionFilters from "./SessionFilters.vue";
 const props = defineProps<SessionListProps>();
 const emit = defineEmits<SessionListEmits>();
 
-const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
+const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionFilter(props);
 
 // The horizontal bar never scrolls — tabs flex to share the available width.
 // Cap to the most-recent N (sessions are already sorted by recency) so they
@@ -38,7 +38,13 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
     </button>
 
     <div class="flex shrink-0 items-center gap-1.5">
-      <SessionFilters :filter="filter" :unread-count="unreadCount" @update:filter="emit('update:filter', $event)" @refresh="emit('refresh')" />
+      <SessionFilters
+        :filter="filter"
+        :unread-count="unreadCount"
+        :background-count="backgroundCount"
+        @update:filter="emit('update:filter', $event)"
+        @refresh="emit('refresh')"
+      />
     </div>
 
     <div class="flex min-w-0 flex-1 gap-1.5 overflow-hidden">

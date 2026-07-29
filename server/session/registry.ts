@@ -13,7 +13,7 @@ import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
 import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
-import { devTerminalSessionLine, parseDevTerminalSessionIds } from "./dev-terminal-sessions.js";
+import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
 import { devTerminalCwdLine, hydrateCwdsInto } from "./dev-terminal-cwds.js";
 import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
@@ -42,10 +42,10 @@ export const knownSessions = new Map<string, KnownSession>(); // id -> { created
 // back to the directory's default, same as one this server never started.
 export const launchChoices = new Map<string, DirModelChoice>(); // id -> { provider, model }
 
-// Sessions spawned as hidden background workers (spawnBackgroundChat hidden:true).
-// They list normally but never render bold/unread. Process-lifetime only (not
-// persisted) — and tied to `activity`'s lifecycle in reap() so a finished hidden
-// worker that stays `waiting` doesn't lose its hidden flag and re-bold.
+// Sessions spawned as hidden background workers (spawnBackgroundChat hidden:true) that are
+// still LIVE. Process-lifetime only, and tied to `activity`'s lifecycle in reap(). Ask
+// `isBackgroundSession()` rather than this set when the question is "does this row belong
+// behind the Background filter" — that survives the reap and a restart; this does not.
 export const hiddenSessions = new Set<string>(); // id
 
 // Latest MEANINGFUL user prompt per session (from the UserPromptSubmit hook), shown
@@ -92,6 +92,37 @@ export const claimedCodexRollouts = new Set<string>();
 // a transient internal helper, not a chat the user should see in the sidebar.
 export const translationWorkerIds = new Set<string>();
 
+const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
+
+// Hydrate one id log once at boot (best-effort — absent on first run / unreadable => empty).
+// Exposed as a promise so readers/writers can wait for it: a request served (or a mark
+// persisted) before this resolves would otherwise see an empty set and either leak the
+// sessions the log exists to keep out or clobber the file with a snapshot missing the
+// on-disk ids.
+function hydrateIdLog(file: string, into: Set<string>): Promise<void> {
+  return (async () => {
+    try {
+      for (const id of parseSessionIdLog(await fs.readFile(file, "utf8"), isValidSessionId)) into.add(id);
+    } catch {
+      // absent on first run / unreadable => nothing remembered
+    }
+  })();
+}
+
+// Appended, never rewritten: another instance shares these files, and a read-merge-write
+// loses whichever of the two finishes first however small the window is made. An append
+// needs no read, and nothing here is ever removed. Each log gets its own chain so its
+// writes stay ordered and a failure is logged without stopping the next one.
+function idLogAppender(file: string, label: string): (id: string) => void {
+  let persist: Promise<void> = Promise.resolve();
+  return (id: string) => {
+    persist = persist
+      .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+      .then(() => fs.appendFile(file, sessionIdLogLine(id)))
+      .catch((e) => console.error(`[${label}] failed to persist: ${messageOf(e)}`));
+  };
+}
+
 // Session ids that belong to the multi-terminal GRID — dev terminals, spawned with
 // gui=0 (no GUI MCP; see the ?gui handling in the WS connection handler). They're
 // FILTERED OUT of the chat sidebar's /api/sessions so a grid terminal never surfaces
@@ -103,38 +134,8 @@ export const translationWorkerIds = new Set<string>();
 // resume picker (/api/sessions?cwd=…) must keep listing these so they stay resumable.
 export const devTerminalSessions = new Set<string>();
 const DEV_TERMINAL_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-sessions.json");
-
-// Hydrate the set once at boot (best-effort — absent on first run / unreadable =>
-// empty). Exposed as a promise so readers/writers can wait for it: a request served
-// (or a mark persisted) before this resolves would otherwise see an empty set and
-// either leak hidden grid transcripts into chat or clobber the file with a snapshot
-// missing the on-disk ids.
-const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
-
-// Best-effort read of the shared file: absent or unreadable => nothing.
-async function readPersistedDevTerminalIds(): Promise<string[]> {
-  try {
-    return parseDevTerminalSessionIds(await fs.readFile(DEV_TERMINAL_SESSIONS_FILE, "utf8"), isValidSessionId);
-  } catch {
-    return [];
-  }
-}
-
-export const devTerminalSessionsHydrated: Promise<void> = (async () => {
-  for (const id of await readPersistedDevTerminalIds()) devTerminalSessions.add(id);
-})();
-
-// Appended, never rewritten: another instance shares this file, and a read-merge-write
-// loses whichever of the two finishes first however small the window is made. An append
-// needs no read, and nothing here is ever removed. Chained so our own writes stay ordered
-// and a failure is logged without stopping the next one.
-let devTerminalPersist: Promise<void> = Promise.resolve();
-function appendDevTerminalSession(id: string): void {
-  devTerminalPersist = devTerminalPersist
-    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
-    .then(() => fs.appendFile(DEV_TERMINAL_SESSIONS_FILE, devTerminalSessionLine(id)))
-    .catch((e) => console.error(`[dev-terminal-sessions] failed to persist: ${messageOf(e)}`));
-}
+export const devTerminalSessionsHydrated = hydrateIdLog(DEV_TERMINAL_SESSIONS_FILE, devTerminalSessions);
+const appendDevTerminalSession = idLogAppender(DEV_TERMINAL_SESSIONS_FILE, "dev-terminal-sessions");
 
 // Record a grid/dev-terminal session id, then persist. A no-op once the id is known,
 // so repeated reattaches of the same cell — or a reconnect after a reboot — don't
@@ -147,6 +148,46 @@ export function markDevTerminalSession(id: string, cwd?: string): void {
   devTerminalSessions.add(id);
   appendDevTerminalSession(id);
 }
+
+// Session ids spawned as background workers: the scheduled collection refresh, and any
+// `spawnBackgroundChat hidden:true`. The chat list keeps them, but behind the Background
+// filter rather than among the user's own chats (#1060).
+//
+// Persisted for the same reason the grid's set is: `hiddenSessions` is dropped on reap and
+// gone after a restart, so a live-only flag would put every finished worker BACK among the
+// chats the moment it completed — the one state the user is guaranteed to see it in.
+const backgroundSessions = new Set<string>();
+const BACKGROUND_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "background-sessions.json");
+export const backgroundSessionsHydrated = hydrateIdLog(BACKGROUND_SESSIONS_FILE, backgroundSessions);
+const appendBackgroundSession = idLogAppender(BACKGROUND_SESSIONS_FILE, "background-sessions");
+
+function markBackgroundSession(id: string): void {
+  if (!isValidSessionId(id) || backgroundSessions.has(id)) return;
+  backgroundSessions.add(id);
+  appendBackgroundSession(id);
+}
+
+/** Does this session belong behind the Background filter? Live workers answer from
+ *  `hiddenSessions`, everything else from the persisted log — a session that has been
+ *  background once stays background. */
+export function isBackgroundSession(id: string): boolean {
+  return hiddenSessions.has(id) || backgroundSessions.has(id);
+}
+
+/** What a hidden spawn marks itself with (see runWithHiddenMarker). Both halves of "hidden"
+ *  are set from ONE place because there are two spawn sites, and a site that remembered the
+ *  live flag but not the log would produce a worker that is background until it finishes and
+ *  an ordinary chat afterwards. `delete` only undoes the live half: the log is append-only,
+ *  and a spawn that threw never wrote a transcript, so its id never reaches a listing. */
+export const backgroundMarkers = {
+  add(id: string): void {
+    hiddenSessions.add(id);
+    markBackgroundSession(id);
+  },
+  delete(id: string): void {
+    hiddenSessions.delete(id);
+  },
+};
 
 // Where each grid session was started, for the sessions this process did not spawn (#1021). Live
 // ones answer from `ptys`, which is the truer source — it knows where claude actually runs.
