@@ -36,9 +36,26 @@ describe("diagnoseBinary on POSIX", () => {
     expect(diagnoseBinary("codex", posixEnv("/a", "/b"), "darwin", probe)).toEqual({ kind: "ok", path: "/b/codex" });
   });
 
-  it("treats an empty PATH as searching nowhere", () => {
-    expect(diagnoseBinary("codex", { PATH: "" }, "darwin", probeOf({}))).toEqual({ kind: "missing", searched: [] });
-    expect(diagnoseBinary("codex", {}, "darwin", probeOf({}))).toEqual({ kind: "missing", searched: [] });
+  // THE rule this verdict now has to obey: it refuses the spawn, so it must never be stricter
+  // than execvp. Every case below is one execvp could still launch, and none may say missing.
+  //
+  // A zero-length PATH prefix is POSIX for "the current directory" — and the current directory is
+  // the PTY's, which this process cannot look in. (Reported by Codex on #1068.)
+  it.each([[":/usr/bin"], ["/usr/bin:"], ["/a::/b"], [""]])("refuses nothing when PATH has an empty entry (%j)", (PATH) => {
+    expect(diagnoseBinary("codex", { PATH }, "darwin", probeOf({}))).toEqual({ kind: "ok", path: "codex" });
+  });
+
+  // An UNSET PATH is not an empty one: execvp falls back to a built-in default this process
+  // cannot enumerate.
+  it("refuses nothing when PATH is unset", () => {
+    expect(diagnoseBinary("codex", {}, "darwin", probeOf({}))).toEqual({ kind: "ok", path: "codex" });
+  });
+
+  // The empty entry must not be able to mask a real answer either way round: a runnable binary
+  // still resolves to its path, and an unrunnable one is not reported when the cwd could hold one.
+  it("keeps a real hit, and withholds not-executable, when an empty entry is present", () => {
+    expect(diagnoseBinary("codex", { PATH: "/a::/b" }, "darwin", probeOf({ "/b/codex": "x" }))).toEqual({ kind: "ok", path: "/b/codex" });
+    expect(diagnoseBinary("codex", { PATH: "/a:" }, "darwin", probeOf({ "/a/codex": "r" }))).toEqual({ kind: "ok", path: "codex" });
   });
 
   it("answers missing for an empty name rather than searching for it", () => {

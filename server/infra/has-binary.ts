@@ -50,16 +50,30 @@ export const fsBinaryProbe: BinaryProbe = { isFile: isExecutableFile, isExecutab
 // `path.posix` / `path.win32` explicitly rather than the host's `path`, for the reason resolve-bin
 // gives: a rule written against the running host cannot be checked from the other one, and these
 // two are exactly the rules that are hard to get onto a CI runner.
-const posixSearchDirectories = (searchPath: string | undefined): string[] => (searchPath ?? "").split(path.posix.delimiter).filter(Boolean);
 
 // execvp's own rule: walk PATH in order and take the first entry that is a file this process can
-// actually run. A directory or a non-executable file earlier on PATH does not shadow a working
-// one later, so it is only reported when NOTHING runnable was found.
-function diagnoseOnPath(candidates: readonly string[], searched: readonly string[], probe: BinaryProbe): BinaryDiagnosis {
+// actually run. A directory or a non-executable file earlier on PATH does not shadow a working one
+// later, so either is only reported when NOTHING runnable was found.
+//
+// Two ways PATH does not mean what filtering it would suggest, and BOTH have to end in `ok`,
+// because this verdict now REFUSES the spawn — a preflight that cannot answer must never be the
+// thing that says no:
+//
+//   - An EMPTY entry (`PATH=/usr/bin:`, `/a::/b`) is not noise. POSIX reads a zero-length prefix
+//     as the current directory, and the current directory that matters is the PTY's, not ours —
+//     unresolvable from here, exactly like the relative-path case below.
+//   - An UNSET PATH is not an empty one. execvp falls back to its own built-in default
+//     (confstr _CS_PATH, typically /usr/bin:/bin), which this process cannot enumerate.
+function diagnosePosixName(bin: string, searchPath: string | undefined, probe: BinaryProbe): BinaryDiagnosis {
+  if (searchPath === undefined) return { kind: "ok", path: bin };
+  const entries = searchPath.split(path.posix.delimiter);
+  const dirs = entries.filter(Boolean);
+  const candidates = dirs.map((dir) => path.posix.join(dir, bin));
   const runnable = candidates.find((candidate) => probe.isFile(candidate) && probe.isExecutable(candidate));
   if (runnable) return { kind: "ok", path: runnable };
+  if (entries.length !== dirs.length) return { kind: "ok", path: bin };
   const present = candidates.find((candidate) => probe.isFile(candidate));
-  return present ? { kind: "not-executable", path: present } : { kind: "missing", searched };
+  return present ? { kind: "not-executable", path: present } : { kind: "missing", searched: dirs };
 }
 
 // Windows has no execute BIT: what CreateProcess will run is decided by file TYPE, and
@@ -106,13 +120,7 @@ export function diagnoseBinary(
   if (!bin) return { kind: "missing", searched: [] };
   if (namesAPath(bin)) return diagnosePathName(bin, platform, probe);
   const searchPath = pathFromEnv(env);
-  if (platform === "win32") return diagnoseWindowsName(bin, searchPath, probe);
-  const dirs = posixSearchDirectories(searchPath);
-  return diagnoseOnPath(
-    dirs.map((dir) => path.posix.join(dir, bin)),
-    dirs,
-    probe,
-  );
+  return platform === "win32" ? diagnoseWindowsName(bin, searchPath, probe) : diagnosePosixName(bin, searchPath, probe);
 }
 
 /** Whether a command could be launched at all. A file that is present but not runnable answers

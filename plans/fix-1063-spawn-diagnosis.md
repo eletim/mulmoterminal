@@ -53,6 +53,12 @@ export function binaryProblemMessage(bin: string, d: BinaryDiagnosis): string | 
 
 - 探索順は execvp と同じ「PATH 先頭から、最初に見つかった**実行可能なファイル**」。
   実行可能でないものしか無ければ `not-executable`、ファイルが一つも無ければ `missing`。
+- **この判定は spawn を拒否するので、execvp より厳しくしてはいけない。** PATH の
+  空エントリ（`/usr/bin:` や `/a::/b`、`PATH=""`）は POSIX ではカレントディレクトリを指し、
+  そのカレントディレクトリは PTY のものでこちらからは解決できない。PATH 未設定も
+  execvp は自前の既定パス（confstr `_CS_PATH`）を使う。どちらも「答えられない」なので
+  `ok` を返して spawn させる。実測で確認済み（末尾 `:` / `PATH=""` の両方で cwd の
+  実行ファイルが起動する）。Codex のレビュー指摘。
 - `hasBinary` はこれを使って書き直す（判定とspawnが違う答えを出さないため。
   副作用として、存在するが実行できない claude は「使えない」と正しく答えるようになる）。
 
