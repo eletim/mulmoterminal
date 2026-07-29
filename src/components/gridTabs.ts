@@ -1,4 +1,5 @@
 import type { RunCommand } from "./runCommand";
+import { dirPriority } from "./dirPriorityOrder";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 
@@ -372,11 +373,7 @@ const RANK: Record<CellStatus, number> = { blocked: 0, done: 1, idle: 2, working
 const LAUNCH_RANK = 4;
 const cellRank = (c: Cell, statusByUid: Record<number, CellStatus>): number => (isLaunchCell(c) ? LAUNCH_RANK : RANK[statusByUid[c.uid] ?? "idle"]);
 
-// A directory that sets no `orderPriority` sorts after every directory that does, so adding the
-// key to ONE project doesn't displace all the others. Infinity rather than a big sentinel: no
-// integer a user could write should be able to outrank "unset".
-const UNSET_PRIORITY = Number.POSITIVE_INFINITY;
-const cellPriority = (c: Cell, priorityByCwd: Record<string, number>): number => (c.cwd ? (priorityByCwd[c.cwd] ?? UNSET_PRIORITY) : UNSET_PRIORITY);
+const cellPriority = (c: Cell, priorityByCwd: Record<string, number>): number => dirPriority(c.cwd, priorityByCwd);
 
 // Display order. "manual": the hand-arranged list as-is. "auto": a STABLE sort by
 // attention rank — equal-rank cells keep their manual order, so a status change

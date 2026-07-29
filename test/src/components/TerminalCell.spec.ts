@@ -1745,6 +1745,33 @@ describe("TerminalCell", () => {
     expect(w.find(".cell").classes()).toContain("border-[var(--cell-border,var(--border))]");
   });
 
+  // The stored preset list is most-recently-used, so its order changes on every launch. The chips
+  // are read next to the grid, which sorts by the directory's declared rank — so they follow that
+  // instead, and a directory that declares none keeps its stored position behind the ranked ones.
+  it("orders preset chips by each directory's orderPriority, leaving unranked dirs last", async () => {
+    const rankByDir: Record<string, number> = { "/home/me/ord-b": 10, "/home/me/ord-c": 5 };
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/dir-config")) {
+        const cwd = decodeURIComponent(new URL(u, "http://localhost").searchParams.get("cwd") ?? "");
+        const orderPriority = rankByDir[cwd];
+        return { ok: true, json: async () => (orderPriority === undefined ? {} : { orderPriority }) };
+      }
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+    const w = mountCell(null, {
+      presets: [
+        { label: "a", path: "/home/me/ord-a" },
+        { label: "b", path: "/home/me/ord-b" },
+        { label: "c", path: "/home/me/ord-c" },
+        { label: "d", path: "/home/me/ord-d" },
+      ],
+    });
+    await flushPromises();
+    expect(w.findAll('[data-testid="cell-chip-main"]').map((b) => b.text())).toEqual(["c", "b", "a", "d"]);
+  });
+
   it("tints a preset chip whose dir already has a running session elsewhere", () => {
     const w = mountCell(null, {
       presets: [
