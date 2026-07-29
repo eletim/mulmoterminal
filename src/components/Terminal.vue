@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watc
 import { type ITheme } from "@xterm/xterm";
 import { FLIP_MS, shouldRefocusOnZoomChange } from "./cellFlip";
 import { terminalManagesAttention, terminalViewActive } from "./terminalViewActive";
-import { dragCarriesFiles, dropTextFromUriList } from "./dropPaths";
+import { dragCarriesFiles, dropTextFromUriList, toInsertText } from "./dropPaths";
+import { dropUploadErrorMessage, uploadDropBatch } from "./dropUpload";
 import { translateUiSentence } from "../utils/translateUi";
 import { useTheme, currentTermTheme, termThemeFor } from "../composables/useTheme";
 import { useDirConfig } from "../composables/useDirConfig";
@@ -349,17 +350,66 @@ function insertText(text: string) {
 
 // Drop a file onto the terminal to insert its absolute path, like a native
 // terminal. Browsers expose the real path only via the drag's file:// URIs
-// (text/uri-list); the File object hides it. Browsers that withhold the path
-// (e.g. Chrome) yield no URIs — instead of silently inserting nothing, point the
-// user at the file-picker button, which is the path-in-Chrome route.
+// (text/uri-list); the File object hides it.
+//
+// The path is preferred whenever the drag carries one: it names the user's own file, so
+// editing it afterwards means editing the file they dropped rather than a copy. When it is
+// withheld — Chrome always, and every browser when this page is open from another machine,
+// where a local path would name nothing on the host — the bytes are sent instead and the copy's
+// path is inserted. Only a drag carrying neither falls back to the hint.
 function onDrop(e: DragEvent) {
   dragOver.value = false;
   const dt = e.dataTransfer;
   if (!dt || !dragCarriesFiles(dt.types)) return; // not a file drop — leave text drags alone
   e.preventDefault();
   const text = dropTextFromUriList(dt.getData("text/uri-list") || dt.getData("text/plain"));
-  if (text) insertText(text);
+  if (text) return insertText(text);
+  const files = Array.from(dt.files);
+  if (files.length) enqueueDrop(files);
   else showDropHint();
+}
+
+// Send each dropped file and insert the paths together, so a multi-file drop reads as one
+// argument list rather than arriving a word at a time. Sequential on purpose: these are whole
+// files, and several large ones at once would compete for the same upload.
+const DROP_UPLOADING_EN = "Sending the dropped file to the terminal…";
+// The path hint would send the user to the file picker, which cannot help when the problem is
+// that nothing is running to receive the file.
+const DROP_NO_SESSION_EN = "Start the terminal first — there's no session yet to send the file to.";
+// A saved file belongs to the session it was uploaded for, which is the only one granted its
+// directory — so a path from before a session change names something this terminal cannot read.
+const DROP_SESSION_CHANGED_EN = "This terminal moved to a different session while the file was sending — drop it again.";
+// How many batches are queued or in flight. A count rather than a flag because a second drop
+// arriving mid-upload would otherwise have whichever finished first hide the indicator out from
+// under the other.
+const dropUploads = ref(0);
+const dropUploading = computed(() => dropUploads.value > 0);
+const dropUploadingText = ref(DROP_UPLOADING_EN);
+
+// Batches are serialized, not run in parallel: two racing uploads insert their paths in
+// COMPLETION order rather than the order they were dropped, so the terminal receives an
+// argument list the user did not choose — and a fast small file overtakes a slow large one
+// every time (found by Codex review).
+let dropChain: Promise<void> = Promise.resolve();
+function enqueueDrop(files: File[]) {
+  dropUploads.value += 1;
+  dropChain = dropChain
+    .then(() => uploadAndInsert(files))
+    // The chain has to survive a failure: a rejected link would silently swallow every batch
+    // dropped after it, for as long as the terminal stays open.
+    .catch((err) => console.error("[drop] could not send a dropped file", err))
+    .finally(() => (dropUploads.value -= 1));
+}
+
+async function uploadAndInsert(files: File[]) {
+  const session = props.sessionId;
+  if (!session) return showDropMessage(DROP_NO_SESSION_EN);
+  // Shown in English first and swapped when the (server-cached) translation lands, like the hint.
+  void translateUiSentence(DROP_UPLOADING_EN, "mulmoterminal-ui").then((translated) => (dropUploadingText.value = translated));
+  const outcome = await uploadDropBatch(session, files, () => props.sessionId);
+  if (outcome.kind === "stale") return showDropMessage(DROP_SESSION_CHANGED_EN);
+  if (outcome.kind === "failed") return showDropMessage(dropUploadErrorMessage(outcome.status));
+  insertText(toInsertText(outcome.paths));
 }
 
 function onDragOver(e: DragEvent) {
@@ -368,19 +418,18 @@ function onDragOver(e: DragEvent) {
   dragOver.value = true;
 }
 
-// Shown when a file was dropped but the browser withheld its path — the drop can't do
-// anything, so tell the user how to insert the path rather than leaving the failed drop
-// looking like nothing happened. The guidance depends on the header: point at the file picker
-// only when it's actually present (buttons are configurable and it can be removed), otherwise
-// fall back to advice that always holds.
+// Shown when a drop could not be turned into a path — the browser withheld it and there were
+// no bytes to send either, or the upload failed. Saying so beats leaving the failed drop
+// looking like nothing happened. The no-bytes guidance depends on the header: point at the file
+// picker only when it's actually present (buttons are configurable and it can be removed),
+// otherwise fall back to advice that always holds.
 const DROP_HINT_PICKER_EN = "This browser doesn't share a dropped file's path. Use the paperclip button in the header (Insert a file path) instead.";
 const DROP_HINT_TYPE_EN = "This browser doesn't share a dropped file's path — type or paste the path instead.";
 const dropHint = ref(false);
 const dropHintText = ref("");
 const DROP_HINT_MS = 6000;
 let dropHintTimer: ReturnType<typeof setTimeout> | undefined;
-async function showDropHint() {
-  const english = hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN;
+async function showDropMessage(english: string) {
   dropHintText.value = english; // show immediately; the translation (server-cached) swaps in
   dropHint.value = true;
   clearTimeout(dropHintTimer);
@@ -388,6 +437,7 @@ async function showDropHint() {
   const translated = await translateUiSentence(english, "mulmoterminal-ui");
   if (dropHint.value) dropHintText.value = translated; // ignore if it resolved after the hint hid
 }
+const showDropHint = () => showDropMessage(hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN);
 onUnmounted(() => clearTimeout(dropHintTimer));
 
 onUnmounted(() => {
@@ -473,6 +523,16 @@ onUnmounted(() => {
         <span>{{ dropHintText }}</span>
       </div>
     </Transition>
+    <!-- A whole file is being sent, which on a large one is long enough that an unchanged
+         screen reads as a drop that did nothing. -->
+    <div
+      v-if="dropUploading"
+      class="pointer-events-none absolute bottom-3 left-1/2 z-20 flex max-w-[min(90%,560px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-border bg-panel px-4 py-2.5 font-sans text-[13px] leading-[1.4] text-fg shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
+      role="status"
+    >
+      <span class="material-symbols-outlined shrink-0 text-[18px]" aria-hidden="true">upload</span>
+      <span>{{ dropUploadingText }}</span>
+    </div>
   </div>
 </template>
 

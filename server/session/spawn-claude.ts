@@ -21,6 +21,7 @@ import { workdirFooter } from "../git/pr-footer.js";
 import { getProviders } from "../config/config-routes.js";
 import { requireResolution, resolveProvider, type DirModelChoice } from "./provider-env.js";
 import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
+import { ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
 
 export interface SpawnClaudeOptions {
@@ -92,6 +93,12 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     const { dir, resolved } = resolveSessionBackend({ cwd, sessionId, launch, canResume, sandbox });
 
+    // A file dropped into this session is saved outside its cwd, so the agent would meet a
+    // permission prompt on every Read without this. Granted here rather than per drop because
+    // --add-dir is a spawn-time flag: a session already running cannot be given one later.
+    const dropsDirectory = ensureDropsDir(sessionId);
+    const addDirs = dropsDirectory ? [...(dir.addDirs ?? []), dropsDirectory] : dir.addDirs;
+
     const hookSettings = deps.hookSettingsJson(sandbox ? SANDBOX_HOST : "localhost", sessionId, resolved.env);
     const mcpJson = deps.mcpConfigJson(sessionId, sandbox ? SANDBOX_HOST : "127.0.0.1", sandbox);
     // File-ized only when it is actually passed (attachGuiMcp), so a cell that never carries
@@ -116,7 +123,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       // (see GRID_MCP_TOOLS). The user's own servers keep their normal prompts there, since
       // that path never went through our allowlist before.
       allowedTools: attachGuiMcp ? [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(",") : deps.gridMcpTools,
-      addDirs: dir.addDirs,
+      addDirs,
       workdirFooter: sessionWorkdirFooter(cwd),
     });
 
@@ -152,7 +159,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     function spawnEntry(): PtyEntry {
       resetToolGroupsUnlessReattaching();
-      if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, dir.addDirs);
+      if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, addDirs);
       const { term, tmux } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, { unset: resolved.unset, env: guiMcpEnv(sessionId, PORT) });
       console.log(`[pty] spawned claude (pid=${term.pid}${tmux ? " via tmux" : ""}) in ${cwd}`);
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
