@@ -47,15 +47,19 @@ Settings live in three places: the **settings modal (Settings)**, the **global c
 > | Skill | Covers |
 > |---|---|
 > | **`/mulmoterminal-dirs`** | A project's colours, its position in the grid and launcher, name badge, terminal font size. Starts from the directories you actually open, reads what you already have, and follows the same pattern for the ones that have none. (Settings → **Configure appearance…** starts this one.) |
-> | **`/mulmoterminal-theme`** | Your own [colour scheme](#custom-themes), appearing in Settings' picker |
+> | **`/mulmoterminal-theme`** | Your own [colour scheme](#custom-themes), appearing in Settings' picker. (Settings → **Create a theme…**) |
 > | **`/mulmoterminal-header`** | [Header buttons and chips](#header), global or per project |
-> | **`/mulmoterminal-keys`** | [`keymap`](#keymap), [`copyOnSelect`](#copy-on-select), [`terminalSubmit`](#terminal-submit) — the fix for "Shift+Enter submits instead of adding a line" |
+> | **`/mulmoterminal-keys`** | [`keymap`](#keymap), [`copyOnSelect`](#copy-on-select), [`terminalSubmit`](#terminal-submit) — the fix for "Shift+Enter submits instead of adding a line". (Settings → **Set up shortcuts…**) |
 > | **`/mulmoterminal-model`** | [`providers`](#providers) and a per-project model |
-> | **`/mulmoterminal-notify`** | [Which moments beep or push](#sounds), and what each plays |
+> | **`/mulmoterminal-notify`** | [Which moments beep or push](#sounds), and what each plays. (Settings → **Configure notifications…**) |
 >
 > This is how you reach the settings that have **no UI at all**. Hand-editing works too — this page
 > documents every field — but the skills validate as they write, which matters for `keymap`, where a
 > malformed binding stops the server from starting.
+>
+> You don't have to remember the names either: the Settings section for each of these ends in a
+> button that starts the skill that owns it, in a new session. The two without a Settings section of
+> their own — `-header` and `-model` — you run by name.
 
 ---
 
@@ -69,11 +73,11 @@ Fifteen sections, in this order.
 
 | Item | Description |
 |---|---|
-| **Theme** | Midnight / Nord / Daylight / Solarized Light, plus [any you defined yourself](#custom-themes) |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light, plus [any you defined yourself](#custom-themes). Picks from what exists; "Create a theme…" starts the `mulmoterminal-theme` skill to write a new one |
 | **Terminal font size** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
 | **Directory appearance** | "Configure appearance…" — set a directory's name badge, colors, terminal palette, and grid position interactively, through the `mulmoterminal-dirs` skill |
-| **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only (→ [When a setting isn't working](#dir-settings-preview)) |
-| **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button (→ [Notification sounds](#sounds)) |
+| **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only — "Explain my settings…" starts the `mulmoterminal-config` skill to say why and fix it (→ [When a setting isn't working](#dir-settings-preview)) |
+| **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button. "Configure notifications…" starts the `mulmoterminal-notify` skill for a per-project sound and which moments push (→ [Notification sounds](#sounds)) |
 | **Voice input** | The language you **dictate in** (your browser's, per-clip detection, or a fixed one). Shown only on a machine that can transcribe |
 | **Web Push notifications** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
 | **Google account** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
@@ -82,7 +86,7 @@ Fifteen sections, in this order.
 | **Phone quick commands** | Phrases offered as chips on the **phone's** terminal view. Tapping one fills the input box; it is sent when you press send (`quickCommands`) |
 | **MCP servers** | Your own MCP servers to add to single-view sessions |
 | **Cost (estimated)** | Estimated cost readouts for Session / Today / Month |
-| **Keyboard shortcuts** | What is bound to what, read-only. **Everything starts as Not set** — you bind them in `keymap` (→ [Keyboard shortcuts](#keymap)) |
+| **Keyboard shortcuts** | What is bound to what, read-only. **Everything starts as Not set** — "Set up shortcuts…" starts the `mulmoterminal-keys` skill to bind them in `keymap` (→ [Keyboard shortcuts](#keymap)) |
 | **Help & user guide** | Links into this guide |
 
 ## When a setting isn't working — look here first {#dir-settings-preview}

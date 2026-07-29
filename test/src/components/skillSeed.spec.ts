@@ -14,16 +14,15 @@ describe("skillSeed", () => {
   });
 });
 
-// Settings' "Configure appearance…" is answered by BOTH the grid and the single view, and the slug
-// used to be written out in each. One rename updated only one of them, so the same button launched
-// a different skill depending on which view you pressed it from — green everywhere, since each
-// half was self-consistent. The shared constant is the fix; this pins it to a skill that ships.
+// Which skill the generated `.mulmoterminal.json` JSON Schema is installed beside. Naming a skill
+// that doesn't ship puts the schema nowhere, with no error at any point — the installer just
+// copies the directories it was given.
 describe("DIR_CONFIG_SKILL", () => {
   it("names a skill that is bundled", () => {
     expect(BUNDLED_SKILL_NAMES.some((name) => name === DIR_CONFIG_SKILL)).toBe(true);
   });
 
-  it("seeds the directory skill, not the router", () => {
-    expect(skillSeed(DIR_CONFIG_SKILL, "claude")).toBe("/mulmoterminal-dirs");
+  it("is the skill that writes that file, not the router", () => {
+    expect(DIR_CONFIG_SKILL).toBe("mulmoterminal-dirs");
   });
 });
