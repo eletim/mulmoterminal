@@ -617,16 +617,18 @@ const remoteHostWriteToSession = (sessionId: string, chunk: string): boolean => 
 const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.get(sessionId)?.agent, activity.get(sessionId)?.working);
 
 // What the phone's per-session view heads the screen with (#786, mulmoserver#107): the same
-// dir / branch / summary / prompt the grid cell shows, read from the tables /api/sessions
+// dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
 // answers from. A session that outlived a restart has no PtyEntry, so it has no cwd here and
 // no branch to look up — those fields are simply absent, and the phone shows the screen alone.
 const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
   const cwd = ptys.get(sessionId)?.cwd ?? "";
+  await sessionMemosHydrated; // a screen pulled during startup must not be told the memo is gone
   // Both git reads are independent, so the phone waits for one spawn rather than two.
   const [head, repoUrl] = await Promise.all([cwd ? currentBranch(cwd) : null, cwd ? resolveGithubUrl(cwd) : null]);
   return {
     cwd,
     branch: head?.branch ?? "",
+    memo: sessionMemos.get(sessionId) ?? "", // beside the summary, never instead of it — see SessionScreenMeta (#1110)
     summary: aiTitles.get(sessionId) ?? "",
     prompt: lastPrompts.get(sessionId) ?? "",
     // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot

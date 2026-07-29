@@ -153,6 +153,11 @@ export interface CaptureScreenDeps {
 export interface SessionScreenMeta {
   cwd?: string;
   branch?: string;
+  // The user's own one-line note on the session (#1084), which the phone shows ABOVE the summary:
+  // the line the user wrote outranks what the agent said (sessionDisplayName). Its own field
+  // rather than riding in `summary` the way the picker's row rides in `title` — `summary` is drawn
+  // as a row labelled as the AI's summary, so a handwritten note put there would be mislabelled.
+  memo?: string;
   summary?: string;
   prompt?: string;
   // The dir's REPOSITORY ROOT on GitHub, so the phone can link out to it (#832). Absent for

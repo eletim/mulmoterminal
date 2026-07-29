@@ -222,10 +222,31 @@ describe("captureSessionScreen", () => {
     expect(metaOf).toHaveBeenCalledWith("a");
   });
 
+  // The user's own note travels BESIDE the AI summary rather than in place of it (#1110). The
+  // picker's row overwrites `title` with the memo because a row there is one line, but the
+  // header draws each field as its own labelled row — a memo shown as the AI's summary is
+  // mislabelled, so the asymmetry between the two routes is the point, not an oversight.
+  it("carries the user's memo alongside the AI summary", async () => {
+    const captured = await captureSessionScreen(
+      "a",
+      captureDeps({ metaOf: async () => ({ summary: "Adding meta to the phone view", memo: "ask Tom before merging" }) }),
+    );
+    expect(captured.memo).toBe("ask Tom before merging");
+    expect(captured.summary).toBe("Adding meta to the phone view");
+  });
+
+  // A session with no note is the common case, and it must look exactly like a host built
+  // before #1110: no `memo` key at all, so the phone draws no empty memo row.
+  it("drops the memo row for a session the user never wrote a note on", async () => {
+    const captured = await captureSessionScreen("a", captureDeps({ metaOf: async () => ({ summary: "Adding meta", memo: "" }) }));
+    expect(Object.hasOwn(captured, "memo")).toBe(false);
+    expect(captured.summary).toBe("Adding meta");
+  });
+
   // A host that answers nothing looks exactly like one built before #786 — the phone
   // renders the screen alone.
   it("sends only the screen when the host has no metadata to add", async () => {
-    const captured = await captureSessionScreen("a", captureDeps({ metaOf: async () => ({ cwd: "", branch: "", summary: "", prompt: "" }) }));
+    const captured = await captureSessionScreen("a", captureDeps({ metaOf: async () => ({ cwd: "", branch: "", memo: "", summary: "", prompt: "" }) }));
     expect(captured).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
   });
 
@@ -269,7 +290,7 @@ describe("captureSessionScreen", () => {
 // and the phone renders one labelled row per field it receives.
 describe("definedScreenMeta", () => {
   it("keeps the fields the host could answer", () => {
-    const meta = { cwd: "/repo", branch: "main", summary: "Fix the parser", prompt: "fix it" };
+    const meta = { cwd: "/repo", branch: "main", memo: "ask Tom first", summary: "Fix the parser", prompt: "fix it" };
     expect(definedScreenMeta(meta)).toEqual(meta);
   });
 
