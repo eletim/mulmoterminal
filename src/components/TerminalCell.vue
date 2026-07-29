@@ -75,7 +75,7 @@ const props = defineProps<
     initialCwd: string | null;
     // The persisted agent for this cell: "codex" reconnects via /ws/codex on reload; absent
     // (or "claude") resumes as a normal Claude session.
-    initialAgent?: "codex" | null;
+    initialAgent?: "codex" | null | undefined;
     defaultCwd: string | null;
     presets: CwdPreset[];
     // Configured launch commands (shell/codex/…) offered next to Claude in this launcher.

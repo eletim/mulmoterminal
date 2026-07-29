@@ -41,7 +41,7 @@ export function sessionRow(
   id: string,
   activity: Activity | undefined,
   cwd: string | null,
-  texts: { lastPrompt?: string; aiTitle?: string; lastResponse?: string },
+  texts: { lastPrompt?: string | undefined; aiTitle?: string | undefined; lastResponse?: string | undefined },
 ): SessionRow {
   const a = activity ?? {};
   return {

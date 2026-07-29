@@ -23,6 +23,14 @@ export interface SessionActivity {
   workPhase?: WorkPhase | null;
 }
 
+// What a caller may hand to `publish`. Deliberately looser than SessionActivity: a host that
+// has not observed one of these writes the key holding `undefined`, and stripUndefined removes
+// it before the write. The stored doc must not carry such a key — see the note in publish.
+export interface SessionActivityInput extends Omit<SessionActivity, "event" | "workPhase"> {
+  event?: string | null | undefined;
+  workPhase?: WorkPhase | null | undefined;
+}
+
 // `rev` is monotonic per session so a watcher can distinguish "changed again" from a
 // re-delivered snapshot; `at` dates it for staleness checks.
 export interface SessionActivityDoc extends SessionActivity {
@@ -52,7 +60,7 @@ export const firestoreSessionActivityStore = (firestore: () => Firestore): Sessi
 // `undefined` at any depth, and one `event: undefined` from a caller would cost the phone the
 // whole status update. Written out per field rather than filtered generically so the payload
 // stays typed without a cast (see the spec pinning every field against `Required<>`).
-const activityDoc = ({ working, waiting, event, workPhase }: SessionActivity, rev: number): SessionActivityDoc => ({
+const activityDoc = ({ working, waiting, event, workPhase }: SessionActivityInput, rev: number): SessionActivityDoc => ({
   working,
   waiting,
   ...(event !== undefined ? { event } : {}),
@@ -77,13 +85,13 @@ export function createSessionActivityPublisher(deps: SessionActivityPublisherDep
   // Every field the phone renders belongs in the key: a turn that moves planning → implementing,
   // or a waiting one that changes from blocked to done, keeps the same working/waiting pair and
   // would otherwise be deduped away — leaving the phone showing the superseded status (#727).
-  const stateKey = ({ working, waiting, event, workPhase }: SessionActivity): string => `${working}:${waiting}:${event ?? ""}:${workPhase ?? ""}`;
+  const stateKey = ({ working, waiting, event, workPhase }: SessionActivityInput): string => `${working}:${waiting}:${event ?? ""}:${workPhase ?? ""}`;
 
   // Not every caller of the host's publishActivity is a state transition — generating
   // an AI title or clearing the header republishes an unchanged working/waiting pair.
   // Those must not bill a write, nor wake a watching phone into refetching a screen
   // that did not change.
-  const publish = (sessionId: string, activity: SessionActivity): void => {
+  const publish = (sessionId: string, activity: SessionActivityInput): void => {
     const uid = deps.uid();
     if (!uid) return;
     const key = stateKey(activity);

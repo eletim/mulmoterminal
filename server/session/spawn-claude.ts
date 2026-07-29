@@ -38,7 +38,7 @@ export interface SpawnClaudeOptions {
   // What the browser picked in the launch form (#584). Replaces the directory's default
   // as a PAIR: a provider from one source with a model from the other is a combination
   // neither of them asked for. Absent — the usual case — means "use the directory's".
-  launch?: DirModelChoice;
+  launch?: DirModelChoice | undefined;
 }
 
 // The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
@@ -73,7 +73,7 @@ function newSessionTitle(seed: string | undefined): string {
 //
 // Its own function because the spawn body is at its line budget and this is one decision made
 // from three sources, not part of spawning.
-function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?: DirModelChoice; canResume: boolean; sandbox: boolean }) {
+function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?: DirModelChoice | undefined; canResume: boolean; sandbox: boolean }) {
   const dir = loadDirConfig(input.cwd);
   const choice = effectiveChoice({
     launch: input.launch,

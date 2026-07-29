@@ -14,9 +14,9 @@
 export interface LiveSessionState {
   // Present, including as "", once this process has seen the session. Absent means "this
   // process knows nothing" — only then does the transcript speak.
-  lastPrompt?: string;
-  lastResponse?: string;
-  aiTitle?: string;
+  lastPrompt?: string | undefined;
+  lastResponse?: string | undefined;
+  aiTitle?: string | undefined;
 }
 
 export interface TranscriptSessionState {
