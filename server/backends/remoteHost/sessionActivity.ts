@@ -52,7 +52,7 @@ export const firestoreSessionActivityStore = (firestore: () => Firestore): Sessi
 // `undefined` at any depth, and one `event: undefined` from a caller would cost the phone the
 // whole status update. Written out per field rather than filtered generically so the payload
 // stays typed without a cast (see the spec pinning every field against `Required<>`).
-export const activityDoc = ({ working, waiting, event, workPhase }: SessionActivity, rev: number): SessionActivityDoc => ({
+const activityDoc = ({ working, waiting, event, workPhase }: SessionActivity, rev: number): SessionActivityDoc => ({
   working,
   waiting,
   ...(event !== undefined ? { event } : {}),
