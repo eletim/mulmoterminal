@@ -71,6 +71,17 @@ describe("latestRateLimitsInRollout", () => {
     expect(latestRateLimitsInRollout([line(5), "{}", line(42)])?.fiveHour?.usedPercentage).toBe(42);
   });
 
+  // The search looks for the KEY rather than a fixed path precisely because Codex's surrounding
+  // shape has changed before — and an array on that path (a `content` list, a batch of events) is
+  // one of the shapes it has to survive. Losing it would blank the gauge with nothing to see.
+  it("finds the windows nested inside an array", () => {
+    const nested = JSON.stringify({
+      type: "event",
+      payload: { content: [{ rate_limits: { primary: { used_percent: 37, window_minutes: FIVE_HOUR_MIN, resets_at: 1 } } }] },
+    });
+    expect(latestRateLimitsInRollout([nested])?.fiveHour?.usedPercentage).toBe(37);
+  });
+
   // The file is appended to while we read it, so the last line can be half-written. That must cost
   // the newest reading, not the whole file.
   it("skips a truncated last line and falls back to the one before", () => {

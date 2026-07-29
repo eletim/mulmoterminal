@@ -76,16 +76,27 @@ export function latestRateLimitsInRollout(lines: readonly string[]): RateLimits 
   return null;
 }
 
+// What the search may descend into — a different question from `isRecord`, which answers "may I
+// read named fields off this". An array must fail that one and pass this one.
+function childrenOf(node: unknown): unknown[] {
+  if (isRecord(node)) return Object.values(node);
+  return Array.isArray(node) ? node : [];
+}
+
 // `rate_limits` sits inside a record whose surrounding shape is Codex's business and has changed
 // before. Searching for the key rather than a fixed path means a re-nesting upstream costs nothing.
+//
+// Arrays are descended into as well as records (see childrenOf): a `content: []` on the path is one
+// of the shapes this search exists to survive, and stopping there would blank the gauge with nothing
+// on screen to explain it.
 function findRateLimits(node: unknown, depth = 0): RateLimits | null {
   const MAX_DEPTH = 6;
-  if (depth > MAX_DEPTH || !isRecord(node)) return null;
-  if (isRecord(node.rate_limits)) {
+  if (depth > MAX_DEPTH) return null;
+  if (isRecord(node) && isRecord(node.rate_limits)) {
     const extracted = extractCodexRateLimits(node.rate_limits);
     if (extracted) return extracted;
   }
-  for (const value of Object.values(node)) {
+  for (const value of childrenOf(node)) {
     const found = findRateLimits(value, depth + 1);
     if (found) return found;
   }
