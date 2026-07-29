@@ -1254,6 +1254,10 @@ there to look at.
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
 | `MULMOTERMINAL_ALLOWED_ORIGINS` | *(none)* | Extra browser origins allowed to attach a terminal, comma-separated. Only needed alongside a wider `MULMOTERMINAL_HOST` (→ [below](#bind-host)) |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
+| `CLAUDE_CONFIG_DIR` | `~` | Claude Code's own config directory. `.claude.json` lives **inside** it, so relocating your Claude Code config moves that file too. MulmoTerminal reads it to tell whether the per-project GUI MCP server is registered. Unset means `~/.claude.json` |
+| `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | Where the managed MulmoClaude workspace lives. Presets and helps are seeded **only** into this directory, so launching in an arbitrary project never writes them there. Set it to the same value MulmoClaude uses |
+| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(none)* | Set to any value to skip installing the bundled skills (`mulmoterminal-config`, `mulmoterminal-bug-report`, `mulmoterminal-decisions`) into `~/.claude/skills/` and the Codex skills root on startup |
+| `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | The model used for image generation (needs `GEMINI_API_KEY`). The default is a **preview** model Google schedules for retirement around mid-2026 — pin a stable one here (e.g. `gemini-2.5-flash-image`) rather than waiting for a code change |
 
 ### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}
 
