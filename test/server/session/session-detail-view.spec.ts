@@ -52,6 +52,12 @@ describe("sessionDetailView", () => {
     expect([view.lastPrompt, view.lastResponse]).toEqual(["the new task", ""]);
   });
 
+  // The memo is the user's own note about the CELL, not something read off the transcript, so a
+  // clear has no business dropping it (#1084 + #1085).
+  it("keeps the memo across a clear", () => {
+    expect(sessionDetailView({ memo: "#1077 の検証" }, TRANSCRIPT, NO_ACTIVITY, true).memo).toBe("#1077 の検証");
+  });
+
   // Ours only — never the external on-disk ai-title, which is MulmoClaude's.
   it("reports our own title, or none", () => {
     expect(sessionDetailView({ aiTitle: "Fix the login bug" }, TRANSCRIPT, NO_ACTIVITY, NOT_CLEARED).aiTitle).toBe("Fix the login bug");
@@ -67,8 +73,8 @@ describe("sessionDetailView", () => {
   // The seed a grid cell renders its header from before any push arrives (#1084). Absent is the
   // ordinary case — an erased memo is deleted from the store, not kept as "".
   it("reports the session's memo, or none", () => {
-    expect(sessionDetailView({ memo: "#1077 の検証" }, TRANSCRIPT, NO_ACTIVITY).memo).toBe("#1077 の検証");
-    expect(sessionDetailView({}, TRANSCRIPT, NO_ACTIVITY).memo).toBeNull();
+    expect(sessionDetailView({ memo: "#1077 の検証" }, TRANSCRIPT, NO_ACTIVITY, NOT_CLEARED).memo).toBe("#1077 の検証");
+    expect(sessionDetailView({}, TRANSCRIPT, NO_ACTIVITY, NOT_CLEARED).memo).toBeNull();
   });
 
   describe("activity", () => {
