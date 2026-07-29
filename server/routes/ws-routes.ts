@@ -23,7 +23,7 @@ import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
 import { sandboxWouldRun } from "../session/pty-spawn.js";
-import { bufferEarlyFrames } from "../session/early-frames.js";
+import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
 import { codexGuiMcpServers } from "../session/mcp-config.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
@@ -318,6 +318,35 @@ function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: stri
   void startRunTerminal(deps, ws, new URL(req.url ?? "/", "http://localhost"));
 }
 
+// Start the pty for a resolved session, then hand the socket to it — or fail the socket cleanly.
+//
+// One function for both agents because the ORDER is the fragile part, not the lines: the buffered
+// early frames may only be replayed once the real message listener is installed, or a frame that
+// lands mid-replay overtakes the ones before it (see early-frames.ts). Inlined, that rule was
+// written as a comment on the codex path and nowhere on the launch path.
+//
+// `start` throwing is the spawn refusing — a missing CLI, a directory that vanished. The buffer is
+// dropped rather than replayed: there is no pty to replay it into, and the socket is closing.
+export function startAndWire(
+  deps: Pick<WsRouteDeps, "handleClientFrame" | "handleClientClose">,
+  ws: WebSocket,
+  session: { id: string; tag: string; early: EarlyFrames<{ toString(): string }>; startFailureMessage: string },
+  start: () => PtyEntry,
+): void {
+  let entry: PtyEntry;
+  try {
+    entry = start();
+  } catch (err) {
+    console.error(`[ws/${session.tag}] failed to start ${session.id}: ${messageOf(err)}`);
+    session.early.discard();
+    return closeWithError(ws, session.startFailureMessage);
+  }
+  const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
+  ws.on("message", deliver);
+  ws.on("close", () => deps.handleClientClose(entry, ws, session.id));
+  session.early.release(deliver);
+}
+
 // Launcher terminal (?launcher=<index>&cwd=<dir>, ?session=<id> to reattach): run a
 // configured launch command as a persistent, reattachable PTY. Reuses the /ws session
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
@@ -348,18 +377,9 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     return early.discard();
   }
 
-  let entry: PtyEntry;
-  try {
-    entry = startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd);
-  } catch (err) {
-    console.error(`[ws/launch] failed to start ${sessionId}: ${messageOf(err)}`);
-    early.discard();
-    return closeWithError(ws, "Failed to start the launch command.");
-  }
-
-  ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
-  ws.on("close", () => deps.handleClientClose(entry, ws, sessionId));
-  early.release((raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
+  startAndWire(deps, ws, { id: sessionId, tag: "launch", early, startFailureMessage: "Failed to start the launch command." }, () =>
+    startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd),
+  );
 }
 
 // codex terminal (?cwd=<dir>, ?session=<id> to reattach/resume). ?gui=0 (grid dev terminal) runs
@@ -390,19 +410,10 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { ur
     return early.discard();
   }
 
-  let entry: PtyEntry;
-  try {
-    entry = startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups });
-  } catch (err) {
-    console.error(`[ws/codex] failed to start ${sessionId}: ${messageOf(err)}`);
-    early.discard();
-    return closeWithError(ws, "Failed to start codex. Is the `codex` CLI installed and on your PATH?");
-  }
-
-  ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
-  ws.on("close", () => deps.handleClientClose(entry, ws, sessionId));
-  // After the real listener is installed, so ordering holds for a frame that lands mid-replay.
-  early.release((raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
+  const startFailureMessage = "Failed to start codex. Is the `codex` CLI installed and on your PATH?";
+  startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage }, () =>
+    startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups }),
+  );
 }
 
 export function mountTerminalWebSockets(deps: WsRouteDeps) {
