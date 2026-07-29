@@ -1,7 +1,7 @@
 {
   "name": "mulmoterminal",
   "version": "2.7.0",
-  "description": "MulmoTerminal — browser terminal + GUI panel for Claude Code. One command to start.",
+  "description": "Run multiple Claude Code and Codex sessions in parallel — a browser terminal grid that shows which agent needs you. Local, tmux-backed.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -9,13 +9,18 @@
     "url": "git+https://github.com/receptron/mulmoterminal.git"
   },
   "keywords": [
-    "claude",
     "claude-code",
+    "codex",
+    "ai-agents",
+    "agentic-coding",
+    "vibe-coding",
     "terminal",
-    "gui",
-    "ai",
-    "agent",
-    "mulmoterminal"
+    "parallel-agents",
+    "tmux",
+    "git-worktree",
+    "xterm",
+    "mulmoterminal",
+    "claude"
   ],
   "bin": {
     "mulmoterminal": "bin/mulmoterminal.js",
@@ -143,5 +148,6 @@
     "vitest": "^4.1.10",
     "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.8"
-  }
+  },
+  "homepage": "https://receptron.github.io/mulmoterminal/"
 }

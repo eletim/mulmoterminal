@@ -10,6 +10,8 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 > **[What's new in 2.7.0](v2.7.0.html)** — write your own one-line note on any session, drag the dividers in a zoomed cell, and drop a file from anywhere; one optional setting (as of 2026-07-29)
 >
+> **Update announcements** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci).
+>
 > **Something looks wrong?** Type `/mulmoterminal-bug-report` in any session. The bundled skill hears the symptom out, checks your **real** config and version to see whether it is configuration or by design, searches the existing issues — and only helps you file one if none of that explains it, with the environment collected and secrets masked.
 
 **Run a whole team of AI coding agents (Claude Code / Codex) in parallel, on one board** —
