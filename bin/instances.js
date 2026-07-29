@@ -10,7 +10,7 @@
 // Shared as plain JS rather than through common/ because the launcher runs on bare node before
 // any TypeScript exists — the same reason bin/update-check.js is shaped this way, and the server
 // imports it the same way.
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -37,7 +37,12 @@ export function registerInstance(port, pid = process.pid, startedAt = Date.now()
   const file = entryFile(pid);
   try {
     mkdirSync(instancesDir(), { recursive: true, mode: 0o700 });
-    writeFileSync(file, JSON.stringify({ pid, port, startedAt }), { encoding: "utf8", mode: 0o600 });
+    // Written elsewhere and renamed into place: a reader that catches us mid-write would see a
+    // truncated entry, and "I could not parse it" must never be how a LIVE peer disappears from
+    // the registry (Codex review). rename is atomic for a reader on the same directory.
+    const tmp = `${file}.${startedAt}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ pid, port, startedAt }), { encoding: "utf8", mode: 0o600 });
+    renameSync(tmp, file);
   } catch {
     return () => {};
   }
@@ -82,7 +87,11 @@ export function liveInstances(excludePid = process.pid) {
     } catch {
       continue; // being written right now, or unreadable — say nothing about it
     }
-    if (entry === null || !isProcessAlive(entry.pid)) {
+    // Only a positively-identified dead owner earns removal. An entry we could not parse is one
+    // we know nothing about — deleting it on that basis is how a live peer gets erased, which is
+    // the very failure this registry exists to prevent (Codex review).
+    if (entry === null) continue;
+    if (!isProcessAlive(entry.pid)) {
       try {
         rmSync(file, { force: true });
       } catch {
