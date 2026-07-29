@@ -1,6 +1,6 @@
 # mulmoterminal
 
-**Run a whole team of coding agents from your browser — and actually keep up with them.**
+**Run multiple Claude Code and Codex sessions in parallel — and see which one needs you.**
 
 A **browser terminal** for **parallel AI coding agents**: several **Claude Code** and **Codex**
 sessions side by side, each in its own cell, with the one that needs you marked in colour. Vibe
