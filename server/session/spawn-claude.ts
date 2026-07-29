@@ -4,9 +4,10 @@
 import type { WebSocket } from "ws";
 import { CLAUDE_CWD, PORT } from "../config/env.js";
 import { guiMcpEnv } from "./mcp-config.js";
-import { getUserMcpServers, getPrWorkdirFooter } from "../config/config-routes.js";
+import { getUserMcpServers, getPrWorkdirFooter, getAppendSystemPrompt } from "../config/config-routes.js";
 import { SANDBOX_HOST } from "../infra/sandbox.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
+import { appendedSystemPrompt } from "../agents/appended-prompt.js";
 import { knownSessions, launchChoices, ptys, resetSessionToolGroups } from "./registry.js";
 import { ptySpawn, ptyWouldReattach, sandboxWouldRun, spawnSandboxEntry } from "./pty-spawn.js";
 import { attachDraftInjection } from "./draft-injection.js";
@@ -48,6 +49,12 @@ function sessionWorkdirFooter(cwd: string): string | null {
   if (!getPrWorkdirFooter()) return null;
   const root = repoRootSync(cwd);
   return root ? workdirFooter(root) : null;
+}
+
+// What `--append-system-prompt` carries for this session (#1062). Every source is read per spawn,
+// so switching any section off needs no restart.
+function sessionAppendedPrompt(cwd: string, dirSetting: boolean | null): string | null {
+  return appendedSystemPrompt({ dirSetting, globalSetting: getAppendSystemPrompt(), workdirFooter: sessionWorkdirFooter(cwd) });
 }
 
 // What this session runs, and the directory config it runs under (#579). A refusal THROWS:
@@ -124,7 +131,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       // that path never went through our allowlist before.
       allowedTools: attachGuiMcp ? [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(",") : deps.gridMcpTools,
       addDirs,
-      workdirFooter: sessionWorkdirFooter(cwd),
+      appendedPrompt: sessionAppendedPrompt(cwd, dir.appendSystemPrompt),
     });
 
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);

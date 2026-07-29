@@ -30,6 +30,7 @@ export const DIR_CONFIG_KEYS = [
   "provider",
   "model",
   "addDirs",
+  "appendSystemPrompt",
 ] as const;
 
 export interface DirConfigSource {

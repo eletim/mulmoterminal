@@ -37,6 +37,7 @@ const EMPTY = {
   provider: null,
   model: null,
   addDirs: null,
+  appendSystemPrompt: null,
 };
 
 function withConfig(body: unknown): { dir: string; cleanup: () => void } {
@@ -134,6 +135,7 @@ describe("loadDirConfig", () => {
       theme: "nord",
       sound: "./a.mp3",
       skills: ["  review  ", "commit", "review", ""],
+      appendSystemPrompt: false,
     });
     writeFileSync(path.join(dir, "a.mp3"), "x");
     expect(loadDirConfig(dir)).toEqual({
@@ -158,6 +160,7 @@ describe("loadDirConfig", () => {
       provider: null,
       model: null,
       addDirs: null,
+      appendSystemPrompt: false,
     });
     cleanup();
   });
@@ -226,6 +229,31 @@ describe("loadDirConfig", () => {
     const dir = tmp();
     expect(loadDirConfig(dir)).toEqual(EMPTY);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  // #1062. A tri-state, unlike the global boolean it overrides: null is what makes "this file
+  // says nothing, follow the global setting" different from an explicit `false`.
+  describe("appendSystemPrompt", () => {
+    it.each([
+      ["false", false, false],
+      ["true", true, true],
+    ])("keeps an explicit %s", (_case, written, expected) => {
+      const { dir, cleanup } = withConfig({ appendSystemPrompt: written });
+      expect(loadDirConfig(dir).appendSystemPrompt).toBe(expected);
+      cleanup();
+    });
+
+    // A string is the planned third value but is not accepted yet, so it has to read as "unset"
+    // — which puts the key in the "ignored" list Settings shows, rather than silently meaning off.
+    it.each([
+      ["a string", "off"],
+      ["a number", 0],
+      ["absent", undefined],
+    ])("reads %s as unset", (_case, written) => {
+      const { dir, cleanup } = withConfig({ appendSystemPrompt: written });
+      expect(loadDirConfig(dir).appendSystemPrompt).toBeNull();
+      cleanup();
+    });
   });
 
   it("returns all-null for invalid JSON or a non-object", () => {
