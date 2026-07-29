@@ -23,6 +23,7 @@ import {
   tmuxPaneCommand,
   tmuxAttachedClientCount,
   tmuxCaptureStyledPane,
+  tmuxTerminalModes,
 } from "./infra/tmux.js";
 import { sandboxEnabled, sandboxPlatformSupported, dockerAvailable, ensureSandboxImage } from "./infra/sandbox.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
@@ -200,6 +201,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   reap: (id) => reap(id),
   setWaiting: (id, waiting) => setWaiting(id, waiting),
   armReapForDetached: (id) => armReapForDetached(id),
+  terminalModesOf: (id) => tmuxTerminalModes(id),
 });
 
 // Mirrors session activity into Firestore so the phone's terminal viewer can refresh
