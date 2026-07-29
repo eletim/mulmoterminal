@@ -8,7 +8,7 @@ import { sendWebPush } from "../infra/web-push.js";
 import { HOST_ID as REMOTE_HOST_ID } from "../backends/remoteHost/index.js";
 import { buildPushText } from "./activity-hook.js";
 import type { PushKind } from "../../common/pushKinds.js";
-import { aiTitles, hiddenSessions, lastPrompts, lastResponses, ptys, translationWorkerIds } from "./registry.js";
+import { aiTitles, isBackgroundSession, lastPrompts, lastResponses, ptys, translationWorkerIds } from "./registry.js";
 import { sessionLastTurn, LAST_RESPONSE_MAX } from "./session-reads.js";
 import { buildPushDetail, pushWhere, shouldSuppressPush, wantsPushKind } from "./taskPushRules.js";
 
@@ -36,8 +36,11 @@ async function latestReply(sessionId: string, cwd: string): Promise<string | nul
 export async function notifyTaskFinished(sessionId: string, kind: PushKind, message: string, uiPort: string): Promise<void> {
   if (!wantsPushKind(getPushEnabled(), getPushKinds(), kind)) return;
   // Internal helper turns flow through /api/hook with active=false too — the suppression gate
-  // keeps those (hidden background workers, translation workers) from ever reaching the phone.
-  if (shouldSuppressPush(hiddenSessions.has(sessionId), translationWorkerIds.has(sessionId))) return;
+  // keeps those (background workers, translation workers) from ever reaching the phone. Asked
+  // of the DURABLE predicate, not the live set: tmux keeps a worker's agent running across a
+  // server restart, and the live set does not survive one — so the gate would open for exactly
+  // the long-running scheduled refresh it exists to silence.
+  if (shouldSuppressPush(isBackgroundSession(sessionId), translationWorkerIds.has(sessionId))) return;
   const cwd = ptys.get(sessionId)?.cwd ?? null;
   const where = pushWhere(cwd);
   const reply = kind === "finished" && cwd ? await latestReply(sessionId, cwd) : null;
