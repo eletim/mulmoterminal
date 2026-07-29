@@ -14,7 +14,7 @@ import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
-import { applySessionMemo, sessionMemoLine, sessionMemoRecord } from "./session-memos.js";
+import { applySessionMemo, createMemoWriteGuard, sessionMemoLine, sessionMemoRecord } from "./session-memos.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { devTerminalCwdLine, hydrateCwdsInto } from "./dev-terminal-cwds.js";
@@ -246,6 +246,7 @@ export const sessionMemosHydrated: Promise<void> = (async () => {
 })();
 
 let memoPersist: Promise<void> = Promise.resolve();
+const memoWrites = createMemoWriteGuard();
 
 /**
  * Store a session's memo, or erase it when the text normalizes to empty. Resolves to what was
@@ -261,6 +262,7 @@ export async function setSessionMemo(id: string, text: string): Promise<string> 
   const memo = normalizeMemo(text);
   if (!isValidSessionId(id)) return memo;
   const previous = sessionMemos.get(id);
+  const ticket = memoWrites.begin(id);
   memoWrittenIds.add(id);
   applySessionMemo(sessionMemos, { id, text: memo });
   const append = memoPersist
@@ -272,9 +274,10 @@ export async function setSessionMemo(id: string, text: string): Promise<string> 
   try {
     await append;
   } catch (e) {
-    // Only if nothing has moved on since: a later write for the same id is the newer truth, and
-    // rolling back over it would resurrect the value the user just replaced.
-    if (sessionMemos.get(id) === (memo || undefined)) applySessionMemo(sessionMemos, { id, text: previous ?? "" });
+    // Only while this is still the newest write for the id. Matching on the VALUE instead would
+    // roll back over a later write that carried the same text and succeeded — leaving this process
+    // serving the old note while the disk holds the new one (Codex).
+    if (memoWrites.isLatest(id, ticket)) applySessionMemo(sessionMemos, { id, text: previous ?? "" });
     throw new Error(`failed to persist the memo: ${messageOf(e)}`, { cause: e });
   }
   return memo;

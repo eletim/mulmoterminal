@@ -44,3 +44,29 @@ export function applySessionMemo(memos: Map<string, string>, record: SessionMemo
   if (record.text === "") memos.delete(record.id);
   else memos.set(record.id, record.text);
 }
+
+/**
+ * Which write for a session is the CURRENT one, so a failed write only rolls the in-memory memo
+ * back when nothing has replaced it meanwhile.
+ *
+ * Recency, not value equality (Codex). Two overlapping writes can carry the SAME text — a user
+ * hitting save twice, two tabs saving the same note — and then "the map still holds what I put
+ * there" is true for a write that has already been superseded. Rolling back on that leaves this
+ * process serving the OLD note while the disk holds the new one, until a restart.
+ */
+export function createMemoWriteGuard() {
+  const latest = new Map<string, number>();
+  let issued = 0;
+  return {
+    /** Claim this write as the current one for `id`. */
+    begin(id: string): number {
+      issued += 1;
+      latest.set(id, issued);
+      return issued;
+    },
+    /** Is this write still the one that gets to decide what is in memory? */
+    isLatest(id: string, ticket: number): boolean {
+      return latest.get(id) === ticket;
+    },
+  };
+}

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { applySessionMemo, sessionMemoLine, sessionMemoRecord } from "../../../server/session/session-memos.js";
+import { applySessionMemo, createMemoWriteGuard, sessionMemoLine, sessionMemoRecord } from "../../../server/session/session-memos.js";
 import { MEMO_MAX_LENGTH } from "../../../common/sessionMemo.js";
 
 const VALID_ID = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9";
@@ -79,5 +79,38 @@ describe("sessionMemoRecord", () => {
   it("treats a whitespace-only line as an erase", () => {
     const memos = memosFrom([sessionMemoLine(VALID_ID, "written", 1), JSON.stringify({ id: VALID_ID, text: "   ", at: 2 })]);
     expect(memos.has(VALID_ID)).toBe(false);
+  });
+});
+
+// Which write may undo the in-memory memo when its disk append fails.
+describe("createMemoWriteGuard", () => {
+  it("lets a write roll back while nothing has replaced it", () => {
+    const guard = createMemoWriteGuard();
+    const ticket = guard.begin(VALID_ID);
+    expect(guard.isLatest(VALID_ID, ticket)).toBe(true);
+  });
+
+  // THE contract, and the reason this is recency rather than value equality: two overlapping
+  // writes can carry the SAME text, so "the map still holds what I put there" is true for a write
+  // that has already been superseded. A rollback on that leaves this process serving the old note
+  // while the disk holds the new one, until a restart.
+  it("stops a superseded write from rolling back over the one that replaced it", () => {
+    const guard = createMemoWriteGuard();
+    const first = guard.begin(VALID_ID);
+    const second = guard.begin(VALID_ID);
+    expect(guard.isLatest(VALID_ID, first)).toBe(false);
+    expect(guard.isLatest(VALID_ID, second)).toBe(true);
+  });
+
+  it("keeps the sessions independent — a write elsewhere does not supersede this one", () => {
+    const guard = createMemoWriteGuard();
+    const mine = guard.begin(VALID_ID);
+    guard.begin("another-id");
+    expect(guard.isLatest(VALID_ID, mine)).toBe(true);
+  });
+
+  it("knows nothing about a session that has never been written", () => {
+    const guard = createMemoWriteGuard();
+    expect(guard.isLatest(VALID_ID, 1)).toBe(false);
   });
 });
