@@ -569,6 +569,10 @@ function onStripSplitterKey(e: KeyboardEvent): void {
 
 // Same reason the pane re-clamps: a size restored from storage was clamped against whatever
 // stage existed when it was stored, and a window can have shrunk since.
+//
+// Opening a right-hand pane moves the roster's floor too (PANE_CHROME_PX), which is why
+// `rightPane` is watched below: a roster already sitting at its old maximum would otherwise stay
+// there and leave the terminal a few pixels under its minimum until something else nudged it.
 const reclampStage = () => {
   if (!zoomed.value) return;
   if (props.listMode) setRosterWidth(rosterWidth.value);
@@ -576,7 +580,7 @@ const reclampStage = () => {
 };
 onMounted(() => window.addEventListener("resize", reclampStage));
 onBeforeUnmount(() => window.removeEventListener("resize", reclampStage));
-watch([zoomed, () => props.listMode], async () => {
+watch([zoomed, () => props.listMode, rightPane], async () => {
   await nextTick();
   reclampStage();
 });
