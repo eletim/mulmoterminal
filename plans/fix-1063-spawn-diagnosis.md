@@ -2,9 +2,13 @@
 
 ## 症状
 
-codex セッションを開こうとすると
-`[Failed to start codex. Is the `codex` CLI installed and on your PATH?]`
-が出る。ただし報告者の Mac では素のターミナルから `codex` は動く。
+codex セッションを開こうとすると次が出る。
+
+```
+[Failed to start codex. Is the `codex` CLI installed and on your PATH?]
+```
+
+ただし報告者の Mac では素のターミナルから `codex` は動く。
 
 ## 調査でわかったこと
 
@@ -53,12 +57,13 @@ export function binaryProblemMessage(bin: string, d: BinaryDiagnosis): string | 
 
 - 探索順は execvp と同じ「PATH 先頭から、最初に見つかった**実行可能なファイル**」。
   実行可能でないものしか無ければ `not-executable`、ファイルが一つも無ければ `missing`。
-- **この判定は spawn を拒否するので、execvp より厳しくしてはいけない。** PATH の
-  空エントリ（`/usr/bin:` や `/a::/b`、`PATH=""`）は POSIX ではカレントディレクトリを指し、
-  そのカレントディレクトリは PTY のものでこちらからは解決できない。PATH 未設定も
-  execvp は自前の既定パス（confstr `_CS_PATH`）を使う。どちらも「答えられない」なので
-  `ok` を返して spawn させる。実測で確認済み（末尾 `:` / `PATH=""` の両方で cwd の
-  実行ファイルが起動する）。Codex のレビュー指摘。
+- **この判定は spawn を拒否するので、execvp より厳しくしてはいけない。**
+  PATH の**絶対でないエントリ**は execvp が子プロセスの cwd（= PTY の cwd）に対して
+  解決するので、こちらからは答えられない。空エントリ（`/usr/bin:`、`/a::/b`、`PATH=""`）は
+  POSIX でカレントディレクトリを指す綴りで、`tools` や `.` や `../bin` はそれを
+  そのまま書いたもの。PATH 未設定も execvp は自前の既定パス（confstr `_CS_PATH`）を使う。
+  いずれも `ok` を返して spawn させる。実測で確認済み（末尾 `:` / `PATH=""` / `PATH=tools`
+  のいずれでも PTY の cwd 側の実行ファイルが起動する）。Codex と CodeRabbit のレビュー指摘。
 - `hasBinary` はこれを使って書き直す（判定とspawnが違う答えを出さないため。
   副作用として、存在するが実行できない claude は「使えない」と正しく答えるようになる）。
 

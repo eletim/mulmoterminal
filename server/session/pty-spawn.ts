@@ -26,8 +26,9 @@ import type { PtyEntry } from "./types.js";
 const PTY_COLS = 120;
 const PTY_ROWS = 30;
 
-// pty.spawn with the binary as a PARAMETER (never a string literal at the call site),
-// so the tmux/shell/claude spawns aren't flagged as spawn-of-a-string-literal.
+// The environment a PTY will run with. Its own function because "can this binary be launched"
+// has to be answered against exactly this and not process.env — the PATH they disagree on is the
+// whole point of the check below (#1063).
 // The env is sanitized: package-manager launcher vars (yarn's PREFIX kills nvm
 // in spawned shells — see infra/pty-env.ts) must not leak into PTYs.
 // `unset` drops variables the session must NOT inherit — ANTHROPIC_API_KEY for a provider
@@ -39,6 +40,8 @@ export function ptyEnv(unset: readonly string[] = [], extra: Readonly<Record<str
   return { ...withoutUnset(sanitizePtyEnv(process.env, path.delimiter), unset), ...extra };
 }
 
+// pty.spawn with the binary as a PARAMETER (never a string literal at the call site),
+// so the tmux/shell/claude spawns aren't flagged as spawn-of-a-string-literal.
 export function spawnPty(bin: string, args: string[], cwd: string, unset: readonly string[] = [], extra: Readonly<Record<string, string>> = {}): IPty {
   const env = ptyEnv(unset, extra);
   // On Windows neither the name nor the arguments reach node-pty as they are: its PATH

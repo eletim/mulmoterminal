@@ -39,11 +39,16 @@ describe("diagnoseBinary on POSIX", () => {
   // THE rule this verdict now has to obey: it refuses the spawn, so it must never be stricter
   // than execvp. Every case below is one execvp could still launch, and none may say missing.
   //
-  // A zero-length PATH prefix is POSIX for "the current directory" — and the current directory is
-  // the PTY's, which this process cannot look in. (Reported by Codex on #1068.)
-  it.each([[":/usr/bin"], ["/usr/bin:"], ["/a::/b"], [""]])("refuses nothing when PATH has an empty entry (%j)", (PATH) => {
-    expect(diagnoseBinary("codex", { PATH }, "darwin", probeOf({}))).toEqual({ kind: "ok", path: "codex" });
-  });
+  // An entry that is not absolute is resolved by execvp against the CHILD's working directory —
+  // the PTY's, which this process cannot look in. A zero-length prefix is POSIX's spelling of
+  // exactly that (Codex), and a plainly relative entry is the same thing spelled out (CodeRabbit).
+  // Measured: with `PATH=tools` and the binary in the pty cwd's `tools/`, the spawn succeeds.
+  it.each([[":/usr/bin"], ["/usr/bin:"], ["/a::/b"], [""], ["tools"], ["."], ["../bin"], ["/usr/bin:tools"]])(
+    "refuses nothing when PATH has a non-absolute entry (%j)",
+    (PATH) => {
+      expect(diagnoseBinary("codex", { PATH }, "darwin", probeOf({}))).toEqual({ kind: "ok", path: "codex" });
+    },
+  );
 
   // An UNSET PATH is not an empty one: execvp falls back to a built-in default this process
   // cannot enumerate.
@@ -56,6 +61,7 @@ describe("diagnoseBinary on POSIX", () => {
   it("keeps a real hit, and withholds not-executable, when an empty entry is present", () => {
     expect(diagnoseBinary("codex", { PATH: "/a::/b" }, "darwin", probeOf({ "/b/codex": "x" }))).toEqual({ kind: "ok", path: "/b/codex" });
     expect(diagnoseBinary("codex", { PATH: "/a:" }, "darwin", probeOf({ "/a/codex": "r" }))).toEqual({ kind: "ok", path: "codex" });
+    expect(diagnoseBinary("codex", { PATH: "tools:/b" }, "darwin", probeOf({ "/b/codex": "x" }))).toEqual({ kind: "ok", path: "/b/codex" });
   });
 
   it("answers missing for an empty name rather than searching for it", () => {
@@ -107,6 +113,14 @@ describe("diagnoseBinary on Windows", () => {
   it("accepts an extension-less name node-pty would still find", () => {
     const probe = probeOf({ "C:\\tools\\codex": "x" });
     expect(diagnoseBinary("codex", winEnv("C:\\tools"), "win32", probe)).toEqual({ kind: "ok", path: "C:\\tools\\codex" });
+  });
+
+  // CODEX_BIN=C:\… goes down the same branch as the POSIX override but with the OTHER path rules,
+  // and a drive-letter path is only recognised as absolute by path.win32 (CodeRabbit).
+  it("checks a drive-letter override path as given", () => {
+    const probe = probeOf({ "C:\\tools\\codex.exe": "x" });
+    expect(diagnoseBinary("C:\\tools\\codex.exe", winEnv("C:\\other"), "win32", probe)).toEqual({ kind: "ok", path: "C:\\tools\\codex.exe" });
+    expect(diagnoseBinary("C:\\gone\\codex.exe", winEnv("C:\\other"), "win32", probe)).toEqual({ kind: "no-such-path", path: "C:\\gone\\codex.exe" });
   });
 
   // The Windows rules must be answerable from a POSIX host and the POSIX rules from Windows, or
