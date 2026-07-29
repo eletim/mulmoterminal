@@ -219,7 +219,9 @@ presets** from the projects in your Claude Code history, and writes `~/.mulmoter
 It's **idempotent** — re-run it any time to refresh the presets; it overwrites the managed parts
 and keeps your other settings. When `claude` is installed it can hand off to the
 `/mulmoterminal-config` skill for interactive tweaks — it routes to the one that owns what you
-want to change.
+want to change. Once the app is up you can also reach them from **Settings**: each section that a
+skill can write ends in a button that starts that skill in a new session, which is how the settings
+with no UI (a theme of your own, `keymap`) get written without hand-editing JSON.
 
 **Google account (optional).** Link a Google account to enable the chat's `google` tool and the
 phone's `google.calendar.*` commands: read/create events on any calendar (not just your primary),
