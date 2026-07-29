@@ -35,13 +35,14 @@ export interface SessionRow {
   lastPrompt: string | null;
   aiTitle: string | null;
   lastResponse: string | null;
+  memo: string | null;
 }
 
 export function sessionRow(
   id: string,
   activity: Activity | undefined,
   cwd: string | null,
-  texts: { lastPrompt?: string | undefined; aiTitle?: string | undefined; lastResponse?: string | undefined },
+  texts: { lastPrompt?: string | undefined; aiTitle?: string | undefined; lastResponse?: string | undefined; memo?: string | undefined },
 ): SessionRow {
   const a = activity ?? {};
   return {
@@ -53,6 +54,9 @@ export function sessionRow(
     lastPrompt: texts.lastPrompt ?? null,
     aiTitle: texts.aiTitle ?? null,
     lastResponse: texts.lastResponse ?? null,
+    // Null is "this session has no memo", which is exactly what an erase should publish: the
+    // receiving header falls back to the AI title on it.
+    memo: texts.memo ?? null,
   };
 }
 

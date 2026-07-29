@@ -14,6 +14,9 @@ import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
+import { applySessionMemo, sessionMemoLine, sessionMemoRecord } from "./session-memos.js";
+import { normalizeMemo } from "../../common/sessionMemo.js";
+import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { devTerminalCwdLine, hydrateCwdsInto } from "./dev-terminal-cwds.js";
 import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
@@ -215,6 +218,47 @@ function rememberSessionCwd(id: string, cwd: string): void {
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
     .then(() => fs.appendFile(DEV_TERMINAL_CWDS_FILE, devTerminalCwdLine(id, cwd)))
     .catch((e) => console.error(`[dev-terminal-cwds] failed to persist: ${messageOf(e)}`));
+}
+
+// The one-line note the user wrote on a session (#1084). Their own words about what a cell is
+// for, which is the one thing nothing else here knows: lastPrompt and aiTitle both describe what
+// the agent said. Kept across reap and across a restart — a note the user typed is theirs, and
+// resuming the session brings it back.
+export const sessionMemos = new Map<string, string>();
+const SESSION_MEMOS_FILE = path.join(MULMOTERMINAL_HOME, "session-memos.jsonl");
+
+// Ids this process has already written. Hydration reads the file as it was BEFORE our append
+// could reach it, so without this an edit made during startup is overwritten by the old value —
+// and an ERASE has no map entry to notice, so the erased memo would come back from the dead.
+const memoWrittenIds = new Set<string>();
+
+export const sessionMemosHydrated: Promise<void> = (async () => {
+  try {
+    // Streamed rather than read whole: nothing caps this file, since it grows for as long as the
+    // user keeps editing memos.
+    await forEachJsonlRecord(SESSION_MEMOS_FILE, (parsed) => {
+      const record = sessionMemoRecord(parsed, isValidSessionId);
+      if (record && !memoWrittenIds.has(record.id)) applySessionMemo(sessionMemos, record);
+    });
+  } catch {
+    // absent on first run / unreadable => no memos, which is how every session starts anyway
+  }
+})();
+
+let memoPersist: Promise<void> = Promise.resolve();
+
+/** Store a session's memo, or erase it when the text normalizes to empty. Returns what was
+ *  stored, which is what the caller should echo back — the store's answer, not the request's. */
+export function setSessionMemo(id: string, text: string): string {
+  const memo = normalizeMemo(text);
+  if (!isValidSessionId(id)) return memo;
+  memoWrittenIds.add(id);
+  applySessionMemo(sessionMemos, { id, text: memo });
+  memoPersist = memoPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(SESSION_MEMOS_FILE, sessionMemoLine(id, memo, Date.now())))
+    .catch((e) => console.error(`[session-memos] failed to persist: ${messageOf(e)}`));
+  return memo;
 }
 
 // Which GUI tool groups a session actually has. Learned from the group URLs it connects to
