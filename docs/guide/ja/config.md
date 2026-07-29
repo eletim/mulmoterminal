@@ -207,8 +207,13 @@ auto（注目度順）と manual（移動ボタンで手動）と並びます。
 - **未設定のディレクトリは末尾**にまとまり、既存の順序を保ちます — 1つのプロジェクトに追加しても他が動きません
 - 同順位は現在の順を維持。同じディレクトリのセルが複数ある場合も同様です（順位は**ディレクトリ**の属性で、セルの属性ではありません）
 
-読むのは **priority** モードだけです。ボタンを auto や manual にしている限り、プロジェクト側が何を宣言していても
-表示は変わりません。
+**グリッド**で読むのは priority モードだけです。ボタンを auto や manual にしている限り、プロジェクト側が
+何を宣言していてもグリッドの表示は変わりません。
+
+**ランチャのディレクトリチップは、グリッドのモードに関わらず常にこの順**で並びます。同じプロジェクトが
+どちらの画面でも同じ位置に来るということです。チップは本来「最後に起動した順」で、起動のたびに並びが
+変わってしまうので、順位を宣言するのが固定する方法になります。宣言していないディレクトリは、順位を持つ
+ものの後ろに、その起動順のまま残ります。
 
 ### ヘッダーのカスタマイズ（ボタン / チップ） {#header}
 
@@ -1174,7 +1179,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 
 | キー | 役割 |
 |---|---|
-| `cwdPresets` | ランチャに並ぶ作業ディレクトリのチップ（`{ label, path }`。クリックで欄に入力、再生アイコンで即起動） |
+| `cwdPresets` | ランチャに並ぶ作業ディレクトリのチップ（`{ label, path }`。クリックで欄に入力、再生アイコンで即起動）。並び順は各ディレクトリの [`orderPriority`](#order-priority) 順で、未設定のものはその後ろに最後に起動した順で続く |
 | `launchers` | グリッドセルの「OR LAUNCH」に並ぶ起動コマンド |
 | `quickCommands` | **スマホ**のターミナル表示にチップとして並ぶ定型文（`{ label, text, agents? }`）。タップすると `text` が入力欄に入るだけで、**送信されるのは送信ボタンを押したとき**。`agents` で `"claude"` / `"codex"` / `"shell"` に絞れる（省略＝全種別）。設定画面の **Phone quick commands** で編集 |
 | `prRepos` | 横断 PR/Issue ビューの対象リポ |
@@ -1214,6 +1219,11 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `PORT` | `34567` | サーバのポート |
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | サーバが待ち受けるインターフェース（→ [下記](#bind-host)） |
 | `MULMOTERMINAL_ALLOWED_ORIGINS` | *(なし)* | ターミナルに接続してよいブラウザのオリジンを追加（カンマ区切り）。`MULMOTERMINAL_HOST` を広げたときにだけ必要（→ [下記](#bind-host)） |
+| `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | 管理下 git worktree のルート |
+| `CLAUDE_CONFIG_DIR` | `~` | Claude Code 自身の設定ディレクトリ。`.claude.json` は**この中**に置かれるので、Claude Code の設定を移すとこのファイルも一緒に移ります。MulmoTerminal は、プロジェクトごとの GUI MCP サーバが登録済みかを判定するのにこれを読みます。未設定なら `~/.claude.json` |
+| `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | 管理下の MulmoClaude ワークスペースの場所。プリセットや helps の書き込みは**このディレクトリに限定**されるので、任意のプロジェクトで起動しても余計なファイルが増えません。MulmoClaude 側と同じ値を指定してください |
+| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(なし)* | 何か値を入れると、同梱スキル（`mulmoterminal-config` / `mulmoterminal-bug-report` / `mulmoterminal-decisions`）を起動時に `~/.claude/skills/` と Codex のスキルルートへ入れる処理をやめます |
+| `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | 画像生成に使うモデル（`GEMINI_API_KEY` が必要）。既定は Google が 2026 年半ばごろの廃止を予告している**プレビュー**モデルなので、安定版（例 `gemini-2.5-flash-image`）に固定したいときはここで指定します |
 
 ### 誰がサーバに到達できるか（`MULMOTERMINAL_HOST`） {#bind-host}
 
@@ -1276,12 +1286,19 @@ MULMOTERMINAL_HOST=0.0.0.0 MULMOTERMINAL_ALLOWED_ORIGINS=nuc.local npx mulmoterm
 
 {: .warning }
 > オリジンの名指しは「**どのページがこのサーバを操作してよいか**」を決めるだけです。ログインが増える
-> わけではなく（元々ありません）、公開しても安全になるわけでもありません。`Origin` を**まったく送らない**
-> リクエストは、ここで何を名指ししてもこの機体からのもの以外は拒否されます。
+> わけではなく（元々ありません）、公開しても安全になるわけでもありません。**状態を変える**リクエスト
+> （とターミナルの WebSocket）は、`Origin` を**まったく送らず**この機体からでもない場合、ここで何を
+> 名指ししても拒否されます。
+
+読み取りはオリジンで判定しません。ブラウザは同一オリジンの `GET` に `Origin` を付けないため、この
+判定はクロスサイトの `<img>` 読み込みと区別できず、自分で開いたページを拒否するだけになります。
+読み取りを守るのはバインドで、広げたバインドではポートに到達できる相手が既に信頼されている、と上の
+警告が述べているとおりです。2.7.0 までは 2 つのステータス取得ルートだけが `GET` も判定していたため、
+名指ししたオリジンのブラウザでページは開けても `/api/remote-host/status` と `/api/google/status` の
+`403` でコンソールが埋まりました。心当たりがあれば更新してください。
 
 **スマホから使うためにこの設定は不要です。** スマホ連携は Firestore 経由で、ローカルネットワークを
 使いません（→ [スマホから使う](phone.html)）。
-| `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | 管理下 git worktree のルート |
 
 ---
 

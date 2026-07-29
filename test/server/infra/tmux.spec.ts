@@ -7,6 +7,7 @@ import {
   parseTmuxEnvironment,
   parseAttachedClientCount,
   parseTmuxTerminalModes,
+  redrawTargets,
   planMsOverride,
   MS_OVERRIDE_ENTRY,
 } from "../../../server/infra/tmux";
@@ -249,5 +250,36 @@ describe("parseTmuxTerminalModes", () => {
   it("restores nothing from output tmux could not produce", () => {
     expect(parseTmuxTerminalModes("")).toEqual([]);
     expect(parseTmuxTerminalModes("no server running")).toEqual([]);
+  });
+});
+
+// Fields: `#{client_pid} #{client_tty}`.
+describe("redrawTargets", () => {
+  const OUR_PID = 29421;
+
+  it("repaints our own client", () => {
+    expect(redrawTargets(`${OUR_PID} /dev/ttys019\n`, OUR_PID)).toEqual(["/dev/ttys019"]);
+  });
+
+  // tmux promises nothing about the order of list-clients, so taking the first line would send the
+  // repaint to another server's browser and leave this one showing the half-built screen.
+  it("picks ours out of a session several clients are attached to, wherever it is listed", () => {
+    const listed = `40100 /dev/ttys002\n${OUR_PID} /dev/ttys019\n40200 /dev/ttys044\n`;
+    expect(redrawTargets(listed, OUR_PID)).toEqual(["/dev/ttys019"]);
+  });
+
+  // Repainting someone else's client is harmless; repainting nobody is the bug itself.
+  it("falls back to every client when our pid is not in the list", () => {
+    const listed = `40100 /dev/ttys002\n40200 /dev/ttys044\n`;
+    expect(redrawTargets(listed, OUR_PID)).toEqual(["/dev/ttys002", "/dev/ttys044"]);
+  });
+
+  it("has nothing to repaint when no client is attached", () => {
+    expect(redrawTargets("", OUR_PID)).toEqual([]);
+    expect(redrawTargets("\n \n", OUR_PID)).toEqual([]);
+  });
+
+  it("ignores a line that carries no tty", () => {
+    expect(redrawTargets(`${OUR_PID}\n${OUR_PID} /dev/ttys019\n`, OUR_PID)).toEqual(["/dev/ttys019"]);
   });
 });

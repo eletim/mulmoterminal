@@ -27,6 +27,10 @@ export interface PtyEntry {
   // True when `term` is a tmux client (persistent): killing it only detaches, so reap
   // must kill the tmux session to actually end the program.
   tmux?: boolean;
+  // A reattach replayed a delta tail, so the browser's screen is only as complete as that window
+  // (see tmuxRedrawClient). Cleared by the first resize frame after the reattach — waiting for it
+  // is the point, since that frame is where the client tells us the size it actually settled at.
+  redrawPending?: boolean;
   // True when `term` is a `docker run` client (single-view sandbox): reap force-removes
   // the container, since killing the client alone can leave it running.
   sandbox?: boolean;

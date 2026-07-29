@@ -332,6 +332,44 @@ export function tmuxTerminalModes(id: string): number[] {
   return r.status === 0 ? parseTmuxTerminalModes(r.stdout) : [];
 }
 
+// Which client ttys to repaint, from `list-clients -F '#{client_pid} #{client_tty}'`.
+//
+// A session can carry SEVERAL clients — another mulmoterminal server holding it (the case
+// tmuxAttachedClientCount exists for), or a stray `tmux attach` — and tmux promises nothing about
+// their order, so "the first line" can be somebody else's terminal. Ours is identifiable: the pty
+// we spawned IS the tmux client, so `client_pid` is `entry.term.pid`. Measured on a live session:
+// list-clients reported `29421`, and the `new-session -A -s mt-<id>` process we spawned was 29421.
+//
+// When no line carries our pid — a tmux that doesn't report it, or a client someone else attached
+// after ours went away — every client is repainted rather than none. A repaint is idempotent, and
+// skipping ours is the single outcome that leaves the bug in place.
+export function redrawTargets(stdout: string, clientPid: number): string[] {
+  const clients = splitLines(stdout)
+    .map((line) => line.trim().split(/\s+/))
+    .filter((parts) => parts.length >= 2)
+    .map(([pid, tty]) => ({ pid: Number(pid), tty }));
+  const ours = clients.filter((client) => client.pid === clientPid);
+  return (ours.length > 0 ? ours : clients).map((client) => client.tty);
+}
+
+// Make tmux repaint the WHOLE pane onto our client, even though nothing about the pane changed.
+//
+// The reattach replay is a bounded tail of tmux's output — a stream of DELTAS, not a screen. Fed to
+// a freshly reset terminal it reconstructs only the cells that happened to change inside that
+// window: rows that never changed stay blank, and cells written at different moments end up side by
+// side. A pty resize normally hides this, because tmux answers a size change with a full redraw —
+// but a reattach that ends at the size the pty already had leaves tmux with nothing to say, and the
+// browser keeps the half-built screen. Since the replay now lands in the ALTERNATE buffer, which
+// does not reflow, there is also no later resize that can repair it (#1073).
+//
+// Measured against a live session: one `refresh-client` returns every row of a 25-row screen in a
+// single 666-byte burst, where an idle pane sends nothing at all.
+export function tmuxRedrawClient(id: string, clientPid: number): void {
+  const clients = tmux(["list-clients", "-t", tmuxSessionName(id), "-F", "#{client_pid} #{client_tty}"]);
+  if (clients.status !== 0) return;
+  redrawTargets(clients.stdout, clientPid).forEach((tty) => tmux(["refresh-client", "-t", tty]));
+}
+
 // Parse `#{session_attached}`. Its own function so the "unreadable means nobody" rule is
 // testable: a caller deciding whether to KILL a session must not read a failure as 0.
 export function parseAttachedClientCount(stdout: string): number | null {

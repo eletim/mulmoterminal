@@ -212,8 +212,13 @@ toolbar's ordering button, alongside auto (attention-first) and manual (the move
 - Equal ranks keep their current order, which is also what happens when several cells share one directory
   (the rank belongs to the *directory*, not the cell).
 
-Only the **priority** mode reads it. Leave the button on auto or manual and nothing changes, whatever
-your projects declare.
+In the **grid**, only the priority mode reads it — leave the button on auto or manual and nothing changes
+there, whatever your projects declare.
+
+The **launcher's directory chips always sort by it**, whichever mode the grid's button is on, so a project
+sits in the same place on both screens. The chips otherwise come in the order you last launched them, which
+changes under you; declaring ranks is how you pin them down. Directories that declare none stay behind the
+ranked ones, in that launch order.
 
 ### Customizing the header (buttons / chips) {#header}
 
@@ -1207,7 +1212,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 
 | Key | Role |
 |---|---|
-| `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch) |
+| `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch). Ordered by each directory's [`orderPriority`](#order-priority); the ones that declare none follow, in the order you last launched them |
 | `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell |
 | `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
@@ -1249,6 +1254,10 @@ there to look at.
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | The interface the server binds to (→ [below](#bind-host)) |
 | `MULMOTERMINAL_ALLOWED_ORIGINS` | *(none)* | Extra browser origins allowed to attach a terminal, comma-separated. Only needed alongside a wider `MULMOTERMINAL_HOST` (→ [below](#bind-host)) |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
+| `CLAUDE_CONFIG_DIR` | `~` | Claude Code's own config directory. `.claude.json` lives **inside** it, so relocating your Claude Code config moves that file too. MulmoTerminal reads it to tell whether the per-project GUI MCP server is registered. Unset means `~/.claude.json` |
+| `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | Where the managed MulmoClaude workspace lives. Presets and helps are seeded **only** into this directory, so launching in an arbitrary project never writes them there. Set it to the same value MulmoClaude uses |
+| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(none)* | Set to any value to skip installing the bundled skills (`mulmoterminal-config`, `mulmoterminal-bug-report`, `mulmoterminal-decisions`) into `~/.claude/skills/` and the Codex skills root on startup |
+| `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | The model used for image generation (needs `GEMINI_API_KEY`). The default is a **preview** model Google schedules for retirement around mid-2026 — pin a stable one here (e.g. `gemini-2.5-flash-image`) rather than waiting for a code change |
 
 ### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}
 
@@ -1312,8 +1321,16 @@ connects to `localhost` and is allowed for that reason alone.
 
 {: .warning }
 > Naming an origin says **which pages may drive this server**. It does not add a login — there
-> still isn't one — and it does not make the server safe to expose. A request that sends *no*
-> `Origin` at all is still refused unless it comes from this machine, whatever you name here.
+> still isn't one — and it does not make the server safe to expose. A request that **changes**
+> something (and every terminal WebSocket) is still refused when it sends *no* `Origin` and does
+> not come from this machine, whatever you name here.
+
+Reads are not judged by origin at all. A browser sends no `Origin` on a same-origin `GET`, so the
+check cannot tell one from a cross-site `<img>` load and would only refuse the page you opened
+yourself — what protects a read is the bind, which is why the warning above says a widened bind
+trusts anything that can reach the port. Up to and including 2.7.0 two status routes judged a `GET`
+anyway, so a browser on a named origin loaded the page and then filled the console with `403` from
+`/api/remote-host/status` and `/api/google/status`; if you see that, upgrade.
 
 You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
 host over Firestore, not over your local network (→ [from your phone](phone.html)).
