@@ -14,6 +14,9 @@ and a **phone push** reaches you when a turn finishes.
   view, everyday workflows, the full feature list, configuration, and mobile push notifications.
 - **ユーザーガイド:** [日本語](https://receptron.github.io/mulmoterminal/guide/ja/) —
   グリッドの使い方・日々のワークフロー・機能一覧・設定・スマホ通知の設定はこちら。
+- **Updates / アップデート情報:** new releases and features are announced **in Japanese** on X —
+  新バージョンや新機能のお知らせは X の
+  [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci) で。
 
 ![MulmoTerminal — a grid of live Claude Code sessions, each color-coded by state, updating in real time](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/hero.gif)
 
