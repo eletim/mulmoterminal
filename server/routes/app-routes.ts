@@ -74,6 +74,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
   reap: (id: string) => void;
+  registerBackgroundSession: (id: string) => void;
 }
 
 // The channel a directory-config change is announced on.
@@ -98,7 +99,11 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat,
   // manageAccounting, manageCollection (routes/plugin-routes.ts). ALL of them must precede
   // mountAllRoutes' /api/plugin/:toolName catch-all below, which would otherwise take them.
-  mountPluginRoutes(app, { spawnClaudePty: deps.spawnClaudePty, spawnCodexPty: deps.spawnCodexPty });
+  mountPluginRoutes(app, {
+    spawnClaudePty: deps.spawnClaudePty,
+    spawnCodexPty: deps.spawnCodexPty,
+    registerBackgroundSession: deps.registerBackgroundSession,
+  });
 
   // presentHtml View's source-editor dispatch (loadHtml/saveHtml) on
   // /api/plugin/presentHtml. MUST precede mountAllRoutes' /api/plugin/:toolName

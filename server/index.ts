@@ -50,7 +50,7 @@ import { generateTitleFromTurns } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys, sessionCwd } from "./session/registry.js";
+import { activity, aiTitles, backgroundMarkers, devTerminalSessions, knownSessions, lastPrompts, ptys, sessionCwd } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { createToolStores } from "./session/tool-store.js";
 import { writeDecisionDigest } from "./session/decision-digest-file.js";
@@ -402,6 +402,8 @@ mountAppRoutes(app, {
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
   maybeGenerateTitle,
   reap,
+  // Defined further down; reached only from a request, which cannot arrive before listen().
+  registerBackgroundSession: (id: string) => scheduledSessions.register(id),
   setWorking,
   setWaiting,
   publishActivity,
@@ -464,10 +466,16 @@ initAccountingBackend({ workspace: CLAUDE_CWD, pubsub });
 // the session layer. A MANUAL refresh spawns a VISIBLE session (hidden:false) the user can
 // watch; `onComplete` is honoured only for hidden (scheduled) workers, which MulmoTerminal
 // doesn't register yet, so it's unused for now. `roleId` is ignored (no role system).
+//
+// A hidden one goes on the scheduled-session retention (#541): the chat list keeps it behind
+// the Background filter, so nobody is watching for it to finish and nothing else would ever
+// end it. `scheduledSessions` is defined further down, which is safe because the system task
+// that calls this is registered later still (initUserTaskScheduler).
 const feedsSpawnWorker: AgentWorkerRunner = async ({ message, hidden }) => {
   const sessionId = randomUUID();
   try {
-    runWithHiddenMarker(hidden, sessionId, hiddenSessions, () => spawnClaudePty(sessionId, null, null, { initialPrompt: message }));
+    runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => spawnClaudePty(sessionId, null, null, { initialPrompt: message }));
+    if (hidden) scheduledSessions.register(sessionId);
     return { ok: true, chatId: sessionId };
   } catch (err) {
     return { ok: false, error: messageOf(err) };
