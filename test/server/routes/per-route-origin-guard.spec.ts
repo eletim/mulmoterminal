@@ -9,20 +9,27 @@ import { fileURLToPath } from "node:url";
 // The origin check answers "which browser PAGE may drive this server". A browser sends NO Origin
 // on a same-origin GET, so a GET judged by it can only refuse the honest page — which is why the
 // rule (routes/same-origin-guard.ts) exempts safe methods. The exemption lived in the middleware
-// only, so the two routes that kept a guard of their own on a GET asked the predicate directly
-// and answered 403 to every page served from an operator-named LAN origin. The other eight
-// per-route guards happened to sit on a POST, which is the only reason they were fine.
+// only, so the two guards that sat on a GET asked the predicate directly and answered 403 to every
+// page served from an operator-named LAN origin. The remaining per-route guards were fine only
+// because every one of them happened to sit on a POST.
 //
-// So: an Express route may not ask the predicate itself. `requestOriginAllowed` is the per-route
-// form, and it carries the exemption with it.
+// So: an Express route may not read the Origin header itself. `requestOriginAllowed` is the
+// per-route form, and it carries the exemption with it.
+//
+// Enforced by forbidding the READ rather than the call, which is what a route has to do first
+// however it then reaches the predicate — a call-shaped pattern is evadable by nesting or by
+// renaming the parameter, and this is not.
 const SERVER_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../server");
 
-// The three callers that are NOT Express routes, and cannot use the helper:
+// The three readers that are NOT Express routes, and cannot use the helper:
 //   same-origin-guard.ts  defines it
 //   ws-routes.ts          a WebSocket upgrade is a raw IncomingMessage — no route, no method to
 //                         exempt, and a browser always sends Origin on a handshake
 //   pubsub.ts             socket.io's own handshake/CORS hooks, one of which is handed no request
-const DIRECT_CALLERS = new Set(["routes/same-origin-guard.ts", "routes/ws-routes.ts", "infra/pubsub.ts"]);
+const ORIGIN_READERS = new Set(["routes/same-origin-guard.ts", "routes/ws-routes.ts", "infra/pubsub.ts"]);
+
+// Every spelling of "read this request's Origin" Express offers.
+const READS_ORIGIN = /headers\.origin\b|headers\[["']origin["']\]|\.get\(["']origin["']\)/i;
 
 function* tsFiles(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -32,31 +39,24 @@ function* tsFiles(dir: string): Generator<string> {
   }
 }
 
-/** Files handing a request's Origin header straight to the predicate. Matched on the whole
- *  argument rather than the exact `req.headers.origin` spelling, so renaming the parameter or
- *  wrapping the line does not slip past. */
-function directPredicateCallers(): string[] {
+/** Files that read a request's Origin header at all, whichever spelling they use. */
+function originReadingFiles(): string[] {
   const files: string[] = [];
   for (const file of tsFiles(SERVER_DIR)) {
-    if (/isAllowedOrigin\([^)]*headers\.origin/.test(readFileSync(file, "utf-8"))) {
+    if (READS_ORIGIN.test(readFileSync(file, "utf-8"))) {
       files.push(path.relative(SERVER_DIR, file).split(path.sep).join("/"));
     }
   }
   return files.sort();
 }
 
-const usesHelper = (file: string): boolean => /requestOriginAllowed\(/.test(readFileSync(path.join(SERVER_DIR, file), "utf-8"));
-
+// What the two #1094 routes must actually DO is not asserted here, on purpose: a source scan can
+// only say a file mentions the helper, which would still pass if /api/remote-host/status lost its
+// guard while a sibling POST kept one. That belongs where it can be observed instead of grepped —
+// remoteHost/routes.spec.ts and backends/google.spec.ts each drive the real route with a predicate
+// that refuses everything, and assert the GET answers 200 while the POST still 403s.
 describe("per-route origin guards", () => {
-  it("go through requestOriginAllowed, not the predicate directly", () => {
-    expect(directPredicateCallers()).toEqual([...DIRECT_CALLERS].sort());
-  });
-
-  // The allowlist above would also be satisfied by a route that dropped its guard entirely, so
-  // the two #1094 routes are named: theirs is the GET that must stay reachable AND the POST that
-  // must stay gated, which is exactly what the helper decides between.
-  it("are what the two routes from #1094 use", () => {
-    expect(usesHelper("backends/remoteHost/routes.ts")).toBe(true);
-    expect(usesHelper("backends/google.ts")).toBe(true);
+  it("leave the Origin header to requestOriginAllowed", () => {
+    expect(originReadingFiles()).toEqual([...ORIGIN_READERS].sort());
   });
 });

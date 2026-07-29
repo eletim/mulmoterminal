@@ -52,15 +52,18 @@ One helper, in the file that owns the rule, and every Express-side guard routed 
 
 ```ts
 // routes/same-origin-guard.ts
-export function requestOriginAllowed(req: Request, isAllowedOrigin: IsAllowedOrigin): boolean {
-  return !needsSameOrigin(req.method, req.path) || isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress);
+export function requestOriginAllowed(req: Request, isAllowedOrigin: OriginPredicate): boolean {
+  if (!needsSameOrigin(req.method, req.path)) return true;
+  return isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress);
 }
 ```
 
 `sameOriginGuard` is rewritten to call it too, so there is exactly one expression of the verdict.
 
-The 12 per-route call sites become `requestOriginAllowed(req, isAllowedOrigin)`. For the ten on a
-POST that is the same boolean it computed before. For the two GETs it is the fix.
+The 11 per-route call sites, across 7 files, become `requestOriginAllowed(req, isAllowedOrigin)`.
+Nine of them guard a POST and get the same boolean they computed before; the two that a GET reaches
+(`remoteHost/routes.ts`'s `guard`, `google.ts`'s `forbidden`, each shared with that module's POSTs)
+are the fix.
 
 `ws-routes.ts` and `pubsub.ts` keep the direct call: a WS upgrade is a raw `IncomingMessage` with
 no route and no method to exempt, and socket.io's CORS callback is handed no request at all.
@@ -97,9 +100,11 @@ mode on browsers that predate `Sec-Fetch-*`.
   a predicate that refuses everything.
 - `backends/google.spec.ts` — same swap: GET /status leaves the 403 table and gains a 200 case.
 - **New sweep**, `test/server/routes/per-route-origin-guard.spec.ts`, in the shape of
-  `sendfile-dotfiles.spec.ts` (#954): no file under `server/` may call
-  `isAllowedOrigin(req.headers.origin …)` outside `same-origin-guard.ts`, `ws-routes.ts` and
-  `pubsub.ts`. That is what stops the next per-route GET guard from reopening this.
+  `sendfile-dotfiles.spec.ts` (#954): no file under `server/` may READ the Origin header outside
+  `same-origin-guard.ts`, `ws-routes.ts` and `pubsub.ts`. Forbidding the read rather than the call
+  is what makes it hard to evade — a route has to read the header first however it then reaches
+  the predicate, whereas a call-shaped pattern slips past a nested argument or a renamed
+  parameter. That is what stops the next per-route GET guard from reopening this.
 
 Four existing specs call a captured route handler directly with a hand-built request, and those
 requests carried no `method` / `path` — which Express always sets and this guard now reads. Fixed
