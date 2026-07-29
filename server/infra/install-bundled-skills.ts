@@ -17,7 +17,21 @@ const OWNER_MARKER_BODY = "managed by mulmoterminal\n";
 // name makes the collections engine load the skill dir as a (broken) user-scope collection.
 export const SCHEMA_ASSET_FILE = "dir-config.schema.json";
 
-export const BUNDLED_SKILL_NAMES = ["mulmoterminal-config", "mulmoterminal-bug-report", "mulmoterminal-decisions"] as const;
+export const BUNDLED_SKILL_NAMES = [
+  "mulmoterminal-config",
+  "mulmoterminal-dirs",
+  "mulmoterminal-theme",
+  "mulmoterminal-header",
+  "mulmoterminal-keys",
+  "mulmoterminal-model",
+  "mulmoterminal-notify",
+  "mulmoterminal-bug-report",
+  "mulmoterminal-decisions",
+] as const;
+
+// The skill the generated per-directory JSON Schema ships with — the one that writes
+// `.mulmoterminal.json`, so the schema describes exactly what it emits.
+const SCHEMA_OWNER_SKILL = "mulmoterminal-dirs";
 
 function bundledSkillDir(name: string): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -55,12 +69,12 @@ function skillsRoots(): string[] {
   return [path.join(os.homedir(), ".claude", "skills"), codexSkillsRoot()];
 }
 
-// The generated JSON Schema rides along with the config skill only, so it validates against the
-// exact live shape rather than a hand-copied one that could drift. NOT named `schema.json`: the
-// collections engine treats any skill dir holding that exact filename as a user-scope collection
-// definition, and would log a validation failure for ours.
+// The generated JSON Schema rides along with the skill that writes `.mulmoterminal.json`, so it
+// validates against the exact live shape rather than a hand-copied one that could drift. NOT named
+// `schema.json`: the collections engine treats any skill dir holding that exact filename as a
+// user-scope collection definition, and would log a validation failure for ours.
 const extrasFor = (name: string): Record<string, string> =>
-  name === "mulmoterminal-config" ? { [SCHEMA_ASSET_FILE]: JSON.stringify(dirConfigJsonSchema(), null, 2) + "\n" } : {};
+  name === SCHEMA_OWNER_SKILL ? { [SCHEMA_ASSET_FILE]: JSON.stringify(dirConfigJsonSchema(), null, 2) + "\n" } : {};
 
 export function installBundledSkills(): void {
   if (process.env.MULMOTERMINAL_NO_SKILL_INSTALL) return;

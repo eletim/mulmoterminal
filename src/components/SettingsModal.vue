@@ -496,8 +496,8 @@ onUnmounted(() => {
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory appearance</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
-        Launch the <code>mulmoterminal-config</code> skill to style a directory — name badge, colors, terminal palette, header buttons. It configures the
-        focused session's directory, or lets you pick from your recent directories.
+        Launch the <code>mulmoterminal-dirs</code> skill to style and order your directories — name badge, colors, terminal palette, grid position. It starts
+        from the directories you actually open, reads the settings you already have, and follows the same pattern for the ones that have none.
       </p>
       <SettingsButton @click="emit('configure-appearance')"
         ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton

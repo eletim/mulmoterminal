@@ -225,7 +225,7 @@ function sendTextMessage(text: string): boolean {
 // active session), and select it so it shows. The skill then asks which directory / batch. codex
 // rewriting is handled server-side (spawnBackgroundChat → codexifySkillSeed).
 function configureAppearance(): void {
-  void startCollectionChat("/mulmoterminal-config");
+  void startCollectionChat("/mulmoterminal-dirs");
   showSettings.value = false;
 }
 
