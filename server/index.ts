@@ -14,6 +14,7 @@ import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommand
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
+import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
   tmuxAvailable,
@@ -50,7 +51,18 @@ import { generateTitleFromTurns } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, backgroundMarkers, devTerminalSessions, knownSessions, lastPrompts, ptys, sessionCwd } from "./session/registry.js";
+import {
+  activity,
+  aiTitles,
+  backgroundMarkers,
+  devTerminalSessions,
+  knownSessions,
+  lastPrompts,
+  ptys,
+  sessionCwd,
+  sessionMemos,
+  sessionMemosHydrated,
+} from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { registerCompletionHook } from "./session/completion-hooks.js";
@@ -542,6 +554,7 @@ const remoteHostListTerminalSessions = async () => {
   // row with no directory and no work item.
   const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
   const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
+  await sessionMemosHydrated; // the memo IS the phone's row title when there is one
   return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
@@ -557,7 +570,11 @@ const remoteHostListTerminalSessions = async () => {
       // holding undefined, and Firestore then refuses the entire reply rather than that one field.
       const summary = work.get(cwdOfSession(id));
       return {
-        title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
+        // The same precedence as the cell header and the sidebar, through the same helper: the
+        // phone is where "which of these is which" is hardest, and it renders `title` and nothing
+        // else — so riding in that field is also what puts a memo on a phone with no core release
+        // and no schema change.
+        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), knownSessions.get(id)?.title),
         cwd: cwdOfSession(id),
         agent: agentOfSession(id),
         ...(summary ? { work: summary } : {}),

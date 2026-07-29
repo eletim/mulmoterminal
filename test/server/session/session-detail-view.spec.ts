@@ -64,6 +64,13 @@ describe("sessionDetailView", () => {
     expect(sessionDetailView({ aiTitle: "" }, TRANSCRIPT, NO_ACTIVITY, NOT_CLEARED).aiTitle).toBe("");
   });
 
+  // The seed a grid cell renders its header from before any push arrives (#1084). Absent is the
+  // ordinary case — an erased memo is deleted from the store, not kept as "".
+  it("reports the session's memo, or none", () => {
+    expect(sessionDetailView({ memo: "#1077 の検証" }, TRANSCRIPT, NO_ACTIVITY).memo).toBe("#1077 の検証");
+    expect(sessionDetailView({}, TRANSCRIPT, NO_ACTIVITY).memo).toBeNull();
+  });
+
   describe("activity", () => {
     it("passes the flags through", () => {
       const view = sessionDetailView({}, TRANSCRIPT, { working: true, waiting: false, event: "Stop" }, NOT_CLEARED);

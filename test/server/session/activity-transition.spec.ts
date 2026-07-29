@@ -103,6 +103,7 @@ describe("sessionRow", () => {
       lastPrompt: null,
       aiTitle: null,
       lastResponse: null,
+      memo: null,
     });
   });
 
@@ -130,6 +131,13 @@ describe("sessionRow", () => {
       lastPrompt: "",
       lastResponse: "",
     });
+  });
+
+  // A memo is what the cell header, the sidebar and the phone all name the session by, and this
+  // row is how an edit in one tab reaches the others.
+  it("carries the memo, and publishes null for a session with none", () => {
+    expect(sessionRow("S", undefined, null, { memo: "release check" }).memo).toBe("release check");
+    expect(sessionRow("S", undefined, null, {}).memo).toBeNull();
   });
 
   it("keeps a null cwd, which is what a reaped session has", () => {

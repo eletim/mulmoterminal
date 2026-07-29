@@ -27,6 +27,7 @@ import {
   launchChoices,
   persistActivityState,
   ptys,
+  sessionMemos,
   titleInFlight,
 } from "./registry.js";
 import { clearedTranscripts, forgetClearedTranscript } from "./cleared-transcripts.js";
@@ -189,6 +190,7 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
     lastPrompt: lastPrompts.get(id),
     aiTitle: aiTitles.get(id),
     lastResponse: lastResponses.get(id),
+    memo: sessionMemos.get(id),
   });
   deps.sessionActivityPublisher.publish(id, { working: row.working, waiting: row.waiting, event: row.event, workPhase: deps.workPhaseOf(id) });
   deps.publish(SESSIONS_CHANNEL, row);
