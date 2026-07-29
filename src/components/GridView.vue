@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick } from "vue";
-import TerminalGrid from "./TerminalGrid.vue";
+import TerminalGrid, { type CockpitRow } from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
 import GuideLinks from "./GuideLinks.vue";
@@ -49,7 +49,7 @@ import { preferredLaunchDir } from "./launchDir";
 import * as conn from "../composables/useTerminalConnections";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
-import { becameCiFailing, EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type WorkPhase } from "./rosterPhase";
+import { becameCiFailing, EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type SessionMetaView } from "./rosterPhase";
 import { notifySound } from "../composables/notifySound";
 import { useGridActivity } from "../composables/useGridActivity";
 import { registerNewTerminalHandler, type NewTerminalRequest } from "../composables/useNewTerminal";
@@ -130,11 +130,10 @@ const orderedCells = computed(() => orderCells(state.value.cells, statusForSort.
 const displayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
 const expandedUid = computed(() => zoomedUid(state.value));
 
-// The zoomed grid's cockpit roster: a text row per cell — status + dir + AI summary +
-// current prompt + the agent's latest reply — so many parallel agents can be supervised
-// past the 9-thumbnail grid, and the enlarged terminal is switched by picking a row.
-type SessionMeta = { lastPrompt: string | null; aiTitle: string | null; lastResponse: string | null; workPhase: WorkPhase | null };
-const sessionMeta = reactive(new Map<string, SessionMeta>());
+// The zoomed grid's cockpit roster: a text row per cell — status + dir + the user's memo +
+// AI summary + current prompt + the agent's latest reply — so many parallel agents can be
+// supervised past the 9-thumbnail grid, and the enlarged terminal is switched by picking a row.
+const sessionMeta = reactive(new Map<string, SessionMetaView>());
 // Single source of truth for the roster's prompt / summary / reply: each cell's on-disk
 // transcript, read via GET /api/session/:id (always current, and works for sessions this
 // MulmoTerminal doesn't manage — a plain `claude` you resumed emits nothing over pub/sub).
@@ -152,7 +151,7 @@ async function seedMeta(id: string, cwd: string | null) {
     const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
     const res = await fetch(`/api/session/${id}${query}`);
     if (!res.ok || latestMetaSeed.get(id) !== seed) return;
-    const d = (await res.json()) as Partial<SessionMeta>;
+    const d = (await res.json()) as Partial<SessionMetaView>;
     if (latestMetaSeed.get(id) !== seed) return;
     sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, d));
   } catch {
@@ -293,25 +292,31 @@ onBeforeUnmount(stopPoll);
 
 // A cell with no session/prompt yet still gets a human label from what it IS running.
 const fallbackLabel = (c: Cell): string | null => c.command?.label ?? c.launcher?.label ?? (c.session ? "starting…" : "empty");
-const listRows = computed(() =>
-  orderedCells.value.map((c) => {
-    const meta = c.session ? sessionMeta.get(c.session) : undefined;
-    return {
-      uid: c.uid,
-      cwd: c.cwd,
-      agent: c.agent ?? "claude",
-      status: statusForSort.value[c.uid] ?? ("idle" as CellStatus),
-      summary: meta?.aiTitle ?? null,
-      prompt: meta?.lastPrompt ?? null,
-      response: meta?.lastResponse ?? null,
-      fallback: fallbackLabel(c),
-      phase: (c.cwd ? phaseByCwd.get(c.cwd) : undefined) ?? ("none" as PrPhase),
-      workPhase: meta?.workPhase ?? null,
-      headerColor: (c.cwd ? chromeByCwd.get(c.cwd)?.headerColor : null) ?? null,
-      headerTextColor: (c.cwd ? chromeByCwd.get(c.cwd)?.headerTextColor : null) ?? null,
-    };
-  }),
-);
+// "Nothing known yet" is resolved ONCE per lookup rather than per field. Five of the row's fields
+// come out of the meta and two out of the chrome, so a `??` on each both crossed the complexity
+// limit and made every field independently defaultable — which is how a field the roster never
+// wired up reads as a legitimate null rather than failing to typecheck.
+const chromeOf = (cwd: string | null): RowChrome => (cwd ? chromeByCwd.get(cwd) : undefined) ?? { headerColor: null, headerTextColor: null };
+const rosterRow = (c: Cell): CockpitRow => {
+  const meta = (c.session ? sessionMeta.get(c.session) : undefined) ?? EMPTY_SESSION_META;
+  const chrome = chromeOf(c.cwd);
+  return {
+    uid: c.uid,
+    cwd: c.cwd,
+    agent: c.agent ?? "claude",
+    status: statusForSort.value[c.uid] ?? ("idle" as CellStatus),
+    memo: meta.memo,
+    summary: meta.aiTitle,
+    prompt: meta.lastPrompt,
+    response: meta.lastResponse,
+    fallback: fallbackLabel(c),
+    phase: (c.cwd ? phaseByCwd.get(c.cwd) : undefined) ?? ("none" as PrPhase),
+    workPhase: meta.workPhase,
+    headerColor: chrome.headerColor,
+    headerTextColor: chrome.headerTextColor,
+  };
+};
+const listRows = computed(() => orderedCells.value.map(rosterRow));
 // The cancelable trailing launch cell's uid (null when there's nothing to cancel):
 // drives both the toolbar's cancel state and the launcher's in-cell close button.
 const cancelUid = computed(() => cancelableLaunchUid(state.value));
