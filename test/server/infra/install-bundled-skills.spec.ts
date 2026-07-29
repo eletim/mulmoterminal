@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { chmodSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { BUNDLED_SKILL_NAMES, installOwnedSkill, SCHEMA_ASSET_FILE } from "../../../server/infra/install-bundled-skills";
+import { installOwnedSkill, SCHEMA_ASSET_FILE } from "../../../server/infra/install-bundled-skills";
+import { BUNDLED_SKILL_NAMES } from "../../../common/bundledSkills.js";
 import { loadDirConfig } from "../../../server/config/dir-config";
 import { isRecord } from "../../../common/isRecord.js";
 

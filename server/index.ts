@@ -153,7 +153,8 @@ await fs.mkdir(CLAUDE_CWD, { recursive: true });
 initWorkspaceSetup({ workspace: CLAUDE_CWD });
 
 // Install the skills we ship into the user's global skills roots so any launched terminal can run
-// `/mulmoterminal-config` (author a .mulmoterminal.json) and `/mulmoterminal-bug-report`.
+// `/mulmoterminal-config` (the settings entry point, which routes to -dirs / -theme / -header /
+// -keys / -model / -notify) and `/mulmoterminal-bug-report`.
 // Best-effort + never clobbers a user's own same-named skill (see install-bundled-skills.ts).
 installBundledSkills();
 

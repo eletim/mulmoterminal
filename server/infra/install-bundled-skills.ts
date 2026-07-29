@@ -1,5 +1,5 @@
 // Install the skills we ship into the user's global skills roots on boot, so each is callable from
-// ANY launched terminal (`/mulmoterminal-config`, `/mulmoterminal-bug-report`) regardless of cwd —
+// ANY launched terminal (`/mulmoterminal-config` and the rest of the family) regardless of cwd —
 // including under `npx`, since they ship in the package. Modeled on server/codex-skills.ts: an
 // ownership marker means we only ever refresh OUR copy and never clobber a user's own same-named
 // skill. Best-effort: a filesystem failure logs and continues, never aborting server startup.
@@ -10,28 +10,13 @@ import { fileURLToPath } from "node:url";
 import { codexSkillsRoot } from "../agents/codex-skills.js";
 import { dirConfigJsonSchema } from "../config/config-schema.js";
 import { removeQuietly } from "./fs-cleanup.js";
+import { BUNDLED_SKILL_NAMES, DIR_CONFIG_SKILL } from "../../common/bundledSkills.js";
 
 const OWNER_MARKER = ".mt-owned";
 const OWNER_MARKER_BODY = "managed by mulmoterminal\n";
 // The generated JSON Schema shipped alongside SKILL.md. Must NOT be `schema.json` — that exact
 // name makes the collections engine load the skill dir as a (broken) user-scope collection.
 export const SCHEMA_ASSET_FILE = "dir-config.schema.json";
-
-export const BUNDLED_SKILL_NAMES = [
-  "mulmoterminal-config",
-  "mulmoterminal-dirs",
-  "mulmoterminal-theme",
-  "mulmoterminal-header",
-  "mulmoterminal-keys",
-  "mulmoterminal-model",
-  "mulmoterminal-notify",
-  "mulmoterminal-bug-report",
-  "mulmoterminal-decisions",
-] as const;
-
-// The skill the generated per-directory JSON Schema ships with — the one that writes
-// `.mulmoterminal.json`, so the schema describes exactly what it emits.
-const SCHEMA_OWNER_SKILL = "mulmoterminal-dirs";
 
 function bundledSkillDir(name: string): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -74,7 +59,7 @@ function skillsRoots(): string[] {
 // `schema.json`: the collections engine treats any skill dir holding that exact filename as a
 // user-scope collection definition, and would log a validation failure for ours.
 const extrasFor = (name: string): Record<string, string> =>
-  name === SCHEMA_OWNER_SKILL ? { [SCHEMA_ASSET_FILE]: JSON.stringify(dirConfigJsonSchema(), null, 2) + "\n" } : {};
+  name === DIR_CONFIG_SKILL ? { [SCHEMA_ASSET_FILE]: JSON.stringify(dirConfigJsonSchema(), null, 2) + "\n" } : {};
 
 export function installBundledSkills(): void {
   if (process.env.MULMOTERMINAL_NO_SKILL_INSTALL) return;
