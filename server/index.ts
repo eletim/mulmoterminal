@@ -52,6 +52,7 @@ import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
 import { activity, aiTitles, backgroundMarkers, devTerminalSessions, knownSessions, lastPrompts, ptys, sessionCwd } from "./session/registry.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
+import { registerCompletionHook } from "./session/completion-hooks.js";
 import { createToolStores } from "./session/tool-store.js";
 import { writeDecisionDigest } from "./session/decision-digest-file.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
@@ -464,18 +465,23 @@ initAccountingBackend({ workspace: CLAUDE_CWD, pubsub });
 // MulmoTerminal's own session spawn — adapted to @mulmoclaude/core/feeds' AgentWorkerRunner
 // shape here (where spawnClaudePty lives) and injected, so the feeds backend never imports
 // the session layer. A MANUAL refresh spawns a VISIBLE session (hidden:false) the user can
-// watch; `onComplete` is honoured only for hidden (scheduled) workers, which MulmoTerminal
-// doesn't register yet, so it's unused for now. `roleId` is ignored (no role system).
+// watch, and the engine sends no `onComplete` for one — watching it IS the report.
+// `roleId` is ignored (no role system).
 //
-// A hidden one goes on the scheduled-session retention (#541): the chat list keeps it behind
-// the Background filter, so nobody is watching for it to finish and nothing else would ever
-// end it. `scheduledSessions` is defined further down, which is safe because the system task
-// that calls this is registered later still (initUserTaskScheduler).
-const feedsSpawnWorker: AgentWorkerRunner = async ({ message, hidden }) => {
+// A hidden one gets two things a watched session doesn't need. It goes on the scheduled-session
+// retention (#541), because the chat list keeps it behind the Background filter so nobody is
+// waiting for it to finish and nothing else would ever end it. And it carries the engine's
+// completion hook (#1070), which is what turns a failed refresh into a bell instead of silence.
+// `scheduledSessions` is defined further down, which is safe because the system task that calls
+// this is registered later still (initUserTaskScheduler).
+const feedsSpawnWorker: AgentWorkerRunner = async ({ message, hidden, onComplete }) => {
   const sessionId = randomUUID();
   try {
     runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => spawnClaudePty(sessionId, null, null, { initialPrompt: message }));
     if (hidden) scheduledSessions.register(sessionId);
+    // AFTER a successful spawn: a launch that threw has no session to report on, and
+    // registering first would leave a hook nothing will ever fire or clear.
+    if (hidden && onComplete) registerCompletionHook(sessionId, onComplete);
     return { ok: true, chatId: sessionId };
   } catch (err) {
     return { ok: false, error: messageOf(err) };
