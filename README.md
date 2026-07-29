@@ -1497,12 +1497,13 @@ has its `/` and `.` characters replaced with `-` (e.g.
 A session's display **title** is derived by scanning its JSONL for, in order of
 preference:
 
-1. a live **AI title** the server generated for the session this run (see below),
-2. else the latest `ai-title` record's `aiTitle` (e.g. written by MulmoClaude),
-3. else the latest `last-prompt` record's `lastPrompt`,
-4. else the first real user message (slash/local-command wrappers like
+1. the **session note** the user wrote (see below),
+2. else a live **AI title** the server generated for the session this run (see below),
+3. else the latest `ai-title` record's `aiTitle` (e.g. written by MulmoClaude),
+4. else the latest `last-prompt` record's `lastPrompt`,
+5. else the first real user message (slash/local-command wrappers like
    `<local-command-…>` are skipped),
-5. else `"(untitled session)"`.
+6. else `"(untitled session)"`.
 
 In-memory sessions not yet persisted show as `"New session"` until their file
 appears, at which point the on-disk title takes over.
@@ -1521,6 +1522,23 @@ only when a title is **due**: none yet, the newest prompt was a trivial/context-
 ack (so the raw last prompt would be stale), or every few turns to keep a long session's
 title current. The title lives in memory (never written into Claude's own transcript); a
 resumed session falls back to any on-disk `ai-title`.
+
+### Session note
+
+Every tier above says what the **agent** said, which stops answering "which cell is this?"
+once several sessions are open. So a cell header also takes a **note you write yourself**: the
+pencil button beside the header text opens a one-line box (Enter saves, Esc cancels, clicking
+away saves). While a note is set it *replaces* the header line — the title it displaced stays in
+the tooltip — and it becomes the session's title in the sidebar list and on the phone's roster
+too, so one session goes by one name everywhere.
+
+Notes are capped at 200 characters and folded to a single line. They are stored per **session
+id** in `~/.mulmoterminal/session-memos.jsonl` and survive both the session being reaped and a
+server restart: resume the session and the note comes back. Saving one publishes it on the
+`sessions` channel, so every other open tab and the phone update without asking.
+
+`POST /api/session/:id/memo` with `{ "text": "…" }` writes one; an empty `text` erases it. The
+route answers with the **stored** text, which is what a reload will show.
 
 ---
 

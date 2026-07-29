@@ -17,6 +17,9 @@ export interface LiveSessionState {
   lastPrompt?: string | undefined;
   lastResponse?: string | undefined;
   aiTitle?: string | undefined;
+  // The user's own note. Absent means there is none — an erased memo is DELETED from the store
+  // rather than kept as "", so there is no cleared-vs-unknown distinction to preserve here.
+  memo?: string | undefined;
 }
 
 export interface TranscriptSessionState {
@@ -37,6 +40,7 @@ export interface SessionDetailView {
   lastPrompt: string | null;
   lastResponse: string | null;
   aiTitle: string | null;
+  memo: string | null;
 }
 
 export function sessionDetailView(live: LiveSessionState, transcript: TranscriptSessionState, activity: SessionActivity): SessionDetailView {
@@ -50,5 +54,6 @@ export function sessionDetailView(live: LiveSessionState, transcript: Transcript
     lastResponse: live.lastResponse ?? transcript.lastResponse,
     // Ours only — never the external on-disk ai-title.
     aiTitle: live.aiTitle ?? null,
+    memo: live.memo ?? null,
   };
 }
