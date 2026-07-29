@@ -26,8 +26,10 @@ export function diedDuringStartup(lifetimeMs: number, exitCode: number): boolean
 export function formatLifetime(ms: number): string {
   if (ms < MS_PER_SECOND) return `${Math.round(ms)}ms`;
   if (ms < MS_PER_MINUTE) return `${(ms / MS_PER_SECOND).toFixed(1)}s`;
-  const minutes = Math.floor(ms / MS_PER_MINUTE);
-  return `${minutes}m${Math.round((ms % MS_PER_MINUTE) / MS_PER_SECOND)}s`;
+  // Rounded to whole seconds FIRST, then split. Splitting first and rounding the remainder
+  // renders 1m59.9s as "1m60s", because the two halves round independently.
+  const seconds = Math.round(ms / MS_PER_SECOND);
+  return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }
 
 export interface PtyStart {

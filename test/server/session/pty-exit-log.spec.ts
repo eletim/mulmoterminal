@@ -57,6 +57,12 @@ describe("formatLifetime", () => {
     expect(formatLifetime(60_000)).toBe("1m0s");
     expect(formatLifetime(723_000)).toBe("12m3s");
   });
+
+  // Rounding the minutes and the seconds independently renders this as "1m60s".
+  it("carries a rounded-up remainder into the minute", () => {
+    expect(formatLifetime(119_999)).toBe("2m0s");
+    expect(formatLifetime(59_999)).toBe("60.0s");
+  });
 });
 
 describe("ptyExitLine", () => {

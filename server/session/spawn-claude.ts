@@ -150,8 +150,8 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     // The settings file is already on disk and may hold a provider token, so a failed
     // spawn has to take it with it — a session that never starts never reaches reap(),
     // where the cleanup normally happens (#579).
-    const spawnedAtMs = Date.now();
     const entry = withSettingsCleanup(sessionId, spawnEntry);
+    const spawnedAtMs = Date.now();
 
     // A NEW claude process gets whatever the user's MCP config says NOW, so anything this id
     // learned under a previous one is stale — including a group the user has since removed.
