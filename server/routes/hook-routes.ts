@@ -11,7 +11,7 @@ import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
 import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
-import { markTranscriptCleared } from "../session/cleared-transcripts.js";
+import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt } from "../session/session-reads.js";
 import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
@@ -90,7 +90,10 @@ async function handleToolHook(deps: HookDeps, sessionId: string, event: string, 
 // last MEANINGFUL prompt (preferredHeaderPrompt) while still tracking the latest for
 // an all-trivial session.
 async function trackPromptForHeader(sessionId: string, prompt: string, cwd: string | undefined) {
-  if (!lastPrompts.has(sessionId)) {
+  // Not for a cleared session: there is no task to restore there, and the transcript this would
+  // read is the conversation the user ended. The mark outlives the restart that emptied
+  // `lastPrompts`, which is the only time this branch is reached after a clear (#1085).
+  if (!lastPrompts.has(sessionId) && !clearedTranscripts.has(sessionId)) {
     const seeded = cwd ? await latestUserPrompt(cwd, sessionId) : null;
     if (seeded) lastPrompts.set(sessionId, seeded);
   }

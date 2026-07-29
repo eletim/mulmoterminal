@@ -12,6 +12,10 @@ import { mountHookRoute } from "../../../server/routes/hook-routes";
 import { lastPrompts, lastResponses } from "../../../server/session/registry";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts";
 
+// The prompt seed reads the transcript for a session this process has no prompt for; the tests
+// stand in for that read so the seeding branch can be observed without a transcript on disk.
+vi.mock("../../../server/session/session-reads.js", () => ({ latestUserPrompt: vi.fn(async () => "continue GitHub issue 1048") }));
+
 // The mark's durable half has its own spec; what this one must not do is write into the real
 // ~/.mulmoterminal. Stubbing the writer keeps the route's own behaviour — including WHICH cwd it
 // hands over, which is the wiring that decides whether the mark can survive a restart at all.
@@ -91,5 +95,22 @@ describe("SessionStart source=clear", () => {
   it("hands the mark the cwd the hook reported", async () => {
     await postHook({ hook_event_name: "SessionStart", source: "clear", cwd: "/work/other-project" });
     expect(markCalls).toEqual([[ID, "/work/other-project"]]);
+  });
+});
+
+// A prompt arriving for a session this process holds nothing for is normally seeded from the
+// transcript, so a trivial ack cannot overwrite the task a resume restored. After a restart that
+// branch is reached for a CLEARED session too — where the transcript is the conversation the user
+// ended, and seeding from it is how the abandoned task returns to the header (#1085).
+describe("UserPromptSubmit after a restart", () => {
+  it("seeds the header from the transcript for an ordinary session", async () => {
+    await postHook({ hook_event_name: "UserPromptSubmit", prompt: "ok", cwd: "/work" });
+    expect(lastPrompts.get(ID)).toBe("continue GitHub issue 1048");
+  });
+
+  it("does not seed a cleared session — it takes the new prompt as-is", async () => {
+    clearedTranscripts.add(ID);
+    await postHook({ hook_event_name: "UserPromptSubmit", prompt: "ok", cwd: "/work" });
+    expect(lastPrompts.get(ID)).toBe("ok");
   });
 });

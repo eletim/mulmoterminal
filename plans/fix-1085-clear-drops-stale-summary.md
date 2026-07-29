@@ -64,6 +64,15 @@ claude を生かしたまま (activity state を永続化しているのと同�
   終わっている必要があり、また hydrate は失効マークを削除するため、import 時に走ると
   このモジュールを読む spec すべてが実際の home に触れてしまう。
 
+マークが戻っても、`""` センチネル**そのもの**は再起動で消えるので、それを前提にしていた 2 か所も
+マークを見るようにする (自分のレビューで発見):
+
+- `server/session/session-detail-view.ts` — `live.lastResponse` が無い (再起動後) とき、cleared なら
+  transcript ではなく `""` を返す。`null` ではなく `""` なのは、roster の merge を通り抜けて行を
+  消せるのは値である `""` だけだから。
+- `server/routes/hook-routes.ts` `trackPromptForHeader` — cleared なら transcript から
+  ヘッダープロンプトを seed しない (復元すべきタスクは無く、読む先は終わった会話)。
+
 ### クライアント
 
 - `src/components/rosterPhase.ts` `mergeSessionMeta` — `aiTitle` はキーが存在すれば
