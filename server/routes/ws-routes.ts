@@ -323,7 +323,7 @@ function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: stri
 // searched (#1063), or the directory that is gone (#1078). Passing that through rather than
 // wrapping it is what puts the real reason in the terminal instead of `spawn ENOENT`; everything
 // else is an error nobody wrote for a reader, so it gets named.
-const startFailureMessageFor =
+export const startFailureMessageFor =
   (what: string) =>
   (err: unknown): string =>
     err instanceof SpawnRefusedError ? err.message : `Failed to start ${what}: ${messageOf(err)}`;
