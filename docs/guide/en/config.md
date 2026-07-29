@@ -212,8 +212,13 @@ toolbar's ordering button, alongside auto (attention-first) and manual (the move
 - Equal ranks keep their current order, which is also what happens when several cells share one directory
   (the rank belongs to the *directory*, not the cell).
 
-Only the **priority** mode reads it. Leave the button on auto or manual and nothing changes, whatever
-your projects declare.
+In the **grid**, only the priority mode reads it — leave the button on auto or manual and nothing changes
+there, whatever your projects declare.
+
+The **launcher's directory chips always sort by it**, whichever mode the grid's button is on, so a project
+sits in the same place on both screens. The chips otherwise come in the order you last launched them, which
+changes under you; declaring ranks is how you pin them down. Directories that declare none stay behind the
+ranked ones, in that launch order.
 
 ### Customizing the header (buttons / chips) {#header}
 
@@ -1207,7 +1212,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 
 | Key | Role |
 |---|---|
-| `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch) |
+| `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch). Ordered by each directory's [`orderPriority`](#order-priority); the ones that declare none follow, in the order you last launched them |
 | `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell |
 | `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
