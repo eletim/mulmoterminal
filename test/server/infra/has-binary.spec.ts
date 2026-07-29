@@ -80,6 +80,22 @@ describe("diagnoseBinary on Windows", () => {
     expect(diagnoseBinary("codex", winEnv("C:\\tools"), "win32", probe)).toEqual({ kind: "ok", path: "C:\\tools\\codex.exe" });
     expect(diagnoseBinary("codex", winEnv("C:\\other"), "win32", probe)).toEqual({ kind: "missing", searched: ["C:\\other"] });
   });
+
+  // node-pty's own lookup compares file names EXACTLY, so an extension-less image on PATH is one
+  // it can still run. resolve-bin hands it the bare name in that case rather than resolving, and
+  // refusing it here would break a host that spawns fine today.
+  it("accepts an extension-less name node-pty would still find", () => {
+    const probe = probeOf({ "C:\\tools\\codex": "x" });
+    expect(diagnoseBinary("codex", winEnv("C:\\tools"), "win32", probe)).toEqual({ kind: "ok", path: "C:\\tools\\codex" });
+  });
+
+  // The Windows rules must be answerable from a POSIX host and the POSIX rules from Windows, or
+  // neither can be tested where it matters — hence path.win32 / path.posix rather than the host's.
+  it("splits PATH on ';' and joins with '\\' regardless of the host", () => {
+    const probe = probeOf({ "C:\\b\\codex.exe": "x" });
+    expect(diagnoseBinary("codex", winEnv("C:\\a", "C:\\b"), "win32", probe)).toEqual({ kind: "ok", path: "C:\\b\\codex.exe" });
+    expect(diagnoseBinary("codex", { PATH: "/a:/b" }, "darwin", probeOf({ "/b/codex": "x" }))).toEqual({ kind: "ok", path: "/b/codex" });
+  });
 });
 
 describe("hasBinary", () => {

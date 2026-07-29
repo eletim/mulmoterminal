@@ -47,7 +47,10 @@ const canExecute = (candidate: string): boolean => {
 
 export const fsBinaryProbe: BinaryProbe = { isFile: isExecutableFile, isExecutable: canExecute };
 
-const posixSearchDirectories = (searchPath: string | undefined): string[] => (searchPath ?? "").split(path.delimiter).filter(Boolean);
+// `path.posix` / `path.win32` explicitly rather than the host's `path`, for the reason resolve-bin
+// gives: a rule written against the running host cannot be checked from the other one, and these
+// two are exactly the rules that are hard to get onto a CI runner.
+const posixSearchDirectories = (searchPath: string | undefined): string[] => (searchPath ?? "").split(path.posix.delimiter).filter(Boolean);
 
 // execvp's own rule: walk PATH in order and take the first entry that is a file this process can
 // actually run. A directory or a non-executable file earlier on PATH does not shadow a working
@@ -63,10 +66,20 @@ function diagnoseOnPath(candidates: readonly string[], searched: readonly string
 // resolve-bin already encodes that (a `.exe`/`.com` directly, a `.cmd`/`.bat` through cmd.exe).
 // So a file that resolves here is one Windows will at least try to run, and there is deliberately
 // no not-executable verdict — inventing one would refuse spawns that work today.
+//
+// The extension-less fallback is not thoroughness, it is the rule resolve-bin states: whenever
+// nothing resolves it hands node-pty the bare name unchanged, "a host that spawns fine today must
+// keep spawning fine". node-pty's own lookup compares file names EXACTLY, so a PE image on PATH
+// named `codex` with no extension is one it finds and this would otherwise refuse — and refusing a
+// working spawn from a host that cannot be reproduced here is worse than the message it replaces.
 function diagnoseWindowsName(bin: string, searchPath: string | undefined, probe: BinaryProbe): BinaryDiagnosis {
   const isFile = (candidate: string) => probe.isFile(candidate);
-  const found = resolveWindowsExecutable(bin, searchPath, isFile) ?? resolveWindowsBatch(bin, searchPath, isFile);
-  return found ? { kind: "ok", path: found } : { kind: "missing", searched: windowsSearchDirectories(searchPath) };
+  const dirs = windowsSearchDirectories(searchPath);
+  const found =
+    resolveWindowsExecutable(bin, searchPath, isFile) ??
+    resolveWindowsBatch(bin, searchPath, isFile) ??
+    dirs.map((dir) => path.win32.join(dir, bin)).find(isFile);
+  return found ? { kind: "ok", path: found } : { kind: "missing", searched: dirs };
 }
 
 // A name that already names a path skips the PATH search — but a RELATIVE one resolves against
@@ -74,9 +87,9 @@ function diagnoseWindowsName(bin: string, searchPath: string | undefined, probe:
 // reason resolve-bin wraps one without checking: the spawn's own error names the right directory,
 // and refusing on a guess would break a setup that works.
 function diagnosePathName(bin: string, platform: NodeJS.Platform, probe: BinaryProbe): BinaryDiagnosis {
-  const isAbsolute = platform === "win32" ? path.win32.isAbsolute : path.posix.isAbsolute;
-  if (!isAbsolute(bin)) return { kind: "ok", path: bin };
-  if (!probe.isFile(bin)) return { kind: "missing", searched: [path.dirname(bin)] };
+  const rules = platform === "win32" ? path.win32 : path.posix;
+  if (!rules.isAbsolute(bin)) return { kind: "ok", path: bin };
+  if (!probe.isFile(bin)) return { kind: "missing", searched: [rules.dirname(bin)] };
   if (platform === "win32") return { kind: "ok", path: bin };
   return probe.isExecutable(bin) ? { kind: "ok", path: bin } : { kind: "not-executable", path: bin };
 }
@@ -96,7 +109,7 @@ export function diagnoseBinary(
   if (platform === "win32") return diagnoseWindowsName(bin, searchPath, probe);
   const dirs = posixSearchDirectories(searchPath);
   return diagnoseOnPath(
-    dirs.map((dir) => path.join(dir, bin)),
+    dirs.map((dir) => path.posix.join(dir, bin)),
     dirs,
     probe,
   );
