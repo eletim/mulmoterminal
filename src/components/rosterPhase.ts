@@ -47,6 +47,10 @@ export const WORK_WORD: Record<WorkPhase, string> = { planning: "planning", impl
 // like the text is how a `/clear`ed session kept showing the title of the conversation the user
 // had just ended (#1085) — the server had already dropped it. Same rule as applyActivityPush.
 //
+// `memo` follows aiTitle, not the text, and for the same reason: it lives only in the server's
+// memo map, so a successful fetch answers it outright and `null` is the user having ERASED it.
+// Merged like the prompt, a memo the user just cleared comes back on the next poll.
+//
 // `workPhase` is taken AS-IS, including null, because a successful fetch is authoritative for
 // it: null means "no tools yet / not working", which is a real state. Merge it like the text
 // and a finished agent keeps a "planning" badge forever.
@@ -54,10 +58,11 @@ export interface SessionMetaView {
   lastPrompt: string | null;
   aiTitle: string | null;
   lastResponse: string | null;
+  memo: string | null;
   workPhase: WorkPhase | null;
 }
 
-export const EMPTY_SESSION_META: SessionMetaView = { lastPrompt: null, aiTitle: null, lastResponse: null, workPhase: null };
+export const EMPTY_SESSION_META: SessionMetaView = { lastPrompt: null, aiTitle: null, lastResponse: null, memo: null, workPhase: null };
 
 // `workPhase` is typed unknown because it arrives as untrusted JSON — isWorkPhase is the
 // only thing that may decide it is a phase.
@@ -66,6 +71,7 @@ export function mergeSessionMeta(previous: SessionMetaView, fetched: Omit<Partia
     lastPrompt: fetched.lastPrompt ?? previous.lastPrompt,
     aiTitle: fetched.aiTitle !== undefined ? fetched.aiTitle : previous.aiTitle,
     lastResponse: fetched.lastResponse ?? previous.lastResponse,
+    memo: fetched.memo !== undefined ? fetched.memo : previous.memo,
     workPhase: isWorkPhase(fetched.workPhase) ? fetched.workPhase : null,
   };
 }

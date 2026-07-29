@@ -5,7 +5,7 @@ import { usePubSub } from "../composables/usePubSub";
 import { useDirColors, useDirPriorities } from "../composables/useDirConfig";
 import { orderByDirPriority } from "./dirPriorityOrder";
 import { useCellChrome } from "../composables/useCellChrome";
-import { dirChipTint } from "./dirChipColor";
+import { CHIP_IDLE, CHIP_RUNNING, CHIP_DOT_RUNNING } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
 import { useWorkItem } from "../composables/useWorkItem";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
@@ -1761,22 +1761,16 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             :key="p.label + p.path"
             data-testid="cell-chip"
             class="inline-flex items-stretch overflow-hidden rounded-[14px] border"
-            :class="[
-              { 'is-running': isCwdRunning(p.path) },
-              isCwdRunning(p.path)
-                ? 'border-[color-mix(in_srgb,#3b82f6_55%,var(--border))] bg-[color-mix(in_srgb,#3b82f6_14%,var(--bg-elevated))]'
-                : 'border-border bg-elevated',
-            ]"
-            :style="dirChipTint(presetColors[p.path] ?? null, isCwdRunning(p.path))"
+            :class="[{ 'is-running': isCwdRunning(p.path) }, isCwdRunning(p.path) ? CHIP_RUNNING : CHIP_IDLE]"
           >
-            <!-- The directory's colour: a solid stripe down the leading edge, plus a wash over the
-               chip when nothing is running there (dirChipTint). Not a wash while running — that
-               background already means "a session is here", and a dir that configured no colour
-               has to keep looking exactly as it did. -->
+            <!-- The directory's colour lives ONLY in this stripe; the chip's background and border
+               mean "a session is running here" and nothing else. The two used to share both, at
+               identical strengths, so a colour-coded directory read as running (#1106). Wider than
+               it was, now that it carries the directory on its own. -->
             <span
               v-if="presetColors[p.path]"
               data-testid="cell-chip-color"
-              class="w-[6px] flex-none"
+              class="w-[8px] flex-none"
               :style="{ background: presetColors[p.path] }"
               aria-hidden="true"
             />
@@ -1785,14 +1779,14 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               data-testid="cell-chip-main"
               class="cursor-pointer border-none bg-transparent px-2.5 py-1 font-sans text-[12px] hover:bg-hover hover:text-fg"
               :class="isCwdRunning(p.path) ? 'text-fg' : 'text-secondary'"
-              :title="p.path"
-              :aria-label="`Use ${p.label} — fill the field to browse / resume here (without launching)`"
+              :title="isCwdRunning(p.path) ? `${p.path} — a session is already running here` : p.path"
+              :aria-label="`Use ${p.label} — fill the field to browse / resume here (without launching)${isCwdRunning(p.path) ? '. A session is already running here.' : ''}`"
               @click="fillDir(p.path)"
             >
               <span
                 v-if="isCwdRunning(p.path)"
                 data-testid="cell-chip-dot"
-                class="mr-[5px] inline-block h-1.5 w-1.5 rounded-full bg-[#3b82f6] align-middle"
+                :class="`mr-[5px] inline-block h-1.5 w-1.5 rounded-full align-middle ${CHIP_DOT_RUNNING}`"
                 aria-hidden="true"
               />{{ p.label }}
             </button>
