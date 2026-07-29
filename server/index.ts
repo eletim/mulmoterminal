@@ -101,6 +101,7 @@ import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
+import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 
 // Per-session activity flags, driven by Claude hooks (see /api/hook).
 
@@ -747,11 +748,25 @@ server.listen(Number(PORT), BIND_HOST, () => {
   } else {
     console.log("[tmux] not found — terminals are not persistent across a server restart");
   }
+  // Say we are here, so a later launcher can warn about a second instance and a later boot can
+  // tell our live files from a dead server's leftovers (#1061).
+  const unregisterInstance = registerInstance(Number(PORT));
+  process.on("exit", unregisterInstance);
+
   // A crash never reaches reap(), so settings files — one of which may hold a provider's API
   // token — outlive the sessions that used them. Anything not backed by a surviving tmux
   // session is an orphan: a PTY without tmux died with the server that owned it.
-  const droppedSettings = pruneOrphanSettings(new Set(surviving));
+  //
+  // …but only for OUR previous lifetime. A peer running right now has live PTYs, and without
+  // tmux `surviving` is empty, so its files looked like leftovers and were deleted underneath it
+  // (#1061). Files older than the earliest live peer cannot be theirs; newer ones might be.
+  const peers = liveInstances();
+  const droppedSettings = pruneOrphanSettings(new Set(surviving), undefined, earliestStartedAt(peers));
   if (droppedSettings.length) console.log(`[settings] removed ${droppedSettings.length} orphaned session settings file(s)`);
+  if (peers.length) {
+    const where = peers.map((p) => (p.port === null ? `pid ${p.pid}` : `port ${p.port}`)).join(", ");
+    console.warn(`[instances] ${peers.length} other MulmoTerminal server(s) running (${where}) — they share ~/.mulmoterminal, which is not a supported setup`);
+  }
   if (sandboxEnabled()) {
     if (!sandboxPlatformSupported()) {
       console.log("[sandbox] MULMOTERMINAL_SANDBOX set but only supported on macOS for now — using host spawn");
