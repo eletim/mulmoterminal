@@ -10,7 +10,6 @@
 // Deliberately fire-and-forget: the caller sits on the synchronous hook path that
 // serves Claude Code's own requests, and a Firestore hiccup must never disturb it.
 import { deleteDoc, doc, serverTimestamp, setDoc, type DocumentReference, type Firestore } from "firebase/firestore";
-import { stripUndefined } from "./firestoreSafeResult.js";
 import type { WorkPhase } from "../../session/workPhase.js";
 
 export interface SessionActivity {
@@ -47,6 +46,21 @@ export const firestoreSessionActivityStore = (firestore: () => Firestore): Sessi
   remove: (uid, hostId, sessionId) => deleteDoc(sessionDoc(firestore(), uid, hostId, sessionId)),
 });
 
+// This write does NOT go through the command runner, so core's undefined guard never sees it —
+// and here a rejected write is silent, since nothing awaits the result. `SessionActivity`'s
+// optional fields are therefore spread only when present: Firestore refuses a document holding
+// `undefined` at any depth, and one `event: undefined` from a caller would cost the phone the
+// whole status update. Written out per field rather than filtered generically so the payload
+// stays typed without a cast (see the spec pinning every field against `Required<>`).
+export const activityDoc = ({ working, waiting, event, workPhase }: SessionActivity, rev: number): SessionActivityDoc => ({
+  working,
+  waiting,
+  ...(event !== undefined ? { event } : {}),
+  ...(workPhase !== undefined ? { workPhase } : {}),
+  rev,
+  at: serverTimestamp(),
+});
+
 export interface SessionActivityPublisherDeps {
   // Null while the remote host is disconnected. A non-null uid implies the session
   // handles exist, which is what makes the store's currentFirestore() safe to call —
@@ -77,11 +91,7 @@ export function createSessionActivityPublisher(deps: SessionActivityPublisherDep
     published.set(sessionId, key);
     const rev = (revisions.get(sessionId) ?? 0) + 1;
     revisions.set(sessionId, rev);
-    // The other write that reaches Firestore. `SessionActivity` has optional fields, so an
-    // `event: undefined` from any caller would take this doc down the same way a stray undefined
-    // took down the session list — and here the loss is silent, since nothing awaits the result.
-    // `serverTimestamp()` is a sentinel object, which is why the guard only walks plain objects.
-    const payload = stripUndefined({ ...activity, rev, at: serverTimestamp() });
+    const payload = activityDoc(activity, rev);
     deps.store.write(uid, deps.hostId, sessionId, payload).catch((error: unknown) => {
       // The dedup entry is recorded optimistically, so a failed write would otherwise
       // swallow every later publish of the SAME state and leave the phone stale until
