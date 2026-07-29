@@ -10,7 +10,7 @@ import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId 
 import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
-import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
+import { clearedTranscripts, lastPrompts, lastResponses, ptys } from "../session/registry.js";
 import { latestUserPrompt } from "../session/session-reads.js";
 import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
@@ -102,9 +102,14 @@ async function trackPromptForHeader(sessionId: string, prompt: string, cwd: stri
 // so it's regenerated fresh on the next turn (leaving it in `aiTitles` — even as "" — would read as
 // "already titled" and suppress that regeneration). The cockpit's last reply is blanked the same way as
 // the prompt (empty beats `?? transcriptResponse`) so it can't show the pre-clear answer.
+//
+// Blanking alone does not hold: claude has just moved to a NEW transcript, so ours is frozen on the
+// ended conversation, and the readers that run at the next turn end put its title and its reply
+// straight back (#1085). `clearedTranscripts` is what tells them not to.
 function clearHeaderPrompt(deps: HookDeps, sessionId: string): void {
   lastPrompts.set(sessionId, "");
   lastResponses.set(sessionId, "");
+  clearedTranscripts.add(sessionId);
   deps.forgetTitle(sessionId);
   deps.publishActivity(sessionId);
 }

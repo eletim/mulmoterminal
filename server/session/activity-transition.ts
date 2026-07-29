@@ -58,7 +58,8 @@ export function sessionRow(
 
 /** Whether to re-read the transcript's tail before publishing. `waiting` means a turn just
  *  ended, which is the moment the roster's copy of the reply goes stale; without a cwd
- *  there is no transcript to read. */
-export function shouldRefreshReply(activity: Activity | undefined, cwd: string | null): cwd is string {
-  return !!(activity?.waiting && cwd);
+ *  there is no transcript to read. `transcriptCleared` is the third: after a `/clear` our file
+ *  holds the ended conversation, so re-reading it is how the pre-clear reply came back (#1085). */
+export function shouldRefreshReply(activity: Activity | undefined, cwd: string | null, transcriptCleared: boolean): cwd is string {
+  return !!(activity?.waiting && cwd && !transcriptCleared);
 }

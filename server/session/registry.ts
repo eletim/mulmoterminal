@@ -65,6 +65,15 @@ export const aiTitles = new Map<string, string>(); // id -> AI title
 // a turn ends (waiting), so the roster can show "what it just said" without the terminal open.
 export const lastResponses = new Map<string, string>(); // id -> last assistant text (truncated)
 
+// Sessions whose `${id}.jsonl` no longer describes the live conversation. `/clear` makes claude
+// mint a NEW session id and a new transcript, while hooks keep reporting under ours (see
+// hook-settings.ts), so from that moment our file is frozen at the conversation the user just
+// ended. Everything read off it — the AI summary, the last reply — would restate that ended
+// conversation, and it comes back the moment a turn finishes, so the readers skip it while an id
+// is in here. Dropped in reap(): a new claude on this id (a `--resume`, or a restart after
+// `/exit`) starts appending to the file again.
+export const clearedTranscripts = new Set<string>(); // id
+
 export const titleTurnCounts = new Map<string, number>(); // id -> user turns since last title
 export const titlePending = new Set<string>(); // ids whose next Stop should (re)generate a title
 export const titleInFlight = new Set<string>(); // ids currently generating, to avoid overlap
