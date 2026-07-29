@@ -57,6 +57,7 @@ function setup(terminalModes: readonly number[] = []) {
       calls.push(`terminalModes:${id}`);
       return terminalModes;
     },
+    redrawTerminal: (id, clientPid) => calls.push(`redraw:${id}:${clientPid}`),
   });
   return { ...handlers, calls };
 }
@@ -86,6 +87,35 @@ describe("handleClientFrame", () => {
     const entry = entryWith({ term: t.term as never, ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 40 }), SESSION);
     expect(t.resizes).toEqual([[100, 40]]);
+  });
+
+  // The redraw waits for this frame on purpose: it is where the client reports the size it
+  // actually settled at, so the repaint that follows is drawn at the right geometry.
+  it("asks for the redraw on the first resize after a reattach, and only that one", () => {
+    const { reattachPty, handleClientFrame, calls } = setup();
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const entry = entryWith({ term: t.term as never, ws: null, buffer: "x", tmux: true });
+    reattachPty(entry, s.ws as never, SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    expect(t.resizes).toEqual([
+      [100, 30],
+      [120, 40],
+    ]);
+    // The pid is the pty's own — it is what picks OUR tmux client out of a session that several
+    // servers may have attached (#1099 review).
+    expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([`redraw:${SESSION}:4242`]);
+  });
+
+  it("never asks for a redraw on a session that was not reattached", () => {
+    // A fresh spawn's client gets the real screen from the live stream; a repaint would be noise.
+    const { handleClientFrame, calls } = setup();
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const entry = entryWith({ term: t.term as never, ws: s.ws as never, tmux: true });
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
+    expect(calls).toEqual([]);
   });
 
   it("ignores a resize outside the allowed bounds", () => {
@@ -296,6 +326,19 @@ describe("reattachPty", () => {
     const s = fakeSocket();
     reattachPty(entryWith({ ws: null, buffer: "$ ls\n", tmux: true }), s.ws as never, SESSION);
     expect(s.parsed()).toEqual([{ type: "output", data: "$ ls\n" }]);
+  });
+
+  // The replay reconstructs only what changed inside its window, and the alternate buffer it now
+  // lands in does not reflow — so the real screen has to be asked for rather than inferred.
+  it("marks a tmux session for a redraw, and leaves a non-tmux one alone", () => {
+    const { reattachPty } = setup();
+    const s = fakeSocket();
+    const persistent = entryWith({ ws: null, buffer: "x", tmux: true });
+    const sandboxed = entryWith({ ws: null, buffer: "x" });
+    reattachPty(persistent, s.ws as never, SESSION);
+    reattachPty(sandboxed, s.ws as never, SESSION);
+    expect(persistent.redrawPending).toBe(true);
+    expect(sandboxed.redrawPending).toBeUndefined();
   });
 
   it("does not query a socket that is already gone", () => {

@@ -210,6 +210,18 @@ force the DOM renderer or observe effects (`window.open`, buffer state) instead 
     mouse modes; `CSI ? 1049 ; 1003 h` would reach xterm and put it into real mouse tracking,
     turning every drag into coordinate reports — the #729 regression.
   - Only tmux-backed sessions restore; a sandbox/tmux-less pty replays as before.
+- **The replay is a stream of deltas, not a screen — so the screen is asked for.** The bounded tail
+  reconstructs only the cells that changed inside its window: rows painted before it opened stay
+  blank, and cells written at different moments sit side by side. A TUI makes this the normal case
+  (Claude Code paints a transcript row once, then spends megabytes rewriting one status row). A pty
+  **resize** used to hide it — tmux answers a size change with a full repaint, and the normal buffer
+  reflowed — but a reattach at the size the pty already had leaves tmux silent, and the alternate
+  buffer does not reflow. So `reattachPty` marks the entry and the first `resize` frame after it
+  calls `tmuxRedrawClient` (`list-clients` → `refresh-client`), which repaints every row. Waiting
+  for that frame is deliberate: it is where the client reports the size it settled at.
+  - **Which client** is picked by `client_pid`, not by list order: a session can carry several
+    (another server, a stray `tmux attach`) and tmux orders them arbitrarily. The pty we spawned IS
+    the tmux client, so its pid identifies ours.
 
 ## The tmux passthrough rule
 
@@ -263,7 +275,7 @@ looking) — flag them for QA on the release.
 | File-path links | `registerFilePathLinks` order vs WebLinks; `/api/files/raw` cwd containment | click a generated file path → previews the file |
 | Enter / newline | `terminalSubmit` mapping + `isComposing` guard; `macOptionIsMeta` | Enter submits, Shift+Enter newlines; IME confirm not eaten; both `cr` and `esc-cr` |
 | Mouse / wheel | `guardMouseTracking` swallow set (1000/1002/1003/1006); wheel→SGR in alt buffer; `wheelNotches` accumulation vs xterm's own `consumeWheelEvent` | wheel scrolls transcript (not prompt history); drag selects, doesn't emit mouse reports; a trackpad swipe moves a TUI about as far as it moves the scrollback |
-| Reattach | `stripTerminalQueries` patterns; replay buffer size; `tmuxTerminalModes` still reports `alternate_on` / `mouse_*_flag` on the installed tmux | reattaching a session doesn't leak `0;276;0c`-style junk; scrollback survives; after a reload the wheel still scrolls a Claude cell's transcript (#1073) |
+| Reattach | `stripTerminalQueries` patterns; replay buffer size; `tmuxTerminalModes` still reports `alternate_on` / `mouse_*_flag`, and `refresh-client` still forces a FULL repaint, on the installed tmux | reattaching a session doesn't leak `0;276;0c`-style junk; scrollback survives; after a reload the wheel still scrolls a Claude cell's transcript, and the screen matches `capture-pane` rather than showing spliced-together fragments (#1073) |
 
 **Fast isolation techniques** (learned the hard way):
 - A terminal behavior that works on a **direct `term.write()`** but fails through a live session ⇒
