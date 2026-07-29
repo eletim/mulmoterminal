@@ -25,7 +25,7 @@ import {
 import { createFileCache, type FileStamp } from "./file-cache.js";
 import { classifyWorkPhase, type WorkPhase } from "./workPhase.js";
 import { sessionListTitle } from "./sessionListTitle.js";
-import { activity, aiTitles, codexRolloutIds, hiddenSessions, knownSessions } from "./registry.js";
+import { activity, aiTitles, codexRolloutIds, isBackgroundSession, knownSessions } from "./registry.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
 import { forEachJsonlRecord, readTailRecords } from "../infra/jsonl-file.js";
@@ -250,7 +250,7 @@ export async function readSessionMeta(dir: string, file: string): Promise<Sessio
     working: a?.working ?? false,
     waiting: a?.waiting ?? false,
     event: a?.event ?? null,
-    hidden: hiddenSessions.has(id),
+    hidden: isBackgroundSession(id),
   };
 }
 
@@ -278,7 +278,7 @@ export function collectPendingSessions(onDisk: Set<string>, includePending: bool
     known,
     onDisk,
     (id) => activity.get(id),
-    (id) => hiddenSessions.has(id),
+    (id) => isBackgroundSession(id),
   );
   persisted.forEach((id) => knownSessions.delete(id));
   return keep;

@@ -15,8 +15,10 @@ import {
   activity,
   activityStateHydrated,
   aiTitles,
+  backgroundSessionsHydrated,
   devTerminalSessions,
   devTerminalSessionsHydrated,
+  isBackgroundSession,
   lastPrompts,
   lastResponses,
   translationWorkerIds,
@@ -40,6 +42,9 @@ import { sessionDetailView } from "../session/session-detail-view.js";
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
 const SESSION_LIST_LIMIT = 50;
+// Background workers are capped separately (see selectSessionRows) and are behind a filter
+// the user has to press, so only the recent handful is worth listing at all.
+const BACKGROUND_SESSION_LIST_LIMIT = 10;
 // Cap on ids per /api/activity request — a grid can't show more cells than this, and
 // it bounds the query string a client can make us parse.
 const ACTIVITY_IDS_LIMIT = 200;
@@ -125,8 +130,11 @@ async function sessionList(req: Request, res: Response) {
     const cwd = cwdParam ? resolveWorkspace(cwdParam) : CLAUDE_CWD;
     const includePending = !cwdParam;
     // Wait for the persisted grid-session set before filtering (below), so a chat
-    // request racing server boot can't leak previously-hidden grid transcripts.
+    // request racing server boot can't leak previously-hidden grid transcripts. The
+    // background set is awaited for BOTH queries — it decides a flag on the row rather
+    // than whether the row is listed, and that flag is answered either way.
     if (includePending) await devTerminalSessionsHydrated;
+    await backgroundSessionsHydrated;
     const dir = projectSessionsDir(cwd);
     let files: string[] = [];
     try {
@@ -146,8 +154,10 @@ async function sessionList(req: Request, res: Response) {
     const top = selectSessionRows([...onDiskStats, ...pending], {
       isInternalHelper: (id) => translationWorkerIds.has(id) || isProbeSessionId(id),
       isDevTerminal: (id) => devTerminalSessions.has(id),
+      isBackground: (id) => isBackgroundSession(id),
       includePending,
       limit: SESSION_LIST_LIMIT,
+      backgroundLimit: BACKGROUND_SESSION_LIST_LIMIT,
     });
     const sessions = (
       await Promise.all(
