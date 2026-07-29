@@ -34,10 +34,11 @@ hard to diagnose from inside it:
 
 - **`baseUrl` must not end in `/v1`.** Claude Code appends `/v1/messages` itself, so a trailing
   `/v1` produces `/v1/v1/messages` and every request 404s.
-- **Never write the API key** into this file or any file. `tokenEnv` is the **name** of an
-  environment variable; the key belongs in the shell that starts the server, or a `.env` in the
-  directory it is started from. If the user pastes a key at you, tell them where it goes — do not
-  store it.
+- **Never write the API key into a config or skill file.** `tokenEnv` is the **name** of an
+  environment variable, not the value: the key reaches the server through its environment. Put it
+  in the shell that starts the server, or in a `.env` in the directory it is started from — and if
+  you write a `.env`, check it is gitignored before you do. If the user pastes a key at you, tell
+  them where it goes; do not store it anywhere yourself.
 - **Keep `maxOutputTokens` at 16000 or above.** A thinking model given less spends the whole budget
   thinking and returns empty visible text, which reads as a hung session.
 - **Do not write a `models` array** unless the user names a model outside the built-in list.

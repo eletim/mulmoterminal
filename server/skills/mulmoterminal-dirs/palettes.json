@@ -1,5 +1,5 @@
 {
-  "note": "Starting palettes for the mulmoterminal-config skill. Pick one by `vibe`, preview it in the terminal, then refine. Chrome keys tint the cell frame; `colors` paints the terminal contents.",
+  "note": "Starting palettes for the mulmoterminal-dirs skill. Pick one by `vibe`, preview it in the terminal, then refine. Chrome keys tint the cell frame; `colors` paints the terminal contents.",
   "presets": [
     {
       "id": "warm-clay",

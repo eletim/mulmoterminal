@@ -148,8 +148,9 @@ All values are `#rrggbb`. The working / needs-you status colors take priority ov
 
 Both beat the global settings for terminals opened here, so one project can be told apart from
 another by ear. A file path is **relative to this directory** — an absolute path, or a `../`
-that escapes it, is rejected. `preset:<id>` works here too, so a project needs no audio file of
-its own. → [Notification sounds](#sounds)
+that escapes it, is rejected. `preset:<id>` works in **`sounds`** (per kind), so a project needs no
+audio file of its own — but **not in `sound`**, which takes a relative file path only and silently
+drops a preset reference. → [Notification sounds](#sounds)
 
 ### The terminal itself (xterm palette)
 

@@ -17,7 +17,7 @@
 
 ## 構成
 
-```
+```text
 server/skills/
   mulmoterminal-config/    ルータ + audit（現状の読み出しと説明）
   mulmoterminal-dirs/      開いた dir 群の見た目と並び: 7 色 / theme / colors / fontSize

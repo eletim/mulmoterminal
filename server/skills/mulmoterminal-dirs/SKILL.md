@@ -32,8 +32,11 @@ the same list the New-terminal launcher offers). That is the population.
 Then, for **each** of those paths:
 
 ```sh
-curl -s "http://localhost:${MULMOTERMINAL_PORT:-34567}/api/dir-config-detail?cwd=<path>"
+curl -sG "http://localhost:${MULMOTERMINAL_PORT:-34567}/api/dir-config-detail" --data-urlencode "cwd=$path"
 ```
+
+Let `curl` encode `cwd` (`-G` + `--data-urlencode`) rather than interpolating the path into the
+query: a raw path truncates at the first `#` or `?` and mangles spaces.
 
 Use this route, not your own read of the file. It returns what the app **actually parsed**: the
 values in force, the keys the file set, and how each fared — applied, dropped in validation, or not

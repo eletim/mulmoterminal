@@ -128,12 +128,12 @@ Atoms: `isGitRepo`, `!isGitRepo`, `key == value`, `key != value` (keys are the `
 written bare). Combine with `&&` (binds tighter) and `||`. **No parentheses.** Empty or absent →
 always shown.
 
-```
+```text
 agent == claude && isGitRepo
 ```
 
-`key != ` with an empty right-hand side tests "resolves to something" — that is how the built-in
-GitHub button avoids rendering without a remote.
+`key !=` with the right-hand side left empty tests "resolves to something" — that is how the
+built-in GitHub button avoids rendering without a remote.
 
 ## After writing
 
