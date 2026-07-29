@@ -8,7 +8,8 @@ import { sendWebPush } from "../infra/web-push.js";
 import { HOST_ID as REMOTE_HOST_ID } from "../backends/remoteHost/index.js";
 import { buildPushText } from "./activity-hook.js";
 import type { PushKind } from "../../common/pushKinds.js";
-import { aiTitles, clearedTranscripts, isBackgroundSession, lastPrompts, lastResponses, ptys, translationWorkerIds } from "./registry.js";
+import { aiTitles, isBackgroundSession, lastPrompts, lastResponses, ptys, translationWorkerIds } from "./registry.js";
+import { clearedTranscripts } from "./cleared-transcripts.js";
 import { sessionLastTurn, LAST_RESPONSE_MAX } from "./session-reads.js";
 import { buildPushDetail, pushWhere, shouldSuppressPush, wantsPushKind } from "./taskPushRules.js";
 

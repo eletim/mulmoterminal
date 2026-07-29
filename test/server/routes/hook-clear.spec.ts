@@ -9,7 +9,23 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { mountHookRoute } from "../../../server/routes/hook-routes";
-import { clearedTranscripts, lastPrompts, lastResponses } from "../../../server/session/registry";
+import { lastPrompts, lastResponses } from "../../../server/session/registry";
+import { clearedTranscripts } from "../../../server/session/cleared-transcripts";
+
+// The mark's durable half has its own spec; what this one must not do is write into the real
+// ~/.mulmoterminal. Stubbing the writer keeps the route's own behaviour — including WHICH cwd it
+// hands over, which is the wiring that decides whether the mark can survive a restart at all.
+const markCalls: Array<[string, string | undefined]> = [];
+vi.mock("../../../server/session/cleared-transcripts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../server/session/cleared-transcripts")>();
+  return {
+    ...actual,
+    markTranscriptCleared: async (id: string, cwd: string | undefined) => {
+      markCalls.push([id, cwd]);
+      actual.clearedTranscripts.add(id);
+    },
+  };
+});
 
 const ID = "11111111-2222-4333-8444-555555555555";
 
@@ -38,6 +54,7 @@ beforeEach(() => {
   lastPrompts.delete(ID);
   lastResponses.delete(ID);
   clearedTranscripts.delete(ID);
+  markCalls.length = 0;
   vi.clearAllMocks();
 });
 
@@ -66,5 +83,13 @@ describe("SessionStart source=clear", () => {
     expect(lastPrompts.get(ID)).toBe("continue GitHub issue 1048");
     expect(clearedTranscripts.has(ID)).toBe(false);
     expect(deps.forgetTitle).not.toHaveBeenCalled();
+  });
+
+  // The mark is persisted against the transcript's size, so it needs the directory that
+  // transcript lives in. The hook's own cwd wins over the spawn dir (resolveHookCwd) — a session
+  // that has cd'd would otherwise be sized against a file in the wrong project.
+  it("hands the mark the cwd the hook reported", async () => {
+    await postHook({ hook_event_name: "SessionStart", source: "clear", cwd: "/work/other-project" });
+    expect(markCalls).toEqual([[ID, "/work/other-project"]]);
   });
 });

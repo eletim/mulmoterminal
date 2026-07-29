@@ -10,7 +10,8 @@ import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId 
 import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
-import { clearedTranscripts, lastPrompts, lastResponses, ptys } from "../session/registry.js";
+import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
+import { markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt } from "../session/session-reads.js";
 import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
@@ -105,11 +106,14 @@ async function trackPromptForHeader(sessionId: string, prompt: string, cwd: stri
 //
 // Blanking alone does not hold: claude has just moved to a NEW transcript, so ours is frozen on the
 // ended conversation, and the readers that run at the next turn end put its title and its reply
-// straight back (#1085). `clearedTranscripts` is what tells them not to.
-function clearHeaderPrompt(deps: HookDeps, sessionId: string): void {
+// straight back (#1085). `markTranscriptCleared` is what tells them not to.
+//
+// Publish LAST, and after the mark is durable: the publish itself re-reads the reply for a session
+// that is `waiting`, which is the very read the mark exists to stop.
+async function clearHeaderPrompt(deps: HookDeps, sessionId: string, cwd: string | undefined): Promise<void> {
   lastPrompts.set(sessionId, "");
   lastResponses.set(sessionId, "");
-  clearedTranscripts.add(sessionId);
+  await markTranscriptCleared(sessionId, cwd);
   deps.forgetTitle(sessionId);
   deps.publishActivity(sessionId);
 }
@@ -127,7 +131,7 @@ async function applyHeaderHooks(deps: HookDeps, sessionId: string, event: string
     deps.noteTitleTurn(sessionId, effect.text);
     return;
   }
-  if (effect.kind === "clear") return clearHeaderPrompt(deps, sessionId);
+  if (effect.kind === "clear") return clearHeaderPrompt(deps, sessionId, cwd);
   void deps.maybeGenerateTitle(sessionId, cwd);
 }
 

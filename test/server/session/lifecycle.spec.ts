@@ -8,17 +8,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { createSessionLifecycle } from "../../../server/session/lifecycle.js";
 import type { WorkPhase } from "../../../server/session/workPhase.js";
-import {
-  activity,
-  aiTitles,
-  clearedTranscripts,
-  hiddenSessions,
-  knownSessions,
-  lastPrompts,
-  lastResponses,
-  launchChoices,
-  ptys,
-} from "../../../server/session/registry.js";
+import { activity, aiTitles, hiddenSessions, knownSessions, lastPrompts, lastResponses, launchChoices, ptys } from "../../../server/session/registry.js";
+import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 vi.mock("../../../server/infra/tmux.js", () => ({ tmuxKillSession: vi.fn() }));
 vi.mock("../../../server/infra/sandbox.js", () => ({ cleanupSandbox: vi.fn() }));

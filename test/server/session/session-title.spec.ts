@@ -6,7 +6,6 @@ import type { ConversationTurn } from "../../../server/session/transcript.js";
 import { createTitleManager } from "../../../server/session/session-title.js";
 import {
   aiTitles,
-  clearedTranscripts,
   lastTitleAttemptMs,
   lastTitledUserTurns,
   titleEpoch,
@@ -14,6 +13,7 @@ import {
   titlePending,
   titleTurnCounts,
 } from "../../../server/session/registry.js";
+import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
 

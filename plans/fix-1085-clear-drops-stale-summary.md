@@ -32,10 +32,11 @@ mulmoterminal は hook を `x-mt-session` ヘッダで自分の id に固定し�
 
 ### サーバ
 
-- `server/session/registry.ts` — `clearedTranscripts: Set<string>` を追加。
-- `server/routes/hook-routes.ts` `clearHeaderPrompt` — SessionStart source=clear で `add`。
-- `server/session/lifecycle.ts` `reap` — teardown で `delete`。claude が `/exit` した場合も
-  `term.onExit` → `reap` を通るので、次に同じ id を `--resume` したときは解除済みになる。
+- `server/session/cleared-transcripts.ts` (新規) — マークの本体 `clearedTranscripts: Set<string>` と、
+  その永続化。
+- `server/routes/hook-routes.ts` `clearHeaderPrompt` — SessionStart source=clear で `markTranscriptCleared`。
+- `server/session/lifecycle.ts` `reap` — teardown で `forgetClearedTranscript`。claude が `/exit` した
+  場合も `term.onExit` → `reap` を通るので、次に同じ id を `--resume` したときは解除済みになる。
 - `server/session/activity-transition.ts` `shouldRefreshReply` — 判断を純粋関数側に置き、
   `transcriptCleared` を受けて false を返す。
 - `server/session/task-push.ts` — cleared の間は transcript を読まない (push 本文も
@@ -44,6 +45,24 @@ mulmoterminal は hook を `x-mt-session` ヘッダで自分の id に固定し�
   凍結ファイルから作れるのは「ユーザーが今終わらせた会話」のタイトルだけなので。
 
 結果、cleared の間サーバは一貫して `aiTitle: null` / `lastResponse: ""` を返す。
+
+### マークの永続化 (Codex レビュー指摘)
+
+マークを in-memory だけにすると、**`/clear` → reap 前にサーバ再起動** で消える。tmux はセッションの
+claude を生かしたまま (activity state を永続化しているのと同じ理由) なので、再起動後の次のターンで
+凍結 transcript を読み直し、修正前の挙動に戻ってしまう。
+
+そこで `<MULMOTERMINAL_HOME>/cleared-transcripts/<id>.json` に `{ cwd, size }` を書く。
+
+- **id ごとのファイル**: home は同じ場所を指す複数サーバで共有されるので、単一 JSON への
+  read-merge-write は先に終わった方の書き込みを失う (registry.ts が id ログについて言っているのと
+  同じ理由)。id は 1 サーバに属するので id ごとなら競合しない。
+- **size を持つ**: マークが自然に失効するための唯一の手がかり。後から `--resume` するとその
+  ファイルに追記されるので、記録より大きい = claude がまた書いている = マークは無効。これが無いと、
+  reap 前に落ちたサーバが残したマークが、resume 後のセッションのサマリーを永久に黙らせる。
+- **hydrate は import 時ではなく `index.ts` の boot で 1 回**。読み手が同期なので listen 前に
+  終わっている必要があり、また hydrate は失効マークを削除するため、import 時に走ると
+  このモジュールを読む spec すべてが実際の home に触れてしまう。
 
 ### クライアント
 
@@ -54,6 +73,10 @@ mulmoterminal は hook を `x-mt-session` ヘッダで自分の id に固定し�
 
 ## テスト
 
+- `test/server/routes/hook-clear.spec.ts` — SessionStart source=clear で prompt/reply が空になり、
+  マークが立ち、hook が報告した cwd がマークに渡る。`source=compact` では何も起きない。
+- `test/server/session/cleared-transcripts.spec.ts` — マークの書き込み / 再起動後の復元 /
+  transcript が伸びていたら失効 / 壊れたマーカーの破棄 / セッション id でないファイルは触らない。
 - `test/server/session/session-title.spec.ts` — cleared のセッションはタイトルを再生成しない。
 - `test/server/session/activity-transition.spec.ts` — `shouldRefreshReply` が cleared で false。
 - `test/server/session/lifecycle.spec.ts` — `/clear` 後のターン終了で `lastResponses` が復活しない / reap で解除。

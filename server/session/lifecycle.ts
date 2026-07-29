@@ -17,7 +17,6 @@
 import {
   activity,
   aiTitles,
-  clearedTranscripts,
   hiddenSessions,
   knownSessions,
   lastPrompts,
@@ -30,6 +29,7 @@ import {
   ptys,
   titleInFlight,
 } from "./registry.js";
+import { clearedTranscripts, forgetClearedTranscript } from "./cleared-transcripts.js";
 import { parseWaitGraceMs, reapDecisionFor, reapTimerDelay, shouldForgetActivity } from "./reap-policy.js";
 import { sessionRow, shouldRefreshReply } from "./activity-transition.js";
 import { flagEffect, type ActivityFlag } from "./activity-flag.js";
@@ -143,7 +143,7 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   lastResponses.delete(id); // ditto, and keep this map from growing across closed sessions
   // The transcript stops being frozen here: the next claude on this id (`--resume`, or a restart
   // after `/exit` — which reaches reap through term.onExit) appends to that file again.
-  clearedTranscripts.delete(id);
+  forgetClearedTranscript(id);
   deps.forgetTitle(id);
   deps.sessionActivityPublisher.forget(id); // drop the phone's copy so its picker has no ghosts
   deps.forgetWorkPhase(id); // the live turn dies with the session
