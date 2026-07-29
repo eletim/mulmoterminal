@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { isRecord } from "../../common/isRecord.js";
 import { winFolderDialogScript } from "./win-folder-dialog.js";
+import { requestOriginAllowed } from "../routes/same-origin-guard.js";
 
 // A native "open file/folder" dialog per platform whose stdout is the selection's
 // absolute path(s), newline-separated. Browsers can't hand the terminal a real
@@ -66,7 +67,7 @@ interface PickFileOptions {
 // { paths: [] }. Same-origin guarded like the other local-action routes.
 export function mountPickFileRoute(app: Express, { isAllowedOrigin }: PickFileOptions) {
   app.post("/api/pick-file", (req: Request, res) => {
-    if (!isAllowedOrigin(req.headers.origin, req.socket?.remoteAddress)) return res.status(403).json({ error: "forbidden origin" });
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const directory = isRecord(req.body) && req.body.directory === true;
     const { cmd, args } = pickFileCommand(process.platform, directory);
     const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
