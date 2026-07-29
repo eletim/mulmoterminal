@@ -9,8 +9,8 @@
 // to read them from are answered once, in dropUpload.ts and session-drops.ts.
 
 import { pastedImageFile } from "../components/pasteImage";
-import { toShellArg } from "../components/dropPaths";
-import { dropUploadErrorMessage, uploadDroppedFile } from "../components/dropUpload";
+import { toInsertText } from "../components/dropPaths";
+import { dropUploadErrorMessage, uploadDropBatch } from "../components/dropUpload";
 
 interface PasteImageHandlers {
   // Null while the cell has no session yet — the same state a drop reports rather than uploading
@@ -37,12 +37,19 @@ export function createImagePasteHandler({ sessionId, insertText, onError }: Past
     }
     // A clipboard image usually has no filename; the drop route then takes the extension from the
     // content type, which is why nothing here has to invent one.
-    void uploadDroppedFile(session, file).then((result) => {
-      if (result.ok) return insertText(toShellArg(result.path));
-      onError(dropUploadErrorMessage(result.status));
+    //
+    // Through the BATCH helper rather than a bare upload, for its session rule: a saved path is
+    // granted to one session by `--add-dir`, so a switch while the bytes are in flight must drop
+    // the path rather than hand the new session one it was never granted and cannot read.
+    void uploadDropBatch(session, [file], sessionId).then((outcome) => {
+      if (outcome.kind === "inserted") return insertText(toInsertText(outcome.paths));
+      onError(outcome.kind === "stale" ? PASTE_SESSION_CHANGED_EN : dropUploadErrorMessage(outcome.status));
     });
     return true;
   };
 }
 
 export const PASTE_NO_SESSION_EN = "This terminal has no session yet — start one before pasting an image.";
+// The drop path's own wording says "drop it again"; the action to retry is what differs, so the
+// sentence cannot be shared even though the condition is the same one.
+export const PASTE_SESSION_CHANGED_EN = "This terminal moved to a different session while the image was sending — paste it again.";

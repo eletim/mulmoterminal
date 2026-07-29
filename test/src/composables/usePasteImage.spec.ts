@@ -97,6 +97,27 @@ describe("createImagePasteHandler", () => {
     expect(insertText).not.toHaveBeenCalled();
   });
 
+  // A saved path is granted to ONE session by `--add-dir`. Handing it to whatever session arrived
+  // while the bytes were in flight gives that session a path it was never granted and cannot read
+  // — so the path is dropped and the user is told to paste again (flagged by Codex).
+  it("does not insert a path into a session that arrived mid-upload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(200, { path: "/drops/old-session/abc.png" })),
+    );
+    let current: string | null = SESSION;
+    const insertText = vi.fn();
+    const onError = vi.fn();
+    const onPaste = createImagePasteHandler({ sessionId: () => current, insertText, onError });
+
+    onPaste(pasteEvent(["image/png"], png()));
+    current = "99999999-8888-7777-6666-555555555555"; // the cell switched while the upload ran
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(insertText).not.toHaveBeenCalled();
+    expect(onError.mock.calls[0][0]).toContain("different session");
+  });
+
   // The save directory is granted to a session at spawn time, so there is nowhere to put the
   // bytes before one exists. The event is still claimed — the image must not reach the terminal
   // as garbage — and the reason is said out loud.
