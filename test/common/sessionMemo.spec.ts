@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { MEMO_MAX_LENGTH, normalizeMemo } from "../../common/sessionMemo.js";
+import { MEMO_MAX_LENGTH, normalizeMemo, sessionDisplayName } from "../../common/sessionMemo.js";
 
 describe("normalizeMemo", () => {
   it("keeps an ordinary one-line note as it was typed", () => {
@@ -60,5 +60,32 @@ describe("normalizeMemo", () => {
 
   it("leaves quotes, backslashes and markup alone — the log line is JSON, not a delimiter", () => {
     expect(normalizeMemo('branch "fix/1084" — C:\\repo <b>x</b>')).toBe('branch "fix/1084" — C:\\repo <b>x</b>');
+  });
+});
+
+// The rule the cell header, the sidebar row and the phone's roster all share. It lives here so a
+// session cannot go by two names depending on which of the three is looked at.
+describe("sessionDisplayName", () => {
+  it("lets the user's memo outrank every generated title", () => {
+    expect(sessionDisplayName("release check", "Login fix", "fix the login bug")).toBe("release check");
+  });
+
+  it("falls through the generated tiers in the order it was given them", () => {
+    expect(sessionDisplayName(null, "Login fix", "fix the login bug")).toBe("Login fix");
+    expect(sessionDisplayName(null, null, "fix the login bug")).toBe("fix the login bug");
+  });
+
+  // Truthiness, not nullishness: every tier is a string that must be SKIPPED when empty. Pinning
+  // "" as the answer would hide the real title sitting in the tier below it.
+  it("skips an empty tier rather than showing blank", () => {
+    expect(sessionDisplayName("", "Login fix")).toBe("Login fix");
+    expect(sessionDisplayName(undefined, "", "fix the login bug")).toBe("fix the login bug");
+  });
+
+  // "" is what a caller checks to reach for its OWN fallback — a short session id in the grid, a
+  // sentinel in the sidebar — so nothing-at-all must not become a name.
+  it("answers empty when there is nothing to show", () => {
+    expect(sessionDisplayName(null)).toBe("");
+    expect(sessionDisplayName("", "", null, undefined)).toBe("");
   });
 });

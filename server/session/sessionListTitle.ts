@@ -13,6 +13,8 @@
 // process has no usable live title, fall through to disk". Tidying `||` into `??` would
 // pin an empty string as the row's title and hide the real one sitting on disk right below.
 
+import { sessionDisplayName } from "../../common/sessionMemo.js";
+
 export interface SessionListTitleInput {
   memo: string | undefined;
   liveAiTitle: string | undefined;
@@ -24,5 +26,6 @@ export interface SessionListTitleInput {
 export const UNTITLED_SESSION = "(untitled session)";
 
 export function sessionListTitle(input: SessionListTitleInput): string {
-  return input.memo || input.liveAiTitle || input.diskAiTitle || input.diskLastPrompt || input.firstUserMsg || UNTITLED_SESSION;
+  const { memo, liveAiTitle, diskAiTitle, diskLastPrompt, firstUserMsg } = input;
+  return sessionDisplayName(memo, liveAiTitle, diskAiTitle, diskLastPrompt, firstUserMsg) || UNTITLED_SESSION;
 }

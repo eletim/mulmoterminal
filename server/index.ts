@@ -14,6 +14,7 @@ import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommand
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
+import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
   tmuxAvailable,
@@ -562,10 +563,11 @@ const remoteHostListTerminalSessions = async () => {
       // holding undefined, and Firestore then refuses the entire reply rather than that one field.
       const summary = work.get(cwdOfSession(id));
       return {
-        // The memo first, matching the cell header and the sidebar: the phone is where "which of
-        // these is which" is hardest, and it renders `title` and nothing else — so riding in that
-        // field is also what puts a memo on a phone with no core release and no schema change.
-        title: sessionMemos.get(id) || aiTitles.get(id) || knownSessions.get(id)?.title || "",
+        // The same precedence as the cell header and the sidebar, through the same helper: the
+        // phone is where "which of these is which" is hardest, and it renders `title` and nothing
+        // else — so riding in that field is also what puts a memo on a phone with no core release
+        // and no schema change.
+        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), knownSessions.get(id)?.title),
         cwd: cwdOfSession(id),
         agent: agentOfSession(id),
         ...(summary ? { work: summary } : {}),

@@ -90,11 +90,20 @@ async function setMemo(req: Request<{ id: string }>, res: Response, publishActiv
   const { text } = req.body ?? {};
   if (typeof text !== "string") return res.status(400).json({ error: "text must be a string" });
   await sessionMemosHydrated; // or a write during startup is undone by the file it raced
-  const memo = setSessionMemo(id, text);
-  publishActivity(id);
-  // The STORED memo, not the request's: normalization collapses and caps what was typed, and a
-  // client that echoed its own text would show something the next reload disagrees with.
-  res.json({ id, memo });
+  try {
+    // Awaited: acknowledging before the append lands would show the user a note that is not saved
+    // anywhere, and it would then disappear at the next restart with nothing having reported an
+    // error. The store rolls its own in-memory value back on failure, so a 500 leaves both sides
+    // agreeing that the memo was not written.
+    const memo = await setSessionMemo(id, text);
+    publishActivity(id);
+    // The STORED memo, not the request's: normalization collapses and caps what was typed, and a
+    // client that echoed its own text would show something the next reload disagrees with.
+    res.json({ id, memo });
+  } catch (err) {
+    console.error("[api] /api/session/:id/memo failed:", err);
+    res.status(500).json({ error: "failed to save the memo" });
+  }
 }
 
 // Attention state (working / waiting / event) for an explicit set of session ids.

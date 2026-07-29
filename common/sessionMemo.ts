@@ -25,3 +25,20 @@ export function normalizeMemo(raw: unknown): string {
   // lone half in a JSON line that every later reader has to carry.
   return [...oneLine].slice(0, MEMO_MAX_LENGTH).join("");
 }
+
+/**
+ * The name a session goes by: the user's memo when there is one, else the best generated title
+ * on offer, else "" for the caller's own sentinel.
+ *
+ * Shared because THREE surfaces answer this question — the grid cell's header, the sidebar row
+ * and the phone's roster — and a session that goes by two different names depending on where it
+ * is looked at is worse than one with no name at all. Each caller passes its own tiers, in its
+ * own order; what lives here is the one rule they agree on, that the line the USER wrote outranks
+ * everything the agent said.
+ *
+ * Truthiness, not nullishness: an empty tier means "nothing usable here, keep looking", never
+ * "show blank".
+ */
+export function sessionDisplayName(memo: string | null | undefined, ...generated: (string | null | undefined)[]): string {
+  return [memo, ...generated].find((candidate) => !!candidate) ?? "";
+}

@@ -247,17 +247,36 @@ export const sessionMemosHydrated: Promise<void> = (async () => {
 
 let memoPersist: Promise<void> = Promise.resolve();
 
-/** Store a session's memo, or erase it when the text normalizes to empty. Returns what was
- *  stored, which is what the caller should echo back — the store's answer, not the request's. */
-export function setSessionMemo(id: string, text: string): string {
+/**
+ * Store a session's memo, or erase it when the text normalizes to empty. Resolves to what was
+ * stored — the store's answer, not the request's — once the append is ON DISK.
+ *
+ * AWAITED, unlike the fire-and-forget appenders above, and the difference is what is being
+ * written: a cwd or an id is derived state this server can work out again, while a memo is a
+ * sentence the user typed and nothing can reconstruct. So a failed write REJECTS and puts the
+ * previous value back, rather than logging and leaving a note on screen that is not saved
+ * anywhere and vanishes at the next restart (CodeRabbit).
+ */
+export async function setSessionMemo(id: string, text: string): Promise<string> {
   const memo = normalizeMemo(text);
   if (!isValidSessionId(id)) return memo;
+  const previous = sessionMemos.get(id);
   memoWrittenIds.add(id);
   applySessionMemo(sessionMemos, { id, text: memo });
-  memoPersist = memoPersist
+  const append = memoPersist
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
-    .then(() => fs.appendFile(SESSION_MEMOS_FILE, sessionMemoLine(id, memo, Date.now())))
-    .catch((e) => console.error(`[session-memos] failed to persist: ${messageOf(e)}`));
+    .then(() => fs.appendFile(SESSION_MEMOS_FILE, sessionMemoLine(id, memo, Date.now())));
+  // The CHAIN must survive this write failing — it is what serializes the appends, and a rejected
+  // promise left in it would take down every memo written afterwards.
+  memoPersist = append.catch(() => {});
+  try {
+    await append;
+  } catch (e) {
+    // Only if nothing has moved on since: a later write for the same id is the newer truth, and
+    // rolling back over it would resurrect the value the user just replaced.
+    if (sessionMemos.get(id) === (memo || undefined)) applySessionMemo(sessionMemos, { id, text: previous ?? "" });
+    throw new Error(`failed to persist the memo: ${messageOf(e)}`, { cause: e });
+  }
   return memo;
 }
 
