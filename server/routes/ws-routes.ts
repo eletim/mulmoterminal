@@ -22,7 +22,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
-import { sandboxWouldRun, SpawnBinaryError } from "../session/pty-spawn.js";
+import { sandboxWouldRun, SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
 import { codexGuiMcpServers } from "../session/mcp-config.js";
@@ -293,9 +293,9 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     // must close just this connection — never crash the whole server.
     console.error(`[ws] failed to start session ${sessionId}: ${messageOf(err)}`);
     // A provider refusal already says exactly what is wrong with the directory's config
-    // (#579), and a refused spawn already names the binary and the PATH it searched (#1063);
-    // a generic hint would bury either.
-    if (err instanceof ProviderRefusedError || err instanceof SpawnBinaryError) return closeWithError(ws, err.message);
+    // (#579), and a refused spawn already names the binary and the PATH it searched, or the
+    // directory that is gone (#1063, #1078); a generic hint would bury either.
+    if (err instanceof ProviderRefusedError || err instanceof SpawnRefusedError) return closeWithError(ws, err.message);
     closeWithError(ws, `Failed to start Claude: ${messageOf(err)}`);
     return;
   }
@@ -355,6 +355,9 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
   } catch (err) {
     console.error(`[ws/launch] failed to start ${sessionId}: ${messageOf(err)}`);
     early.discard();
+    // A launcher has no binary pre-flight (the command is the user's own), but its cwd is
+    // checked like every other spawn's — and that message is already written for the reader.
+    if (err instanceof SpawnRefusedError) return closeWithError(ws, err.message);
     return closeWithError(ws, `Failed to start the launch command: ${messageOf(err)}`);
   }
 
@@ -397,7 +400,7 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { ur
   } catch (err) {
     console.error(`[ws/codex] failed to start ${sessionId}: ${messageOf(err)}`);
     early.discard();
-    if (err instanceof SpawnBinaryError) return closeWithError(ws, err.message);
+    if (err instanceof SpawnRefusedError) return closeWithError(ws, err.message);
     return closeWithError(ws, `Failed to start codex: ${messageOf(err)}`);
   }
 

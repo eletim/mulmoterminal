@@ -9,6 +9,8 @@ import type { WebSocket } from "ws";
 import { sanitizePtyEnv } from "../infra/pty-env.js";
 import { resolvePtyLaunchForEnv } from "../infra/resolve-bin.js";
 import { binaryProblemMessage, diagnoseBinary, type BinaryDiagnosis } from "../infra/has-binary.js";
+import { cwdProblemMessage, diagnoseSpawnCwd, type CwdDiagnosis } from "../infra/spawn-cwd.js";
+import { ptyStartLine } from "./pty-exit-log.js";
 import { withoutUnset } from "./provider-env.js";
 import { tmuxAvailable, tmuxHasSession, tmuxNewSessionArgs, tmuxScrubEnvNames } from "../infra/tmux.js";
 import {
@@ -82,16 +84,31 @@ export function ptyWouldReattach(sessionId: string, persistent: boolean): boolea
   return persistent && tmuxAvailable() && tmuxHasSession(sessionId);
 }
 
-/** A spawn refused before it was attempted, because the program it would run cannot be run.
- *  Its `message` is already written for the user — a caller shows it as-is rather than
- *  guessing, which is the whole point (#1063). */
-export class SpawnBinaryError extends Error {
+/** A spawn refused before it was attempted, because something about it is already known not to
+ *  work. Its `message` is already written for the user — a caller shows it as-is rather than
+ *  guessing, which is the whole point (#1063). One base class so a caller can ask that question
+ *  once instead of listing every reason. */
+export class SpawnRefusedError extends Error {}
+
+/** The program cannot be run: absent from PATH, not executable, a path that names nothing. */
+export class SpawnBinaryError extends SpawnRefusedError {
   constructor(
     message: string,
     readonly diagnosis: BinaryDiagnosis,
   ) {
     super(message);
     this.name = "SpawnBinaryError";
+  }
+}
+
+/** The working directory cannot be entered: deleted, renamed, or a file. */
+export class SpawnCwdError extends SpawnRefusedError {
+  constructor(
+    message: string,
+    readonly diagnosis: CwdDiagnosis,
+  ) {
+    super(message);
+    this.name = "SpawnCwdError";
   }
 }
 
@@ -114,9 +131,31 @@ function refuseUnlaunchable(file: string, binEnvVar: string, env: NodeJS.Process
   throw new SpawnBinaryError(problem, diagnosis);
 }
 
+// The same treatment for the directory, and for the same reason (#1078): `chdir` runs in the
+// child, so on macOS a directory that is gone is another silent exit 1.
+//
+// `reattached` decides between refusing and merely saying so. A NEW program cannot start in a
+// directory that is not there, so refusing turns a blank pane into a sentence. An ATTACH runs no
+// program at all, and shutting someone out of an agent that is still running because they moved
+// the directory would be a worse bug than the one being reported — but the tmux client we spawn
+// takes the same cwd, so if the attach then fails, this line is why.
+function refuseUnusableCwd(cwd: string, reattached: boolean): void {
+  const diagnosis = diagnoseSpawnCwd(cwd);
+  const problem = cwdProblemMessage(cwd, diagnosis);
+  if (!problem) return;
+  if (reattached) return console.warn(`[pty] attaching in an unusable directory — ${problem}`);
+  throw new SpawnCwdError(problem, diagnosis);
+}
+
 // Spawn a terminal, wrapping it in a persistent tmux session when tmux is available and
 // `persistent` is set, so it survives the server dying. `tmux new-session -A` creates it
-// (running file+args) or reattaches the surviving one. Returns whether tmux backs it.
+// (running file+args) or reattaches the surviving one.
+//
+// `reattached` is returned because the two cases are worth telling apart afterwards and nothing
+// downstream can: `-A` hands back a terminal either way, and on the attach path the binary, the
+// argv and the cwd were never used — so a session that works proves nothing about them (#1063).
+// It is a REPORT, not a decision: the tmux session can still die between the question and the
+// answer, and a rare mislabelled line is the acceptable cost of not asking tmux twice.
 //
 // `binEnvVar` names the override that would fix a bad `file` (CODEX_BIN); passing it opts this
 // spawn into the pre-flight check. A caller that omits it — one whose `file` is a shell, or a
@@ -128,19 +167,21 @@ export function ptySpawn(
   cwd: string,
   persistent: boolean,
   options: PtySpawnEnv = {},
-): { term: IPty; tmux: boolean } {
+): { term: IPty; tmux: boolean; reattached: boolean } {
   const { unset = [], env = {}, binEnvVar } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
-  if (binEnvVar && !ptyWouldReattach(sessionId, persistent)) refuseUnlaunchable(file, binEnvVar, ptyEnv(unset, env));
+  const reattached = ptyWouldReattach(sessionId, persistent);
+  if (binEnvVar && !reattached) refuseUnlaunchable(file, binEnvVar, ptyEnv(unset, env));
+  refuseUnusableCwd(cwd, reattached);
   if (persistent && tmuxAvailable()) {
     // A pane inherits the tmux SERVER's environment, so stripping our own copy is not
     // enough — the server may already carry the name from an earlier session. For the same
     // reason `env` goes to `new-session -e` rather than onto the tmux CLIENT we spawn here.
     if (unset.length > 0) tmuxScrubEnvNames(unset);
-    return { term: spawnPty("tmux", tmuxNewSessionArgs(sessionId, file, args, cwd, env), cwd, unset), tmux: true };
+    return { term: spawnPty("tmux", tmuxNewSessionArgs(sessionId, file, args, cwd, env), cwd, unset), tmux: true, reattached };
   }
-  return { term: spawnPty(file, args, cwd, unset, env), tmux: false };
+  return { term: spawnPty(file, args, cwd, unset, env), tmux: false, reattached };
 }
 
 // Spawn the single-view session inside a Docker container (the sandbox path). Exports the
@@ -153,6 +194,6 @@ export function spawnSandboxEntry(sessionId: string, claudeArgs: string[], cwd: 
   if (credentials === null)
     console.warn("[sandbox] no Claude credential found in the macOS Keychain — the container may be unauthenticated. Run `claude` on the host to log in.");
   const term = spawnPty("docker", buildDockerRunArgs(sessionId, claudeArgs, cwd, claudeConfig, credentials, addDirs), cwd);
-  console.log(`[pty] spawned claude (pid=${term.pid} via docker sandbox) in ${cwd}`);
+  console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux: false, reattached: false, sessionId, note: "docker sandbox" }));
   return { term, ws, buffer: "", cwd, sandbox: true, active: false, agent: "claude" };
 }
