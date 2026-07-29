@@ -496,8 +496,8 @@ onUnmounted(() => {
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory appearance</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
-        Launch the <code>mulmoterminal-config</code> skill to style a directory — name badge, colors, terminal palette, header buttons. It configures the
-        focused session's directory, or lets you pick from your recent directories.
+        Launch the <code>mulmoterminal-dirs</code> skill to style and order your directories — name badge, colors, terminal palette, grid position. It starts
+        from the directories you actually open, reads the settings you already have, and follows the same pattern for the ones that have none.
       </p>
       <SettingsButton @click="emit('configure-appearance')"
         ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton
@@ -825,7 +825,7 @@ onUnmounted(() => {
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Keyboard shortcuts</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Read-only. Shortcuts are off until you bind them in <code>~/.mulmoterminal/config.json</code> under <code>keymap</code> — every key you bind stops
-        reaching the program inside the terminal. Ask <code>/mulmoterminal-config</code> to set them up, or see the
+        reaching the program inside the terminal. Ask <code>/mulmoterminal-keys</code> to set them up, or see the
         <a class="text-accent underline" href="https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap" target="_blank" rel="noopener noreferrer"
           >guide</a
         >.

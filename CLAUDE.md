@@ -81,8 +81,21 @@ had no rule until now.
 Deliberate divergence is fine — say so in a comment with the reason, and flag it in the PR.
 
 ## Bundled skills
-`server/skills/` ships skills to end users (mulmoterminal-config, mulmoterminal-bug-report);
-they are mirrored to `~/.claude/skills/`.
+`server/skills/` ships skills to end users; they are mirrored to `~/.claude/skills/` and the Codex
+skills root. **`BUNDLED_SKILL_NAMES` in `server/infra/install-bundled-skills.ts` is what ships
+them** — adding a directory is not enough, and a directory nobody lists is copied nowhere with no
+error anywhere (a spec pins the two together).
+
+`mulmoterminal-config` is the **entry point**: it routes to the skill that owns an area, and it
+reports on how things are configured now. The writing skills are `mulmoterminal-dirs` (per-project
+colours, grid/launcher order, name, font size), `-theme` (custom global colour schemes), `-header`
+(buttons/chips), `-keys` (keymap, copy-on-select, Enter), `-model` (providers), `-notify` (sounds,
+push). Plus `mulmoterminal-bug-report` and `mulmoterminal-decisions`.
+
+**A setting belongs to exactly one skill.** When you add or change a config key, update that
+skill — not the router, which must stay a table of contents. #1097 is the cautionary tale: it
+changed what `orderPriority` does, README and both guides were updated, and the one 558-line
+monolith that also documented it was missed.
 
 ## Publishing a release
 

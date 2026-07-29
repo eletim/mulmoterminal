@@ -5,6 +5,8 @@ import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
 import GuideLinks from "./GuideLinks.vue";
 import { startCollectionChat } from "../composables/useChatLauncher";
+import { skillSeed } from "./skillSeed";
+import { DIR_CONFIG_SKILL } from "../../common/bundledSkills";
 import { router } from "../router";
 import {
   initialState,
@@ -483,7 +485,7 @@ useCaptureKeydown(onShortcutKey);
 function configureAppearance() {
   closeSettings();
   router.push({ name: "chat" });
-  void startCollectionChat("/mulmoterminal-config");
+  void startCollectionChat(skillSeed(DIR_CONFIG_SKILL, "claude"));
 }
 </script>
 

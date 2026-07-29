@@ -218,7 +218,8 @@ and every CLI in the table above), seeds the launcher's **directory
 presets** from the projects in your Claude Code history, and writes `~/.mulmoterminal/config.json`.
 It's **idempotent** — re-run it any time to refresh the presets; it overwrites the managed parts
 and keeps your other settings. When `claude` is installed it can hand off to the
-`/mulmoterminal-config` skill for interactive tweaks.
+`/mulmoterminal-config` skill for interactive tweaks — it routes to the one that owns what you
+want to change.
 
 **Google account (optional).** Link a Google account to enable the chat's `google` tool and the
 phone's `google.calendar.*` commands: read/create events on any calendar (not just your primary),
@@ -530,7 +531,7 @@ the `claude` / `codex` sessions themselves.
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | Root for managed **git worktrees**. |
 | `CLAUDE_CONFIG_DIR` | `~` | Claude Code's own config directory. `.claude.json` lives **inside** it, so relocating your Claude Code config moves that file too — MulmoTerminal reads it to tell whether the per-project GUI MCP server is registered (`server/infra/gui-mcp-registration.ts`). Leave it unset and `~/.claude.json` is used. |
 | `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | Where the managed MulmoClaude workspace lives. MulmoTerminal seeds presets/helps **only** into this directory, so launching in an arbitrary project never writes them there (`server/backends/workspaceSetup.ts`). Set it to the same value MulmoClaude uses. |
-| `MULMOTERMINAL_NO_SKILL_INSTALL` | unset | Set to any value to skip installing the bundled skills (`mulmoterminal-config`, `mulmoterminal-bug-report`, `mulmoterminal-decisions`) into `~/.claude/skills/` and the Codex skills root on startup. |
+| `MULMOTERMINAL_NO_SKILL_INSTALL` | unset | Set to any value to skip installing the bundled skills (`mulmoterminal-config` and the `-dirs` / `-theme` / `-header` / `-keys` / `-model` / `-notify` / `-bug-report` / `-decisions` family) into `~/.claude/skills/` and the Codex skills root on startup. |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | Model used for image generation (needs `GEMINI_API_KEY`). The default is a **preview** model Google schedules for retirement around mid-2026, so pin a stable one here (e.g. `gemini-2.5-flash-image`) rather than waiting for a code change. |
 | `WAIT_REAP_GRACE_MS` | `1800000` | How long a **waiting** background session is kept before it's auto-reaped (`0` or negative = never). |
 
@@ -599,8 +600,8 @@ agent), or `"open"`. An `open` button targets one of `url` / `reveal` (OS file m
 opened next to the current one) / `pr: true` (open the current branch's PR — the button is hidden when
 there's no open PR) / `pickFile: true` (OS file dialog → insert the path).
 `${dir}`, `${branch}`, `${repo}`, … substitute live context, and `when` (e.g. `"isGitRepo"`) gates
-visibility. The `/mulmoterminal-config` skill writes a valid config interactively; per-dir buttons
-merge over the global ones by `id`.
+visibility. The `/mulmoterminal-header` skill writes a valid config interactively; per-dir buttons
+merge over the global ones by `id`, while `chips` replace the global list wholesale.
 
 ### Notification sounds
 
@@ -731,7 +732,7 @@ malformed file is ignored.
 paths and any `../` that escapes the directory are rejected, and the path is never taken from the
 HTTP request, so an opened project can't point the player at arbitrary files.
 **When changes take effect.** A write made *through Claude's tools* — which includes the
-`mulmoterminal-config` skill — applies **live**: the tool hook that reports the write doubles
+`mulmoterminal-dirs` skill — applies **live**: the tool hook that reports the write doubles
 as the reload signal, so colors, palette, font size and grid order update without reopening
 anything. There is no filesystem watcher, so an edit made **outside** a session (your own
 editor) is picked up when the terminal is next opened.
@@ -1597,7 +1598,8 @@ server/
   mcp/            per-session MCP broker
   backends/       wiki, collections, feeds, accounting, notifier,
                   translation, whisper, remote-host, html, files
-  skills/         bundled skills (mulmoterminal-config, mulmoterminal-bug-report, mulmoterminal-decisions)
+  skills/         bundled skills: mulmoterminal-config (entry point + audit), -dirs, -theme,
+                  -header, -keys, -model, -notify, -bug-report, -decisions
   fix-pty-perms.js              postinstall: fixes node-pty binary permissions
 src/
   App.vue                       Layout; owns the active session + single/grid view

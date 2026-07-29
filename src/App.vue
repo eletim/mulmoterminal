@@ -18,6 +18,8 @@ import AppToolbar from "./components/AppToolbar.vue";
 import { useSessions, type Filter } from "./composables/useSessions";
 import { browseClose } from "./composables/useCollectionBrowse";
 import { registerChatOpener, startCollectionChat } from "./composables/useChatLauncher";
+import { skillSeed } from "./components/skillSeed";
+import { DIR_CONFIG_SKILL } from "../common/bundledSkills";
 import { useAppConfig } from "./composables/useAppConfig";
 import { useDirConfig } from "./composables/useDirConfig";
 import { useFaviconState } from "./composables/useFaviconState";
@@ -221,11 +223,12 @@ function sendTextMessage(text: string): boolean {
   return terminalRef.value?.submitText(text) ?? false;
 }
 
-// Open a fresh session that auto-runs the mulmoterminal-config skill (rather than hijacking the
-// active session), and select it so it shows. The skill then asks which directory / batch. codex
-// rewriting is handled server-side (spawnBackgroundChat → codexifySkillSeed).
+// Open a fresh session that auto-runs the directory-appearance skill (rather than hijacking the
+// active session), and select it so it shows. The skill then asks which directories. codex
+// rewriting is handled server-side (spawnBackgroundChat → codexifySkillSeed), which is why the
+// claude form is what goes on the wire.
 function configureAppearance(): void {
-  void startCollectionChat("/mulmoterminal-config");
+  void startCollectionChat(skillSeed(DIR_CONFIG_SKILL, "claude"));
   showSettings.value = false;
 }
 

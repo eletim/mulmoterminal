@@ -39,16 +39,23 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 
 {: .highlight }
 > **手書きする必要はありません。** MulmoTerminal のセッションで **`/mulmoterminal-config`** と打てば、
-> 同梱スキルがチェックボックスと配色プリセットで案内しながら、妥当なファイルを書いてくれます。現在の
-> ディレクトリでも、最近使った複数ディレクトリまとめてでも可能です。（Settings → **Configure appearance…**
-> ボタンからも同じスキルが起動します。）
+> 何を変えたいかを聞いて、その領域を担当するスキルに引き継ぎます。「今どう設定されている？」にも答えます
+> ——**検証で落とされたキー**も含めて。設定したのに効いていないものは、外から見るとこれです。
 >
-> **UI が一切なく `~/.mulmoterminal/config.json` にしか存在しない設定**を見つける手段でもあります——
-> [`providers`](#providers)（別のモデル）・[`keymap`](#keymap)（キーボードショートカット）・
-> [`terminalSubmit`](#terminal-submit)（「Shift+Enter で改行ではなく送信されてしまう」の対処）・
-> [`fontFamily`](#font-family)（ターミナルのフォント）・定期 dev-work ログ。
-> 手編集でも構いません（このページに全フィールドの説明があります）が、スキルは書きながら検証します。
-> これは特に `keymap` で効いてきます——記法を間違えるとサーバが起動しなくなるためです。
+> 領域が分かっているなら直接どうぞ:
+>
+> | スキル | 範囲 |
+> |---|---|
+> | **`/mulmoterminal-dirs`** | プロジェクトの色・グリッドとランチャでの位置・名前バッジ・ターミナルの文字サイズ。実際に開いているディレクトリを母集団にし、既にある設定を読んでその規則を、まだ無いディレクトリにも適用します。（Settings → **Configure appearance…** はこれを起動します） |
+> | **`/mulmoterminal-theme`** | 自分の[配色](#custom-themes)を作る。Settings のテーマ選択に並びます |
+> | **`/mulmoterminal-header`** | [ヘッダーのボタンとチップ](#header)。global でもプロジェクト単位でも |
+> | **`/mulmoterminal-keys`** | [`keymap`](#keymap)・[`copyOnSelect`](#copy-on-select)・[`terminalSubmit`](#terminal-submit)（「Shift+Enter で改行ではなく送信されてしまう」の対処） |
+> | **`/mulmoterminal-model`** | [`providers`](#providers)、プロジェクトごとのモデル |
+> | **`/mulmoterminal-notify`** | [どの瞬間に鳴らす・通知するか](#sounds)、それぞれ何を鳴らすか |
+>
+> **UI が一切ない設定**に手が届く唯一の対話的な経路でもあります。手編集でも構いません（このページに全フィールドの
+> 説明があります）が、スキルは書きながら検証します。これは特に `keymap` で効いてきます——記法を間違えると
+> サーバが起動しなくなるためです。
 
 ---
 
@@ -64,7 +71,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 |---|---|
 | **Theme** | Midnight / Nord / Daylight / Solarized Light、および[自分で定義した配色](#custom-themes) |
 | **Terminal font size** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
-| **Directory appearance** | 「Configure appearance…」— ディレクトリの名前バッジ・色・ターミナルのパレット・ヘッダーを、`mulmoterminal-config` スキルで対話的に設定 |
+| **Directory appearance** | 「Configure appearance…」— ディレクトリの名前バッジ・色・ターミナルのパレット・グリッド上の位置を、`mulmoterminal-dirs` スキルで対話的に設定 |
 | **Directory settings** | 各ディレクトリの `.mulmoterminal.json` が**実際に何をしているか**。行を開くと、効いている値（色は見本付き）・**どのファイル由来か**・**検証で落ちたキー**・**このアプリが読まないキー**が出ます。読み取り専用（→ [設定が効かないとき](#dir-settings-preview)） |
 | **Notification sounds** | どの瞬間に鳴らすか＋それぞれ何を鳴らすか。種類ごとに1行、プリセット選択と試聴ボタン付き（→ [通知音](#sounds)） |
 | **Voice input** | 音声入力で**話す言語**（ブラウザの言語 / 発話ごとの自動検出 / 固定）。文字起こしできるマシンでだけ表示されます |
@@ -141,7 +148,7 @@ Anthropic のまま別のモデルを指定できます。→ [OpenRouter で別
 
 ここで開いたターミナルでは、どちらもグローバル設定より優先されます。プロジェクトごとに音を
 変えれば、耳だけで区別できます。ファイルパスは**このディレクトリからの相対**で、絶対パスや
-`../` で外に出るものは拒否されます。`preset:<id>` もここで使えるので、プロジェクト側に音声
+`../` で外に出るものは拒否されます。`preset:<id>` は **`sounds`**（種類ごと）で使えるので、プロジェクト側に音声
 ファイルを置く必要はありません。→ [通知音](#sounds)
 
 ### ターミナル自体の色（xterm パレット）
@@ -191,7 +198,7 @@ xterm の文字グリッドとシェルが認識しているウィンドウサ�
 
 グローバル側と違い、こちらは**サーバ再起動が不要**です。ただしファイル監視をしているわけでもありません。
 MulmoTerminal が `.mulmoterminal.json` を読み直すのは、**Claude の Write/Edit ツールが「書いた」と
-報告したとき**です（`/mulmoterminal-config` を実行するとセルの色がその場で変わるのはこのため）。
+報告したとき**です（`/mulmoterminal-dirs` を実行するとセルの色がその場で変わるのはこのため）。
 エディタなど**外部から手で書き換えた**場合、すでに開いているターミナルはブラウザのタブを再読み込み
 するまで古いフォントのままです。
 ### グリッドでの並び位置（`orderPriority`） {#order-priority}
@@ -1222,7 +1229,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | 管理下 git worktree のルート |
 | `CLAUDE_CONFIG_DIR` | `~` | Claude Code 自身の設定ディレクトリ。`.claude.json` は**この中**に置かれるので、Claude Code の設定を移すとこのファイルも一緒に移ります。MulmoTerminal は、プロジェクトごとの GUI MCP サーバが登録済みかを判定するのにこれを読みます。未設定なら `~/.claude.json` |
 | `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | 管理下の MulmoClaude ワークスペースの場所。プリセットや helps の書き込みは**このディレクトリに限定**されるので、任意のプロジェクトで起動しても余計なファイルが増えません。MulmoClaude 側と同じ値を指定してください |
-| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(なし)* | 何か値を入れると、同梱スキル（`mulmoterminal-config` / `mulmoterminal-bug-report` / `mulmoterminal-decisions`）を起動時に `~/.claude/skills/` と Codex のスキルルートへ入れる処理をやめます |
+| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(なし)* | 何か値を入れると、同梱スキル（`mulmoterminal-config` と `-dirs` / `-theme` / `-header` / `-keys` / `-model` / `-notify` / `-bug-report` / `-decisions`）を起動時に `~/.claude/skills/` と Codex のスキルルートへ入れる処理をやめます |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | 画像生成に使うモデル（`GEMINI_API_KEY` が必要）。既定は Google が 2026 年半ばごろの廃止を予告している**プレビュー**モデルなので、安定版（例 `gemini-2.5-flash-image`）に固定したいときはここで指定します |
 
 ### 誰がサーバに到達できるか（`MULMOTERMINAL_HOST`） {#bind-host}
