@@ -33,6 +33,14 @@ export function registerChatOpener(fn: OpenSessionFn): void {
   openSessionFn = fn;
 }
 
+/** Show an ALREADY-spawned session — what a non-hidden spawn does, as its own step. A `hidden`
+ *  caller that means to place the session itself can only find out whether it managed to at the
+ *  end; without this it would have to commit to "the shell shows it" before spawning, and be wrong
+ *  by the time it knew. */
+export function showSpawnedSession(id: string): void {
+  openSessionFn?.(id, { agent: launchAgent.value });
+}
+
 /** Spawn a new chat seeded with `prompt`; when not hidden, make it visible. With
  *  `draft`, the prompt is prefilled in the input box but NOT submitted. Returns the new session's
  *  id (null if nothing was spawned) — `hidden` callers need it to put the session somewhere of

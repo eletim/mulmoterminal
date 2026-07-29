@@ -80,9 +80,15 @@ insertCellAfter(state, NO_ORIGIN_UID, { session: chatId, cwd: defaultCwd })
 ので、background worker 扱いにはならない）。これが飛ばないことの実体。`startCollectionChat` は
 chatId を返すようにした——`hidden` にすると呼び出し側は自分が起こしたものへの手掛かりを失うため。
 
-**満杯のとき。** `insertCellAfter` は `MAX_TERMINALS`（81）でセルを黙って捨てる。先に spawn していると
-**生きたエージェントが、グリッド上に出る場所を持たない**まま残る。なので容量を先に見て、満杯なら
-single view にフォールバックする（従来の挙動）。消えるよりはマシで、`onAddTerminal` と同じ判断。
+**満杯のとき。** `insertCellAfter` は `MAX_TERMINALS`（81）でセルを黙って捨て、state をそのまま返す。
+先に spawn しているので、そのままだと**生きたエージェントが、グリッド上に出る場所を持たない**まま残る。
+満杯なら single view にフォールバックする（従来の挙動）。消えるよりはマシ。
+
+判定は **spawn の後**に、`insertCellAfter` の**戻り値の同一性**で見る。最初は spawn の前に
+`runningCount() < MAX_TERMINALS` を数えて `hidden` に渡していたが、それは TOCTOU だった——spawn の
+往復の間に上限を跨ぐと、先に取った答えが嘘になり、hidden で立てた session が置き場所を持たない。
+**容量を決めている関数に判定させる**のが正しく、`hidden: room` という反転したフラグも消える。
+そのために `showSpawnedSession()` を切り出した（非 hidden な spawn がやっていることを、独立した一手に）。
 
 single view から押したときは今のまま single view で開く。押した画面で開く、が両方向で同じ規則になる。
 

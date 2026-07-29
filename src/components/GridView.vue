@@ -4,7 +4,7 @@ import TerminalGrid from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
 import GuideLinks from "./GuideLinks.vue";
-import { startCollectionChat } from "../composables/useChatLauncher";
+import { showSpawnedSession, startCollectionChat } from "../composables/useChatLauncher";
 import { skillSeed } from "./skillSeed";
 import type { BundledSkillName } from "../../common/bundledSkills";
 import {
@@ -489,13 +489,17 @@ useCaptureKeydown(onShortcutKey);
 // which is the same path a reload takes to reattach.
 async function launchSkill(skill: BundledSkillName) {
   closeSettings();
-  // A full grid drops the cell, which would leave a live agent with nowhere here to appear —
-  // so let those fall back to the single view rather than vanish.
-  const room = runningCount(state.value.cells) < MAX_TERMINALS;
-  const chatId = await startCollectionChat(skillSeed(skill, "claude"), { hidden: room });
+  const chatId = await startCollectionChat(skillSeed(skill, "claude"), { hidden: true });
+  if (!chatId) return;
   // Seeded with the directory the server spawns these in (CLAUDE_CWD, which /api/config reports as
   // `cwd`); the cell adopts whatever the PTY reports anyway.
-  if (room && chatId) state.value = insertCellAfter(state.value, NO_ORIGIN_UID, { session: chatId, cwd: defaultCwd.value });
+  const placed = insertCellAfter(state.value, NO_ORIGIN_UID, { session: chatId, cwd: defaultCwd.value });
+  // A full grid (MAX_TERMINALS) drops the cell and insertCellAfter hands the state straight back,
+  // which would leave a live agent with nowhere here to appear — show it in the single view instead
+  // of losing it. Judged by identity AFTER the spawn, not by counting before it: the count can
+  // cross the cap while the spawn is in flight, and then the answer taken earlier is wrong.
+  if (placed === state.value) showSpawnedSession(chatId);
+  else state.value = placed;
 }
 </script>
 
