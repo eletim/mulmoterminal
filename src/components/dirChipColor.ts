@@ -33,7 +33,3 @@ export const CHIP_RUNNING = "border-[color-mix(in_srgb,#3b82f6_55%,var(--border)
 // border and dot still say "running", so the signal is deliberately redundant rather than
 // resting on animation alone.
 export const CHIP_DOT_RUNNING = "bg-[#3b82f6] animate-cell-pulse motion-reduce:animate-none";
-
-// The stripe is now the ONLY carrier of a directory's colour, so it is wider than it was while
-// it shared the job with a background wash.
-export const CHIP_STRIPE_WIDTH = "w-[8px]";

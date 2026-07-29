@@ -5,7 +5,7 @@ import { usePubSub } from "../composables/usePubSub";
 import { useDirColors, useDirPriorities } from "../composables/useDirConfig";
 import { orderByDirPriority } from "./dirPriorityOrder";
 import { useCellChrome } from "../composables/useCellChrome";
-import { CHIP_IDLE, CHIP_RUNNING, CHIP_DOT_RUNNING, CHIP_STRIPE_WIDTH } from "./dirChipColor";
+import { CHIP_IDLE, CHIP_RUNNING, CHIP_DOT_RUNNING } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
 import { useWorkItem } from "../composables/useWorkItem";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
@@ -1765,11 +1765,12 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           >
             <!-- The directory's colour lives ONLY in this stripe; the chip's background and border
                mean "a session is running here" and nothing else. The two used to share both, at
-               identical strengths, so a colour-coded directory read as running (#1106). -->
+               identical strengths, so a colour-coded directory read as running (#1106). Wider than
+               it was, now that it carries the directory on its own. -->
             <span
               v-if="presetColors[p.path]"
               data-testid="cell-chip-color"
-              :class="`${CHIP_STRIPE_WIDTH} flex-none`"
+              class="w-[8px] flex-none"
               :style="{ background: presetColors[p.path] }"
               aria-hidden="true"
             />
@@ -1778,8 +1779,8 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               data-testid="cell-chip-main"
               class="cursor-pointer border-none bg-transparent px-2.5 py-1 font-sans text-[12px] hover:bg-hover hover:text-fg"
               :class="isCwdRunning(p.path) ? 'text-fg' : 'text-secondary'"
-              :title="p.path"
-              :aria-label="`Use ${p.label} — fill the field to browse / resume here (without launching)`"
+              :title="isCwdRunning(p.path) ? `${p.path} — a session is already running here` : p.path"
+              :aria-label="`Use ${p.label} — fill the field to browse / resume here (without launching)${isCwdRunning(p.path) ? '. A session is already running here.' : ''}`"
               @click="fillDir(p.path)"
             >
               <span

@@ -2158,6 +2158,19 @@ describe("launch chips: directory colour vs. running", () => {
     expect(running.find('[data-testid="cell-chip-dot"]').exists()).toBe(true);
   });
 
+  // Everything above is colour, shape and motion — none of which reaches a screen reader, and
+  // the dot is aria-hidden. The chip's own button has to SAY it (the ▶ beside it already did).
+  it("says a session is running in the chip's accessible name, not only in colour", async () => {
+    const w = mountChips("/c5", "/r5");
+    await flushPromises();
+    const idle = chipFor(w, "coloured");
+    const running = chipFor(w, "running");
+    if (!idle || !running) throw new Error("chips not found");
+
+    expect(running.find('[data-testid="cell-chip-main"]').attributes("aria-label")).toContain("already running");
+    expect(idle.find('[data-testid="cell-chip-main"]').attributes("aria-label")).not.toContain("already running");
+  });
+
   // A directory colour-coded in the SAME blue the running state uses is the case that made the
   // old design unreadable: it looked running, always.
   it("keeps a blue-coded idle directory distinguishable from a running one", async () => {
