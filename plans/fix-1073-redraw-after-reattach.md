@@ -25,12 +25,22 @@ and the lower half of the screen blank.
 
 After a reattach, ask tmux to repaint the whole pane:
 
-- `server/infra/tmux.ts` — `tmuxRedrawClient(id)`: `list-clients -F '#{client_tty}'` for the session,
-  then `refresh-client -t <tty>`. `parseClientTty` is pure and tested.
+- `server/infra/tmux.ts` — `tmuxRedrawClient(id, clientPid)`: `list-clients -F '#{client_pid}
+  #{client_tty}'` for the session, then `refresh-client` on OUR client. `redrawTargets` is pure and
+  tested.
 - `server/session/types.ts` — `PtyEntry.redrawPending`.
 - `server/session/pty-connection.ts` — `reattachPty` sets the flag (tmux sessions only); the first
   `resize` frame after that clears it and asks for the redraw.
 - `server/index.ts` — binds the dep.
+
+**Which client is repainted.** A session can carry several — another mulmoterminal server holding
+it (what `tmuxAttachedClientCount` exists for), or a stray `tmux attach` — and tmux promises nothing
+about `list-clients` order, so "the first line" can be somebody else's terminal while ours keeps the
+broken screen. Ours is identifiable: the pty we spawned IS the tmux client, so `client_pid` is
+`entry.term.pid`. Measured on a live session — list-clients reported `29421`, and the
+`new-session -A -s mt-<id>` process we spawned was 29421. When no line carries our pid, every client
+is repainted rather than none: a repaint is idempotent, and skipping ours is the one outcome that
+leaves the bug in place. (Raised by Codex on PR #1099; the first version took the first line.)
 
 **Why the redraw waits for the resize frame** rather than firing with the replay: that frame is
 where the client reports the size it actually settled at, so the repaint is drawn at the right

@@ -332,13 +332,24 @@ export function tmuxTerminalModes(id: string): number[] {
   return r.status === 0 ? parseTmuxTerminalModes(r.stdout) : [];
 }
 
-/** The first client tty from `list-clients -F '#{client_tty}'`, or null when nothing is attached.
- *  Its own function so "no client to redraw" stays distinguishable from a tty we can act on. */
-export function parseClientTty(stdout: string): string | null {
-  const tty = splitLines(stdout)
-    .map((line) => line.trim())
-    .find((line) => line !== "");
-  return tty ?? null;
+// Which client ttys to repaint, from `list-clients -F '#{client_pid} #{client_tty}'`.
+//
+// A session can carry SEVERAL clients — another mulmoterminal server holding it (the case
+// tmuxAttachedClientCount exists for), or a stray `tmux attach` — and tmux promises nothing about
+// their order, so "the first line" can be somebody else's terminal. Ours is identifiable: the pty
+// we spawned IS the tmux client, so `client_pid` is `entry.term.pid`. Measured on a live session:
+// list-clients reported `29421`, and the `new-session -A -s mt-<id>` process we spawned was 29421.
+//
+// When no line carries our pid — a tmux that doesn't report it, or a client someone else attached
+// after ours went away — every client is repainted rather than none. A repaint is idempotent, and
+// skipping ours is the single outcome that leaves the bug in place.
+export function redrawTargets(stdout: string, clientPid: number): string[] {
+  const clients = splitLines(stdout)
+    .map((line) => line.trim().split(/\s+/))
+    .filter((parts) => parts.length >= 2)
+    .map(([pid, tty]) => ({ pid: Number(pid), tty }));
+  const ours = clients.filter((client) => client.pid === clientPid);
+  return (ours.length > 0 ? ours : clients).map((client) => client.tty);
 }
 
 // Make tmux repaint the WHOLE pane onto our client, even though nothing about the pane changed.
@@ -353,11 +364,10 @@ export function parseClientTty(stdout: string): string | null {
 //
 // Measured against a live session: one `refresh-client` returns every row of a 25-row screen in a
 // single 666-byte burst, where an idle pane sends nothing at all.
-export function tmuxRedrawClient(id: string): void {
-  const clients = tmux(["list-clients", "-t", tmuxSessionName(id), "-F", "#{client_tty}"]);
+export function tmuxRedrawClient(id: string, clientPid: number): void {
+  const clients = tmux(["list-clients", "-t", tmuxSessionName(id), "-F", "#{client_pid} #{client_tty}"]);
   if (clients.status !== 0) return;
-  const tty = parseClientTty(clients.stdout);
-  if (tty) tmux(["refresh-client", "-t", tty]);
+  redrawTargets(clients.stdout, clientPid).forEach((tty) => tmux(["refresh-client", "-t", tty]));
 }
 
 // Parse `#{session_attached}`. Its own function so the "unreadable means nobody" rule is

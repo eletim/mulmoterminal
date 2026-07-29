@@ -57,7 +57,7 @@ function setup(terminalModes: readonly number[] = []) {
       calls.push(`terminalModes:${id}`);
       return terminalModes;
     },
-    redrawTerminal: (id) => calls.push(`redraw:${id}`),
+    redrawTerminal: (id, clientPid) => calls.push(`redraw:${id}:${clientPid}`),
   });
   return { ...handlers, calls };
 }
@@ -103,7 +103,9 @@ describe("handleClientFrame", () => {
       [100, 30],
       [120, 40],
     ]);
-    expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([`redraw:${SESSION}`]);
+    // The pid is the pty's own — it is what picks OUR tmux client out of a session that several
+    // servers may have attached (#1099 review).
+    expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([`redraw:${SESSION}:4242`]);
   });
 
   it("never asks for a redraw on a session that was not reattached", () => {

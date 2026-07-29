@@ -219,6 +219,9 @@ force the DOM renderer or observe effects (`window.open`, buffer state) instead 
   buffer does not reflow. So `reattachPty` marks the entry and the first `resize` frame after it
   calls `tmuxRedrawClient` (`list-clients` → `refresh-client`), which repaints every row. Waiting
   for that frame is deliberate: it is where the client reports the size it settled at.
+  - **Which client** is picked by `client_pid`, not by list order: a session can carry several
+    (another server, a stray `tmux attach`) and tmux orders them arbitrarily. The pty we spawned IS
+    the tmux client, so its pid identifies ours.
 
 ## The tmux passthrough rule
 

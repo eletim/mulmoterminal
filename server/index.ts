@@ -220,7 +220,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   setWaiting: (id, waiting) => setWaiting(id, waiting),
   armReapForDetached: (id) => armReapForDetached(id),
   terminalModesOf: (id) => tmuxTerminalModes(id),
-  redrawTerminal: (id) => tmuxRedrawClient(id),
+  redrawTerminal: (id, clientPid) => tmuxRedrawClient(id, clientPid),
 });
 
 // Mirrors session activity into Firestore so the phone's terminal viewer can refresh

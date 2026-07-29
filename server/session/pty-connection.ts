@@ -28,8 +28,9 @@ export interface ConnectionDeps {
    *  re-establish (#1073). Empty when there is nothing to restore. */
   terminalModesOf: (id: string) => readonly number[];
   /** Ask tmux to repaint the whole pane, so a reattached browser stops showing whatever the
-   *  replayed delta window happened to reconstruct (#1073). */
-  redrawTerminal: (id: string) => void;
+   *  replayed delta window happened to reconstruct (#1073). `clientPid` identifies OUR tmux client
+   *  among the several a session can carry — it is the pty's own pid. */
+  redrawTerminal: (id: string, clientPid: number) => void;
 }
 
 // browser -> command PTY. Like handleClientFrame but for the session-less command
@@ -119,7 +120,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
         // alternate buffer it now restores into does not reflow, so no later resize repairs it.
         if (entry.redrawPending) {
           entry.redrawPending = false;
-          deps.redrawTerminal(sessionId);
+          deps.redrawTerminal(sessionId, entry.term.pid);
         }
       }
     } catch (err) {
