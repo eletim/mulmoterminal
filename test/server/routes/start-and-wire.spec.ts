@@ -62,7 +62,7 @@ describe("startAndWire", () => {
     socket.emit("message", "resize-80x24"); // arrived while the spawn was still deciding
     socket.emit("message", "first-keystroke");
 
-    startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "codex", early, startFailureMessage: "nope" }, () => entry);
+    startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "codex", early, startFailureMessage: () => "nope" }, () => entry);
     socket.emit("message", "after-spawn");
 
     expect(delivered).toEqual(["resize-80x24", "first-keystroke", "after-spawn"]);
@@ -85,14 +85,14 @@ describe("startAndWire", () => {
     socket.emit("message", "buffered-1");
     socket.emit("message", "buffered-2");
 
-    startAndWire(reentrantDeps, asWebSocket(socket), { id: "s1", tag: "codex", early, startFailureMessage: "nope" }, () => entry);
+    startAndWire(reentrantDeps, asWebSocket(socket), { id: "s1", tag: "codex", early, startFailureMessage: () => "nope" }, () => entry);
 
     expect(delivered).toEqual(["buffered-1", "landed-mid-replay", "buffered-2"]);
   });
 
   it("wires the close handler to the started entry", () => {
     const { socket, handleClientClose, deps, early } = harness();
-    startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "launch", early, startFailureMessage: "nope" }, () => entry);
+    startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "launch", early, startFailureMessage: () => "nope" }, () => entry);
     socket.emit("close");
     expect(handleClientClose).toHaveBeenCalledWith(entry, expect.anything(), "s1");
   });
@@ -103,7 +103,7 @@ describe("startAndWire", () => {
     const refuse = () => {
       const h = harness();
       h.socket.emit("message", "resize-80x24");
-      startAndWire(h.deps, asWebSocket(h.socket), { id: "s1", tag: "codex", early: h.early, startFailureMessage: "no codex on PATH" }, () => {
+      startAndWire(h.deps, asWebSocket(h.socket), { id: "s1", tag: "codex", early: h.early, startFailureMessage: () => "no codex on PATH" }, () => {
         throw new Error("spawn failed");
       });
       return h;
@@ -119,6 +119,17 @@ describe("startAndWire", () => {
       const { socket, delivered } = refuse();
       socket.emit("message", "after-failure");
       expect(delivered).toEqual([]);
+    });
+
+    // The message is built FROM the error, not fixed: a pre-spawn diagnosis (#1063) is already a
+    // sentence for the user, and swallowing it would put `spawn ENOENT` in the terminal instead.
+    it("hands the thrown error to the caller's message builder", () => {
+      const { socket, early, deps } = harness();
+      const thrown = new Error("codex is not on PATH");
+      startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "codex", early, startFailureMessage: (err) => `saw: ${(err as Error).message}` }, () => {
+        throw thrown;
+      });
+      expect(JSON.parse(socket.sent[0]).message).toBe("saw: codex is not on PATH");
     });
   });
 });

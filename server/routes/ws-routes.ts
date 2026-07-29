@@ -22,7 +22,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
-import { sandboxWouldRun } from "../session/pty-spawn.js";
+import { sandboxWouldRun, SpawnBinaryError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
 import { codexGuiMcpServers } from "../session/mcp-config.js";
@@ -145,7 +145,7 @@ export function beginRunTerminal(deps: WsRouteDeps, ws: WebSocket, resolved: { c
     term = deps.spawnCommandPty(resolved.command, resolved.cwd, ws);
   } catch (err) {
     console.error(`[ws/run] failed to start command: ${messageOf(err)}`);
-    return closeWithError(ws, "Failed to start the command.");
+    return closeWithError(ws, `Failed to start the command: ${messageOf(err)}`);
   }
   ws.on("message", (raw) => handleCommandFrame(term, raw));
   ws.on("close", () => {
@@ -293,9 +293,10 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     // must close just this connection — never crash the whole server.
     console.error(`[ws] failed to start session ${sessionId}: ${messageOf(err)}`);
     // A provider refusal already says exactly what is wrong with the directory's config
-    // (#579); the generic hint below would bury it.
-    if (err instanceof ProviderRefusedError) return closeWithError(ws, err.message);
-    closeWithError(ws, "Failed to start Claude. Is the `claude` CLI installed and on your PATH?");
+    // (#579), and a refused spawn already names the binary and the PATH it searched (#1063);
+    // a generic hint would bury either.
+    if (err instanceof ProviderRefusedError || err instanceof SpawnBinaryError) return closeWithError(ws, err.message);
+    closeWithError(ws, `Failed to start Claude: ${messageOf(err)}`);
     return;
   }
 
@@ -327,10 +328,13 @@ function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: stri
 //
 // `start` throwing is the spawn refusing — a missing CLI, a directory that vanished. The buffer is
 // dropped rather than replayed: there is no pty to replay it into, and the socket is closing.
+// `startFailureMessage` takes the error rather than being a fixed string, because what the user
+// needs to read differs by cause: a pre-spawn diagnosis is already a sentence (#1063), anything
+// else needs naming.
 export function startAndWire(
   deps: Pick<WsRouteDeps, "handleClientFrame" | "handleClientClose">,
   ws: WebSocket,
-  session: { id: string; tag: string; early: EarlyFrames<{ toString(): string }>; startFailureMessage: string },
+  session: { id: string; tag: string; early: EarlyFrames<{ toString(): string }>; startFailureMessage: (err: unknown) => string },
   start: () => PtyEntry,
 ): void {
   let entry: PtyEntry;
@@ -339,7 +343,7 @@ export function startAndWire(
   } catch (err) {
     console.error(`[ws/${session.tag}] failed to start ${session.id}: ${messageOf(err)}`);
     session.early.discard();
-    return closeWithError(ws, session.startFailureMessage);
+    return closeWithError(ws, session.startFailureMessage(err));
   }
   const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
   ws.on("message", deliver);
@@ -377,9 +381,8 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     return early.discard();
   }
 
-  startAndWire(deps, ws, { id: sessionId, tag: "launch", early, startFailureMessage: "Failed to start the launch command." }, () =>
-    startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd),
-  );
+  const startFailureMessage = (err: unknown) => `Failed to start the launch command: ${messageOf(err)}`;
+  startAndWire(deps, ws, { id: sessionId, tag: "launch", early, startFailureMessage }, () => startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd));
 }
 
 // codex terminal (?cwd=<dir>, ?session=<id> to reattach/resume). ?gui=0 (grid dev terminal) runs
@@ -410,7 +413,9 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { ur
     return early.discard();
   }
 
-  const startFailureMessage = "Failed to start codex. Is the `codex` CLI installed and on your PATH?";
+  // SpawnBinaryError already carries the pre-spawn diagnosis (#1063) — passing it through rather
+  // than wrapping it is what puts the real reason in the terminal instead of `spawn ENOENT`.
+  const startFailureMessage = (err: unknown) => (err instanceof SpawnBinaryError ? err.message : `Failed to start codex: ${messageOf(err)}`);
   startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage }, () =>
     startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups }),
   );
