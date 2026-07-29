@@ -399,16 +399,40 @@ describe("GridView skill launch (#1111)", () => {
     return { w, spawns };
   };
 
+  type LaunchedCell = { session: string | null; cwd: string | null; agent?: string };
+  const spawnedCells = (w: ReturnType<typeof mount>) => (w.findComponent(CellsStub).props("cells") as LaunchedCell[]).filter((c) => c.session === SPAWNED);
+
   it("seeds the skill's slash command and shows the session in a cell of its own", async () => {
     const { w, spawns } = await mountWithSpawn();
     expect(spawns).toEqual([{ message: "/mulmoterminal-theme", draft: false, agent: "claude" }]);
-    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null; cwd: string | null }>;
-    const spawned = cells.filter((c) => c.session === SPAWNED);
+    const spawned = spawnedCells(w);
     expect(spawned).toHaveLength(1);
     // Seeded with the directory the server spawns these in, so the cell's header isn't blank while
     // claude boots (/api/config reports it as `cwd`, stubbed to /w above).
     expect(spawned[0].cwd).toBe("/w");
+    // Claude is the ABSENT case — an explicit `agent: undefined` does not survive the JSON a
+    // persisted cell round-trips, so the key must not be written at all.
+    expect("agent" in spawned[0]).toBe(false);
     w.unmount();
+  });
+
+  // A spawn follows the Claude/Codex/Antigravity toggle (`mt-launch-agent`), and a cell with no
+  // agent flag reconnects on Claude's endpoint — so a codex session would attach as claude. The
+  // old single-view path got the agent via the opener's `opts`; the grid has to carry it itself.
+  // `launchAgent` (the exported ref) is set directly rather than through localStorage + a module
+  // reset: resetModules hands the test and the component DIFFERENT copies of useChatLauncher, so
+  // the opener one of them registers is invisible to the other.
+  it.each(["codex", "antigravity"] as const)("marks the cell with the agent that was spawned (%s)", async (agent) => {
+    const { launchAgent } = await import("../../../src/composables/useChatLauncher");
+    launchAgent.value = agent;
+    try {
+      const { w, spawns } = await mountWithSpawn();
+      expect(spawns).toEqual([{ message: "/mulmoterminal-theme", draft: false, agent }]);
+      expect(spawnedCells(w)[0].agent).toBe(agent);
+      w.unmount();
+    } finally {
+      launchAgent.value = "claude"; // a module singleton — leaving it set would follow later tests
+    }
   });
 
   // The regression itself: handing the session to the single-view opener is what yanked the user

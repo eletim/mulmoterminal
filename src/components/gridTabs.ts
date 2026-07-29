@@ -20,6 +20,13 @@ export const isShellLauncher = (l: CellLauncher): l is { shell: true; label: str
 // A fresh OS-default-shell cell (session arrives from the server, then it persists/reconnects).
 export const shellCell = (cwd: string, label = "shell"): Omit<Cell, "uid"> => ({ session: null, cwd, launcher: { shell: true, label } });
 
+// A cell for a session spawned ELSEWHERE and adopted here, which must carry the agent: without the
+// flag the cell reconnects on Claude's endpoint, so a codex session would attach as claude. Claude
+// records NO key — under exactOptionalPropertyTypes an explicit `agent: undefined` is a different
+// thing from an absent one, and only the absent one survives the JSON a persisted cell round-trips.
+export const sessionCell = (session: string, cwd: string | null, agent: TerminalAgent): Omit<Cell, "uid"> =>
+  agent === "claude" ? { session, cwd } : { session, cwd, agent };
+
 export interface Cell {
   uid: number;
   session: string | null;

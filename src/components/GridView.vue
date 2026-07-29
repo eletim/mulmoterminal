@@ -20,6 +20,7 @@ import {
   runScriptInNewCell,
   insertCellAfter,
   shellCell,
+  sessionCell,
   launchInCell,
   setSortMode,
   moveCell,
@@ -494,16 +495,17 @@ useCaptureKeydown(onShortcutKey);
 // which is the same path a reload takes to reattach.
 async function launchSkill(skill: BundledSkillName) {
   closeSettings();
-  const chatId = await startCollectionChat(skillSeed(skill, "claude"), { hidden: true });
-  if (!chatId) return;
+  const spawned = await startCollectionChat(skillSeed(skill, "claude"), { hidden: true });
+  if (!spawned) return;
   // Seeded with the directory the server spawns these in (CLAUDE_CWD, which /api/config reports as
-  // `cwd`); the cell adopts whatever the PTY reports anyway.
-  const placed = insertCellAfter(state.value, NO_ORIGIN_UID, { session: chatId, cwd: defaultCwd.value });
+  // `cwd`); the cell adopts whatever the PTY reports anyway. sessionCell carries the agent, which
+  // matters because a spawn follows the Claude/Codex/Antigravity toggle.
+  const placed = insertCellAfter(state.value, NO_ORIGIN_UID, sessionCell(spawned.id, defaultCwd.value, spawned.agent));
   // A full grid (MAX_TERMINALS) drops the cell and insertCellAfter hands the state straight back,
   // which would leave a live agent with nowhere here to appear — show it in the single view instead
   // of losing it. Judged by identity AFTER the spawn, not by counting before it: the count can
   // cross the cap while the spawn is in flight, and then the answer taken earlier is wrong.
-  if (placed === state.value) showSpawnedSession(chatId);
+  if (placed === state.value) showSpawnedSession(spawned);
   else state.value = placed;
 }
 </script>
