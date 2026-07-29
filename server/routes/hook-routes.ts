@@ -7,6 +7,8 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { dirConfigWriteTarget } from "../config/dir-config.js";
 import { writtenFilePath } from "../files/tool-writes.js";
 import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId } from "../session/activity-hook.js";
+import { runCompletionHook } from "../session/completion-hooks.js";
+import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
 import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
 import { latestUserPrompt } from "../session/session-reads.js";
@@ -42,6 +44,12 @@ function handleActivityHook(deps: HookDeps, sessionId: string, event: string, ac
   // though a background Stop publishes twice.
   const kind = pushKindFor(event, notificationType);
   if (kind) void notifyTaskFinished(sessionId, kind, message, deps.uiPort);
+  // A finished turn is the ONLY success signal a PTY-hosted agent gives us (#1070). It is not
+  // a process exit — `claude` sits at its prompt afterwards — so a worker that never reaches
+  // Stop (blocked on a permission dialog nobody can answer, or dead before its first turn) is
+  // exactly the failed refresh, and reap reports it as such. No-op unless a hook is registered,
+  // which only a hidden feeds worker ever does.
+  if (event === "Stop") void runCompletionHook(sessionId, { didError: false }).catch((err) => console.error(`[completion-hook] ${messageOf(err)}`));
 }
 
 interface HookToolPayload {

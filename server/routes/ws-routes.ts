@@ -22,7 +22,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
-import { sandboxWouldRun } from "../session/pty-spawn.js";
+import { sandboxWouldRun, SpawnBinaryError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
 import { codexGuiMcpServers } from "../session/mcp-config.js";
@@ -150,7 +150,7 @@ export function beginRunTerminal(deps: WsRouteDeps, ws: WebSocket, resolved: { c
     term = deps.spawnCommandPty(resolved.command, resolved.cwd, ws);
   } catch (err) {
     console.error(`[ws/run] failed to start command: ${messageOf(err)}`);
-    return closeWithError(ws, "Failed to start the command.");
+    return closeWithError(ws, `Failed to start the command: ${messageOf(err)}`);
   }
   ws.on("message", (raw) => handleCommandFrame(term, raw));
   ws.on("close", () => {
@@ -298,9 +298,10 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
     // must close just this connection — never crash the whole server.
     console.error(`[ws] failed to start session ${sessionId}: ${messageOf(err)}`);
     // A provider refusal already says exactly what is wrong with the directory's config
-    // (#579); the generic hint below would bury it.
-    if (err instanceof ProviderRefusedError) return closeWithError(ws, err.message);
-    closeWithError(ws, "Failed to start Claude. Is the `claude` CLI installed and on your PATH?");
+    // (#579), and a refused spawn already names the binary and the PATH it searched (#1063);
+    // a generic hint would bury either.
+    if (err instanceof ProviderRefusedError || err instanceof SpawnBinaryError) return closeWithError(ws, err.message);
+    closeWithError(ws, `Failed to start Claude: ${messageOf(err)}`);
     return;
   }
 
@@ -359,7 +360,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   } catch (err) {
     console.error(`[ws/launch] failed to start ${sessionId}: ${messageOf(err)}`);
     early.discard();
-    return closeWithError(ws, "Failed to start the launch command.");
+    return closeWithError(ws, `Failed to start the launch command: ${messageOf(err)}`);
   }
 
   ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
@@ -401,7 +402,8 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   } catch (err) {
     console.error(`[ws/codex] failed to start ${sessionId}: ${messageOf(err)}`);
     early.discard();
-    return closeWithError(ws, "Failed to start codex. Is the `codex` CLI installed and on your PATH?");
+    if (err instanceof SpawnBinaryError) return closeWithError(ws, err.message);
+    return closeWithError(ws, `Failed to start codex: ${messageOf(err)}`);
   }
 
   ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));

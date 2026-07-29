@@ -7,6 +7,7 @@ import { guiMcpEnv } from "./mcp-config.js";
 import { getUserMcpServers, getPrWorkdirFooter, getAppendSystemPrompt } from "../config/config-routes.js";
 import { SANDBOX_HOST } from "../infra/sandbox.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
+import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
 import { knownSessions, launchChoices, ptys, resetSessionToolGroups } from "./registry.js";
 import { ptySpawn, ptyWouldReattach, sandboxWouldRun, spawnSandboxEntry } from "./pty-spawn.js";
@@ -167,7 +168,8 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     function spawnEntry(): PtyEntry {
       resetToolGroupsUnlessReattaching();
       if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, addDirs);
-      const { term, tmux } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, { unset: resolved.unset, env: guiMcpEnv(sessionId, PORT) });
+      const spawnEnv = { unset: resolved.unset, env: guiMcpEnv(sessionId, PORT), binEnvVar: claudeAdapter.binEnvVar };
+      const { term, tmux } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
       console.log(`[pty] spawned claude (pid=${term.pid}${tmux ? " via tmux" : ""}) in ${cwd}`);
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }

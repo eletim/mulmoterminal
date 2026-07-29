@@ -4,6 +4,7 @@
 import type { WebSocket } from "ws";
 import { PORT } from "../config/env.js";
 import { buildCodexArgs } from "../agents/codex-args.js";
+import { codexAdapter } from "../agents/codex.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
 import { codexGuiMcpServers } from "./mcp-config.js";
 import { codexSessionsRoot, snapshotSessions, watchForCodexSession } from "../agents/codex-session.js";
@@ -84,7 +85,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
     // A grid cell whose directory registered nothing gets no MCP at all, exactly as before.
     const guiMcpServers = codexGuiMcpServers({ sessionId, port: PORT, groups: mcpGroups, allTools: attachGuiMcp });
     const args = buildCodexArgs({ resume: resumeRolloutId, model: deps.codexModel, guiMcpServers });
-    const { term, tmux } = ptySpawn(sessionId, deps.codexBin, args, cwd, true);
+    const { term, tmux } = ptySpawn(sessionId, deps.codexBin, args, cwd, true, { binEnvVar: codexAdapter.binEnvVar });
     const via = tmux ? " via tmux" : "";
     const resumeNote = resumeRolloutId ? ` (resume ${resumeRolloutId})` : "";
     console.log(`[pty] spawned codex (pid=${term.pid}${via}) in ${cwd}${resumeNote}`);
