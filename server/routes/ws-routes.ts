@@ -20,8 +20,9 @@ import { refreshHostKeychainIfExpired, writeSandboxCredentials } from "../infra/
 import { tmuxHasSession } from "../infra/tmux.js";
 import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
+import { antigravityBrainRoot, antigravityConversationExists } from "../agents/antigravity-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
-import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
+import { antigravityConversationIds, codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
 import { sandboxWouldRun, SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
@@ -34,10 +35,10 @@ import { ProviderRefusedError } from "../session/provider-env.js";
 import { sessionExistsOnDisk } from "../session/session-reads.js";
 import { canStartLauncher, resolveReattachableId, resolveSession, type SessionResolution } from "../session/session-resolve.js";
 import type { PtyEntry } from "../session/types.js";
-import type { SpawnClaudePty, SpawnCodexPty, SpawnCommandPty, SpawnLauncherPty, ResolveLauncher } from "../session/spawners.js";
+import type { SpawnClaudePty, SpawnCodexPty, SpawnAntigravityPty, SpawnCommandPty, SpawnLauncherPty, ResolveLauncher } from "../session/spawners.js";
 import { terminalWsKind, type TerminalWsKind } from "./terminal-ws-path.js";
 import { normalizeAgent, parseIndexParam } from "./routeParams.js";
-import { codexResumeId } from "../agents/codex-resume.js";
+import { agentResumeId } from "../agents/agent-resume.js";
 
 export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
@@ -51,6 +52,7 @@ export interface WsRouteDeps {
   handleClientClose: (entry: PtyEntry, ws: WebSocket, sessionId: string) => void;
   spawnClaudePty: SpawnClaudePty;
   spawnCodexPty: SpawnCodexPty;
+  spawnAntigravityPty: SpawnAntigravityPty;
   spawnCommandPty: SpawnCommandPty;
   spawnLauncherPty: SpawnLauncherPty;
   resolveLauncher: ResolveLauncher;
@@ -200,9 +202,9 @@ function resolveCodexSession(requested: string | null): { sessionId: string; liv
   const hasLivePty = !!requested && ptys.has(requested);
   const live = hasLivePty && requested ? ptys.get(requested) : undefined;
   const tmuxAlive = !live && !!requested && tmuxHasSession(requested);
-  const resumeRolloutId = codexResumeId(requested, {
-    mappedRolloutId: requested ? codexRolloutIds.get(requested) : null,
-    rolloutExists: () => !!requested && codexRolloutExists(codexSessionsRoot(), requested),
+  const resumeRolloutId = agentResumeId(requested, {
+    mappedId: requested ? codexRolloutIds.get(requested) : null,
+    conversationExists: () => !!requested && codexRolloutExists(codexSessionsRoot(), requested),
     hasLivePty: !!live,
     tmuxAlive,
   });
@@ -435,6 +437,78 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   );
 }
 
+function resolveAntigravitySession(requested: string | null): { sessionId: string; live: PtyEntry | undefined; resumeConversationId: string | null } {
+  const hasLivePty = !!requested && ptys.has(requested);
+  const live = hasLivePty && requested ? ptys.get(requested) : undefined;
+  const tmuxAlive = !live && !!requested && tmuxHasSession(requested);
+  // The same rule codex resumes by, including the part that is easy to drop: the key is only
+  // treated as a conversation id when a conversation by that name EXISTS. Without the check every
+  // key resumes, which means a stale one is handed to `agy --conversation` — agy answers a
+  // conversation it cannot find by starting a fresh one, silently, under the old session's id.
+  const resumeConversationId = agentResumeId(requested, {
+    mappedId: requested ? antigravityConversationIds.get(requested) : null,
+    conversationExists: () => !!requested && antigravityConversationExists(antigravityBrainRoot(), requested),
+    hasLivePty,
+    tmuxAlive,
+  });
+  const { sessionId } = resolveReattachableId(requested, { hasLivePty, tmuxAlive, canResume: !!resumeConversationId }, randomUUID);
+  return { sessionId, live, resumeConversationId };
+}
+
+interface AntigravityStart {
+  sessionId: string;
+  live: PtyEntry | undefined;
+  resumeConversationId: string | null;
+  cwd: string;
+  attachGuiMcp: boolean;
+  mcpGroups: readonly ToolGroup[];
+}
+
+// Reattach or spawn, as ONE function handed to startAndWire — the reattach must not take a
+// shortcut around it. `reattachPty` only swaps the socket and replays the buffer; returning early
+// on it left a reloaded terminal printing output while ignoring every keystroke, and never
+// detaching or reaping when the socket closed.
+function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: AntigravityStart): PtyEntry {
+  const { sessionId, live, resumeConversationId, cwd, attachGuiMcp, mcpGroups } = start;
+  const entry = live ? deps.reattachPty(live, ws, sessionId) : deps.spawnAntigravityPty(sessionId, ws, resumeConversationId, cwd, { mcpGroups });
+  // Single view (gui) = the attached session IS the actively-viewed pane. A grid dev-terminal
+  // cell (gui=0) is only "viewed" once focused, and says so with a `view` frame.
+  entry.active = attachGuiMcp;
+  return entry;
+}
+
+// antigravity terminal (?cwd=<dir>, ?session=<id> to reattach/resume). Unlike claude and codex
+// there is no per-session GUI MCP surface to attach or withhold: agy reads its servers from a file
+// in the DIRECTORY, so every session there reaches whatever that directory registered — `?gui=0`
+// only keeps a grid dev terminal out of the sidebar.
+async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
+  const { url, requested, cwd } = wsConnectionContext(req);
+  const attachGuiMcp = url.searchParams.get("gui") !== "0";
+  const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
+  ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
+
+  // Collected from here because the read below waits, and the browser's first frame — the
+  // terminal's real geometry — arrives while it does (see early-frames.ts).
+  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+  // The directory's registered groups, read here because the lookup reads Claude Code's config
+  // files and the spawner is sync. Only for a SPAWN: a reattach keeps the tools its running
+  // process was started with, and rewriting the shared file on a reattach would speak for every
+  // other session in the directory.
+  const mcpGroups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
+  if (ws.readyState !== ws.OPEN) {
+    console.log(`[ws/antigravity] client left before spawn — abandoning ${sessionId}`);
+    return early.discard();
+  }
+  // The reattach goes THROUGH startAndWire like the spawn, not around it: reattachPty only swaps
+  // the socket and replays the buffer, so returning early here left a reloaded terminal printing
+  // output while ignoring every keystroke, and never detaching or reaping on close.
+  const startFailureMessage = startFailureMessageFor("Antigravity");
+  startAndWire(deps, ws, { id: sessionId, tag: "antigravity", early, startFailureMessage }, () =>
+    startAntigravityEntry(deps, ws, { sessionId, live, resumeConversationId, cwd, attachGuiMcp, mcpGroups }),
+  );
+}
+
 export function mountTerminalWebSockets(deps: WsRouteDeps) {
   // Terminal WebSocket. Uses noServer + manual upgrade routing so it shares the
   // HTTP server with socket.io (the pub/sub at /ws/pubsub) without the two
@@ -450,7 +524,15 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
   // First-class codex sessions — persistent + reattachable like /ws/launch, but running codex
   // with session discovery + resume. Its own endpoint so /ws stays claude-only.
   const runCodexWss = new WebSocketServer({ noServer: true });
-  const serverFor: Record<TerminalWsKind, WebSocketServer> = { claude: wss, run: runWss, launch: runLaunchWss, codex: runCodexWss };
+  // First-class Antigravity sessions — persistent + reattachable like /ws/launch, but running agy.
+  const runAntigravityWss = new WebSocketServer({ noServer: true });
+  const serverFor: Record<TerminalWsKind, WebSocketServer> = {
+    claude: wss,
+    run: runWss,
+    launch: runLaunchWss,
+    codex: runCodexWss,
+    antigravity: runAntigravityWss,
+  };
   deps.server.on("upgrade", (req, socket, head) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     const kind = terminalWsKind(pathname);
@@ -474,4 +556,5 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
   runWss.on("connection", (ws, req) => handleRunConnection(deps, ws, req));
   runLaunchWss.on("connection", (ws, req) => void handleLaunchConnection(deps, ws, req));
   runCodexWss.on("connection", (ws, req) => void handleCodexConnection(deps, ws, req));
+  runAntigravityWss.on("connection", (ws, req) => void handleAntigravityConnection(deps, ws, req));
 }

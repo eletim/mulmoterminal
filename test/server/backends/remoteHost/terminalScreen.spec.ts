@@ -28,6 +28,24 @@ describe("agentFromPaneCommand", () => {
   it("recognises the agents the phone treats specially", () => {
     expect(agentFromPaneCommand("claude")).toBe("claude");
     expect(agentFromPaneCommand("codex")).toBe("codex");
+    // The pane runs `agy`, and the kind is "antigravity" — the one place the two names differ,
+    // which is exactly why a session that outlived a restart used to come back as a shell.
+    expect(agentFromPaneCommand("agy")).toBe("antigravity");
+  });
+
+  // A pane reports the RUNNING program's name, so an overridden binary has a different one.
+  // The default stays recognised either way, or setting the variable would un-recognise every
+  // session started before it.
+  it("also recognises a binary the user pointed *_BIN at", () => {
+    const previous = process.env.ANTIGRAVITY_BIN;
+    process.env.ANTIGRAVITY_BIN = "/opt/bin/agy-next";
+    try {
+      expect(agentFromPaneCommand("agy-next")).toBe("antigravity");
+      expect(agentFromPaneCommand("agy")).toBe("antigravity");
+    } finally {
+      if (previous === undefined) delete process.env.ANTIGRAVITY_BIN;
+      else process.env.ANTIGRAVITY_BIN = previous;
+    }
   });
 
   // Anything else is where typed commands belong, which is what "shell" means here —

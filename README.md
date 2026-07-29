@@ -355,12 +355,12 @@ SDK; we drive the real interactive CLI and relay its TTY over the WebSocket.
 
 ---
 
-## Agents: Claude & Codex
+## Agents: Claude, Codex & Antigravity
 
 MulmoTerminal drives **interactive coding-agent CLIs**, not just Claude. An
 `AgentAdapter` seam abstracts the per-agent bits (which binary to spawn, how it resumes)
-so the PTY, grid, persistence, and GUI-panel plumbing stay shared. Two adapters ship
-today — **Claude Code** (the default) and **Codex**.
+so the PTY, grid, persistence, and GUI-panel plumbing stay shared. Three adapters ship
+today — **Claude Code** (the default), **Codex**, and **Antigravity** (`agy`).
 
 - **Claude** — spawned as `claude` (override with `CLAUDE_BIN`). The server passes
   `--session-id <uuid>`, so it knows the live session's id even before its transcript
@@ -374,10 +374,30 @@ today — **Claude Code** (the default) and **Codex**.
   `CODEX_HOME`) and maps the new rollout to the session — attributed only when it's
   unambiguous, never by "newest wins". Resume reattaches a live PTY, adopts a surviving
   tmux session, or cold-resumes the rollout id.
+- **Antigravity** — spawned as `agy` (override with `ANTIGRAVITY_BIN`; `ANTIGRAVITY_MODEL` sets
+  `--model`). Antigravity runs on its own WebSocket (`/ws/antigravity`). Like Codex it mints its
+  own conversation id, so the server watches `~/.gemini/antigravity-cli/brain/` (home overridable
+  via `ANTIGRAVITY_HOME`) for the directory the new conversation creates — attributed only when
+  unambiguous — and cold-resumes it with `--conversation <id>`.
+
+  Its **GUI tools work differently**, because `agy` takes no MCP flag: it reads its servers from
+  `.agents/mcp_config.json` in the working directory. MulmoTerminal writes that file from the
+  directory's [Canvas switches](#wiki-collections--the-gui-panel) — the same switches Claude's cells read — so
+  one switch serves every agent, and rewrites it whenever a switch flips or an agy session starts.
+  Servers in it that MulmoTerminal did not write are left alone, the file is removed once no group
+  is on, and it is kept out of your `git status` through `.git/info/exclude` — a local switch on a
+  local machine, so it never reaches a diff or your team. The entry runs `server/mcp/bridge.mjs`, a stdio-to-HTTP shim onto the same in-process
+  GUI MCP server the other agents call. The **session id is never written into that file** — it is
+  per directory and shared by every session running there — and reaches the bridge through the agy
+  process's own environment instead.
+
+  The Docker sandbox does NOT cover agy: it stays claude-only until `buildDockerRunArgs` is
+  generalized (see `plans/feat-multi-agent-support.md`, PR#5). `agy` also ships as a standalone
+  binary rather than an npm package, so the sandbox image has nothing to install.
 
 **Choosing an agent.** The single view has a **New Codex session** button; each grid
-cell's launch form and the Collections browser carry a **Claude / Codex** toggle (your
-choice is remembered).
+cell's launch form and the Collections browser carry a **Claude / Codex / Antigravity**
+toggle (your choice is remembered).
 
 **Other models.**
 Claude Code can run against any **Anthropic-compatible** backend (OpenRouter, Moonshot, a
@@ -504,6 +524,9 @@ the `claude` / `codex` sessions themselves.
 | `CODEX_BIN`  | `codex`        | The Codex CLI binary to spawn. |
 | `CODEX_MODEL`| codex default  | Model passed to Codex as `--model` (unset = Codex's own default). |
 | `CODEX_HOME` | `~/.codex`     | Codex home — where its session rollouts and MulmoTerminal-mirrored skills live. |
+| `ANTIGRAVITY_BIN` | `agy`     | The Antigravity CLI binary to spawn. |
+| `ANTIGRAVITY_MODEL` | agy default | Model passed to Antigravity as `--model` (unset = agy's own default). |
+| `ANTIGRAVITY_HOME` | `~/.gemini/antigravity-cli` | Antigravity home directory containing session brain storage. |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | Root for managed **git worktrees**. |
 | `WAIT_REAP_GRACE_MS` | `1800000` | How long a **waiting** background session is kept before it's auto-reaped (`0` or negative = never). |
 
