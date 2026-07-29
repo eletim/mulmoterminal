@@ -68,14 +68,16 @@ async function runFor(clock: ReturnType<typeof fakeClock>, totalMs: number, step
   }
 }
 
-function setup(alive: () => boolean | null) {
+// `checkAlive` is passed whole rather than as a value to resolve: the probe answering by
+// REJECTING is one of the cases under test, and it is the one a real network failure takes.
+function setup(checkAlive?: () => Promise<boolean | null>) {
   const clock = fakeClock();
   const runner = fakeRunner();
   const onClosed = vi.fn();
   const stop = startResilientHostRunner({
     start: runner.start,
     options: { onClosed },
-    checkAlive: () => Promise.resolve(alive()),
+    ...(checkAlive ? { checkAlive } : {}),
     log: { info: vi.fn(), warn: vi.fn() },
     schedule: clock.schedule,
     now: clock.now,
@@ -93,7 +95,21 @@ describe("core's resilient runner — the escalation contract this host relies o
   // The regression. Surviving the settle window must not count as recovery on its own: with the
   // probe saying the phone cannot see us, the outage clock has to keep running until it escalates.
   it("escalates a channel the phone cannot see, however quiet the listener stays", async () => {
-    const { clock, onClosed, stop } = setup(() => false);
+    const { clock, onClosed, stop } = setup(() => Promise.resolve(false));
+    await runFor(clock, GIVE_UP_MS * 2);
+    expect(onClosed).toHaveBeenCalled();
+    stop();
+  });
+
+  // A probe that cannot reach the server has answered the question it was asking, and it answers
+  // it by REJECTING — `createPresenceProbe` reads through `getDocFromServer`, so a network or auth
+  // failure arrives as a thrown error rather than as `false`. Treating that as "no news" would put
+  // the channel back to green on the strength of a read that never happened.
+  //
+  // core also wraps the read in a 30s timeout now, so a read that merely hangs lands here too —
+  // which makes this the path a silently wedged connection takes (flagged by Codex).
+  it("escalates when the probe itself cannot reach the server", async () => {
+    const { clock, onClosed, stop } = setup(() => Promise.reject(new Error("unavailable")));
     await runFor(clock, GIVE_UP_MS * 2);
     expect(onClosed).toHaveBeenCalled();
     stop();
@@ -102,7 +118,7 @@ describe("core's resilient runner — the escalation contract this host relies o
   // The control. Without this, the test above would also pass for a runner that gives up on
   // everything — which would be its own outage.
   it("never escalates a channel the phone can still see", async () => {
-    const { clock, onClosed, stop } = setup(() => true);
+    const { clock, onClosed, stop } = setup(() => Promise.resolve(true));
     await runFor(clock, GIVE_UP_MS * 2);
     expect(onClosed).not.toHaveBeenCalled();
     stop();
@@ -113,15 +129,7 @@ describe("core's resilient runner — the escalation contract this host relies o
   // window accepts every relaunch and the outage clock never accumulates: the same silent
   // forever-loop as before, reachable again by dropping one argument at the call site.
   it("cannot escalate at all when no probe is wired", async () => {
-    const clock = fakeClock();
-    const onClosed = vi.fn();
-    const stop = startResilientHostRunner({
-      start: fakeRunner().start,
-      options: { onClosed },
-      log: { info: vi.fn(), warn: vi.fn() },
-      schedule: clock.schedule,
-      now: clock.now,
-    });
+    const { clock, onClosed, stop } = setup();
     await runFor(clock, GIVE_UP_MS * 2);
     expect(onClosed).not.toHaveBeenCalled();
     stop();
@@ -130,7 +138,7 @@ describe("core's resilient runner — the escalation contract this host relies o
   // "Cannot be judged" is not "dead": a host that has never announced has no presence document,
   // and reconnecting against that would loop forever with nothing actually wrong.
   it("does not escalate on an answer it cannot judge", async () => {
-    const { clock, onClosed, runner, stop } = setup(() => null);
+    const { clock, onClosed, runner, stop } = setup(() => Promise.resolve(null));
     await runFor(clock, GIVE_UP_MS * 2);
     expect(onClosed).not.toHaveBeenCalled();
     expect(runner.started).toHaveLength(1); // never even torn down
