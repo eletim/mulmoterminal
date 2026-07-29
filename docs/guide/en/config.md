@@ -1328,8 +1328,16 @@ connects to `localhost` and is allowed for that reason alone.
 
 {: .warning }
 > Naming an origin says **which pages may drive this server**. It does not add a login — there
-> still isn't one — and it does not make the server safe to expose. A request that sends *no*
-> `Origin` at all is still refused unless it comes from this machine, whatever you name here.
+> still isn't one — and it does not make the server safe to expose. A request that **changes**
+> something (and every terminal WebSocket) is still refused when it sends *no* `Origin` and does
+> not come from this machine, whatever you name here.
+
+Reads are not judged by origin at all. A browser sends no `Origin` on a same-origin `GET`, so the
+check cannot tell one from a cross-site `<img>` load and would only refuse the page you opened
+yourself — what protects a read is the bind, which is why the warning above says a widened bind
+trusts anything that can reach the port. Up to and including 2.7.0 two status routes judged a `GET`
+anyway, so a browser on a named origin loaded the page and then filled the console with `403` from
+`/api/remote-host/status` and `/api/google/status`; if you see that, upgrade.
 
 You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
 host over Firestore, not over your local network (→ [from your phone](phone.html)).
