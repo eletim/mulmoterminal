@@ -41,6 +41,7 @@ import { listCodexSessions } from "../agents/codex-sessions.js";
 import type { SessionMeta } from "../session/types.js";
 import { parseActivityIds, selectSessionRows } from "../session/session-list.js";
 import { sessionDetailView } from "../session/session-detail-view.js";
+import { clearedTranscripts } from "../session/cleared-transcripts.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -78,6 +79,7 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, freshe
     { lastPrompt: lastPrompts.get(id), lastResponse: lastResponses.get(id), aiTitle: aiTitles.get(id), memo: sessionMemos.get(id) },
     { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse },
     activity.get(id) ?? {},
+    clearedTranscripts.has(id),
   );
   res.json({ id, cwd, ...view, usage, context, workPhase });
 }

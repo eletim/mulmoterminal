@@ -10,6 +10,10 @@
 // brings the pre-clear prompt and the pre-clear reply back into the cockpit. It reads as
 // plausible output, so it survives review, and the user sees a session that appears to still
 // be working on the task they just abandoned.
+//
+// A restart is the sentinel's blind spot, and `transcriptCleared` is what covers it: the maps
+// holding the "" are gone while the transcript is still frozen exactly as it was, so without the
+// mark the fallback hands back the ended conversation on the first fetch after a restart (#1085).
 
 export interface LiveSessionState {
   // Present, including as "", once this process has seen the session. Absent means "this
@@ -43,15 +47,28 @@ export interface SessionDetailView {
   memo: string | null;
 }
 
-export function sessionDetailView(live: LiveSessionState, transcript: TranscriptSessionState, activity: SessionActivity): SessionDetailView {
+// `transcriptCleared`: whether `/clear` has left this session's transcript describing the
+// conversation the user ENDED (cleared-transcripts.ts). Separate from the "" sentinel because the
+// two survive different things — the sentinel lives in a map this process loses on restart, while
+// the mark is persisted.
+export function sessionDetailView(
+  live: LiveSessionState,
+  transcript: TranscriptSessionState,
+  activity: SessionActivity,
+  transcriptCleared: boolean,
+): SessionDetailView {
+  // What the clear wrote, restated for a process that no longer holds it. "" and not null: an
+  // empty string is a value, so it survives the roster's merge and blanks the row, where null
+  // reads as "no news" and leaves the pre-clear text on screen (rosterPhase.ts).
+  const fallback = transcriptCleared ? { lastPrompt: "", lastResponse: "" } : transcript;
   return {
     // An absent activity record is an idle session, not an unknown one — the cockpit renders
     // a dot either way and "unknown" has no dot to render.
     working: activity.working ?? false,
     waiting: activity.waiting ?? false,
     event: activity.event ?? null,
-    lastPrompt: live.lastPrompt ?? transcript.lastPrompt,
-    lastResponse: live.lastResponse ?? transcript.lastResponse,
+    lastPrompt: live.lastPrompt ?? fallback.lastPrompt,
+    lastResponse: live.lastResponse ?? fallback.lastResponse,
     // Ours only — never the external on-disk ai-title.
     aiTitle: live.aiTitle ?? null,
     memo: live.memo ?? null,

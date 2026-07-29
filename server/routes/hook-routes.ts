@@ -11,6 +11,7 @@ import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
 import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
+import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt } from "../session/session-reads.js";
 import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
@@ -89,7 +90,10 @@ async function handleToolHook(deps: HookDeps, sessionId: string, event: string, 
 // last MEANINGFUL prompt (preferredHeaderPrompt) while still tracking the latest for
 // an all-trivial session.
 async function trackPromptForHeader(sessionId: string, prompt: string, cwd: string | undefined) {
-  if (!lastPrompts.has(sessionId)) {
+  // Not for a cleared session: there is no task to restore there, and the transcript this would
+  // read is the conversation the user ended. The mark outlives the restart that emptied
+  // `lastPrompts`, which is the only time this branch is reached after a clear (#1085).
+  if (!lastPrompts.has(sessionId) && !clearedTranscripts.has(sessionId)) {
     const seeded = cwd ? await latestUserPrompt(cwd, sessionId) : null;
     if (seeded) lastPrompts.set(sessionId, seeded);
   }
@@ -102,9 +106,17 @@ async function trackPromptForHeader(sessionId: string, prompt: string, cwd: stri
 // so it's regenerated fresh on the next turn (leaving it in `aiTitles` — even as "" — would read as
 // "already titled" and suppress that regeneration). The cockpit's last reply is blanked the same way as
 // the prompt (empty beats `?? transcriptResponse`) so it can't show the pre-clear answer.
-function clearHeaderPrompt(deps: HookDeps, sessionId: string): void {
+//
+// Blanking alone does not hold: claude has just moved to a NEW transcript, so ours is frozen on the
+// ended conversation, and the readers that run at the next turn end put its title and its reply
+// straight back (#1085). `markTranscriptCleared` is what tells them not to.
+//
+// Publish LAST, and after the mark is durable: the publish itself re-reads the reply for a session
+// that is `waiting`, which is the very read the mark exists to stop.
+async function clearHeaderPrompt(deps: HookDeps, sessionId: string, cwd: string | undefined): Promise<void> {
   lastPrompts.set(sessionId, "");
   lastResponses.set(sessionId, "");
+  await markTranscriptCleared(sessionId, cwd);
   deps.forgetTitle(sessionId);
   deps.publishActivity(sessionId);
 }
@@ -122,7 +134,7 @@ async function applyHeaderHooks(deps: HookDeps, sessionId: string, event: string
     deps.noteTitleTurn(sessionId, effect.text);
     return;
   }
-  if (effect.kind === "clear") return clearHeaderPrompt(deps, sessionId);
+  if (effect.kind === "clear") return clearHeaderPrompt(deps, sessionId, cwd);
   void deps.maybeGenerateTitle(sessionId, cwd);
 }
 

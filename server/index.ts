@@ -63,6 +63,7 @@ import {
   sessionMemos,
   sessionMemosHydrated,
 } from "./session/registry.js";
+import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
 import { registerCompletionHook } from "./session/completion-hooks.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -434,6 +435,12 @@ initFileChangePublisher({ workspace: CLAUDE_CWD, pubsub });
 // Wire the notification engine against pubsub + the shared workspace files. Must run
 // before any publish/clear and before the collection watchers start.
 await initNotifier({ workspace: CLAUDE_CWD, pubsub });
+
+// Which sessions were `/clear`ed before this process started: tmux keeps their claude running
+// across a restart, so the mark that stops us reading their frozen transcript has to come back
+// with it (#1085). Awaited here — the readers are synchronous, and the first hook can arrive as
+// soon as we listen.
+await hydrateClearedTranscripts();
 
 // Give the markdown host app its workspace (for artifacts/documents storage).
 // File-change live-refresh is handled by the shared publisher above.

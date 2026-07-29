@@ -30,6 +30,7 @@ import {
   sessionMemos,
   titleInFlight,
 } from "./registry.js";
+import { clearedTranscripts, forgetClearedTranscript } from "./cleared-transcripts.js";
 import { parseWaitGraceMs, reapDecisionFor, reapTimerDelay, shouldForgetActivity } from "./reap-policy.js";
 import { sessionRow, shouldRefreshReply } from "./activity-transition.js";
 import { flagEffect, type ActivityFlag } from "./activity-flag.js";
@@ -141,6 +142,9 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   launchChoices.delete(id); // the picked backend dies with the session that used it
   lastPrompts.delete(id); // don't leak prompt text for torn-down sessions
   lastResponses.delete(id); // ditto, and keep this map from growing across closed sessions
+  // The transcript stops being frozen here: the next claude on this id (`--resume`, or a restart
+  // after `/exit` — which reaches reap through term.onExit) appends to that file again.
+  forgetClearedTranscript(id);
   deps.forgetTitle(id);
   deps.sessionActivityPublisher.forget(id); // drop the phone's copy so its picker has no ghosts
   deps.forgetWorkPhase(id); // the live turn dies with the session
@@ -181,7 +185,7 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
   // `cwd` rides along so the attention-sound player can pick up that directory's custom
   // sound (<cwd>/.mulmoterminal.json). Null for a session with no live PTY.
   const cwd = ptys.get(id)?.cwd ?? null;
-  if (shouldRefreshReply(a, cwd)) refreshLastResponse(id, cwd);
+  if (shouldRefreshReply(a, cwd, clearedTranscripts.has(id))) refreshLastResponse(id, cwd);
   const row = sessionRow(id, a, cwd, {
     lastPrompt: lastPrompts.get(id),
     aiTitle: aiTitles.get(id),
