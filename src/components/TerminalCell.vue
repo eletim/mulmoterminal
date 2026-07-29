@@ -2,7 +2,8 @@
 import { ref, computed, nextTick, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
-import { useDirColors } from "../composables/useDirConfig";
+import { useDirColors, useDirPriorities } from "../composables/useDirConfig";
+import { orderByDirPriority } from "./dirPriorityOrder";
 import { useCellChrome } from "../composables/useCellChrome";
 import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
@@ -144,6 +145,11 @@ const dirTouched = ref(false); // true once the user types in / picks a dir
 // are gone, and their subscriptions would keep fetching for the rest of the session.
 const presetPaths = computed(() => (launched.value ? [] : props.presets.map((p) => p.path)));
 const { colors: presetColors } = useDirColors(presetPaths);
+// Chips follow the same rank the grid sorts by, so a project sits in the same place on both
+// screens. The stored list stays most-recently-used (recordPreset depends on that) — only the
+// display is reordered, which is also what keeps unranked directories where they were.
+const { priorities: presetPriorities } = useDirPriorities(presetPaths);
+const orderedPresets = computed(() => orderByDirPriority(props.presets, (p) => p.path, presetPriorities.value));
 watch([() => props.presets, () => props.defaultCwd], () => {
   if (cwd.value === null && props.defaultCwd) cwd.value = props.defaultCwd;
   if (!shouldSyncLaunchDir({ hasInitialCwd: !!props.initialCwd, touched: dirTouched.value, launched: launched.value })) return;
@@ -1751,7 +1757,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         </button>
         <div v-if="presets.length" class="flex max-w-[360px] flex-wrap justify-center gap-1.5">
           <span
-            v-for="p in presets"
+            v-for="p in orderedPresets"
             :key="p.label + p.path"
             data-testid="cell-chip"
             class="inline-flex items-stretch overflow-hidden rounded-[14px] border"
