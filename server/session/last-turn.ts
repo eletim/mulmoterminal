@@ -10,6 +10,10 @@ import { isRecord } from "../../common/isRecord.js";
 export interface LastTurn {
   prompt: string | null;
   reply: string | null;
+  // Set when the transcript was refused for its size rather than read (see
+  // sessionLastTurn). Absent means "read it, and this is what was in it" — including the
+  // ordinary empty result, which a caller must not report as a failure.
+  tooLarge?: true;
 }
 
 export const EMPTY_TURN: LastTurn = { prompt: null, reply: null };
@@ -73,7 +77,12 @@ function codexPromptForTurn(docs: Record<string, unknown>[], completeIndex: numb
 // agent_message rows never need reassembling. A turn that completed without one (an
 // interrupt, an approval bounce) is skipped for the exchange before it.
 export function lastTurnFromCodexRollout(raw: string): LastTurn {
-  const docs = parseJsonl(raw);
+  return lastTurnFromCodexRolloutDocs(parseJsonl(raw));
+}
+
+/** The same, from records already parsed — so a caller that read only the file's tail (#998)
+ *  doesn't have to rebuild a string just to hand it back. */
+export function lastTurnFromCodexRolloutDocs(docs: Record<string, unknown>[]): LastTurn {
   for (let i = docs.length - 1; i >= 0; i--) {
     const complete = eventPayload(docs[i], "task_complete");
     if (!complete) continue;

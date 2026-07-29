@@ -7,9 +7,11 @@ import { sanitizePresets, loadPresets, savePresets, extractCwdFromTranscript, de
 const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-presets-"));
 
 describe("sanitizePresets", () => {
+  // Expectations built through `path`, not written as POSIX literals: paths are canonicalized
+  // now, and on Windows `/a` is drive-relative — it resolves to `C:\a`, not `/a`.
   it("keeps valid {label,path}, trims, and drops incomplete/junk rows", () => {
     expect(sanitizePresets([{ label: " a ", path: " /a " }, { label: "", path: "/b" }, { label: "c", path: "" }, { nope: 1 }, "x"])).toEqual([
-      { label: "a", path: "/a" },
+      { label: "a", path: path.resolve("/a") },
     ]);
   });
 
@@ -29,8 +31,11 @@ describe("savePresets / loadPresets", () => {
     const dir = tmp();
     const file = path.join(dir, "nested", "config.json"); // nested → mkdir is exercised
     expect(savePresets(file, [{ label: "x", path: "/x" }])).toBe(true);
+    // savePresets writes what it is given; canonicalisation happens on the way back IN
+    // (sanitizePresets, #1002). So the file keeps the literal, and only the load is resolved —
+    // which on Windows is where `/x` picks up the current drive.
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ cwdPresets: [{ label: "x", path: "/x" }] });
-    expect(loadPresets(file)).toEqual([{ label: "x", path: "/x" }]);
+    expect(loadPresets(file)).toEqual([{ label: "x", path: path.resolve("/x") }]);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -92,5 +97,50 @@ describe("deriveCwdPresets", () => {
 
   it("is empty when nothing exists", () => {
     expect(deriveCwdPresets([{ cwd: "/gone", mtimeMs: 1 }], () => false)).toEqual([]);
+  });
+});
+
+// #1002. The launcher chips are matched by exact path string (useAppConfig's recordPreset), and
+// the cwd handed to it is the SERVER-confirmed one — now canonical. A stored `/a/b/` would then
+// never match, so relaunching that directory prepended a second chip for it instead of moving
+// the existing one to the front.
+describe("sanitizePresets — one spelling per directory", () => {
+  const dir = path.resolve("/Users/me/proj");
+
+  it("canonicalizes a trailing separator, so it matches the cwd the server reports", () => {
+    expect(sanitizePresets([{ label: "proj", path: dir + path.sep }])).toEqual([{ label: "proj", path: dir }]);
+  });
+
+  it("collapses two spellings of one directory into a single chip", () => {
+    const presets = sanitizePresets([
+      { label: "newest", path: dir },
+      { label: "older", path: dir + path.sep },
+    ]);
+    expect(presets).toEqual([{ label: "newest", path: dir }]);
+  });
+
+  // The list is most-recently-used order, and a user may have renamed the chip they kept.
+  it("keeps the FIRST of the duplicates, label and all", () => {
+    const presets = sanitizePresets([
+      { label: "My Project", path: dir + path.sep },
+      { label: "proj", path: dir },
+    ]);
+    expect(presets).toEqual([{ label: "My Project", path: dir }]);
+  });
+
+  it("collapses . and .. rather than storing a path that only looks different", () => {
+    expect(sanitizePresets([{ label: "p", path: path.join(dir, "sub", "..") }])).toEqual([{ label: "p", path: dir }]);
+  });
+
+  // path.resolve on a relative string would splice it onto the SERVER's cwd and invent a
+  // directory the user never named. Such an entry can't launch anyway — the workspace guard
+  // rejects it — so it is kept exactly as written instead of being silently repointed.
+  it("leaves a relative path alone instead of resolving it against the server's cwd", () => {
+    expect(sanitizePresets([{ label: "rel", path: "some/where" }])).toEqual([{ label: "rel", path: "some/where" }]);
+  });
+
+  it("still caps the count after deduping", () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ label: `p${i}`, path: path.resolve(`/tmp/p${i}`) }));
+    expect(sanitizePresets([...many, ...many], 3)).toHaveLength(3);
   });
 });

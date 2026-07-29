@@ -29,9 +29,11 @@ import type { PluginRuntime, PluginFactoryResult } from "gui-chat-protocol";
 import { generateImage } from "../backends/image-gen.js";
 import { markdownHostApp } from "../backends/markdown.js";
 import { artifactsFileOps } from "../backends/artifacts.js";
+import { htmlByPath } from "../backends/openPath.js";
 import { createPluginRuntime } from "./pluginRuntime.js";
 import { resolvePluginTools } from "./tool-precedence.js";
 import { HOST_TOOL_DEFINITIONS } from "./host-tools.js";
+import { groupOfTool, toolGroupServerId, AUTO_ALLOWED_TOOLS, type ToolGroup } from "../../common/toolGroups.js";
 import { missingRequiredEnv, soleExecutor } from "./server-tool-load.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,7 +56,15 @@ const APP_CONTEXT = { generateImage, ...markdownHostApp };
 // area. `artifacts` is the shared, user-browsable output area (rooted at
 // <workspace>/artifacts), used by @mulmoclaude/chart-plugin's executeChart to
 // persist the chart document. Plugins that don't write artifacts ignore it.
-const FILES_CONTEXT = { artifacts: artifactsFileOps };
+//
+// `byPath` is the uncontained one — a file the tool call NAMED, anywhere on disk —
+// and it is extension-scoped, so this single shared object can only carry one
+// plugin's version of it. presentHtml is the only reader today (its tool-call path
+// runs through this generic loader, so without it `presentHtml(path)` would refuse
+// anything outside artifacts/html). The moment a second plugin wants `byPath`,
+// FILES_CONTEXT has to become per-tool — MulmoClaude doesn't hit this because it
+// assembles the context per route.
+const FILES_CONTEXT = { artifacts: artifactsFileOps, byPath: htmlByPath };
 
 function loadConfig() {
   const raw = fs.readFileSync(path.join(PLUGINS_DIR, "plugins.json"), "utf8");
@@ -224,6 +234,25 @@ export function mountAllRoutes(app: Express) {
 
 // Fully-qualified MCP tool names for claude's --allowedTools (auto-run, no prompt).
 // Includes host tools so they run without a permission prompt too.
-export function allowedToolNames() {
-  return toolDefinitions.map((d) => `mcp__${MCP_SERVER_NAME}__${d.name}`);
+//
+// `group` names one of the per-group URLs instead of the all-tools surface. The prefix has to
+// change with it: --allowedTools matches on `mcp__<server id>__<tool>`, and a group is
+// registered under its own id (common/toolGroups.ts). Passing a group the session may not
+// even have registered is harmless — an allowlist entry for a server that isn't there matches
+// nothing, which is exactly what lets the grid pass `render` unconditionally.
+export function allowedToolNames(group: ToolGroup | null = null) {
+  const serverId = group === null ? MCP_SERVER_NAME : toolGroupServerId(group);
+  const defs = group === null ? toolDefinitions : toolDefinitions.filter((d) => groupOfTool(d.name) === group);
+  return defs.map((d) => `mcp__${serverId}__${d.name}`);
+}
+
+// The fully-qualified names a GRID cell pre-approves: the auto-allowed tools, each under the
+// server id of the group it belongs to. Derived per TOOL rather than per group because "which
+// tools may this directory reach" and "which may run without asking" are different questions —
+// see AUTO_ALLOWED_TOOLS for the one that forces them apart.
+export function autoAllowedToolNames() {
+  return AUTO_ALLOWED_TOOLS.flatMap((name) => {
+    const group = groupOfTool(name);
+    return group === null ? [] : [`mcp__${toolGroupServerId(group)}__${name}`];
+  });
 }

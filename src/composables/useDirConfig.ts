@@ -1,7 +1,7 @@
 import { ref, watch, onScopeDispose, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import type { ITheme } from "@xterm/xterm";
-import { isThemeId, type ThemeId } from "./useTheme";
+import { isThemeIdLike } from "../../common/themeVars";
 // Shared with the server config schema so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors";
 import { EMPTY_DIR_CHROME, type DirChrome } from "../../common/dirChrome";
@@ -15,7 +15,10 @@ import { dirChipColor } from "../components/dirChipColor";
 // `.mulmoterminal.json` (served by GET /api/dir-config). The raw sound path stays
 // server-side; `hasSound` says whether GET /api/dir-sound has something to stream.
 export interface DirConfig extends DirChrome {
-  theme: ThemeId | null;
+  // ThemeIdLike, not ThemeId: a directory may pin a theme the user defined, so this cannot claim
+  // to be one of the four built-ins (#996). Membership is not checked here either — the server
+  // already dropped an id that resolves to nothing, and this parser cannot see the user's themes.
+  theme: string | null;
   // Per-key xterm palette overrides applied on top of `theme` (or the app theme).
   colors: Partial<ITheme> | null;
   hasSound: boolean;
@@ -72,7 +75,7 @@ function parse(c: unknown): DirConfig {
     fontSize: normalizeFontSize(c.fontSize),
     fontFamily: normalizeFontFamily(c.fontFamily),
     orderPriority: normalizeOrderPriority(c.orderPriority),
-    theme: isThemeId(c.theme) ? c.theme : null,
+    theme: isThemeIdLike(c.theme) ? c.theme : null,
     colors: parseColors(c.colors),
     hasSound: c.hasSound === true,
   };

@@ -1,11 +1,16 @@
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import type { ITheme } from "@xterm/xterm";
-import type { ThemeId } from "../../common/themeIds";
+import { THEME_IDS, type ThemeId } from "../../common/themeIds";
+import { applyCustomTheme, clearCustomTheme, customTermTheme, customThemeList, findCustomTheme, readBuiltinVars } from "./customThemes";
+import { isLightTheme, isThemeIdLike, resolveThemeVars, type ThemeVars } from "../../common/themeVars";
 
 export type { ThemeId };
 
 export interface Theme {
-  id: ThemeId;
+  // `string`, not ThemeId: the list the picker renders holds the four built-ins AND whatever the
+  // user defined in config.json, whose ids no build can enumerate (#996). THEMES below stays
+  // narrowed to the built-in ids.
+  id: string;
   label: string;
   // Three representative colors shown as the picker swatch.
   swatch: { base: string; panel: string; accent: string };
@@ -16,7 +21,7 @@ export interface Theme {
   term: ITheme;
 }
 
-export const THEMES: Theme[] = [
+export const THEMES: (Theme & { id: ThemeId })[] = [
   {
     id: "midnight",
     label: "Midnight",
@@ -96,34 +101,75 @@ export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && THEMES.some((t) => t.id === value);
 }
 
+// A stored selection may name a theme the user defined, which this build cannot enumerate — so
+// the id is kept if it LOOKS like one, and whether it resolves is decided when painting. That is
+// what lets a selection survive a machine that hasn't got the config yet (#996).
+
+// Set when the selected id names neither a built-in nor a resolvable custom theme. The app paints
+// the default and Settings says why — the alternative, which this app shipped until now, is a
+// silent fall back to Midnight with nothing on screen to explain it (see the comment above).
+export const missingThemeId = ref<string | null>(null);
+
+// Built-in palettes, read once from the stylesheet the first time a custom theme needs a base.
+let builtinVars: Record<ThemeId, ThemeVars> | null = null;
+function builtins(): Record<ThemeId, ThemeVars> {
+  if (!builtinVars) {
+    const entries = THEME_IDS.map((id) => [id, readBuiltinVars(id)] as const).filter(([, vars]) => vars !== null);
+    builtinVars = Object.fromEntries(entries) as Record<ThemeId, ThemeVars>;
+  }
+  return builtinVars;
+}
+
 // Storage access can throw (private mode / sandboxed contexts with storage
 // blocked), so persistence is best-effort: a failure falls back to the default
 // rather than crashing app startup.
-function loadThemeId(): ThemeId {
+function loadThemeId(): string {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return isThemeId(stored) ? stored : DEFAULT_THEME;
+    return isThemeIdLike(stored) ? stored : DEFAULT_THEME;
   } catch {
     return DEFAULT_THEME;
   }
 }
 
-const themeId = ref<ThemeId>(loadThemeId());
+const themeId = ref<string>(loadThemeId());
 
-function applyTheme(id: ThemeId) {
-  document.documentElement.setAttribute("data-theme", id);
+// A built-in is painted by style.css from the attribute alone; a custom theme has its variables
+// written on. Either way `data-appearance` is set, because the status-pill rules key on it.
+function applyTheme(id: string) {
+  const root = document.documentElement;
+  const custom = isThemeId(id) ? null : findCustomTheme(id);
+  if (custom && applyCustomTheme(custom, builtins(), root)) {
+    root.setAttribute("data-theme", id);
+    missingThemeId.value = null;
+    return;
+  }
+  clearCustomTheme(root);
+  const fallback = isThemeId(id) ? id : DEFAULT_THEME;
+  // Only a selection that named something unavailable is worth reporting; a built-in resolves.
+  missingThemeId.value = isThemeId(id) ? null : id;
+  root.setAttribute("data-theme", fallback);
+  const vars = builtins()[fallback];
+  root.setAttribute("data-appearance", vars && isLightTheme(vars) ? "light" : "dark");
 }
 
 // The xterm palette for the active theme; Terminal.vue feeds this into the
 // terminal's `theme` option and refreshes it whenever the theme changes.
 export function currentTermTheme(): Theme["term"] {
-  return (THEMES.find((t) => t.id === themeId.value) ?? THEMES[0]).term;
+  return termThemeFor(themeId.value);
 }
 
 // The xterm palette for a specific theme — used by a terminal whose directory pins a
 // theme via .mulmoterminal.json (overriding the user's app-wide choice for that cell).
-export function termThemeFor(id: ThemeId): Theme["term"] {
-  return (THEMES.find((t) => t.id === id) ?? THEMES[0]).term;
+export function termThemeFor(id: string): Theme["term"] {
+  const builtin = THEMES.find((t) => t.id === id);
+  if (builtin) return builtin.term;
+  const custom = findCustomTheme(id);
+  // A custom theme's canvas colours are derived from its chrome variables, and the 16 ANSI
+  // colours come from the base it extends — hence the spread over that base's palette.
+  const derived = custom ? customTermTheme(custom, builtins()) : null;
+  const base = THEMES.find((t) => t.id === custom?.extends) ?? THEMES[0];
+  return derived ? { ...base.term, ...derived } : THEMES[0].term;
 }
 
 // Called from main.ts before mount so the persisted theme is on <html> before
@@ -132,8 +178,23 @@ export function initTheme() {
   applyTheme(themeId.value);
 }
 
+/** Re-paint the current selection. Called once the custom themes have arrived from the server:
+ *  before that a custom id resolves to nothing, so the app starts on the default and switches
+ *  when the config lands. */
+export function refreshTheme() {
+  applyTheme(themeId.value);
+}
+
+// The three dots the picker shows for a custom theme, from its own resolved colours.
+function swatchFor(id: string): Theme["swatch"] {
+  const custom = findCustomTheme(id);
+  const vars = custom ? resolveThemeVars(custom, builtins()) : null;
+  if (!vars) return THEMES[0].swatch;
+  return { base: vars["--bg-base"], panel: vars["--bg-panel"], accent: vars["--accent"] };
+}
+
 export function useTheme() {
-  function setTheme(id: ThemeId) {
+  function setTheme(id: string) {
     themeId.value = id;
     try {
       localStorage.setItem(STORAGE_KEY, id);
@@ -142,5 +203,16 @@ export function useTheme() {
     }
     applyTheme(id);
   }
-  return { themeId, themes: THEMES, setTheme };
+  // Built-ins first, then the user's own — the four everyone has, then the ones only this
+  // machine's config knows about.
+  const themes = computed<Theme[]>(() => [
+    ...THEMES,
+    ...customThemeList.value.map((theme) => ({
+      id: theme.id,
+      label: theme.label,
+      swatch: swatchFor(theme.id),
+      term: termThemeFor(theme.id),
+    })),
+  ]);
+  return { themeId, themes, setTheme, missingThemeId };
 }

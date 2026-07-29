@@ -39,6 +39,39 @@ export const MS_OVERRIDE_ENTRY = "*:Ms=\\E]52;%p1%s;%p2%s\\007";
 // Appended (not set) so tmux's built-in overrides survive.
 const OSC52_MS_OVERRIDE = `,${MS_OVERRIDE_ENTRY}`;
 
+// The wheel inside tmux's own scrollback (copy-mode), one line per report instead of tmux's
+// default FIVE (#978). Nothing else in the stack has a five-line step, so this is what a reader
+// feels as "it jumps a paragraph at a time" while scrolling a long shell output: a plain shell
+// pane has no mouse mode of its own, so tmux's root binding puts the wheel into copy-mode, and
+// `send -X -N 5 scroll-up` is what copy-mode does with it.
+//
+// Only this path changes. A pane running a mouse-tracking program (Claude Code) never reaches
+// copy-mode — tmux forwards the report to the program with `send -M` — so the step size there
+// stays the program's own. The client compensates for the smaller step with a higher notch rate
+// (TRACKPAD_GAIN in src/composables/mouseReports.ts); the two are a matched pair, and changing
+// one alone changes the scroll SPEED, not just its smoothness.
+//
+// Both tables, because which one is live follows `mode-keys` (tmux derives it from $EDITOR), and
+// a user with a vi-ish EDITOR would otherwise keep the five-line jump.
+//
+// `select-pane` is kept from tmux's own default: `send -X` acts on the ACTIVE pane, so dropping it
+// would scroll the focused pane when the pointer is over a different split. Nothing this app
+// creates is split, but a user can split one by hand, and the wrong pane scrolling is a worse bug
+// than the one being fixed.
+const WHEEL_SCROLL_TABLES = ["copy-mode", "copy-mode-vi"] as const;
+const WHEEL_SCROLL_KEYS = [
+  { key: "WheelUpPane", command: "select-pane ; send -X -N 1 scroll-up" },
+  { key: "WheelDownPane", command: "select-pane ; send -X -N 1 scroll-down" },
+] as const;
+
+// A conf FILE needs the command separator escaped (`\;`), or tmux ends the bind-key there and runs
+// the rest as its own command — which binds the key to `select-pane` alone. Passing the command as
+// ONE argument is what does the same job for the live rebinding below (an argv `;` is a separator
+// there too, and `\;` only reaches tmux as one because a shell would have unescaped it).
+const WHEEL_SCROLL_BINDINGS: readonly string[] = WHEEL_SCROLL_TABLES.flatMap((table) =>
+  WHEEL_SCROLL_KEYS.map(({ key, command }) => `bind -T ${table} ${key} ${command.replace(" ; ", " \\; ")}`),
+);
+
 // Minimal config for our server: no status bar (this is a terminal INSIDE a terminal),
 // instant escape, generous scrollback, follow the latest client's size, never destroy a
 // session just because our client detached (that IS the persistence), plus two fixes for
@@ -67,6 +100,7 @@ export const TMUX_CONF_LINES: readonly string[] = [
   // `\007` into a raw BEL — so the capability tmux stores emits `E]52;…` as literal text
   // instead of an OSC 52 sequence. Measured on tmux 3.6a.
   `set -ag terminal-overrides '${OSC52_MS_OVERRIDE}'`,
+  ...WHEEL_SCROLL_BINDINGS,
 ];
 
 export type MsOverridePlan = { kind: "ok" } | { kind: "append" } | { kind: "replace"; index: number };
@@ -97,6 +131,12 @@ export function planMsOverride(showStdout: string): MsOverridePlan {
 function applyLiveTmuxOptions(): void {
   tmux(["set", "-g", "mouse", "on"]);
   tmux(["set", "-g", "set-clipboard", "on"]);
+  // Rebinding is idempotent, so this needs no "is it already ours?" check (unlike the
+  // append-only overrides below). A tmux server started before this shipped keeps the
+  // five-line jump until it is rebound here — it outlives every node restart.
+  for (const table of WHEEL_SCROLL_TABLES) {
+    for (const { key, command } of WHEEL_SCROLL_KEYS) tmux(["bind-key", "-T", table, key, command]);
+  }
   // Forward OSC 8 hyperlinks to the outer xterm (see TMUX_CONF_LINES). Append only when
   // absent — `set -as` does NOT de-dupe, so an unguarded call grows the list on every restart.
   if (!tmux(["show", "-g", "terminal-features"]).stdout.includes("hyperlinks")) {
@@ -200,8 +240,16 @@ export const tmuxSessionName = (id: string): string => `${SESSION_PREFIX}${id}`;
 // it doesn't exist, else ATTACH to the running one (the command is ignored). This one
 // primitive covers both first launch and reattach-after-restart. Returned as the args
 // for pty.spawn("tmux", ...).
-export function tmuxNewSessionArgs(id: string, file: string, args: string[], cwd: string): string[] {
-  return ["-L", SERVER_SOCKET, "-f", CONF_FILE, "new-session", "-A", "-s", tmuxSessionName(id), "-c", cwd, "--", file, ...args];
+// `env` is set on the new session with `-e`, NOT inherited from our own process: a tmux pane
+// takes the tmux SERVER's environment, and that server outlives any one session, so a variable
+// exported here would either be missing or — worse — hold a previous session's value.
+//
+// With `-A` the flag only applies when the session is CREATED; reattaching an existing one
+// keeps the environment it was created with, which is what we want (its claude process is
+// already running with the value it was given).
+export function tmuxNewSessionArgs(id: string, file: string, args: string[], cwd: string, env: Readonly<Record<string, string>> = {}): string[] {
+  const envArgs = Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
+  return ["-L", SERVER_SOCKET, "-f", CONF_FILE, "new-session", "-A", "-s", tmuxSessionName(id), "-c", cwd, ...envArgs, "--", file, ...args];
 }
 
 // Is a persistent session for this id currently alive in our tmux server?
@@ -241,6 +289,47 @@ export function tmuxPaneCommand(id: string): string | null {
   if (r.status !== 0) return null;
   const name = r.stdout.trim();
   return name === "" ? null : name;
+}
+
+// The pane state that an application SETS ONCE and then relies on forever: which screen buffer
+// it owns, and which mouse reports it asked for. Read back as the DEC private modes that would
+// re-establish it (#1073).
+//
+// Needed because the reattach replay is a bounded tail: `CSI ? 1049 h` is written at pty offset 0
+// (when our tmux client attaches) and never again, so past ~1 MiB it is gone from the replay and
+// the browser restores into the normal buffer — which silently disables the wheel and click
+// synthesis, both gated on the alternate buffer (see session/terminal-replay.ts).
+//
+// Asking tmux instead of tracking the byte stream is what keeps this small: tmux is the emulator
+// that owns the state, so there is no DECRST bookkeeping and no CSI split across pty chunks.
+//
+// 1001/1015/1016 are in the client's swallow set but tmux has no flag for them. No agent we run
+// asks for them, and the client needs 1006 plus one tracking mode — which this covers.
+const TERMINAL_MODE_FLAGS = [
+  { flag: "alternate_on", mode: 1049 },
+  { flag: "mouse_standard_flag", mode: 1000 },
+  { flag: "mouse_button_flag", mode: 1002 },
+  { flag: "mouse_all_flag", mode: 1003 },
+  { flag: "mouse_utf8_flag", mode: 1005 },
+  { flag: "mouse_sgr_flag", mode: 1006 },
+] as const;
+
+// Comma-separated, not space: a variable an older tmux doesn't know renders EMPTY, and only a
+// delimiter that survives an empty field keeps the rest of the values on their own modes.
+const TERMINAL_MODE_FORMAT = TERMINAL_MODE_FLAGS.map(({ flag }) => `#{${flag}}`).join(",");
+
+/** Parse one `TERMINAL_MODE_FORMAT` line into the modes that are on. Positional against the same
+ *  table the format is built from, so the two cannot drift. */
+export function parseTmuxTerminalModes(stdout: string): number[] {
+  const values = stdout.trim().split(",");
+  return TERMINAL_MODE_FLAGS.filter((_, i) => values[i] === "1").map(({ mode }) => mode);
+}
+
+// Empty rather than null when tmux can't answer: an unreadable session and a plain shell lead to
+// the same action — restore nothing — so a nullable would only push a `?? []` onto every caller.
+export function tmuxTerminalModes(id: string): number[] {
+  const r = tmux(["display-message", "-p", "-t", tmuxSessionName(id), TERMINAL_MODE_FORMAT]);
+  return r.status === 0 ? parseTmuxTerminalModes(r.stdout) : [];
 }
 
 // Parse `#{session_attached}`. Its own function so the "unreadable means nobody" rule is

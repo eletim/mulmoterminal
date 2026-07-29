@@ -9,10 +9,12 @@ import { hideErrorStacks } from "./infra/hide-error-stacks.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
+import { initOpenPathBackend } from "./backends/openPath.js";
 import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
+import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
   tmuxAvailable,
@@ -22,6 +24,7 @@ import {
   tmuxPaneCommand,
   tmuxAttachedClientCount,
   tmuxCaptureStyledPane,
+  tmuxTerminalModes,
 } from "./infra/tmux.js";
 import { sandboxEnabled, sandboxPlatformSupported, dockerAvailable, ensureSandboxImage } from "./infra/sandbox.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
@@ -32,27 +35,59 @@ import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
 import { mcpConfigJson } from "./session/mcp-config.js";
 import { createClaudeSpawner } from "./session/spawn-claude.js";
+import { spawnPty } from "./session/pty-spawn.js";
+import { createRateLimitStore } from "./agents/rate-limit-store.js";
+import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
+import { hasBinary } from "./infra/has-binary.js";
+import { newProbeSessionId } from "./agents/probe-session.js";
+import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
+import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/codex-rollout.js";
+import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
+import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
 import { createTitleManager } from "./session/session-title.js";
-import { generateHeaderTitle } from "./config/header-title.js";
+import { generateTitleFromTurns } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, devTerminalSessions, hiddenSessions, knownSessions, lastPrompts, ptys } from "./session/registry.js";
+import {
+  activity,
+  aiTitles,
+  backgroundMarkers,
+  devTerminalSessions,
+  knownSessions,
+  lastPrompts,
+  ptys,
+  sessionCwd,
+  sessionMemos,
+  sessionMemosHydrated,
+} from "./session/registry.js";
+import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
+import { registerCompletionHook } from "./session/completion-hooks.js";
 import { createToolStores } from "./session/tool-store.js";
+import { writeDecisionDigest } from "./session/decision-digest-file.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { renderScreen } from "./session/headlessScreen.js";
-import { agentFromPaneCommand, buildSessionList, captureSessionScreen, type SessionScreenMeta } from "./backends/remoteHost/terminalScreen.js";
+import {
+  agentFromPaneCommand,
+  buildSessionList,
+  captureSessionScreen,
+  sessionWorkSummary,
+  type SessionScreenMeta,
+  type SessionWorkSummary,
+} from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
 import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
-import { currentBranch } from "./git/git-status.js";
+import { currentBranch, gitStatus } from "./git/git-status.js";
+import { phaseForRepoBranch } from "./git/prPhase.js";
+import { repoFromWebUrl } from "./config/header-context.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
@@ -67,7 +102,6 @@ import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
 import { feedRefreshTaskDef, type AgentWorkerRunner } from "@mulmoclaude/core/feeds/server";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
 import { installBundledSkills } from "./infra/install-bundled-skills.js";
-import { PASTE_IMAGE_DIR, preparePasteImageDir } from "./files/paste-image-store.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
 import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
@@ -78,10 +112,13 @@ import type { TaskDefinition } from "@mulmoclaude/core/scheduler";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
-import { allowedToolNames } from "./infra/plugins-registry.js";
+import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
+
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
+import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
+import { pruneOrphanDrops } from "./session/session-drops.js";
 
 // Per-session activity flags, driven by Claude hooks (see /api/hook).
 
@@ -138,6 +175,14 @@ const sessionChannel = (id: string) => `session:${id}`;
 // worker can call it without a permission prompt.
 const GUI_MCP_TOOLS = [...allowedToolNames(), "mcp__mulmoterminal-gui__submitTranslation"].join(",");
 
+// What a GRID cell pre-approves. A grid cell is never handed --mcp-config: its GUI tools come
+// from the user's OWN per-folder MCP config (`claude mcp add -s local`, `.mcp.json`), so
+// MulmoTerminal cannot know which groups a directory registered — and does not need to. It
+// names the auto-allowed groups unconditionally; entries for a server the session didn't
+// register match nothing. Only `render` is here: it cannot act outside the Canvas panel, so
+// running it without a prompt is the point. Every other group keeps Claude Code's own prompt.
+const GRID_MCP_TOOLS = autoAllowedToolNames().join(",");
+
 // The panel's per-session stores. `publish` is a closure rather than the pubsub object
 // because pub/sub only exists once the HTTP server does, and these are built before it.
 const toolStores = createToolStores({
@@ -169,6 +214,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   reap: (id) => reap(id),
   setWaiting: (id, waiting) => setWaiting(id, waiting),
   armReapForDetached: (id) => armReapForDetached(id),
+  terminalModesOf: (id) => tmuxTerminalModes(id),
 });
 
 // Mirrors session activity into Firestore so the phone's terminal viewer can refresh
@@ -202,7 +248,7 @@ const { cancelReap, reap, armReapForDetached, publishActivity, setWorking, setWa
 const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = createTitleManager({
   publishActivity: (id) => publishActivity(id),
   now: () => Date.now(),
-  generateTitle: (raw) => generateHeaderTitle(raw),
+  generateTitle: (turns) => generateTitleFromTurns(turns),
 });
 
 // The PTY spawners (session/spawn-*.ts). They take what index.ts still owns — the session
@@ -214,6 +260,7 @@ const spawnDeps: SpawnDeps = {
   codexModel: CODEX_MODEL,
   permissionMode: CLAUDE_PERMISSION_MODE,
   guiMcpTools: GUI_MCP_TOOLS,
+  gridMcpTools: GRID_MCP_TOOLS,
   outputBufferLimit: OUTPUT_BUFFER_LIMIT,
   hookSettingsJson: (host, sessionId, env) => hookSettingsJson({ host, port: PORT, sessionId, env }),
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
@@ -261,6 +308,89 @@ enforceKeymap(APP_CONFIG_FILE, {
 const browserHostnames = browserOriginHostnames(BIND_HOST, process.env.MULMOTERMINAL_ALLOWED_ORIGINS);
 const isAllowedOrigin = createIsAllowedOrigin(browserHostnames);
 
+// The 5h / 7d rate-limit gauge (#387). Codex is free — its rollout file holds the windows — while
+// Claude needs a hidden probe session, so the store decides when spending a query is warranted.
+// Neither agent being installed is not a case to handle: no rollout means no Codex reading, and a
+// probe that cannot launch simply never reports, which is the same as having no data yet.
+// Seeded from the last run so the header has numbers the moment the grid opens. Probing at boot
+// instead would spend a query on every restart — once per SAVE under `yarn dev`.
+// Stopping the probe the moment its answer lands. Without this the PTY was held for the full
+// PROBE_TIMEOUT_MS — the status line arrives in seconds, so most of that minute and a half was a
+// live `claude` process with nothing left to say, and `probing: true` kept every browser polling at
+// seconds rather than minutes for the whole of it.
+//
+// Only a report carrying WINDOWS ends it. The status line also fires before the first API response,
+// when `rate_limits` is not there yet (see statusline.ts) — stopping on that would kill the probe
+// just before the thing it was spawned to collect.
+let stopClaudeRateLimitProbe: (() => void) | null = null;
+
+const writeRateLimitCacheIfChanged = createRateLimitCacheWriter(rateLimitCacheFile());
+const rateLimitStore = createRateLimitStore(readRateLimitCache(rateLimitCacheFile()), (snapshot, agent) => {
+  writeRateLimitCacheIfChanged(snapshot);
+  if (agent === "claude") stopClaudeRateLimitProbe?.();
+});
+const refreshCodexRateLimits = (): void => {
+  const file = newestRolloutFile(codexSessionsDir(), Date.now());
+  if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readRolloutTail(file)), Date.now());
+};
+// Whether a probe could even run. Checked before spawning rather than discovered by spawning
+// (#1011): a machine without `claude` used to fail so fast that it never reached the 90s timeout,
+// so the store learned nothing and the next poll tried again — a spawn attempt per poll.
+const claudeIsRunnable = (): boolean => {
+  try {
+    return hasBinary(CLAUDE_BIN);
+  } catch {
+    return false;
+  }
+};
+
+// Long enough for claude's own final write to land after the PTY is killed. Deleting into that
+// window loses the race and the file comes back — and a transcript that reappears reads exactly
+// like the bug this fixes (#1010).
+const TRANSCRIPT_FLUSH_MS = 5_000;
+
+const startClaudeRateLimitProbe = (): void => {
+  // Belt and braces: the route has already refused to want a probe when claude is missing, but
+  // this is the last point before a spawn and the flag it would strand is set by the caller.
+  if (!claudeIsRunnable()) {
+    rateLimitStore.setClaudeAvailable(false);
+    rateLimitStore.setProbeInFlight(false);
+    return;
+  }
+  rateLimitStore.noteProbeStarted(Date.now());
+  const sessionId = newProbeSessionId();
+  stopClaudeRateLimitProbe = startRateLimitProbe({
+    spawn: (args, cwd) => spawnPty(CLAUDE_BIN, args, cwd),
+    host: "localhost",
+    port: PORT,
+    cwd: CLAUDE_CWD,
+    sessionId,
+    // A probe that settles WITHOUT the status line having reported is the "asked, heard nothing"
+    // case. report() has already moved the state on if anything arrived, so this only widens the
+    // gap when nothing did.
+    onSettled: () => {
+      // Cleared here rather than by whoever called stop(): `stop()` is idempotent, but a stale
+      // reference would let the NEXT probe be killed by a late report belonging to this one.
+      stopClaudeRateLimitProbe = null;
+      rateLimitStore.noteProbeFailedIfNoReport(Date.now());
+      rateLimitStore.setProbeInFlight(false);
+      // Hiding it from /api/sessions is not enough: `claude --resume` reads the transcript
+      // directory itself, so the probe has to take its own file with it (#1010).
+      setTimeout(() => void removeProbeTranscript(CLAUDE_CWD, sessionId).catch(() => {}), TRANSCRIPT_FLUSH_MS).unref();
+    },
+  });
+};
+
+// Probes that ran before their ids identified them left transcripts nothing can address by name —
+// 41 of one reporter's 50 listed sessions (#1010). Swept ONCE on this machine, never again: the
+// content test cannot tell those files from a person who typed the probe's exact words, so the
+// window in which that matters is closed rather than reopened on every boot (Codex review on
+// #1030). It also means a 500MB transcript directory is read once, not once per `yarn dev` save.
+void sweepLegacyProbeTranscriptsOnce(CLAUDE_CWD, MULMOTERMINAL_HOME).catch(() => {});
+
+// Codex costs nothing to read, so it is current before the first browser arrives.
+refreshCodexRateLimits();
+
 const app = express();
 hideErrorStacks(app);
 // Generous body limit: PostToolUse hook payloads carry the tool's full output
@@ -268,6 +398,13 @@ hideErrorStacks(app);
 // the hook and leave its tool-call entry stuck on "running").
 mountAppRoutes(app, {
   clientDir: __dirname,
+  rateLimits: {
+    store: rateLimitStore,
+    refreshCodex: refreshCodexRateLimits,
+    startProbe: startClaudeRateLimitProbe,
+    claudeAvailable: claudeIsRunnable,
+    now_ms: () => Date.now(),
+  },
   isAllowedOrigin,
   publish: (channel, data) => pubsub?.publish(channel, data),
   sessionChannel,
@@ -282,6 +419,8 @@ mountAppRoutes(app, {
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
   maybeGenerateTitle,
   reap,
+  // Defined further down; reached only from a request, which cannot arrive before listen().
+  registerBackgroundSession: (id: string) => scheduledSessions.register(id),
   setWorking,
   setWaiting,
   publishActivity,
@@ -299,6 +438,12 @@ initFileChangePublisher({ workspace: CLAUDE_CWD, pubsub });
 // before any publish/clear and before the collection watchers start.
 await initNotifier({ workspace: CLAUDE_CWD, pubsub });
 
+// Which sessions were `/clear`ed before this process started: tmux keeps their claude running
+// across a restart, so the mark that stops us reading their frozen transcript has to come back
+// with it (#1085). Awaited here — the readers are synchronous, and the first hook can arrive as
+// soon as we listen.
+await hydrateClearedTranscripts();
+
 // Give the markdown host app its workspace (for artifacts/documents storage).
 // File-change live-refresh is handled by the shared publisher above.
 initMarkdownBackend({ workspace: CLAUDE_CWD });
@@ -306,6 +451,11 @@ initMarkdownBackend({ workspace: CLAUDE_CWD });
 // Give the artifacts FileOps backend its workspace root (<workspace>/artifacts) so
 // @mulmoclaude/chart-plugin's executeChart can persist chart documents there.
 initArtifactsBackend({ workspace: CLAUDE_CWD });
+
+// Give the by-path backend the same workspace — presentDocument / presentHtml's
+// `path` argument resolves workspace-relative values against it (absolute ones are
+// taken as-is), and the /htmlfile mount resolves its `ws` scope from it.
+initOpenPathBackend({ workspace: CLAUDE_CWD });
 
 // Create the mulmoScript server ops (stories dir under <workspace>/artifacts,
 // generation fan-out on the plugin pubsub channel). After initArtifactsBackend —
@@ -337,12 +487,23 @@ initAccountingBackend({ workspace: CLAUDE_CWD, pubsub });
 // MulmoTerminal's own session spawn — adapted to @mulmoclaude/core/feeds' AgentWorkerRunner
 // shape here (where spawnClaudePty lives) and injected, so the feeds backend never imports
 // the session layer. A MANUAL refresh spawns a VISIBLE session (hidden:false) the user can
-// watch; `onComplete` is honoured only for hidden (scheduled) workers, which MulmoTerminal
-// doesn't register yet, so it's unused for now. `roleId` is ignored (no role system).
-const feedsSpawnWorker: AgentWorkerRunner = async ({ message, hidden }) => {
+// watch, and the engine sends no `onComplete` for one — watching it IS the report.
+// `roleId` is ignored (no role system).
+//
+// A hidden one gets two things a watched session doesn't need. It goes on the scheduled-session
+// retention (#541), because the chat list keeps it behind the Background filter so nobody is
+// waiting for it to finish and nothing else would ever end it. And it carries the engine's
+// completion hook (#1070), which is what turns a failed refresh into a bell instead of silence.
+// `scheduledSessions` is defined further down, which is safe because the system task that calls
+// this is registered later still (initUserTaskScheduler).
+const feedsSpawnWorker: AgentWorkerRunner = async ({ message, hidden, onComplete }) => {
   const sessionId = randomUUID();
   try {
-    runWithHiddenMarker(hidden, sessionId, hiddenSessions, () => spawnClaudePty(sessionId, null, null, { initialPrompt: message }));
+    runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => spawnClaudePty(sessionId, null, null, { initialPrompt: message }));
+    if (hidden) scheduledSessions.register(sessionId);
+    // AFTER a successful spawn: a launch that threw has no session to report on, and
+    // registering first would leave a hook nothing will ever fire or clear.
+    if (hidden && onComplete) registerCompletionHook(sessionId, onComplete);
     return { ok: true, chatId: sessionId };
   } catch (err) {
     return { ok: false, error: messageOf(err) };
@@ -366,8 +527,37 @@ const remoteHostSpawnChat = (message: string) => {
 // shell and ran an agent inside it. Null when neither can say.
 const agentOfSession = (id: string): SessionAgent | null => ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id));
 
-const remoteHostListTerminalSessions = async () =>
-  buildSessionList({
+// What each session's directory is working on, resolved once per DIRECTORY before the list is
+// built: `detailOf` below is synchronous, and cells sharing a checkout share an answer (#1014).
+// phaseForRepoBranch caches per (repo, branch), so a grid of twenty cells costs a handful of gh
+// calls at most, and none at all between polls inside the TTL.
+const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWorkSummary>> => {
+  const out = new Map<string, SessionWorkSummary>();
+  await Promise.all(
+    [...new Set(cwds.filter((cwd) => cwd !== ""))].map(async (cwd) => {
+      try {
+        const status = await gitStatus(cwd);
+        if (!status.repo || !status.branch) return;
+        const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
+        if (!repo) return;
+        const summary = sessionWorkSummary(await phaseForRepoBranch(repo, status.branch));
+        if (summary) out.set(cwd, summary);
+      } catch {
+        // best-effort: a directory that cannot be resolved simply carries no work item
+      }
+    }),
+  );
+  return out;
+};
+
+const remoteHostListTerminalSessions = async () => {
+  // A live PTY knows where claude actually runs, so it wins. A session that outlived this process
+  // has none — that is what the remembered cwd is for (#1021), and without it the phone shows the
+  // row with no directory and no work item.
+  const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
+  const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
+  await sessionMemosHydrated; // the memo IS the phone's row title when there is one
+  return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
     isResumable: await resumableSessionPredicate(),
@@ -377,12 +567,23 @@ const remoteHostListTerminalSessions = async () =>
     isGridSession: (id) => devTerminalSessions.has(id),
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
-    detailOf: (id) => ({
-      title: aiTitles.get(id) ?? knownSessions.get(id)?.title ?? "",
-      cwd: ptys.get(id)?.cwd ?? "",
-      agent: agentOfSession(id),
-    }),
+    detailOf: (id) => {
+      // Spread the work item in only when there IS one. `work: map.get(...)` leaves the key behind
+      // holding undefined, and Firestore then refuses the entire reply rather than that one field.
+      const summary = work.get(cwdOfSession(id));
+      return {
+        // The same precedence as the cell header and the sidebar, through the same helper: the
+        // phone is where "which of these is which" is hardest, and it renders `title` and nothing
+        // else — so riding in that field is also what puts a memo on a phone with no core release
+        // and no schema change.
+        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), knownSessions.get(id)?.title),
+        cwd: cwdOfSession(id),
+        agent: agentOfSession(id),
+        ...(summary ? { work: summary } : {}),
+      };
+    },
   });
+};
 
 // Write a chunk to a session's live PTY for the phone's terminal input (#445).
 // Only sessions attached in THIS process are writable: a tmux session that outlived
@@ -511,6 +712,20 @@ const SCHEDULED_SWEEP_INTERVAL_MS = 60 * 60_000;
 void scheduledSessions.sweep();
 setInterval(() => void scheduledSessions.sweep(), SCHEDULED_SWEEP_INTERVAL_MS).unref();
 
+// The decision digest (#1015): rewritten at startup and every few hours, but only for the
+// directories this host actually works in, and only while the setting is on (checked inside
+// writeDecisionDigest, so turning it off stops the next tick rather than needing a restart).
+// Hours rather than minutes because a decision is a human act — a handful a day at most.
+const DECISION_DIGEST_INTERVAL_MS = 6 * 60 * 60_000;
+
+function refreshDecisionDigests(): void {
+  const dirs = new Set<string>([CLAUDE_CWD, ...[...ptys.values()].map((entry) => entry.cwd)]);
+  for (const dir of dirs) void writeDecisionDigest(dir, new Date()).catch(() => {});
+}
+
+refreshDecisionDigests();
+setInterval(refreshDecisionDigests, DECISION_DIGEST_INTERVAL_MS).unref();
+
 function spawnScheduledChat(message: string): void {
   const sessionId = randomUUID();
   try {
@@ -557,14 +772,6 @@ mountTerminalWebSockets({
   resolveLauncher,
 });
 
-// Prepared BEFORE the first session can spawn: the directory reaches a sandboxed session as
-// a bind-mount, and `docker run -v` on a missing host path creates it root-owned.
-try {
-  preparePasteImageDir();
-} catch (err) {
-  console.warn(`[paste-image] could not prepare ${PASTE_IMAGE_DIR} — pasting an image into a terminal will fail: ${messageOf(err)}`);
-}
-
 // A bind failure (most often the port already in use) must not surface as an unhandled
 // 'error' event / stack trace — exit with a clear message and the code the launcher reads
 // (infra/server-exit.ts).
@@ -588,11 +795,31 @@ server.listen(Number(PORT), BIND_HOST, () => {
   } else {
     console.log("[tmux] not found — terminals are not persistent across a server restart");
   }
+  // Say we are here, so a later launcher can warn about a second instance and a later boot can
+  // tell our live files from a dead server's leftovers (#1061).
+  const unregisterInstance = registerInstance(Number(PORT));
+  process.on("exit", unregisterInstance);
+
   // A crash never reaches reap(), so settings files — one of which may hold a provider's API
   // token — outlive the sessions that used them. Anything not backed by a surviving tmux
   // session is an orphan: a PTY without tmux died with the server that owned it.
-  const droppedSettings = pruneOrphanSettings(new Set(surviving));
+  //
+  // …but only for OUR previous lifetime. A peer running right now has live PTYs, and without
+  // tmux `surviving` is empty, so its files looked like leftovers and were deleted underneath it
+  // (#1061). Files older than the earliest live peer cannot be theirs; newer ones might be — and
+  // that cutoff applies to every sweep here, not just the one the bug was reported against.
+  const peers = liveInstances();
+  const peerCutoff = earliestStartedAt(peers);
+  const liveSessionIds = new Set(surviving);
+  const droppedSettings = pruneOrphanSettings(liveSessionIds, undefined, peerCutoff);
   if (droppedSettings.length) console.log(`[settings] removed ${droppedSettings.length} orphaned session settings file(s)`);
+  // Dropped files are the same story: copies in tmp that only their session referred to.
+  const droppedDrops = pruneOrphanDrops(liveSessionIds, undefined, peerCutoff);
+  if (droppedDrops.length) console.log(`[drops] removed ${droppedDrops.length} orphaned session drop director(ies)`);
+  if (peers.length) {
+    const where = peers.map((p) => (p.port === null ? `pid ${p.pid}` : `port ${p.port}`)).join(", ");
+    console.warn(`[instances] ${peers.length} other MulmoTerminal server(s) running (${where}) — they share ~/.mulmoterminal, which is not a supported setup`);
+  }
   if (sandboxEnabled()) {
     if (!sandboxPlatformSupported()) {
       console.log("[sandbox] MULMOTERMINAL_SANDBOX set but only supported on macOS for now — using host spawn");

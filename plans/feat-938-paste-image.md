@@ -96,3 +96,36 @@ MulmoClaude にも同種の経路がある — `POST /api/attachments` が `{ da
 
 - README のパス挿入の項に paste を追加
 - `docs/guide/{en,ja}` の該当ページを両方
+
+---
+
+## 更新（2.7.0 マージ後）: 独自のアップロード経路をやめ、ドロップに統合した
+
+上の設計は「MulmoTerminal 側に画像を受けるルートが無い」ことが前提だった。#993（PR #1055、2.7.0）が
+**`POST /api/session/:id/drop`** を入れたことで、その前提が消えた。
+
+そちらはブラウザがパスを渡さないドロップのために作られたもので、**クリップボードの画像はまさに
+「パスを持たない File」**なので、同じルートがそのまま使える。2 つ目を残す理由が無い。
+
+削除したもの:
+
+| | 理由 |
+| --- | --- |
+| `server/files/paste-image.ts` | `POST /api/session/:id/drop` が同じ仕事をする |
+| `server/files/paste-image-store.ts` | 保存先・命名・prune・`withPasteImageDir` がすべて `session-drops.ts` にある |
+| クライアントの `savePastedImage` | `uploadDroppedFile(sessionId, file)` に置き換え |
+
+統合で変わったこと:
+
+- **保存先**は `~/.mulmoterminal/tmp/pasted/`（グローバル）から**セッションごとのドロップ用ディレクトリ**へ。
+  セッション単位で隔離される分こちらの方が良く、`--add-dir` の付与も #1055 が既に行っている
+- **転送**が JSON + base64 から**生バイト**へ。base64 の 33% 膨張が無くなる
+- **ファイル名の生成が不要**になった。クリップボードの画像はファイル名を持たないが、
+  `dropExtension(null, mime)` が content-type から拡張子を決める（`image/png` → `.png` を実測で確認）
+- **サイズ上限・保持ポリシー・タイムアウト**が 1 か所になった
+
+上の「MulmoClaude との違い」の議論はそのまま有効 — `POST /api/attachments` の管理された添付ストアには
+寄せない、という判断は変わらない。変わったのは、こちら側で**2 つ目の使い捨てストアを作る必要が無かった**こと。
+
+`common/pastedImageTypes.ts` は残る。サーバはどんなバイトでも受けるので、これは**クライアントが
+「この paste を xterm から奪ってよいか」を決めるためだけ**の表になった。

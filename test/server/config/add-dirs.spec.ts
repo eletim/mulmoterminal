@@ -3,7 +3,6 @@ import path from "node:path";
 import { resolveAddDirs, MAX_ADD_DIRS } from "../../../server/config/config-schema";
 import { buildClaudeArgs } from "../../../server/agents/claude-args";
 import { buildDockerRunArgs } from "../../../server/infra/sandbox";
-import { withPasteImageDir } from "../../../server/files/paste-image-store";
 
 // Built through `path.resolve`, never written as "/repo": the rule resolves with the platform's
 // own path module, so on Windows a literal POSIX string never matches what it produces
@@ -87,7 +86,8 @@ describe("buildClaudeArgs with addDirs", () => {
     permissionMode: "auto",
     attachGuiMcp: false,
     mcpConfig: "{}",
-    guiMcpTools: "",
+    allowedTools: "",
+    appendedPrompt: null,
   };
 
   it("passes one variadic flag holding every directory", () => {
@@ -98,7 +98,7 @@ describe("buildClaudeArgs with addDirs", () => {
 
   // `--add-dir <directories...>` is variadic: a VALUE after it would be swallowed into the list.
   it("puts the flag last, so nothing can follow it", () => {
-    const args = buildClaudeArgs({ ...base, addDirs: ["/a"], model: "opus", attachGuiMcp: true, guiMcpTools: "t" });
+    const args = buildClaudeArgs({ ...base, addDirs: ["/a"], model: "opus", attachGuiMcp: true, allowedTools: "t" });
     expect(args[args.length - 2]).toBe("--add-dir");
     expect(args[args.length - 1]).toBe("/a");
   });
@@ -159,7 +159,8 @@ describe("path resolution parity", () => {
       permissionMode: "auto",
       attachGuiMcp: false,
       mcpConfig: "{}",
-      guiMcpTools: "",
+      allowedTools: "",
+      appendedPrompt: null,
       addDirs: dirs,
     });
     const flagged = args.slice(args.indexOf("--add-dir") + 1);
@@ -171,13 +172,17 @@ describe("path resolution parity", () => {
 // #938 rides on this same list: a pasted screenshot is saved outside the working directory,
 // and Claude Code asks permission to read outside it. The pair below is what keeps the two
 // features from taking anything away from each other.
-describe("the pasted-image directory shares the addDirs channel", () => {
-  const PASTE = path.resolve("/paste");
+// A file dropped OR pasted into a session is saved outside its cwd, and the agent is granted that
+// directory through the same channel a user's own `addDirs` travels. Kept as one test because the
+// two halves fail separately: the flag without the mount reads fine and breaks only in the sandbox.
+describe("the session's drop directory shares the addDirs channel", () => {
+  const DROPS = path.resolve("/drops/s1");
+  // How spawn-claude composes it: the user's resolved list, then the app's own entry.
+  const withDropsDir = (configured: string[]) => [...configured, DROPS];
 
   it("reaches the flag and the mount together, alongside what the user configured", () => {
-    const configured = resolveAddDirs([DOCS], BASE, exists([DOCS]));
-    const dirs = withPasteImageDir(configured, PASTE);
-    expect(dirs).toEqual([DOCS, PASTE]);
+    const dirs = withDropsDir(resolveAddDirs([DOCS], BASE, exists([DOCS])) ?? []);
+    expect(dirs).toEqual([DOCS, DROPS]);
     const args = buildClaudeArgs({
       sessionId: "s1",
       resume: null,
@@ -186,12 +191,13 @@ describe("the pasted-image directory shares the addDirs channel", () => {
       permissionMode: "auto",
       attachGuiMcp: false,
       mcpConfig: "{}",
-      guiMcpTools: "",
+      allowedTools: "",
       addDirs: dirs,
+      appendedPrompt: null,
     });
-    expect(args.slice(args.indexOf("--add-dir") + 1)).toEqual([DOCS, PASTE]);
+    expect(args.slice(args.indexOf("--add-dir") + 1)).toEqual([DOCS, DROPS]);
     const mounted = buildDockerRunArgs("s1", args, "/work", "/cfg/c.json", null, dirs).filter((_value, i, all) => all[i - 1] === "-v");
-    expect(mounted).toContain(`${PASTE}:${PASTE}`);
+    expect(mounted).toContain(`${DROPS}:${DROPS}`);
     expect(mounted).toContain(`${DOCS}:${DOCS}`);
   });
 
@@ -199,8 +205,8 @@ describe("the pasted-image directory shares the addDirs channel", () => {
   // and must not be the one that falls off.
   it("survives a config that already filled MAX_ADD_DIRS", () => {
     const configured = Array.from({ length: MAX_ADD_DIRS }, (_unused, i) => path.resolve(`/d${i}`));
-    const dirs = withPasteImageDir(resolveAddDirs(configured, BASE, exists(configured)), PASTE);
+    const dirs = withDropsDir(resolveAddDirs(configured, BASE, exists(configured)) ?? []);
     expect(dirs).toHaveLength(MAX_ADD_DIRS + 1);
-    expect(dirs[dirs.length - 1]).toBe(PASTE);
+    expect(dirs[dirs.length - 1]).toBe(DROPS);
   });
 });

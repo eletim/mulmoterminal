@@ -13,7 +13,17 @@
 import { isRecord } from "../../common/isRecord.js";
 
 // Must be an array when present. A partial POST may omit any of them.
-export const ARRAY_FIELDS = ["cwdPresets", "prRepos", "launchers", "quickCommands", "pushKinds", "soundKinds", "userMcpServers", "providers"] as const;
+export const ARRAY_FIELDS = [
+  "cwdPresets",
+  "prRepos",
+  "launchers",
+  "quickCommands",
+  "pushKinds",
+  "soundKinds",
+  "userMcpServers",
+  "providers",
+  "themes",
+] as const;
 
 // `buttons`/`chips` are nullable (null = unconfigured), so they can't join ARRAY_FIELDS:
 // reject any present value that is neither an array nor null instead of letting the

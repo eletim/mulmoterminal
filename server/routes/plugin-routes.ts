@@ -10,7 +10,7 @@ import type { Express } from "express";
 import { CLAUDE_CWD, PORT } from "../config/env.js";
 import { messageOf } from "../errors.js";
 import { isRecord } from "../../common/isRecord.js";
-import { hiddenSessions } from "../session/registry.js";
+import { backgroundMarkers } from "../session/registry.js";
 import { runWithHiddenMarker } from "../session/hiddenMarker.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";
 import { codexifySkillSeed } from "../agents/codex-skills.js";
@@ -21,6 +21,11 @@ import type { SpawnClaudePty, SpawnCodexPty } from "../session/spawners.js";
 export interface PluginRouteDeps {
   spawnClaudePty: SpawnClaudePty;
   spawnCodexPty: SpawnCodexPty;
+  /** Put a hidden spawn on the scheduled-session retention (#541). Nobody watches a
+   *  background worker and the chat list keeps it behind a filter, so the hook-driven reap
+   *  is the only thing that would ever end it — and a worker blocked on a permission prompt
+   *  never fires the hook that starts it. */
+  registerBackgroundSession: (id: string) => void;
 }
 
 export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
@@ -28,8 +33,8 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
   // catch-all), it needs server internals — it spawns a brand-new interactive Claude
   // terminal session, seeded with `message`, that the user can open from the sidebar.
   // `role` is ignored (MulmoTerminal has no roles). `hidden:true` marks it a background
-  // worker: it still lists in the sidebar but never renders bold/unread when it
-  // finishes. `draft:true` makes `message` an editable DRAFT — typed into the input box
+  // worker: it still lists in the sidebar, but behind the Background filter and never
+  // bold/unread. `draft:true` makes `message` an editable DRAFT — typed into the input box
   // but NOT auto-submitted (the collection-plugin's startNewChatDraft / template cards),
   // so the user reviews and presses Enter.
   app.post("/api/plugin/spawnBackgroundChat", (req, res) => {
@@ -42,12 +47,13 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
     // typed into its input box. codex has no editable-draft path (no stable TUI ready-marker), so its
     // seed always auto-runs as codex's positional first-turn prompt, with the GUI MCP attached.
     try {
-      runWithHiddenMarker(hidden, sessionId, hiddenSessions, () => {
+      runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => {
         const mode = spawnModeFor(agent, draft);
-        if (mode === "codex-run") deps.spawnCodexPty(sessionId, null, null, CLAUDE_CWD, true, codexifySkillSeed(message));
+        if (mode === "codex-run") deps.spawnCodexPty(sessionId, null, null, CLAUDE_CWD, true, { initialPrompt: codexifySkillSeed(message) });
         else if (mode === "claude-draft") deps.spawnClaudePty(sessionId, null, null, { draft: message });
         else deps.spawnClaudePty(sessionId, null, null, { initialPrompt: message });
       });
+      if (hidden) deps.registerBackgroundSession(sessionId);
     } catch (err) {
       console.error(`[spawnBackgroundChat] failed for ${sessionId}: ${messageOf(err)}`);
       return res.json({ message: `Failed to spawn a new session: ${messageOf(err)}` });

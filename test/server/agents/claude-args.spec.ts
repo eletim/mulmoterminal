@@ -10,7 +10,10 @@ const base: ClaudeArgsInput = {
   permissionMode: "auto",
   attachGuiMcp: true,
   mcpConfig: "{gui-mcp}",
-  guiMcpTools: "mcp__gui__a,mcp__gui__b",
+  allowedTools: "mcp__gui__a,mcp__gui__b",
+  // What a default spawn resolves to (appended-prompt.ts). The builder treats it as opaque
+  // text; the real constant is used here so the asserted argv is the one that ships.
+  appendedPrompt: SESSION_SUMMARY_PROMPT,
 };
 
 const cfg = (over: Partial<ClaudeArgsInput> = {}): ClaudeArgsInput => ({ ...base, ...over });
@@ -35,7 +38,10 @@ describe("buildClaudeArgs", () => {
     ]);
   });
 
-  it("grid dev terminal (attachGuiMcp=false): no GUI MCP, no --strict-mcp-config, no --allowedTools", () => {
+  // A grid cell's GUI tools arrive through the USER's own per-folder MCP config, so it must
+  // get neither --mcp-config nor --strict-mcp-config (which would ignore that config) — but it
+  // still pre-approves the render group, or every draw stops at a permission prompt.
+  it("grid dev terminal (attachGuiMcp=false): no GUI MCP, no --strict-mcp-config, but keeps --allowedTools", () => {
     const args = buildClaudeArgs({ ...base, attachGuiMcp: false });
     expect(args).toEqual([
       "--session-id",
@@ -46,9 +52,15 @@ describe("buildClaudeArgs", () => {
       "auto",
       "--append-system-prompt",
       SESSION_SUMMARY_PROMPT,
+      "--allowedTools",
+      "mcp__gui__a,mcp__gui__b",
     ]);
     expect(args).not.toContain("--mcp-config");
     expect(args).not.toContain("--strict-mcp-config");
+  });
+
+  it("omits --allowedTools entirely when there is nothing to pre-approve", () => {
+    const args = buildClaudeArgs({ ...base, attachGuiMcp: false, allowedTools: "" });
     expect(args).not.toContain("--allowedTools");
   });
 
@@ -97,9 +109,10 @@ describe("model selection", () => {
   });
 });
 
-// #942: the closing-summary instruction rides on every session, with no config to turn it off.
-// A resumed session is the one that most needs it — it is the session someone came back to.
-describe("session summary prompt", () => {
+// #942, opt-out in #1062. WHICH sections the text holds is decided in appended-prompt.ts and
+// tested there; what has to hold here is that whatever the caller resolved rides on every spawn
+// shape exactly once — a resumed session most of all, since that is the one someone came back to.
+describe("appended system prompt", () => {
   const promptValue = (args: string[]): string | undefined => args[args.indexOf("--append-system-prompt") + 1];
 
   it.each([
@@ -109,6 +122,7 @@ describe("session summary prompt", () => {
     ["a session pinned to a model", cfg({ model: "opus" })],
   ])("appends it to %s", (_case, input) => {
     const args = buildClaudeArgs(input);
+    // ONE flag: given twice, which of the two wins is up to the CLI.
     expect(args.filter((a) => a === "--append-system-prompt")).toHaveLength(1);
     expect(promptValue(args)).toBe(SESSION_SUMMARY_PROMPT);
   });
@@ -119,5 +133,18 @@ describe("session summary prompt", () => {
     const args = buildClaudeArgs(cfg({ addDirs: ["/a", "/b"] }));
     expect(args.indexOf("--append-system-prompt")).toBeLessThan(args.indexOf("--add-dir"));
     expect(promptValue(args)).toBe(SESSION_SUMMARY_PROMPT);
+  });
+
+  // The flag has to VANISH, not carry an empty string: `--append-system-prompt ""` would leave
+  // the next flag's value ambiguous to read and pointlessly parsed by the CLI.
+  //
+  // `undefined` is unreachable through the type — the field is required precisely so a new spawn
+  // path cannot drop the prompt by forgetting it — but the builder still has to place argv, not
+  // adjudicate, if one arrives from JS or from a value that was never resolved.
+  it.each([
+    ["every section is switched off", null],
+    ["nothing was resolved at all", undefined],
+  ])("omits the flag entirely when %s", (_case, appendedPrompt) => {
+    expect(buildClaudeArgs(cfg({ appendedPrompt }))).not.toContain("--append-system-prompt");
   });
 });

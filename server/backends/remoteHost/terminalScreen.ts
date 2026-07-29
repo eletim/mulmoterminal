@@ -4,6 +4,7 @@
 // join rules and the capture fallback are unit-testable without a live PTY or tmux.
 import { parseStyledRows, rowsToScreen, suggestionFromRows, type ScreenRow } from "../../session/screen-rows.js";
 import type { SessionAgent } from "../../../common/sessionAgent.js";
+import { workItemHeadline, type PrPhase, type WorkItem } from "../../../common/prPhase.js";
 import type { QuickCommandChip } from "./quickCommands.js";
 
 // Map a tmux pane's current command onto the kinds the phone knows. Anything else is a
@@ -18,10 +19,22 @@ export const agentFromPaneCommand = (command: string | null): SessionAgent | nul
   return AGENT_COMMANDS[command] ?? "shell";
 };
 
+// What a session is working on, as the phone needs it: numbers to identify it, a phase for the
+// colour, and ONE line of words. The phone has no room for both titles, and what the work is FOR
+// beats what was done about it — see workItemHeadline (#1014).
+export interface SessionWorkSummary {
+  pr: number | null;
+  issue: number | null;
+  phase: PrPhase;
+  headline: string | null;
+}
+
 export interface TerminalSessionSummary {
   id: string;
   title: string;
   cwd: string;
+  // Absent when the directory is not a GitHub checkout, or has no PR and no issue to name.
+  work?: SessionWorkSummary;
   // A PTY is attached in THIS server process. False means the session exists only in tmux
   // (it outlived a restart) — still viewable, since capture-pane doesn't need our process.
   live: boolean;
@@ -36,6 +49,23 @@ export interface SessionDetail {
   title: string;
   cwd: string;
   agent: SessionAgent | null;
+  work?: SessionWorkSummary;
+}
+
+// What a host's `detailOf` may hand over. Deliberately looser than SessionDetail: writing
+// `work: map.get(cwd)` leaves the key behind holding `undefined`, and buildSessionList is
+// what drops it. The wire shape must not carry such a key — see the note there (#1042).
+export interface SessionDetailDraft extends Omit<SessionDetail, "work"> {
+  work?: SessionWorkSummary | undefined;
+}
+
+// The work item as the phone should see it, or undefined when there is nothing to say. Kept here
+// rather than at the call site so the "what counts as worth sending" rule has one home: a merged
+// or closed PR is finished work, which is also why the header chip clears itself on merge.
+export function sessionWorkSummary(item: WorkItem): SessionWorkSummary | undefined {
+  if (item.phase === "merged" || item.phase === "closed") return undefined;
+  if (item.pr === null && item.issue === null) return undefined;
+  return { pr: item.pr, issue: item.issue, phase: item.phase, headline: workItemHeadline(item) };
 }
 
 export interface SessionListInput {
@@ -48,7 +78,7 @@ export interface SessionListInput {
   // grid's cells, so the single-view chat session and any tmux shell that was never a grid
   // cell are excluded — even while they are live and resumable.
   isGridSession: (id: string) => boolean;
-  detailOf: (id: string) => SessionDetail;
+  detailOf: (id: string) => SessionDetailDraft;
 }
 
 // Live sessions first, then by title, so the phone's list is stable across polls.
@@ -63,11 +93,19 @@ const byLiveThenTitle = (a: TerminalSessionSummary, b: TerminalSessionSummary): 
 export function buildSessionList({ liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
   const live = new Set(liveIds);
   const ids = [...new Set([...liveIds, ...tmuxIds])].filter(isResumable).filter(isGridSession);
-  return ids
-    .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
-    .filter((session) => session.title !== "" || session.live)
-    .map((session) => ({ ...session, title: session.title || session.id }))
-    .sort(byLiveThenTitle);
+  return (
+    ids
+      .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
+      .filter((session) => session.title !== "" || session.live)
+      .map((session) => ({ ...session, title: session.title || session.id }))
+      // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding
+      // `undefined`. A caller writing `work: map.get(cwd)` leaves the key behind, the spreads above
+      // carry it through, and Firestore then refuses the entire reply: every session vanishes from
+      // the phone rather than one row losing its badge (#1042). Dropped here, at the type that
+      // declares it optional, so a future `detailOf` cannot reintroduce it.
+      .map(({ work, ...rest }) => (work ? { ...rest, work } : rest))
+      .sort(byLiveThenTitle)
+  );
 }
 
 export interface ScreenSource {
@@ -122,7 +160,11 @@ export interface SessionScreen extends SessionScreenMeta {
 // written to a Firestore command doc, which rejects an `undefined` value outright, and the
 // phone renders each field it receives as its own labelled row — an empty one would read as
 // "this session has no branch" instead of "not known".
-export function definedScreenMeta(meta: SessionScreenMeta): SessionScreenMeta {
+// What the host hands over BEFORE the trim: every field is a string it may not be able to
+// answer. The trimmed result is a SessionScreenMeta, where an unanswered field has no key.
+type ScreenMetaDraft = Partial<Record<keyof SessionScreenMeta, string | undefined>>;
+
+export function definedScreenMeta(meta: ScreenMetaDraft): SessionScreenMeta {
   return Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined && value.trim() !== ""));
 }
 

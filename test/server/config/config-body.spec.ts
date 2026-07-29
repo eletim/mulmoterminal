@@ -1,7 +1,15 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { ARRAY_FIELDS, OBJECT_FIELDS, badArrayField, badNullableArrayField, badObjectField } from "../../../server/config/config-body.js";
+import {
+  ARRAY_FIELDS,
+  NULLABLE_ARRAY_FIELDS,
+  OBJECT_FIELDS,
+  badArrayField,
+  badNullableArrayField,
+  badObjectField,
+} from "../../../server/config/config-body.js";
+import { emptyConfig } from "../../../server/config/app-config.js";
 import { loadAppConfig, mergeConfigUpdate, sanitizeProviders } from "../../../server/config/app-config.js";
 
 describe("badArrayField", () => {
@@ -31,7 +39,29 @@ describe("badArrayField", () => {
   // caught by review rather than by a test. Adding a field means updating this line, which is
   // the point: it is a decision, not an oversight.
   it("guards exactly these fields — a removal here is a field that can be silently wiped", () => {
-    expect([...ARRAY_FIELDS]).toEqual(["cwdPresets", "prRepos", "launchers", "quickCommands", "pushKinds", "soundKinds", "userMcpServers", "providers"]);
+    expect([...ARRAY_FIELDS]).toEqual([
+      "cwdPresets",
+      "prRepos",
+      "launchers",
+      "quickCommands",
+      "pushKinds",
+      "soundKinds",
+      "userMcpServers",
+      "providers",
+      "themes",
+    ]);
+  });
+
+  // ...and `themes` (#996) made four, also caught by review. The list above cannot catch an
+  // ADDITION — it still matches the unchanged ARRAY_FIELDS while the new field goes unguarded —
+  // so this one derives the answer from the config itself: every array-valued field of a default
+  // AppConfig has to be guarded somewhere. A new one fails here without anyone remembering to.
+  it("guards every array field the config actually has", () => {
+    const guarded = new Set<string>([...ARRAY_FIELDS, ...NULLABLE_ARRAY_FIELDS]);
+    const arrayFields = Object.entries(emptyConfig())
+      .filter(([, value]) => Array.isArray(value))
+      .map(([key]) => key);
+    expect(arrayFields.filter((field) => !guarded.has(field))).toEqual([]);
   });
 
   it("names only the first offender — the response reports one field", () => {

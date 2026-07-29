@@ -51,6 +51,9 @@ export interface FetchedTurn {
   prompt: string | null;
   reply: string | null;
   text: string;
+  // The server refused to read an oversized transcript rather than freezing on it (#865).
+  // Distinct from an empty reply, which means "read it, there was nothing".
+  tooLarge?: boolean;
 }
 
 // `shape: "reply"` asks for the answer alone — see the server's HandoffShape.
@@ -66,7 +69,7 @@ export async function fetchLastTurn(source: HandoffSource, shape: "exchange" | "
     const data: unknown = await res.json();
     if (!isRecord(data)) return { prompt: null, reply: null, text: "" };
     const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
-    return { prompt: str(data.prompt), reply: str(data.reply), text: str(data.text) ?? "" };
+    return { prompt: str(data.prompt), reply: str(data.reply), text: str(data.text) ?? "", tooLarge: data.tooLarge === true };
   } finally {
     clearTimeout(timer);
   }

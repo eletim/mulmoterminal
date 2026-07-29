@@ -82,7 +82,7 @@ describe("the config readers, given a BOM", () => {
     const dir = tmp();
     const file = path.join(dir, "presets.json");
     writeFileSync(file, `${BOM}${JSON.stringify({ cwdPresets: [{ label: "repo", path: "/Users/me/repo" }] })}`, "utf8");
-    expect(loadPresets(file)).toEqual([{ label: "repo", path: "/Users/me/repo" }]);
+    expect(loadPresets(file)).toEqual([{ label: "repo", path: path.resolve("/Users/me/repo") }]);
   });
 
   // This one had the worst failure mode: the whole app config — providers, launchers, header

@@ -3,7 +3,17 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 import { derivePrPhase, parsePrList, phaseForRepoBranch, clearPrPhaseCache, type ParsedPr } from "../../../server/git/prPhase.js";
 
-const pr = (over: Partial<ParsedPr> = {}): ParsedPr => ({ state: "OPEN", isDraft: false, reviewDecision: "", ci: "passing", url: null, ...over });
+const pr = (over: Partial<ParsedPr> = {}): ParsedPr => ({
+  state: "OPEN",
+  isDraft: false,
+  reviewDecision: "",
+  ci: "passing",
+  url: null,
+  number: null,
+  body: "",
+  title: "",
+  ...over,
+});
 
 describe("derivePrPhase", () => {
   it("returns none when there is no PR", () => {
@@ -55,7 +65,9 @@ describe("derivePrPhase", () => {
 describe("parsePrList", () => {
   it("parses each PR and rolls up its CI", () => {
     const stdout = JSON.stringify([{ state: "OPEN", isDraft: false, reviewDecision: "APPROVED", statusCheckRollup: [{ conclusion: "SUCCESS" }], url: "u1" }]);
-    expect(parsePrList(stdout)).toEqual([{ state: "OPEN", isDraft: false, reviewDecision: "APPROVED", ci: "passing", url: "u1" }]);
+    expect(parsePrList(stdout)).toEqual([
+      { state: "OPEN", isDraft: false, reviewDecision: "APPROVED", ci: "passing", url: "u1", number: null, body: "", title: "" },
+    ]);
   });
 
   it("rolls a mixed check set with a failure to failing", () => {
@@ -76,7 +88,9 @@ describe("parsePrList", () => {
   });
 
   it("defaults missing fields", () => {
-    expect(parsePrList(JSON.stringify([{}]))).toEqual([{ state: "", isDraft: false, reviewDecision: "", ci: "none", url: null }]);
+    expect(parsePrList(JSON.stringify([{}]))).toEqual([
+      { state: "", isDraft: false, reviewDecision: "", ci: "none", url: null, number: null, body: "", title: "" },
+    ]);
   });
 });
 
@@ -96,19 +110,21 @@ describe("phaseForRepoBranch", () => {
     return { fn, calls: () => calls, states: () => states };
   };
 
-  const openPr = JSON.stringify([{ state: "OPEN", isDraft: false, statusCheckRollup: [{ conclusion: "SUCCESS" }], url: "https://github.com/o/r/pull/2" }]);
+  const openPr = JSON.stringify([
+    { state: "OPEN", isDraft: false, statusCheckRollup: [{ conclusion: "SUCCESS" }], url: "https://github.com/o/r/pull/2", number: 2 },
+  ]);
 
   it("derives phase and url from the open PR (one query, no fallback)", async () => {
     const gh = ghByState({ open: openPr });
     const result = await phaseForRepoBranch("o/r", "feat/x", { runGh: gh.fn });
-    expect(result).toEqual({ phase: "ready", url: "https://github.com/o/r/pull/2" });
+    expect(result).toEqual({ phase: "ready", pr: 2, prUrl: "https://github.com/o/r/pull/2", issue: null, issueUrl: null, prTitle: null, issueTitle: null });
     expect(gh.states()).toEqual(["open"]); // never fell through to --state all
   });
 
   it("falls back to --state all for a merged branch (no open PR)", async () => {
-    const gh = ghByState({ open: "[]", all: JSON.stringify([{ state: "MERGED", url: "u" }]) });
+    const gh = ghByState({ open: "[]", all: JSON.stringify([{ state: "MERGED", url: "u", number: 9 }]) });
     const result = await phaseForRepoBranch("o/r", "feat/x", { runGh: gh.fn });
-    expect(result).toEqual({ phase: "merged", url: "u" });
+    expect(result).toEqual({ phase: "merged", pr: 9, prUrl: "u", issue: null, issueUrl: null, prTitle: null, issueTitle: null });
     expect(gh.states()).toEqual(["open", "all"]);
   });
 
@@ -117,18 +133,18 @@ describe("phaseForRepoBranch", () => {
   it("returns the open PR without consulting merged history for a reused head branch", async () => {
     const gh = ghByState({ open: openPr, all: JSON.stringify([{ state: "MERGED", url: "old" }]) });
     const result = await phaseForRepoBranch("o/r", "feat/x", { runGh: gh.fn });
-    expect(result.url).toBe("https://github.com/o/r/pull/2");
+    expect(result.prUrl).toBe("https://github.com/o/r/pull/2");
     expect(gh.states()).toEqual(["open"]);
   });
 
   it("resolves to none when gh fails", async () => {
     const result = await phaseForRepoBranch("o/r", "feat/x", { runGh: ghByState({}, false).fn });
-    expect(result).toEqual({ phase: "none", url: null });
+    expect(result).toEqual({ phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null, prTitle: null, issueTitle: null });
   });
 
   it("resolves to none when there is no PR at all", async () => {
     const result = await phaseForRepoBranch("o/r", "feat/x", { runGh: ghByState({ open: "[]", all: "[]" }).fn });
-    expect(result).toEqual({ phase: "none", url: null });
+    expect(result).toEqual({ phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null, prTitle: null, issueTitle: null });
   });
 
   // Codex iter-3: a FAILED open query must not fall through to --state all (which could report
@@ -142,8 +158,86 @@ describe("phaseForRepoBranch", () => {
       return { ok: true, stdout: JSON.stringify([{ state: "MERGED", url: "stale" }]), stderr: "" };
     };
     const result = await phaseForRepoBranch("o/r", "feat/x", { runGh });
-    expect(result).toEqual({ phase: "none", url: null });
+    expect(result).toEqual({ phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null, prTitle: null, issueTitle: null });
     expect(states).toEqual(["open"]);
+  });
+
+  // Which issue the cell is on. The PR's own closing keyword is the authority; the branch name is
+  // only consulted without one, and then only after the issue is confirmed to exist — a branch
+  // like `release/2026-07-28-hotfix` otherwise makes the cell claim issue #2026.
+  describe("the issue behind the work", () => {
+    const prWithBody = (body: string) => JSON.stringify([{ state: "OPEN", statusCheckRollup: [{ conclusion: "SUCCESS" }], url: "u", number: 3, body }]);
+
+    it("takes the issue from the PR's closing keyword, and reads its title", async () => {
+      const seen: string[][] = [];
+      const runGh = async (args: string[]) => {
+        seen.push(args);
+        return { ok: true, stdout: args[0] === "pr" ? prWithBody("Fixes #966") : '{"number":966,"title":"the reported bug"}', stderr: "" };
+      };
+      const result = await phaseForRepoBranch("o/r", "fix/1-other", { runGh });
+      expect(result.issue).toBe(966); // the body wins over the branch's own "1"
+      expect(result.issueTitle).toBe("the reported bug");
+      // The lookup exists for the TITLE — the number needed no confirming (#1014).
+      expect(seen.some((args) => args[0] === "issue" && args.includes("number,title"))).toBe(true);
+    });
+
+    // The number came from the PR author, so a `gh` hiccup must not take it away — only the title.
+    it("keeps a body-referenced issue when the title lookup fails", async () => {
+      const runGh = async (args: string[]) => ({ ok: args[0] === "pr", stdout: args[0] === "pr" ? prWithBody("Fixes #966") : "", stderr: "no" });
+      const result = await phaseForRepoBranch("o/r", "feat/x", { runGh });
+      expect(result.issue).toBe(966);
+      expect(result.issueTitle).toBeNull();
+    });
+
+    it("takes the PR title from the list it already fetches", async () => {
+      const runGh = async (args: string[]) => ({
+        ok: true,
+        stdout: args[0] === "pr" ? JSON.stringify([{ state: "OPEN", url: "u", number: 3, title: "the change", body: "" }]) : "{}",
+        stderr: "",
+      });
+      expect((await phaseForRepoBranch("o/r", "feat/x", { runGh })).prTitle).toBe("the change");
+    });
+
+    it("falls back to the branch name, confirming the issue exists first", async () => {
+      const seen: string[][] = [];
+      const runGh = async (args: string[]) => {
+        seen.push(args);
+        return { ok: true, stdout: args[0] === "pr" ? prWithBody("no keyword here") : '{"number":966}', stderr: "" };
+      };
+      const result = await phaseForRepoBranch("o/r", "fix/966-preserve-keys", { runGh });
+      expect(result.issue).toBe(966);
+      expect(result.issueUrl).toBe("https://github.com/o/r/issues/966");
+      expect(seen.some((args) => args[0] === "issue" && args.includes("966"))).toBe(true);
+    });
+
+    // The guard the candidate exists for: the number parses, the issue does not exist.
+    it("shows no issue when the branch's number is not a real issue", async () => {
+      const runGh = async (args: string[]) => ({ ok: args[0] === "pr", stdout: args[0] === "pr" ? prWithBody("") : "", stderr: "not found" });
+      const result = await phaseForRepoBranch("o/r", "release/2026-07-28-hotfix", { runGh });
+      expect(result.issue).toBeNull();
+      expect(result.issueUrl).toBeNull();
+    });
+
+    it("shows no issue for a branch that names none", async () => {
+      const runGh = async () => ({ ok: true, stdout: prWithBody(""), stderr: "" });
+      const result = await phaseForRepoBranch("o/r", "feat/no-number", { runGh });
+      expect(result.issue).toBeNull();
+    });
+
+    // A cell can be on an issue before it has a PR — that is most of the time it spends on one.
+    it("finds the issue with no PR at all", async () => {
+      const runGh = async (args: string[]) => ({ ok: true, stdout: args[0] === "pr" ? "[]" : '{"number":979}', stderr: "" });
+      const result = await phaseForRepoBranch("o/r", "feat/979-work-item-chip", { runGh });
+      expect(result).toEqual({
+        phase: "none",
+        pr: null,
+        prUrl: null,
+        issue: 979,
+        issueUrl: "https://github.com/o/r/issues/979",
+        prTitle: null,
+        issueTitle: null,
+      });
+    });
   });
 
   it("does not cache a failed query, so the next poll retries", async () => {

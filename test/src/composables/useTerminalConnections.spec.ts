@@ -830,3 +830,63 @@ describe("setFont — a font change must reach the PTY, not just the canvas", ()
     expect(() => conn.setFont("cell-not-here", { size: 20, family: "monospace" })).not.toThrow();
   });
 });
+
+// #1005. The pure key->bytes decision (sendBytesFor) is covered in test/common/keymapSend.spec.ts;
+// here we cover the wrapper — that it sends, cancels xterm's own handling, and preventDefaults,
+// and that it re-reads the keymap each call so editing config.json takes effect without a reload.
+describe("makeSendHandler", () => {
+  const CTRL_E = "\u0005";
+  const key = (
+    over: Partial<KeyboardEvent>,
+  ): Pick<KeyboardEvent, "type" | "key" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey" | "isComposing" | "preventDefault"> => ({
+    type: "keydown",
+    key: "ArrowRight",
+    shiftKey: false,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: true,
+    isComposing: false,
+    preventDefault: () => {},
+    ...over,
+  });
+  const bound = { send: [{ key: "Cmd+ArrowRight", bytes: CTRL_E }] };
+
+  it("sends the bytes, cancels xterm's handling, and preventDefaults", () => {
+    const send = vi.fn();
+    const preventDefault = vi.fn();
+    const handler = conn.makeSendHandler(() => bound, send);
+    expect(handler(key({ preventDefault }))).toBe(false); // false => xterm does not also translate the key
+    expect(send).toHaveBeenCalledWith(CTRL_E);
+    // Without this the browser fires a follow-up keypress that arrives as stray input — the same
+    // trap makeEnterHandler documents.
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it("passes an unbound key through untouched", () => {
+    const send = vi.fn();
+    const preventDefault = vi.fn();
+    const handler = conn.makeSendHandler(() => bound, send);
+    expect(handler(key({ key: "ArrowLeft", preventDefault }))).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("takes no key at all when nothing is bound", () => {
+    const send = vi.fn();
+    const handler = conn.makeSendHandler(() => ({}), send);
+    expect(handler(key({}))).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  // Read through a getter, not captured: the keymap is hydrated asynchronously from /api/config
+  // and can change while a terminal is open.
+  it("re-reads the keymap on every keystroke", () => {
+    const send = vi.fn();
+    let keymap: { send?: { key: string; bytes: string }[] } = {};
+    const handler = conn.makeSendHandler(() => keymap, send);
+    expect(handler(key({}))).toBe(true);
+    keymap = bound;
+    expect(handler(key({}))).toBe(false);
+    expect(send).toHaveBeenCalledWith(CTRL_E);
+  });
+});

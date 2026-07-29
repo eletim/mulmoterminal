@@ -3,15 +3,17 @@
 // (#548 step 3f) — the rules for WHETHER to (re)generate already live in
 // config/header-title.ts; this is the bookkeeping around them.
 //
-// Three guards do the real work and are easy to lose in a rewrite: an epoch that drops a
-// title generated across a /clear, an in-flight set so a Stop hook and a roster view do
-// not both summarize, and a retry floor so a viewed-but-failing session is not
+// Four guards do the real work and are easy to lose in a rewrite: an epoch that drops a
+// title generated across a /clear, the cleared-transcript mark that stops the NEXT turn
+// generating one from that same pre-clear file, an in-flight set so a Stop hook and a roster
+// view do not both summarize, and a retry floor so a viewed-but-failing session is not
 // re-summarized on every poll.
-import { promises as fs } from "node:fs";
 import path from "node:path";
-import { countUserTurnsFromJsonl, isTrivialPrompt } from "./transcript.js";
+import { conversationTurnsFromParsed, isTrivialPrompt, type ConversationTurn } from "./transcript.js";
+import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { shouldFreshenViewedTitle, shouldRegenerateTitle, TITLE_REGEN_EVERY_TURNS, VIEW_TITLE_REGEN_TURNS } from "../config/header-title.js";
 import { aiTitles, lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "./registry.js";
+import { clearedTranscripts } from "./cleared-transcripts.js";
 import { projectSessionsDir } from "./project-dir.js";
 
 // How long a viewed session that failed to summarize waits before being tried again, so a
@@ -25,7 +27,9 @@ export interface TitleDeps {
   now: () => number;
   /** Summarize a transcript into a title. Injected because the real one shells out to
    *  the claude CLI, which a unit test must never do. */
-  generateTitle: (rawTranscript: string) => Promise<string | null>;
+  // Turns, not the raw transcript: the file reaches 585 MB here and cannot be held as a string
+  // at all (#998). The title only reads the last few turns anyway.
+  generateTitle: (turns: ConversationTurn[]) => Promise<string | null>;
 }
 
 export function createTitleManager(deps: TitleDeps) {
@@ -59,15 +63,27 @@ export function createTitleManager(deps: TitleDeps) {
   // view) don't both summarize. Never throws — a failed/timed-out CLI just leaves the prior title.
   async function generateAndStoreTitle(sessionId: string, cwd: string): Promise<void> {
     if (titleInFlight.has(sessionId)) return;
+    // A cleared session has no transcript to title from: claude moved to a new one and ours is
+    // frozen on the conversation the user just ended, so this is where the pre-clear title kept
+    // coming back — forgetTitle makes the next turn think a title is DUE, and the only turns on
+    // disk are the ended ones (#1085). No title beats the wrong one; the header falls back to the
+    // live prompt.
+    if (clearedTranscripts.has(sessionId)) return;
     titleInFlight.add(sessionId);
     const epoch = titleEpoch.get(sessionId) ?? 0;
     try {
-      const raw = await fs.readFile(path.join(projectSessionsDir(cwd), `${sessionId}.jsonl`), "utf8").catch(() => null);
-      const title = raw ? await deps.generateTitle(raw) : null;
+      // One streamed pass yields both what the title needs (the turns) and what the bookkeeping
+      // needs (how many user turns there were), so the transcript is never held as a string.
+      const turns: ConversationTurn[] = [];
+      let read = true;
+      await forEachJsonlRecord(path.join(projectSessionsDir(cwd), `${sessionId}.jsonl`), (record) => {
+        turns.push(...conversationTurnsFromParsed([record]));
+      }).catch(() => (read = false));
+      const title = read && turns.length ? await deps.generateTitle(turns) : null;
       if (title && (titleEpoch.get(sessionId) ?? 0) === epoch) {
         aiTitles.set(sessionId, title);
         titleTurnCounts.set(sessionId, 0);
-        lastTitledUserTurns.set(sessionId, raw ? countUserTurnsFromJsonl(raw) : 0);
+        lastTitledUserTurns.set(sessionId, turns.filter((t) => t.role === "user").length);
         deps.publishActivity(sessionId);
       }
     } finally {

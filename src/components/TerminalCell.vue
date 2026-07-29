@@ -1,25 +1,31 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
+import { ref, computed, nextTick, watch, onMounted, onUnmounted, useTemplateRef } from "vue";
 import TerminalView from "./Terminal.vue";
 import { usePubSub } from "../composables/usePubSub";
-import { useDirConfig, useDirColors } from "../composables/useDirConfig";
+import { useDirColors } from "../composables/useDirConfig";
+import { useCellChrome } from "../composables/useCellChrome";
 import { dirChipTint } from "./dirChipColor";
 import { useGitStatus } from "../composables/useGitStatus";
+import { useWorkItem } from "../composables/useWorkItem";
 import { formatCwd, worktreeLabel } from "./cwdDisplay";
 import DirBadge from "./DirBadge.vue";
 import { isCellContext, isCellUsage, type CellContext, type CellUsage } from "./cellPayload";
+import { TOOL_GROUPS, TOOL_GROUP_HEADINGS, toolGroupServerId, toolsInGroup, type ToolGroup } from "../../common/toolGroups";
+import { queueMcpWrite } from "./mcpWriteQueue";
 import { unsavedWork } from "./unsavedWork";
 import { relativeTime as relativeTimeFrom, usageBadge } from "./cellDisplay";
 import { applyActivityPush, cellHeaderText } from "./cellActivity";
+import { MEMO_MAX_LENGTH, normalizeMemo } from "../../common/sessionMemo";
 import { preferredLaunchDir, shouldSyncLaunchDir } from "./launchDir";
-import { headerStyleFor, cellStyleFor } from "./cellHeaderStyle";
 import GitBranchChip from "./GitBranchChip.vue";
+import WorkItemChip from "./WorkItemChip.vue";
 import ModelContextBadge from "./ModelContextBadge.vue";
 import ModelPicker from "./ModelPicker.vue";
 import type { LaunchChoice } from "./wsUrl";
 import type { RunCommand } from "./runCommand";
 import { useHeaderButtons } from "../composables/useHeaderButtons";
 import TimelineOverlay from "./TimelineOverlay.vue";
+import CopyCodeBlock from "./CopyCodeBlock.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { CwdPreset } from "./presets";
@@ -70,7 +76,7 @@ const props = defineProps<
     initialCwd: string | null;
     // The persisted agent for this cell: "codex" reconnects via /ws/codex on reload; absent
     // (or "claude") resumes as a normal Claude session.
-    initialAgent?: "codex" | null;
+    initialAgent?: "codex" | null | undefined;
     defaultCwd: string | null;
     presets: CwdPreset[];
     // Configured launch commands (shell/codex/…) offered next to Claude in this launcher.
@@ -115,11 +121,10 @@ const connectKey = ref(0);
 const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
 // Per-directory overrides (<cwd>/.mulmoterminal.json): pins this cell's terminal
 // palette and shows a project badge. Re-fetched when the effective cwd changes.
-const { config: dirConfig } = useDirConfig(cwd);
-const headerStyle = computed(() => headerStyleFor(dirConfig.value.headerColor, dirConfig.value.headerTextColor));
-const cellStyle = computed(() =>
-  cellStyleFor(dirConfig.value.cellColor, dirConfig.value.cellBorderColor, dirConfig.value.dotColor, dirConfig.value.buttonColor),
-);
+const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(cwd);
+// What this cell is working on (PR + issue), for the `work` chip. Same directory, same kind of
+// poll as the git status below.
+const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd);
 // Live git status (branch/dirty/ahead·behind) for the header chip. `refreshGit`
 // is called alongside loadDiff() so a finished turn's changes show immediately.
 const { status: gitStatus, refresh: refreshGit } = useGitStatus(cwd);
@@ -157,6 +162,12 @@ const lastPrompt = ref<string | null>(null);
 // the header because a raw follow-up prompt goes stale ("ok") or context-dependent once
 // the session is a back-and-forth. Null until the server generates/pushes one.
 const aiTitle = ref<string | null>(null);
+// The user's own one-line note on this session (#1084). It outranks both of the above in the
+// header: they say what the agent said, this says what the cell is FOR — the question six open
+// cells stop answering. Null until the server pushes one.
+const memo = ref<string | null>(null);
+const memoEditing = ref(false);
+const memoDraft = ref("");
 
 // Cumulative token usage for this session (from /api/session/:id, refreshed when a
 // turn finishes). Null until first fetched.
@@ -172,8 +183,8 @@ const context = ref<CellContext | null>(null);
 // (git/diff/ctx/usage) render in that order — others are hidden — and custom chips render as text. `dir`,
 // the project badge, the status dot/activity, and the row-2 tools timeline stay structural.
 const { chips: headerChips } = useHeaderButtons({ cwd, session: sessionId, agent, model: computed(() => context.value?.model ?? null) });
-const ROW1_BUILTIN_CHIPS = new Set(["git", "diff", "ctx", "usage"]);
-const DEFAULT_CELL_CHIP_IDS = ["git", "diff", "ctx", "usage"];
+const ROW1_BUILTIN_CHIPS = new Set(["git", "work", "diff", "ctx", "usage"]);
+const DEFAULT_CELL_CHIP_IDS = ["git", "work", "diff", "ctx", "usage"];
 interface CellChipView {
   key: string;
   builtin: string | null;
@@ -202,6 +213,7 @@ interface ActivityMsg {
   event?: string | null;
   lastPrompt?: string | null;
   aiTitle?: string | null;
+  memo?: string | null;
 }
 const isActivityMsg = (d: unknown): d is ActivityMsg => typeof d === "object" && d !== null && "id" in d;
 
@@ -220,7 +232,14 @@ let latestBadgeReq = 0;
 function applyActivity(d: ActivityMsg) {
   activityGen++;
   const next = applyActivityPush(
-    { working: working.value, waiting: waiting.value, event: activityEvent.value, lastPrompt: lastPrompt.value, aiTitle: aiTitle.value },
+    {
+      working: working.value,
+      waiting: waiting.value,
+      event: activityEvent.value,
+      lastPrompt: lastPrompt.value,
+      aiTitle: aiTitle.value,
+      memo: memo.value,
+    },
     d,
   );
   working.value = next.working;
@@ -228,6 +247,9 @@ function applyActivity(d: ActivityMsg) {
   activityEvent.value = next.event;
   lastPrompt.value = next.lastPrompt;
   aiTitle.value = next.aiTitle;
+  // Not while the box is open: the push that lands as another tab saves would otherwise
+  // overwrite the sentence being typed here, mid-word.
+  if (!memoEditing.value) memo.value = next.memo;
 }
 
 // This session's detail, or nothing to apply. Nothing covers three cases the callers all
@@ -285,6 +307,41 @@ async function refreshUsage() {
   if (data && badgeReq === latestBadgeReq) applyBadges(data);
 }
 
+// Canvas output this cell has produced that nobody has looked at. The grid is a TRIAGE board,
+// so the drawing itself stays in the expanded view — but without a signal here, output on an
+// un-expanded cell leaves no trace at all and is only discovered by expanding it. A count, not
+// a preview: reading belongs in the pane.
+//
+// Counted from LIVE arrivals only, with no history replay: "unseen" means "since you last
+// looked", and nine cells each fetching a session's stored results to compute a badge would
+// cost more than the badge is worth.
+//
+// Deliberately NOT folded into the attention colours: an unread drawing is not the same as an
+// agent blocked on a permission prompt, and letting it raise amber would spend the one signal
+// that means "you are needed here".
+const unseenCanvas = ref(0);
+let unsubscribeCanvas: (() => void) | undefined;
+
+function watchCanvasOutput(id: string | null) {
+  unsubscribeCanvas?.();
+  unsubscribeCanvas = undefined;
+  unseenCanvas.value = 0;
+  if (!id) return;
+  unsubscribeCanvas = subscribe(`session:${id}`, () => {
+    // Already looking at it: arrivals land in a pane the user can see, so nothing is unseen.
+    if (props.expanded && props.rightPane === "canvas") return;
+    unseenCanvas.value += 1;
+  });
+}
+watch(sessionId, watchCanvasOutput, { immediate: true });
+// Opening the pane on this cell clears the count — that IS having looked.
+watch(
+  () => props.expanded && props.rightPane === "canvas",
+  (looking) => {
+    if (looking) unseenCanvas.value = 0;
+  },
+);
+
 onMounted(() => {
   unsubscribe = subscribe("sessions", (d) => {
     if (isActivityMsg(d) && d.id === sessionId.value) applyActivity(d);
@@ -303,10 +360,12 @@ onMounted(() => {
     loadResumable();
     loadScripts();
     loadWorktrees();
+    loadMcpGroups();
   }
 });
 onUnmounted(() => {
   unsubscribe?.();
+  unsubscribeCanvas?.();
   offReconnect?.();
   if (resumableTimer) clearTimeout(resumableTimer);
 });
@@ -369,6 +428,7 @@ function fillDir(path: string) {
   loadResumable();
   loadScripts();
   loadWorktrees();
+  loadMcpGroups();
 }
 
 // The folder button: the browser can't open a native folder chooser, so the local server does
@@ -479,6 +539,108 @@ const worktrees = ref<Worktree[]>([]);
 const worktreeTask = ref("");
 let worktreesReq = 0;
 
+// Which GUI tool groups this directory hands its agents, one switch per group in TOOL_GROUPS
+// (render, data, media, external). NOT MulmoTerminal state: each is an MCP server registered in
+// Claude Code's own local-scope config for this directory, so the switches read and write through
+// /api/gui-mcp-groups and `claude mcp list` stays the one place they can be seen. Read per
+// directory, like the worktree list above.
+//
+// EVERY group, not just the two Canvas ones: the server has routed, gated and pre-approved all
+// four since they were defined, and the launcher offering only render and media left `data` and
+// `external` reachable solely by typing `claude mcp add` by hand. CANVAS_TOOL_GROUPS still means
+// what it says — which groups DRAW — and is not the set that gets a switch.
+//
+// One record per group rather than a flag per group: the switches differ only in the group they
+// name, so adding one to TOOL_GROUPS should not mean another copy of this block.
+const byToolGroup = <T,>(value: T): Record<ToolGroup, T> => Object.fromEntries(TOOL_GROUPS.map((group) => [group, value])) as Record<ToolGroup, T>;
+
+const mcpGroupDir = ref<string | null>(null);
+const mcpGroupEnabled = ref(byToolGroup(false));
+const mcpGroupBusy = ref(byToolGroup(false));
+const mcpGroupError = ref(byToolGroup<string | null>(null));
+let mcpGroupReq = 0;
+
+// What the switch actually does, spelled out for the hover: the MCP SERVER ID it registers and
+// the tools that id brings with it. The row's visible label can only name the group, and the
+// group name alone ("render", "data") does not say which server appears in `claude mcp list`
+// nor what the agent gains — that is exactly what a user checking the box wants to know.
+// Derived from toolGroups.ts rather than written out, so a tool added to a group shows up here
+// without a second edit (the Canvas empty state names them the same way).
+const mcpGroupTitle = (group: ToolGroup): string =>
+  `Registers the MCP server "${toolGroupServerId(group)}" for this directory — tools: ${toolsInGroup(group).join(", ")}`;
+
+async function loadMcpGroups() {
+  const dir = dirInput.value.trim() || props.defaultCwd;
+  const reqId = ++mcpGroupReq;
+  // Cleared BEFORE the fetch, not only on the failure path: the switches showing while the answer
+  // is in flight are the PREVIOUS directory's, and a flip during that gap writes to the previous
+  // directory (applyMcpGroup captures mcpGroupDir, which is what keeps a queued write honest).
+  // The rows come back a moment later with this directory's real positions.
+  mcpGroupDir.value = null;
+  if (launched.value || !dir) return;
+  try {
+    const res = await fetch(`/api/gui-mcp-groups?cwd=${encodeURIComponent(dir)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    // A slower reply for a directory the user has since moved off would show its answer under
+    // the new directory's name.
+    if (reqId !== mcpGroupReq) return;
+    mcpGroupDir.value = dir;
+    const registered: unknown[] = Array.isArray(data.groups) ? data.groups : [];
+    mcpGroupEnabled.value = byToolGroup(false);
+    for (const group of TOOL_GROUPS) mcpGroupEnabled.value[group] = registered.includes(group);
+    mcpGroupError.value = byToolGroup(null);
+  } catch {
+    // No switch rather than one whose position is a guess — flipping a wrong "off" would run
+    // `claude mcp remove` on a registration the user may actually have.
+    if (reqId === mcpGroupReq) mcpGroupDir.value = null;
+  }
+}
+
+// Writes into the user's Claude Code config, so a failure is surfaced and the checkbox is put
+// back — a switch that shows "on" for a registration that was never written is the worst state.
+//
+// Busy is set HERE, when the write is queued, not when it starts running. Marking it at the
+// front of the queued callback would leave the checkbox live while it waits behind another
+// group's save: a second flip would queue a second write, and since a failed write puts its
+// checkbox back, the earlier failure's rollback would land on top of the later intent — flip on,
+// flip off, end up on. Disabled from the flip until the write settles, there is only ever one.
+// The DIRECTORY is captured here too, for the same reason: a queued write can run long after the
+// flip, and the launcher's directory field is editable the whole time. Read at execution time, a
+// switch ticked for A would register the MCP server against whatever B the user had typed by
+// then — a silent write to a folder they never touched the switch in.
+function applyMcpGroup(group: ToolGroup): Promise<void> {
+  const dir = mcpGroupDir.value;
+  if (!dir) return Promise.resolve();
+  const wanted = mcpGroupEnabled.value[group];
+  mcpGroupBusy.value[group] = true;
+  mcpGroupError.value[group] = null;
+  return queueMcpWrite(() => writeMcpGroup(group, dir, wanted));
+}
+
+async function writeMcpGroup(group: ToolGroup, dir: string, wanted: boolean) {
+  try {
+    const res = await fetch("/api/gui-mcp-groups", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cwd: dir, group, enabled: wanted }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || "claude mcp failed");
+  } catch (e) {
+    // Only if the switches still belong to the directory this write was for. Moved on, they are
+    // showing what the NEW directory has registered, and putting one back would report another
+    // folder's failure as that directory's state.
+    if (mcpGroupDir.value === dir) {
+      mcpGroupEnabled.value[group] = !wanted;
+      mcpGroupError.value[group] = e instanceof Error ? e.message : String(e);
+    }
+  } finally {
+    mcpGroupBusy.value[group] = false;
+  }
+}
+
 async function loadWorktrees() {
   const dir = dirInput.value.trim() || props.defaultCwd;
   const reqId = ++worktreesReq;
@@ -517,6 +679,7 @@ async function createWorktreeAndLaunch() {
     const wt = await res.json();
     if (typeof wt.path === "string") {
       worktreeTask.value = "";
+      await syncMcpGroupsInto(wt.path);
       launchIn(wt.path);
     }
   } catch {
@@ -524,7 +687,59 @@ async function createWorktreeAndLaunch() {
   }
 }
 
-const reuseWorktree = (w: Worktree) => launchIn(w.path);
+const reuseWorktree = async (w: Worktree) => {
+  await syncMcpGroupsInto(w.path);
+  launchIn(w.path);
+};
+
+// Claude Code keys local-scope MCP config by the CLI's working directory, and a worktree launch
+// starts claude in the WORKTREE — not in the repository the switches above were set for. Without
+// this the session gets no GUI tools even though the launcher plainly says the group is on.
+//
+// A SYNC of every group, not a copy of the ticked ones. A REUSED worktree can carry a
+// registration from an earlier launch, and mirroring only the "on" groups leaves that stale one
+// standing: uncheck `external` in the repo, reuse the worktree it was once on for, and the
+// session gets external tools the launcher shows as off. Over-granting is the direction that
+// matters, so a group that is off here is removed there.
+//
+// Copied rather than moved: the repository keeps its own registration, and a worktree is a
+// throwaway room that should start out like the repo it came from. Failures are swallowed —
+// the launch itself is what the user asked for, and the Canvas button will report the truth.
+//
+// Only the groups that actually DIFFER are written, because each write shells out to the
+// `claude` CLI and the launch waits on them. The target's current state is one config-file read
+// (the GET does not shell out); when it cannot be read, every group is written rather than
+// assumed — a wrong assumption here is the stale registration this exists to clear.
+async function syncMcpGroupsInto(worktreePath: string) {
+  if (!mcpGroupDir.value || worktreePath === mcpGroupDir.value) return;
+  let already: unknown[] | null = null;
+  try {
+    const res = await fetch(`/api/gui-mcp-groups?cwd=${encodeURIComponent(worktreePath)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.groups)) already = data.groups;
+    }
+  } catch {
+    // leave it null: write every group
+  }
+  const wanted = (group: ToolGroup) => mcpGroupEnabled.value[group];
+  const changed = TOOL_GROUPS.filter((group) => already === null || already.includes(group) !== wanted(group));
+  // Through the same queue as the switches, one group at a time: a launch that fires while a
+  // checkbox is still saving would otherwise be the very concurrent write the queue exists for.
+  for (const group of changed) {
+    await queueMcpWrite(async () => {
+      try {
+        await fetch("/api/gui-mcp-groups", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cwd: worktreePath, group, enabled: wanted(group) }),
+        });
+      } catch {
+        // best-effort — a worktree without the registration still launches, just without the tools
+      }
+    });
+  }
+}
 
 // Remove a managed worktree (＋ its branch). A dirty one is confirmed first so work
 // is never discarded silently.
@@ -553,10 +768,16 @@ watch([dirInput, () => props.defaultCwd], () => {
     skipDirWatch = false; // a fillDir() already loaded these immediately — don't schedule another
     return;
   }
+  // The tool-group switches belong to a directory, and this one just stopped being it. They go
+  // as soon as the field changes rather than 300ms later, so a flip cannot land on the directory
+  // the user has typed their way off. The reload below puts them back for the new one.
+  mcpGroupReq++;
+  mcpGroupDir.value = null;
   resumableTimer = setTimeout(() => {
     loadResumable();
     loadScripts();
     loadWorktrees();
+    loadMcpGroups();
   }, 300);
 });
 
@@ -743,6 +964,10 @@ function teardown() {
   activityEvent.value = null;
   lastPrompt.value = null;
   aiTitle.value = null;
+  // The memo belongs to the SESSION, not to the cell — it stays on disk and comes back when that
+  // session is resumed. What must not survive is showing it against whatever this cell runs next.
+  memo.value = null;
+  memoEditing.value = false;
   usage.value = null;
   context.value = null;
   cwd.value = props.defaultCwd;
@@ -756,6 +981,7 @@ function teardown() {
   loadResumable();
   loadScripts();
   loadWorktrees();
+  loadMcpGroups();
 }
 
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
@@ -867,7 +1093,53 @@ const dotStatusClass = computed(() => DOT_STATUS[status.value]);
 const statusLabel = computed(() => STATUS_LABEL[status.value]);
 watch(status, (s) => emit("status", s), { immediate: true });
 
-const headerText = computed(() => cellHeaderText(aiTitle.value, lastPrompt.value, sessionId.value));
+const headerText = computed(() => cellHeaderText(memo.value, aiTitle.value, lastPrompt.value, sessionId.value));
+// A memo displaces the AI title from the line, so the tooltip is where that title goes — losing
+// it entirely would make the note cost information rather than add it. With no memo the tooltip
+// is what it always was: the raw prompt, which the header abbreviates.
+const headerTitleAttr = computed(() => (memo.value ? aiTitle.value || lastPrompt.value || "" : lastPrompt.value || aiTitle.value || ""));
+
+const memoInput = useTemplateRef<HTMLInputElement>("memoInput");
+
+function startMemoEdit() {
+  if (!sessionId.value) return; // a launcher cell has no session to hang a note on yet
+  memoDraft.value = memo.value ?? "";
+  memoEditing.value = true;
+  void nextTick(() => memoInput.value?.select());
+}
+
+function cancelMemoEdit() {
+  memoEditing.value = false;
+}
+
+// Save, then let the server's answer win: it normalizes and caps, so what is shown here after a
+// save is what a reload will show. Blur saves too — closing the box by clicking away is the
+// ordinary way to leave a text field, and losing the sentence to it would be the bug.
+async function saveMemo() {
+  if (!memoEditing.value) return; // Enter or Escape already closed it; the blur that follows is not a second save
+  const id = sessionId.value;
+  memoEditing.value = false;
+  if (!id) return;
+  const text = normalizeMemo(memoDraft.value);
+  if (text === (memo.value ?? "")) return; // unchanged — an append log should not grow for a no-op
+  const previous = memo.value;
+  memo.value = text || null;
+  try {
+    const res = await fetch(`/api/session/${encodeURIComponent(id)}/memo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`memo save failed: ${res.status}`);
+    const data: unknown = await res.json();
+    const saved = typeof data === "object" && data !== null && "memo" in data ? (data as { memo: unknown }).memo : null;
+    if (sessionId.value === id && typeof saved === "string") memo.value = saved || null;
+  } catch {
+    // Put back what the server still has, rather than leaving a note on screen that no other
+    // tab — and no reload — will ever show.
+    if (sessionId.value === id) memo.value = previous;
+  }
+}
 
 // Per-cell token usage badge: ⇡ total input (fresh + cache) · ⇣ output generated.
 const usageView = computed(() => usageBadge(usage.value));
@@ -983,6 +1255,7 @@ watch(working, (now, prev) => {
     loadDiff();
     refreshUsage();
     refreshGit(); // branch/dirty may have changed (commit, checkout, edits)
+    void refreshWorkItem(); // a turn that pushed or opened a PR changes what this cell is on
   }
 });
 
@@ -1031,8 +1304,12 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             <CellChromeButtons
               :expanded="expanded"
               :files-open="filesOpen"
+              :right-pane="rightPane"
+              :canvas-available="canvasAvailable"
               @toggle-expand="emit('toggle-expand')"
               @toggle-files="emit('toggle-files')"
+              @toggle-canvas="emit('toggle-canvas')"
+              @toggle-tools="emit('toggle-tools')"
               @close="close"
             />
           </span>
@@ -1075,8 +1352,23 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                thumbnail, leaving only dir + what it's doing + a zoom button. -->
             <template v-if="!filmstrip">
               <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />
+              <!-- Unread Canvas output. Same chip vocabulary as the branch / context / token
+                   chips beside it, deliberately: this is one more thing to triage at a glance,
+                   not a new kind of alert. Clicking expands the cell with the pane open. -->
+              <button
+                v-if="unseenCanvas > 0"
+                type="button"
+                data-testid="cell-canvas-chip"
+                class="inline-flex flex-none cursor-pointer items-center gap-1 rounded-[10px] border border-border bg-elevated px-[7px] py-px font-mono text-[11px] hover:bg-hover"
+                :title="`${unseenCanvas} unread from the agent — open the canvas`"
+                :aria-label="`${unseenCanvas} unread canvas results`"
+                @click.stop="emit('open-canvas')"
+              >
+                <span class="material-symbols-outlined text-[13px]" aria-hidden="true">draw</span>{{ unseenCanvas }}
+              </button>
               <template v-for="chip in cellChips" :key="chip.key">
                 <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
+                <WorkItemChip v-else-if="chip.builtin === 'work'" :item="workItem" />
                 <button
                   v-else-if="chip.builtin === 'diff' && showDiffBadge && diff"
                   type="button"
@@ -1110,12 +1402,46 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 >
               </template>
             </template>
+            <!-- The user's note REPLACES the AI title here rather than adding a row: the header
+               keeps one height whatever a cell is doing, and the title it displaced is still in
+               the tooltip. -->
+            <input
+              v-if="memoEditing"
+              ref="memoInput"
+              v-model="memoDraft"
+              data-testid="cell-memo-input"
+              class="min-w-0 flex-auto rounded border border-accent bg-input px-1 py-px font-sans text-[12px] text-fg focus:outline-none"
+              type="text"
+              :maxlength="MEMO_MAX_LENGTH"
+              placeholder="What is this session for?"
+              aria-label="Note for this session"
+              spellcheck="false"
+              @click.stop
+              @keydown.enter.prevent="saveMemo"
+              @keydown.escape.prevent="cancelMemoEdit"
+              @blur="saveMemo"
+            />
             <span
+              v-else
               data-testid="cell-prompt"
               class="min-w-0 flex-auto truncate font-sans text-[12px] text-[var(--cell-header-fg,var(--text-secondary))]"
-              :title="lastPrompt || aiTitle || ''"
+              :title="headerTitleAttr"
               >{{ headerText }}</span
             >
+            <!-- Sized like the chips beside it rather than like a header action, so a cell with
+               a note is exactly as tall as one without. -->
+            <button
+              v-if="sessionId && !memoEditing"
+              type="button"
+              data-testid="cell-memo-edit"
+              class="inline-flex flex-none cursor-pointer items-center rounded-[10px] px-1 py-px hover:bg-hover"
+              :class="memo ? 'text-accent' : 'text-dim'"
+              :title="memo ? 'Edit this session\'s note' : 'Add a note to this session'"
+              :aria-label="memo ? 'Edit this session\'s note' : 'Add a note to this session'"
+              @click.stop="startMemoEdit"
+            >
+              <span class="material-symbols-outlined text-[14px]" aria-hidden="true">edit_note</span>
+            </button>
           </div>
           <!-- Expand/restore + close stay on row 1 (the info row) and OUTSIDE the info
              track, so they're always pinned top-right. `.stop` so they don't trigger the
@@ -1124,8 +1450,12 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             <CellChromeButtons
               :expanded="expanded"
               :files-open="filesOpen"
+              :right-pane="rightPane"
+              :canvas-available="canvasAvailable"
               @toggle-expand="emit('toggle-expand')"
               @toggle-files="emit('toggle-files')"
+              @toggle-canvas="emit('toggle-canvas')"
+              @toggle-tools="emit('toggle-tools')"
               @close="close"
             />
           </span>
@@ -1141,9 +1471,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           :cwd="cwd"
           :codex="agent === 'codex'"
           :launch="launchChoice"
-          :dir-header-color="dirConfig.headerColor"
-          :dir-header-text-color="dirConfig.headerTextColor"
-          :dir-button-color="dirConfig.buttonColor"
           :hide-header="filmstrip"
           :expanded="expanded"
           :zoomed="zoomed"
@@ -1268,6 +1595,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 {{ askMsg }}
               </p>
             </span>
+            <CopyCodeBlock v-if="sessionId" :class="CELL_BTN" :session-id="sessionId" :cwd="cwd" :agent="agent === 'codex' ? 'codex' : 'claude'" />
             <button
               v-if="sessionId && agent !== 'codex'"
               class="cell-btn"
@@ -1545,6 +1873,44 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         </label>
         <!-- Codex has its own model configuration and doesn't read this one. -->
         <ModelPicker v-if="agent === 'claude'" v-model="launchChoice" />
+        <!-- A GUI tool group is a per-DIRECTORY registration in Claude Code's own MCP config, not
+             a per-launch choice — but it only takes effect when a session starts, so this is
+             where it belongs: decided before the thing it configures exists.
+             BOTH agents: claude reads that config itself, and a codex cell is handed the same
+             groups as resolved URLs at spawn (server/session/spawn-codex.ts), so one switch
+             answers for both. It is still Claude Code's file — writing it needs the `claude`
+             CLI on PATH, which is why a failure here says so rather than silently doing nothing.
+             One row per group in TOOL_GROUPS, because one switch is one MCP server: render and
+             media both draw but differ in what a call costs, and data and external do not draw at
+             all — the split is exactly what the grouping exists for (common/toolGroups.ts). -->
+        <template v-if="mcpGroupDir">
+          <!-- The hover names the server id and its tools (mcpGroupTitle); it sits on the ROW so
+               the text is reachable from the label as well as the box. -->
+          <label v-for="group in TOOL_GROUPS" :key="group" class="flex w-full max-w-[360px] items-center justify-between gap-2" :title="mcpGroupTitle(group)">
+            <!-- The group is named, not just the feature: each switch registers ONE MCP server
+               (`mulmoterminal-<group>`), so a heading alone would not say which of the four rows
+               writes which server — and two of them share the heading "Canvas".
+               `normal-case` on the suffix — the section labels around it are uppercased by
+               class, and "(RENDER MCPS)" reads as a different thing than the server it names. -->
+            <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim"
+              >{{ TOOL_GROUP_HEADINGS[group] }} <span class="normal-case">({{ group }} MCPs)</span></span
+            >
+            <span class="flex items-center gap-2">
+              <span v-if="mcpGroupBusy[group]" class="font-sans text-[11px] text-dim">saving…</span>
+              <span v-else-if="mcpGroupError[group]" class="font-sans text-[11px] text-err-text" :title="mcpGroupError[group]!">failed</span>
+              <input
+                v-model="mcpGroupEnabled[group]"
+                :data-testid="`cell-mcp-toggle-${group}`"
+                type="checkbox"
+                class="h-3.5 w-3.5 cursor-pointer accent-accent"
+                :disabled="mcpGroupBusy[group]"
+                :title="mcpGroupTitle(group)"
+                :aria-label="`Register the MCP server ${toolGroupServerId(group)} (${toolsInGroup(group).join(', ')}) for ${mcpGroupDir}`"
+                @change="applyMcpGroup(group)"
+              />
+            </span>
+          </label>
+        </template>
         <div v-if="isGitRepo" data-testid="cell-worktrees" class="flex w-full max-w-[360px] flex-col items-stretch gap-1.5">
           <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or isolate in a worktree (git repo)</span>
           <div class="flex gap-1.5">

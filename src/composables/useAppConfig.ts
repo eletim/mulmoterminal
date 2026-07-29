@@ -11,9 +11,12 @@ import type { SoundConfig } from "./useAttentionSound";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "./terminalSubmitMode";
 import { setGlobalFontFamily } from "./terminalFontFamily";
+import { setCustomThemes } from "./customThemes";
+import { refreshTheme } from "./useTheme";
 import { setActiveKeymap } from "./activeKeymap";
 import { setCockpitLines } from "./cockpitLines";
 import { setCopyOnSelect } from "./copyOnSelect";
+import { setIssueWorkComments } from "./issueWorkComments";
 
 // The custom attention-sound file is a SINGLETON ref shared across every
 // useAppConfig() caller — the beep player lives in the single view while the
@@ -303,11 +306,18 @@ export function useAppConfig() {
       // Copy-on-select, off unless config.json asks for it — it changes the clipboard with no
       // key pressed, so it must never arrive by default.
       setCopyOnSelect(c.copyOnSelect);
+      // Whether a cell may comment on the issue it is working on (#979). Off unless opted in.
+      setIssueWorkComments(c.issueWorkComments);
       // How far the cockpit roster clamps each line. Absent `cockpitLines` keeps 2/2/3.
       setCockpitLines(c.cockpitLines);
       // The terminal font stack (config.json-only, no Settings UI). Terminals already open
       // re-fit when this lands — a different face means different cell metrics.
       setGlobalFontFamily(c.fontFamily);
+      // The user's own colour schemes (#996). Re-applied after loading, because the selected id
+      // may name one of these: until the config arrives it resolves to nothing, and the app is
+      // painted with the default.
+      setCustomThemes(c.themes);
+      refreshTheme();
       await migrateLegacyRecents();
     } catch {
       // the app still works; presets are just unavailable

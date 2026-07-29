@@ -1,0 +1,94 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { useRateLimits } from "../../../src/composables/useRateLimits";
+
+// Every request here is one the server may answer by spending a Claude query on a probe, so a
+// leaked polling chain does not just waste a fetch — it quietly doubles the cost of the budget the
+// gauge exists to report. These pin the lifecycle rather than the numbers.
+describe("useRateLimits polling lifecycle", () => {
+  const fetchMock = vi.fn();
+
+  const respond = (body: unknown = { claude: null, codex: null, probing: false }) => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(() => respond());
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("polls once for one watcher", async () => {
+    const { start, stop } = useRateLimits();
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  // Two headers mounted at once must share one chain, not run one each.
+  it("does not start a second chain for a second watcher", async () => {
+    const a = useRateLimits();
+    const b = useRateLimits();
+    a.start();
+    b.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    a.stop();
+    b.stop();
+  });
+
+  it("stops polling once the last watcher leaves", async () => {
+    const { start, stop } = useRateLimits();
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+    fetchMock.mockClear();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The case a watcher count alone cannot catch: the unmount lands while the first request is
+  // still in flight, so there is no timer to clear, and the old request's completion schedules a
+  // timer for a chain nobody retired. Both chains then poll forever.
+  it("does not fork a second chain when the header remounts mid-request", async () => {
+    let resolveFirst: ((value: unknown) => void) | undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    const { start, stop } = useRateLimits();
+
+    start(); // first request hangs
+    stop(); // unmounted while it is in flight — nothing to clearTimeout
+    start(); // remounted: this chain is the live one
+    await vi.advanceTimersByTimeAsync(0);
+
+    resolveFirst?.({ ok: true, json: () => Promise.resolve({ claude: null, codex: null, probing: false }) });
+    await vi.advanceTimersByTimeAsync(0);
+
+    fetchMock.mockClear();
+    // One interval's worth: a single live chain polls once. Two would poll twice.
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  // While a probe is on its way the answer is seconds out, so the gauge chases it rather than
+  // sleeping through the full interval and painting half of itself for minutes.
+  it("polls sooner while the server says a probe is in flight", async () => {
+    fetchMock.mockImplementation(() => respond({ claude: null, codex: null, probing: true }));
+    const { start, stop } = useRateLimits();
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    fetchMock.mockClear();
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    stop();
+  });
+});

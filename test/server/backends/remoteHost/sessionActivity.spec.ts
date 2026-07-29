@@ -1,14 +1,21 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
 
-import { createSessionActivityPublisher, type SessionActivityStore } from "../../../../server/backends/remoteHost/sessionActivity.js";
+import { createSessionActivityPublisher, type SessionActivity, type SessionActivityStore } from "../../../../server/backends/remoteHost/sessionActivity.js";
 import type { WorkPhase } from "../../../../server/session/workPhase.js";
 
 const UID = "user-1";
 const HOST = "mulmoterminal";
 
 const recorder = () => {
-  const writes: Array<{ sessionId: string; rev: number; working: boolean; waiting: boolean; event?: string | null; workPhase?: WorkPhase | null }> = [];
+  const writes: Array<{
+    sessionId: string;
+    rev: number;
+    working: boolean;
+    waiting: boolean;
+    event?: string | null | undefined;
+    workPhase?: WorkPhase | null | undefined;
+  }> = [];
   const removes: string[] = [];
   const store: SessionActivityStore = {
     write: async (_uid, _hostId, sessionId, payload) => {
@@ -192,5 +199,59 @@ describe("createSessionActivityPublisher", () => {
       { working: true, waiting: false },
       { working: false, waiting: true },
     ]);
+  });
+});
+
+// The OTHER write that reaches Firestore. `SessionActivity` has optional fields, so a caller
+// passing `event: undefined` would take this doc down the way a stray undefined took down the
+// session list (#1042) — and here the loss is silent, since nothing awaits the result. The
+// `at: serverTimestamp()` sentinel has to survive that cleaning (local codex review).
+describe("what actually reaches the store", () => {
+  const raw = () => {
+    const payloads: unknown[] = [];
+    const store: SessionActivityStore = {
+      write: async (_uid, _hostId, _sessionId, payload) => {
+        payloads.push(payload);
+      },
+      remove: async () => undefined,
+    };
+    return { payloads, store };
+  };
+
+  it("carries no undefined key, whatever the caller passed", () => {
+    const { payloads, store } = raw();
+    publisher(store).publish("s1", { working: true, waiting: false, event: undefined, workPhase: undefined });
+    const written = payloads[0] as Record<string, unknown>;
+    expect(Object.hasOwn(written, "event")).toBe(false);
+    expect(Object.hasOwn(written, "workPhase")).toBe(false);
+    expect(written.working).toBe(true);
+  });
+
+  // serverTimestamp() is a class instance; flattening it would replace the timestamp with {}.
+  it("leaves the server-timestamp sentinel intact", () => {
+    const { payloads, store } = raw();
+    publisher(store).publish("s1", { working: true, waiting: false });
+    const written = payloads[0] as Record<string, unknown>;
+    expect(written.at).toBeTruthy();
+    expect(Object.keys(written.at as object).length > 0 || typeof written.at !== "object").toBe(true);
+  });
+
+  it("keeps a null apart from an absent key", () => {
+    const { payloads, store } = raw();
+    publisher(store).publish("s1", { working: false, waiting: true, event: null });
+    const written = payloads[0] as Record<string, unknown>;
+    expect(Object.hasOwn(written, "event")).toBe(true);
+    expect(written.event).toBeNull();
+  });
+
+  // The payload names its fields one by one rather than copying the activity, which is what keeps
+  // it typed without a cast — and also what would silently drop a field added to SessionActivity
+  // later. `Required<>` is the tripwire: a new field stops this literal compiling, and adding it
+  // here then fails the assertion until the builder carries it too.
+  it("writes every field SessionActivity declares", () => {
+    const full: Required<SessionActivity> = { working: true, waiting: false, event: "Stop", workPhase: "implementing" };
+    const { payloads, store } = raw();
+    publisher(store).publish("s1", full);
+    expect(payloads[0]).toMatchObject(full);
   });
 });

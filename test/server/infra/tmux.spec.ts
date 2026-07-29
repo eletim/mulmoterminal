@@ -6,6 +6,7 @@ import {
   isResumableTmuxSession,
   parseTmuxEnvironment,
   parseAttachedClientCount,
+  parseTmuxTerminalModes,
   planMsOverride,
   MS_OVERRIDE_ENTRY,
 } from "../../../server/infra/tmux";
@@ -33,6 +34,29 @@ describe("tmuxNewSessionArgs", () => {
     expect(dashdash).toBeGreaterThan(0);
     expect(args.slice(dashdash + 1)).toEqual(["/bin/zsh", "-lc", "exec codex"]);
   });
+
+  it("passes no -e when there is no per-session environment", () => {
+    expect(args).not.toContain("-e");
+  });
+
+  // A pane takes the tmux SERVER's environment, which outlives any one session — so a
+  // per-session value has to be set ON the session with -e, never exported into our own env.
+  describe("with a per-session environment", () => {
+    const withEnv = tmuxNewSessionArgs("id1", "/bin/zsh", ["-lc", "exec claude"], "/proj", { MULMOTERMINAL_PORT: "34567", MULMOTERMINAL_SESSION_ID: "abc" });
+
+    it("sets each variable with -e KEY=VALUE", () => {
+      expect(withEnv).toContain("-e");
+      expect(withEnv).toContain("MULMOTERMINAL_PORT=34567");
+      expect(withEnv).toContain("MULMOTERMINAL_SESSION_ID=abc");
+    });
+
+    // After `--` they would be arguments to the program, not tmux flags.
+    it("keeps them before `--`, and the program after it", () => {
+      const dashdash = withEnv.indexOf("--");
+      expect(withEnv.indexOf("MULMOTERMINAL_PORT=34567")).toBeLessThan(dashdash);
+      expect(withEnv.slice(dashdash + 1)).toEqual(["/bin/zsh", "-lc", "exec claude"]);
+    });
+  });
 });
 
 describe("TMUX_CONF_LINES", () => {
@@ -48,6 +72,40 @@ describe("TMUX_CONF_LINES", () => {
   it("forwards OSC 52 to the outer terminal (Claude's auto-copy → browser clipboard)", () => {
     expect(TMUX_CONF_LINES).toContain("set -g set-clipboard on");
     expect(TMUX_CONF_LINES.some((l) => l.includes("terminal-overrides") && l.includes("Ms="))).toBe(true);
+  });
+
+  // #978: tmux's copy-mode wheel default is `send -X -N 5 scroll-up` — a plain shell pane has no
+  // mouse mode, so the wheel enters copy-mode and the scrollback moved five lines at a time,
+  // which reads as a jerky paragraph-sized jump. One line per report is the smooth end of it; the
+  // client's TRACKPAD_GAIN is calibrated against this number, so the two change together.
+  it("scrolls copy-mode one line per wheel report, not tmux's default five", () => {
+    ["copy-mode", "copy-mode-vi"].forEach((table) => {
+      expect(TMUX_CONF_LINES).toContain(`bind -T ${table} WheelUpPane select-pane \\; send -X -N 1 scroll-up`);
+      expect(TMUX_CONF_LINES).toContain(`bind -T ${table} WheelDownPane select-pane \\; send -X -N 1 scroll-down`);
+    });
+  });
+
+  // `send -X` acts on the ACTIVE pane, so tmux's own default selects the pane under the pointer
+  // first. Dropping that (the tempting way to write "just change the 5 to a 1") scrolls the
+  // focused pane while the pointer is over another split — a worse bug than the one being fixed.
+  it("keeps tmux's pane selection, so a split under the pointer is the one that scrolls", () => {
+    TMUX_CONF_LINES.filter((l) => l.includes("Wheel")).forEach((line) => {
+      expect(line).toContain("select-pane \\;");
+    });
+  });
+
+  // In a conf FILE the separator must be escaped: a bare `;` ends the bind-key, leaving the key
+  // bound to `select-pane` alone and running the scroll once at startup.
+  it("escapes the command separator so the bind carries both commands", () => {
+    TMUX_CONF_LINES.filter((l) => l.includes("Wheel")).forEach((line) => {
+      expect(line).not.toMatch(/[^\\];/);
+    });
+  });
+
+  // Both tables, because which one is live follows `mode-keys`, which tmux derives from $EDITOR:
+  // binding only `copy-mode` leaves anyone with a vi-ish EDITOR on the five-line jump.
+  it("binds both copy-mode tables, since mode-keys decides which is live", () => {
+    expect(TMUX_CONF_LINES.filter((l) => l.includes("WheelUpPane"))).toHaveLength(2);
   });
 
   // #783: tmux strips OSC 8 hyperlinks (Claude's statusline `PR #NNNN`) unless told the outer
@@ -163,5 +221,33 @@ describe("parseAttachedClientCount", () => {
     expect(parseAttachedClientCount("no server running")).toBeNull();
     expect(parseAttachedClientCount("-1")).toBeNull();
     expect(parseAttachedClientCount("1.5")).toBeNull();
+  });
+});
+
+// Fields, in order: alternate_on, mouse_standard_flag, mouse_button_flag, mouse_all_flag,
+// mouse_utf8_flag, mouse_sgr_flag.
+describe("parseTmuxTerminalModes", () => {
+  // Measured on a live Claude Code 2.1.220 pane under tmux 3.6a.
+  it("reads a mouse TUI's pane as the alternate buffer plus its tracking and SGR modes", () => {
+    expect(parseTmuxTerminalModes("1,0,0,1,0,1\n")).toEqual([1049, 1003, 1006]);
+  });
+
+  it("reads a plain shell's pane as nothing to restore", () => {
+    expect(parseTmuxTerminalModes("0,0,0,0,0,0\n")).toEqual([]);
+  });
+
+  it("maps the older tracking flags too", () => {
+    expect(parseTmuxTerminalModes("1,1,1,0,1,1")).toEqual([1049, 1000, 1002, 1005, 1006]);
+  });
+
+  // A tmux that doesn't know a variable renders it EMPTY. The remaining fields must keep their
+  // own modes rather than sliding onto the previous one.
+  it("keeps the fields aligned when a variable is unknown to this tmux", () => {
+    expect(parseTmuxTerminalModes("1,0,0,,,1")).toEqual([1049, 1006]);
+  });
+
+  it("restores nothing from output tmux could not produce", () => {
+    expect(parseTmuxTerminalModes("")).toEqual([]);
+    expect(parseTmuxTerminalModes("no server running")).toEqual([]);
   });
 });

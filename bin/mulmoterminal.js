@@ -22,12 +22,14 @@ import {
   portInUseMessage,
   saysYes,
   secondInstancePrompt,
+  runningInstancesPrompt,
   SECOND_INSTANCE_NOTE,
   nodeMeetsMinimum,
   MIN_NODE_LABEL,
   serverNodeArgs,
   serverSpawnEnv,
 } from "./cli-args.js";
+import { liveInstances } from "./instances.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_DIR = join(__dirname, "..");
@@ -155,7 +157,10 @@ async function runInit(initArgs) {
     return;
   }
   if (hasClaude) log("Later: run `claude` in any project and use  /mulmoterminal-config");
-  log("Setup done. Start MulmoTerminal:  npx mulmoterminal");
+  // Pinned to @latest: an unpinned `npx` reuses whatever it already has cached, so the very
+  // command printed for someone to type next would start an older version than the one they
+  // just set up with.
+  log("Setup done. Start MulmoTerminal:  npx mulmoterminal@latest");
 }
 
 // `npx mulmoterminal google <command>` — Google account linking. Consent needs a
@@ -240,6 +245,20 @@ function findEphemeralPort() {
   });
 }
 
+// Ask about an ALREADY-RUNNING server, whatever port this one will use. Declining exits 0: the
+// user answered the question that was asked, which is not a failure.
+async function confirmNoRunningInstance() {
+  const running = liveInstances();
+  if (running.length === 0) return;
+  if (!process.stdin.isTTY) {
+    log(runningInstancesPrompt(running).replace(/\nStart another one anyway\? \[y\/N\] $/, ""));
+    log(SECOND_INSTANCE_NOTE);
+    return;
+  }
+  if (!(await promptYesNo(runningInstancesPrompt(running)))) process.exit(0);
+  log(SECOND_INSTANCE_NOTE);
+}
+
 async function choosePort(requested, explicit) {
   if (await isPortFree(requested)) return requested;
   // No SILENT fallback: starting a second server on another port without saying so is how
@@ -319,7 +338,7 @@ function runServer(port, noOpen, cwd, onChild) {
 
 function printHelp() {
   console.log(`
-Usage: npx mulmoterminal [command] [options]
+Usage: npx mulmoterminal@latest [command] [options]
 
 Commands:
   (none)            Start the server (default)
@@ -393,6 +412,12 @@ async function main() {
   // The probe above can still lose to something binding the port in the same instant, in
   // which case the server exits 75 and runServer returns. Same answer as the probe: say who
   // has it rather than moving to a port nobody asked for.
+  // Before anything about PORTS: is one already running at all? A clash on the same port is only
+  // the visible half — `--port <free>` used to start a second instance in silence, and the two
+  // then share ~/.mulmoterminal (#1061). Non-TTY says it and carries on rather than hanging on a
+  // prompt nobody can answer: a script that asked for a server should still get one.
+  await confirmNoRunningInstance();
+
   const port = await choosePort(requestedPort, portExplicit);
   await runServer(port, noOpen, cwd, (c) => {
     child = c;

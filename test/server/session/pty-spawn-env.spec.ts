@@ -8,13 +8,15 @@ vi.mock("node-pty", () => ({ default: { spawn: (...args: unknown[]) => spawn(...
 const scrub = vi.fn();
 vi.mock("../../../server/infra/tmux.js", () => ({
   tmuxAvailable: () => tmuxOn,
+  tmuxHasSession: (id: string) => liveTmuxSessions.has(id),
   tmuxNewSessionArgs: (id: string, file: string, args: string[]) => ["new-session", id, file, ...args],
   tmuxScrubEnvNames: (names: readonly string[]) => scrub(names),
 }));
 
 let tmuxOn = false;
+const liveTmuxSessions = new Set<string>();
 
-const { spawnPty, ptySpawn } = await import("../../../server/session/pty-spawn.js");
+const { spawnPty, ptySpawn, ptyWouldReattach } = await import("../../../server/session/pty-spawn.js");
 
 const envOf = (call: number = 0): NodeJS.ProcessEnv => (spawn.mock.calls[call] as unknown as [string, string[], { env: NodeJS.ProcessEnv }])[2].env;
 
@@ -22,6 +24,7 @@ beforeEach(() => {
   spawn.mockClear();
   scrub.mockClear();
   tmuxOn = false;
+  liveTmuxSessions.clear();
   process.env.ANTHROPIC_API_KEY = "sk-ant-leftover";
   process.env.MT_KEEP_ME = "kept";
 });
@@ -47,17 +50,43 @@ describe("spawnPty — the environment it hands the pty", () => {
   });
 });
 
+// `new-session -A` returns a terminal whether it created one or picked up a survivor, so a
+// caller that must not treat the second as a fresh start has to ask beforehand. What hangs on
+// it: a reattached claude never re-reads the user's MCP config, so resetting its learned tool
+// groups there would drop them with nothing left to relearn from.
+describe("ptyWouldReattach", () => {
+  it("is true only when tmux is holding this exact session", () => {
+    tmuxOn = true;
+    liveTmuxSessions.add("s1");
+    expect(ptyWouldReattach("s1", true)).toBe(true);
+    expect(ptyWouldReattach("s2", true)).toBe(false);
+  });
+
+  it("is false without tmux — every spawn there starts a new process", () => {
+    tmuxOn = false;
+    liveTmuxSessions.add("s1");
+    expect(ptyWouldReattach("s1", true)).toBe(false);
+  });
+
+  // Matches ptySpawn's own branch: a non-persistent spawn never consults tmux at all.
+  it("is false for a non-persistent spawn", () => {
+    tmuxOn = true;
+    liveTmuxSessions.add("s1");
+    expect(ptyWouldReattach("s1", false)).toBe(false);
+  });
+});
+
 // The tmux pane inherits the tmux SERVER's environment rather than this one, so the scrub
 // there is what actually protects it — but the non-tmux path has only this.
 describe("ptySpawn — carries the removal down both paths", () => {
   it("applies it on the direct spawn", () => {
-    ptySpawn("s1", "claude", [], "/tmp", false, ["ANTHROPIC_API_KEY"]);
+    ptySpawn("s1", "claude", [], "/tmp", false, { unset: ["ANTHROPIC_API_KEY"] });
     expect(envOf()).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 
   it("applies it on the tmux spawn too", () => {
     tmuxOn = true;
-    const result = ptySpawn("s1", "claude", [], "/tmp", true, ["ANTHROPIC_API_KEY"]);
+    const result = ptySpawn("s1", "claude", [], "/tmp", true, { unset: ["ANTHROPIC_API_KEY"] });
     expect(result.tmux).toBe(true);
     expect(envOf()).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
@@ -69,7 +98,7 @@ describe("ptySpawn — carries the removal down both paths", () => {
 describe("ptySpawn — the tmux server's own environment", () => {
   it("scrubs the names from the running server before a provider spawn", () => {
     tmuxOn = true;
-    ptySpawn("s1", "claude", [], "/tmp", true, ["ANTHROPIC_API_KEY"]);
+    ptySpawn("s1", "claude", [], "/tmp", true, { unset: ["ANTHROPIC_API_KEY"] });
     expect(scrub).toHaveBeenCalledWith(["ANTHROPIC_API_KEY"]);
   });
 

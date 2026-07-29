@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
+import { sessionListEmptyMessage, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 import { relativeTime } from "./cellDisplay";
 
@@ -15,7 +15,7 @@ const props = defineProps<
 >();
 const emit = defineEmits<SessionListEmits>();
 
-const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
+const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionFilter(props);
 </script>
 
 <template>
@@ -52,6 +52,7 @@ const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
       <SessionFilters
         :filter="filter"
         :unread-count="unreadCount"
+        :background-count="backgroundCount"
         align-refresh-end
         @update:filter="emit('update:filter', $event)"
         @refresh="emit('refresh')"
@@ -63,7 +64,7 @@ const { unreadCount, filteredSessions, isUnread } = useSessionFilter(props);
       {{ error }}
     </div>
     <div v-else-if="sessions.length === 0" class="px-3.5 py-3 text-[13px] text-muted">No sessions yet</div>
-    <div v-else-if="filteredSessions.length === 0" class="px-3.5 py-3 text-[13px] text-muted">No unread sessions</div>
+    <div v-else-if="filteredSessions.length === 0" class="px-3.5 py-3 text-[13px] text-muted">{{ sessionListEmptyMessage(filter) }}</div>
 
     <ul v-else class="m-0 flex-1 list-none overflow-y-auto p-0">
       <li

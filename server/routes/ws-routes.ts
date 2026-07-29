@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
-import { SESSION_ID_RE } from "../config/env.js";
+import { PORT, SESSION_ID_RE } from "../config/env.js";
 import { resolveWorkspace } from "../config/workspace.js";
 import { getHeaderConfig } from "../config/config-routes.js";
 import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.js";
@@ -22,7 +22,12 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
-import { sandboxWouldRun } from "../session/pty-spawn.js";
+import { sandboxWouldRun, SpawnRefusedError } from "../session/pty-spawn.js";
+import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
+import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
+import { codexGuiMcpServers } from "../session/mcp-config.js";
+import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
+import { TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups.js";
 import { handleCommandFrame } from "../session/pty-connection.js";
 import { closeWithError } from "../session/ws-frames.js";
 import { ProviderRefusedError } from "../session/provider-env.js";
@@ -71,7 +76,25 @@ function resolveClaudeSession(requested: string | null, cwd: string): SessionRes
 // session id, and the resolved cwd. A non-UUID session id is treated as "no
 // session" — it could otherwise smuggle path/flag fragments into
 // sessionExistsOnDisk / --resume — and cwd (?cwd=<abs>) falls back to CLAUDE_CWD.
-function wsConnectionContext(req: { url?: string }): { url: URL; requested: string | null; cwd: string } {
+/**
+ * Where a session actually runs, for the value that gets REMEMBERED (#1021).
+ *
+ * A reattach often carries no `?cwd=` — and `resolveWorkspace` answers the default workspace when
+ * it is missing, so trusting the request would record CLAUDE_CWD for a session running somewhere
+ * else entirely, and the phone would later show that directory's PR (found by Codex review). The
+ * live PTY knows where claude really is; the request only decides where a NEW one will spawn.
+ * Same rule the `session` message already follows when it reports the cwd back to the browser.
+ */
+export function effectiveSessionCwd(liveCwd: string | undefined, requestCwd: string): string {
+  return liveCwd ?? requestCwd;
+}
+
+// The slice of Node's IncomingMessage the upgrade handlers read. Structural rather than the
+// real type so a test can hand over a literal; `| undefined` because IncomingMessage.url is
+// genuinely absent on some upgrades.
+type WsUpgradeRequest = { url?: string | undefined; headers?: unknown };
+
+function wsConnectionContext(req: WsUpgradeRequest): { url: URL; requested: string | null; cwd: string } {
   const url = new URL(req.url ?? "/", "http://localhost");
   const raw = url.searchParams.get("session");
   const requested = raw && SESSION_ID_RE.test(raw) ? raw : null;
@@ -127,7 +150,7 @@ export function beginRunTerminal(deps: WsRouteDeps, ws: WebSocket, resolved: { c
     term = deps.spawnCommandPty(resolved.command, resolved.cwd, ws);
   } catch (err) {
     console.error(`[ws/run] failed to start command: ${messageOf(err)}`);
-    return closeWithError(ws, "Failed to start the command.");
+    return closeWithError(ws, `Failed to start the command: ${messageOf(err)}`);
   }
   ws.on("message", (raw) => handleCommandFrame(term, raw));
   ws.on("close", () => {
@@ -187,20 +210,25 @@ function resolveCodexSession(requested: string | null): { sessionId: string; liv
   return { sessionId, live, resumeRolloutId };
 }
 
-function startCodexEntry(
-  deps: WsRouteDeps,
-  sessionId: string,
-  ws: WebSocket,
-  live: PtyEntry | undefined,
-  resumeRolloutId: string | null,
-  cwd: string,
-  attachGuiMcp: boolean,
-): PtyEntry {
-  if (live) return deps.reattachPty(live, ws, sessionId);
-  return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, null); // interactive: no seed
+// Grouped rather than eight positional arguments: what this needs is a session to (re)attach,
+// a directory, and the GUI-tool decision — the last of which is now two values that only make
+// sense together (attach everything, or exactly these groups).
+interface CodexStart {
+  sessionId: string;
+  live: PtyEntry | undefined;
+  resumeRolloutId: string | null;
+  cwd: string;
+  attachGuiMcp: boolean;
+  mcpGroups: readonly ToolGroup[];
 }
 
-async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+function startCodexEntry(deps: WsRouteDeps, ws: WebSocket, start: CodexStart): PtyEntry {
+  const { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups } = start;
+  if (live) return deps.reattachPty(live, ws, sessionId);
+  return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, { mcpGroups }); // interactive: no seed
+}
+
+async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   // ?session=<id> resumes an existing conversation; absent => fresh session. For
   // new sessions we generate the id ourselves (--session-id) so the server always
   // knows the current session's id, even before any file exists.
@@ -235,7 +263,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
   // it's excluded from the chat sidebar (see devTerminalSessions). This is the single
   // choke point for every grid attach — new, resumed, or reattached — so the mark is
   // recorded (and re-recorded after a reboot when the cell reconnects) exactly once.
-  if (!attachGuiMcp) markDevTerminalSession(sessionId);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
 
   // Tell the browser which session this is (it learns the id of new sessions) and
   // the EFFECTIVE cwd — where claude really runs. On reattach that's the live
@@ -270,9 +298,10 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     // must close just this connection — never crash the whole server.
     console.error(`[ws] failed to start session ${sessionId}: ${messageOf(err)}`);
     // A provider refusal already says exactly what is wrong with the directory's config
-    // (#579); the generic hint below would bury it.
-    if (err instanceof ProviderRefusedError) return closeWithError(ws, err.message);
-    closeWithError(ws, "Failed to start Claude. Is the `claude` CLI installed and on your PATH?");
+    // (#579), and a refused spawn already names the binary and the PATH it searched, or the
+    // directory that is gone (#1063, #1078); a generic hint would bury either.
+    if (err instanceof ProviderRefusedError || err instanceof SpawnRefusedError) return closeWithError(ws, err.message);
+    closeWithError(ws, `Failed to start Claude: ${messageOf(err)}`);
     return;
   }
 
@@ -291,15 +320,56 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
 // in an ephemeral PTY. `?index=<n>&cwd=<dir>` runs <dir>/script.json[n]; `?buttonId=<id>&cwd&session&
 // agent&model` runs a header run:"shell" button, re-resolved from config against the session context with
 // shell-escaped ${vars}. When the socket closes, the process is killed.
-function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   void startRunTerminal(deps, ws, new URL(req.url ?? "/", "http://localhost"));
+}
+
+// A refused spawn already carries its own diagnosis — the missing CLI with the PATH that was
+// searched (#1063), or the directory that is gone (#1078). Passing that through rather than
+// wrapping it is what puts the real reason in the terminal instead of `spawn ENOENT`; everything
+// else is an error nobody wrote for a reader, so it gets named.
+export const startFailureMessageFor =
+  (what: string) =>
+  (err: unknown): string =>
+    err instanceof SpawnRefusedError ? err.message : `Failed to start ${what}: ${messageOf(err)}`;
+
+// Start the pty for a resolved session, then hand the socket to it — or fail the socket cleanly.
+//
+// One function for both agents because the ORDER is the fragile part, not the lines: the buffered
+// early frames may only be replayed once the real message listener is installed, or a frame that
+// lands mid-replay overtakes the ones before it (see early-frames.ts). Inlined, that rule was
+// written as a comment on the codex path and nowhere on the launch path.
+//
+// `start` throwing is the spawn refusing — a missing CLI, a directory that vanished. The buffer is
+// dropped rather than replayed: there is no pty to replay it into, and the socket is closing.
+// `startFailureMessage` takes the error rather than being a fixed string, because what the user
+// needs to read differs by cause: a pre-spawn diagnosis is already a sentence (#1063), anything
+// else needs naming.
+export function startAndWire(
+  deps: Pick<WsRouteDeps, "handleClientFrame" | "handleClientClose">,
+  ws: WebSocket,
+  session: { id: string; tag: string; early: EarlyFrames<{ toString(): string }>; startFailureMessage: (err: unknown) => string },
+  start: () => PtyEntry,
+): void {
+  let entry: PtyEntry;
+  try {
+    entry = start();
+  } catch (err) {
+    console.error(`[ws/${session.tag}] failed to start ${session.id}: ${messageOf(err)}`);
+    session.early.discard();
+    return closeWithError(ws, session.startFailureMessage(err));
+  }
+  const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
+  ws.on("message", deliver);
+  ws.on("close", () => deps.handleClientClose(entry, ws, session.id));
+  session.early.release(deliver);
 }
 
 // Launcher terminal (?launcher=<index>&cwd=<dir>, ?session=<id> to reattach): run a
 // configured launch command as a persistent, reattachable PTY. Reuses the /ws session
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
 // and is marked a dev-terminal session so it stays out of the chat sidebar.
-function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   const { url, requested, cwd } = wsConnectionContext(req);
   const index = parseIndexParam(url.searchParams.get("launcher"));
   const shell = url.searchParams.get("shell") === "1";
@@ -307,42 +377,62 @@ function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: s
   const resolved = resolveLaunchSession(deps, requested, index, shell);
   if (!resolved) return closeWithError(ws, "Launcher not found — check Settings → Launch commands.");
   const { sessionId, live, command } = resolved;
-  markDevTerminalSession(sessionId);
+  markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
-  let entry: PtyEntry;
-  try {
-    entry = startLaunchEntry(deps, sessionId, ws, live, command, cwd);
-  } catch (err) {
-    console.error(`[ws/launch] failed to start ${sessionId}: ${messageOf(err)}`);
-    return closeWithError(ws, "Failed to start the launch command.");
+  // Same reason as the codex path below — the browser's first frame is the terminal's geometry
+  // and it arrives while this is still reading files.
+  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+
+  // A launcher that runs codex gets the directory's registered tool groups too. The chip and the
+  // agent toggle land in the same cell and look the same, so a Canvas that lights up for one and
+  // never for the other reads as a broken feature. Only for a spawn, and only for codex — every
+  // other command is passed through untouched (see launcher-gui-mcp.ts).
+  const groups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
+  const launchCommand = launcherCommandWithGuiMcp(command, codexGuiMcpServers({ sessionId, port: PORT, groups, allTools: false }), process.platform);
+  if (ws.readyState !== ws.OPEN) {
+    console.log(`[ws/launch] client left before spawn — abandoning ${sessionId}`);
+    return early.discard();
   }
 
-  ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
-  ws.on("close", () => deps.handleClientClose(entry, ws, sessionId));
+  // A launcher runs the user's own command line, so there is no binary pre-flight — but its cwd
+  // is checked like every other spawn's, and that refusal is already a sentence.
+  const startFailureMessage = startFailureMessageFor("the launch command");
+  startAndWire(deps, ws, { id: sessionId, tag: "launch", early, startFailureMessage }, () => startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd));
 }
 
 // codex terminal (?cwd=<dir>, ?session=<id> to reattach/resume). ?gui=0 (grid dev terminal) runs
 // codex without the GUI MCP and keeps it out of the sidebar; absent (single view) attaches the GUI
 // MCP so codex drives the GUI panel like claude.
-function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
+async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   const { url, requested, cwd } = wsConnectionContext(req);
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
-  if (!attachGuiMcp) markDevTerminalSession(sessionId);
+  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
 
-  let entry: PtyEntry;
-  try {
-    entry = startCodexEntry(deps, sessionId, ws, live, resumeRolloutId, cwd, attachGuiMcp);
-  } catch (err) {
-    console.error(`[ws/codex] failed to start ${sessionId}: ${messageOf(err)}`);
-    return closeWithError(ws, "Failed to start codex. Is the `codex` CLI installed and on your PATH?");
+  // The browser sends its first frame — the terminal's real geometry — as soon as the socket
+  // opens, and the read below is the first thing on this path that waits. Collected from here so
+  // that frame is replayed into the pty rather than dropped on the floor (see early-frames.ts).
+  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+
+  // A grid cell's GUI tools are whatever its DIRECTORY registered — the same switches claude's
+  // cells read, in the same file. claude picks them up itself; codex is handed resolved URLs at
+  // spawn, so the answer has to be read here, before the pty exists. Only for a spawn: a reattach
+  // keeps the tools its running process was started with.
+  const mcpGroups = !attachGuiMcp && !live ? await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []) : [];
+  // Reading files can take a moment; a client that left in that window would leave a pty nobody
+  // reaps, because the close handlers below are not wired yet (same guard as the claude path).
+  if (ws.readyState !== ws.OPEN) {
+    console.log(`[ws/codex] client left before spawn — abandoning ${sessionId}`);
+    return early.discard();
   }
 
-  ws.on("message", (raw) => deps.handleClientFrame(entry, ws, raw, sessionId));
-  ws.on("close", () => deps.handleClientClose(entry, ws, sessionId));
+  const startFailureMessage = startFailureMessageFor("codex");
+  startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage }, () =>
+    startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups }),
+  );
 }
 
 export function mountTerminalWebSockets(deps: WsRouteDeps) {
@@ -382,6 +472,6 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
 
   wss.on("connection", (ws, req) => void handleClaudeConnection(deps, ws, req));
   runWss.on("connection", (ws, req) => handleRunConnection(deps, ws, req));
-  runLaunchWss.on("connection", (ws, req) => handleLaunchConnection(deps, ws, req));
-  runCodexWss.on("connection", (ws, req) => handleCodexConnection(deps, ws, req));
+  runLaunchWss.on("connection", (ws, req) => void handleLaunchConnection(deps, ws, req));
+  runCodexWss.on("connection", (ws, req) => void handleCodexConnection(deps, ws, req));
 }

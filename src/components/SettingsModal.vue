@@ -3,10 +3,11 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { MODAL_FOCUSABLE, trapTabKey } from "../utils/focusTrap";
 import { useTheme } from "../composables/useTheme";
 import { useTerminalFontSize } from "../composables/useTerminalFontSize";
+import { useTerminalScrollSpeed } from "../composables/useTerminalScrollSpeed";
 import { previewNotify } from "../composables/useAttentionSound";
 import { useCost } from "../composables/useCost";
 import { activeKeymap } from "../composables/activeKeymap";
-import { keymapRows } from "./keymapLabels";
+import { keymapRows, sendRows } from "./keymapLabels";
 import { useGoogleLink } from "../composables/useGoogleLink";
 import { VOICE_LANGUAGES, voiceLanguage } from "../composables/voiceLanguage";
 import { fetchVoiceInputStatus } from "../composables/voiceModelStatus";
@@ -37,8 +38,8 @@ const props = defineProps<{
   launchers?: Launcher[];
   quickCommands?: QuickCommand[];
   userMcpServers?: UserMcpServer[];
-  cwd?: string | null;
-  sessionId?: string | null;
+  cwd?: string | null | undefined;
+  sessionId?: string | null | undefined;
   // Directories to offer a config preview for: the recent-dir presets, plus the focused
   // session's own directory when it isn't one of them yet.
   dirPaths?: string[];
@@ -274,12 +275,16 @@ function testKindSound(kind: NotifyKind) {
 }
 
 // Theme is applied immediately on click.
-const { themeId, themes, setTheme } = useTheme();
+const { themeId, themes, setTheme, missingThemeId } = useTheme();
 const themesEl = ref<HTMLElement>();
 
 // Terminal font size, applied immediately (like the theme). Per-browser, so a phone and a
 // desktop on the same server keep their own; a directory can pin its own in .mulmoterminal.json.
 const { fontSize, nudgeFontSize, min: fontSizeMin, max: fontSizeMax, step: fontSizeStep } = useTerminalFontSize();
+
+// Terminal scroll speed, same shape and the same per-browser reasoning as the font size: it is a
+// property of the pointing device, and a trackpad and a wheel mouse want different answers.
+const { scrollSpeed, nudgeScrollSpeed, min: scrollSpeedMin, max: scrollSpeedMax, step: scrollSpeedStep } = useTerminalScrollSpeed();
 
 // Google account link. The modal is v-if'd, so a fresh load on mount also picks up
 // out-of-band changes (`mulmoterminal google login`, a deleted token file).
@@ -318,13 +323,22 @@ async function onUnlinkGoogle() {
 // ARIA radiogroup keyboard contract: arrows move selection (and focus) within
 // the group, wrapping at the ends; only the checked radio is tabbable (roving
 // tabindex), so Tab enters/leaves the group as one stop.
+// Roving tabindex, with a floor: when the selection names a theme that isn't in the list — the
+// missing-theme case this build added (#996) — nothing matches and EVERY option would be
+// tabindex="-1", so a keyboard user could not reach the picker at all while the notice above it
+// says to pick one. The first option becomes the tab stop in that state.
+const hasSelectedTheme = computed(() => themes.value.some((t) => t.id === themeId.value));
+function isThemeTabStop(id: string, index: number): boolean {
+  return hasSelectedTheme.value ? themeId.value === id : index === 0;
+}
+
 function onThemeKey(e: KeyboardEvent, index: number) {
   const forward = e.key === "ArrowRight" || e.key === "ArrowDown";
   const backward = e.key === "ArrowLeft" || e.key === "ArrowUp";
   if (!forward && !backward) return;
   e.preventDefault();
-  const next = (index + (forward ? 1 : themes.length - 1)) % themes.length;
-  setTheme(themes[next].id);
+  const next = (index + (forward ? 1 : themes.value.length - 1)) % themes.value.length;
+  setTheme(themes.value[next].id);
   themesEl.value?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
 }
 
@@ -344,6 +358,7 @@ const { cost, error: costError, load: loadCost } = useCost();
 // Reactive, not a snapshot: /api/config is fetched asynchronously, so a modal opened before it
 // lands would otherwise sit on "Not set" for every action until it is closed and reopened.
 const shortcutRows = computed(() => keymapRows(activeKeymap.value));
+const sendKeyRows = computed(() => sendRows(activeKeymap.value));
 
 const modalEl = ref<HTMLElement>();
 
@@ -397,6 +412,13 @@ onUnmounted(() => {
       </div>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Theme</h3>
+      <p v-if="missingThemeId" class="mb-2 mt-1.5 text-[12px] text-[var(--warn-text,#e0a030)]" data-testid="theme-missing">
+        The selected theme <code>{{ missingThemeId }}</code> is not defined. Add it to <code>themes</code> in <code>~/.mulmoterminal/config.json</code>, or pick
+        one below. Your choice is kept until then.
+      </p>
+      <p class="mb-2 mt-1.5 text-[12px] text-dim">
+        Your own colour schemes go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in four.
+      </p>
       <div ref="themesEl" class="flex flex-wrap gap-2" role="radiogroup" aria-label="Theme">
         <button
           v-for="(t, i) in themes"
@@ -406,7 +428,7 @@ onUnmounted(() => {
           :class="themeId === t.id ? 'border-accent text-fg' : 'border-border text-muted hover:text-fg'"
           role="radio"
           :aria-checked="themeId === t.id"
-          :tabindex="themeId === t.id ? 0 : -1"
+          :tabindex="isThemeTabStop(t.id, i) ? 0 : -1"
           :title="t.label"
           @click="setTheme(t.id)"
           @keydown="onThemeKey($event, i)"
@@ -443,6 +465,33 @@ onUnmounted(() => {
       </div>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Applies to every terminal on this browser. A directory can pin its own with <code>fontSize</code> in its <code>.mulmoterminal.json</code>.
+      </p>
+
+      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Terminal scroll speed</h3>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border bg-elevated text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="scrollSpeed <= scrollSpeedMin"
+          aria-label="Decrease terminal scroll speed"
+          @click="nudgeScrollSpeed(-scrollSpeedStep)"
+        >
+          −
+        </button>
+        <span class="min-w-[56px] text-center text-[13px] text-fg" aria-live="polite">{{ scrollSpeed }}×</span>
+        <button
+          type="button"
+          class="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border bg-elevated text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="scrollSpeed >= scrollSpeedMax"
+          aria-label="Increase terminal scroll speed"
+          @click="nudgeScrollSpeed(scrollSpeedStep)"
+        >
+          +
+        </button>
+      </div>
+      <p class="mb-3 mt-1.5 text-[12px] text-dim">
+        How far one wheel notch or trackpad swipe moves the terminal — 1× is the default. Lower it if a two-finger scroll on a Mac trackpad flies past what you
+        were reading. Per browser, and it covers both a shell's scrollback and a full-screen app like Claude Code.
       </p>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory appearance</h3>
@@ -566,7 +615,7 @@ onUnmounted(() => {
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Link a Google account so the <code>google</code> tool and your phone can read and create <strong>Calendar</strong> events. Sign-in opens in a new tab
         and finishes on <strong>this machine</strong>, so use a browser here — over a remote connection, run
-        <code>npx mulmoterminal google login</code> instead. The link is shared with MulmoClaude.
+        <code>npx mulmoterminal@latest google login</code> instead. The link is shared with MulmoClaude.
       </p>
       <p v-if="googleSecretHint" data-testid="google-warn" class="mb-3 mt-1.5 text-[12px] text-err-text">{{ googleSecretHint }}</p>
       <div class="mb-3 flex items-center gap-2.5">
@@ -792,6 +841,13 @@ onUnmounted(() => {
           <code v-if="row.binding" class="shrink-0 rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg">{{ row.binding }}</code>
           <span v-else class="shrink-0 text-[11px] text-muted">Not set</span>
           <code class="shrink-0 font-mono text-[10px] text-muted">{{ row.action }}</code>
+        </div>
+        <div v-for="row in sendKeyRows" :key="row.id" role="listitem" class="flex items-center gap-2 rounded-md border border-border bg-elevated px-2.5 py-1.5">
+          <span class="min-w-0 flex-1 truncate text-[12px] text-fg"
+            >Send <code class="font-mono text-[11px]">{{ row.label }}</code> to the terminal</span
+          >
+          <code class="shrink-0 rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg">{{ row.key }}</code>
+          <code class="shrink-0 font-mono text-[10px] text-muted">send</code>
         </div>
       </div>
 

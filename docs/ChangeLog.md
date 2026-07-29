@@ -4,6 +4,495 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.7.0 — 2026-07-29
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.7.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.7.0.html))
+
+A feature release. The headline is that a session can now carry **a note you wrote yourself** — but
+the fix worth upgrading for is that a second MulmoTerminal no longer deletes the running one's
+sessions.
+
+### A one-line note you write yourself, per session (#1086, closes #1084)
+
+Sessions are named by an AI title, the last prompt, or an id — all answers to *what was said*, none
+to **what this one is for**. A pencil beside the header text now takes one line of your own.
+
+It **replaces** the header's existing line instead of adding one, so the header keeps a constant
+height; the displaced title moves to the tooltip. Storage is per session id, server-side, in an
+append log at `~/.mulmoterminal/session-memos.jsonl`, and is **not** dropped on reap — close the
+cell, restart the server, resume that session and the note is back. The same note names the session
+in the sidebar, the resume picker, and the roster on the phone.
+
+### Draggable dividers in a zoomed cell (#1083, closes #1077)
+
+Zooming a cell splits it into the terminal plus a column. Both boundaries were fixed width, could
+not be changed, and nothing was remembered. They now respond to dragging and to the arrow keys, and
+the chosen width survives a reload.
+
+### Dropping a file works in Chrome, and from another machine (#1055, closes #993)
+
+Inserting a dropped file's path only ever worked when the browser handed over a real path — which
+**Chrome does not do**, and which is never true over a remote connection. Those cases printed a hint
+and stopped. Now the bytes are uploaded to the host, saved, and the saved path is inserted. Where a
+real path is available the old behaviour is unchanged: it is used directly, with no upload.
+
+### Background workers moved behind a Background chip (#1067, closes #1060)
+
+Scheduled collection syncs and similar unattended work started sessions that were listed among the
+user's own chats. They now sit behind a **Background** chip, leaving the default **All** to
+human-started chats. Deliberately a filter rather than a removal, unlike MulmoClaude's
+`origin: "system"`: a MulmoTerminal session is a live terminal, not a transcript, so hiding it
+entirely would remove the only way to inspect — or stop — it.
+
+### `appendSystemPrompt` turns off the closing-summary instruction (#1069, closes #1062)
+
+Every spawned session carried `--append-system-prompt` with the closing-summary instructions.
+Nothing in the app parses the result, so it is now optional. Default remains on; settable globally in
+`~/.mulmoterminal/config.json` and per directory in `.mulmoterminal.json`, with the directory
+winning. Independent of `prWorkdirFooter` — with both off, no flag is passed at all. A config
+without the key behaves exactly as before.
+
+### A second instance no longer deletes the first one's session settings (#1066, closes #1061)
+
+`pruneOrphanSettings` removed session settings whose PTY had no tmux session, on the reasoning that
+"a PTY without tmux died with the server that owned it". True of a *previous* lifetime, false of a
+*concurrent* one: a second instance cannot see the first one's live PTYs, so every one of those files
+read as abandoned. Eight live sessions lost their settings on the machine where this surfaced.
+
+Starting another instance now asks first, **whatever port it was given** — previously the prompt only
+appeared when the port clashed, so `--port <free>` started a second one in silence. The clash was
+never the problem; the shared `~/.mulmoterminal` is.
+
+### The wheel and TUI clicks survive a reattach (#1089, closes #1073)
+
+In Claude and Codex cells, wheel scrollback and clicking the agent's own UI elements died after any
+reattach — reload, sidebar switch, another tab, a dropped WebSocket. `?1049h` (enter alternate
+screen) is sent exactly once at pty offset 0 and is therefore never inside the trailing 1 MiB the
+server replays, so the client restored into the normal buffer with the wheel/click gate stuck false.
+
+Fixed by asking tmux for the current state and prefixing the replay with the matching DECSET. The
+alternative the issue proposed — tracking sticky state by scanning the pty byte stream — was not
+taken: tmux is the emulator that already holds this state, which removes both DECRST tracking and
+CSI sequences split across chunk boundaries. No client change at all.
+
+### `/clear` stops leaving the previous summary in the roster (#1087, closes #1085)
+
+After `/clear`, the cockpit roster kept showing the pre-clear AI summary and reply: gone for a
+moment, back as soon as the next turn ended. `/clear` moves the agent to a new session id and a new
+transcript, but the hooks are pinned to MulmoTerminal's own id, so `${mtId}.jsonl` becomes a file
+frozen at the moment of the clear.
+
+### Session startup failures are diagnosed, not guessed (#1068, #1082, closes #1063, #1078)
+
+The server caught the spawn exception, discarded it, and returned a fixed "codex is probably not
+installed". Measured, that text was right only on Windows; on macOS a missing binary produced a green
+`[session ended]` instead — symptom and explanation swapped. The binary is now checked before
+spawning, in the environment the PTY will actually receive, and what is found is what is reported.
+
+The server log gained three things (#1082): whether tmux **attached or created** — `tmux
+new-session -A` attaches to a live session and runs no command, so a resume never launches the agent
+and never reveals a broken PATH, argv or cwd, which is why "resume works, new sessions fail" was not
+the clue it looked like; a cwd diagnosis, since macOS runs `chdir` in the child and a deleted
+directory becomes `_exit(1)` rather than an exception; and the exit detail itself.
+
+### Scheduled feed refreshes report their failures (#1072, closes #1070)
+
+The feeds engine hands hidden workers a one-shot `onComplete`, and `feedsSpawnWorker` destructured
+only `{ message, hidden }` — dropping it. A periodic collection refresh that failed was recorded
+nowhere.
+
+### `exactOptionalPropertyTypes` is on across the project (#1053, #1081, closes #1048)
+
+Enabled in all four tsconfigs, so `field?: T` means "the key may be absent" and `{ work: undefined }`
+no longer type-checks — the exact shape that emptied the phone's session list in 2.6.0 (#1042). The
+runtime guard added then only protected the path toward Firestore; everything else passed the type
+checker untouched until now. #1053 fixed the same shape at five sites found by the change.
+
+### The remote-host workarounds moved into @mulmoclaude/core (#1051, #1057, #1075, #1088, closes #1064)
+
+Three files carried here (`firestoreSafeResult.ts`, `resilientRunner.ts`, `presenceProbe.ts`, 421
+lines) are now core's, on 1.10.0.
+
+Before that, #1051 taught the local guard to separate a **bug** (an `undefined` where none belongs,
+which has to be findable) from a **legitimately absent optional field** (warning about which every
+poll teaches everyone to ignore the log), and #1057 fixed two holes a local codex review found and
+reproduced: the guard rebuilt `Date`, `Map` and Firestore sentinels from their entries, turning a
+valid value into `{}`, and the session-activity publisher wrote to Firestore through a path the
+guard never saw.
+
+The outer ring is the one worth naming. It had drifted out of step with core's own listen-retry
+window — the local copy called a runner recovered after 60s, while core 1.9.0 waited five minutes
+before reporting a dead listener, so the outage clock was reset before it could ever reach the
+give-up threshold. A host with a dead credential relaunched forever and never asked the client to
+re-authenticate, with the UI reporting "online" throughout.
+
+### CI and tests
+
+- **Windows daily is green again** (#1080, closes #1079): red since `622ada44` on both Node 22.x and
+  24.x. Both failures were test-side portability bugs — the product code was correct on Windows —
+  but each meant the path was never actually verified there. It is now.
+- **Temp-dir path spelling** (#1052, #1056, #1059): `realpathSync` returns 8.3 short names on
+  Windows while `realpathSync.native` expands them. The implementation was unified first; #1056 was
+  its missing test-side pair, and #1059 swept the remaining 12 specs (of 64 that create a temp dir)
+  that actually resolve paths, rather than assuming the rest were fine.
+- **jscpd** (#1076, closes #1074): three real duplicates removed, 10 alerts down to 7. The remaining
+  seven are call sites of something already shared and are kept deliberately — a wrong abstraction is
+  worse than duplication.
+
+### Docs
+
+- The 2.6.0 guide was rewritten for end users (#1054): it had been explaining symptoms in terms of
+  the implementation.
+- README and both guides quote two third-party articles written about MulmoTerminal unprompted
+  (#1050).
+- The remaining user-facing `npx mulmoterminal` invocations say `@latest` (#1058).
+
+## mulmoterminal@2.6.0 — 2026-07-29
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.6.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.6.0.html))
+
+The release that stops long sessions from reading as empty ones. A transcript that grew past half a
+gigabyte made its own session show no title, no timeline and a cost of $0 — and nothing errored.
+
+### A 585 MB transcript no longer reads as an empty session (#1033, #1034, #1037, #1041, #1043, closes #998)
+
+`fs.readFile(file, "utf8")` throws past ~512 MB **whatever the file contains** — V8's maximum string
+length, not a memory limit. Nine read sites took a whole transcript that way and each caught the
+error and returned "nothing here", so **the biggest and most-used sessions rendered as the emptiest
+ones**: no title, an empty tool timeline, `$0` spent. Measured on a real 585 MB transcript, not
+constructed.
+
+Rewritten in five phases, behaviour-preserving at each step, around one shared reader
+(`server/infra/jsonl-file.ts`): a bounded tail for "what happened last", a line stream for "scan
+everything". Two traps are pinned by tests, because both produced a fix that looked right and was
+not:
+
+- **A window must not paraphrase the rule it replaces.** Folding "the newest X" by hand loses the
+  fallbacks and cross-record semantics of the original. Each phase feeds the ORIGINAL function a
+  smaller window, and a test compares the streamed result against the whole-array result on the same
+  records.
+- **A window sized by guess is worse than no fix.** 256 KB looked generous and held nine records of
+  that transcript — not one complete turn — so the exception disappeared while the screen stayed
+  empty, which is indistinguishable from a new session. The tail is 4 MB, measured against the six
+  largest transcripts on a working machine.
+
+### The usage probe stops holding a session open, and stops leaving transcripts behind (#1030, #1047, closes #1010)
+
+Two ends of the same hidden Claude session that reads the 5h / 7d windows.
+
+**Its transcripts are gone.** Hiding them from `/api/sessions` was half an answer — `claude --resume`
+reads the transcript directory itself, so the file has to go. A probe now deletes its own; the ones
+left by older versions are swept **once per workspace**, and that "once" is the point: a probe types
+its prompt into the real TUI, so what claude records is byte-for-byte what a person typing the same
+thing produces. No field separates them. The window in which a content guess can be wrong is closed
+rather than reopened on every boot. The guess itself was measured over 7719 transcripts: "contains
+the probe prompt" matched 6 real conversations, one of them 974 messages long; "has exactly one user
+message, and it IS the prompt, and no tool was used" matched 85 and nothing else.
+
+**It stops the moment its answer lands.** The status line arrives in seconds; the probe was holding a
+live `claude` process for the full 90-second timeout after that, and `probing: true` kept every
+browser polling at seconds rather than minutes for the whole of it. Only a report carrying windows
+ends it — the status line also fires before the first API response, when there are no windows yet.
+
+**An expired figure is no longer shown as if it were current.** A reading whose reset time has passed
+describes a budget that has already rolled over, so it is dropped — and dropping it is what makes the
+"why is this missing" note appear. Previously a cached figure suppressed that note, so uninstalling
+`claude` left yesterday's percentage on screen saying nothing.
+
+Also in this pass: Codex's rollout tail had silently gone from 256 KB to 4 MB when the shared reader
+arrived (0.5 ms → 7.9 ms per poll on a 5.9 MB rollout, on the request path), the rate-limit cache was
+written synchronously on every poll even when unchanged, and the probe's status line sent an
+`x-mt-session` header that route has never read.
+
+### The editor colours the languages you actually open (#1038)
+
+The Files view opened `.vue` as plain text. The file tree was not at fault — the editor knew three
+syntax modes: markdown, JS/TS, JSON. Everything else fell through to `text`, so `.py`, `.rs`, `.css`
+and `.yaml` were colourless too. Eleven languages added, including `.vue` / `.svelte` / `.astro`
+(HTML), `.py`, `.rs`, `.go`, `.java`, `.sh`, `.sql`, `.xml`, `.yaml`.
+
+### The phone session list works again (#1044, fixes #1042)
+
+A regression from #1017: `work` reached Firestore as `undefined`, and `updateDoc()` rejects the whole
+document for that — so the reply carrying the session list was never written and the phone showed
+**no sessions at all**, timing out after 30 seconds. Not a missing row: the entire list.
+
+### A host that has gone quiet says so (#1046, fixes #1045)
+
+The Mac's toolbar stayed **Online (green)** while the phone said **offline**, and keeping the tab open
+did not fix it — the earlier listener-recovery work (#823 / #825) covered a different path. Presence
+is written by a 60-second heartbeat, and when those writes started failing nobody was told. The host
+now detects that its own presence has stopped landing and shows offline in red, so the two ends agree.
+
+### Smaller fixes
+
+- **`npx mulmoterminal` is now `npx mulmoterminal@latest` everywhere** in the docs and in `init`'s
+  closing hint (#1035, #1036) — without `@latest`, npx can run a cached older copy.
+- **Windows CI**: preset paths are resolved before comparison, closing a gap left by #1002 (#1029).
+- The editor's syntax highlighting is shown in the guide with a screenshot (#1039).
+
+## mulmoterminal@2.5.3 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.3.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.3.html))
+
+A background probe stops spending the budget it was measuring, and two opt-in settings arrive: raw
+key sequences to the terminal, and a record of what a project already decided.
+
+### The rate-limit probe stops re-firing every 90 seconds (#1019, closes #1011, refs #1010)
+
+The usage gauge reads Claude's windows by starting one hidden session and listening for its status
+line. When that session reported nothing, **no attempt was recorded** — so the "our reading is
+stale" half of the probe gate stayed true and the next poll started another probe immediately. One
+report counted 21 runs in half an hour, each one a real query against the very window the gauge
+exists to display.
+
+Four failures were collapsed into one silence, and they want different answers:
+
+| Failure | Before | Now |
+|---|---|---|
+| API-key billing (no `rate_limits` exists at all) | every 90s, forever | the status line *arriving* counts as an answer; asked again about hourly in case billing changes |
+| Unanswered trust prompt / expired login | every 90s | exponential backoff, 90s → 3m → 6m … capped at an hour |
+| `claude` not installed | spawn threw instantly, so it retried at the *polling* interval — faster than the timeout | decided before spawning, with a PATH lookup; recovers on its own when `claude` appears, no restart |
+| Slow boot, transient | every 90s | backoff, reset on success |
+
+The gauge now **says why** it cannot show Claude's numbers, in the place the figures would be
+(`claude usage n/a`, with the reason on hover). Previously "not measured yet" and "cannot be
+measured here" were indistinguishable, which is why a runaway loop ran unnoticed for half an hour.
+
+The probe's throwaway sessions also stop appearing in `/api/sessions`: it now passes its own
+`--session-id`, shaped so it can be recognised without anything being remembered — a process-memory
+set would forget its own sessions across a restart while their transcripts remained on disk.
+**Sessions created before upgrading still appear**, in the session list and in `claude --resume`,
+because they carry ordinary random ids; cleaning those up stays open as #1010.
+
+Also pulled out of `whisper.ts` on the way: `hasBinary` now lives in `server/infra/has-binary.ts`
+and reuses the Windows `.exe` / `.cmd` resolution, which the whisper copy never did.
+
+### Send raw key sequences to the terminal (#1023, closes #1005)
+
+`keymap` gains **`send`** — a binding that puts bytes into the focused terminal instead of running
+an app action. It started with wanting `Cmd+→` for end-of-line on a Mac:
+
+```json
+{ "keymap": { "send": [{ "key": "Cmd+ArrowRight", "bytes": "\u0005" }] } }
+```
+
+`bytes` reaches the PTY verbatim; control characters are written the way JSON writes them, and
+nothing re-escapes them. It is a **list** rather than a single field like every other keymap action,
+because each binding carries its own payload.
+
+### A record of what a project already decided (#1018, refs #1015)
+
+`decisionDigest` (**off by default**) keeps a Markdown digest of the questions a project's sessions
+actually asked a human — the options offered and the answer given — at
+`~/.mulmoterminal/decisions/<project>.md`, refreshed at startup and every 6 hours. `GET
+/api/decisions/digest?cwd=` serves it, and a bundled **`mulmoterminal-decisions`** skill is what
+agents read it through, so a question already settled does not get asked again.
+
+The digest holds **dated facts, never inferred rules** — "this user always picks the recommended
+option" reads convincingly and can be wrong, and a wrong lesson applied silently is the worst
+outcome. Answers where the user rejected every option and wrote their own are kept, because those
+say the question itself was wrong.
+
+This release also documents the setting in the guide, which #1018 shipped without.
+
+### Project colours reach every kind of cell (#1013, closes #1006)
+
+The six chrome colours in `.mulmoterminal.json` only ever took effect in Claude cells; Shell
+(launcher) and Command cells never defined the CSS variables and fell back to the defaults. Rather
+than adding the missing wiring to two more files — the same hole had been found three times — the
+wiring moved into one shared place so a new cell type cannot miss it.
+
+### A trailing slash in `cwd` no longer breaks live reload (#1016, fixes #1002)
+
+`existingWorkspace` validated a path without normalising it, so `/a/b/` passed every guard and
+became the effective cwd verbatim. That value is used downstream as the *identity* of a directory —
+PTY cwd, the cwd returned to the cell, the dir-config subscription key — so one directory had two
+names, and an announcement published for `/a/b` never reached a cell opened as `/a/b/`. Normalising
+at `resolveWorkspace`, the single gate all seven call sites pass through, fixes the chain at its
+source.
+
+### Sessions that survive a restart keep their folder on the phone (#1025, fixes #1021)
+
+A session still alive in tmux after a server restart appeared in the phone list with neither `cwd`
+nor a work item. The cause was not that tmux cannot be asked — it was that the server never
+remembered. `markDevTerminalSession()` already receives the cwd from its caller; it now records it,
+in a **separate** append-log file rather than by changing the shape of `dev-terminal-sessions.json`,
+which older versions parse and would drop entirely.
+
+### The phone session list carries each cell's issue / PR (#1017, refs #1014)
+
+Each row gains `work` — the issue and PR numbers, the headline and the phase — so a phone client can
+show what the header already shows. Data only; the display lives in another repo.
+
+### CI stops waiting 15 minutes on a hung review (#1022, closes #1020)
+
+`codex exec` does not run slow, it stops: the logs show the PR thread read, then fifteen silent
+minutes to the timeout. The job now cuts a hung run short and retries once.
+
+## mulmoterminal@2.5.2 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.2.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.2.html))
+
+Four built-in themes become as many as you like, and the reasoning behind a change now outlives the
+terminal it was made in.
+
+### Your own colour scheme in the theme picker (#1001, closes #996)
+
+A colour scheme written into `themes` in `~/.mulmoterminal/config.json` appears in Settings' theme
+picker beside the built-in four, and recolours the whole app — grid, headers, panels and the
+terminals. A theme `extends` one of the built-ins and overrides only the tokens it cares about, so
+three colours make a complete theme.
+
+Two decisions are worth knowing about. The light-theme rules in `style.css` now key on
+`:root[data-appearance="light"]` instead of enumerating the built-in ids — with the id list, a
+custom light theme kept the dark-background status pills and became unreadable. And
+`themeIdSchema` validates the SHAPE of an id rather than an enum, so a directory's
+`.mulmoterminal.json` can pin a custom theme; whether that id exists is checked where the global
+`themes` list is in scope.
+
+The guide ships four complete sample schemes — Van Gogh (Arles), Mondrian, Picasso Blue, Matisse —
+each with every token filled in and a note on why the colour is where it is.
+
+### A decision log for the workspace (#999, closes #997)
+
+Sessions record the decisions they make into a workspace log, so the reasoning behind a change is
+still there after the terminal that made it is gone.
+
+### Windows CI is green again (#1007)
+
+Three specs assumed POSIX-shaped paths and a Unix-shaped `HOME`: `realpathSync` hands back the 8.3
+short name on a Windows runner (only `realpathSync.native` expands it), git prints POSIX separators
+even on Windows, and `os.homedir()` reads `USERPROFILE` rather than `HOME`. Tests only — no
+implementation changed, and `docs/windows-gotchas.md` was corrected where it had sent the author to
+the wrong resolver.
+
+### Documentation (#1009 and follow-ups)
+
+The `#782` notes no longer name the canvas renderer as the suspect for the scrollbar and selection
+problem — the cause was tmux. The context-window figures were reworded so they do not read as
+measurements nobody took.
+
+## mulmoterminal@2.5.1 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.1.html))
+
+The Windows folder picker is the dialog Explorer actually uses, a reply's last code block can be
+copied without dragging the terminal's indentation along, and a cell can tell an issue that it is
+being worked on.
+
+### Windows: the Explorer-style folder picker (#1004, fixes #1003)
+
+The Working-directory picker opened the legacy "Browse For Folder" tree — no address bar, no path
+box — so reaching a project meant clicking down the hierarchy. `winArgs()` used
+`System.Windows.Forms.FolderBrowserDialog` under the stock `powershell` (5.1 / .NET Framework),
+which has no modern mode; the file picker was already the Explorer-style `OpenFileDialog`, so only
+the folder one had been left behind.
+
+It now asks the shell for its own `IFileOpenDialog` with `FOS_PICKFOLDERS`. PowerShell 7 would have
+been the smaller change (its `FolderBrowserDialog` is modern), but `pwsh` is not installed by
+default on Windows 11, so that would only have fixed it for people who had already installed it.
+The COM interop is wrapped in a `try`/`catch` that falls back to the old dialog: a runtime that
+cannot compile the interop costs the nicer dialog, not the ability to choose a folder.
+
+Reported by an external contributor with the cause already located down to the function.
+
+### Copy the last code block of the latest reply (#995, fixes #865)
+
+A cell-header button puts the last fenced code block of the agent's most recent reply on the
+clipboard. Selecting it in the terminal instead carries every line's leading whitespace, which
+mangles a paste into Discord or Slack — this reads the original text from the agent's transcript
+rather than off the screen.
+
+### Tell the issue you are working on it (#987, #979 Phase 2)
+
+With `"issueWorkComments": true` in `~/.mulmoterminal/config.json`, a cell comments once on the
+issue it is working on, and again when its PR merges — closing the issue if GitHub has not already.
+The comment names the working directory by folder name only, never the path, since these land on
+public issues.
+
+Off by default: it writes to GitHub under the user's account, often on an issue somebody else
+filed. The design problem was idempotency rather than posting — the caller is a poll, so every open
+tab re-asks on every tick and a reload asks again. A per-key in-flight collapse handles concurrent
+asks, a process memo handles repeats, and an invisible marker in the issue thread handles a
+restarted server. A merge is only announced when this session watched it happen, so switching the
+setting on does not comment on issues that were finished weeks ago.
+
+### `Opus · ctx 290%` (#986)
+
+`CONTEXT_WINDOWS` is a prefix-matched list and `claude-opus-5` matched none of the `opus-4-x`
+entries, falling back to `opus` (200k) against a real 1M window — exactly five times too small.
+Opus 5 is listed now, and a percentage that cannot be real is no longer displayed.
+
+### Guide audit (#994)
+
+The configuration, feature-list, basics and advanced pages (8 files across both languages) were
+brought back in line with the implementation after 2.2.0–2.4.0, reordered so the most-reached-for
+settings come first, given headings that can be found by symptom, and illustrated with three
+screenshots of the Settings modal.
+
+### Characterization tests for the `gh` argv (#988, part of #981)
+
+Pins what the four read-side features ask `gh` for, so moving them behind a forge interface can be
+shown to keep the observable behaviour identical. Tests only — no implementation touched.
+
+## mulmoterminal@2.5.0 — 2026-07-28
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.5.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.5.0.html))
+
+The rate-limit windows every session shares are now on screen instead of a `/usage` command away,
+and a config written by a newer version survives being read by an older one.
+
+### The 5h / 7d windows, in the grid header (#387, #976)
+
+Both windows, for Claude **and** Codex, visible whenever the grid is. Running a grid of agents is
+what burns them fastest and nothing in the app showed them; the only way to look was to type
+`/usage`, which happens after wondering rather than before.
+
+Where the numbers come from differs per agent, and that decided the design:
+
+- **Codex writes both windows into its own session file**, so reading them costs nothing.
+- **Claude has no such file.** The figures exist only in the payload handed to a `statusLine`
+  command, and only after a session's first API response — verified by measurement, along with the
+  fact that `claude -p` never invokes a status line at all. So MulmoTerminal runs a **hidden session
+  of its own**, asks one trivial question, reads the answer, and closes it.
+
+That query spends the budget the gauge reports, so it runs **only while a browser is showing the
+gauge** and only when the held value is over ten minutes old. The last reading is cached, so opening
+the grid shows numbers immediately rather than after a probe.
+
+A missing window is never drawn as `0%`. Upstream has removed `rate_limits` from the payload once
+already (anthropics/claude-code#40094), and a gauge reading zero when the truth is 86% is the worst
+thing this data could do.
+
+### Which PR / issue a cell is working on (#979, #983)
+
+Each cell's header now says what that cell is on, as `#977 → #966` — the branch's PR, and the issue
+that PR closes. It **disappears the moment the PR is merged or closed**, so a stale chip cannot
+outlive the work.
+
+The issue comes from the PR body's closing keyword (`Fixes #966`), which the author wrote on purpose.
+A branch named `fix/966-…` is treated as a **candidate only** and shown after confirming the issue
+exists — `release/2026-07-28-hotfix` would otherwise be reported as issue #2026, and no pattern can
+tell a year from an issue number.
+
+**If you have configured `chips` yourself, add `"work"` to see it.** A configured list is the whole
+list, as it always has been; the default set already includes it.
+
+### An older version no longer erases a newer version's settings (#966, #977)
+
+`~/.mulmoterminal/config.json` is shared by every instance on the machine. An older build rebuilt
+the file from the fields it knew, so any setting added by a newer one was **silently deleted** the
+next time the older one saved — which a preset being recorded on launch is enough to trigger. Found
+while testing `copyOnSelect` against a running 2.2.0. Unknown keys now survive a write untouched.
+
+### Also
+
+- **Which clone made a PR** is appended in more of the paths that create one, not only the button (#974).
+- **The activity timeline** no longer renders underneath the panel it was opened from (#968, #980).
+- **Focus after leaving zoom** returns to the terminal instead of being dropped (#965, #967).
+- Dependency updates (#975), and a refactor of the remote-host parsing (#981, #982).
+
 ## mulmoterminal@2.4.0 — 2026-07-28
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.4.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.4.0.html))

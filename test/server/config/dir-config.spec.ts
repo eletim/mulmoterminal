@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, it, expect, vi } from "vitest";
+import { makeTempDir } from "../../support/tempDir.js";
+import { writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import {
   resolveDirSound,
@@ -12,8 +12,9 @@ import {
   MISSING_DIR_CONFIG_DETAIL,
 } from "../../../server/config/dir-config";
 import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
+import { resolveWorkspace } from "../../../server/config/workspace";
 
-const tmp = () => mkdtempSync(path.join(tmpdir(), "mt-dircfg-"));
+const tmp = () => makeTempDir("mt-dircfg-");
 const EMPTY = {
   name: null,
   badgeColor: null,
@@ -36,6 +37,7 @@ const EMPTY = {
   provider: null,
   model: null,
   addDirs: null,
+  appendSystemPrompt: null,
 };
 
 function withConfig(body: unknown): { dir: string; cleanup: () => void } {
@@ -133,6 +135,7 @@ describe("loadDirConfig", () => {
       theme: "nord",
       sound: "./a.mp3",
       skills: ["  review  ", "commit", "review", ""],
+      appendSystemPrompt: false,
     });
     writeFileSync(path.join(dir, "a.mp3"), "x");
     expect(loadDirConfig(dir)).toEqual({
@@ -157,6 +160,7 @@ describe("loadDirConfig", () => {
       provider: null,
       model: null,
       addDirs: null,
+      appendSystemPrompt: false,
     });
     cleanup();
   });
@@ -201,9 +205,23 @@ describe("loadDirConfig", () => {
     cleanup();
   });
 
+  // A theme id naming neither a built-in nor a configured custom theme is a typo. Dropping it
+  // is what puts the key in the "ignored" list Settings shows — kept, it would paint the default
+  // and look like the setting was never made (#996).
   it("drops an unknown theme and a malformed color", () => {
     const { dir, cleanup } = withConfig({ theme: "neon", badgeColor: "red" });
     expect(loadDirConfig(dir)).toEqual(EMPTY);
+    cleanup();
+  });
+
+  // The other half of the same rule: an id the user actually defined in the global config's
+  // `themes` is a real theme, and a directory may pin it (#996).
+  it("keeps a theme id the global config defines", async () => {
+    const routes = await import("../../../server/config/config-routes");
+    const spy = vi.spyOn(routes, "getCustomThemeIds").mockReturnValue(["my-dark"]);
+    const { dir, cleanup } = withConfig({ theme: "my-dark" });
+    expect(loadDirConfig(dir).theme).toBe("my-dark");
+    spy.mockRestore();
     cleanup();
   });
 
@@ -211,6 +229,31 @@ describe("loadDirConfig", () => {
     const dir = tmp();
     expect(loadDirConfig(dir)).toEqual(EMPTY);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  // #1062. A tri-state, unlike the global boolean it overrides: null is what makes "this file
+  // says nothing, follow the global setting" different from an explicit `false`.
+  describe("appendSystemPrompt", () => {
+    it.each([
+      ["false", false, false],
+      ["true", true, true],
+    ])("keeps an explicit %s", (_case, written, expected) => {
+      const { dir, cleanup } = withConfig({ appendSystemPrompt: written });
+      expect(loadDirConfig(dir).appendSystemPrompt).toBe(expected);
+      cleanup();
+    });
+
+    // A string is the planned third value but is not accepted yet, so it has to read as "unset"
+    // — which puts the key in the "ignored" list Settings shows, rather than silently meaning off.
+    it.each([
+      ["a string", "off"],
+      ["a number", 0],
+      ["absent", undefined],
+    ])("reads %s as unset", (_case, written) => {
+      const { dir, cleanup } = withConfig({ appendSystemPrompt: written });
+      expect(loadDirConfig(dir).appendSystemPrompt).toBeNull();
+      cleanup();
+    });
   });
 
   it("returns all-null for invalid JSON or a non-object", () => {
@@ -234,6 +277,20 @@ describe("dirConfigWriteTarget", () => {
     for (const tool of ["Write", "Edit", "MultiEdit"]) {
       expect(dirConfigWriteTarget(tool, { file_path: file })).toBe(projDir);
     }
+  });
+
+  // #1002 — the invariant the live reload rests on: the cwd ANNOUNCED when a .mulmoterminal.json
+  // is written has to be the same STRING as the cwd the cell showing that directory is keyed by.
+  // The two are produced by different code (path.dirname here, the workspace guard there) and are
+  // matched by exact equality on the client, so nothing but this keeps them spelled the same.
+  // A directory launched as `/a/b/` — what a shell's tab-completion leaves in the launch form —
+  // was announced as `/a/b`, and the cell never heard about its own config file.
+  it("announces the same cwd string the workspace guard hands the cell", () => {
+    const dir = tmp();
+    const launchedAs = dir + path.sep;
+    const announced = dirConfigWriteTarget("Write", { file_path: path.join(dir, ".mulmoterminal.json") }, launchedAs);
+    expect(announced).toBe(resolveWorkspace(launchedAs));
+    expect(announced).toBe(dir);
   });
 
   it("resolves a relative path against the SESSION cwd, not the server's", () => {
@@ -379,6 +436,7 @@ describe("dirConfigDetail", () => {
       skills: ["deploy"],
       buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy" }],
       chips: ["git", { label: "Build", text: "yarn build" }],
+      appendSystemPrompt: false,
     });
     const { extras } = dirConfigDetail(dir);
     expect(extras.provider).toBe("openrouter");
@@ -386,6 +444,9 @@ describe("dirConfigDetail", () => {
     expect(extras.skills).toEqual(["deploy"]);
     expect(extras.buttonLabels).toEqual(["Deploy"]);
     expect(extras.chipLabels).toEqual(["git", "Build"]);
+    // #1062. `false` is a setting, and the preview builds its rows from `extras` — dropped here,
+    // a file whose only key is this one reports as setting nothing at all.
+    expect(extras.appendSystemPrompt).toBe(false);
     cleanup();
   });
 
@@ -404,7 +465,7 @@ describe("dirConfigDetail", () => {
     const dir = tmp();
     const { config, extras } = dirConfigDetail(dir);
     expect(Object.values(config).every((value) => value === null || value === false)).toBe(true);
-    expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, buttonLabels: [], chipLabels: [] });
+    expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, appendSystemPrompt: null, buttonLabels: [], chipLabels: [] });
     rmSync(dir, { recursive: true, force: true });
   });
 

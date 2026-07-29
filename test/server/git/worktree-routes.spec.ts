@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { makeTempDir } from "../../support/tempDir.js";
 import type { Express } from "express";
-import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { mountWorktreeRoutes } from "../../../server/git/worktree-routes.js";
 import { createWorktree, worktreesRoot, gitTopLevel } from "../../../server/git/worktrees.js";
@@ -98,7 +98,7 @@ describe("worktree routes: origin guard + validation", () => {
   });
 
   it("reports isGit:false for a non-git dir", async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "wt-routes-plain-"));
+    const dir = makeTempDir("wt-routes-plain-");
     try {
       const res = makeRes();
       await routes(allow)["GET /api/worktrees"]({ headers: {}, query: { cwd: dir } }, res);
@@ -135,9 +135,9 @@ describe("worktree routes: create → list → remove lifecycle", () => {
   })();
 
   beforeEach(async () => {
-    home = realpathSync(mkdtempSync(path.join(tmpdir(), "wt-routes-home-")));
+    home = makeTempDir("wt-routes-home-");
     process.env.MULMOTERMINAL_HOME = home;
-    repo = realpathSync(mkdtempSync(path.join(tmpdir(), "wt-routes-repo-")));
+    repo = makeTempDir("wt-routes-repo-");
     if (!hasGit) return;
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
     const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
@@ -255,7 +255,7 @@ describe("worktree routes: create → list → remove lifecycle", () => {
       expect(noRemote.statusCode).toBe(409);
       expect(noRemote.payload).toMatchObject({ ok: false, reason: "no-remote" });
 
-      const remote = realpathSync(mkdtempSync(path.join(tmpdir(), "wt-routes-remote-")));
+      const remote = makeTempDir("wt-routes-remote-");
       try {
         // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
         execFileSync("git", ["init", "--bare", "-b", "main", remote], { stdio: "ignore" });

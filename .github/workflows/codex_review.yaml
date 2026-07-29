@@ -173,6 +173,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           REPO: ${{ github.repository }}
+          # Per-attempt deadline. Well above a healthy review (30s-2min) and far below the job's
+          # own cap, so a hang is cut short and retried instead of eating the whole budget.
+          CODEX_TIMEOUT_SECONDS: "300"
         run: |
           # `--sandbox danger-full-access` skips bubblewrap entirely.
           # The default `workspace-write` sandbox tries to create a
@@ -183,7 +186,7 @@ jobs:
           # spawn ANY shell command, including `gh`. The runner VM
           # is itself ephemeral + isolated per job, so dropping the
           # nested sandbox is safe in this context.
-          codex exec --sandbox danger-full-access "$(cat <<PROMPT
+          PROMPT_TEXT="$(cat <<PROMPT
           Review PR #${PR_NUMBER} in ${REPO}.
 
           Use the gh CLI to inspect the diff:
@@ -193,7 +196,11 @@ jobs:
           Before posting your own findings, look at what's already
           on the PR — this PR may have had earlier review iterations
           (yours or another bot's) that are already addressed by
-          later commits. Read the existing thread:
+          later commits. An earlier ATTEMPT OF THIS SAME RUN may also
+          have posted before it was cut short, so if you find comments
+          that already say what you were going to say about the
+          current commit, leave them alone rather than repeating them.
+          Read the existing thread:
             gh api repos/${REPO}/issues/${PR_NUMBER}/comments --paginate
             gh api repos/${REPO}/pulls/${PR_NUMBER}/comments --paginate
           For every prior 'CODEX VERDICT: CHANGES REQUESTED' bullet,
@@ -225,3 +232,36 @@ jobs:
           Do not apply any fixes yourself — only review and post findings.
           PROMPT
           )"
+
+          # `codex exec` HANGS rather than running slow (#1020): on a bad run it reads the PR
+          # thread, goes quiet waiting on the model, and never returns — the job then burns the
+          # whole `timeout-minutes` and leaves an orphan `codex` process behind. Raising the cap
+          # only lengthens the wait, so the call gets its OWN, much shorter deadline and one
+          # retry. A healthy review takes 30s-2min, and every hung run so far has succeeded in
+          # about a minute on a plain rerun of the same commit.
+          for attempt in 1 2; do
+            # `|| status=$?` rather than `if …; then`: after an `if`, $? is the IF statement's
+            # status (0), not the command's — the codes below would never be seen.
+            started=$SECONDS
+            status=0
+            timeout --signal=TERM --kill-after=30s "${CODEX_TIMEOUT_SECONDS}" \
+              codex exec --sandbox danger-full-access "$PROMPT_TEXT" || status=$?
+            elapsed=$(( SECONDS - started ))
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            # A deadline hit is 124 (child died on TERM) or 137 (it ignored TERM, so --kill-after
+            # SIGKILLed it). 137 is the one that matters — a process wedged on a model call is
+            # exactly the kind that does not take TERM (measured: a child trapping TERM exits 137).
+            #
+            # But timeout(1) cannot tell ITS deadline from the child exiting 124/137 on its own,
+            # so the elapsed time decides: a run that gave up early was codex failing, not a hang,
+            # and retrying it would spend the deadline again to reach the same answer.
+            if { [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; } || [ "$elapsed" -lt "${CODEX_TIMEOUT_SECONDS}" ]; then
+              echo "::error::codex exec failed with status $status after ${elapsed}s (not a timeout) — not retrying"
+              exit "$status"
+            fi
+            echo "::warning::codex exec hit the ${CODEX_TIMEOUT_SECONDS}s deadline on attempt $attempt (see #1020)"
+          done
+          echo "::error::codex exec hung twice; giving up"
+          exit 1

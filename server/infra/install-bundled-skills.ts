@@ -17,7 +17,7 @@ const OWNER_MARKER_BODY = "managed by mulmoterminal\n";
 // name makes the collections engine load the skill dir as a (broken) user-scope collection.
 export const SCHEMA_ASSET_FILE = "dir-config.schema.json";
 
-export const BUNDLED_SKILL_NAMES = ["mulmoterminal-config", "mulmoterminal-bug-report"] as const;
+export const BUNDLED_SKILL_NAMES = ["mulmoterminal-config", "mulmoterminal-bug-report", "mulmoterminal-decisions"] as const;
 
 function bundledSkillDir(name: string): string {
   const here = path.dirname(fileURLToPath(import.meta.url));

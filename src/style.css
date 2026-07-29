@@ -138,9 +138,12 @@
 }
 
 /* Light themes: status pills become light-tinted with dark, saturated text so
-   they stay legible on a bright background. */
-:root[data-theme="daylight"],
-:root[data-theme="solarized"] {
+   they stay legible on a bright background.
+   Keyed on data-appearance, NOT on a list of theme ids (#996): a user-defined light theme has
+   an id this file cannot know, and without these it would render the dark-background pills —
+   saturated green on a near-white panel. useTheme sets the attribute for every theme, built-in
+   or custom, from the background's luminance. */
+:root[data-appearance="light"] {
   --ok: #1b7a2e;
   --ok-bg: #d7f0db;
   --ok-bg-subtle: #e6f4ea;

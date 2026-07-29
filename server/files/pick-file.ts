@@ -2,6 +2,7 @@ import type { Express, Request } from "express";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { isRecord } from "../../common/isRecord.js";
+import { winFolderDialogScript } from "./win-folder-dialog.js";
 
 // A native "open file/folder" dialog per platform whose stdout is the selection's
 // absolute path(s), newline-separated. Browsers can't hand the terminal a real
@@ -31,10 +32,11 @@ function macArgs(directory: boolean): string[] {
   ];
 }
 
+// The FILE dialog needs nothing special: `OpenFileDialog` has been the Explorer-style one since
+// Vista. Only the FOLDER dialog is stuck on the legacy tree, so only it goes through COM (#1003).
 function winArgs(directory: boolean): string[] {
-  const dialog = directory
-    ? "$d = New-Object System.Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }"
-    : "$d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join \"`n\" }";
+  if (directory) return ["-NoProfile", "-STA", "-Command", winFolderDialogScript(DIR_PROMPT)];
+  const dialog = `$d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join "\`n" }`;
   return ["-NoProfile", "-STA", "-Command", `Add-Type -AssemblyName System.Windows.Forms; ${dialog}`];
 }
 

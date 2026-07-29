@@ -16,6 +16,7 @@ import {
   saveAppConfig,
   mergeConfigUpdate,
   toPublicAppConfig,
+  unknownKeysOf,
   type AppConfig,
 } from "./app-config.js";
 import { type HeaderConfig } from "./header-config.js";
@@ -64,6 +65,14 @@ export function getProviders(): Provider[] {
   return config.providers;
 }
 
+// The ids of the user's own colour schemes (#996), read live like the providers above. A
+// directory may pin one in its `.mulmoterminal.json`, and the dir loader needs to know which
+// names resolve — an id matching neither a built-in nor one of these is a typo, and is dropped
+// so it shows up in Settings' Directory settings instead of silently painting the default.
+export function getCustomThemeIds(): string[] {
+  return config.themes.map((theme) => theme.id);
+}
+
 // The global terminal-header buttons/chips — read live so /api/header reflects a config
 // change on the next fetch without a restart.
 export function getHeaderConfig(): HeaderConfig {
@@ -72,8 +81,19 @@ export function getHeaderConfig(): HeaderConfig {
 
 // Whether to send a Web Push when a task finishes — read live at the Stop hook so a
 // settings toggle takes effect without a restart.
+// Whether the user opted in to MulmoTerminal writing on their issues (#979). Read live, like the
+// rest: turning it off must stop the next comment, not the next restart.
+export function getIssueWorkComments(): boolean {
+  return config.issueWorkComments;
+}
+
 export function getPushEnabled(): boolean {
   return config.pushEnabled;
+}
+
+// Read live so toggling the setting takes effect on the next timer tick, without a restart.
+export function getDecisionDigestEnabled(): boolean {
+  return config.decisionDigest;
 }
 
 // Which kinds of push the user wants (#850). Read live so unticking one in Settings takes
@@ -105,6 +125,13 @@ export function getTerminalSubmit(): TerminalSubmitMode {
 // safe direction for a switch whose off state is invisible.
 export function getPrWorkdirFooter(): boolean {
   return loadAppConfig(CONFIG_FILE).prWorkdirFooter;
+}
+
+// Whether a spawned session carries the built-in closing-summary instructions (#1062). Read from
+// disk per spawn for the same reason as the footer above: it has no Settings control, so served
+// from memory a hand-edit would need a server restart to take effect.
+export function getAppendSystemPrompt(): boolean {
+  return loadAppConfig(CONFIG_FILE).appendSystemPrompt;
 }
 
 export function mountConfigRoutes(app: Express, claudeCwd: string): void {
@@ -156,7 +183,9 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
     const next = mergeConfigUpdate(base, body);
     // Stage, persist, commit in-memory only on success — a failed write must not
     // leave GET exposing values that won't survive a restart.
-    if (!saveAppConfig(CONFIG_FILE, next)) return res.status(500).json({ error: "failed to persist config" });
+    // Carry the keys this build doesn't know straight back to disk. Another version's setting
+    // must not disappear because this one saved over it (#966).
+    if (!saveAppConfig(CONFIG_FILE, next, unknownKeysOf(loaded))) return res.status(500).json({ error: "failed to persist config" });
     config = next;
     res.json(configResponse());
   });

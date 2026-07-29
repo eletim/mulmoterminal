@@ -17,9 +17,26 @@ import type { Launcher, LaunchPick } from "./launchers";
 import { shouldFlipZoom } from "./cellChromeRules";
 import { formatCwd } from "./cwdDisplay";
 import FilesPane, { type FilesPaneState } from "./FilesPane.vue";
-import { clampPaneWidth, splitterKeyWidth, MIN_GUI, MIN_TERMINAL } from "./splitterWidth";
+import GuiPanel from "./GuiPanel.vue";
+import ToolsPane from "./ToolsPane.vue";
+import {
+  clampPaneWidth,
+  clampSecondary,
+  splitterKeySize,
+  splitterKeyWidth,
+  MIN_GUI,
+  MIN_ROSTER,
+  MIN_STRIP,
+  MIN_TERMINAL,
+  MIN_TERMINAL_HEIGHT,
+  TERMINAL_STRIP,
+} from "./splitterWidth";
 import { setFilesPaneOpener } from "../composables/filesPaneOpener";
 import { paneCanShowClick } from "./paneClickTarget";
+import { usePubSub } from "../composables/usePubSub";
+import { TOOL_GROUPS_CHANNEL } from "../toolGroupsChannel";
+import { hasCanvasGroup } from "../../common/toolGroups";
+import type { RightPane } from "./gridCell";
 import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
@@ -140,10 +157,28 @@ const remember = (key: string, value: string): void => {
     // storage blocked: the pane still works this session, it just isn't remembered
   }
 };
-const filesOpen = ref(stored(PANE_OPEN_KEY) === "1");
+// Which pane holds the one slot beside the enlarged terminal (see gridCell.ts):
+//   files  — the file tree/editor (the original occupant).
+//   canvas — what the agent DREW: the GUI plugin views for this cell's session.
+//   tools  — which GUI tools this session actually has, read-only.
+const isRightPane = (value: string | null): value is RightPane => value === "files" || value === "canvas" || value === "tools";
+// The key used to hold a boolean, where "1" meant the files pane was open — so an existing
+// browser is migrated rather than silently starting closed.
+function restoredPane(value: string | null): RightPane | null {
+  if (isRightPane(value)) return value;
+  return value === "1" ? "files" : null;
+}
+const rightPane = ref<RightPane | null>(restoredPane(stored(PANE_OPEN_KEY)));
+const filesOpen = computed(() => rightPane.value === "files");
 const paneWidth = ref(Number(stored(PANE_WIDTH_KEY)) || PANE_WIDTH_DEFAULT);
 const zoomRow = ref<HTMLElement | null>(null);
-const rowWidth = () => zoomRow.value?.clientWidth ?? 0;
+// A separator is `flex-none` and belongs to NEITHER side, so counting its 5px as usable is how a
+// terminal ends up just under its floor. Subtracted from every space a splitter divides.
+const SEPARATOR_PX = 5;
+// The pane keeps its 1px left border even with its content squeezed to nothing, so that pixel
+// exists for as long as the pane is open and is not the terminal's to spend either.
+const PANE_CHROME_PX = SEPARATOR_PX + 1;
+const rowWidth = () => Math.max(0, (zoomRow.value?.clientWidth ?? 0) - (rightPane.value ? PANE_CHROME_PX : 0));
 // Mirrored into a ref so the separator can announce its range (a plain function call would not
 // re-render when the row resizes). The pane's floor gives way to the terminal's on a narrow row,
 // which is why the minimum is itself clamped.
@@ -152,30 +187,123 @@ const paneMax = computed(() => Math.max(0, rowWidthNow.value - MIN_TERMINAL));
 const paneMin = computed(() => Math.min(MIN_GUI, paneMax.value));
 
 function setFilesOpen(open: boolean): void {
-  if (!open) rememberPaneState(paneUid.value);
-  filesOpen.value = open;
-  // Closing drops the cell it was on, so re-opening lands on whichever cell is enlarged THEN
-  // rather than resuming a directory the user has since walked away from.
-  if (!open) {
+  setRightPane(open ? "files" : null);
+}
+
+// Switching panes is the same event as closing the files one, because the files pane unmounts
+// either way — so its buffer has to be saved on both paths, not just on close.
+function setRightPane(pane: RightPane | null): void {
+  const leavingFiles = filesOpen.value && pane !== "files";
+  if (leavingFiles) rememberPaneState(paneUid.value);
+  rightPane.value = pane;
+  // Leaving files drops the cell it was on, so coming back lands on whichever cell is enlarged
+  // THEN rather than resuming a directory the user has since walked away from.
+  if (leavingFiles) {
     paneCwd.value = null;
     paneUid.value = null;
   }
-  remember(PANE_OPEN_KEY, open ? "1" : "0");
+  remember(PANE_OPEN_KEY, pane ?? "");
 }
 
 // The header toggle. Closing unmounts the pane, buffer and all, so the buffer is saved on the
 // way out — the pane's OWN close button has already flushed by the time it emits, which is why
 // that path stays separate rather than routing through here.
 async function toggleFiles(): Promise<void> {
-  // Closing unmounts the buffer with the pane, so a buffer that could be neither saved nor
-  // backed up keeps the pane open — the error is visible in it.
+  await toggleRightPane("files");
+}
+
+// The unread-canvas chip on a tiled cell: enlarge that cell AND put the pane beside it, in one
+// click. Two steps because the pane only exists while a cell is enlarged — asking the user to
+// expand first and then find the button is the gesture this chip exists to remove.
+async function openCanvasFor(uid: number): Promise<void> {
   if (filesOpen.value && (await filesPane.value?.flush()) === false) return;
-  setFilesOpen(!filesOpen.value);
+  if (props.expandedUid !== uid) emit("toggle-expand", uid);
+  setRightPane("canvas");
+}
+
+// A pane button: opens its pane, or closes it when it is already the one showing.
+async function toggleRightPane(pane: RightPane): Promise<void> {
+  // Leaving files unmounts the buffer with the pane, so a buffer that could be neither saved
+  // nor backed up keeps it open — the error is visible in it. Checked whichever pane was asked
+  // for: files unmounts when another pane takes the slot exactly as it does when closed.
+  if (filesOpen.value && (await filesPane.value?.flush()) === false) return;
+  setRightPane(rightPane.value === pane ? null : pane);
 }
 
 // The enlarged cell's project dir — what the pane browses. A cell that hasn't reported one yet
 // (a launcher, a session still starting) falls back to the grid's default.
 const expandedCwd = computed(() => props.cells.find((c) => c.uid === props.expandedUid)?.cwd ?? props.defaultCwd);
+
+// The enlarged cell's session — what Canvas and Tools read. Null for a cell with no session
+// yet (a launcher, a command cell), which both panes already render as empty.
+const expandedSessionId = computed(() => props.cells.find((c) => c.uid === props.expandedUid)?.session ?? null);
+
+// GUI -> LLM for the enlarged cell (a submitted form's answer). App.vue routes this through the
+// single view's Terminal ref; here the slot key is derivable from the uid, so the connection
+// runtime can be addressed directly rather than threading a component ref through the Teleport.
+function sendToExpandedCell(text: string): boolean {
+  return props.expandedUid === null ? false : conn.submitText(`cell-${props.expandedUid}`, text);
+}
+
+// Does the enlarged cell's session have the drawing tools? Only the server knows: a grid cell
+// reaches them through the user's own per-folder MCP config, and the server learns which groups
+// a session has from the URLs it connects to.
+//
+// Re-asked on every expand, not only when the session id changes: a cell that has just started
+// may not have connected its MCP client yet, and re-expanding is how a user retries anything.
+const canvasAvailable = ref(false);
+// Whether the answer above has come back yet for the CURRENT cell. Without it the panel says
+// "not enabled for this session" for the moment between switching cells and the reply landing
+// — a wrong explanation is worse than none, so nothing is claimed until it is known.
+const canvasChecked = ref(false);
+watch(
+  [expandedSessionId, () => props.expandedUid],
+  async ([sessionId]) => {
+    canvasAvailable.value = false;
+    canvasChecked.value = false;
+    if (!sessionId) return;
+    try {
+      const res = await fetch(`/api/tools?sessionId=${encodeURIComponent(sessionId)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      // Late reply for a cell we have since walked away from would show the wrong button.
+      if (sessionId !== expandedSessionId.value) return;
+      // The GROUPS, not the tool names. Every cell here is a grid cell, so "has a canvas group"
+      // is the whole question — and matching on a `present*` prefix would count
+      // presentCollection, which belongs to `data` and draws nothing without the collection
+      // store behind it.
+      canvasAvailable.value = hasCanvasGroup(body.groups);
+      canvasChecked.value = true;
+    } catch {
+      // Unreachable server: no button rather than one that opens an empty panel. Left unchecked
+      // so the panel does not blame the session for what is our own failure to ask.
+      if (sessionId === expandedSessionId.value) canvasAvailable.value = false;
+    }
+  },
+  { immediate: true },
+);
+
+// The answer above is normally asked BEFORE it can be true: the browser is handed a session id
+// while claude is still being spawned, so its MCP client has not connected yet. Waiting for the
+// server to say so is what stops that first "no" from standing until the user collapses and
+// re-expands the cell.
+const { subscribe: subscribeToolGroups } = usePubSub();
+const offToolGroups = subscribeToolGroups(TOOL_GROUPS_CHANNEL, (data) => {
+  const msg = data as { sessionId?: string; groups?: string[] };
+  if (!msg?.sessionId || msg.sessionId !== expandedSessionId.value) return;
+  canvasAvailable.value = hasCanvasGroup(msg.groups);
+  canvasChecked.value = true;
+});
+onBeforeUnmount(() => offToolGroups());
+
+// What the Canvas pane should say instead of its "ask Claude to draw something" hint. The pane
+// outlives the cell it was opened on, so walking the zoom lands it on cells that can never fill
+// it — a launcher or a command cell (no session), or a directory with no render MCP.
+const canvasUnavailable = computed<"no-session" | "no-canvas-mcp" | null>(() => {
+  if (!expandedSessionId.value) return "no-session";
+  if (canvasChecked.value && !canvasAvailable.value) return "no-canvas-mcp";
+  return null;
+});
 const filesPane = ref<InstanceType<typeof FilesPane> | null>(null);
 // What the pane looked like in each cell, so coming back to a terminal doesn't mean opening
 // the same three directories again. Saved state only — the buffer went to disk on the way out
@@ -282,27 +410,50 @@ const snapshotOnLeave = (): void => rememberPaneState(paneUid.value);
 onMounted(() => window.addEventListener("pagehide", snapshotOnLeave));
 onBeforeUnmount(() => window.removeEventListener("pagehide", snapshotOnLeave));
 
-function setPaneWidth(width: number): void {
-  const available = rowWidth();
+// `available` is passed only by the roster splitter, which knows the row's NEW width before the
+// browser has laid it out — reading the DOM mid-drag measures the row as it was a frame ago, and
+// the pane then keeps a width the row no longer has.
+function setPaneWidth(width: number, available = rowWidth()): void {
   rowWidthNow.value = available;
   // Before the row is laid out there is nothing to clamp against, and clamping against zero
   // would "correct" the width to a negative one.
   if (available <= 0) return;
   paneWidth.value = clampPaneWidth(width, available);
 }
-function onSplitterDown(e: PointerEvent): void {
-  const startX = e.clientX;
-  const startWidth = paneWidth.value;
-  // Dragging LEFT grows the pane, so the delta is subtracted.
-  const onMove = (ev: PointerEvent) => setPaneWidth(startWidth - (ev.clientX - startX));
-  const onUp = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    remember(PANE_WIDTH_KEY, String(paneWidth.value));
+/** One splitter drag: follow the pointer until it is released, then remember where it landed.
+ *  Shared by all three separators beside an enlarged cell (#1077).
+ *
+ *  `resize` — the pointer's travel along the axis turned into a new size — is the caller's,
+ *  because the SIGN is the only thing that differs between them and it is the part worth
+ *  reading at the call site: a side before its separator grows as the pointer advances, a side
+ *  after it shrinks. */
+function dragSplitter(spec: {
+  axis: (e: PointerEvent) => number;
+  size: () => number;
+  resize: (start: number, travel: number) => void;
+  key: string;
+}): (e: PointerEvent) => void {
+  return (e) => {
+    const origin = spec.axis(e);
+    const start = spec.size();
+    const onMove = (ev: PointerEvent) => spec.resize(start, spec.axis(ev) - origin);
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      remember(spec.key, String(spec.size()));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
 }
+
+// Dragging LEFT grows the file pane: it lies AFTER its separator.
+const onSplitterDown = dragSplitter({
+  axis: (e) => e.clientX,
+  size: () => paneWidth.value,
+  resize: (start, travel) => setPaneWidth(start - travel),
+  key: PANE_WIDTH_KEY,
+});
 // The keys act on the TERMINAL's width (ArrowLeft shrinks it, growing the pane), which is what
 // splitterKeyWidth speaks — the pane's width is the remainder. Returning null means the key
 // isn't ours, and the separator must not swallow Tab or Escape.
@@ -329,6 +480,111 @@ watch([filesOpen, zoomed, () => props.listMode], async ([open, isZoomed]) => {
 });
 
 const stage = ref<HTMLElement | null>(null);
+
+// The other two splitters beside an enlarged cell: the roster's width in list mode, and the
+// thumbnail strip's height in strip mode (#1077). Both divide the STAGE — the file pane divides
+// the row inside it — so they are measured from `stage` rather than `zoomRow`.
+//
+// The roster sits BEFORE its terminal and the strip AFTER, which is the whole reason
+// splitterKeySize is told which side the terminal is on: an arrow key that moved the separator
+// the opposite way from the pointer would be worse than no keyboard support.
+const ROSTER_WIDTH_KEY = "roster_width";
+const STRIP_HEIGHT_KEY = "strip_height";
+const ROSTER_WIDTH_DEFAULT = 360;
+const STRIP_HEIGHT_DEFAULT = 150;
+const rosterWidth = ref(Number(stored(ROSTER_WIDTH_KEY)) || ROSTER_WIDTH_DEFAULT);
+const stripHeight = ref(Number(stored(STRIP_HEIGHT_KEY)) || STRIP_HEIGHT_DEFAULT);
+// Each stage splitter divides what is left after its own separator (see SEPARATOR_PX).
+const stageWidth = () => Math.max(0, (stage.value?.clientWidth ?? 0) - SEPARATOR_PX);
+const stageHeight = () => Math.max(0, (stage.value?.clientHeight ?? 0) - SEPARATOR_PX);
+
+// What has to survive to the RIGHT of the roster. The file pane is allowed to be squeezed to
+// nothing — it is the yielding side of its own splitter and reopens at whatever width is left —
+// but its separator is real estate that exists whenever it is open, so the terminal's floor has
+// to be stated on top of it. Without this the roster happily takes the pane's separator too and
+// the terminal lands a few pixels under its minimum.
+const rosterFloors = computed(() => ({ primary: MIN_TERMINAL + (rightPane.value ? PANE_CHROME_PX : 0), secondary: MIN_ROSTER }));
+// Mirrored into refs for the same reason paneMax is: a plain call would not re-render the
+// separator's announced range when the stage resizes.
+const stageWidthNow = ref(0);
+const stageHeightNow = ref(0);
+const rosterMax = computed(() => Math.max(0, stageWidthNow.value - rosterFloors.value.primary));
+const rosterMin = computed(() => Math.min(MIN_ROSTER, rosterMax.value));
+const stripMax = computed(() => Math.max(0, stageHeightNow.value - MIN_TERMINAL_HEIGHT));
+const stripMin = computed(() => Math.min(MIN_STRIP, stripMax.value));
+
+function setRosterWidth(width: number): void {
+  const available = stageWidth();
+  stageWidthNow.value = available;
+  if (available <= 0) return; // nothing to clamp against yet; see setPaneWidth
+  rosterWidth.value = clampSecondary(width, available, rosterFloors.value);
+  // The row the terminal shares with the file pane is what the roster just took from, so the
+  // pane is re-clamped against the width the row is ABOUT to have. Computed rather than measured
+  // for the reason setPaneWidth's parameter exists.
+  if (rightPane.value) setPaneWidth(paneWidth.value, available - rosterWidth.value - PANE_CHROME_PX);
+}
+
+function setStripHeight(height: number): void {
+  const available = stageHeight();
+  stageHeightNow.value = available;
+  if (available <= 0) return;
+  stripHeight.value = clampSecondary(height, available, TERMINAL_STRIP);
+}
+
+// Dragging RIGHT grows the roster: it lies BEFORE its separator.
+const onRosterSplitterDown = dragSplitter({
+  axis: (e) => e.clientX,
+  size: () => rosterWidth.value,
+  resize: (start, travel) => setRosterWidth(start + travel),
+  key: ROSTER_WIDTH_KEY,
+});
+
+// Dragging DOWN shrinks the strip: it lies AFTER its separator.
+const onStripSplitterDown = dragSplitter({
+  axis: (e) => e.clientY,
+  size: () => stripHeight.value,
+  resize: (start, travel) => setStripHeight(start - travel),
+  key: STRIP_HEIGHT_KEY,
+});
+
+// The keys speak the TERMINAL's size (the primary), like the file pane's; each stored size is
+// the remainder.
+function onRosterSplitterKey(e: KeyboardEvent): void {
+  const available = stageWidth();
+  const next = splitterKeySize(e.key, available - rosterWidth.value, available, rosterFloors.value, "horizontal", "after");
+  if (next === null) return;
+  e.preventDefault();
+  setRosterWidth(available - next);
+  remember(ROSTER_WIDTH_KEY, String(rosterWidth.value));
+}
+
+function onStripSplitterKey(e: KeyboardEvent): void {
+  const available = stageHeight();
+  const next = splitterKeySize(e.key, available - stripHeight.value, available, TERMINAL_STRIP, "vertical", "before");
+  if (next === null) return;
+  e.preventDefault();
+  setStripHeight(available - next);
+  remember(STRIP_HEIGHT_KEY, String(stripHeight.value));
+}
+
+// Same reason the pane re-clamps: a size restored from storage was clamped against whatever
+// stage existed when it was stored, and a window can have shrunk since.
+//
+// Opening a right-hand pane moves the roster's floor too (PANE_CHROME_PX), which is why
+// `rightPane` is watched below: a roster already sitting at its old maximum would otherwise stay
+// there and leave the terminal a few pixels under its minimum until something else nudged it.
+const reclampStage = () => {
+  if (!zoomed.value) return;
+  if (props.listMode) setRosterWidth(rosterWidth.value);
+  else setStripHeight(stripHeight.value);
+};
+onMounted(() => window.addEventListener("resize", reclampStage));
+onBeforeUnmount(() => window.removeEventListener("resize", reclampStage));
+watch([zoomed, () => props.listMode, rightPane], async () => {
+  await nextTick();
+  reclampStage();
+});
+
 // The cells currently flying between slots. Also gates the stylesheet: the cells not in
 // flight fade in under them, and the stage stops taking clicks until the batch lands.
 const flippingUids = ref<Set<number>>(new Set());
@@ -421,7 +677,8 @@ watch(
       v-if="zoomed && listMode"
       ref="roster"
       data-testid="cockpit"
-      class="flex min-w-0 shrink-0 grow-0 basis-[360px] flex-col gap-[5px] overflow-y-auto bg-deep p-1.5"
+      class="flex min-w-0 shrink-0 grow-0 flex-col gap-[5px] overflow-y-auto bg-deep p-1.5"
+      :style="{ flexBasis: `${rosterWidth}px` }"
     >
       <div
         v-for="row in listRows"
@@ -485,27 +742,45 @@ watch(
         >
       </div>
     </aside>
+    <!-- Roster | enlarged cell. Same separator as the file pane's, mirrored: the roster is BEFORE
+         it, so the pointer and the arrow keys both move it the other way (#1077). -->
+    <div
+      v-if="zoomed && listMode"
+      data-testid="roster-splitter"
+      class="w-[5px] flex-none cursor-col-resize bg-border hover:bg-accent focus-visible:bg-accent"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the roster"
+      :aria-valuenow="rosterWidth"
+      :aria-valuemin="rosterMin"
+      :aria-valuemax="rosterMax"
+      title="Drag (or use arrow keys) to resize the roster"
+      tabindex="0"
+      @pointerdown.prevent="onRosterSplitterDown"
+      @keydown="onRosterSplitterKey"
+    />
     <!-- The enlarged cell and its file pane, side by side. A row wrapper rather than two more
          siblings of the stage: the stage is a ROW in list mode (roster | terminal) and a COLUMN
          in strip mode (terminal / filmstrip), so only nesting puts the pane beside the terminal
          in both. Hidden outright when nothing is zoomed, like .zoom-main itself. -->
     <div ref="zoomRow" :class="zoomed ? 'flex min-h-0 min-w-0 flex-auto' : 'hidden'">
       <div ref="zoomMain" class="zoom-main" />
-      <template v-if="filesOpen">
+      <template v-if="rightPane">
         <div
           class="w-[5px] flex-none cursor-col-resize bg-border hover:bg-accent focus-visible:bg-accent"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize file pane"
+          aria-label="Resize side pane"
           :aria-valuenow="paneWidth"
           :aria-valuemin="paneMin"
           :aria-valuemax="paneMax"
-          title="Drag (or use arrow keys) to resize the file pane"
+          title="Drag (or use arrow keys) to resize the side pane"
           tabindex="0"
           @pointerdown.prevent="onSplitterDown"
           @keydown="onSplitterKey"
         />
         <FilesPane
+          v-if="rightPane === 'files'"
           ref="filesPane"
           :cwd="paneCwd"
           :initial-state="paneState"
@@ -520,9 +795,47 @@ watch(
             <span class="truncate font-mono text-[11px] text-muted" :title="paneCwd ?? ''">{{ formatCwd(paneCwd, home) }}</span>
           </template>
         </FilesPane>
+        <!-- Canvas and Tools follow the enlarged cell's SESSION, not its directory, and neither
+             holds an unsaved buffer — so unlike the files pane they re-root unconditionally and
+             need none of its decline-a-re-root machinery. -->
+        <GuiPanel
+          v-else-if="rightPane === 'canvas'"
+          :session-id="expandedSessionId"
+          :send-text-message="sendToExpandedCell"
+          :unavailable="canvasUnavailable"
+          :style="{ flex: `0 0 ${paneWidth}px` }"
+          @toggle-tools="toggleRightPane('tools')"
+        />
+        <ToolsPane
+          v-else-if="rightPane === 'tools'"
+          :session-id="expandedSessionId"
+          :style="{ flex: `0 0 ${paneWidth}px` }"
+          class="border-l border-border"
+          @close="setRightPane(null)"
+        />
       </template>
     </div>
-    <div class="grid" :style="gridStyle">
+    <!-- Enlarged cell / thumbnail strip. The stage is a COLUMN in strip mode, so this separator
+         is the horizontal one — dragged up and down, and driven by Up/Down rather than Left/Right. -->
+    <div
+      v-if="zoomed && !listMode"
+      data-testid="strip-splitter"
+      class="h-[5px] flex-none cursor-row-resize bg-border hover:bg-accent focus-visible:bg-accent"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the thumbnail strip"
+      :aria-valuenow="stripHeight"
+      :aria-valuemin="stripMin"
+      :aria-valuemax="stripMax"
+      title="Drag (or use arrow keys) to resize the thumbnail strip"
+      tabindex="0"
+      @pointerdown.prevent="onStripSplitterDown"
+      @keydown="onStripSplitterKey"
+    />
+    <!-- In strip mode the grid IS the thumbnail strip, and its height is the user's (#1077). The
+         stylesheet's `flex: 0 0 150px` stays as the default; an inline basis outranks it, and is
+         bound only in that mode so it cannot reach the tiled grid or list mode's off-screen one. -->
+    <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]">
       <Teleport v-for="cell in cells" :key="cell.uid" :to="zoomMain" :disabled="!(zoomed && cell.uid === expandedUid)">
         <CommandCell
           v-if="cell.command"
@@ -530,12 +843,17 @@ watch(
           :class="cellClass(cell.uid)"
           :expanded="cell.uid === expandedUid"
           :files-open="filesOpen"
+          :right-pane="rightPane"
+          :canvas-available="canvasAvailable"
           :zoomed="zoomed"
           :command="cell.command"
           :home="home"
           :reorderable="reorderable"
           @toggle-expand="emit('toggle-expand', cell.uid)"
           @toggle-files="toggleFiles"
+          @toggle-canvas="toggleRightPane('canvas')"
+          @open-canvas="openCanvasFor(cell.uid)"
+          @toggle-tools="toggleRightPane('tools')"
           @close="emit('close', cell.uid)"
           @move="(dir) => emit('move', cell.uid, dir)"
           @status="(s) => emit('status', cell.uid, s)"
@@ -547,6 +865,8 @@ watch(
           :class="cellClass(cell.uid)"
           :expanded="cell.uid === expandedUid"
           :files-open="filesOpen"
+          :right-pane="rightPane"
+          :canvas-available="canvasAvailable"
           :zoomed="zoomed"
           :launcher="cell.launcher"
           :session="cell.session"
@@ -555,6 +875,9 @@ watch(
           :reorderable="reorderable"
           @toggle-expand="emit('toggle-expand', cell.uid)"
           @toggle-files="toggleFiles"
+          @toggle-canvas="toggleRightPane('canvas')"
+          @open-canvas="openCanvasFor(cell.uid)"
+          @toggle-tools="toggleRightPane('tools')"
           @close="emit('close', cell.uid)"
           @move="(dir) => emit('move', cell.uid, dir)"
           @status="(s) => emit('status', cell.uid, s)"
@@ -567,6 +890,8 @@ watch(
           :class="cellClass(cell.uid)"
           :expanded="cell.uid === expandedUid"
           :files-open="filesOpen"
+          :right-pane="rightPane"
+          :canvas-available="canvasAvailable"
           :zoomed="zoomed"
           :initial-session-id="cell.session"
           :initial-cwd="cell.cwd"
@@ -581,6 +906,9 @@ watch(
           :reorderable="reorderable"
           @toggle-expand="emit('toggle-expand', cell.uid)"
           @toggle-files="toggleFiles"
+          @toggle-canvas="toggleRightPane('canvas')"
+          @open-canvas="openCanvasFor(cell.uid)"
+          @toggle-tools="toggleRightPane('tools')"
           @session="(id) => emit('session', cell.uid, id)"
           @agent="(a) => emit('agent', cell.uid, a)"
           @cwd="(c) => emit('cwd', cell.uid, c)"

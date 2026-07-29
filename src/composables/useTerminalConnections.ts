@@ -26,7 +26,7 @@
 // (`cell-<uid>`), the single view's `single`, or an ephemeral id for command/Run
 // terminals (which are NOT persisted — their process is unresumable, so their slot
 // is released on unmount like before).
-import { reactive } from "vue";
+import { reactive, watch } from "vue";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -46,7 +46,9 @@ import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type En
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
+import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
+import { sendBytesFor, type Keymap, type KeymapKeyEvent } from "../../common/keymap";
 import { getActiveKeymap } from "./activeKeymap";
 import { isCopyOnSelectEnabled } from "./copyOnSelect";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
@@ -70,6 +72,23 @@ type EnterHandlerEvent = EnterKeyEvent & { preventDefault: () => void };
 export function makeEnterHandler(getMode: () => TerminalSubmitMode, send: (data: string) => void): (e: EnterHandlerEvent) => boolean {
   return (e) => {
     const bytes = enterKeyOverride(getMode(), e);
+    if (bytes === null) return true;
+    e.preventDefault();
+    send(bytes);
+    return false;
+  };
+}
+
+// The user's `keymap.send` bindings, turned into bytes on this terminal's PTY (#1005) — the
+// same three lines as the Enter handler above, and `preventDefault()` matters here for the same
+// reason: without it xterm leaves the browser to fire a keypress that arrives as stray input.
+//
+// Per terminal rather than on the grid's handler, because the bytes go to ONE pty — the one
+// whose xterm saw the key — and the grid has no such subject when nothing is enlarged.
+type SendHandlerEvent = KeymapKeyEvent & { type: string; isComposing?: boolean; preventDefault: () => void };
+export function makeSendHandler(getKeymap: () => Keymap, send: (data: string) => void): (e: SendHandlerEvent) => boolean {
+  return (e) => {
+    const bytes = sendBytesFor(getKeymap(), e);
     if (bytes === null) return true;
     e.preventDefault();
     send(bytes);
@@ -321,7 +340,7 @@ function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): v
     clearResetModes(swallowedMouseModes, params);
     return false;
   });
-  guardMouseWheel(term, swallowedMouseModes);
+  guardMouseWheel(term, swallowedMouseModes, getTerminalScrollSpeed);
 }
 
 // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
@@ -334,10 +353,19 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
   };
   term.onData(send);
   const onEnter = makeEnterHandler(() => effectiveSubmitMode(c), send);
+  const onSend = makeSendHandler(getActiveKeymap, send);
   // Clipboard first: it answers for at most two bindings and, when it answers, the key must
   // NOT be turned into bytes. Returning false here (without preventDefault) is what lets the
   // browser run the copy/paste xterm already listens for — see common/terminalClipboard.ts.
-  term.attachCustomKeyEventHandler((e) => (clipboardActionFor(getActiveKeymap(), e, term.hasSelection()) ? false : onEnter(e)));
+  //
+  // Then `send`, then Enter. Order only decides a key bound BOTH ways, and it settles it the way
+  // the more specific binding should win: copy/paste answer for at most two keys, and a `send`
+  // on Enter is someone deliberately overriding the submit behaviour for this one keystroke.
+  term.attachCustomKeyEventHandler((e) => {
+    if (clipboardActionFor(getActiveKeymap(), e, term.hasSelection())) return false;
+    if (!onSend(e)) return false;
+    return onEnter(e);
+  });
 }
 
 // Linkify file paths in the output, scoped to the session's live cwd (read lazily, since
@@ -370,6 +398,10 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
     cursorBlink: true,
     fontSize: font.size,
     fontFamily: font.family,
+    // The scrollback half of the scroll-speed setting (the alternate buffer's half is the wheel
+    // accumulator in ./terminalMouseInput). Read here rather than passed in: it is one per-browser
+    // value for every terminal, and setScrollSpeed() below carries a change to the live ones.
+    scrollSensitivity: getTerminalScrollSpeed(),
     // Treat macOS Option as Meta so Claude's Alt bindings reach the PTY — Alt+Enter
     // (newline), Alt+B/F (word nav), Alt+Backspace (delete word). The cost is Option
     // dead-key accent entry (é etc.), which a coding terminal doesn't need.
@@ -410,12 +442,16 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   // A fixed-grid renderer makes that structurally impossible.
   //
   // CAVEAT — version mismatch: @xterm/addon-canvas is xterm-5 era (its peerDependency is
-  // `@xterm/xterm@^5`, and there is no stable xterm-6 build — even 0.8.0-beta still peers ^5), but the
-  // app runs @xterm/xterm@6. It renders, but this xterm-5 renderer on xterm-6 internals is the
-  // suspected cause of broken selection auto-scroll + scrollbar (#782) and OSC 8 link click (#783),
-  // all of which regressed when this was introduced. Don't just bump the addon; the real fix is a
-  // renderer decision — WebGL keeps the fixed grid (so the CJK drift above stays fixed), the DOM
-  // renderer drops the dependency but risks that drift. Read #782 before touching this.
+  // `@xterm/xterm@^5`, and there is no xterm-6 build — even 0.8.0-beta still peers ^5), but the app
+  // runs @xterm/xterm@6. It renders, and it is NOT known to break anything: an earlier version of
+  // this comment named it the suspected cause of #782 (selection auto-scroll + scrollbar) and #783
+  // (OSC 8 links), and measurement disproved both. #782 is tmux owning the scrollback — the outer
+  // xterm only ever receives the visible screen — and reproduced identically with the addon off.
+  // #783 was tmux stripping hyperlinks (fixed in #785). Neither is a reason to change renderer.
+  //
+  // What the mismatch DOES mean is that a future xterm bump cannot be repaired by bumping this
+  // addon, because no such release exists — see the Renderer section of docs/terminal-notes.md for
+  // what to move to on the day it breaks, and what to settle before moving.
   // Best-effort: if the canvas renderer can't initialise, xterm keeps the DOM renderer.
   try {
     term.loadAddon(new CanvasAddon());
@@ -585,7 +621,7 @@ function handleMessage(c: Conn, event: MessageEvent) {
     // exit / superseded / error — a terminal message. messageEffect decides which retries,
     // which fires onExit (NOT superseded — the session is alive in another tab), and the
     // wording; this applies it.
-    const effect = messageEffect(msg.type, !!c.target.command, msg.message);
+    const effect = messageEffect(msg.type, !!c.target.command, msg.message, exitCodeOf(msg));
     if (!effect.terminal) return;
     c.sawExit = true;
     if (effect.banner) c.term.write(effect.banner);
@@ -842,3 +878,19 @@ export function setFont(key: string, font: TerminalFont) {
   applyFont(c, font);
   fitAndSyncSize(c);
 }
+
+// The scroll speed changes nothing about the cell metrics, so unlike setFont this needs no
+// re-fit. Applied to EVERY slot, not one: the setting is per browser, and a terminal in another
+// grid cell that kept the old speed would look like the setting only half worked. The alternate
+// buffer's wheel handler reads the same value per event, so it needs no push.
+export function setScrollSpeed(speed: number) {
+  conns.forEach((c) => {
+    c.term.options.scrollSensitivity = speed;
+  });
+}
+
+// Watched here, at module scope, rather than in Terminal.vue the way the font is: the font is a
+// per-slot value (a directory can pin its own), the scroll speed is one value for the browser, so
+// a per-component watch would run the same global update once per open terminal. This manager
+// outlives every component, which is exactly the lifetime the watch wants.
+watch(getTerminalScrollSpeed, setScrollSpeed);

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import SettingsModal from "../../../src/components/SettingsModal.vue";
 import { VOICE_LANGUAGES } from "../../../src/composables/voiceLanguage";
+import { useTheme } from "../../../src/composables/useTheme";
 
 const mountModal = (props: Record<string, unknown> = {}) => mount(SettingsModal, { props });
 
@@ -10,6 +11,31 @@ function clickBtn(w: ReturnType<typeof mount>, match: (text: string) => boolean)
   if (!btn) throw new Error("button not found");
   return btn.trigger("click");
 }
+
+describe("SettingsModal theme picker", () => {
+  // The theme state is a module singleton read at import time, so the selection has to be made
+  // through its own API — writing localStorage in the test would be read by nothing.
+  const themeRadios = (w: ReturnType<typeof mount>) => w.findAll('[role="radio"]').filter((r) => r.attributes("title") !== undefined);
+  const tabStops = (w: ReturnType<typeof mount>) => themeRadios(w).filter((r) => r.attributes("tabindex") === "0");
+
+  it("makes the selected theme the tab stop", () => {
+    useTheme().setTheme("nord");
+    const w = mountModal();
+    expect(tabStops(w)).toHaveLength(1);
+    expect(tabStops(w)[0].text()).toContain("Nord");
+  });
+
+  // Codex review on #996: with a selection naming a theme that isn't in the list — the
+  // missing-theme case this build introduced — nothing matched, so every option was
+  // tabindex="-1" and a keyboard user could not reach the picker the notice tells them to use.
+  it("keeps one tab stop when the selection names a theme that is gone", () => {
+    useTheme().setTheme("vanished-theme");
+    const w = mountModal();
+    expect(w.find('[data-testid="theme-missing"]').exists()).toBe(true);
+    expect(tabStops(w)).toHaveLength(1);
+    useTheme().setTheme("midnight");
+  });
+});
 
 describe("SettingsModal", () => {
   it("no longer renders the directory-presets editor (presets are auto-managed)", () => {

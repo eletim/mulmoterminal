@@ -11,7 +11,7 @@
 
 export interface CodexResumeFacts {
   // The rollout id this server recorded for the key, if it started that session.
-  mappedRolloutId?: string | null;
+  mappedRolloutId?: string | null | undefined;
   // Whether the key is itself the id of a rollout on disk (the sidebar hands these over).
   // A thunk, not a value: it reads the filesystem, and a reattach must not pay for a probe
   // whose answer it is about to discard.

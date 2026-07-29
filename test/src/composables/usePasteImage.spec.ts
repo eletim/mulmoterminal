@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createImagePasteHandler, savePastedImage } from "../../../src/composables/usePasteImage";
+import { createImagePasteHandler } from "../../../src/composables/usePasteImage";
 
+const SESSION = "11111111-2222-3333-4444-555555555555";
 const png = () => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", { type: "image/png" });
 
 // jsdom has no clipboard, and the handler only reads what the browser reports.
@@ -19,39 +20,55 @@ function pasteEvent(types: string[], file: File | null): ClipboardEvent {
 const jsonResponse = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
 
 // The handler is fire-and-forget by design (it must claim the event synchronously), so the
-// assertion has to wait for FileReader + fetch rather than for a fixed number of ticks — a
-// fixed wait passes alone and fails in a loaded full-suite run.
+// assertions wait for the upload rather than for a fixed number of ticks — a fixed wait passes
+// alone and fails in a loaded full-suite run.
 
 describe("createImagePasteHandler", () => {
   beforeEach(() => vi.restoreAllMocks());
   afterEach(() => vi.unstubAllGlobals());
 
+  const handler = (insertText: (text: string) => void, onError: (message: string) => void) =>
+    createImagePasteHandler({ sessionId: () => SESSION, insertText, onError });
+
   it("saves the image and inserts the returned absolute path at the cursor", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse(200, { path: "/Users/me/.mulmoterminal/tmp/pasted/pasted-20260727-090503-007.png" })),
+      vi.fn(async () => jsonResponse(200, { path: "/Users/me/.mulmoterminal/drops/s1/abc.png" })),
     );
     const insertText = vi.fn();
     const onError = vi.fn();
     const event = pasteEvent(["image/png"], png());
 
-    expect(createImagePasteHandler({ insertText, onError })(event)).toBe(true);
+    expect(handler(insertText, onError)(event)).toBe(true);
     // Claimed synchronously — xterm's own paste handlers run in this same tick.
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
 
-    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("/Users/me/.mulmoterminal/tmp/pasted/pasted-20260727-090503-007.png"));
+    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("/Users/me/.mulmoterminal/drops/s1/abc.png"));
     expect(onError).not.toHaveBeenCalled();
   });
 
   it("quotes a path that a shell would otherwise split", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse(200, { path: "/Users/me/My Dir/pasted-1.png" })),
+      vi.fn(async () => jsonResponse(200, { path: "/Users/me/My Dir/abc.png" })),
     );
     const insertText = vi.fn();
-    createImagePasteHandler({ insertText, onError: vi.fn() })(pasteEvent(["image/png"], png()));
-    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("'/Users/me/My Dir/pasted-1.png'"));
+    handler(insertText, vi.fn())(pasteEvent(["image/png"], png()));
+    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("'/Users/me/My Dir/abc.png'"));
+  });
+
+  // The point of folding #938 into #993: a pasted image travels the SAME upload as a dropped
+  // file, so there is one endpoint, one size cap and one retention policy rather than two.
+  it("uploads through the session's drop route, as raw bytes", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(200, { path: "/drops/x.png" }));
+    vi.stubGlobal("fetch", fetchMock);
+    handler(vi.fn(), vi.fn())(pasteEvent(["image/png"], png()));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`/api/session/${SESSION}/drop`);
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(File); // bytes, not a base64 data URL
   });
 
   // The whole point of the type check: a text paste must reach xterm untouched.
@@ -61,43 +78,37 @@ describe("createImagePasteHandler", () => {
     const insertText = vi.fn();
     const event = pasteEvent(["text/plain"], null);
 
-    expect(createImagePasteHandler({ insertText, onError: vi.fn() })(event)).toBe(false);
+    expect(handler(insertText, vi.fn())(event)).toBe(false);
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(event.stopPropagation).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(insertText).not.toHaveBeenCalled();
   });
 
-  it("reports the server's reason instead of inserting nothing", async () => {
+  it("reports a failed upload instead of leaving the paste looking like nothing happened", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse(413, { error: "image too large" })),
     );
     const insertText = vi.fn();
     const onError = vi.fn();
-    createImagePasteHandler({ insertText, onError })(pasteEvent(["image/png"], png()));
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("image too large"));
+    handler(insertText, onError)(pasteEvent(["image/png"], png()));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     expect(insertText).not.toHaveBeenCalled();
   });
-});
 
-describe("savePastedImage", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("posts the file as a data URL and returns the saved path", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(200, { path: "/Users/me/.mulmoterminal/tmp/pasted/pasted-1.png" }));
+  // The save directory is granted to a session at spawn time, so there is nowhere to put the
+  // bytes before one exists. The event is still claimed — the image must not reach the terminal
+  // as garbage — and the reason is said out loud.
+  it("says so when the cell has no session yet", () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    expect(await savePastedImage(png())).toBe("/Users/me/.mulmoterminal/tmp/pasted/pasted-1.png");
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/paste-image");
-    expect(JSON.parse(String(init.body)).dataUrl).toMatch(/^data:image\/png;base64,/);
-  });
+    const onError = vi.fn();
+    const event = pasteEvent(["image/png"], png());
 
-  it("throws when the response carries no path", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => jsonResponse(200, { ok: true })),
-    );
-    await expect(savePastedImage(png())).rejects.toThrow("the server returned no path");
+    expect(createImagePasteHandler({ sessionId: () => null, insertText: vi.fn(), onError })(event)).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("no session"));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,7 @@ import { z } from "zod";
 // Shared with the client dir-config parser so the two can't drift — see common/themeColors.ts.
 import { THEME_COLOR_KEYS } from "../../common/themeColors.js";
 import { THEME_IDS } from "../../common/themeIds.js";
+import { CUSTOM_THEME_ID_RE, THEME_VAR_KEYS, isBuiltinThemeId } from "../../common/themeVars.js";
 import { isUsableModelId } from "../../common/modelIds.js";
 import { normalizeFontSize, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../common/terminalFontSize.js";
 import { normalizeFontFamily, TERMINAL_FONT_FAMILY_MAX_CHARS, TERMINAL_FONT_FAMILY_SAFE_RE } from "../../common/terminalFontFamily.js";
@@ -27,7 +28,7 @@ import type { QuickCommand } from "../../common/quickCommands.js";
 
 export const VIEW_TARGETS = ["diff", "prs", "wiki", "collections", "accounting"] as const;
 export const RUN_TYPES = ["shell", "input", "open"] as const;
-export const BUILTIN_CHIPS = ["dir", "git", "ctx", "usage", "status", "diff", "tools"] as const;
+export const BUILTIN_CHIPS = ["dir", "git", "work", "ctx", "usage", "status", "diff", "tools"] as const;
 
 export const NAME_MAX_CHARS = 40;
 // Runtime caps (sanitizeButtons / sanitizeChips truncate past these), mirrored by the JSON Schema
@@ -40,7 +41,11 @@ const PALETTE_COLOR_RE = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 // ---- primitives ---------------------------------------------------------------------------
 
-export const themeIdSchema = z.enum(THEME_IDS);
+// NOT `z.enum(THEME_IDS)` any more (#996): a directory may pin a theme the user defined in
+// `themes`, whose id this schema cannot know. The shape is still checked, so a value can be an
+// attribute and a filename; whether it RESOLVES is decided at paint time, where a missing theme
+// is reported instead of silently falling back (useTheme.ts).
+export const themeIdSchema = z.string().regex(CUSTOM_THEME_ID_RE);
 export const viewTargetSchema = z.enum(VIEW_TARGETS);
 export const runTypeSchema = z.enum(RUN_TYPES);
 export const builtinChipSchema = z.enum(BUILTIN_CHIPS);
@@ -117,6 +122,35 @@ export const quickCommandSchema = z.object({
   text: z.string(),
   agents: z.array(z.enum(SESSION_AGENTS)).optional(),
 }) satisfies z.ZodType<QuickCommand>;
+
+// A colour scheme the user defined (#996), offered in Settings next to the four built-ins.
+//
+// The values land in CSS custom properties, so `paletteColor` is doing security work here, not
+// just tidiness: a value that escaped the hex shape would be injected into a style declaration.
+//
+// `extends` is optional. With it, `colors` is a diff over that built-in; without it, the client
+// requires the full THEME_VAR_KEYS set before painting (resolveThemeVars) — a half-applied theme
+// would otherwise inherit the rest from whatever was on the element before.
+export const customThemeSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(CUSTOM_THEME_ID_RE)
+      .refine((id) => !isBuiltinThemeId(id), {
+        message: "id shadows a built-in theme",
+      }),
+    label: z.string().trim().min(1).max(NAME_MAX_CHARS),
+    extends: z.enum(THEME_IDS).optional(),
+    colors: z.partialRecord(z.enum(THEME_VAR_KEYS), paletteColor),
+  })
+  // Enforced HERE, not only where it is painted (Codex review on #996): an incomplete theme with
+  // no base cannot be resolved, so keeping it puts an entry in the picker that silently falls
+  // back to the default when chosen — and reports "not defined" about a theme that plainly is.
+  // Dropping it at the boundary keeps the offer and the outcome the same thing.
+  .refine((theme) => theme.extends !== undefined || THEME_VAR_KEYS.every((key) => theme.colors[key]), {
+    message: "a theme with no `extends` must set every colour",
+  });
+export type CustomTheme = z.infer<typeof customThemeSchema>;
 
 // A user-added HTTP MCP server for the single-view session. `id` becomes the server name in
 // --mcp-config (and the `mcp__<id>__*` tool prefix), `url` its streamable-HTTP endpoint.
@@ -203,6 +237,11 @@ export const providerSchema = z.object({
     .default([]),
 });
 export type Provider = z.infer<typeof providerSchema>;
+
+// Whether this directory's sessions carry the built-in closing-summary instructions (#1062).
+// A tri-state, unlike the global boolean it overrides: null means the key is absent, which is
+// what makes "follow the global setting" distinguishable from an explicit `false` here.
+export const dirAppendSystemPromptField = z.boolean().nullable().catch(null);
 
 // Which provider/model a directory's sessions run on. Both lenient: a typo must not stop
 // the directory's other settings from loading — resolveProvider reports the real problem
@@ -352,6 +391,9 @@ const writableDirConfigSchema = z.object({
   // Relative entries resolve against this file's own directory. Claude only; codex has no
   // equivalent flag and ignores the key.
   addDirs: z.array(nonEmptyText).max(MAX_ADD_DIRS).optional(),
+  // Whether this directory's sessions carry the built-in closing-summary instructions (#1062).
+  // Omit to follow `appendSystemPrompt` in the global config, which defaults to on.
+  appendSystemPrompt: z.boolean().optional(),
 });
 
 export function dirConfigJsonSchema(): Record<string, unknown> {

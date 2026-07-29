@@ -14,6 +14,7 @@
 // `rootFor` is invoked PER OPERATION rather than captured: the workspace is injected
 // at boot, after these ops are already bound into the plugin registry's closures.
 import fs from "fs/promises";
+import { realpathSync } from "node:fs";
 import path from "path";
 import type { FileOps } from "gui-chat-protocol";
 import { isWithin } from "../infra/path-within.js";
@@ -36,7 +37,10 @@ async function readlinkOrNull(p: string): Promise<string | null> {
 async function realpathAllowingMissing(p: string, depth = 0): Promise<string> {
   if (depth > MAX_SYMLINK_DEPTH) throw new Error("too many symlink levels");
   try {
-    return await fs.realpath(p);
+    // .native, for the Windows 8.3 reason in files/pathContainment.ts: the JS implementation
+    // leaves `C:\Users\RUNNER~1` alone where the native one expands it, and a containment check
+    // comparing the two spellings never matches. fs/promises has no native variant.
+    return realpathSync.native(p);
   } catch {
     const link = await readlinkOrNull(p);
     if (link !== null) return realpathAllowingMissing(path.resolve(path.dirname(p), link), depth + 1);

@@ -248,6 +248,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     launchers: [],
     quickCommands: [],
     userMcpServers: [],
+    themes: [],
     buttons: null,
     chips: null,
     pushEnabled: false,
@@ -258,7 +259,10 @@ describe("loadAppConfig / saveAppConfig", () => {
     terminalSubmit: "cr",
     keymap: {},
     copyOnSelect: false,
+    decisionDigest: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
+    appendSystemPrompt: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
   };
@@ -266,7 +270,9 @@ describe("loadAppConfig / saveAppConfig", () => {
     const dir = tmp();
     const file = path.join(dir, "nested", "config.json"); // nested → mkdir is exercised
     const cfg = {
-      cwdPresets: [{ label: "x", path: "/x" }],
+      // Canonical already: saving canonicalises (#1002), and on Windows that adds the current
+      // drive — a POSIX literal here would not survive its own round trip.
+      cwdPresets: [{ label: "x", path: path.resolve("/x") }],
       soundFile: "/s.wav",
       soundKinds: [...DEFAULT_SOUND_KINDS],
       sounds: {},
@@ -274,6 +280,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       launchers: [{ label: "Shell", command: "$SHELL" }],
       quickCommands: [],
       userMcpServers: [{ id: "weather", url: "http://localhost:9000/mcp" }],
+      themes: [],
       buttons: [{ id: "pr", label: "PR", run: "shell" as const, cmd: "gh pr create" }],
       chips: ["dir", "git"],
       pushEnabled: true,
@@ -283,12 +290,15 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "esc-cr" as const, // a non-default value must round-trip through the file
       keymap: { "zoom-next": "PageDown" }, // a bound shortcut must survive the round-trip too
-      copyOnSelect: true, // opt-in, so only `true` proves it persisted rather than defaulted
+      copyOnSelect: true,
+      decisionDigest: true, // opt-in, so only `true` proves it persisted rather than defaulted
+      issueWorkComments: false, // opt-in, so only `true` proves it persisted rather than defaulted
       prWorkdirFooter: false, // the opt-out: it defaults ON, so only `false` proves it persisted
+      appendSystemPrompt: false, // same opt-out shape: defaults ON, so only `false` proves it persisted
       cockpitLines: { summary: 6, prompt: 2, response: 3 }, // a raised clamp must survive it too
       fontFamily: "Cica, monospace", // already normalized, so it must come back byte-identical
     };
-    expect(saveAppConfig(file, cfg)).toBe(true);
+    expect(saveAppConfig(file, cfg, {})).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(cfg);
     expect(loadAppConfig(file)).toEqual(cfg);
     rmSync(dir, { recursive: true, force: true });
@@ -320,7 +330,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       }),
     );
     expect(loadAppConfig(file)).toEqual({
-      cwdPresets: [{ label: "a", path: "/a" }],
+      cwdPresets: [{ label: "a", path: path.resolve("/a") }],
       soundFile: null,
       soundKinds: [...DEFAULT_SOUND_KINDS],
       sounds: {},
@@ -328,6 +338,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       launchers: [{ label: "S", command: "sh" }],
       quickCommands: [],
       userMcpServers: [{ id: "ok", url: "https://x/mcp" }],
+      themes: [],
       keymap: { "zoom-next": "PageDown" },
       cockpitLines: { ...DEFAULT_COCKPIT_LINES },
       buttons: null,
@@ -339,7 +350,10 @@ describe("loadAppConfig / saveAppConfig", () => {
       providers: [],
       terminalSubmit: "cr",
       copyOnSelect: false,
+      decisionDigest: false,
+      issueWorkComments: false,
       prWorkdirFooter: true, // absent from the file — every config predating #872 stays enabled
+      appendSystemPrompt: true, // absent from the file — every config predating #1062 stays enabled
       fontFamily: null,
     });
     rmSync(dir, { recursive: true, force: true });
@@ -357,7 +371,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
     writeFileSync(file, JSON.stringify({ cwdPresets: [{ label: "a", path: "/a" }] }));
-    expect(loadAppConfig(file)).toEqual({ ...base, cwdPresets: [{ label: "a", path: "/a" }] });
+    expect(loadAppConfig(file)).toEqual({ ...base, cwdPresets: [{ label: "a", path: path.resolve("/a") }] });
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -384,7 +398,7 @@ describe("loadAppConfigResult (missing vs corrupt vs ok)", () => {
     const file = path.join(dir, "config.json");
     writeFileSync(file, JSON.stringify({ cwdPresets: [{ label: "a", path: "/a" }], pushEnabled: true }));
     const loaded = loadAppConfigResult(file);
-    expect(loaded).toMatchObject({ status: "ok", config: { cwdPresets: [{ label: "a", path: "/a" }], pushEnabled: true } });
+    expect(loaded).toMatchObject({ status: "ok", config: { cwdPresets: [{ label: "a", path: path.resolve("/a") }], pushEnabled: true } });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -424,7 +438,7 @@ describe("backupCorruptConfig", () => {
 // that a merge writes back. This is what a POST /api/config write path must do.
 describe("#741 corrupt config is not silently wiped by a partial update", () => {
   const richConfig = {
-    cwdPresets: [{ label: "proj", path: "/proj" }],
+    cwdPresets: [{ label: "proj", path: path.resolve("/proj") }],
     soundFile: null,
     soundKinds: [...DEFAULT_SOUND_KINDS],
     sounds: {},
@@ -432,6 +446,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     launchers: [{ label: "Shell", command: "$SHELL" }],
     quickCommands: [],
     userMcpServers: [{ id: "weather", url: "http://localhost:9000/mcp" }],
+    themes: [],
     buttons: null,
     chips: null,
     pushEnabled: false,
@@ -442,7 +457,10 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     terminalSubmit: "cr" as const,
     keymap: {},
     copyOnSelect: false,
+    decisionDigest: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
+    appendSystemPrompt: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
   };
@@ -450,7 +468,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, richConfig);
+    saveAppConfig(file, richConfig, {});
     const loaded = loadAppConfigResult(file);
     expect(loaded.status).toBe("ok");
     const base = loaded.status === "ok" ? loaded.config : loadAppConfig(file);
@@ -464,7 +482,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
   it("a corrupt base is caught BEFORE merge, so the write path can refuse instead of wiping", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    saveAppConfig(file, richConfig);
+    saveAppConfig(file, richConfig, {});
     // Corrupt it the way a hand-edit would (append a stray token).
     writeFileSync(file, readFileSync(file, "utf8") + "  oops");
     const loaded = loadAppConfigResult(file);
@@ -492,6 +510,7 @@ describe("mergeConfigUpdate", () => {
     launchers: [],
     quickCommands: [],
     userMcpServers: [],
+    themes: [],
     buttons: [{ id: "reveal", label: "Reveal in the file manager", run: "open", emoji: "📂", open: { reveal: "${dir}" } }],
     chips: ["git", "diff", "ctx", "usage"],
     pushEnabled: false,
@@ -502,7 +521,10 @@ describe("mergeConfigUpdate", () => {
     terminalSubmit: "cr",
     keymap: {},
     copyOnSelect: false,
+    decisionDigest: false,
+    issueWorkComments: false,
     prWorkdirFooter: true,
+    appendSystemPrompt: true,
     cockpitLines: { ...DEFAULT_COCKPIT_LINES },
     fontFamily: null,
     ...over,
@@ -545,6 +567,15 @@ describe("mergeConfigUpdate", () => {
     expect(mergeConfigUpdate(baseConfig({ prWorkdirFooter: false }), { chips: ["git"] }).prWorkdirFooter).toBe(false);
   });
 
+  // #1062. No Settings UI writes this one either, so an omitting POST is the whole risk: the
+  // user hand-edits `false`, presses an unrelated Save, and the instruction comes back.
+  it("applies appendSystemPrompt from the body and keeps it when omitted", () => {
+    expect(mergeConfigUpdate(baseConfig(), { appendSystemPrompt: false }).appendSystemPrompt).toBe(false);
+    expect(mergeConfigUpdate(baseConfig({ appendSystemPrompt: false }), { chips: ["git"] }).appendSystemPrompt).toBe(false);
+    // A string is the planned third value; until it is accepted it must not read as the opt-out.
+    expect(mergeConfigUpdate(baseConfig(), { appendSystemPrompt: "custom text" }).appendSystemPrompt).toBe(true);
+  });
+
   // No Settings UI writes this one, so the merge path is the only thing standing between a
   // POST that omits it and the user's configured font disappearing.
   it("applies fontFamily from the body (normalized) and keeps it when omitted", () => {
@@ -558,7 +589,7 @@ describe("mergeConfigUpdate", () => {
     const file = path.join(dir, "config.json");
     try {
       // "Another instance" persisted a full config (buttons + chips) to the shared file.
-      saveAppConfig(file, baseConfig());
+      saveAppConfig(file, baseConfig(), {});
       // A stale instance handles a chips-only POST: base must come from the re-read disk,
       // not its boot-time memory — so the disk's buttons survive.
       const disk = loadAppConfig(file);

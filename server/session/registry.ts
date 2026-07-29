@@ -13,7 +13,13 @@ import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
 import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
-import { devTerminalSessionLine, parseDevTerminalSessionIds } from "./dev-terminal-sessions.js";
+import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
+import { applySessionMemo, createMemoWriteGuard, sessionMemoLine, sessionMemoRecord } from "./session-memos.js";
+import { normalizeMemo } from "../../common/sessionMemo.js";
+import { forEachJsonlRecord } from "../infra/jsonl-file.js";
+import { devTerminalCwdLine, hydrateCwdsInto } from "./dev-terminal-cwds.js";
+import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
+import type { ToolGroup } from "../../common/toolGroups.js";
 import type { Activity, KnownSession, PtyEntry } from "./types.js";
 
 // Per-session "working" state, driven by Claude hooks (see /api/hook):
@@ -39,10 +45,10 @@ export const knownSessions = new Map<string, KnownSession>(); // id -> { created
 // back to the directory's default, same as one this server never started.
 export const launchChoices = new Map<string, DirModelChoice>(); // id -> { provider, model }
 
-// Sessions spawned as hidden background workers (spawnBackgroundChat hidden:true).
-// They list normally but never render bold/unread. Process-lifetime only (not
-// persisted) — and tied to `activity`'s lifecycle in reap() so a finished hidden
-// worker that stays `waiting` doesn't lose its hidden flag and re-bold.
+// Sessions spawned as hidden background workers (spawnBackgroundChat hidden:true) that are
+// still LIVE. Process-lifetime only, and tied to `activity`'s lifecycle in reap(). Ask
+// `isBackgroundSession()` rather than this set when the question is "does this row belong
+// behind the Background filter" — that survives the reap and a restart; this does not.
 export const hiddenSessions = new Set<string>(); // id
 
 // Latest MEANINGFUL user prompt per session (from the UserPromptSubmit hook), shown
@@ -89,6 +95,37 @@ export const claimedCodexRollouts = new Set<string>();
 // a transient internal helper, not a chat the user should see in the sidebar.
 export const translationWorkerIds = new Set<string>();
 
+const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
+
+// Hydrate one id log once at boot (best-effort — absent on first run / unreadable => empty).
+// Exposed as a promise so readers/writers can wait for it: a request served (or a mark
+// persisted) before this resolves would otherwise see an empty set and either leak the
+// sessions the log exists to keep out or clobber the file with a snapshot missing the
+// on-disk ids.
+function hydrateIdLog(file: string, into: Set<string>): Promise<void> {
+  return (async () => {
+    try {
+      for (const id of parseSessionIdLog(await fs.readFile(file, "utf8"), isValidSessionId)) into.add(id);
+    } catch {
+      // absent on first run / unreadable => nothing remembered
+    }
+  })();
+}
+
+// Appended, never rewritten: another instance shares these files, and a read-merge-write
+// loses whichever of the two finishes first however small the window is made. An append
+// needs no read, and nothing here is ever removed. Each log gets its own chain so its
+// writes stay ordered and a failure is logged without stopping the next one.
+function idLogAppender(file: string, label: string): (id: string) => void {
+  let persist: Promise<void> = Promise.resolve();
+  return (id: string) => {
+    persist = persist
+      .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+      .then(() => fs.appendFile(file, sessionIdLogLine(id)))
+      .catch((e) => console.error(`[${label}] failed to persist: ${messageOf(e)}`));
+  };
+}
+
 // Session ids that belong to the multi-terminal GRID — dev terminals, spawned with
 // gui=0 (no GUI MCP; see the ?gui handling in the WS connection handler). They're
 // FILTERED OUT of the chat sidebar's /api/sessions so a grid terminal never surfaces
@@ -100,46 +137,225 @@ export const translationWorkerIds = new Set<string>();
 // resume picker (/api/sessions?cwd=…) must keep listing these so they stay resumable.
 export const devTerminalSessions = new Set<string>();
 const DEV_TERMINAL_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-sessions.json");
+export const devTerminalSessionsHydrated = hydrateIdLog(DEV_TERMINAL_SESSIONS_FILE, devTerminalSessions);
+const appendDevTerminalSession = idLogAppender(DEV_TERMINAL_SESSIONS_FILE, "dev-terminal-sessions");
 
-// Hydrate the set once at boot (best-effort — absent on first run / unreadable =>
-// empty). Exposed as a promise so readers/writers can wait for it: a request served
-// (or a mark persisted) before this resolves would otherwise see an empty set and
-// either leak hidden grid transcripts into chat or clobber the file with a snapshot
-// missing the on-disk ids.
-const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
+// Record a grid/dev-terminal session id, then persist. A no-op once the id is known,
+// so repeated reattaches of the same cell — or a reconnect after a reboot — don't
+// rewrite the file.
+export function markDevTerminalSession(id: string, cwd?: string): void {
+  // The cwd is recorded even for an id we already knew: this is the one place that sees a cell's
+  // directory, and a session relaunched somewhere else must not keep answering with the old one.
+  if (SESSION_ID_RE.test(id) && cwd) rememberSessionCwd(id, cwd);
+  if (!SESSION_ID_RE.test(id) || devTerminalSessions.has(id)) return;
+  devTerminalSessions.add(id);
+  appendDevTerminalSession(id);
+}
 
-// Best-effort read of the shared file: absent or unreadable => nothing.
-async function readPersistedDevTerminalIds(): Promise<string[]> {
+// Session ids spawned as background workers: the scheduled collection refresh, and any
+// `spawnBackgroundChat hidden:true`. The chat list keeps them, but behind the Background
+// filter rather than among the user's own chats (#1060).
+//
+// Persisted for the same reason the grid's set is: `hiddenSessions` is dropped on reap and
+// gone after a restart, so a live-only flag would put every finished worker BACK among the
+// chats the moment it completed — the one state the user is guaranteed to see it in.
+const backgroundSessions = new Set<string>();
+const BACKGROUND_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "background-sessions.json");
+export const backgroundSessionsHydrated = hydrateIdLog(BACKGROUND_SESSIONS_FILE, backgroundSessions);
+const appendBackgroundSession = idLogAppender(BACKGROUND_SESSIONS_FILE, "background-sessions");
+
+function markBackgroundSession(id: string): void {
+  if (!isValidSessionId(id) || backgroundSessions.has(id)) return;
+  backgroundSessions.add(id);
+  appendBackgroundSession(id);
+}
+
+/** Does this session belong behind the Background filter? Live workers answer from
+ *  `hiddenSessions`, everything else from the persisted log — a session that has been
+ *  background once stays background. */
+export function isBackgroundSession(id: string): boolean {
+  return hiddenSessions.has(id) || backgroundSessions.has(id);
+}
+
+/** What a hidden spawn marks itself with (see runWithHiddenMarker). Both halves of "hidden"
+ *  are set from ONE place because there are two spawn sites, and a site that remembered the
+ *  live flag but not the log would produce a worker that is background until it finishes and
+ *  an ordinary chat afterwards. `delete` only undoes the live half: the log is append-only,
+ *  and a spawn that threw never wrote a transcript, so its id never reaches a listing. */
+export const backgroundMarkers = {
+  add(id: string): void {
+    hiddenSessions.add(id);
+    markBackgroundSession(id);
+  },
+  delete(id: string): void {
+    hiddenSessions.delete(id);
+  },
+};
+
+// Where each grid session was started, for the sessions this process did not spawn (#1021). Live
+// ones answer from `ptys`, which is the truer source — it knows where claude actually runs.
+const sessionCwds = new Map<string, string>();
+const DEV_TERMINAL_CWDS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-cwds.json");
+
+export const devTerminalCwdsHydrated: Promise<void> = (async () => {
   try {
-    return parseDevTerminalSessionIds(await fs.readFile(DEV_TERMINAL_SESSIONS_FILE, "utf8"), isValidSessionId);
+    hydrateCwdsInto(sessionCwds, await fs.readFile(DEV_TERMINAL_CWDS_FILE, "utf8"), isValidSessionId);
+  } catch {
+    // absent on first run, unreadable => nothing remembered; the list degrades to today's behaviour
+  }
+})();
+
+/** The remembered directory for a session, or null. */
+export function sessionCwd(id: string): string | null {
+  return sessionCwds.get(id) ?? null;
+}
+
+let devTerminalCwdPersist: Promise<void> = Promise.resolve();
+function rememberSessionCwd(id: string, cwd: string): void {
+  if (sessionCwds.get(id) === cwd) return; // already the answer; appending would only grow the log
+  sessionCwds.set(id, cwd);
+  devTerminalCwdPersist = devTerminalCwdPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(DEV_TERMINAL_CWDS_FILE, devTerminalCwdLine(id, cwd)))
+    .catch((e) => console.error(`[dev-terminal-cwds] failed to persist: ${messageOf(e)}`));
+}
+
+// The one-line note the user wrote on a session (#1084). Their own words about what a cell is
+// for, which is the one thing nothing else here knows: lastPrompt and aiTitle both describe what
+// the agent said. Kept across reap and across a restart — a note the user typed is theirs, and
+// resuming the session brings it back.
+export const sessionMemos = new Map<string, string>();
+const SESSION_MEMOS_FILE = path.join(MULMOTERMINAL_HOME, "session-memos.jsonl");
+
+// Ids this process has already written. Hydration reads the file as it was BEFORE our append
+// could reach it, so without this an edit made during startup is overwritten by the old value —
+// and an ERASE has no map entry to notice, so the erased memo would come back from the dead.
+const memoWrittenIds = new Set<string>();
+
+export const sessionMemosHydrated: Promise<void> = (async () => {
+  try {
+    // Streamed rather than read whole: nothing caps this file, since it grows for as long as the
+    // user keeps editing memos.
+    await forEachJsonlRecord(SESSION_MEMOS_FILE, (parsed) => {
+      const record = sessionMemoRecord(parsed, isValidSessionId);
+      if (record && !memoWrittenIds.has(record.id)) applySessionMemo(sessionMemos, record);
+    });
+  } catch {
+    // absent on first run / unreadable => no memos, which is how every session starts anyway
+  }
+})();
+
+let memoPersist: Promise<void> = Promise.resolve();
+const memoWrites = createMemoWriteGuard();
+
+/**
+ * Store a session's memo, or erase it when the text normalizes to empty. Resolves to what was
+ * stored — the store's answer, not the request's — once the append is ON DISK.
+ *
+ * AWAITED, unlike the fire-and-forget appenders above, and the difference is what is being
+ * written: a cwd or an id is derived state this server can work out again, while a memo is a
+ * sentence the user typed and nothing can reconstruct. So a failed write REJECTS and puts the
+ * previous value back, rather than logging and leaving a note on screen that is not saved
+ * anywhere and vanishes at the next restart (CodeRabbit).
+ */
+export async function setSessionMemo(id: string, text: string): Promise<string> {
+  const memo = normalizeMemo(text);
+  if (!isValidSessionId(id)) return memo;
+  const previous = sessionMemos.get(id);
+  const ticket = memoWrites.begin(id);
+  memoWrittenIds.add(id);
+  applySessionMemo(sessionMemos, { id, text: memo });
+  const append = memoPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(SESSION_MEMOS_FILE, sessionMemoLine(id, memo, Date.now())));
+  // The CHAIN must survive this write failing — it is what serializes the appends, and a rejected
+  // promise left in it would take down every memo written afterwards.
+  memoPersist = append.catch(() => {});
+  try {
+    await append;
+  } catch (e) {
+    // Only while this is still the newest write for the id. Matching on the VALUE instead would
+    // roll back over a later write that carried the same text and succeeded — leaving this process
+    // serving the old note while the disk holds the new one (Codex).
+    if (memoWrites.isLatest(id, ticket)) applySessionMemo(sessionMemos, { id, text: previous ?? "" });
+    throw new Error(`failed to persist the memo: ${messageOf(e)}`, { cause: e });
+  }
+  return memo;
+}
+
+// Which GUI tool groups a session actually has. Learned from the group URLs it connects to
+// (see session-tool-groups.ts) rather than configured here — a grid cell's GUI tools come
+// from the user's own per-folder MCP config, which we do not read. Read it through
+// sessionToolGroups() so callers can't mutate the stored set.
+const toolGroupsBySession = new Map<string, Set<ToolGroup>>();
+const SESSION_TOOL_GROUPS_FILE = path.join(MULMOTERMINAL_HOME, "session-tool-groups.json");
+
+async function readPersistedToolGroups(): Promise<SessionToolGroup[]> {
+  try {
+    return parseSessionToolGroups(await fs.readFile(SESSION_TOOL_GROUPS_FILE, "utf8"), isValidSessionId);
   } catch {
     return [];
   }
 }
 
-export const devTerminalSessionsHydrated: Promise<void> = (async () => {
-  for (const id of await readPersistedDevTerminalIds()) devTerminalSessions.add(id);
+// Ids a spawn has already superseded this process. Hydration reads the log as it was BEFORE
+// that spawn's reset marker could be appended, so without this it would put the old groups
+// back — the reset would win in the file and lose in memory.
+const resetToolGroupSessions = new Set<string>();
+
+export const sessionToolGroupsHydrated: Promise<void> = (async () => {
+  for (const { sessionId, group } of await readPersistedToolGroups()) {
+    if (resetToolGroupSessions.has(sessionId)) continue;
+    addToolGroupInMemory(sessionId, group);
+  }
 })();
 
-// Appended, never rewritten: another instance shares this file, and a read-merge-write
-// loses whichever of the two finishes first however small the window is made. An append
-// needs no read, and nothing here is ever removed. Chained so our own writes stay ordered
-// and a failure is logged without stopping the next one.
-let devTerminalPersist: Promise<void> = Promise.resolve();
-function appendDevTerminalSession(id: string): void {
-  devTerminalPersist = devTerminalPersist
+let toolGroupsPersist: Promise<void> = Promise.resolve();
+function appendSessionToolGroup(sessionId: string, group: ToolGroup): void {
+  toolGroupsPersist = toolGroupsPersist
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
-    .then(() => fs.appendFile(DEV_TERMINAL_SESSIONS_FILE, devTerminalSessionLine(id)))
-    .catch((e) => console.error(`[dev-terminal-sessions] failed to persist: ${messageOf(e)}`));
+    .then(() => fs.appendFile(SESSION_TOOL_GROUPS_FILE, sessionToolGroupLine(sessionId, group)))
+    .catch((e) => console.error(`[session-tool-groups] failed to persist: ${messageOf(e)}`));
 }
 
-// Record a grid/dev-terminal session id, then persist. A no-op once the id is known,
-// so repeated reattaches of the same cell — or a reconnect after a reboot — don't
-// rewrite the file.
-export function markDevTerminalSession(id: string): void {
-  if (!SESSION_ID_RE.test(id) || devTerminalSessions.has(id)) return;
-  devTerminalSessions.add(id);
-  appendDevTerminalSession(id);
+function addToolGroupInMemory(sessionId: string, group: ToolGroup): boolean {
+  const groups = toolGroupsBySession.get(sessionId) ?? new Set<ToolGroup>();
+  if (groups.has(group)) return false;
+  groups.add(group);
+  toolGroupsBySession.set(sessionId, groups);
+  return true;
+}
+
+// Note that a session reached us on a group's URL, then persist. A no-op once known, so the
+// per-request MCP calls (one server is built per request) don't append on every tool call.
+export function markSessionToolGroup(sessionId: string, group: ToolGroup): void {
+  if (!SESSION_ID_RE.test(sessionId)) return;
+  if (addToolGroupInMemory(sessionId, group)) appendSessionToolGroup(sessionId, group);
+}
+
+export function sessionToolGroups(sessionId: string): ToolGroup[] {
+  return [...(toolGroupsBySession.get(sessionId) ?? [])];
+}
+
+// Forget what a session had, because it is being replaced. Called on every claude spawn for the
+// id: the new process gets whatever the user's MCP config says NOW, so carrying the old answer
+// forward would keep asserting a capability the user may have just switched off. The marker is
+// appended rather than the file rewritten, for the same reason nothing else here is rewritten.
+// UNCONDITIONAL, and that is the point. Skipping the marker when the in-memory set looks empty
+// was wrong twice over on a resume at boot: hydration may not have run yet, so "empty" means
+// "not read yet" rather than "nothing there" — and the marker is the only thing that survives to
+// the NEXT restart, where a process-local memo would be gone and the log replayed from scratch.
+// One line per claude spawn, in a file that already grows per learned group.
+export function resetSessionToolGroups(sessionId: string): void {
+  if (!SESSION_ID_RE.test(sessionId)) return;
+  // Both flags set synchronously, before any await: a read landing between here and the append
+  // must not see the replaced process's capabilities, and hydration must not restore them.
+  resetToolGroupSessions.add(sessionId);
+  toolGroupsBySession.set(sessionId, new Set());
+  toolGroupsPersist = toolGroupsPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(SESSION_TOOL_GROUPS_FILE, sessionToolGroupLine(sessionId, TOOL_GROUP_RESET)))
+    .catch((e) => console.error(`[session-tool-groups] failed to persist reset: ${messageOf(e)}`));
 }
 
 // Restore the `working` + blocked/done (`waiting`) flags across a server restart (e.g. a

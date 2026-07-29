@@ -19,6 +19,16 @@ import {
 import { isWithin } from "../infra/path-within.js";
 import { readJsonFile } from "../infra/read-text-file.js";
 import { isRecord } from "../../common/isRecord.js";
+import { isBuiltinThemeId } from "../../common/themeVars.js";
+import { getCustomThemeIds } from "./config-routes.js";
+
+// A theme id this app can actually paint: a built-in, or one the user defined in the global
+// config's `themes` (#996). Anything else is a typo — dropped here so the key lands in the
+// "ignored" list Settings shows, rather than being kept and quietly rendering the default.
+function resolvableTheme(id: string | null): string | null {
+  if (id === null) return null;
+  return isBuiltinThemeId(id) || getCustomThemeIds().includes(id) ? id : null;
+}
 import { writtenFilePath } from "../files/tool-writes.js";
 import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds.js";
 import { parsePresetRef } from "../../common/notifySounds.js";
@@ -33,6 +43,7 @@ import {
   dirSkillsField,
   dirProviderField,
   dirModelField,
+  dirAppendSystemPromptField,
   type ThemeId,
   type HeaderButton,
   type HeaderChip,
@@ -65,6 +76,9 @@ export interface DirConfig extends DirChrome {
   // Extra directories this dir's sessions may touch (#908) — already resolved to absolute
   // paths against the config's own directory, and already checked to exist.
   addDirs: string[] | null;
+  // Whether this directory's sessions carry the built-in closing-summary instructions (#1062).
+  // null = the key is absent, so the global `appendSystemPrompt` decides.
+  appendSystemPrompt: boolean | null;
 }
 
 // What the browser receives: the raw sound path stays server-side (streamed via
@@ -125,7 +139,8 @@ export function resolveDirSound(cwd: string, input: unknown): string | null {
   if (!isWithin(base, resolved)) return null;
   if (!existsSync(resolved) || !statSync(resolved).isFile()) return null;
   try {
-    if (!isWithin(realpathSync(base), realpathSync(resolved))) return null;
+    // .native for the 8.3 reason in files/pathContainment.ts — one spelling of a Windows path.
+    if (!isWithin(realpathSync.native(base), realpathSync.native(resolved))) return null;
   } catch {
     return null;
   }
@@ -144,6 +159,7 @@ const EMPTY: DirConfig = {
   provider: null,
   model: null,
   addDirs: null,
+  appendSystemPrompt: null,
 };
 
 export function loadDirConfig(cwd: string): DirConfig {
@@ -165,7 +181,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       fontSize: dirFontSizeField.parse(raw.fontSize),
       fontFamily: dirFontFamilyField.parse(raw.fontFamily),
       orderPriority: dirOrderPriorityField.parse(raw.orderPriority),
-      theme: dirThemeField.parse(raw.theme),
+      theme: resolvableTheme(dirThemeField.parse(raw.theme)),
       colors: dirColorsField.parse(raw.colors),
       sound: resolveDirSound(base, raw.sound),
       sounds: resolveDirSounds(base, raw.sounds),
@@ -175,6 +191,7 @@ export function loadDirConfig(cwd: string): DirConfig {
       provider: dirProviderField.parse(raw.provider),
       model: dirModelField.parse(raw.model),
       addDirs: resolveAddDirs(raw.addDirs, base, (p) => statSync(p).isDirectory()),
+      appendSystemPrompt: dirAppendSystemPromptField.parse(raw.appendSystemPrompt),
     };
   } catch {
     return EMPTY;
@@ -239,12 +256,13 @@ export interface DirConfigDetail {
 const chipLabel = (chip: HeaderChip): string => (typeof chip === "string" ? chip : chip.label);
 
 function dirConfigExtras(cwd: string): DirConfigExtras {
-  const { provider, model, skills, addDirs, buttons, chips } = loadDirConfig(cwd);
+  const { provider, model, skills, addDirs, appendSystemPrompt, buttons, chips } = loadDirConfig(cwd);
   return {
     provider,
     model,
     skills,
     addDirs,
+    appendSystemPrompt,
     buttonLabels: (buttons ?? []).map((button) => button.label),
     chipLabels: (chips ?? []).map(chipLabel),
   };

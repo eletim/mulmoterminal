@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ConversationTurn } from "../../../server/session/transcript.js";
 import { createTitleManager } from "../../../server/session/session-title.js";
 import {
   aiTitles,
@@ -12,6 +13,7 @@ import {
   titlePending,
   titleTurnCounts,
 } from "../../../server/session/registry.js";
+import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
 
@@ -40,6 +42,7 @@ beforeEach(async () => {
   for (const m of [aiTitles, titleTurnCounts, titleEpoch, lastTitledUserTurns, lastTitleAttemptMs]) m.clear();
   titlePending.clear();
   titleInFlight.clear();
+  clearedTranscripts.clear();
 });
 
 afterEach(async () => {
@@ -51,15 +54,17 @@ afterEach(async () => {
 
 // The real generator shells out to the claude CLI; the fake keeps these tests fast,
 // deterministic, and runnable without an API key.
-function setup(now = () => 1_000_000, generateTitle: (raw: string) => Promise<string | null> = async () => "Generated title") {
+function setup(now = () => 1_000_000, generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title") {
   const published: string[] = [];
-  const summarized: string[] = [];
+  // Turns, not a raw transcript — the manager streams the file now (#998), so what the generator
+  // receives is what came out of that stream.
+  const summarized: ConversationTurn[][] = [];
   const mgr = createTitleManager({
     publishActivity: (id) => published.push(id),
     now,
-    generateTitle: (raw) => {
-      summarized.push(raw);
-      return generateTitle(raw);
+    generateTitle: (turns) => {
+      summarized.push(turns);
+      return generateTitle(turns);
     },
   });
   return { ...mgr, published, summarized };
@@ -186,6 +191,34 @@ describe("maybeGenerateTitle", () => {
     expect(published).toEqual([]);
   });
 
+  it("does not title a cleared session from its frozen transcript", async () => {
+    // The epoch guard above only voids a generation that was ALREADY running. This is the turn
+    // AFTER the /clear: forgetTitle left the session untitled, so the next prompt flags it as
+    // due — and the only turns on disk are the ones the user just cleared away (#1085).
+    const { maybeGenerateTitle, published, summarized } = setup();
+    await writeTranscript([userTurn("continue GitHub issue 1048")]);
+    clearedTranscripts.add(SESSION);
+    titlePending.add(SESSION);
+    await maybeGenerateTitle(SESSION, cwd);
+    expect(summarized).toEqual([]); // never even read the pre-clear turns
+    expect(aiTitles.has(SESSION)).toBe(false);
+    expect(published).toEqual([]);
+  });
+
+  it("titles again once the session is no longer cleared", async () => {
+    // reap() drops the mark, so resuming that id (which appends to the file again) restores
+    // the normal behaviour rather than leaving the roster row blank for good.
+    const { maybeGenerateTitle } = setup();
+    await writeTranscript([userTurn("add a retry to the uploader")]);
+    clearedTranscripts.add(SESSION);
+    titlePending.add(SESSION);
+    await maybeGenerateTitle(SESSION, cwd);
+    clearedTranscripts.delete(SESSION);
+    titlePending.add(SESSION);
+    await maybeGenerateTitle(SESSION, cwd);
+    expect(aiTitles.get(SESSION)).toBe("Generated title");
+  });
+
   it("does not summarize twice when a second trigger lands mid-generation", async () => {
     // A Stop hook and a roster view can both ask while the first summarizer is still
     // running. Only the in-flight guard stops the second from shelling out again.
@@ -204,6 +237,21 @@ describe("maybeGenerateTitle", () => {
     release("Generated title");
     await first;
     expect(published).toEqual([SESSION]);
+  });
+
+  // The generator is handed the transcript's TURNS, read by streaming the file (#998) rather than
+  // slurping it — which is what lets a session past ~512 MB be titled at all.
+  it("hands the generator the turns it streamed out of the transcript", async () => {
+    const { maybeGenerateTitle, summarized } = setup();
+    const assistantTurn = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Added it." }] } });
+    await writeTranscript([userTurn("add a retry to the uploader"), assistantTurn]);
+    titlePending.add(SESSION);
+    await maybeGenerateTitle(SESSION, cwd);
+    await vi.waitFor(() => expect(summarized).toHaveLength(1));
+    expect(summarized[0]).toEqual([
+      { role: "user", text: "add a retry to the uploader" },
+      { role: "assistant", text: "Added it." },
+    ]);
   });
 
   it("clears the in-flight mark even when generation fails", async () => {

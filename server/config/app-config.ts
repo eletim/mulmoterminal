@@ -11,12 +11,14 @@ import {
   quickCommandSchema,
   userMcpServerSchema,
   providerSchema,
+  customThemeSchema,
   type CwdPreset,
   type Provider,
   type Launcher,
   type UserMcpServer,
   type HeaderButton,
   type HeaderChip,
+  type CustomTheme,
 } from "./config-schema.js";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode, type TerminalSubmitMode } from "../../common/terminalSubmit.js";
 import type { QuickCommand } from "../../common/quickCommands.js";
@@ -82,6 +84,11 @@ export interface AppConfig {
   // which of several side-by-side clones produced it. ON unless explicitly disabled — the
   // line is the whole point of the feature, and a reader who doesn't want it sets `false`.
   prWorkdirFooter: boolean;
+  // Append the built-in closing-summary instructions to every spawned session's system prompt
+  // (#942, opt-out in #1062). ON unless explicitly disabled, like the footer above: the grid is
+  // what it exists for, and nothing in the app parses what it produces — a reader who doesn't
+  // want the instruction sets `false`. A directory's own `.mulmoterminal.json` outranks this.
+  appendSystemPrompt: boolean;
   // How many lines each cockpit-roster row shows before clamping (#877). Defaults keep the
   // previous 2/2/3; raising `summary` trades roster length for reading a long one in place.
   cockpitLines: CockpitLines;
@@ -90,11 +97,45 @@ export interface AppConfig {
   // meant to highlight, and it is also the only place in the app that writes the clipboard on
   // its own — the `copy` keymap action merely stands back and lets the browser do it.
   copyOnSelect: boolean;
+  // Leave a comment on the issue a cell is working on: once when the work starts, and again when
+  // its PR merges (#979). OFF unless asked for — it writes to GitHub, on issues that are often
+  // somebody else's, and the comment names the working directory it happened in.
+  issueWorkComments: boolean;
+  // Keep a Markdown digest of the decisions this project's sessions asked for, refreshed on a
+  // timer, for an agent to read before asking something similar (#1015). OFF unless asked for:
+  // it is a vision-stage idea rather than something every user needs, and it writes a file
+  // (under ~/.mulmoterminal/decisions/) that would otherwise never exist.
+  decisionDigest: boolean;
+  // Colour schemes the user defined, offered in Settings alongside the four built-ins (#996).
+  // Server-side rather than per-browser (like `fontFamily`, unlike `fontSize`): a palette you
+  // authored is an asset you want on every browser you open the app from. WHICH one is selected
+  // stays in localStorage, because "the dark one on this laptop" is a per-device answer.
+  themes: CustomTheme[];
   // The CSS font-family stack every terminal renders in (#864), or null for the built-in one.
   // Global rather than per-browser (unlike `fontSize`) because it names FONTS, and which fonts
   // exist is a property of the machine the browser runs on — the same answer for every client
   // of one host. A directory's `.mulmoterminal.json` fontFamily overrides it.
   fontFamily: string | null;
+}
+
+// A user-defined colour scheme (#996). `extends` names a built-in to start from, so a theme
+// that only recolours the accent is three lines; without it `colors` has to be complete.
+const CUSTOM_THEMES_MAX = 24;
+export function sanitizeCustomThemes(input: unknown): CustomTheme[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: CustomTheme[] = [];
+  for (const value of input) {
+    const parsed = customThemeSchema.safeParse(value);
+    // A built-in id is refused rather than merged into: the guide describes what Midnight looks
+    // like, and someone who reads it has to get that. `isUsableCustomThemeId` is inside the
+    // schema, so a shadowing entry lands in the "dropped" list the Directory-settings panel shows.
+    if (!parsed.success || seen.has(parsed.data.id)) continue;
+    seen.add(parsed.data.id);
+    out.push(parsed.data);
+    if (out.length >= CUSTOM_THEMES_MAX) break;
+  }
+  return out;
 }
 
 // `id` becomes an MCP server name + `mcp__<id>` tool prefix, so restrict to a plain
@@ -252,7 +293,15 @@ export function sanitizeWorklogEnabled(input: unknown): boolean {
   return input === true;
 }
 
+export function sanitizeIssueWorkComments(input: unknown): boolean {
+  return input === true;
+}
+
 export function sanitizeCopyOnSelect(input: unknown): boolean {
+  return input === true;
+}
+
+export function sanitizeDecisionDigest(input: unknown): boolean {
   return input === true;
 }
 
@@ -260,6 +309,13 @@ export function sanitizeCopyOnSelect(input: unknown): boolean {
 // an explicit `false` — including a missing key, which is what every existing config file
 // has — leaves it enabled.
 export function sanitizePrWorkdirFooter(input: unknown): boolean {
+  return input !== false;
+}
+
+// Same default-ON rule, for the same reason: a missing key must leave every config written
+// before #1062 behaving as it did. Its own function rather than an alias of the footer's —
+// the planned third value (a user's own wording) widens this one and not that one.
+export function sanitizeAppendSystemPrompt(input: unknown): boolean {
   return input !== false;
 }
 
@@ -282,6 +338,7 @@ export const emptyConfig = (): AppConfig => ({
   launchers: [],
   quickCommands: [],
   userMcpServers: [],
+  themes: [],
   buttons: null,
   chips: null,
   pushEnabled: false,
@@ -292,7 +349,10 @@ export const emptyConfig = (): AppConfig => ({
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
   copyOnSelect: false,
+  decisionDigest: false,
+  issueWorkComments: false,
   prWorkdirFooter: true,
+  appendSystemPrompt: true,
   cockpitLines: { ...DEFAULT_COCKPIT_LINES },
   fontFamily: null,
 });
@@ -321,6 +381,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     launchers: sanitizeLaunchers(o.launchers),
     quickCommands: sanitizeQuickCommands(o.quickCommands),
     userMcpServers: sanitizeUserMcpServers(o.userMcpServers),
+    themes: sanitizeCustomThemes(o.themes),
     buttons: sanitizeButtons(o.buttons),
     chips: sanitizeChips(o.chips),
     pushEnabled: sanitizePushEnabled(o.pushEnabled),
@@ -331,10 +392,27 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
     copyOnSelect: sanitizeCopyOnSelect(o.copyOnSelect),
+    decisionDigest: sanitizeDecisionDigest(o.decisionDigest),
+    issueWorkComments: sanitizeIssueWorkComments(o.issueWorkComments),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
+    appendSystemPrompt: sanitizeAppendSystemPrompt(o.appendSystemPrompt),
     cockpitLines: sanitizeCockpitLines(o.cockpitLines),
     fontFamily: normalizeFontFamily(o.fontFamily),
   };
+}
+
+// The top-level keys this version does not know. Every instance on the machine shares one
+// config.json, so a key written by a NEWER version — or left behind by a downgrade — arrives
+// here as "unrecognised". Sanitizing drops it, and dropping it is how `copyOnSelect` vanished
+// seconds after being set, with no warning anywhere (#966): an unknown key is not an invalid
+// value, it is one this build has not learned yet, and the write path has to hand it back.
+//
+// The known set comes from `emptyConfig()` rather than a second list, because that object is
+// typed AppConfig — a field added to the config cannot be missing from it.
+export function unknownConfigKeys(raw: unknown): Record<string, unknown> {
+  if (!isRecord(raw)) return {};
+  const known = new Set(Object.keys(emptyConfig()));
+  return Object.fromEntries(Object.entries(raw).filter(([key]) => !known.has(key)));
 }
 
 // "missing" and "corrupt" are DIFFERENT and a caller about to overwrite must tell them
@@ -342,7 +420,8 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
 // "the user has real config here that we simply failed to read", where writing an empty
 // base back would silently erase presets/launchers/providers. loadAppConfig collapses
 // both to empty (safe for read-only boot); a WRITE path must use this instead.
-export type AppConfigLoad = { status: "ok"; config: AppConfig } | { status: "missing" } | { status: "corrupt"; error: string };
+export type AppConfigLoad =
+  { status: "ok"; config: AppConfig; unknownKeys: Record<string, unknown> } | { status: "missing" } | { status: "corrupt"; error: string };
 
 export function loadAppConfigResult(file: string): AppConfigLoad {
   if (!existsSync(file)) return { status: "missing" };
@@ -353,10 +432,17 @@ export function loadAppConfigResult(file: string): AppConfigLoad {
     return { status: "corrupt", error: `cannot read ${file}: ${String(err)}` };
   }
   try {
-    return { status: "ok", config: sanitizeAppConfig(JSON.parse(text)) };
+    const raw: unknown = JSON.parse(text);
+    return { status: "ok", config: sanitizeAppConfig(raw), unknownKeys: unknownConfigKeys(raw) };
   } catch (err) {
     return { status: "corrupt", error: `invalid JSON in ${file}: ${String(err)}` };
   }
+}
+
+// What a writer must carry from its load to its save. A missing or corrupt file has none to
+// preserve — the corrupt case never reaches a write at all (the route backs it up and refuses).
+export function unknownKeysOf(loaded: AppConfigLoad): Record<string, unknown> {
+  return loaded.status === "ok" ? loaded.unknownKeys : {};
 }
 
 // Lenient load for read-only / boot callers: a missing OR unreadable file yields an empty
@@ -398,6 +484,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     launchers: updated("launchers", sanitizeLaunchers, base.launchers),
     quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
     userMcpServers: updated("userMcpServers", sanitizeUserMcpServers, base.userMcpServers),
+    themes: updated("themes", sanitizeCustomThemes, base.themes),
     buttons: updated("buttons", sanitizeButtons, base.buttons),
     chips: updated("chips", sanitizeChips, base.chips),
     pushEnabled: updated("pushEnabled", sanitizePushEnabled, base.pushEnabled),
@@ -408,8 +495,11 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
     copyOnSelect: updated("copyOnSelect", sanitizeCopyOnSelect, base.copyOnSelect),
+    decisionDigest: updated("decisionDigest", sanitizeDecisionDigest, base.decisionDigest),
+    issueWorkComments: updated("issueWorkComments", sanitizeIssueWorkComments, base.issueWorkComments),
     fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
+    appendSystemPrompt: updated("appendSystemPrompt", sanitizeAppendSystemPrompt, base.appendSystemPrompt),
     cockpitLines: updated("cockpitLines", sanitizeCockpitLines, base.cockpitLines),
   };
 }
@@ -428,6 +518,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     launchers: config.launchers,
     quickCommands: config.quickCommands,
     userMcpServers: config.userMcpServers,
+    themes: config.themes,
     buttons: config.buttons,
     chips: config.chips,
     pushEnabled: config.pushEnabled,
@@ -437,19 +528,44 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
     copyOnSelect: config.copyOnSelect,
+    decisionDigest: config.decisionDigest,
+    issueWorkComments: config.issueWorkComments,
     prWorkdirFooter: config.prWorkdirFooter,
+    appendSystemPrompt: config.appendSystemPrompt,
     cockpitLines: config.cockpitLines,
     fontFamily: config.fontFamily,
   };
 }
 
+// The exact object written to disk: this version's fields, then the keys it did not recognise,
+// appended verbatim (#966). Deliberately NOT what GET /api/config answers — the file is the union
+// of every version that shares it, the response is what this build can actually act on.
+//
+// A known field always wins. Membership is `Object.hasOwn`, not `in`: a config key legitimately
+// named `toString` or `constructor` answers `in` through the prototype chain and would be dropped
+// as a collision that never happened.
+//
+// Built with fromEntries rather than `out[key] = value`, because a key named `__proto__` is a
+// setter on Object.prototype: assigning would re-parent this object and drop the key from the
+// JSON entirely — the very deletion this function exists to prevent. fromEntries defines an own
+// property, so the key stays ordinary data.
+export function serializableAppConfig(config: AppConfig, unknownKeys: Record<string, unknown>): Record<string, unknown> {
+  const known = toPublicAppConfig(config);
+  const extras = Object.entries(unknownKeys).filter(([key]) => !Object.hasOwn(known, key));
+  return Object.fromEntries([...Object.entries(known), ...extras]);
+}
+
 // Persist the whole config; returns false on any write failure so the caller can
 // surface it instead of reporting a false success.
-export function saveAppConfig(file: string, config: AppConfig): boolean {
+//
+// `unknownKeys` has no default on purpose: every writer shares config.json with other versions,
+// so one that forgets to carry them forward silently deletes another version's settings. Make
+// that a type error rather than something to remember — pass `unknownKeysOf(loaded)`.
+export function saveAppConfig(file: string, config: AppConfig, unknownKeys: Record<string, unknown>): boolean {
   try {
     // Atomic: this is the file holding every provider, launcher and header button, and a
     // truncated one reads as corrupt on the next boot — i.e. as no configuration at all.
-    writeFileAtomicSync(file, JSON.stringify(toPublicAppConfig(config), null, 2));
+    writeFileAtomicSync(file, JSON.stringify(serializableAppConfig(config, unknownKeys), null, 2));
     return true;
   } catch {
     return false;

@@ -45,11 +45,19 @@ describe("dirColorField", () => {
 });
 
 describe("dirThemeField", () => {
-  it("accepts a known theme id, else null", () => {
+  // Shape only, not existence (#996): a directory may pin a theme the user defined in the global
+  // config's `themes`, whose id no schema here can enumerate. Whether the id RESOLVES is decided
+  // by loadDirConfig, which can see the configured themes — see dir-config.spec.ts.
+  it("accepts any well-formed id", () => {
     expect(dirThemeField.parse("nord")).toBe("nord");
     expect(dirThemeField.parse("solarized")).toBe("solarized");
-    expect(dirThemeField.parse("solarized-light")).toBeNull(); // the correct id is `solarized`
-    expect(dirThemeField.parse("neon")).toBeNull();
+    expect(dirThemeField.parse("my-dark")).toBe("my-dark");
+  });
+
+  it("still refuses a shape that could not be an attribute value", () => {
+    expect(dirThemeField.parse("My Dark")).toBeNull();
+    expect(dirThemeField.parse("2cool")).toBeNull();
+    expect(dirThemeField.parse(7)).toBeNull();
   });
 });
 
@@ -188,6 +196,16 @@ describe("dirConfigJsonSchema", () => {
     expect(orderPriority.type).toBe("integer");
   });
 
+  // Same reasoning again (#1062): the loader honours this key, so a schema without it is a key
+  // the config skill refuses to write. Boolean-only for now — the planned third value is a
+  // string, and blessing one here before the loader accepts it would write a config that loads
+  // as "unset" while the skill reports it as written.
+  it("includes appendSystemPrompt as a boolean, so the config skill can write it", () => {
+    const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
+    const appendSystemPrompt = isRecord(props) && isRecord(props.appendSystemPrompt) ? props.appendSystemPrompt : {};
+    expect(appendSystemPrompt.type).toBe("boolean");
+  });
+
   it("caps the skills allowlist at MAX_SKILL_FILTER", () => {
     const schema = dirConfigJsonSchema();
     const props = isRecord(schema.properties) ? schema.properties : {};
@@ -209,7 +227,7 @@ describe("dirConfigJsonSchema", () => {
     expect(json).toContain('"required":["id","label","run","cmd"]'); // shell needs cmd
     expect(json).toContain('"required":["id","label","run","text"]'); // input needs text
     expect(json).toContain('"required":["id","label","run","open"]'); // open needs open
-    expect(json).toContain('"enum":["dir","git","ctx","usage","status","diff","tools"]'); // chip string = builtin ids only
+    expect(json).toContain('"enum":["dir","git","work","ctx","usage","status","diff","tools"]'); // chip string = builtin ids only
   });
 
   // The runtime truncates past these caps and drops whitespace-only strings, so a schema that

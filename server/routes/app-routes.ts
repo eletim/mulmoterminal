@@ -22,11 +22,12 @@ import { mountSessionRoutes } from "../routes/session-routes.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountRepoRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
+import { mountGuiMcpRoutes } from "../routes/gui-mcp-routes.js";
+import { mountDropRoutes } from "../routes/drop-routes.js";
 import { mountOpenDirRoute } from "../files/open-dir.js";
 import { mountGitRemoteRoute } from "../git/gitRemote.js";
 import { mountWorktreeRoutes } from "../git/worktree-routes.js";
 import { mountPickFileRoute } from "../files/pick-file.js";
-import { mountPasteImageRoute } from "../files/paste-image.js";
 import { mountCommandSummaryRoute } from "../session/command-summary.js";
 import { mountCostRoute } from "../session/cost.js";
 import { mountCollectionRoutes } from "../backends/collections.js";
@@ -40,10 +41,11 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
-import { ptys } from "../session/registry.js";
+import { ptys, sessionToolGroups, sessionToolGroupsHydrated, devTerminalSessions, devTerminalSessionsHydrated } from "../session/registry.js";
 import { mountShortcutsRoutes } from "../backends/shortcuts.js";
+import { mountDecisionRoutes } from "./decision-routes.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
-import { mountHtmlDispatchRoute, mountHtmlPreviewRoute } from "../backends/html.js";
+import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
 import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
 import { FILE_WRITE_CHANNEL } from "../../common/fileWriteChannel.js";
@@ -57,9 +59,11 @@ import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClient
 import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountSpaFallback } from "../infra/spa-fallback.js";
+import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
+  rateLimits: RateLimitRouteDeps;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
@@ -70,6 +74,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
   reap: (id: string) => void;
+  registerBackgroundSession: (id: string) => void;
 }
 
 // The channel a directory-config change is announced on.
@@ -77,17 +82,28 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   const clientDir = deps.clientDir;
-  app.use(express.json({ limit: "25mb" }));
 
-  // Before any route: one same-origin gate for every state-changing request, so a site the
-  // user visits cannot drive this server through their browser. Individual routes keep their
-  // own checks — this is the floor, not a replacement.
+  // Before any route AND before any body parser: one same-origin gate for every state-changing
+  // request, so a site the user visits cannot drive this server through their browser. Ahead of
+  // the parsers so a request that is going to be refused is never handed a body to parse — the
+  // gate reads only method, path and origin. Individual routes keep their own checks — this is
+  // the floor, not a replacement.
   app.use(sameOriginGuard(deps.isAllowedOrigin));
+
+  // Ahead of express.json, carrying its own raw parser: a dropped file is bytes under its own
+  // content type, and a dropped .json would otherwise be parsed as a document rather than saved.
+  mountDropRoutes(app);
+
+  app.use(express.json({ limit: "25mb" }));
 
   // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat,
   // manageAccounting, manageCollection (routes/plugin-routes.ts). ALL of them must precede
   // mountAllRoutes' /api/plugin/:toolName catch-all below, which would otherwise take them.
-  mountPluginRoutes(app, { spawnClaudePty: deps.spawnClaudePty, spawnCodexPty: deps.spawnCodexPty });
+  mountPluginRoutes(app, {
+    spawnClaudePty: deps.spawnClaudePty,
+    spawnCodexPty: deps.spawnCodexPty,
+    registerBackgroundSession: deps.registerBackgroundSession,
+  });
 
   // presentHtml View's source-editor dispatch (loadHtml/saveHtml) on
   // /api/plugin/presentHtml. MUST precede mountAllRoutes' /api/plugin/:toolName
@@ -151,9 +167,17 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // HTML preview CSP. The View navigates the iframe to this URL (htmlArtifactPreviewUrl).
   mountHtmlPreviewRoute(app, { workspace: CLAUDE_CWD });
 
+  // The same, for a page presentHtml was POINTED at rather than wrote (GET
+  // /htmlfile/<scope>/…, built by htmlFileUrl). No containment root — see the route.
+  mountHtmlFileRoute(app);
+
   // Shared launcher favorites (GET/PUT /api/shortcuts) over the same
   // <workspace>/config/shortcuts.json MulmoClaude uses — backs the collections toolbar.
   mountShortcutsRoutes(app, { workspace: CLAUDE_CWD });
+
+  // Read-only decision log (GET /api/decisions?cwd=) — the questions a human was asked in this
+  // project and what they chose, read back out of Claude's own transcripts. Writes nothing.
+  mountDecisionRoutes(app);
 
   // Local voice input (POST /api/transcribe + model status/download) — macOS only,
   // whisper.cpp via @mulmoclaude/core/whisper. Models live in the shared
@@ -170,7 +194,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
 
   // The agent-facing MCP surface (routes/mcp-routes.ts): the in-process GUI MCP server over
   // Streamable HTTP, and the worker-only landing point the hidden translation worker reports to.
-  mountMcpRoutes(app);
+  mountMcpRoutes(app, { publish: (c, d) => deps.publish(c, d) });
 
   // Serve Vite build output
   app.use(express.static(path.join(clientDir, "../dist")));
@@ -213,6 +237,10 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   mountToolRoutes(app, {
     stores: deps.toolStores,
     toolSummaries: deps.toolSummaries,
+    sessionToolGroups,
+    sessionToolGroupsHydrated,
+    isGridSession: (id) => devTerminalSessions.has(id),
+    devTerminalSessionsHydrated,
     publish: (c, d) => deps.publish(c, d),
     sessionChannel: deps.sessionChannel,
   });
@@ -233,6 +261,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // Directory-scoped reads for a terminal cell: scripts, skills, dir config, git status,
   // PR phase, resolved header, custom sound. All keyed by ?cwd= (see routes/dir-routes.ts).
   mountDirRoutes(app);
+  mountGuiMcpRoutes(app);
 
   // GRID-ONLY (dev_tool): POST /api/open-dir reveals a cell's working directory in the
   // OS file manager (a browser tab can't, but this local server can).
@@ -252,14 +281,13 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // (the browser hides paths from drag/drop and <input type=file>).
   mountPickFileRoute(app, { isAllowedOrigin: deps.isAllowedOrigin });
 
-  // POST /api/paste-image saves a screenshot pasted into a terminal and returns its
-  // absolute path — the other half of the same problem the picker solves (#938).
-  mountPasteImageRoute(app);
-
   // POST /api/command/summarize runs `claude -p` headless over a Run cell's captured
   // terminal output and returns a short Errors/Warnings/cause/fix summary (issue #246).
   // Same-origin guarded like the other local-action routes.
   mountCommandSummaryRoute(app, { isAllowedOrigin: deps.isAllowedOrigin });
+
+  // The 5h / 7d rate-limit gauge (#387): where the probe reports and where the header reads.
+  mountRateLimitRoutes(app, deps.rateLimits);
 
   // GET /api/cost — estimated $ cost (session + today/month roll-up) for a project's
   // sessions, from public per-model pricing. Read-only; shown in the Settings modal (#245).
@@ -278,7 +306,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
 
   // Sidebar listing, one session's detail, the grid's attention poll, the tool timeline and
   // codex's own sessions (see routes/session-routes.ts).
-  mountSessionRoutes(app, { freshenRosterTitle: deps.freshenRosterTitle });
+  mountSessionRoutes(app, { freshenRosterTitle: deps.freshenRosterTitle, publishActivity: deps.publishActivity });
 
   // Explicit close (reliable deps.reap over HTTP) + one-shot orphan cleanup. Extracted to a
   // module so the origin guard / id validation / orphan-selection boundary are testable.

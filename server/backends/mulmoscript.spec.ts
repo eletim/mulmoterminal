@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from "vitest";
+import { makeTempDir } from "../../test/support/tempDir.js";
 import express, { type Express } from "express";
 import request from "supertest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { initArtifactsBackend } from "./artifacts.js";
 import { initMulmoScriptBackend, mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "./mulmoscript.js";
@@ -31,7 +31,7 @@ describe("mulmoscript backend", () => {
   let workspace: string;
 
   beforeAll(() => {
-    workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mt-mulmoscript-"));
+    workspace = makeTempDir("mt-mulmoscript-");
     initArtifactsBackend({ workspace });
     initMulmoScriptBackend({ workspace, pubsub: null });
     app = makeApp();
@@ -107,7 +107,7 @@ describe("mulmoscript backend", () => {
 // above (vitest runs describes in file order within a file).
 describe("autoGenerateMovie without ffmpeg", () => {
   it("saves the script but reports that movie generation was not started", async () => {
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mt-mulmoscript-noffmpeg-"));
+    const workspace = makeTempDir("mt-mulmoscript-noffmpeg-");
     initArtifactsBackend({ workspace });
     initMulmoScriptBackend({ workspace, pubsub: null, isFfmpegAvailable: () => false });
     const app = makeApp();

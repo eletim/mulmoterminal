@@ -81,8 +81,10 @@ separator and the drive letter differ.
 ## Filesystem watching
 
 **`fs.watch` on an 8.3 short path is unreliable, and can abort the process.** `os.tmpdir()`
-returns `C:\Users\RUNNER~1\…` on a GitHub runner; expand it with `realpathSync` before
-watching. Even then Windows gives no delivery guarantee — the reload case in
+returns `C:\Users\RUNNER~1\…` on a GitHub runner; expand it with **`realpathSync.native`**
+before watching — plain `realpathSync` is the JS implementation and hands the short name straight
+back, which is how a spec that already called it still compared `RUNNER~1` against git's
+`runneradmin` (Windows daily, 2.5.1). Even then Windows gives no delivery guarantee — the reload case in
 `test/scripts/dev-server.spec.ts` is skipped there rather than left to flake.
 
 ## Environment

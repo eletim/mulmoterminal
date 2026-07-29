@@ -1,9 +1,9 @@
-// Display mapping for a cell's PR workflow phase in the cockpit roster. The phase values
-// mirror server/git/prPhase.ts's PrPhase (the /api/pr-phase response) — keep them in sync.
-export type PrPhase = "none" | "draft" | "ci-failing" | "changes-requested" | "ci-running" | "ready" | "merged" | "closed";
-
-export const isPrPhase = (v: unknown): v is PrPhase =>
-  v === "none" || v === "draft" || v === "ci-failing" || v === "changes-requested" || v === "ci-running" || v === "ready" || v === "merged" || v === "closed";
+// Display mapping for a cell's PR workflow phase — the label and tooltip the roster and the
+// header chip put on screen. The phase VALUES live in common/prPhase.ts, which both sides read;
+// this file used to redeclare them with a "keep them in sync" note, which is the drift the
+// common/ rule exists to prevent.
+export { isPrPhase, type PrPhase } from "../../common/prPhase";
+import type { PrPhase } from "../../common/prPhase";
 
 // Short badge text + a fuller tooltip. `none` (no PR yet) renders nothing — the roster just
 // shows the agent status until a PR exists.
@@ -34,12 +34,18 @@ export const WORK_WORD: Record<WorkPhase, string> = { planning: "planning", impl
 
 // What the roster shows for a session after a metadata fetch, given what it already showed.
 //
-// Two opposite policies in one merge, and both are deliberate:
+// Three policies in one merge, and each is deliberate:
 //
-// The TEXT fields merge — an absent value keeps whatever is on screen. The summary can
-// transiently miss a transcript, and blanking every row on the first poll that comes up
-// empty would strip the cockpit exactly when the user is scanning it to decide which of nine
-// agents to look at.
+// The PROMPT and REPLY merge — an absent value keeps whatever is on screen. Both fall back to
+// the transcript, which can transiently miss, and blanking every row on the first poll that
+// comes up empty would strip the cockpit exactly when the user is scanning it to decide which
+// of nine agents to look at. A session that HAS none sends "" (what `/clear` writes), and an
+// empty string is a value — it merges through and clears the row.
+//
+// `aiTitle` has no transcript fallback: it is ours, held in memory, so a successful fetch
+// answers it outright and `null` means "there is none now" rather than "no news". Merging it
+// like the text is how a `/clear`ed session kept showing the title of the conversation the user
+// had just ended (#1085) — the server had already dropped it. Same rule as applyActivityPush.
 //
 // `workPhase` is taken AS-IS, including null, because a successful fetch is authoritative for
 // it: null means "no tools yet / not working", which is a real state. Merge it like the text
@@ -58,7 +64,7 @@ export const EMPTY_SESSION_META: SessionMetaView = { lastPrompt: null, aiTitle: 
 export function mergeSessionMeta(previous: SessionMetaView, fetched: Omit<Partial<SessionMetaView>, "workPhase"> & { workPhase?: unknown }): SessionMetaView {
   return {
     lastPrompt: fetched.lastPrompt ?? previous.lastPrompt,
-    aiTitle: fetched.aiTitle ?? previous.aiTitle,
+    aiTitle: fetched.aiTitle !== undefined ? fetched.aiTitle : previous.aiTitle,
     lastResponse: fetched.lastResponse ?? previous.lastResponse,
     workPhase: isWorkPhase(fetched.workPhase) ? fetched.workPhase : null,
   };
