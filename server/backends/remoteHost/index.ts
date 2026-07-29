@@ -81,6 +81,9 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
     // Expired offline-queued startChat commands: delete the phone's staged Storage
     // uploads before the runner removes the doc (protocol v2 offline queue).
     onExpire,
+    // No `expectedUndefined` on the runner options on purpose: every handler here is written to
+    // omit an absent key rather than send `undefined` (#1042), so anything core reports is a
+    // regression worth hearing about — declaring a path would be declaring it acceptable.
     handlers: createRemoteHostHandlers({
       workspace: deps.workspace,
       spawnChat: deps.spawnChat,
