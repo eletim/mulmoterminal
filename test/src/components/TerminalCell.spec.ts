@@ -1836,8 +1836,10 @@ describe("TerminalCell", () => {
     const tinted = chips.find((c) => c.text().includes("tinted"));
     const bare = chips.find((c) => c.text().includes("bare"));
     expect(tinted?.find('[data-testid="cell-chip-color"]').attributes("style")).toContain("rgb(170, 17, 34)");
-    // The chip itself is washed in the same colour, which is what makes it readable across the form.
-    expect(tinted?.attributes("style")).toContain("#aa1122");
+    // The STRIPE is the whole of it. The chip's own background used to be washed in the same
+    // colour, which is exactly what "a session is running here" means — so a colour-coded
+    // directory read as running (#1106). One channel, one meaning.
+    expect(tinted?.attributes("style") ?? "").not.toContain("background");
     // A directory with nothing configured has to look exactly as it did before the stripe existed.
     expect(bare?.find('[data-testid="cell-chip-color"]').exists()).toBe(false);
     expect(bare?.attributes("style") ?? "").not.toContain("color-mix");
@@ -2082,5 +2084,93 @@ describe("TerminalCell", () => {
     await flushPromises();
     await nextTick();
     expect((w.find('[data-testid="cell-mcp-toggle-render"]').element as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+// A launch chip says two things at once — which directory it is, and whether a session is
+// already running there. They used to be drawn in the same two places (background + border) at
+// identical strengths, so once directories were colour-coded a tint stopped meaning "running",
+// and a directory whose colour was blue read as running while idle (#1106).
+describe("launch chips: directory colour vs. running", () => {
+  const chipFor = (w: ReturnType<typeof mount>, label: string) =>
+    w.findAll('[data-testid="cell-chip"]').find((c) => c.find('[data-testid="cell-chip-main"]').text() === label);
+
+  // Unique paths per test: the dir-config cache is module-level and keyed by cwd.
+  function mountChips(colouredPath: string, runningPath: string, colour = "#2f6eb1") {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/dir-config")) {
+        const coloured = u.includes(encodeURIComponent(colouredPath));
+        return { ok: true, json: async () => (coloured ? { headerColor: colour } : {}) };
+      }
+      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/x", scripts: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    return mountCell(null, {
+      defaultCwd: "/home/me/proj",
+      presets: [
+        { label: "coloured", path: colouredPath },
+        { label: "running", path: runningPath },
+      ],
+      openCwds: [runningPath],
+    });
+  }
+
+  // The bug itself: the directory's colour reached the chip's own background, which is what
+  // "running" means. It has to stay on the stripe.
+  it("gives an idle chip no background of its own, however it is coloured", async () => {
+    const w = mountChips("/c1", "/r1");
+    await flushPromises();
+    const chip = chipFor(w, "coloured");
+    if (!chip) throw new Error("coloured chip not found");
+
+    expect(chip.attributes("style") ?? "").not.toContain("background");
+    expect(chip.classes().join(" ")).not.toContain("color-mix");
+    // The colour is still on screen — just confined to the stripe.
+    expect(chip.find('[data-testid="cell-chip-color"]').attributes("style")).toContain("rgb(47, 110, 177)");
+  });
+
+  it("marks the running chip with a background and a pulsing dot", async () => {
+    const w = mountChips("/c2", "/r2");
+    await flushPromises();
+    const chip = chipFor(w, "running");
+    if (!chip) throw new Error("running chip not found");
+
+    expect(chip.classes().join(" ")).toContain("color-mix");
+    expect(chip.find('[data-testid="cell-chip-dot"]').classes()).toContain("animate-cell-pulse");
+  });
+
+  // The two assertions above can each pass while the states still render alike. This is the one
+  // that says the user can tell them apart.
+  it("never renders a coloured idle chip the same as a running one", async () => {
+    const w = mountChips("/c3", "/r3");
+    await flushPromises();
+    const idle = chipFor(w, "coloured");
+    const running = chipFor(w, "running");
+    if (!idle || !running) throw new Error("chips not found");
+
+    const signature = (c: NonNullable<ReturnType<typeof chipFor>>) => `${c.classes().sort().join(" ")}|${c.attributes("style") ?? ""}`;
+    expect(signature(idle)).not.toBe(signature(running));
+    // And only one of them claims the running state.
+    expect(idle.find('[data-testid="cell-chip-dot"]').exists()).toBe(false);
+    expect(running.find('[data-testid="cell-chip-dot"]').exists()).toBe(true);
+  });
+
+  // A directory colour-coded in the SAME blue the running state uses is the case that made the
+  // old design unreadable: it looked running, always.
+  it("keeps a blue-coded idle directory distinguishable from a running one", async () => {
+    const w = mountChips("/c4", "/r4", "#3b82f6");
+    await flushPromises();
+    const idle = chipFor(w, "coloured");
+    const running = chipFor(w, "running");
+    if (!idle || !running) throw new Error("chips not found");
+
+    // Class AND style: the old design put the wash in an inline style, so a check on classes
+    // alone would have passed against exactly the bug this test is here for.
+    const painted = (c: NonNullable<ReturnType<typeof chipFor>>) => `${c.classes().join(" ")} ${c.attributes("style") ?? ""}`;
+    expect(painted(idle)).not.toContain("color-mix");
+    expect(painted(running)).toContain("color-mix");
   });
 });
