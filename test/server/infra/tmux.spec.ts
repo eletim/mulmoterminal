@@ -7,6 +7,7 @@ import {
   parseTmuxEnvironment,
   parseAttachedClientCount,
   parseTmuxTerminalModes,
+  parseClientTty,
   planMsOverride,
   MS_OVERRIDE_ENTRY,
 } from "../../../server/infra/tmux";
@@ -249,5 +250,23 @@ describe("parseTmuxTerminalModes", () => {
   it("restores nothing from output tmux could not produce", () => {
     expect(parseTmuxTerminalModes("")).toEqual([]);
     expect(parseTmuxTerminalModes("no server running")).toEqual([]);
+  });
+});
+
+describe("parseClientTty", () => {
+  it("reads the tty of the attached client", () => {
+    expect(parseClientTty("/dev/ttys098\n")).toBe("/dev/ttys098");
+  });
+
+  // Each mulmoterminal server holds one client per session, but a second server (or a stray
+  // `tmux attach`) can add another. Redrawing the first one is still right — the burst goes to
+  // whichever client asked, and ours is the one that just reattached.
+  it("takes the first of several clients", () => {
+    expect(parseClientTty("/dev/ttys098\n/dev/ttys101\n")).toBe("/dev/ttys098");
+  });
+
+  it("reports nothing to redraw when no client is attached", () => {
+    expect(parseClientTty("")).toBeNull();
+    expect(parseClientTty("\n \n")).toBeNull();
   });
 });

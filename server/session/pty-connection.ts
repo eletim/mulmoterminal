@@ -27,6 +27,9 @@ export interface ConnectionDeps {
   /** The screen-buffer / mouse modes this session's pane is in right now, for the replay to
    *  re-establish (#1073). Empty when there is nothing to restore. */
   terminalModesOf: (id: string) => readonly number[];
+  /** Ask tmux to repaint the whole pane, so a reattached browser stops showing whatever the
+   *  replayed delta window happened to reconstruct (#1073). */
+  redrawTerminal: (id: string) => void;
 }
 
 // browser -> command PTY. Like handleClientFrame but for the session-less command
@@ -78,6 +81,9 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
       // (e.g. a DA reply surfacing as "0;276;0c" in the prompt) — see terminal-replay.ts.
       const data = prefix + stripTerminalQueries(entry.buffer);
       if (data) ws.send(JSON.stringify({ type: "output", data }));
+      // What that replay draws is only the part of the screen that changed inside the window, so
+      // the real screen is asked for once the client reports the size it settled at, below.
+      if (entry.tmux) entry.redrawPending = true;
     }
     return entry;
   }
@@ -108,6 +114,13 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
         entry.term.write(msg.data);
       } else if (isResizeFrame(msg)) {
         entry.term.resize(msg.cols, msg.rows);
+        // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves
+        // it silent, and the reattached browser would keep the half-built screen forever — the
+        // alternate buffer it now restores into does not reflow, so no later resize repairs it.
+        if (entry.redrawPending) {
+          entry.redrawPending = false;
+          deps.redrawTerminal(sessionId);
+        }
       }
     } catch (err) {
       // e.g. a write/resize that races the PTY exiting — drop it, never crash.

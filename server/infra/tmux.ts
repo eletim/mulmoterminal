@@ -332,6 +332,34 @@ export function tmuxTerminalModes(id: string): number[] {
   return r.status === 0 ? parseTmuxTerminalModes(r.stdout) : [];
 }
 
+/** The first client tty from `list-clients -F '#{client_tty}'`, or null when nothing is attached.
+ *  Its own function so "no client to redraw" stays distinguishable from a tty we can act on. */
+export function parseClientTty(stdout: string): string | null {
+  const tty = splitLines(stdout)
+    .map((line) => line.trim())
+    .find((line) => line !== "");
+  return tty ?? null;
+}
+
+// Make tmux repaint the WHOLE pane onto our client, even though nothing about the pane changed.
+//
+// The reattach replay is a bounded tail of tmux's output — a stream of DELTAS, not a screen. Fed to
+// a freshly reset terminal it reconstructs only the cells that happened to change inside that
+// window: rows that never changed stay blank, and cells written at different moments end up side by
+// side. A pty resize normally hides this, because tmux answers a size change with a full redraw —
+// but a reattach that ends at the size the pty already had leaves tmux with nothing to say, and the
+// browser keeps the half-built screen. Since the replay now lands in the ALTERNATE buffer, which
+// does not reflow, there is also no later resize that can repair it (#1073).
+//
+// Measured against a live session: one `refresh-client` returns every row of a 25-row screen in a
+// single 666-byte burst, where an idle pane sends nothing at all.
+export function tmuxRedrawClient(id: string): void {
+  const clients = tmux(["list-clients", "-t", tmuxSessionName(id), "-F", "#{client_tty}"]);
+  if (clients.status !== 0) return;
+  const tty = parseClientTty(clients.stdout);
+  if (tty) tmux(["refresh-client", "-t", tty]);
+}
+
 // Parse `#{session_attached}`. Its own function so the "unreadable means nobody" rule is
 // testable: a caller deciding whether to KILL a session must not read a failure as 0.
 export function parseAttachedClientCount(stdout: string): number | null {
