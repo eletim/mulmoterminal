@@ -21,10 +21,18 @@ import path from "node:path";
 import { isExecutableFile, namesAPath, resolveWindowsBatch, resolveWindowsExecutable, windowsSearchDirectories } from "./resolve-bin.js";
 import { pathFromEnv } from "./pty-env.js";
 
-/** Why a named command could or could not be launched. `searched` carries the directories that
- *  were looked in, so a "not on PATH" report can show the PATH it actually used rather than the
- *  one the reader assumes. */
-export type BinaryDiagnosis = { kind: "ok"; path: string } | { kind: "missing"; searched: readonly string[] } | { kind: "not-executable"; path: string };
+/** Why a named command could or could not be launched.
+ *
+ *  `missing` and `no-such-path` are separate because the ADVICE is opposite. A PATH miss carries
+ *  the directories that were looked in, so the report can show the PATH it actually used rather
+ *  than the one the reader assumes, and the fix is to set the override. A named path that isn't
+ *  there is someone who already set the override — telling them to set it is the wrong sentence
+ *  entirely. */
+export type BinaryDiagnosis =
+  | { kind: "ok"; path: string }
+  | { kind: "missing"; searched: readonly string[] }
+  | { kind: "no-such-path"; path: string }
+  | { kind: "not-executable"; path: string };
 
 /** The filesystem questions this asks, injected so the rules — including the Windows ones — are
  *  checkable from any host. */
@@ -103,7 +111,7 @@ function diagnoseWindowsName(bin: string, searchPath: string | undefined, probe:
 function diagnosePathName(bin: string, platform: NodeJS.Platform, probe: BinaryProbe): BinaryDiagnosis {
   const rules = platform === "win32" ? path.win32 : path.posix;
   if (!rules.isAbsolute(bin)) return { kind: "ok", path: bin };
-  if (!probe.isFile(bin)) return { kind: "missing", searched: [rules.dirname(bin)] };
+  if (!probe.isFile(bin)) return { kind: "no-such-path", path: bin };
   if (platform === "win32") return { kind: "ok", path: bin };
   return probe.isExecutable(bin) ? { kind: "ok", path: bin } : { kind: "not-executable", path: bin };
 }
@@ -145,6 +153,11 @@ const listDirectories = (dirs: readonly string[]): string =>
  *  (CODEX_BIN) so the message carries its own escape hatch. */
 export function binaryProblemMessage(bin: string, diagnosis: BinaryDiagnosis, envVar: string): string | null {
   if (diagnosis.kind === "ok") return null;
+  if (diagnosis.kind === "no-such-path") {
+    // Whoever sees this has ALREADY set the override — a "set it to the full path" hint would be
+    // telling them to do the thing that put them here.
+    return `There is no file at ${diagnosis.path}, so nothing can be started from it. Correct ${envVar}, or unset it to look the command up on PATH instead.`;
+  }
   if (diagnosis.kind === "not-executable") {
     // Naming the path is only worth it when the search FOUND it somewhere — with `${envVar}` set
     // to a full path the two are the same string, and saying it twice reads like a second file.

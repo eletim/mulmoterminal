@@ -62,12 +62,15 @@ describe("diagnoseBinary on POSIX", () => {
     expect(diagnoseBinary("", posixEnv("/usr/bin"), "darwin", probeOf({ "/usr/bin/": "x" }))).toEqual({ kind: "missing", searched: [] });
   });
 
-  // CODEX_BIN=/full/path — checked as given, never looked up on PATH.
+  // CODEX_BIN=/full/path — checked as given, never looked up on PATH. A path that isn't there is
+  // its OWN verdict, not a PATH miss: the advice for the two is opposite (Codex, #1068).
   it("checks an absolute path as given", () => {
     const probe = probeOf({ "/opt/codex": "x", "/opt/broken": "r" });
     expect(diagnoseBinary("/opt/codex", posixEnv("/usr/bin"), "darwin", probe)).toEqual({ kind: "ok", path: "/opt/codex" });
     expect(diagnoseBinary("/opt/broken", posixEnv("/usr/bin"), "darwin", probe)).toEqual({ kind: "not-executable", path: "/opt/broken" });
-    expect(diagnoseBinary("/opt/absent", posixEnv("/usr/bin"), "darwin", probe)).toEqual({ kind: "missing", searched: ["/opt"] });
+    expect(diagnoseBinary("/opt/absent", posixEnv("/usr/bin"), "darwin", probe)).toEqual({ kind: "no-such-path", path: "/opt/absent" });
+    // A directory at the override path is equally unstartable, and equally not a PATH miss.
+    expect(diagnoseBinary("/opt", posixEnv("/usr/bin"), "darwin", probe)).toEqual({ kind: "no-such-path", path: "/opt" });
   });
 
   // A relative path resolves against the PTY's cwd, not ours, so this cannot answer it and must
@@ -147,6 +150,17 @@ describe("binaryProblemMessage", () => {
     const message = binaryProblemMessage("codex", { kind: "missing", searched }, "CODEX_BIN") ?? "";
     expect(message).toContain("+2 more");
     expect(message).not.toContain("/f");
+  });
+
+  // Someone reading this has ALREADY set the override, so the PATH advice is not just useless,
+  // it tells them to do the thing that put them here — and "`/opt/absent` is not on the PATH …
+  // set CODEX_BIN to its full path" contradicts itself.
+  it("does not give PATH advice for an override that points nowhere", () => {
+    const message = binaryProblemMessage("/opt/absent", { kind: "no-such-path", path: "/opt/absent" }, "CODEX_BIN") ?? "";
+    expect(message).toContain("/opt/absent");
+    expect(message).toContain("CODEX_BIN");
+    expect(message).not.toContain("not on the PATH");
+    expect(message).not.toContain("which /opt/absent");
   });
 
   it("points at the file itself when it is there but cannot run", () => {

@@ -105,6 +105,8 @@ function refuseUnlaunchable(file: string, binEnvVar: string, env: NodeJS.Process
   const diagnosis = diagnoseBinary(file, env);
   const problem = binaryProblemMessage(file, diagnosis, binEnvVar);
   if (!problem) return;
+  // The browser gets a truncated PATH so the banner stays readable; the whole of it goes here,
+  // which is what someone diagnosing "but it works in my terminal" actually needs to compare.
   if (diagnosis.kind === "missing") console.error(`[pty] ${file} not found. PATH searched: ${diagnosis.searched.join(path.delimiter)}`);
   throw new SpawnBinaryError(problem, diagnosis);
 }
