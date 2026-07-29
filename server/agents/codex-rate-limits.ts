@@ -11,9 +11,8 @@
 //     "secondary": {"used_percent": 1.0, "window_minutes": 10080, "resets_at": 1784358265}
 //   }
 import type { RateLimits, RateLimitWindow } from "./statusline.js";
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
-const finiteNumber = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+import { isRecord } from "../../common/isRecord.js";
+import { finiteNumber } from "../../common/finiteNumber.js";
 
 const FIVE_HOUR_MINUTES = 300;
 const SEVEN_DAY_MINUTES = 7 * 24 * 60;

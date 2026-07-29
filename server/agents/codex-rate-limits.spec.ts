@@ -51,6 +51,15 @@ describe("extractCodexRateLimits", () => {
   it("ignores a window whose duration matches neither", () => {
     expect(extractCodexRateLimits({ primary: { used_percent: 5, window_minutes: 1, resets_at: 1 } })).toBeNull();
   });
+
+  // #1074 swapped a hand-copied `isRecord` for the shared one, which REJECTS arrays where the copy
+  // accepted them. Same answer either way — pinned so the swap stays invisible.
+  it.each([
+    ["the payload itself is an array", [{ primary: { used_percent: 5, window_minutes: FIVE_HOUR_MIN } }]],
+    ["a window is an array", { primary: [{ used_percent: 5, window_minutes: FIVE_HOUR_MIN }] }],
+  ])("is null when %s", (_case, raw) => {
+    expect(extractCodexRateLimits(raw)).toBeNull();
+  });
 });
 
 describe("latestRateLimitsInRollout", () => {
