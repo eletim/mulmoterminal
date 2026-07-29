@@ -35,6 +35,7 @@ import { flagEffect, type ActivityFlag } from "./activity-flag.js";
 import type { WorkPhase } from "./workPhase.js";
 import { readLatestResponse } from "./session-reads.js";
 import { cleanupSessionSettings } from "./session-settings.js";
+import { cleanupSessionDrops } from "./session-drops.js";
 import { cleanupSandbox } from "../infra/sandbox.js";
 import { tmuxKillSession } from "../infra/tmux.js";
 
@@ -161,6 +162,8 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   if (entry.sandbox) cleanupSandbox(id);
   // A provider session's settings file holds its token — drop it with the session (#579).
   cleanupSessionSettings(id);
+  // Files dropped into this session were copied to tmp for it alone; nothing else refers to them.
+  cleanupSessionDrops(id);
   deps.publish(SESSIONS_CHANNEL, { id, working: false, event: "closed" });
 }
 

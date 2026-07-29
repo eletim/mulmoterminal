@@ -9,6 +9,7 @@ import { hideErrorStacks } from "./infra/hide-error-stacks.js";
 import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
+import { initOpenPathBackend } from "./backends/openPath.js";
 import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
@@ -102,6 +103,7 @@ import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
+import { pruneOrphanDrops } from "./session/session-drops.js";
 
 // Per-session activity flags, driven by Claude hooks (see /api/hook).
 
@@ -425,6 +427,11 @@ initMarkdownBackend({ workspace: CLAUDE_CWD });
 // Give the artifacts FileOps backend its workspace root (<workspace>/artifacts) so
 // @mulmoclaude/chart-plugin's executeChart can persist chart documents there.
 initArtifactsBackend({ workspace: CLAUDE_CWD });
+
+// Give the by-path backend the same workspace — presentDocument / presentHtml's
+// `path` argument resolves workspace-relative values against it (absolute ones are
+// taken as-is), and the /htmlfile mount resolves its `ws` scope from it.
+initOpenPathBackend({ workspace: CLAUDE_CWD });
 
 // Create the mulmoScript server ops (stories dir under <workspace>/artifacts,
 // generation fan-out on the plugin pubsub channel). After initArtifactsBackend —
@@ -759,10 +766,16 @@ server.listen(Number(PORT), BIND_HOST, () => {
   //
   // …but only for OUR previous lifetime. A peer running right now has live PTYs, and without
   // tmux `surviving` is empty, so its files looked like leftovers and were deleted underneath it
-  // (#1061). Files older than the earliest live peer cannot be theirs; newer ones might be.
+  // (#1061). Files older than the earliest live peer cannot be theirs; newer ones might be — and
+  // that cutoff applies to every sweep here, not just the one the bug was reported against.
   const peers = liveInstances();
-  const droppedSettings = pruneOrphanSettings(new Set(surviving), undefined, earliestStartedAt(peers));
+  const peerCutoff = earliestStartedAt(peers);
+  const liveSessionIds = new Set(surviving);
+  const droppedSettings = pruneOrphanSettings(liveSessionIds, undefined, peerCutoff);
   if (droppedSettings.length) console.log(`[settings] removed ${droppedSettings.length} orphaned session settings file(s)`);
+  // Dropped files are the same story: copies in tmp that only their session referred to.
+  const droppedDrops = pruneOrphanDrops(liveSessionIds, undefined, peerCutoff);
+  if (droppedDrops.length) console.log(`[drops] removed ${droppedDrops.length} orphaned session drop director(ies)`);
   if (peers.length) {
     const where = peers.map((p) => (p.port === null ? `pid ${p.pid}` : `port ${p.port}`)).join(", ");
     console.warn(`[instances] ${peers.length} other MulmoTerminal server(s) running (${where}) — they share ~/.mulmoterminal, which is not a supported setup`);

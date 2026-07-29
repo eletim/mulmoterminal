@@ -23,6 +23,7 @@ import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountRepoRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
 import { mountGuiMcpRoutes } from "../routes/gui-mcp-routes.js";
+import { mountDropRoutes } from "../routes/drop-routes.js";
 import { mountOpenDirRoute } from "../files/open-dir.js";
 import { mountGitRemoteRoute } from "../git/gitRemote.js";
 import { mountWorktreeRoutes } from "../git/worktree-routes.js";
@@ -44,7 +45,7 @@ import { ptys, sessionToolGroups, sessionToolGroupsHydrated, devTerminalSessions
 import { mountShortcutsRoutes } from "../backends/shortcuts.js";
 import { mountDecisionRoutes } from "./decision-routes.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
-import { mountHtmlDispatchRoute, mountHtmlPreviewRoute } from "../backends/html.js";
+import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
 import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
 import { FILE_WRITE_CHANNEL } from "../../common/fileWriteChannel.js";
@@ -80,12 +81,19 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   const clientDir = deps.clientDir;
-  app.use(express.json({ limit: "25mb" }));
 
-  // Before any route: one same-origin gate for every state-changing request, so a site the
-  // user visits cannot drive this server through their browser. Individual routes keep their
-  // own checks — this is the floor, not a replacement.
+  // Before any route AND before any body parser: one same-origin gate for every state-changing
+  // request, so a site the user visits cannot drive this server through their browser. Ahead of
+  // the parsers so a request that is going to be refused is never handed a body to parse — the
+  // gate reads only method, path and origin. Individual routes keep their own checks — this is
+  // the floor, not a replacement.
   app.use(sameOriginGuard(deps.isAllowedOrigin));
+
+  // Ahead of express.json, carrying its own raw parser: a dropped file is bytes under its own
+  // content type, and a dropped .json would otherwise be parsed as a document rather than saved.
+  mountDropRoutes(app);
+
+  app.use(express.json({ limit: "25mb" }));
 
   // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat,
   // manageAccounting, manageCollection (routes/plugin-routes.ts). ALL of them must precede
@@ -153,6 +161,10 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // Serve presentHtml pages for the View's iframe (GET /artifacts/html/<rest>) with an
   // HTML preview CSP. The View navigates the iframe to this URL (htmlArtifactPreviewUrl).
   mountHtmlPreviewRoute(app, { workspace: CLAUDE_CWD });
+
+  // The same, for a page presentHtml was POINTED at rather than wrote (GET
+  // /htmlfile/<scope>/…, built by htmlFileUrl). No containment root — see the route.
+  mountHtmlFileRoute(app);
 
   // Shared launcher favorites (GET/PUT /api/shortcuts) over the same
   // <workspace>/config/shortcuts.json MulmoClaude uses — backs the collections toolbar.
