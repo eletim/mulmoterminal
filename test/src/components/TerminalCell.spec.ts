@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
+import { TOOL_GROUPS } from "../../../common/toolGroups";
 
 // Capture the "sessions" pub/sub callback and the reconnect handler so tests can push
 // activity and simulate a dropped-then-restored socket directly.
@@ -1044,6 +1045,9 @@ describe("TerminalCell", () => {
     const w = mountCell(null, { defaultCwd: "/home/me/repo" });
     await flushPromises();
     await w.find('[data-testid="worktree-reuse"]').trigger("click");
+    // The launch waits on the tool-group sync — one read of the worktree's registrations, plus a
+    // write per group that disagrees with the launcher (syncMcpGroupsInto).
+    await flushPromises();
     const term = w.findComponent({ name: "TerminalView" });
     expect(term.exists()).toBe(true);
     expect(term.props("cwd")).toBe("/wt/old-task");
@@ -1812,12 +1816,12 @@ describe("TerminalCell", () => {
     expect(bare?.attributes("style") ?? "").not.toContain("color-mix");
   });
 
-  // The two Canvas switches write to ONE file (Claude Code's MCP config, via `claude mcp
+  // The tool-group switches write to ONE file (Claude Code's MCP config, via `claude mcp
   // add/remove`), so their POSTs are queued one behind the other. That queue is only half the
   // guard: a checkbox left live while its write waits its turn can be flipped again, and since a
   // failed write puts its own checkbox back, the earlier rollback would land on top of the later
   // intent — flip on, flip off, end up on. So the flip disables the box immediately.
-  it("disables a Canvas switch from the flip until its write settles", async () => {
+  it("disables a tool-group switch from the flip until its write settles", async () => {
     const write = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
     globalThis.fetch = vi.fn(async (url: string, init?: { method?: string }) => {
       const u = String(url);
@@ -1834,7 +1838,7 @@ describe("TerminalCell", () => {
     const w = mountCell(null);
     await flushPromises();
 
-    const box = w.find('[data-testid="cell-canvas-toggle-render"]');
+    const box = w.find('[data-testid="cell-mcp-toggle-render"]');
     expect(box.exists()).toBe(true);
     await box.setValue(true);
     // Disabled while the write is in flight — not merely once it reaches the front of the queue.
@@ -1843,12 +1847,12 @@ describe("TerminalCell", () => {
     write.resolve({ ok: true, json: async () => ({ ok: true }) });
     await flushPromises();
     await nextTick();
-    expect(w.find('[data-testid="cell-canvas-toggle-render"]').attributes("disabled")).toBeUndefined();
+    expect(w.find('[data-testid="cell-mcp-toggle-render"]').attributes("disabled")).toBeUndefined();
   });
 
   // A rejected write is the case the lock exists for: the checkbox goes back to where it was,
   // and it must be the flip that was actually attempted.
-  it("puts the Canvas switch back when its write fails", async () => {
+  it("puts the tool-group switch back when its write fails", async () => {
     globalThis.fetch = vi.fn(async (url: string, init?: { method?: string }) => {
       const u = String(url);
       if (u.includes("/api/gui-mcp-groups")) {
@@ -1863,12 +1867,12 @@ describe("TerminalCell", () => {
 
     const w = mountCell(null);
     await flushPromises();
-    const box = w.find('[data-testid="cell-canvas-toggle-render"]');
+    const box = w.find('[data-testid="cell-mcp-toggle-render"]');
     await box.setValue(true);
     await flushPromises();
     await nextTick();
 
-    expect((w.find('[data-testid="cell-canvas-toggle-render"]').element as HTMLInputElement).checked).toBe(false);
+    expect((w.find('[data-testid="cell-mcp-toggle-render"]').element as HTMLInputElement).checked).toBe(false);
     expect(w.text()).toContain("failed");
   });
 
@@ -1876,7 +1880,7 @@ describe("TerminalCell", () => {
   // the whole time. The write below waits behind another group's save; read at execution time,
   // the switch ticked for alpha would register the MCP server against beta — a silent write to a
   // folder the user never touched the switch in.
-  it("writes a queued Canvas registration to the directory it was flipped in", async () => {
+  it("writes a queued group registration to the directory it was flipped in", async () => {
     const first = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
     const posted: { cwd: string; group: string; enabled: boolean }[] = [];
     globalThis.fetch = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
@@ -1899,13 +1903,13 @@ describe("TerminalCell", () => {
     await flushPromises();
 
     // media goes first and hangs; render queues behind it, both flipped in alpha.
-    await w.find('[data-testid="cell-canvas-toggle-media"]').setValue(true);
-    await w.find('[data-testid="cell-canvas-toggle-render"]').setValue(true);
+    await w.find('[data-testid="cell-mcp-toggle-media"]').setValue(true);
+    await w.find('[data-testid="cell-mcp-toggle-render"]').setValue(true);
     expect(posted).toHaveLength(1);
 
     // The user retypes the directory while render's write is still queued. The launcher reloads
     // the switches for the new directory behind a 300ms debounce, so let it fire — that reload is
-    // what moves canvasDir off alpha, and it is exactly what the queued write must not pick up.
+    // what moves mcpGroupDir off alpha, and it is exactly what the queued write must not pick up.
     vi.useFakeTimers();
     try {
       await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/beta");
@@ -1926,7 +1930,7 @@ describe("TerminalCell", () => {
   // a codex grid cell is handed the SAME groups as resolved `-c mcp_servers.*` urls at spawn
   // (server/session/spawn-codex.ts). Hiding the rows on codex left that path with no way to be
   // turned on from the cell that uses it.
-  it("offers the Canvas switches for codex as well as claude", async () => {
+  it("offers the tool-group switches for codex as well as claude", async () => {
     globalThis.fetch = vi.fn(async (url: string) => {
       const u = String(url);
       if (u.includes("/api/gui-mcp-groups")) return { ok: true, json: async () => ({ groups: ["render"] }) };
@@ -1943,9 +1947,113 @@ describe("TerminalCell", () => {
     await codexButton?.trigger("click");
     await nextTick();
 
-    expect(w.find('[data-testid="cell-canvas-toggle-render"]').exists()).toBe(true);
-    expect(w.find('[data-testid="cell-canvas-toggle-media"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-mcp-toggle-render"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-mcp-toggle-media"]').exists()).toBe(true);
     // And it reads the same registration claude's rows do.
-    expect((w.find('[data-testid="cell-canvas-toggle-render"]').element as HTMLInputElement).checked).toBe(true);
+    expect((w.find('[data-testid="cell-mcp-toggle-render"]').element as HTMLInputElement).checked).toBe(true);
+  });
+
+  // `data` and `external` were routed, gated and pre-approved on the server from the day the
+  // groups were defined, but the launcher only ever drew the two Canvas rows — so the only way to
+  // reach a collection or a google tool from a grid cell was to type `claude mcp add` by hand.
+  // One row per group in TOOL_GROUPS, reading and writing the same registration the other two do.
+  it("offers a switch for every tool group, not just the Canvas ones", async () => {
+    const posted: { cwd: string; group: string; enabled: boolean }[] = [];
+    globalThis.fetch = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      if (u.includes("/api/gui-mcp-groups")) {
+        if (init?.method === "POST") {
+          posted.push(JSON.parse(String(init.body)));
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        return { ok: true, json: async () => ({ groups: ["data"] }) };
+      }
+      if (u.includes("/api/worktrees")) return { ok: true, json: async () => ({ isGit: false, worktrees: [] }) };
+      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/home/me/proj", scripts: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, { defaultCwd: "/home/me/alpha" });
+    await flushPromises();
+
+    for (const group of TOOL_GROUPS) expect(w.find(`[data-testid="cell-mcp-toggle-${group}"]`).exists()).toBe(true);
+    // A group registered on disk comes back ticked, whichever group it is.
+    expect((w.find('[data-testid="cell-mcp-toggle-data"]').element as HTMLInputElement).checked).toBe(true);
+    expect((w.find('[data-testid="cell-mcp-toggle-external"]').element as HTMLInputElement).checked).toBe(false);
+
+    await w.find('[data-testid="cell-mcp-toggle-external"]').setValue(true);
+    await flushPromises();
+    expect(posted).toEqual([{ cwd: "/home/me/alpha", group: "external", enabled: true }]);
+  });
+
+  // A REUSED worktree can carry a registration from an earlier launch. Mirroring only the ticked
+  // groups into it leaves that one standing, so the session gets tools the launcher shows as off
+  // — `external` reaching a third-party account is the case that makes it matter. The groups that
+  // already agree are left alone, because every write shells out to the `claude` CLI.
+  it("clears a stale worktree registration for a group that is switched off", async () => {
+    const posted: { cwd: string; group: string; enabled: boolean }[] = [];
+    const groupsByCwd: Record<string, string[]> = {
+      "/home/me/repo": ["render"],
+      "/wt/old-task": ["render", "external"],
+    };
+    globalThis.fetch = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      if (u.includes("/api/gui-mcp-groups")) {
+        if (init?.method === "POST") {
+          posted.push(JSON.parse(String(init.body)));
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        const cwd = decodeURIComponent(u.split("cwd=")[1] ?? "");
+        return { ok: true, json: async () => ({ groups: groupsByCwd[cwd] ?? [] }) };
+      }
+      if (u.includes("/api/worktrees"))
+        return {
+          ok: true,
+          json: async () => ({ isGit: true, base: "main", worktrees: [{ path: "/wt/old-task", branch: "agent/old-task", task: "old-task", dirty: false }] }),
+        };
+      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ scripts: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, { defaultCwd: "/home/me/repo" });
+    await flushPromises();
+    await w.find('[data-testid="worktree-reuse"]').trigger("click");
+    await flushPromises();
+
+    // render agrees on both sides, data and media are off and absent — only the stale one moves.
+    expect(posted).toEqual([{ cwd: "/wt/old-task", group: "external", enabled: false }]);
+  });
+
+  // The switches belong to a DIRECTORY, and the reload behind them is debounced. Left on screen
+  // during that gap they are the previous directory's positions, and flipping one writes the MCP
+  // registration there — a directory the user has already typed their way off.
+  it("takes the switches away the moment the directory field changes", async () => {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/gui-mcp-groups")) return { ok: true, json: async () => ({ groups: ["render"] }) };
+      if (u.includes("/api/worktrees")) return { ok: true, json: async () => ({ isGit: false, worktrees: [] }) };
+      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/home/me/alpha", scripts: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, { defaultCwd: "/home/me/alpha" });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-mcp-toggle-render"]').exists()).toBe(true);
+
+    vi.useFakeTimers();
+    try {
+      await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/beta");
+      // Before the 300ms reload: no rows at all rather than beta's name over alpha's positions.
+      expect(w.find('[data-testid="cell-mcp-toggle-render"]').exists()).toBe(false);
+      await vi.advanceTimersByTimeAsync(400);
+    } finally {
+      vi.useRealTimers();
+    }
+    await flushPromises();
+    await nextTick();
+    expect((w.find('[data-testid="cell-mcp-toggle-render"]').element as HTMLInputElement).checked).toBe(true);
   });
 });
