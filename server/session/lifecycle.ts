@@ -36,6 +36,8 @@ import type { WorkPhase } from "./workPhase.js";
 import { readLatestResponse } from "./session-reads.js";
 import { cleanupSessionSettings } from "./session-settings.js";
 import { cleanupSessionDrops } from "./session-drops.js";
+import { runCompletionHook } from "./completion-hooks.js";
+import { messageOf } from "../errors.js";
 import { cleanupSandbox } from "../infra/sandbox.js";
 import { tmuxKillSession } from "../infra/tmux.js";
 
@@ -165,6 +167,11 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   // Files dropped into this session were copied to tmp for it alone; nothing else refers to them.
   cleanupSessionDrops(id);
   deps.publish(SESSIONS_CHANNEL, { id, working: false, event: "closed" });
+  // The session is gone, so this is its last chance to report an outcome (#1070). Failure is
+  // the right answer HERE because the hook is one-shot and a finished turn already claimed it
+  // on the way past: reaching teardown with the hook still unfired means no Stop ever came —
+  // a worker blocked on a dialog nobody can answer, or one that died before its first turn.
+  void runCompletionHook(id, { didError: true }).catch((err) => console.error(`[completion-hook] ${messageOf(err)}`));
 }
 
 // Publish a session's current activity (working + waiting) to subscribers.
