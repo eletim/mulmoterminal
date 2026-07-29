@@ -11,6 +11,7 @@ import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
 import { knownSessions, launchChoices, ptys, resetSessionToolGroups } from "./registry.js";
 import { ptySpawn, ptyWouldReattach, sandboxWouldRun, spawnSandboxEntry } from "./pty-spawn.js";
+import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { attachDraftInjection } from "./draft-injection.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
 import { appendBoundedOutput } from "./terminal-replay.js";
@@ -37,7 +38,7 @@ export interface SpawnClaudeOptions {
   // What the browser picked in the launch form (#584). Replaces the directory's default
   // as a PAIR: a provider from one source with a model from the other is a combination
   // neither of them asked for. Absent — the usual case — means "use the directory's".
-  launch?: DirModelChoice;
+  launch?: DirModelChoice | undefined;
 }
 
 // The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
@@ -58,6 +59,13 @@ function sessionAppendedPrompt(cwd: string, dirSetting: boolean | null): string 
   return appendedSystemPrompt({ dirSetting, globalSetting: getAppendSystemPrompt(), workdirFooter: sessionWorkdirFooter(cwd) });
 }
 
+// The sidebar row a session gets before it has a transcript. A session spawned to run something
+// (an initial prompt or a draft) is named after that text, so it is recognizable there before
+// anyone opens it; anything else is just "New session".
+function newSessionTitle(seed: string | undefined): string {
+  return (seed ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
+}
+
 // What this session runs, and the directory config it runs under (#579). A refusal THROWS:
 // falling back to Anthropic would send this session's prompts to a backend the directory did not
 // select, which is exactly what the provider contract exists to prevent. The ws route turns it
@@ -65,7 +73,7 @@ function sessionAppendedPrompt(cwd: string, dirSetting: boolean | null): string 
 //
 // Its own function because the spawn body is at its line budget and this is one decision made
 // from three sources, not part of spawning.
-function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?: DirModelChoice; canResume: boolean; sandbox: boolean }) {
+function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?: DirModelChoice | undefined; canResume: boolean; sandbox: boolean }) {
   const dir = loadDirConfig(input.cwd);
   const choice = effectiveChoice({
     launch: input.launch,
@@ -143,6 +151,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     // spawn has to take it with it — a session that never starts never reaches reap(),
     // where the cleanup normally happens (#579).
     const entry = withSettingsCleanup(sessionId, spawnEntry);
+    const spawnedAtMs = Date.now();
 
     // A NEW claude process gets whatever the user's MCP config says NOW, so anything this id
     // learned under a previous one is stale — including a group the user has since removed.
@@ -169,19 +178,15 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       resetToolGroupsUnlessReattaching();
       if (sandbox) return spawnSandboxEntry(sessionId, args, cwd, ws, addDirs);
       const spawnEnv = { unset: resolved.unset, env: guiMcpEnv(sessionId, PORT), binEnvVar: claudeAdapter.binEnvVar };
-      const { term, tmux } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
-      console.log(`[pty] spawned claude (pid=${term.pid}${tmux ? " via tmux" : ""}) in ${cwd}`);
+      const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
+      console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
     ptys.set(sessionId, entry);
 
     if (!canResume) {
-      // Brand-new (or restarted-idle) session: surface it in the sidebar before
-      // it's persisted. A spawned session (initialPrompt or a draft) gets a title from
-      // that text so it's recognizable in the sidebar before anyone opens it.
-      const seed = initialPrompt ?? draft;
-      const title = seed ? seed.replace(/\s+/g, " ").trim().slice(0, 60) || "New session" : "New session";
-      knownSessions.set(sessionId, { createdAt: Date.now(), title });
+      // Brand-new (or restarted-idle) session: surface it in the sidebar before it's persisted.
+      knownSessions.set(sessionId, { createdAt: Date.now(), title: newSessionTitle(initialPrompt ?? draft) });
       deps.publishSessionCreated(sessionId);
     }
 
@@ -197,7 +202,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     });
 
     entry.term.onExit(({ exitCode, signal }) => {
-      console.log(`[pty] exited code=${exitCode} signal=${signal}`);
+      console.log(ptyExitLine({ agent: "claude", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
       sendExitAndClose(entry.ws, exitCode, signal);
       // Clear the dot if it died mid-turn, then tear down everything (deletes
       // ptys/knownSessions/activity and publishes "closed") so a process that
