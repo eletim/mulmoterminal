@@ -436,6 +436,7 @@ describe("dirConfigDetail", () => {
       skills: ["deploy"],
       buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy" }],
       chips: ["git", { label: "Build", text: "yarn build" }],
+      appendSystemPrompt: false,
     });
     const { extras } = dirConfigDetail(dir);
     expect(extras.provider).toBe("openrouter");
@@ -443,6 +444,9 @@ describe("dirConfigDetail", () => {
     expect(extras.skills).toEqual(["deploy"]);
     expect(extras.buttonLabels).toEqual(["Deploy"]);
     expect(extras.chipLabels).toEqual(["git", "Build"]);
+    // #1062. `false` is a setting, and the preview builds its rows from `extras` — dropped here,
+    // a file whose only key is this one reports as setting nothing at all.
+    expect(extras.appendSystemPrompt).toBe(false);
     cleanup();
   });
 
@@ -461,7 +465,7 @@ describe("dirConfigDetail", () => {
     const dir = tmp();
     const { config, extras } = dirConfigDetail(dir);
     expect(Object.values(config).every((value) => value === null || value === false)).toBe(true);
-    expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, buttonLabels: [], chipLabels: [] });
+    expect(extras).toEqual({ provider: null, model: null, skills: null, addDirs: null, appendSystemPrompt: null, buttonLabels: [], chipLabels: [] });
     rmSync(dir, { recursive: true, force: true });
   });
 

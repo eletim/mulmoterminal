@@ -59,6 +59,10 @@ export interface DirConfigExtras {
   model: string | null;
   skills: string[] | null;
   addDirs: string[] | null;
+  // Tri-state on purpose: `false` is a setting this file made, and the preview has to show it as
+  // one. Carried here because a boolean cannot be read back off the per-cell config the way a
+  // colour can — without it the panel reports the file as setting nothing at all.
+  appendSystemPrompt: boolean | null;
   buttonLabels: string[];
   chipLabels: string[];
 }
@@ -68,6 +72,7 @@ export const EMPTY_DIR_CONFIG_EXTRAS: DirConfigExtras = {
   model: null,
   skills: null,
   addDirs: null,
+  appendSystemPrompt: null,
   buttonLabels: [],
   chipLabels: [],
 };

@@ -256,12 +256,13 @@ export interface DirConfigDetail {
 const chipLabel = (chip: HeaderChip): string => (typeof chip === "string" ? chip : chip.label);
 
 function dirConfigExtras(cwd: string): DirConfigExtras {
-  const { provider, model, skills, addDirs, buttons, chips } = loadDirConfig(cwd);
+  const { provider, model, skills, addDirs, appendSystemPrompt, buttons, chips } = loadDirConfig(cwd);
   return {
     provider,
     model,
     skills,
     addDirs,
+    appendSystemPrompt,
     buttonLabels: (buttons ?? []).map((button) => button.label),
     chipLabels: (chips ?? []).map(chipLabel),
   };
