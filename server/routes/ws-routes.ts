@@ -22,7 +22,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
 import { codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
-import { sandboxWouldRun, SpawnBinaryError } from "../session/pty-spawn.js";
+import { sandboxWouldRun, SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
 import { codexGuiMcpServers } from "../session/mcp-config.js";
@@ -293,9 +293,9 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     // must close just this connection — never crash the whole server.
     console.error(`[ws] failed to start session ${sessionId}: ${messageOf(err)}`);
     // A provider refusal already says exactly what is wrong with the directory's config
-    // (#579), and a refused spawn already names the binary and the PATH it searched (#1063);
-    // a generic hint would bury either.
-    if (err instanceof ProviderRefusedError || err instanceof SpawnBinaryError) return closeWithError(ws, err.message);
+    // (#579), and a refused spawn already names the binary and the PATH it searched, or the
+    // directory that is gone (#1063, #1078); a generic hint would bury either.
+    if (err instanceof ProviderRefusedError || err instanceof SpawnRefusedError) return closeWithError(ws, err.message);
     closeWithError(ws, `Failed to start Claude: ${messageOf(err)}`);
     return;
   }
@@ -318,6 +318,15 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
 function handleRunConnection(deps: WsRouteDeps, ws: WebSocket, req: { url?: string; headers?: unknown }) {
   void startRunTerminal(deps, ws, new URL(req.url ?? "/", "http://localhost"));
 }
+
+// A refused spawn already carries its own diagnosis — the missing CLI with the PATH that was
+// searched (#1063), or the directory that is gone (#1078). Passing that through rather than
+// wrapping it is what puts the real reason in the terminal instead of `spawn ENOENT`; everything
+// else is an error nobody wrote for a reader, so it gets named.
+export const startFailureMessageFor =
+  (what: string) =>
+  (err: unknown): string =>
+    err instanceof SpawnRefusedError ? err.message : `Failed to start ${what}: ${messageOf(err)}`;
 
 // Start the pty for a resolved session, then hand the socket to it — or fail the socket cleanly.
 //
@@ -381,7 +390,9 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: { u
     return early.discard();
   }
 
-  const startFailureMessage = (err: unknown) => `Failed to start the launch command: ${messageOf(err)}`;
+  // A launcher runs the user's own command line, so there is no binary pre-flight — but its cwd
+  // is checked like every other spawn's, and that refusal is already a sentence.
+  const startFailureMessage = startFailureMessageFor("the launch command");
   startAndWire(deps, ws, { id: sessionId, tag: "launch", early, startFailureMessage }, () => startLaunchEntry(deps, sessionId, ws, live, launchCommand, cwd));
 }
 
@@ -413,9 +424,7 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: { ur
     return early.discard();
   }
 
-  // SpawnBinaryError already carries the pre-spawn diagnosis (#1063) — passing it through rather
-  // than wrapping it is what puts the real reason in the terminal instead of `spawn ENOENT`.
-  const startFailureMessage = (err: unknown) => (err instanceof SpawnBinaryError ? err.message : `Failed to start codex: ${messageOf(err)}`);
+  const startFailureMessage = startFailureMessageFor("codex");
   startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage }, () =>
     startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups }),
   );
