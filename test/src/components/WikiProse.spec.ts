@@ -6,7 +6,6 @@ import { router } from "../../../src/router/index";
 import WikiProse from "../../../src/components/WikiProse.vue";
 import WikiPageView from "../../../src/components/WikiPageView.vue";
 import WikiBrowseOverlay from "../../../src/components/WikiBrowseOverlay.vue";
-import { renderWikiHtml } from "../../../src/wikiMarkdown";
 
 // The lint report names broken links, so its body carries `[[…]]` spans just like a page body.
 const LINT_REPORT = "# Wiki Lint Report\n\n1 issue found:\n\n- **Broken link** in `alpha.md`: [[Meeting Notes]] → not found";
@@ -32,13 +31,21 @@ beforeEach(async () => {
   await flushPromises();
 });
 
-const mountProse = (graph: WikiGraph | null = GRAPH) => mount(WikiProse, { props: { html: renderWikiHtml("See [[Meeting Notes]] and text."), graph } });
+const mountProse = (graph: WikiGraph | null = GRAPH) => mount(WikiProse, { props: { markdown: "See [[Meeting Notes]] and text.", graph } });
 
 describe("WikiProse", () => {
   // The container class is what src/style.css's single wiki rule set hangs off. Two containers
   // with two rule sets is how the page and the lint report drifted apart in the first place (#1125).
   it("renders into the .wiki-body container", () => {
     expect(mountProse().find("div").classes()).toContain("wiki-body");
+  });
+
+  // The prop is markdown, not HTML, so the only thing v-html ever receives is
+  // renderWikiHtml's sanitized output — a caller cannot hand it a string of its own.
+  it("renders the markdown itself rather than trusting caller-supplied HTML", () => {
+    const w = mount(WikiProse, { props: { markdown: "**bold** <script>alert(1)</script>", graph: null } });
+    expect(w.find("strong").text()).toBe("bold");
+    expect(w.html()).not.toContain("<script>");
   });
 
   it("navigates on click, resolving the target through the graph's title map", async () => {
@@ -76,7 +83,7 @@ describe("the wiki views that render markdown", () => {
   it("renders a page body through WikiProse", () => {
     const page = { filePath: "alpha.md", content: "See [[Meeting Notes]].", exists: true, resolvedTitle: "Alpha" };
     const w = mount(WikiPageView, { props: { slug: "alpha", page, graph: GRAPH } });
-    expect(w.findComponent(WikiProse).exists()).toBe(true);
+    expect(w.findComponent(WikiProse).props("markdown")).toBe(page.content);
   });
 
   it("renders the lint report through WikiProse, with the graph loaded", async () => {

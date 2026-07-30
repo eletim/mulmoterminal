@@ -12,7 +12,6 @@ import type { WikiGraph } from "@mulmoclaude/core/wiki";
 import { useWikiBrowse, wikiGotoIndex, wikiGotoGraph, wikiGotoLint, type WikiView } from "../composables/useWikiBrowse";
 import { useEscapeToClose } from "../composables/useEscapeToClose";
 import { fetchWikiIndex, fetchWikiGraph, fetchWikiPage, fetchWikiLint, type WikiIndex, type WikiPage } from "../wikiApi";
-import { renderWikiHtml } from "../wikiMarkdown";
 import WikiIndexView from "./WikiIndexView.vue";
 import WikiPageView from "./WikiPageView.vue";
 import WikiGraphView from "./WikiGraphView.vue";
@@ -23,7 +22,7 @@ const { view, isOpen, close } = useWikiBrowse();
 const index = ref<WikiIndex | null>(null);
 const graph = ref<WikiGraph | null>(null);
 const page = ref<WikiPage | null>(null);
-const lintHtml = ref("");
+const lintReport = ref("");
 const loading = ref(false);
 const error = ref<string | null>(null);
 
@@ -57,7 +56,7 @@ async function loadGraph(): Promise<Commit> {
 async function loadLint(): Promise<Commit> {
   const [l, g] = await Promise.all([fetchWikiLint(), fetchWikiGraph()]);
   return () => {
-    lintHtml.value = renderWikiHtml(l.report);
+    lintReport.value = l.report;
     graph.value = g;
   };
 }
@@ -156,7 +155,7 @@ useEscapeToClose(isOpen, close);
         <WikiPageView v-else-if="view.mode === 'page' && page" :slug="view.slug" :page="page" :graph="graph" />
         <WikiGraphView v-else-if="view.mode === 'graph' && graph" :graph="graph" />
         <div v-else-if="view.mode === 'lint'" class="mx-auto max-w-[820px] px-7 pt-6 pb-16 text-fg">
-          <WikiProse :html="lintHtml" :graph="graph" />
+          <WikiProse :markdown="lintReport" :graph="graph" />
         </div>
       </template>
     </div>

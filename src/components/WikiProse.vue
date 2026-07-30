@@ -7,9 +7,14 @@
 import { computed } from "vue";
 import type { WikiGraph } from "@mulmoclaude/core/wiki";
 import { wikiGotoPage } from "../composables/useWikiBrowse";
+import { renderWikiHtml } from "../wikiMarkdown";
 import { resolveWikiClickTarget } from "./wikiClickTarget";
 
-const props = defineProps<{ html: string; graph: WikiGraph | null }>();
+// Markdown in, not HTML: the v-html below is only ever fed renderWikiHtml's sanitized
+// output because no caller gets to hand it a string of its own.
+const props = defineProps<{ markdown: string; graph: WikiGraph | null }>();
+
+const html = computed(() => renderWikiHtml(props.markdown));
 
 // Title→slug map keyed by the EXACT graph title: core's resolveLinkTarget looks up
 // `slugByTitle.get(target.trim())` with the raw (non-lowercased) target after slug
@@ -45,6 +50,6 @@ function onBodyKeydown(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <!-- eslint-disable-next-line vue/no-v-html -- LLM-authored, sanitized in renderWikiHtml -->
+  <!-- eslint-disable-next-line vue/no-v-html -- LLM-authored, sanitized in renderWikiHtml above -->
   <div class="wiki-body text-[14px] leading-[1.65]" @click="onBodyClick" @keydown="onBodyKeydown" v-html="html"></div>
 </template>
