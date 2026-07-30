@@ -75,6 +75,18 @@ byte-exact text.
 `entry` is narrowed to what typing actually needs (`agent` + `term.write`) so the spec can build a
 target without faking all of `IPty`, and without an `as` cast.
 
+## A fourth site, found by sweeping the rule (not in the issue)
+
+`server/agents/rate-limit-probe.ts` types `PROBE_PROMPT` into a real `claude` PTY and submitted
+with a hardcoded `"\r"` too. On an `esc-cr` host the probe's question is therefore never asked: it
+can only time out after 90 s, so the rate-limit gauge never refreshes and nothing on screen says
+why. Same fix, same injected thunk (`ProbeDeps.submitSequence`, supplied from `server/index.ts`
+where the other live config reads already are).
+
+No menu guard there: `PROBE_PROMPT` is a constant we own, with no `/` or `@` token — and it is
+also the only thing that identifies a pre-`--session-id` probe transcript (#1010), so its bytes
+are deliberately left alone.
+
 ## Deliberately out of scope
 
 - `attachCodexAutoRun` keeps its plain `\r`, now with a line saying why: `terminalSubmit`

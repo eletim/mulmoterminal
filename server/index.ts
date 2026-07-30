@@ -13,7 +13,7 @@ import { initOpenPathBackend } from "./backends/openPath.js";
 import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
-import { submitSequenceForAgent } from "../common/terminalSubmit.js";
+import { submitSequence, submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
@@ -401,6 +401,9 @@ const startClaudeRateLimitProbe = (): void => {
     port: PORT,
     cwd: CLAUDE_CWD,
     sessionId,
+    // The probe IS a claude TUI, so it submits by the user's Claude binding like every other
+    // claude session — read per probe so a config edit needs no restart.
+    submitSequence: () => submitSequence(getTerminalSubmit()),
     // A probe that settles WITHOUT the status line having reported is the "asked, heard nothing"
     // case. report() has already moved the state on if anything arrived, so this only widens the
     // gap when nothing did.
