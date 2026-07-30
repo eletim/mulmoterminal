@@ -78,7 +78,14 @@ export default [
     // (error@15). All ERRORS (enforced going forward) except max-params, which stays WARN
     // for its one intentional offender: spawnClaudePty's 7 params (hot path, not worth
     // churning 5 call sites into an options object) — flip it to error once resolved.
+    //
+    // max-lines is per FILE and was the gap: the per-function guards were all passing while
+    // TerminalCell.vue reached 2000 lines, because nothing was watching the file. Counted
+    // without comments, which is why the three heavily-documented 800+ line files
+    // (useTerminalConnections.ts, server/index.ts, collections.ts) are already under it —
+    // long because they explain themselves, not because they do too much.
     rules: {
+      "max-lines": ["error", { max: 600, skipBlankLines: true, skipComments: true }],
       "max-lines-per-function": ["error", { max: 60, skipBlankLines: true, skipComments: true, IIFEs: true }],
       complexity: ["error", 20],
       "max-depth": ["error", 4],
@@ -112,11 +119,30 @@ export default [
     rules: {
       "max-lines-per-function": "off",
       "max-nested-callbacks": "off",
+      // The FILE limit still applies here, but as a warning: a 1900-line spec is worth
+      // seeing, and yet splitting one moves assertions away from each other — the same
+      // trade-off the paragraph below describes for stubs. Warn says so without making a
+      // long-standing spec block anyone's CI.
+      "max-lines": ["warn", { max: 600, skipBlankLines: true, skipComments: true }],
       // Same reasoning for components: a spec defines throwaway stubs next to the case that
       // uses them (useCaptureKeydown, useNewTerminal). Splitting one-line stubs into their own
       // files would put the fixture further from the assertion, which is the opposite of what
       // the rule is for — it exists to keep SHIPPED components findable.
       "vue/one-component-per-file": "off",
+    },
+  },
+  {
+    // The files that already exceed max-lines, listed here rather than silenced with
+    // eslint-disable comments so the debt is countable in one place (CLAUDE.md forbids the
+    // comments, and rightly — they hide at the scene). Delete an entry once its file is under
+    // the limit; the rule then holds it there.
+    files: [
+      "src/components/TerminalCell.vue", // 1605 — extract the launch form (#1122)
+      "src/components/TerminalGrid.vue", //  815 — layout state machine + its documented <style> exception (#1125)
+      "src/components/SettingsModal.vue", //  786 — split the 15 sections (#1126)
+    ],
+    rules: {
+      "max-lines": "off",
     },
   },
   {
