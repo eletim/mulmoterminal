@@ -51,7 +51,6 @@ import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } fro
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
 import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
 import { FILE_WRITE_CHANNEL, type FileWriteEvent } from "../../common/fileWriteChannel.js";
-import { resolveWorkspace } from "../config/workspace.js";
 import type { createToolStores } from "../session/tool-store.js";
 import type { createClaudeSpawner } from "../session/spawn-claude.js";
 import type { createCodexSpawner } from "../session/spawn-codex.js";
@@ -63,6 +62,7 @@ import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountSpaFallback } from "../infra/spa-fallback.js";
 import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
+import { workspaceForRoute } from "./routeParams.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
@@ -318,7 +318,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
 
   // GET /api/cost — estimated $ cost (session + today/month roll-up) for a project's
   // sessions, from public per-model pricing. Read-only; shown in the Settings modal (#245).
-  mountCostRoute(app, { resolveCwd: resolveWorkspace });
+  mountCostRoute(app, { resolveCwd: workspaceForRoute });
 
   // POST /api/remote-host/connect|disconnect + GET /status — start/stop the
   // Firestore host loop from the toolbar Connect control. Same-origin guarded like

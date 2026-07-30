@@ -6,9 +6,8 @@
 // a summarizer, which belongs to the title machinery index.ts still owns.
 import type { Express, Request, Response } from "express";
 import { promises as fs } from "node:fs";
-import { CLAUDE_CWD, SESSION_ID_RE } from "../config/env.js";
-import { normalizeAgent } from "./routeParams.js";
-import { resolveWorkspace } from "../config/workspace.js";
+import { SESSION_ID_RE } from "../config/env.js";
+import { normalizeAgent, workspaceForRoute } from "./routeParams.js";
 import { hasErrnoCode } from "../errors.js";
 import { isProbeSessionId } from "../agents/probe-session.js";
 import {
@@ -69,7 +68,8 @@ export interface SessionRouteDeps {
 async function sessionDetail(req: Request<{ id: string }>, res: Response, freshenRosterTitle: SessionRouteDeps["freshenRosterTitle"]) {
   const { id } = req.params;
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-  const cwd = resolveWorkspace(typeof req.query.cwd === "string" ? req.query.cwd : null);
+  const cwd = workspaceForRoute(req.query.cwd, res);
+  if (cwd === null) return;
   await activityStateHydrated; // a reconnect re-fetch must see the restored working/waiting, not idle
   const { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse, userTurns, usage, context, workPhase } = await readSessionSummary(cwd, id);
   // If we haven't titled it yet, kick off a summary; sessionDetailView falls back meanwhile.
@@ -128,7 +128,8 @@ async function activitySnapshot(req: Request, res: Response) {
 async function toolTimeline(req: Request, res: Response) {
   const { session } = req.query;
   if (typeof session !== "string" || !SESSION_ID_RE.test(session)) return res.status(400).json({ error: "invalid session id" });
-  const cwd = resolveWorkspace(typeof req.query.cwd === "string" ? req.query.cwd : null);
+  const cwd = workspaceForRoute(req.query.cwd, res);
+  if (cwd === null) return;
   res.json(await sessionTimeline(cwd, session));
 }
 
@@ -143,7 +144,8 @@ async function lastTurn(req: Request, res: Response) {
   const { session } = req.query;
   if (typeof session !== "string" || !SESSION_ID_RE.test(session)) return res.status(400).json({ error: "invalid session id" });
   const agent = normalizeAgent(req.query.agent);
-  const cwd = resolveWorkspace(typeof req.query.cwd === "string" ? req.query.cwd : null);
+  const cwd = workspaceForRoute(req.query.cwd, res);
+  if (cwd === null) return;
   const turn = await sessionLastTurn(cwd, session, agent);
   // ?as=reply drops the prompt block: the caller is relaying an ANSWER back to whoever
   // asked, and that prompt is the asker's own text coming home.
@@ -159,9 +161,9 @@ async function sessionList(req: Request, res: Response) {
     // Optional ?cwd= scopes the list to that project's on-disk sessions (the grid
     // cell's resume picker). Without it, the classic single view's behavior is
     // unchanged: CLAUDE_CWD + in-memory pending sessions.
-    const cwdParam = typeof req.query.cwd === "string" ? req.query.cwd : null;
-    const cwd = cwdParam ? resolveWorkspace(cwdParam) : CLAUDE_CWD;
-    const includePending = !cwdParam;
+    const cwd = workspaceForRoute(req.query.cwd, res);
+    if (cwd === null) return;
+    const includePending = !req.query.cwd;
     // Wait for the persisted grid-session set before filtering (below), so a chat
     // request racing server boot can't leak previously-hidden grid transcripts. The
     // background set is awaited for BOTH queries — it decides a flag on the row rather
@@ -216,8 +218,8 @@ async function sessionList(req: Request, res: Response) {
 // the single view's sidebar lists these so past codex conversations are switchable + resumable.
 async function codexSessionList(req: Request, res: Response) {
   try {
-    const cwdParam = typeof req.query.cwd === "string" ? req.query.cwd : null;
-    const cwd = cwdParam ? resolveWorkspace(cwdParam) : CLAUDE_CWD;
+    const cwd = workspaceForRoute(req.query.cwd, res);
+    if (cwd === null) return;
     const sessions = await listCodexSessions(codexSessionsRoot(), cwd, SESSION_LIST_LIMIT);
     res.json({ cwd, sessions });
   } catch (err) {
