@@ -396,7 +396,9 @@ today — **Claude Code** (the default), **Codex**, and **Antigravity** (`agy`).
   `--model`). Antigravity runs on its own WebSocket (`/ws/antigravity`). Like Codex it mints its
   own conversation id, so the server watches `~/.gemini/antigravity-cli/brain/` (home overridable
   via `ANTIGRAVITY_HOME`) for the directory the new conversation creates — attributed only when
-  unambiguous — and cold-resumes it with `--conversation <id>`.
+  unambiguous — and cold-resumes it with `--conversation <id>`. That mapping is appended to
+  `~/.mulmoterminal/antigravity-conversations.jsonl`, so a conversation is still resumable after
+  the server restarts.
 
   Its **GUI tools work differently**, because `agy` takes no MCP flag: it reads its servers from
   `.agents/mcp_config.json` in the working directory. MulmoTerminal writes that file from the

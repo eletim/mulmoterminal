@@ -14,6 +14,13 @@ import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
+import {
+  antigravityConversationLine,
+  antigravityConversationRecord,
+  applyAntigravityConversation,
+  hydrateAntigravityConversationInto,
+  type AntigravityConversation,
+} from "./antigravity-conversations.js";
 import { applySessionMemo, createMemoWriteGuard, sessionMemoLine, sessionMemoRecord } from "./session-memos.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
@@ -100,8 +107,9 @@ export const claimedCodexRollouts = new Set<string>();
 // one would silently start double-recording that session's GUI calls — the opposite of cheap.
 export const hookedSessions = new Set<string>();
 
-// mulmoterminal session key -> the antigravity conversation id it maps to.
-export const antigravityConversationIds = new Map<string, string>();
+// Conversation directories already attributed to a session, so one is never mapped to two keys
+// (which would let both cold-resume the same conversation). The session -> conversation mapping
+// itself is persisted; see `antigravityConversations` below.
 export const claimedAntigravityConversations = new Set<string>();
 
 // Hidden translation-worker sessions run in CLAUDE_CWD — the workspace the user has
@@ -234,6 +242,48 @@ function rememberSessionCwd(id: string, cwd: string): void {
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
     .then(() => fs.appendFile(DEV_TERMINAL_CWDS_FILE, devTerminalCwdLine(id, cwd)))
     .catch((e) => console.error(`[dev-terminal-cwds] failed to persist: ${messageOf(e)}`));
+}
+
+// Which agy conversation each antigravity session runs, so a cold reconnect can resume it with
+// `--conversation <id>`. Persisted because agy mints the id and we discover it after the spawn: a
+// map that dies with the process leaves the conversation on disk with nothing pointing at it.
+export const antigravityConversations = new Map<string, AntigravityConversation>();
+const ANTIGRAVITY_CONVERSATIONS_FILE = path.join(MULMOTERMINAL_HOME, "antigravity-conversations.jsonl");
+
+// Sessions this process has already recorded. Hydration reads the file as it was BEFORE our append
+// could reach it, so without this a session spawned during startup is overwritten by an older line
+// — and the cwd it answers with would be the directory that session used to run in.
+const antigravityWrittenIds = new Set<string>();
+
+export const antigravityConversationsHydrated: Promise<void> = (async () => {
+  try {
+    // Streamed rather than read whole: one line per antigravity spawn, and nothing prunes it.
+    await forEachJsonlRecord(ANTIGRAVITY_CONVERSATIONS_FILE, (parsed) => {
+      const record = antigravityConversationRecord(parsed, isValidSessionId);
+      if (record) hydrateAntigravityConversationInto(antigravityConversations, antigravityWrittenIds, record);
+    });
+  } catch {
+    // absent on first run / unreadable => nothing to resume, which is today's behaviour anyway
+  }
+})();
+
+let antigravityPersist: Promise<void> = Promise.resolve();
+
+/** Map a session to the agy conversation it is running, and persist it. */
+export function rememberAntigravityConversation(sessionId: string, conversationId: string, cwd: string): void {
+  if (!isValidSessionId(sessionId) || !isValidSessionId(conversationId) || !cwd) return;
+  const known = antigravityConversations.get(sessionId);
+  if (known?.conversationId === conversationId && known.cwd === cwd) return; // already the answer; appending would only grow the log
+  // Carried over rather than re-stamped: a session relaunched somewhere else appends a second
+  // line, and taking the clock there would make `startedAt` mean "last written", which is not
+  // what a reader sorting by it would get. The first line for a session is written at its spawn.
+  const record: AntigravityConversation = { sessionId, conversationId, cwd, startedAt: known?.startedAt ?? Date.now() };
+  antigravityWrittenIds.add(sessionId);
+  applyAntigravityConversation(antigravityConversations, record);
+  antigravityPersist = antigravityPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(ANTIGRAVITY_CONVERSATIONS_FILE, antigravityConversationLine(record)))
+    .catch((e) => console.error(`[antigravity-conversations] failed to persist: ${messageOf(e)}`));
 }
 
 // The one-line note the user wrote on a session (#1084). Their own words about what a cell is

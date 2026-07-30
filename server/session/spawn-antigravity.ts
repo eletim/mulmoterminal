@@ -12,17 +12,17 @@ import { antigravityBrainRoot, snapshotAntigravitySessions, watchForAntigravityS
 import { ptySpawn } from "./pty-spawn.js";
 import { wireAgentPtyRelay } from "./pty-relay.js";
 import { ptyStartLine } from "./pty-exit-log.js";
-import { antigravityConversationIds, claimedAntigravityConversations, ptys } from "./registry.js";
+import { claimedAntigravityConversations, ptys, rememberAntigravityConversation } from "./registry.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 
 export function createAntigravitySpawner(deps: SpawnDeps) {
-  function rememberAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>): void {
+  function captureAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>, cwd: string): void {
     watchForAntigravitySession(root, before, { claimed: claimedAntigravityConversations, isCancelled: () => !ptys.has(sessionId) })
       .then((id) => {
         if (!id) return;
         claimedAntigravityConversations.add(id);
-        antigravityConversationIds.set(sessionId, id);
+        rememberAntigravityConversation(sessionId, id, cwd);
         console.log(`[pty] captured antigravity conversation ${id} for session ${sessionId}`);
       })
       .catch(() => {});
@@ -68,11 +68,13 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
     ptys.set(sessionId, entry);
 
     if (resumeConversationId) {
-      antigravityConversationIds.set(sessionId, resumeConversationId);
+      // Recorded on resume too, not just on the spawn that discovered it: a session resumed by the
+      // conversation id itself carries no mapping yet, and one whose cell moved needs the new cwd.
+      rememberAntigravityConversation(sessionId, resumeConversationId, cwd);
     } else {
       // Only for a FRESH session: on resume the id is already known, and running the watcher could
       // overwrite it with a mis-attributed concurrent conversation.
-      rememberAntigravityConversation(sessionId, root, before);
+      captureAntigravityConversation(sessionId, root, before, cwd);
     }
 
     wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps);

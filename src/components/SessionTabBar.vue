@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { SESSION_SPINNER, sessionDotFor, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
+import { agentBadge } from "../../common/sessionAgent";
 
 // Presentational: list + filter are owned by App.vue and shared with the
 // vertical Sidebar, so switching layouts preserves them (no refetch/reset).
@@ -77,7 +78,9 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
           title="Claude is working"
           aria-label="Claude is working"
         />
-        <span v-if="s.agent === 'codex'" class="shrink-0 rounded-[3px] bg-selected px-1 text-[9px] font-bold uppercase text-dim">cx</span>
+        <span v-if="agentBadge(s.agent)" class="shrink-0 rounded-[3px] bg-selected px-1 text-[9px] font-bold uppercase text-dim">{{
+          agentBadge(s.agent)?.short
+        }}</span>
         <span class="truncate" :class="{ 'font-bold text-fg': isUnread(s) }">{{ s.title }}</span>
         <!-- One dot, two meanings until #1139: `--err-strong` red marked both a row stopped on a
              permission prompt and one that had merely finished — and a finished turn is not an
