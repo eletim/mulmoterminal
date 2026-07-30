@@ -54,6 +54,9 @@ describe("Sidebar", () => {
     const blocked = items[0].get('[data-testid="session-dot"]');
     expect(blocked.classes().join(" ")).toContain("bg-[#f59e0b]");
     expect(blocked.attributes("aria-label")).toBe("Waiting for you");
+    // An aria-label on a bare <span> is not exposed as a name by much of AT; the role is what makes
+    // it one (CodeRabbit).
+    expect(blocked.attributes("role")).toBe("img");
     const done = items[1].get('[data-testid="session-dot"]');
     expect(done.classes().join(" ")).toContain("bg-[#22c55e]");
     expect(done.attributes("aria-label")).toBe("Finished — unread");

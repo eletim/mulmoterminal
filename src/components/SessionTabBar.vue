@@ -73,6 +73,7 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
         <span
           v-if="s.working && !s.waiting && s.id !== props.activeId"
           :class="[SESSION_SPINNER, 'flex-none']"
+          role="img"
           title="Claude is working"
           aria-label="Claude is working"
         />
@@ -85,6 +86,7 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
           v-if="s.id !== props.activeId && sessionDotFor(s)"
           data-testid="tab-dot"
           :class="[sessionDotFor(s)?.cls, 'shadow-[0_0_0_2px_var(--bg-panel)]']"
+          role="img"
           :title="sessionDotFor(s)?.label"
           :aria-label="sessionDotFor(s)?.label"
         />

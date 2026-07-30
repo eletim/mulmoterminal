@@ -59,6 +59,8 @@ describe("SessionTabBar attention dot", () => {
     expect(dots).toHaveLength(2);
     expect(dots[0].classes().join(" ")).toContain("bg-[#f59e0b]");
     expect(dots[0].attributes("aria-label")).toBe("Waiting for you");
+    expect(dots[0].attributes("role")).toBe("img"); // the label is only a name with a role on it
+
     expect(dots[1].classes().join(" ")).toContain("bg-[#22c55e]");
     expect(dots[1].attributes("aria-label")).toBe("Finished — unread");
   });

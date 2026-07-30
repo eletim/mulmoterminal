@@ -95,6 +95,7 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
             v-if="s.working && !s.waiting && s.id !== props.activeId"
             data-testid="session-spinner"
             :class="[SESSION_SPINNER, 'mr-[5px] inline-block align-middle']"
+            role="img"
             title="Claude is working"
             aria-label="Claude is working"
           />
@@ -105,6 +106,7 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
             v-else-if="sessionDotFor(s)"
             data-testid="session-dot"
             :class="[sessionDotFor(s)?.cls, 'mr-[5px] inline-block align-middle']"
+            role="img"
             :title="sessionDotFor(s)?.label"
             :aria-label="sessionDotFor(s)?.label"
           />
