@@ -42,7 +42,7 @@ A full-screen surface (Collections, Wiki, PRs, Accounting, Files) now **returns 
 
 ![Single view — focus on one agent](../images/single-view.png)
 
-## Launching an agent (launcher form)
+## Launching an agent or a shell (launcher form)
 
 Empty cells in the grid show a **launcher form**. This is where you choose **what** to run and **where**.
 

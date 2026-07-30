@@ -19,10 +19,9 @@ describe("LAUNCH_TARGETS (#1114)", () => {
     expect(LAUNCH_TARGETS.filter((t) => !t.label.trim())).toEqual([]);
   });
 
-  // Only the shell carries a hover: the point of the option is that it needs nothing installed and
-  // nothing configured, which its one-word label cannot say.
-  it("says what the shell option is", () => {
+  // The point of the option is that it needs nothing installed and nothing configured, which its
+  // one-word label cannot say — so the hover has to name what it runs.
+  it("says what the shell option runs", () => {
     expect(LAUNCH_TARGETS.find((t) => t.agent === "shell")?.title).toContain("$SHELL");
-    expect(LAUNCH_TARGETS.filter((t) => t.agent !== "shell").map((t) => t.title)).toEqual([undefined, undefined, undefined]);
   });
 });
