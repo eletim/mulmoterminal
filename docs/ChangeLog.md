@@ -216,7 +216,7 @@ stats the cwd before spawning and refuses a directory that does not exist, so on
 Windows daily job saw it. Now `process.cwd()`, which is a directory on every platform. Test-only; the
 product code was correct.
 
-### Docs (#1092, #1093, #1102)
+### Docs (#1092, #1093, #1102, #1117)
 
 - **One searchable line** across README, npm and the docs site (#1093). The npm description still
   described v1 (no parallelism, no Codex) and the keyword list was missing `codex`; the repo's
@@ -230,6 +230,9 @@ product code was correct.
   what the code reads from `process.env` against what the docs mention: added to the README and both
   guides. Also fixed a `MULMOTERMINAL_HOME` row in the Japanese guide that had been orphaned below
   the table it belongs to.
+- **2.7.0's setup guide got its screenshots** (#1117, closes #1090): the session note beside a cell
+  header that does not make it taller, and a zoomed cell's divider mid-drag. The prose is unchanged —
+  that page stays the snapshot it was written as — and the placeholder "Screenshots" section is gone.
 
 ## mulmoterminal@2.7.0 — 2026-07-29
 
