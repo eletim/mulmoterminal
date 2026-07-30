@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
+import { SESSION_SPINNER, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 
 // Presentational: list + filter are owned by App.vue and shared with the
@@ -70,7 +70,12 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
         :aria-current="s.id === props.activeId ? 'page' : undefined"
         @click="emit('select', s.id, s.agent ?? 'claude')"
       >
-        <span v-if="s.working && !s.waiting && s.id !== props.activeId" class="spinner" title="Claude is working" aria-label="Claude is working" />
+        <span
+          v-if="s.working && !s.waiting && s.id !== props.activeId"
+          :class="[SESSION_SPINNER, 'flex-none']"
+          title="Claude is working"
+          aria-label="Claude is working"
+        />
         <span v-if="s.agent === 'codex'" class="shrink-0 rounded-[3px] bg-selected px-1 text-[9px] font-bold uppercase text-dim">cx</span>
         <span class="truncate" :class="{ 'font-bold text-fg': isUnread(s) }">{{ s.title }}</span>
         <span
@@ -93,23 +98,3 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
     </div>
   </div>
 </template>
-
-<!-- The spinner's animated ring (custom keyframes + a color-mix border) has no
-     utility equivalent, so it stays scoped; everything else is utilities. -->
-<style scoped>
-.spinner {
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: tabbar-spin 0.9s linear infinite;
-}
-
-@keyframes tabbar-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>
