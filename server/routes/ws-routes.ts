@@ -100,7 +100,11 @@ type WsUpgradeRequest = { url?: string | undefined; headers?: unknown };
 // proceed on it (see refuseUnusableWorkspace) and handing tmux a directory that is not there
 // would break the one path this must not break.
 export function workspaceFromUrl(url: URL): { cwd: string; unusable: string | null } {
-  const request = workspaceRequest(url.searchParams.get("cwd") ?? undefined);
+  // getAll, not get: a repeated `?cwd=a&cwd=b` names two directories, and `get` would silently
+  // pick the first — the same swap this exists to stop, and the HTTP routes already refuse it
+  // (express hands them the array). Passing the array on keeps ONE rule for both transports.
+  const values = url.searchParams.getAll("cwd");
+  const request = workspaceRequest(values.length > 1 ? values : values[0]);
   if (request.kind === "unusable") return { cwd: CLAUDE_CWD, unusable: request.problem };
   return { cwd: request.cwd, unusable: null };
 }

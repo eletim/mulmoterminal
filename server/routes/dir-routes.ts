@@ -64,6 +64,17 @@ async function workCommentHandler(req: Request, res: Response): Promise<void> {
   res.json(result);
 }
 
+async function prPhaseHandler(req: Request, res: Response): Promise<void> {
+  const cwd = workspaceForRoute(req.query.cwd, res);
+  if (cwd === null) return;
+  const status = await gitStatus(cwd);
+  const repo = status.repo && status.branch ? repoFromWebUrl(await resolveGithubUrl(cwd)) : null;
+  // The same shape as the resolved path, not a two-field subset: a dir with no GitHub remote
+  // is a normal answer, and a route that changes its response shape by branch is a trap for
+  // the next reader of the contract (Codex review).
+  res.json(!repo || !status.branch ? { ...EMPTY_WORK_ITEM } : await phaseForRepoBranch(repo, status.branch));
+}
+
 const positiveInt = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v > 0 ? v : null);
 
 export function mountDirRoutes(app: Express): void {
@@ -125,17 +136,7 @@ export function mountDirRoutes(app: Express): void {
   // to merge / merged (server/git/prPhase.ts). The cockpit roster shows it alongside the agent
   // status. Resolves the branch's repo here (same as the header's PR button); a non-repo dir,
   // detached HEAD, or non-GitHub remote yields `none`. Read-only; the gh call is cached.
-  app.get("/api/pr-phase", async (req, res) => {
-    const cwd = workspaceForRoute(req.query.cwd, res);
-    if (cwd === null) return;
-    const status = await gitStatus(cwd);
-    const repo = status.repo && status.branch ? repoFromWebUrl(await resolveGithubUrl(cwd)) : null;
-    // The same shape as the resolved path, not a two-field subset: a dir with no GitHub remote
-    // is a normal answer, and a route that changes its response shape by branch is a trap for
-    // the next reader of the contract (Codex review).
-    if (!repo || !status.branch) return res.json({ ...EMPTY_WORK_ITEM });
-    res.json(await phaseForRepoBranch(repo, status.branch));
-  });
+  app.get("/api/pr-phase", prPhaseHandler);
 
   app.post("/api/work-comment", workCommentHandler);
 

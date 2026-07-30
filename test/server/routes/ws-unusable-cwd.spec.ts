@@ -36,7 +36,10 @@ function fakeWs() {
 }
 const errorFrom = (ws: ReturnType<typeof fakeWs>) => JSON.parse(ws.sent[0] ?? "{}");
 
-const urlWith = (cwd: string | null) => new URL(`ws://localhost/ws${cwd === null ? "" : `?cwd=${encodeURIComponent(cwd)}`}`);
+const urlWith = (cwd: string | null) => {
+  const query = cwd === null ? "" : `?cwd=${encodeURIComponent(cwd)}`;
+  return new URL(`ws://localhost/ws${query}`);
+};
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
 let dir = "";
@@ -58,6 +61,15 @@ describe("workspaceFromUrl", () => {
 
   it("answers the default workspace when the socket names no directory", () => {
     expect(workspaceFromUrl(urlWith(null))).toEqual({ cwd: CLAUDE_CWD, unusable: null });
+  });
+
+  // `URLSearchParams.get` would take the first of the two and start there — the silent pick this
+  // whole change exists to stop, and the HTTP routes already refuse it. One rule, both transports.
+  it("refuses a repeated ?cwd= instead of taking the first one", () => {
+    const url = new URL(`ws://localhost/ws?cwd=${encodeURIComponent(dir)}&cwd=${encodeURIComponent("/tmp")}`);
+    const { cwd, unusable } = workspaceFromUrl(url);
+    expect(cwd).toBe(CLAUDE_CWD);
+    expect(unusable).toContain("exactly once");
   });
 
   // The default still comes back as the cwd — a reattach is allowed to proceed on it, and handing
