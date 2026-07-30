@@ -9,7 +9,8 @@ import * as conn from "../composables/useTerminalConnections";
 import { trackStyle, layoutForCount } from "./gridLayout";
 import { cockpitLines } from "../composables/cockpitLines";
 import { flipKeyframes, flipPairs, onScreen, FLIP_MS, FLIP_EASING } from "./cellFlip";
-import { canMoveCell, type Cell, type CellStatus } from "./gridTabs";
+import { canMoveCell, type Cell } from "./gridTabs";
+import type { AttentionStatus } from "./attentionStatus";
 import type { RunCommand } from "./runCommand";
 import type { PrPhase, WorkPhase } from "./rosterPhase";
 import type { CwdPreset } from "./presets";
@@ -53,7 +54,7 @@ export interface CockpitRow {
   uid: number;
   cwd: string | null;
   agent: string;
-  status: CellStatus;
+  status: AttentionStatus;
   memo: string | null; // the user's own one-line note (#1084)
   summary: string | null; // AI title
   prompt: string | null; // current user prompt
@@ -88,7 +89,7 @@ const emit = defineEmits<{
   (e: "run" | "runSpare", uid: number, command: RunCommand): void;
   (e: "launch", uid: number, pick: LaunchPick): void;
   (e: "move", uid: number, dir: -1 | 1): void;
-  (e: "status", uid: number, value: CellStatus): void;
+  (e: "status", uid: number, value: AttentionStatus): void;
   (e: "agent", uid: number, value: TerminalAgent): void;
   // Shared preset list events — uid-less since they mutate the one config list.
   (e: "record-cwd" | "remove-preset", value: string): void;
@@ -329,7 +330,7 @@ const gridCellEvents = (cell: Cell) => ({
   "toggle-tools": () => toggleRightPane("tools"),
   close: () => emit("close", cell.uid),
   move: (dir: -1 | 1) => emit("move", cell.uid, dir),
-  status: (value: CellStatus) => emit("status", cell.uid, value),
+  status: (value: AttentionStatus) => emit("status", cell.uid, value),
 });
 
 // What the Canvas pane should say instead of its "ask Claude to draw something" hint. The pane

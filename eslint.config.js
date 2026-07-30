@@ -139,7 +139,6 @@ export default [
     files: [
       "src/components/TerminalCell.vue", // 1605 — extract the launch form (#1122)
       "src/components/TerminalGrid.vue", //  815 — layout state machine + its documented <style> exception (#1125)
-      "src/components/SettingsModal.vue", //  786 — split the 15 sections (#1126)
     ],
     rules: {
       "max-lines": "off",

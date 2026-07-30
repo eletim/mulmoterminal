@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { rosterAlertClass } from "../../../src/components/rosterAlertClasses";
-import type { CellStatus } from "../../../src/components/gridTabs";
+import type { AttentionStatus } from "../../../src/components/attentionStatus";
 
 const BLINK = "animate-roster-alert";
 const AMBER_EDGE = "border-l-[#f59e0b]";
@@ -33,7 +33,7 @@ describe("rosterAlertClass", () => {
   // The left edge already means "you are here" on the expanded row, and a session you are watching
   // shows its own prompt — so the row you are in never alerts, whatever its status.
   it("leaves the expanded row alone, blocked or not", () => {
-    for (const status of ["blocked", "done", "working", "idle"] satisfies CellStatus[]) {
+    for (const status of ["blocked", "done", "working", "idle"] satisfies AttentionStatus[]) {
       const cls = rosterAlertClass(status, { expanded: true, blink: true });
       expect(cls).toContain("border-l-[#4a9eff]");
       expect(cls).not.toContain(BLINK);
@@ -42,7 +42,7 @@ describe("rosterAlertClass", () => {
   });
 
   it("leaves working and idle rows plain", () => {
-    for (const status of ["working", "idle"] satisfies CellStatus[]) {
+    for (const status of ["working", "idle"] satisfies AttentionStatus[]) {
       expect(rosterAlertClass(status, { expanded: false, blink: true })).toBe("border-border border-l-transparent bg-panel");
     }
   });
@@ -57,7 +57,7 @@ describe("rosterAlertClass", () => {
   // Every branch names the frame, the edge AND the background, because two competing utilities for
   // one property are resolved by Tailwind's output order rather than by the order written here.
   it("names a background in every branch", () => {
-    const statuses = ["blocked", "done", "working", "idle"] satisfies CellStatus[];
+    const statuses = ["blocked", "done", "working", "idle"] satisfies AttentionStatus[];
     for (const status of statuses) {
       for (const expanded of [true, false]) {
         for (const blink of [true, false]) {
