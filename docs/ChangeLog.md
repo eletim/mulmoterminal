@@ -4,6 +4,108 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.9.0 — 2026-07-31
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.9.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.9.0.html))
+
+A release about **whose turn it is**. Three panels list your sessions — the cockpit roster, the
+sidebar and the tab bar — and all three used to say "this one needs you" the same way whether the
+agent was **stuck on a permission prompt** or had merely **finished and gone unread**. Those are now
+told apart everywhere, by colour. The attention beep also stopped losing notifications while the
+browser had audio blocked, and an Antigravity conversation now survives a server restart.
+
+### A row waiting on YOU now looks different from one that just finished (#1131, #1139)
+
+The distinction already existed inside the app — `waiting` is set by two different Claude hooks, a
+`Notification` (permission or question) and a `Stop` (turn ended) — but only the grid cells drew
+them differently. Every list flattened them.
+
+**In the cockpit roster** (the list beside a zoomed cell), a blocked row now carries an amber ring, an
+amber leading line and a faint amber tint, and **blinks**; a finished-unread row carries a thin green
+ring and does not move. `working` and `idle` are unchanged, and **the row you are looking at is
+exempt** — the zoomed row keeps its blue leading edge and never joins in. Settings gets a **Waiting
+rows** checkbox (default on); turning it off keeps the colours and stops only the motion.
+`prefers-reduced-motion` suppresses the blink regardless of the setting.
+
+**In the sidebar and the tab bar**, the same split arrives as a dot in the slot the spinner uses:
+amber for *Waiting for you*, green for *Finished — unread*. Before this the sidebar showed **bold and
+nothing else** for both, and the tab bar showed one red dot for both — and `--err-strong` red is too
+strong a word for a turn that simply ended. Bold stays on both kinds, because bold means "your
+attention", which is also exactly the population of the Unread chip; **the colour is what says which
+kind**. There is no blink here and no setting for one: these two panels are always on screen, so
+constant motion in them would be far more tiring than in the roster.
+
+The rule that decides the four states moved to one place (`src/components/attentionStatus.ts`,
+`activityStatus()`), so the three panels cannot drift apart again.
+
+### Notification sounds are no longer lost while the browser has audio blocked (#1152)
+
+A browser will not play sound before you interact with the page — that part is Chrome's autoplay
+policy and no app can opt out. Three things around it were ours, and were wrong:
+
+- **Nothing was held.** While an `AudioContext` is suspended its `currentTime` is frozen at 0, but
+  beeps were still being scheduled at `currentTime + …`. Every notification in the silent window
+  piled up at time 0 and they all fired **together** on the first click. Measured in Chromium: two
+  beeps scheduled a second apart both ended at `0.181`. So "the sound never came back" was really
+  "they all arrived at once, on top of the test beep". Nothing is scheduled while the context is not
+  running now; the most recent one is held and played **once** on resume.
+- **The toolbar lied.** It read `soundEnabled` only, so it said *Attention sound on* while the
+  browser was refusing to play anything. There is now a third state that says blocked, and clicking
+  anywhere enables it.
+- **You could not tell what you missed.** A session whose notification could not be announced now
+  carries an unacknowledged ring on its status dot — including one that was already `waiting` when
+  the page loaded, which never beeps because the first reading is the baseline.
+
+### An Antigravity conversation survives a server restart (#1096)
+
+`agy` mints its own conversation id and prints it nowhere readable, so MulmoTerminal watches its
+brain directory and claims the new conversation after the spawn. That mapping lived only in memory:
+restart the server and the conversation was still on disk with nothing pointing at it. It is now
+appended to `~/.mulmoterminal/antigravity-conversations.jsonl` and read back at boot, so a cold
+reconnect can still run `agy --conversation <id>`. The guard that refuses to resume an id no
+conversation matches is unchanged, so a damaged log costs you a resume rather than opening the wrong
+conversation.
+
+Session rows also stopped hard-coding `codex` as the only badge — `Session.agent` is a proper
+`TerminalAgent` and the badge wording lives in one place, so Antigravity rows can say what they are.
+
+### Fixes
+
+- **Windows: a folder with a non-ASCII name opened the wrong directory (#1146).** The 📁 picker's
+  PowerShell writes piped output in the OEM code page (CP932 on Japanese Windows), while we decoded
+  it as UTF-8. The ASCII `C:\` prefix survived, so the mangled path passed the absolute-path check
+  and the terminal silently opened in the default workspace instead. Both pickers now force UTF-8
+  output. This was never CJK-specific — 中文, 한국어, Cyrillic and `café` all broke the same way, and
+  the tests cover all of them.
+- **A cwd that cannot be resolved is no longer swapped for the default workspace in silence
+  (#1151).** `resolveWorkspace` collapsed "no `?cwd=` given" and "a `?cwd=` that does not exist" into
+  the same answer, which is what turned the bug above into "it just opened somewhere else". The
+  request now reports `default` / `resolved` / `unusable` separately, so a named directory that
+  cannot be used says so.
+- **Slash commands can be sent from the phone on `esc-cr` hosts (#1142).** While the cursor sits at
+  the end of a `/command` or `@path`, Claude Code's TUI keeps its completion menu open and runs in
+  the `Autocomplete` key context, where `escape` dismisses the menu — so the `ESC CR` submit never
+  arrives as one Alt+Enter. The fix ends such a line so no menu is open when Enter lands, and it is
+  applied to **all three** paths that type text and submit it, because the browser's own Skill menu
+  had the same dead end.
+- **`initialPrompt` is submitted on `esc-cr` hosts (#1148).** The server-side draft injection had
+  `"\r"` hard-coded, which on those hosts is a newline rather than a submit. The reported repro (a
+  Skill launch button, i.e. `/<slug>`) needed the completion-menu fix above as well.
+- **A duplicate `handlers.ts` left behind by the split in #1124 was removed.** Both the old 311-line
+  file and its 14 replacements were on main for a while.
+
+### Internal
+
+A large tidy-up wave, all behaviour-preserving. `SettingsModal.vue` (907 lines) became one component
+per section with a 147-line shell; `remoteHost/handlers.ts` (311 lines) became 14 files named after
+their MulmoClaude counterparts; the empty-cell launch form came out of `TerminalCell.vue`, taking it
+from 2020 lines to 1355; `CommandCell` and `LauncherCell` now share `CellShell`; the wiki's page body
+and lint report render through one `WikiProse` component; component `<style>` blocks went from 8 to
+1; `jscpd` duplicate-code alerts went from 9 to 2; `as unknown as JsonObject` double casts went from
+14 to 3 by using core's `toJsonObject`; unused exports are at zero. Two guardrails were added so
+these do not silently return: an ESLint `max-lines` error at 600 for product code, and the dead-code
+scan now fails the build on unused files rather than reporting them.
+
 ## mulmoterminal@2.8.0 — 2026-07-30
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.8.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.8.0.html))

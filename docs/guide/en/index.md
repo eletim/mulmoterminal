@@ -8,7 +8,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
-> **[What's new in 2.8.0](v2.8.0.html)** — Antigravity as a third agent, a plain shell in an empty cell, paste a screenshot to get its path, and a terminal that no longer stays blank down its right side (as of 2026-07-30)
+> **[What's new in 2.9.0](v2.9.0.html)** — a row stuck on a permission prompt no longer looks like one that merely finished, the toolbar says when the browser is blocking your attention sound, and an Antigravity conversation survives a restart (as of 2026-07-31)
 >
 > **Update announcements** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci).
 >
