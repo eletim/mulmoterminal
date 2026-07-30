@@ -31,6 +31,7 @@ import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { shellLauncher } from "./gridTabs";
 import { activityStatus, type AttentionStatus } from "./attentionStatus";
+import { useMissedAttention } from "../composables/useMissedAttention";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import {
@@ -699,7 +700,26 @@ const DOT_STATUS = { idle: CELL_DOT_IDLE, working: CELL_DOT_WORKING, done: "bg-a
 const cellStatusClass = computed(() => CELL_STATUS[status.value]);
 const headerStatusClass = computed(() => HEADER_STATUS[status.value]);
 const dotStatusClass = computed(() => DOT_STATUS[status.value]);
-const statusLabel = computed(() => STATUS_LABEL[status.value]);
+// This session raised a notification nothing announced — the audio was still locked, or the row
+// arrived as the page's first sighting and was swallowed as baseline (#1152). A ring on the dot
+// rather than a new element: it has to be legible in a filmstrip thumbnail, and the header track
+// is already full.
+const { isMissed, acknowledge: acknowledgeMissed } = useMissedAttention();
+const missedNotify = computed(() => isMissed(sessionId.value));
+const dotMissedClass = computed(() => (missedNotify.value ? "ring-2 ring-amber ring-offset-2 ring-offset-[var(--cell-header-bg,var(--bg-panel))]" : ""));
+const statusLabel = computed(() => (missedNotify.value ? `${STATUS_LABEL[status.value]} (missed while sound was unavailable)` : STATUS_LABEL[status.value]));
+// Enlarging the cell IS the acknowledgement — the user is now looking at the session the mark
+// was pointing them to. All three inputs are watched, not just the expand edge: a cell that is
+// ALREADY enlarged can connect (or relaunch into) its session afterwards, and a notification can
+// be suppressed for the session the user is currently staring at. Either would otherwise leave a
+// ring pointing at the pane already on screen.
+watch(
+  () => [props.expanded, sessionId.value, missedNotify.value] as const,
+  ([expanded, id, missed]) => {
+    if (expanded && missed) acknowledgeMissed(id);
+  },
+  { immediate: true },
+);
 watch(status, (s) => emit("status", s), { immediate: true });
 
 const headerText = computed(() => cellHeaderText(memo.value, aiTitle.value, lastPrompt.value, sessionId.value));
@@ -927,7 +947,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              push the actions past the cell's `overflow: hidden` edge — the buttons must
              stay reachable no matter how much a dir's config crams in here. -->
           <div data-testid="cell-header-main" class="flex min-w-0 flex-auto items-center gap-2 overflow-hidden">
-            <span class="cell-dot" :class="[CELL_DOT, statusClass, dotStatusClass]" :title="statusLabel" />
+            <span class="cell-dot" :class="[CELL_DOT, statusClass, dotStatusClass, dotMissedClass]" :title="statusLabel" />
             <!-- Normal grid: the dir is a button that opens it. As a filmstrip thumbnail the
                header's job is to zoom (switch to this terminal), so the dir is inert text
                and a click on it falls through to the header's zoom gesture. -->

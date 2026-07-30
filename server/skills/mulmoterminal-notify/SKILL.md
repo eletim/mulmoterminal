@@ -109,3 +109,16 @@ Push reaches a phone, so it can only carry what the **server** observes:
   needs a restart.
 - Settings' sound rows have a **play button per kind**. That is the check: it plays exactly what
   that moment will play, including a per-kind override.
+
+## "The config is right and it still doesn't beep"
+
+Browsers refuse to play audio until the page has been clicked or typed in, and that permission is
+per page load — so a tab that was reloaded and then left alone is silent no matter what the config
+says. It is not a config error and there is nothing to write.
+
+- The toolbar's sound button shows it: **amber with a paused bell** means blocked, blue means
+  playing. Any click or keypress anywhere on the page clears it.
+- Nothing raised while blocked is lost. One beep plays when the page unblocks, and every session
+  whose notification went unheard keeps an **amber ring on its status dot** until you look at it.
+- The same ring appears for a session that was ALREADY waiting when the tab loaded: the page has
+  no way to announce something that happened before it existed.
