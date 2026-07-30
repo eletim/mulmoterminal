@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { defineComponent, ref, h, computed } from "vue";
 import { mount } from "@vue/test-utils";
 import type { SoundConfig } from "../../../src/composables/useAttentionSound";
+import type { NotifyKind } from "../../../common/notifyKinds";
 
 const subscribers = new Map<string, (data: unknown) => void>();
 
@@ -45,8 +46,15 @@ class FakeAudioContext {
   addEventListener(_type: string, listener: () => void) {
     this.listeners.push(listener);
   }
+  resumeCalls = 0;
   async resume() {
+    this.resumeCalls += 1;
     this.state = "running";
+    this.listeners.forEach((listener) => listener());
+  }
+  /** What iOS does when the system takes the audio session away. */
+  interrupt() {
+    this.state = "suspended";
     this.listeners.forEach((listener) => listener());
   }
   createGain() {
@@ -66,7 +74,7 @@ class FakeAudioContext {
   }
 }
 
-const CONFIG: SoundConfig = { kinds: ["finished", "waiting"], sounds: {}, soundFile: null };
+const ALL_KINDS: NotifyKind[] = ["finished", "waiting"];
 
 async function mountPlayer(enabled = true) {
   vi.resetModules();
@@ -74,11 +82,12 @@ async function mountPlayer(enabled = true) {
   const { useMissedAttention } = await import("../../../src/composables/useMissedAttention");
   const { audioBlocked } = await import("../../../src/composables/audioUnlockState");
   const on = ref(enabled);
+  const kinds = ref<NotifyKind[]>([...ALL_KINDS]);
   const component = defineComponent({
     setup() {
       useAttentionSound(
         on,
-        computed(() => CONFIG),
+        computed<SoundConfig>(() => ({ kinds: kinds.value, sounds: {}, soundFile: null })),
       );
       return () => h("div");
     },
@@ -86,7 +95,7 @@ async function mountPlayer(enabled = true) {
   const wrapper = mount(component);
   // Priming the context is part of the fix, so its absence is a failure rather than a skip.
   if (!created) throw new Error("the player did not create an AudioContext");
-  return { wrapper, enabled: on, ctx: created, isMissed: useMissedAttention().isMissed, audioBlocked };
+  return { wrapper, enabled: on, kinds, ctx: created, isMissed: useMissedAttention().isMissed, audioBlocked };
 }
 
 const push = (data: Record<string, unknown>) => subscribers.get("sessions")?.(data);
@@ -147,10 +156,63 @@ describe("useAttentionSound while the browser has not unlocked audio", () => {
     wrapper.unmount();
   });
 
+  it("does not replay a kind the user silenced while it was held", async () => {
+    // The held beep is re-checked against the CURRENT settings, not the ones in force when it
+    // was held — otherwise turning a moment off during the blocked window still beeps for it.
+    const { wrapper, ctx, kinds } = await mountPlayer();
+    push({ id: "a", working: true, event: "UserPromptSubmit" });
+    push({ id: "a", working: false, event: "Stop", waiting: true }); // holds "finished"
+    kinds.value = ["waiting"];
+    await wrapper.vm.$nextTick();
+    await ctx.resume();
+    expect(ctx.started).toBe(0);
+    wrapper.unmount();
+  });
+
+  it("still replays a kind that is still switched on", async () => {
+    const { wrapper, ctx, kinds } = await mountPlayer();
+    push({ id: "a", working: true, event: "UserPromptSubmit" });
+    push({ id: "a", working: false, event: "Stop", waiting: true });
+    kinds.value = ["finished"];
+    await wrapper.vm.$nextTick();
+    await ctx.resume();
+    expect(ctx.started).toBe(2);
+    wrapper.unmount();
+  });
+
   it("stops reporting a block once the context runs", async () => {
     const { wrapper, ctx, audioBlocked } = await mountPlayer();
     await ctx.resume();
     expect(audioBlocked.value).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("holds again — and re-reports the block — if the context is interrupted later", async () => {
+    // iOS takes the audio session away for a call, a screen lock or backgrounding.
+    const { wrapper, ctx, audioBlocked } = await mountPlayer();
+    await ctx.resume();
+    ctx.interrupt();
+    expect(audioBlocked.value).toBe(true);
+    push({ id: "f", working: true, event: "UserPromptSubmit" });
+    push({ id: "f", working: false, event: "Stop", waiting: true });
+    expect(ctx.started).toBe(0);
+    await ctx.resume();
+    expect(ctx.started).toBe(2);
+    wrapper.unmount();
+  });
+
+  it("re-arms the gesture listener after an interruption", async () => {
+    // The unlock listener retires itself on the first successful resume. Without re-arming, a
+    // context interrupted later can never be resumed again — no gesture reaches it.
+    const { wrapper, ctx } = await mountPlayer();
+    window.dispatchEvent(new Event("pointerdown"));
+    await Promise.resolve();
+    expect(ctx.resumeCalls).toBe(1);
+
+    ctx.interrupt();
+    window.dispatchEvent(new Event("pointerdown"));
+    await Promise.resolve();
+    expect(ctx.resumeCalls).toBe(2);
     wrapper.unmount();
   });
 });

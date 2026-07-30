@@ -37,6 +37,10 @@ function getCtx(): AudioContext | null {
     ctx.addEventListener("statechange", () => {
       setAudioContextState(ctx.state);
       if (ctx.state === "running") for (const listener of resumeListeners) listener();
+      // Leaving "running" is not only the autoplay block: iOS reports "interrupted" for a call,
+      // a screen lock or backgrounding, and the unlock listener has already retired itself by
+      // then. Without re-arming, the page reports blocked forever and no gesture ever fixes it.
+      else armUnlock();
     });
     return ctx;
   } catch {
@@ -58,12 +62,16 @@ export function primeAudio(): void {
 // grid claims its shortcut keys in the capture phase and calls stopPropagation(), so a bubble
 // listener never sees them; and a resume that fails (no activation yet, an interrupted audio
 // session) with the listener already removed would leave the page permanently silent.
+//
+// Re-armable rather than once-per-page: disarming clears the flag, so the statechange handler
+// can arm a fresh pair when the context later leaves "running".
 let unlockArmed = false;
 function armUnlock() {
   if (unlockArmed) return;
   unlockArmed = true;
   const options = { capture: true } as const;
   const disarm = () => {
+    unlockArmed = false;
     window.removeEventListener("pointerdown", unlock, options);
     window.removeEventListener("keydown", unlock, options);
   };
@@ -282,9 +290,12 @@ export function useAttentionSound(enabled: Ref<boolean>, config: Ref<SoundConfig
   // from page load rather than a state discovered by missing a notification. Turning the sound
   // off drops any held beep with it: replaying it after the user silenced things is noise.
   watch(enabled, (on) => (on ? primeAudio() : beepQueue.clear()), { immediate: true });
+  // Re-checked against the CURRENT settings, not the ones in force when the beep was held: the
+  // user can silence a kind (or everything) during the blocked window, and replaying what they
+  // just turned off is exactly the noise the setting exists to stop.
   const offResumed = onAudioResumed(() => {
     const held = beepQueue.take();
-    if (held && enabled.value) playResolved(held.kind, held.cwd, config.value);
+    if (held && enabled.value && config.value.kinds.includes(held.kind)) playResolved(held.kind, held.cwd, config.value);
   });
   const prev = new Map<string, ActivityState>();
   const { subscribe } = usePubSub();

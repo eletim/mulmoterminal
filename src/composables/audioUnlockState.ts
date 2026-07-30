@@ -16,8 +16,6 @@ export function setAudioContextState(state: AudioContextState | null): void {
   contextState.value = state;
 }
 
-export const audioContextState = computed(() => contextState.value);
-
 // Anything that is not "running" and not absent. Written as a negation rather than
 // `=== "suspended"` because Safari reports "interrupted" (a state not in the TS union) when the
 // system takes the audio session away, and that is just as silent.

@@ -709,11 +709,14 @@ const missedNotify = computed(() => isMissed(sessionId.value));
 const dotMissedClass = computed(() => (missedNotify.value ? "ring-2 ring-amber ring-offset-2 ring-offset-[var(--cell-header-bg,var(--bg-panel))]" : ""));
 const statusLabel = computed(() => (missedNotify.value ? `${STATUS_LABEL[status.value]} (missed while sound was unavailable)` : STATUS_LABEL[status.value]));
 // Enlarging the cell IS the acknowledgement — the user is now looking at the session the mark
-// was pointing them to.
+// was pointing them to. All three inputs are watched, not just the expand edge: a cell that is
+// ALREADY enlarged can connect (or relaunch into) its session afterwards, and a notification can
+// be suppressed for the session the user is currently staring at. Either would otherwise leave a
+// ring pointing at the pane already on screen.
 watch(
-  () => props.expanded,
-  (expanded) => {
-    if (expanded) acknowledgeMissed(sessionId.value);
+  () => [props.expanded, sessionId.value, missedNotify.value] as const,
+  ([expanded, id, missed]) => {
+    if (expanded && missed) acknowledgeMissed(id);
   },
   { immediate: true },
 );

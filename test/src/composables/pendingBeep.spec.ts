@@ -53,13 +53,6 @@ describe("createBeepQueue", () => {
     expect(queue.take()).toBeNull();
   });
 
-  it("held() reports without consuming", () => {
-    const queue = createBeepQueue();
-    queue.hold({ kind: "session-exited", cwd: null });
-    expect(queue.held()).toEqual({ kind: "session-exited", cwd: null });
-    expect(queue.take()).toEqual({ kind: "session-exited", cwd: null });
-  });
-
   it("keeps two queues independent", () => {
     const one = createBeepQueue();
     const two = createBeepQueue();

@@ -23,7 +23,6 @@ export interface BeepQueue {
   /** The held beep, if any, and forget it. */
   take: () => HeldBeep | null;
   clear: () => void;
-  held: () => HeldBeep | null;
 }
 
 export function createBeepQueue(): BeepQueue {
@@ -40,7 +39,6 @@ export function createBeepQueue(): BeepQueue {
     clear: () => {
       pending = null;
     },
-    held: () => pending,
   };
 }
 

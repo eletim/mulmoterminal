@@ -92,4 +92,13 @@ describe("TerminalCell missed-notification mark", () => {
     await flushPromises();
     expect(dotClass(w)).not.toContain(RING);
   });
+
+  it("acknowledges a mark that arrives while the cell is ALREADY enlarged", async () => {
+    // Nothing to point the user at: the pane is on screen.
+    const w = mountCell(true);
+    await flushPromises();
+    applyMissedMark(SESSION, "mark");
+    await nextTick();
+    expect(dotClass(w)).not.toContain(RING);
+  });
 });
