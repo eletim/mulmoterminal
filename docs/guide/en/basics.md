@@ -60,6 +60,8 @@ Empty cells in the grid show a **launcher form**. This is where you choose **wha
 model, no MCP registration and no worktree, so those rows disappear while it is picked — and the
 cell it opens is a persistent terminal (running / exited), not an agent session.
 
+![The same form with Shell picked — only the working directory is left](../images/grid-launch-form-shell.png)
+
 ## Reading a cell — "what each agent is doing and where"
 
 The header of a running cell has two rows. Together they capture that agent's **status, location, and current work**.
