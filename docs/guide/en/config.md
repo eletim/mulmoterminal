@@ -67,9 +67,10 @@ Settings live in three places: the **settings modal (Settings)**, the **global c
 
 Open it from **Settings** (the gear) in the toolbar.
 
-![The Settings modal — Theme, Terminal font size, Directory appearance, Directory settings (acme-web expanded), Notification sounds](../images/config-settings-modal.png)
+![The Settings modal — Theme with its Create a theme… button, Terminal font size, Terminal scroll speed, Waiting rows with the blink checkbox, Directory appearance, and Directory settings with acme-web expanded](../images/config-settings-modal.png)
 
-Seventeen sections, in this order.
+Up to seventeen sections, in this order — **Voice input** is there only on a machine that can transcribe, so most
+setups see sixteen.
 
 | Item | Description |
 |---|---|

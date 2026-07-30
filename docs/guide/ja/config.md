@@ -67,9 +67,9 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 
 ツールバーの **Settings**（歯車）から開きます。
 
-![設定モーダル — Theme / Terminal font size / Directory appearance / Directory settings（acme-web の行を開いた状態）/ Notification sounds](../images/config-settings-modal.png)
+![設定モーダル — Theme（Create a theme… ボタン付き）/ Terminal font size / Terminal scroll speed / Waiting rows（点滅のチェックボックス）/ Directory appearance / Directory settings（acme-web の行を開いた状態）](../images/config-settings-modal.png)
 
-上から順に、次の 17 セクションがあります。
+上から順に、最大 17 セクションがあります（**Voice input** は文字起こしできるマシンでのみ出るので、多くの環境では 16）。
 
 | 項目 | 内容 |
 |---|---|
