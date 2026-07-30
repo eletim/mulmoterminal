@@ -17,13 +17,3 @@ export type TerminalAgent = (typeof TERMINAL_AGENTS)[number];
 // Validated rather than cast: anything unrecognised is Claude, which is also what an older
 // persisted cell (written before the field existed) means.
 export const asTerminalAgent = (value: unknown): TerminalAgent => (TERMINAL_AGENTS.some((agent) => agent === value) ? (value as TerminalAgent) : "claude");
-
-// A cell / connection / header button carries its agent as booleans, because Claude is the
-// default and the default is the absence of a flag. One function turns them back into the name,
-// so the precedence lives in one place rather than in a ternary repeated at every call site —
-// and adding a fourth agent is one edit here.
-export function terminalAgent(flags: { codex?: boolean | null; antigravity?: boolean | null }): TerminalAgent {
-  if (flags.antigravity) return "antigravity";
-  if (flags.codex) return "codex";
-  return "claude";
-}

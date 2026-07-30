@@ -50,7 +50,7 @@ import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
 import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
-import { FILE_WRITE_CHANNEL } from "../../common/fileWriteChannel.js";
+import { FILE_WRITE_CHANNEL, type FileWriteEvent } from "../../common/fileWriteChannel.js";
 import { resolveWorkspace } from "../config/workspace.js";
 import type { createToolStores } from "../session/tool-store.js";
 import type { createClaudeSpawner } from "../session/spawn-claude.js";
@@ -249,7 +249,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     recordToolCallStart: deps.toolStores.recordToolCallStart,
     recordToolCallEnd: deps.toolStores.recordToolCallEnd,
     publishDirConfig: (cwd) => deps.publish(DIR_CONFIG_CHANNEL, { cwd }),
-    publishFileWrite: (file) => deps.publish(FILE_WRITE_CHANNEL, { file }),
+    publishFileWrite: (file) => deps.publish(FILE_WRITE_CHANNEL, { file } satisfies FileWriteEvent),
     // Express serves the built SPA on PORT; under `yarn dev` the UI is Vite's own server,
     // whose port the backend only knows when CLIENT_PORT is set in its environment.
     uiPort: String(process.env.CLIENT_PORT || PORT),

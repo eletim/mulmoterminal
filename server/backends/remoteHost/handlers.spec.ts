@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { createRemoteHostHandlers } from "./handlers.js";
+import { createRemoteHostHandlers } from "./handlers/index.js";
 import type { SessionScreen } from "./terminalScreen.js";
 import { initCollectionsBackend } from "../collections.js";
 
