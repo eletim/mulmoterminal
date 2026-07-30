@@ -231,6 +231,49 @@ describe("createTmuxSizeSync", () => {
     });
   });
 
+  // Measured on a real spawn: a tmux server whose status line was still on sat at window 137x40
+  // against a 137x41 client, and the nudge could not move it — the bar reserves a row, so the two
+  // can never be equal. Retrying that every resize would double-resize the app and repeat the
+  // warning for the session's whole life, drowning the signal this logging exists to give.
+  describe("a gap the nudge cannot close", () => {
+    const CLIENT = { cols: 137, rows: 41 };
+    const STUCK = { cols: 137, rows: 40 };
+
+    it("is reported once, then left alone", async () => {
+      const { sync, events, resizes } = setup([STUCK]);
+      sync.requestCheck(SESSION, CLIENT);
+      await runTimers();
+      expect(events.map((e) => e.kind)).toEqual(["repairing", "still-wrong"]);
+      const afterFirst = resizes.length;
+
+      sync.requestCheck(SESSION, CLIENT);
+      await runTimers();
+      expect(events.map((e) => e.kind)).toEqual(["repairing", "still-wrong"]); // nothing new
+      expect(resizes).toHaveLength(afterFirst); // and the app was not resized again
+    });
+
+    it("is tried again when the client asks for a different size", async () => {
+      // A new geometry is a new question — the old answer says nothing about it.
+      const { sync, events } = setup([STUCK]);
+      sync.requestCheck(SESSION, CLIENT);
+      await runTimers();
+      sync.requestCheck(SESSION, { cols: 100, rows: 30 });
+      await runTimers();
+      expect(events.filter((e) => e.kind === "repairing")).toHaveLength(2);
+    });
+
+    it("is news again once the window has caught up in between", async () => {
+      const { sync, events } = setup([STUCK, STUCK, CLIENT, STUCK, CLIENT]);
+      sync.requestCheck(SESSION, CLIENT);
+      await runTimers(); // probe -> STUCK, nudge, recheck -> STUCK: reported and remembered
+      sync.requestCheck(SESSION, CLIENT);
+      await runTimers(); // probe -> CLIENT: in step, so the memory is dropped
+      sync.requestCheck(SESSION, CLIENT);
+      await runTimers(); // probe -> STUCK again: worth reporting
+      expect(events.filter((e) => e.kind === "repairing")).toHaveLength(2);
+    });
+  });
+
   // `handleClientClose` cancels for EVERY session, tmux or not — so a cancel that allocated would
   // leak an entry per disconnect for the server's whole life (raised by Codex on #1116).
   describe("per-session state", () => {

@@ -114,6 +114,22 @@ ticket or is correct for any ticket.** There is exactly one of the latter (the r
 the newest size rather than the captured one) and it is marked as such, so a future reader doesn't
 "fix" it by adding a guard that would leave the pty a row short.
 
+### A gap the nudge cannot close must not be retried forever
+
+Found by measurement during review, not by any bot. Spawning eight sessions against a real tmux and
+running the real check produced one where the window sat at 137x40 against a 137x41 client: that
+server's status line was still on, and a reserved row means the two can **never** be equal. The
+nudge fired, failed, and — before this — would have fired again on every subsequent resize, for the
+session's whole life: a pointless double-resize of the app each time, and the same warning repeated
+until it drowned the signal the logging exists to give.
+
+So an identical `(client, window)` pair is reported once and then left alone. Any change to either
+size makes it news again, and so does the window catching up in between. Verified against real
+tmux: resizes 2-4 of an unclosable gap produced nothing, and a different client size was tried.
+
+This is also why `status off` had to move into `applyLiveTmuxOptions` — that measurement is what a
+server predating the conf actually does.
+
 ## Why this is also the detector
 
 The repair logs (`console.warn`) with the two sizes. #957 has been stuck because the bug is
