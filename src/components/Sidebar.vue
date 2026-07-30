@@ -9,6 +9,7 @@ import {
 } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 import { relativeTime } from "./cellDisplay";
+import { agentBadge } from "../../common/sessionAgent";
 
 // Presentational: the session list + filter are owned by App.vue (a single
 // useSessions instance shared across layouts) so toggling vertical/horizontal
@@ -111,10 +112,10 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
             :aria-label="sessionDotFor(s)?.label"
           />
           <span
-            v-if="s.agent === 'codex'"
+            v-if="agentBadge(s.agent)"
             data-testid="agent-badge"
             class="mr-[5px] inline-block rounded-[4px] bg-selected px-[5px] align-middle text-[10px] font-semibold uppercase text-dim"
-            >codex</span
+            >{{ agentBadge(s.agent)?.full }}</span
           >
           {{ s.title }}
         </span>

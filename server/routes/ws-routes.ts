@@ -22,7 +22,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { antigravityBrainRoot, antigravityConversationExists } from "../agents/antigravity-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
-import { antigravityConversationIds, codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
+import { antigravityConversations, antigravityConversationsHydrated, codexRolloutIds, markDevTerminalSession, ptys } from "../session/registry.js";
 import { sandboxWouldRun, SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
@@ -484,7 +484,7 @@ function resolveAntigravitySession(requested: string | null): { sessionId: strin
   // key resumes, which means a stale one is handed to `agy --conversation` — agy answers a
   // conversation it cannot find by starting a fresh one, silently, under the old session's id.
   const resumeConversationId = agentResumeId(requested, {
-    mappedId: requested ? antigravityConversationIds.get(requested) : null,
+    mappedId: requested ? antigravityConversations.get(requested)?.conversationId : null,
     conversationExists: () => !!requested && antigravityConversationExists(antigravityBrainRoot(), requested),
     hasLivePty,
     tmuxAlive,
@@ -523,6 +523,10 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   const { url, requested, cwd, unusable } = wsConnectionContext(req);
   if (refuseUnusableWorkspace(ws, "antigravity", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
+  // Before resolving, not after: the mapping this reads lives on disk, and a reconnect that
+  // arrives while the log is still being read would see an empty map and decline to resume a
+  // conversation that is right there — which is the restart case this exists for.
+  await antigravityConversationsHydrated;
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);

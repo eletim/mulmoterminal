@@ -1,5 +1,6 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { usePubSub } from "./usePubSub";
+import type { TerminalAgent } from "../../common/sessionAgent";
 
 export interface Session {
   id: string;
@@ -14,9 +15,9 @@ export interface Session {
    *  hidden:true. Listed under the Background filter rather than among the chats, and
    *  never treated as unread/bold. */
   hidden?: boolean;
-  /** "codex" for a codex session (from ~/.codex); absent = a Claude session. Drives the
-   *  row badge and which agent the single view resumes as. */
-  agent?: "codex";
+  /** The agent this session runs; absent = a Claude session. Drives the row badge and which
+   *  agent the single view resumes as. */
+  agent?: TerminalAgent;
 }
 
 // The session-list chips, mirroring mulmoclaude's history filters: "unread" is a session

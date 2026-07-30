@@ -17,3 +17,26 @@ export type TerminalAgent = (typeof TERMINAL_AGENTS)[number];
 // Validated rather than cast: anything unrecognised is Claude, which is also what an older
 // persisted cell (written before the field existed) means.
 export const asTerminalAgent = (value: unknown): TerminalAgent => (TERMINAL_AGENTS.some((agent) => agent === value) ? (value as TerminalAgent) : "claude");
+
+export interface AgentBadge {
+  /** Where there is room for it — a sidebar row, a header bar. */
+  full: string;
+  /** For the tab bar, which fits about two characters between the dot and the title. */
+  short: string;
+}
+
+// Claude has no badge on purpose: it is the default everywhere, so badging it would put one on
+// nearly every row and stop the badge meaning "this one is different". A shell is not an agent
+// and reaches this with no entry, which is the same answer.
+const AGENT_BADGES: Partial<Record<TerminalAgent, AgentBadge>> = {
+  codex: { full: "codex", short: "cx" },
+  antigravity: { full: "agy", short: "agy" },
+};
+
+/** How a session row announces which agent it is running, or null when it wears no badge. The one
+ *  place the wording lives: the sidebar and the tab bar show the SAME list, so a literal compared
+ *  in each is how the two came to disagree about a third agent. */
+export function agentBadge(agent: string | null | undefined): AgentBadge | null {
+  const known = TERMINAL_AGENTS.find((candidate) => candidate === agent);
+  return known ? (AGENT_BADGES[known] ?? null) : null;
+}
