@@ -8,7 +8,7 @@ description: 複数の AI コーディングエージェント（Claude Code / C
 
 # MulmoTerminal ガイド（日本語）
 
-> **[2.9.0 で変わったこと](v2.9.0.html)** — 許可待ちで止まっている行と単に終わった行が別物に見えるように、通知音がブロックされていることがツールバーに出る、Antigravity の会話が再起動をまたぐ（2026-07-31 時点）
+> **[2.9.1 で変わったこと](v2.9.1.html)** — レート制限表示が `claude usage n/a` の隣に Codex の数字を無印で並べなくなり、Claude が答える前の status line から「API キー課金」と決めつけなくなった（2026-07-31 時点）
 >
 > **アップデート情報（日本語）** — 新バージョンや新機能のお知らせは X の [Singularity Society（@SingularitySoci）](https://x.com/SingularitySoci) で流しています。
 >
