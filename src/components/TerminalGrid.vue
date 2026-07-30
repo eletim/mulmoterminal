@@ -53,6 +53,7 @@ export interface CockpitRow {
   cwd: string | null;
   agent: string;
   status: CellStatus;
+  memo: string | null; // the user's own one-line note (#1084)
   summary: string | null; // AI title
   prompt: string | null; // current user prompt
   response: string | null; // tail of the agent's latest reply
@@ -292,6 +293,11 @@ const { subscribe: subscribeToolGroups } = usePubSub();
 const offToolGroups = subscribeToolGroups(TOOL_GROUPS_CHANNEL, (data) => {
   const msg = data as { sessionId?: string; groups?: string[] };
   if (!msg?.sessionId || msg.sessionId !== expandedSessionId.value) return;
+  // A message with no `groups` is the bare "my MCP client is up" announcement, sent for every
+  // session so a pane that asked too early can ask again. It says nothing about groups — an
+  // all-tools session has none to report — and reading it as an empty list would tell a cell
+  // that can draw that it cannot.
+  if (!Array.isArray(msg.groups)) return;
   canvasAvailable.value = hasCanvasGroup(msg.groups);
   canvasChecked.value = true;
 });
@@ -672,7 +678,7 @@ watch(
 
 <template>
   <div ref="stage" class="stage" :class="{ zoomed, listmode: listMode, flipping: flippingUids.size > 0 }" :style="flipVars" @focusin="onFocusIn">
-    <!-- Cockpit roster: a tall text row per cell (status / dir / summary / prompt / latest
+    <!-- Cockpit roster: a tall text row per cell (status / dir / memo / summary / prompt / latest
          reply). Click a row to swap which terminal is enlarged. -->
     <aside
       v-if="zoomed && listMode"
@@ -715,6 +721,15 @@ watch(
             @move="(dir) => emit('move', row.uid, dir)"
           />
         </CockpitHeader>
+        <!-- The user's own note, above every line below it: those are what the AGENT said, and the
+             memo is the user saying what the cell is FOR (#1084) — the same precedence the cell
+             header, the sidebar row and the phone's roster already share via sessionDisplayName.
+             Unclamped, alone among these lines, because it needs no guard: normalizeMemo caps a
+             memo at one line of 200 code points, where the three below are agent text of no
+             bounded length, which is what `cockpitLines` exists for. -->
+        <span v-if="row.memo" data-testid="cockpit-memo" class="text-[12px] leading-[1.35]"
+          ><b class="mr-1 text-[10px] font-bold text-[#7a8aa0]">memo</b> {{ row.memo }}</span
+        >
         <!-- The clamp is a runtime value, so the utility reads a CSS variable each line sets for
              itself — `line-clamp-N` only exists for the literals Tailwind found in the source.
              `title` carries the rest, so a low clamp hides nothing you can't get at. -->

@@ -38,17 +38,28 @@ Settings live in three places: the **settings modal (Settings)**, the **global c
 
 {: .highlight }
 > **You don't have to hand-write any of this.** Run **`/mulmoterminal-config`** in any MulmoTerminal
-> session and the bundled skill walks you through it with checkboxes and colour presets, then writes
-> a valid file — for the current directory or several of your recent ones at once. (Settings →
-> **Configure appearance…** button starts the same skill.)
+> session: it asks what you want to change, hands off to the skill that owns it, and also answers
+> "how is this set up right now?" — including any key the app **dropped in validation**, which is
+> what a setting that silently never applied looks like from the outside.
 >
-> It is also how you find the settings that have **no UI at all** and exist only in
-> `~/.mulmoterminal/config.json`: [`providers`](#providers) (another model),
-> [`keymap`](#keymap) (keyboard shortcuts), [`terminalSubmit`](#terminal-submit) (the fix for
-> "Shift+Enter submits instead of adding a line"), [`fontFamily`](#font-family) (the terminal
-> font), and the periodic dev-work log. Hand-editing works
-> too — this page documents every field — but the skill validates as it writes, which matters for
-> `keymap`, where a malformed binding stops the server from starting.
+> Go straight to one if you already know the area:
+>
+> | Skill | Covers |
+> |---|---|
+> | **`/mulmoterminal-dirs`** | A project's colours, its position in the grid and launcher, name badge, terminal font size. Starts from the directories you actually open, reads what you already have, and follows the same pattern for the ones that have none. (Settings → **Configure appearance…** starts this one.) |
+> | **`/mulmoterminal-theme`** | Your own [colour scheme](#custom-themes), appearing in Settings' picker. (Settings → **Create a theme…**) |
+> | **`/mulmoterminal-header`** | [Header buttons and chips](#header), global or per project |
+> | **`/mulmoterminal-keys`** | [`keymap`](#keymap), [`copyOnSelect`](#copy-on-select), [`terminalSubmit`](#terminal-submit) — the fix for "Shift+Enter submits instead of adding a line". (Settings → **Set up shortcuts…**) |
+> | **`/mulmoterminal-model`** | [`providers`](#providers) and a per-project model |
+> | **`/mulmoterminal-notify`** | [Which moments beep or push](#sounds), and what each plays. (Settings → **Configure notifications…**) |
+>
+> This is how you reach the settings that have **no UI at all**. Hand-editing works too — this page
+> documents every field — but the skills validate as they write, which matters for `keymap`, where a
+> malformed binding stops the server from starting.
+>
+> You don't have to remember the names either: the Settings section for each of these ends in a
+> button that starts the skill that owns it, in a new session. The two without a Settings section of
+> their own — `-header` and `-model` — you run by name.
 
 ---
 
@@ -62,20 +73,20 @@ Fifteen sections, in this order.
 
 | Item | Description |
 |---|---|
-| **Theme** | Midnight / Nord / Daylight / Solarized Light, plus [any you defined yourself](#custom-themes) |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light, plus [any you defined yourself](#custom-themes). Picks from what exists; "Create a theme…" starts the `mulmoterminal-theme` skill to write a new one |
 | **Terminal font size** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
-| **Directory appearance** | "Configure appearance…" — set a directory's name badge, colors, terminal palette, and header interactively, through the `mulmoterminal-config` skill |
-| **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only (→ [When a setting isn't working](#dir-settings-preview)) |
-| **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button (→ [Notification sounds](#sounds)) |
+| **Directory appearance** | "Configure appearance…" — set a directory's name badge, colors, terminal palette, and grid position interactively, through the `mulmoterminal-dirs` skill |
+| **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only — "Explain my settings…" starts the `mulmoterminal-config` skill to say why and fix it (→ [When a setting isn't working](#dir-settings-preview)) |
+| **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button. "Configure notifications…" starts the `mulmoterminal-notify` skill for a per-project sound and which moments push (→ [Notification sounds](#sounds)) |
 | **Voice input** | The language you **dictate in** (your browser's, per-clip detection, or a fixed one). Shown only on a machine that can transcribe |
 | **Web Push notifications** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
 | **Google account** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
 | **Pull request repos** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
-| **Launch commands** | Commands you can launch besides Claude in a grid cell (`{ label, command }`) |
+| **Launch commands** | Commands you can launch besides the agents in a grid cell (`{ label, command }`). A plain shell needs no entry — the launcher's **Shell** toggle opens `$SHELL` unconfigured |
 | **Phone quick commands** | Phrases offered as chips on the **phone's** terminal view. Tapping one fills the input box; it is sent when you press send (`quickCommands`) |
 | **MCP servers** | Your own MCP servers to add to single-view sessions |
 | **Cost (estimated)** | Estimated cost readouts for Session / Today / Month |
-| **Keyboard shortcuts** | What is bound to what, read-only. **Everything starts as Not set** — you bind them in `keymap` (→ [Keyboard shortcuts](#keymap)) |
+| **Keyboard shortcuts** | What is bound to what, read-only. **Everything starts as Not set** — "Set up shortcuts…" starts the `mulmoterminal-keys` skill to bind them in `keymap` (→ [Keyboard shortcuts](#keymap)) |
 | **Help & user guide** | Links into this guide |
 
 ## When a setting isn't working — look here first {#dir-settings-preview}
@@ -141,8 +152,9 @@ All values are `#rrggbb`. The working / needs-you status colors take priority ov
 
 Both beat the global settings for terminals opened here, so one project can be told apart from
 another by ear. A file path is **relative to this directory** — an absolute path, or a `../`
-that escapes it, is rejected. `preset:<id>` works here too, so a project needs no audio file of
-its own. → [Notification sounds](#sounds)
+that escapes it, is rejected. `preset:<id>` works in **`sounds`** (per kind), so a project needs no
+audio file of its own — but **not in `sound`**, which takes a relative file path only and silently
+drops a preset reference. → [Notification sounds](#sounds)
 
 ### The terminal itself (xterm palette)
 
@@ -194,7 +206,7 @@ Japanese while the rest of your work is ASCII.
 
 Unlike the global key, this one needs **no server restart**. It is not filesystem-watched either,
 though: MulmoTerminal re-reads a `.mulmoterminal.json` when **Claude's own Write/Edit tools** report
-having written it — which is why `/mulmoterminal-config` recolours the cell as you watch. Edit the
+having written it — which is why `/mulmoterminal-dirs` recolours the cell as you watch. Edit the
 file **by hand, from outside**, and an already-open terminal keeps the old font until you reload the
 browser tab.
 ### Where this project sits in the grid (`orderPriority`) {#order-priority}
@@ -1196,8 +1208,8 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
     { "label": "acme-api", "path": "/Users/you/projects/acme-api" }
   ],
   "launchers": [
-    { "label": "Shell", "command": "$SHELL" },
-    { "label": "Node REPL", "command": "node" }
+    { "label": "Node REPL", "command": "node" },
+    { "label": "htop", "command": "htop" }
   ],
   "quickCommands": [
     { "label": "PR", "text": "PR作って", "agents": ["claude"] },
@@ -1213,7 +1225,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | Key | Role |
 |---|---|
 | `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch). Ordered by each directory's [`orderPriority`](#order-priority); the ones that declare none follow, in the order you last launched them |
-| `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell |
+| `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell. Only what you add — a plain shell is already the launcher's **Shell** toggle |
 | `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
@@ -1256,7 +1268,7 @@ there to look at.
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | The root for managed git worktrees |
 | `CLAUDE_CONFIG_DIR` | `~` | Claude Code's own config directory. `.claude.json` lives **inside** it, so relocating your Claude Code config moves that file too. MulmoTerminal reads it to tell whether the per-project GUI MCP server is registered. Unset means `~/.claude.json` |
 | `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | Where the managed MulmoClaude workspace lives. Presets and helps are seeded **only** into this directory, so launching in an arbitrary project never writes them there. Set it to the same value MulmoClaude uses |
-| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(none)* | Set to any value to skip installing the bundled skills (`mulmoterminal-config`, `mulmoterminal-bug-report`, `mulmoterminal-decisions`) into `~/.claude/skills/` and the Codex skills root on startup |
+| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(none)* | Set to any value to skip installing the bundled skills (`mulmoterminal-config` and the `-dirs` / `-theme` / `-header` / `-keys` / `-model` / `-notify` / `-bug-report` / `-decisions` family) into `~/.claude/skills/` and the Codex skills root on startup |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | The model used for image generation (needs `GEMINI_API_KEY`). The default is a **preview** model Google schedules for retirement around mid-2026 — pin a stable one here (e.g. `gemini-2.5-flash-image`) rather than waiting for a code change |
 
 ### Who can reach the server (`MULMOTERMINAL_HOST`) {#bind-host}

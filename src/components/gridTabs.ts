@@ -17,8 +17,19 @@ import { isRecord } from "../../common/isRecord";
 // Unlike a command, a launcher cell IS persisted (it has a session and reconnects).
 export type CellLauncher = { index: number; label: string } | { shell: true; label: string };
 export const isShellLauncher = (l: CellLauncher): l is { shell: true; label: string } => "shell" in l;
+// One name for a shell cell, so the launch form's Shell option and the header's new-terminal
+// button read the same in the grid.
+const SHELL_LAUNCHER_LABEL = "shell";
+export const shellLauncher = (): CellLauncher => ({ shell: true, label: SHELL_LAUNCHER_LABEL });
 // A fresh OS-default-shell cell (session arrives from the server, then it persists/reconnects).
-export const shellCell = (cwd: string, label = "shell"): Omit<Cell, "uid"> => ({ session: null, cwd, launcher: { shell: true, label } });
+export const shellCell = (cwd: string): Omit<Cell, "uid"> => ({ session: null, cwd, launcher: shellLauncher() });
+
+// A cell for a session spawned ELSEWHERE and adopted here, which must carry the agent: without the
+// flag the cell reconnects on Claude's endpoint, so a codex session would attach as claude. Claude
+// records NO key — under exactOptionalPropertyTypes an explicit `agent: undefined` is a different
+// thing from an absent one, and only the absent one survives the JSON a persisted cell round-trips.
+export const sessionCell = (session: string, cwd: string | null, agent: TerminalAgent): Omit<Cell, "uid"> =>
+  agent === "claude" ? { session, cwd } : { session, cwd, agent };
 
 export interface Cell {
   uid: number;

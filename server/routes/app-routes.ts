@@ -18,6 +18,8 @@ import { mountTmuxRoutes } from "../infra/tmux-routes.js";
 import { mountHookRoute } from "../routes/hook-routes.js";
 import { mountPluginRoutes } from "../routes/plugin-routes.js";
 import { mountMcpRoutes } from "../routes/mcp-routes.js";
+import { guiCallRecorderFor, historyIsGuiOnly } from "../mcp/gui-call-history.js";
+import type { SessionAgent } from "../../common/sessionAgent.js";
 import { mountSessionRoutes } from "../routes/session-routes.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountRepoRoutes } from "../routes/repo-routes.js";
@@ -41,7 +43,7 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
-import { ptys, sessionToolGroups, sessionToolGroupsHydrated, devTerminalSessions, devTerminalSessionsHydrated } from "../session/registry.js";
+import { hookedSessions, ptys, sessionToolGroups, sessionToolGroupsHydrated, devTerminalSessions, devTerminalSessionsHydrated } from "../session/registry.js";
 import { mountShortcutsRoutes } from "../backends/shortcuts.js";
 import { mountDecisionRoutes } from "./decision-routes.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
@@ -69,6 +71,9 @@ export interface AppRouteDeps extends SessionActivityDeps {
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
   toolStores: ReturnType<typeof createToolStores>;
+  /** What a session is running, or null when the host cannot tell. Gates the broker's own
+   *  tool-call history — see mcp/gui-call-history.ts. */
+  agentOfSession: (id: string) => SessionAgent | null;
   toolSummaries: Parameters<typeof mountToolRoutes>[1]["toolSummaries"];
   spawnClaudePty: ReturnType<typeof createClaudeSpawner>["spawnClaudePty"];
   spawnCodexPty: ReturnType<typeof createCodexSpawner>["spawnCodexPty"];
@@ -81,6 +86,15 @@ export interface AppRouteDeps extends SessionActivityDeps {
 
 // The channel a directory-config change is announced on.
 const DIR_CONFIG_CHANNEL = "dir-config";
+
+// The two signals behind both halves of the broker-fed history: whether it is written at all, and
+// whether the pane tells the user it holds the GUI tools alone. Read here so the two answers are
+// built from one reading of the session — they are not the same question (the claim is stricter,
+// see historyIsGuiOnly), but they must never be built from different facts.
+const sessionCallReporting = (deps: AppRouteDeps, sessionId: string) => ({
+  agent: deps.agentOfSession(sessionId),
+  reportsOwnCalls: hookedSessions.has(sessionId),
+});
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   const clientDir = deps.clientDir;
@@ -197,7 +211,13 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
 
   // The agent-facing MCP surface (routes/mcp-routes.ts): the in-process GUI MCP server over
   // Streamable HTTP, and the worker-only landing point the hidden translation worker reports to.
-  mountMcpRoutes(app, { publish: (c, d) => deps.publish(c, d) });
+  mountMcpRoutes(app, {
+    publish: (c, d) => deps.publish(c, d),
+    // codex and agy have no hooks, so the broker is the only place their tool calls can reach
+    // the tools pane's history. Claude's do NOT come through here — it would double every entry
+    // its own PreToolUse/PostToolUse already writes.
+    guiCallHistory: (sessionId) => guiCallRecorderFor(sessionId, sessionCallReporting(deps, sessionId), deps.toolStores),
+  });
 
   // Serve Vite build output
   app.use(express.static(path.join(clientDir, "../dist")));
@@ -244,6 +264,10 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     sessionToolGroupsHydrated,
     isGridSession: (id) => devTerminalSessions.has(id),
     devTerminalSessionsHydrated,
+    // Built from the same two signals as the broker's recorder, but with the stricter rule the
+    // user-facing claim needs — see historyIsGuiOnly for why the pane must not answer this the
+    // moment a session id exists.
+    guiOnlyHistory: (id) => historyIsGuiOnly(sessionCallReporting(deps, id)),
     publish: (c, d) => deps.publish(c, d),
     sessionChannel: deps.sessionChannel,
   });

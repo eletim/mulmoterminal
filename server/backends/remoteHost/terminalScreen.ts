@@ -153,6 +153,11 @@ export interface CaptureScreenDeps {
 export interface SessionScreenMeta {
   cwd?: string;
   branch?: string;
+  // The user's own one-line note on the session (#1084), which the phone shows ABOVE the summary:
+  // the line the user wrote outranks what the agent said (sessionDisplayName). Its own field
+  // rather than riding in `summary` the way the picker's row rides in `title` — `summary` is drawn
+  // as a row labelled as the AI's summary, so a handwritten note put there would be mislabelled.
+  memo?: string;
   summary?: string;
   prompt?: string;
   // The dir's REPOSITORY ROOT on GitHub, so the phone can link out to it (#832). Absent for
@@ -186,6 +191,38 @@ type ScreenMetaDraft = Partial<Record<keyof SessionScreenMeta, string | undefine
 
 export function definedScreenMeta(meta: ScreenMetaDraft): SessionScreenMeta {
   return Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined && value.trim() !== ""));
+}
+
+// Where each field of the header comes from. Injected, like the rest of this file, so the join
+// AND the order of the reads are testable without a PTY, a git checkout, or the server's
+// module graph.
+export interface ScreenMetaSources {
+  cwdOf: (id: string) => string;
+  // Both take the cwd, and neither is called for a session that has none — a dir the host
+  // cannot name has no branch and no GitHub page either.
+  branchOf: (cwd: string) => Promise<string | null>;
+  githubUrlOf: (cwd: string) => Promise<string | null>;
+  memoOf: (id: string) => string;
+  summaryOf: (id: string) => string;
+  promptOf: (id: string) => string;
+  // The memo store's boot read. Awaited BEFORE memoOf, or a screen pulled during startup is
+  // told the note is gone — which is indistinguishable from the user having erased it (#1110).
+  memosHydrated: Promise<void>;
+}
+
+export async function buildScreenMeta(id: string, sources: ScreenMetaSources): Promise<SessionScreenMeta> {
+  const cwd = sources.cwdOf(id);
+  await sources.memosHydrated;
+  // Both git reads are independent, so the phone waits for one spawn rather than two.
+  const [branch, githubUrl] = await Promise.all([cwd ? sources.branchOf(cwd) : null, cwd ? sources.githubUrlOf(cwd) : null]);
+  return definedScreenMeta({
+    cwd,
+    branch: branch ?? "",
+    memo: sources.memoOf(id),
+    summary: sources.summaryOf(id),
+    prompt: sources.promptOf(id),
+    githubUrl: githubUrl ?? "",
+  });
 }
 
 // tmux first: it renders the real screen, works while detached, and survives a restart.

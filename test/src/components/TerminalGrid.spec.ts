@@ -77,6 +77,7 @@ const rosterRow = (uid: number, over: Partial<CockpitRow> = {}): CockpitRow => (
   cwd: "/work",
   agent: "claude",
   status: "idle",
+  memo: null,
   summary: null,
   prompt: null,
   response: null,
@@ -286,6 +287,41 @@ describe("grid cockpit (list view)", () => {
     const lines = w.findAll('[data-testid="cockpit-line"]').map((l) => l.text());
     expect(lines.some((t) => t.includes("summary"))).toBe(false); // no summary line
     expect(lines.some((t) => t.includes("prompt") && t.includes("bash"))).toBe(true); // fallback in the prompt line
+  });
+
+  // The memo is the one line in a row the USER wrote; everything below it is what the agent said.
+  // Asserting the ORDER, not just presence: reading it first is the whole point of the feature
+  // (#1105), and a row that buries it under the agent's summary answers the wrong question.
+  it("puts the user's memo above the summary, and omits the line when there is none", async () => {
+    const w = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { memo: "ship before the demo", summary: "Login fix", prompt: "fix login" })]);
+    await nextTick();
+    expect(w.get('[data-testid="cockpit-memo"]').text()).toContain("ship before the demo");
+    const texts = w
+      .get('[data-testid="cockpit-row"]')
+      .findAll("span")
+      .map((s) => s.text());
+    const indexOf = (needle: string) => texts.findIndex((t) => t.includes(needle));
+    expect(indexOf("ship before the demo")).toBeLessThan(indexOf("Login fix"));
+
+    const bare = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { summary: "Login fix" })]);
+    await nextTick();
+    expect(bare.find('[data-testid="cockpit-memo"]').exists()).toBe(false);
+  });
+
+  // The memo must stay OUT of the clamped set: normalizeMemo already caps it at one line of 200
+  // code points, and `cockpitLines` is the knob for agent text of no bounded length. A memo that
+  // joined the clamped lines would also shift what the three configured counts land on.
+  it("leaves the memo unclamped, so the configured counts still land on summary / prompt / reply", async () => {
+    setCockpitLines({ summary: 6, prompt: 1, response: 9 });
+    const w = mountCockpit([cell(0, "s0")], 0, [rosterRow(0, { memo: "mine", summary: "s", prompt: "p", response: "r" })]);
+    await nextTick();
+    expect(w.findAll('[data-testid="cockpit-line"]').map((l) => l.attributes("style"))).toEqual([
+      "--cockpit-lines: 6;",
+      "--cockpit-lines: 1;",
+      "--cockpit-lines: 9;",
+    ]);
+    expect(w.get('[data-testid="cockpit-memo"]').classes()).not.toContain("line-clamp-[var(--cockpit-lines)]");
+    setCockpitLines(undefined); // leave the singleton as the next test expects to find it
   });
 
   // The clamp is a runtime value, so it reaches the DOM as a CSS variable the Tailwind utility

@@ -14,6 +14,7 @@ import { fetchVoiceInputStatus } from "../composables/voiceModelStatus";
 import { SELECT_CONTROL } from "./selectClasses";
 import SettingsButton from "./SettingsButton.vue";
 import SettingsField from "./SettingsField.vue";
+import SkillLaunchButton from "./SkillLaunchButton.vue";
 import GuideLinks from "./GuideLinks.vue";
 import DirConfigPreview from "./DirConfigPreview.vue";
 import type { Launcher } from "./launchers";
@@ -25,6 +26,7 @@ import { NOTIFY_KINDS, type NotifyKind } from "../../common/notifyKinds";
 import { presetRef, SOUND_PRESETS } from "../../common/notifySounds";
 import { customSoundLabel, isCustomSound, toggledKinds, withKindSound, type SoundMap } from "../composables/soundSettings";
 import { canAddLauncher, canAddMcpServer, canAddQuickCommand, canAddRepo } from "./settingsValidators";
+import type { BundledSkillName } from "../../common/bundledSkills";
 import { formatUsd } from "./formatUsd";
 import { isRecord } from "../../common/isRecord";
 
@@ -54,7 +56,10 @@ const emit = defineEmits<{
   (e: "update-launchers", launchers: Launcher[]): void;
   (e: "update-quick-commands", commands: QuickCommand[]): void;
   (e: "update-user-mcp", servers: UserMcpServer[]): void;
-  (e: "configure-appearance" | "close"): void;
+  // Hand a section over to the skill that owns it. Named by skill rather than by section
+  // ("configure-appearance") so a new button costs nothing outside this file.
+  (e: "launch-skill", skill: BundledSkillName): void;
+  (e: "close"): void;
 }>();
 
 // Cross-repo PR view's repos ("owner/repo"). Editable list mirroring the saved value;
@@ -417,7 +422,8 @@ onUnmounted(() => {
         one below. Your choice is kept until then.
       </p>
       <p class="mb-2 mt-1.5 text-[12px] text-dim">
-        Your own colour schemes go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in four.
+        Picks from the schemes that exist. Your own go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in
+        four — the skill writes one from a palette, a photo or a brand's colours, and checks it for contrast.
       </p>
       <div ref="themesEl" class="flex flex-wrap gap-2" role="radiogroup" aria-label="Theme">
         <button
@@ -439,6 +445,9 @@ onUnmounted(() => {
           </span>
           <span class="text-[12px]">{{ t.label }}</span>
         </button>
+      </div>
+      <div class="mt-3">
+        <SkillLaunchButton skill="mulmoterminal-theme" icon="format_paint" label="Create a theme…" @launch="emit('launch-skill', $event)" />
       </div>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Terminal font size</h3>
@@ -496,12 +505,10 @@ onUnmounted(() => {
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory appearance</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
-        Launch the <code>mulmoterminal-config</code> skill to style a directory — name badge, colors, terminal palette, header buttons. It configures the
-        focused session's directory, or lets you pick from your recent directories.
+        Launch the <code>mulmoterminal-dirs</code> skill to style and order your directories — name badge, colors, terminal palette, grid position. It starts
+        from the directories you actually open, reads the settings you already have, and follows the same pattern for the ones that have none.
       </p>
-      <SettingsButton @click="emit('configure-appearance')"
-        ><span class="material-symbols-outlined" aria-hidden="true">palette</span> Configure appearance…</SettingsButton
-      >
+      <SkillLaunchButton skill="mulmoterminal-dirs" icon="palette" label="Configure appearance…" @launch="emit('launch-skill', $event)" />
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory settings</h3>
       <p class="mb-1 mt-1.5 text-[12px] text-dim">
@@ -509,6 +516,10 @@ onUnmounted(() => {
         recognise — a setting that never took effect looks the same as one you never made until you can see this.
       </p>
       <DirConfigPreview :paths="dirPaths ?? []" />
+      <p class="mb-3 mt-2.5 text-[12px] text-dim">
+        This lists what is wrong; the skill reads the same thing and says why, then fixes it or points you at whichever skill owns that key.
+      </p>
+      <SkillLaunchButton skill="mulmoterminal-config" icon="troubleshoot" label="Explain my settings…" @launch="emit('launch-skill', $event)" />
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Notification sounds</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
@@ -569,6 +580,11 @@ onUnmounted(() => {
         <SettingsButton @click="browseSound">Browse…</SettingsButton>
         <SettingsButton :disabled="!soundPath" title="Use the built-in chime" @click="clearSound">Use chime</SettingsButton>
       </div>
+      <p class="mb-3 mt-3 text-[12px] text-dim">
+        These are the sounds for every session. The skill also gives one project its own sound, picks which moments push to your phone, and works out which of
+        them is the one waking you up.
+      </p>
+      <SkillLaunchButton skill="mulmoterminal-notify" icon="notifications_active" label="Configure notifications…" @launch="emit('launch-skill', $event)" />
 
       <template v-if="voiceCapable">
         <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Voice input</h3>
@@ -825,7 +841,7 @@ onUnmounted(() => {
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Keyboard shortcuts</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Read-only. Shortcuts are off until you bind them in <code>~/.mulmoterminal/config.json</code> under <code>keymap</code> — every key you bind stops
-        reaching the program inside the terminal. Ask <code>/mulmoterminal-config</code> to set them up, or see the
+        reaching the program inside the terminal, so the skill checks a binding against what your agent already uses before writing it. Or see the
         <a class="text-accent underline" href="https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap" target="_blank" rel="noopener noreferrer"
           >guide</a
         >.
@@ -849,6 +865,9 @@ onUnmounted(() => {
           <code class="shrink-0 rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg">{{ row.key }}</code>
           <code class="shrink-0 font-mono text-[10px] text-muted">send</code>
         </div>
+      </div>
+      <div class="mt-3">
+        <SkillLaunchButton skill="mulmoterminal-keys" icon="keyboard" label="Set up shortcuts…" @launch="emit('launch-skill', $event)" />
       </div>
 
       <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Help &amp; user guide</h3>

@@ -78,6 +78,7 @@ import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
 import { renderScreen } from "./session/headlessScreen.js";
 import {
   agentFromPaneCommand,
+  buildScreenMeta,
   buildSessionList,
   captureSessionScreen,
   sessionWorkSummary,
@@ -153,7 +154,8 @@ await fs.mkdir(CLAUDE_CWD, { recursive: true });
 initWorkspaceSetup({ workspace: CLAUDE_CWD });
 
 // Install the skills we ship into the user's global skills roots so any launched terminal can run
-// `/mulmoterminal-config` (author a .mulmoterminal.json) and `/mulmoterminal-bug-report`.
+// `/mulmoterminal-config` (the settings entry point, which routes to -dirs / -theme / -header /
+// -keys / -model / -notify) and `/mulmoterminal-bug-report`.
 // Best-effort + never clobbers a user's own same-named skill (see install-bundled-skills.ts).
 installBundledSkills();
 
@@ -431,6 +433,7 @@ mountAppRoutes(app, {
   reap,
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
+  agentOfSession: (id: string) => agentOfSession(id),
   setWorking,
   setWaiting,
   publishActivity,
@@ -615,27 +618,25 @@ const remoteHostWriteToSession = (sessionId: string, chunk: string): boolean => 
 const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.get(sessionId)?.agent, activity.get(sessionId)?.working);
 
 // What the phone's per-session view heads the screen with (#786, mulmoserver#107): the same
-// dir / branch / summary / prompt the grid cell shows, read from the tables /api/sessions
+// dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
 // answers from. A session that outlived a restart has no PtyEntry, so it has no cwd here and
 // no branch to look up — those fields are simply absent, and the phone shows the screen alone.
-const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
-  const cwd = ptys.get(sessionId)?.cwd ?? "";
-  // Both git reads are independent, so the phone waits for one spawn rather than two.
-  const [head, repoUrl] = await Promise.all([cwd ? currentBranch(cwd) : null, cwd ? resolveGithubUrl(cwd) : null]);
-  return {
-    cwd,
-    branch: head?.branch ?? "",
-    summary: aiTitles.get(sessionId) ?? "",
-    prompt: lastPrompts.get(sessionId) ?? "",
+const remoteHostSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> =>
+  buildScreenMeta(sessionId, {
+    cwdOf: (id) => ptys.get(id)?.cwd ?? "",
+    branchOf: async (cwd) => (await currentBranch(cwd)).branch,
     // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
     // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged
     // branch deleted at merge time keeps resolving here until someone prunes — and every
     // branch this app creates is deleted that way. Measured: the tree URL 404s, the root
     // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
     // on a screen the phone polls (#832).
-    githubUrl: repoUrl ?? "",
-  };
-};
+    githubUrlOf: resolveGithubUrl,
+    memoOf: (id) => sessionMemos.get(id) ?? "", // beside the summary, never instead of it — see SessionScreenMeta (#1110)
+    summaryOf: (id) => aiTitles.get(id) ?? "",
+    promptOf: (id) => lastPrompts.get(id) ?? "",
+    memosHydrated: sessionMemosHydrated,
+  });
 
 const remoteHostCaptureTerminalScreen = (sessionId: string) =>
   captureSessionScreen(sessionId, {

@@ -18,6 +18,8 @@ import AppToolbar from "./components/AppToolbar.vue";
 import { useSessions, type Filter } from "./composables/useSessions";
 import { browseClose } from "./composables/useCollectionBrowse";
 import { registerChatOpener, startCollectionChat } from "./composables/useChatLauncher";
+import { skillSeed } from "./components/skillSeed";
+import type { BundledSkillName } from "../common/bundledSkills";
 import { useAppConfig } from "./composables/useAppConfig";
 import { useDirConfig } from "./composables/useDirConfig";
 import { useFaviconState } from "./composables/useFaviconState";
@@ -221,11 +223,12 @@ function sendTextMessage(text: string): boolean {
   return terminalRef.value?.submitText(text) ?? false;
 }
 
-// Open a fresh session that auto-runs the mulmoterminal-config skill (rather than hijacking the
-// active session), and select it so it shows. The skill then asks which directory / batch. codex
-// rewriting is handled server-side (spawnBackgroundChat → codexifySkillSeed).
-function configureAppearance(): void {
-  void startCollectionChat("/mulmoterminal-config");
+// Open a fresh session that auto-runs a Settings skill (rather than hijacking the active
+// session), and select it so it shows. The skill then asks what to change. codex rewriting is
+// handled server-side (spawnBackgroundChat → codexifySkillSeed), which is why the claude form is
+// what goes on the wire.
+function launchSkill(skill: BundledSkillName): void {
+  void startCollectionChat(skillSeed(skill, "claude"));
   showSettings.value = false;
 }
 
@@ -409,13 +412,6 @@ function onSession(id: string) {
     <PrsOverlay />
     <!-- Full-screen file explorer + editor; opened by a terminal header's Files button. -->
     <FilesOverlay />
-    <AppSettingsModal
-      v-if="showSettings"
-      :cwd="effectiveCwd"
-      :session-id="activeId"
-      :presets="presets"
-      @configure-appearance="configureAppearance"
-      @close="closeSettings"
-    />
+    <AppSettingsModal v-if="showSettings" :cwd="effectiveCwd" :session-id="activeId" :presets="presets" @launch-skill="launchSkill" @close="closeSettings" />
   </div>
 </template>
