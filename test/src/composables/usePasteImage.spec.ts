@@ -44,7 +44,9 @@ describe("createImagePasteHandler", () => {
     expect(event.preventDefault).toHaveBeenCalled();
     expect(event.stopPropagation).toHaveBeenCalled();
 
-    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("/Users/me/.mulmoterminal/drops/s1/abc.png"));
+    // Trailing space: pasting a second screenshot inserts at the cursor this one left behind,
+    // and two paths run together name neither file (measured in a browser, #938).
+    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("/Users/me/.mulmoterminal/drops/s1/abc.png "));
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -55,7 +57,7 @@ describe("createImagePasteHandler", () => {
     );
     const insertText = vi.fn();
     handler(insertText, vi.fn())(pasteEvent(["image/png"], png()));
-    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("'/Users/me/My Dir/abc.png'"));
+    await vi.waitFor(() => expect(insertText).toHaveBeenCalledWith("'/Users/me/My Dir/abc.png' "));
   });
 
   // The point of folding #938 into #993: a pasted image travels the SAME upload as a dropped
