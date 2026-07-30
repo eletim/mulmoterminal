@@ -1636,7 +1636,11 @@ src/
     PrsOverlay.vue                           cross-repo PRs & Issues
     Wiki*View.vue, Collections*.vue, AccountingOverlay.vue   workspace views
     TimelineOverlay.vue, ToolsPane.vue, NotificationBell.vue, RemoteHostControl.vue
-    SettingsModal.vue                        ⚙ settings
+    SettingsModal.vue                        ⚙ settings — the dialog shell + section order
+    settings/                                one file per settings section (theme, sounds,
+                                             web push, google, PR repos, launchers, quick
+                                             commands, MCP, cost, shortcuts, …), plus the
+                                             shared SettingsStepper / SettingsListRow
   composables/                  useSessions, usePubSub, useGitStatus, useCost,
                                 useChatLauncher, useFilesView, useWikiBrowse,
                                 useCollectionBrowse, useNotifications, useVoiceInput, …
