@@ -4,7 +4,8 @@
 import type { WebSocket } from "ws";
 import { CLAUDE_CWD, PORT } from "../config/env.js";
 import { guiMcpEnv } from "./mcp-config.js";
-import { getUserMcpServers, getPrWorkdirFooter, getAppendSystemPrompt } from "../config/config-routes.js";
+import { getUserMcpServers, getPrWorkdirFooter, getAppendSystemPrompt, getTerminalSubmit } from "../config/config-routes.js";
+import { submitSequenceForAgent } from "../../common/terminalSubmit.js";
 import { SANDBOX_HOST } from "../infra/sandbox.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
 import { claudeAdapter } from "../agents/claude.js";
@@ -195,8 +196,11 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     }
 
     // The auto-run prompt / editable draft is typed into the input box once ready (see
-    // attachDraftInjection) — its scanner is fed the pty output below.
-    const scanForDraftReady = attachDraftInjection(entry, initialPrompt, draft);
+    // attachDraftInjection) — its scanner is fed the pty output below. The submit byte(s)
+    // are resolved per send, the same live config read and agent scoping the phone's submit
+    // uses (index.ts) — an `esc-cr` host submits on ESC+CR, so a hardcoded CR would land as a
+    // newline and the prompt would never run (#1148).
+    const scanForDraftReady = attachDraftInjection(entry, initialPrompt, draft, () => submitSequenceForAgent(entry.agent, getTerminalSubmit()));
 
     // PTY -> browser (buffering a bounded tail for reattach).
     entry.term.onData((data) => {
