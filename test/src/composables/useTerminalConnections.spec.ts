@@ -697,7 +697,9 @@ describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit 
       setTerminalSubmitMode("esc-cr");
       const ws = openCell("cell-st", target(null));
       expect(conn.submitText("cell-st", "/compact")).toBe(true);
-      expect(ws.sent).toEqual([JSON.stringify({ type: "input", data: "/compact" })]); // submit not yet
+      // The trailing space is the #1142 guard: `/compact` alone leaves Claude's command menu
+      // open, and while it is open the ESC of the ESC+CR submit is eaten as the menu's dismiss.
+      expect(ws.sent).toEqual([JSON.stringify({ type: "input", data: "/compact " })]); // submit not yet
       vi.advanceTimersByTime(60);
       expect(ws.sent).toContain(JSON.stringify({ type: "input", data: submitSequence("esc-cr") }));
       conn.release("cell-st");
@@ -746,6 +748,45 @@ describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit 
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // #1142: the Skill menu types `/<slug>` through submitText, so this path has the same dead end
+  // as the phone's — Claude keeps the command menu open on a bare `/slug` and eats the ESC of an
+  // ESC+CR submit. The guard space is mode-independent: a cr host submits the same line either
+  // way, so both modes send it rather than the guard depending on a setting.
+  it.each(["cr", "esc-cr"] as const)("submitText: the skill seed carries the completion guard in %s mode", (mode) => {
+    vi.useFakeTimers();
+    try {
+      setTerminalSubmitMode(mode);
+      const ws = openCell(`cell-guard-${mode}`, target(null));
+      conn.submitText(`cell-guard-${mode}`, "/mulmoterminal-decisions");
+      expect(ws.sent[0]).toBe(JSON.stringify({ type: "input", data: "/mulmoterminal-decisions " }));
+      conn.release(`cell-guard-${mode}`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pasteAndSubmit: the guard rides inside the bracketed paste, not after the terminator", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = openCell("cell-ps2", target(null));
+      conn.pasteAndSubmit("cell-ps2", "read @common/terminalSubmit.ts");
+      expect(ws.sent[0]).toBe(JSON.stringify({ type: "input", data: "\x1b[200~read @common/terminalSubmit.ts \x1b[201~" }));
+      conn.release("cell-ps2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // insertText / pasteText hand the user a draft to read and send themselves, so they must keep
+  // exactly what was handed over — a guard space belongs only where WE press Enter.
+  it("insertText and pasteText leave the text untouched", () => {
+    const ws = openCell("cell-ins", target(null));
+    conn.insertText("cell-ins", "/compact");
+    conn.pasteText("cell-ins", "line1\nline2");
+    expect(ws.sent).toEqual([JSON.stringify({ type: "input", data: "/compact" }), JSON.stringify({ type: "input", data: "\x1b[200~line1\nline2\x1b[201~" })]);
+    conn.release("cell-ins");
   });
 });
 

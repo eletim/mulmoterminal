@@ -42,7 +42,14 @@ import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { exitCodeOf, messageEffect } from "./serverMessage";
-import { enterKeyOverride, submitSequence, DEFAULT_TERMINAL_SUBMIT_MODE, type EnterKeyEvent, type TerminalSubmitMode } from "../../common/terminalSubmit";
+import {
+  enterKeyOverride,
+  submitSequence,
+  submittableLine,
+  DEFAULT_TERMINAL_SUBMIT_MODE,
+  type EnterKeyEvent,
+  type TerminalSubmitMode,
+} from "../../common/terminalSubmit";
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
@@ -740,6 +747,8 @@ export function terminate(key: string) {
 // connection's `terminalSubmit` mapping (ESC+CR for a Claude cell in esc-cr mode), so a GUI
 // send commits the same way the keyboard does. Both writes pin to the socket captured now;
 // if the slot reconnects before the submit fires we skip it rather than submit a stray turn.
+// The text goes through submittableLine so an open completion menu can't eat that submit —
+// the Skill menu's `/<slug>` is the case that made it necessary (#1142).
 // Returns whether the text was delivered.
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
@@ -747,7 +756,7 @@ export function submitText(key: string, text: string): boolean {
   const sock = c.ws;
   if (!sock || sock.readyState !== WebSocket.OPEN) return false;
   const submit = submitBytesFor(c);
-  sock.send(JSON.stringify({ type: "input", data: text }));
+  sock.send(JSON.stringify({ type: "input", data: submittableLine(text) }));
   setTimeout(() => {
     if (c.ws === sock && sock.readyState === WebSocket.OPEN) {
       sock.send(JSON.stringify({ type: "input", data: submit }));
@@ -782,7 +791,9 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   const sock = c?.ws;
   if (!text || !c || !sock || sock.readyState !== WebSocket.OPEN) return false;
   const submit = submitBytesFor(c);
-  sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${text}${PASTE_END}` }));
+  // submittableLine's space rides INSIDE the paste, where the TUI takes it as text — after the
+  // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
+  sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableLine(text)}${PASTE_END}` }));
   setTimeout(() => {
     if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
   }, PASTE_SUBMIT_MS);

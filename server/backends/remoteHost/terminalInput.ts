@@ -2,7 +2,7 @@
 // everything that makes it land correctly in a TUI lives here so it can be tested
 // without a PTY.
 //
-// Three things matter, and all three are learned behaviour from the spawn paths in
+// Four things matter; the first three are learned behaviour from the spawn paths in
 // server/index.ts:
 //
 //   1. Sanitize first. The text arrives from a phone, so it is untrusted: an
@@ -12,14 +12,23 @@
 //      keystrokes it might interpret one by one.
 //   3. Send the submitting Enter as a SEPARATE write a beat later — Claude's TUI
 //      drops a CR that arrives while it is still committing the paste.
+//   4. End the pasted line so no completion menu is open when that Enter lands
+//      (submittableLine) — an open menu eats the ESC of an ESC+CR submit.
 
 import type { SessionAgent } from "../../../common/sessionAgent.js";
+import { submittableLine } from "../../../common/terminalSubmit.js";
 
 // Strip ALL control bytes (C0/C1 — ESC, Ctrl-C, CR/LF, and an embedded
 // bracketed-paste terminator). Only printable text survives, whitespace collapsed.
 // eslint-disable-next-line no-control-regex -- intentional: match terminal control bytes (C0/C1) to strip them
 const CONTROL_BYTES_RE = /[\u0000-\u001F\u007F-\u009F]+/g;
 
+// The closing `.trim()` is load-bearing, not cosmetic: a control byte becomes a SPACE (so `a\nb`
+// cannot become `ab`), which manufactures whitespace the sender never typed — `"\x03"` arrives as
+// `" "`. Trimming is what turns that into `""`, and `""` is what lets the caller reject text with
+// nothing printable in it rather than submit an empty turn on the host; a leading space would also
+// reach a shell for real (`HISTCONTROL=ignorespace`). Text that needs to END in a space to submit
+// gets that from submittableLine, AFTER this emptiness decision — never by trimming less (#1142).
 export const sanitizeTerminalInput = (text: string): string => text.replace(CONTROL_BYTES_RE, " ").replace(/\s+/g, " ").trim();
 
 export const PASTE_START = "\x1b[200~";
@@ -77,9 +86,13 @@ const defaultSchedule = (submit: () => void): void => {
 };
 
 // Paste, then press Enter a beat later, resolving once the Enter has gone out.
+//
+// The pasted line ends with submittableLine's space so no completion menu is holding the submit
+// byte(s) — the space rides INSIDE the paste, where the TUI takes it as text: sent after the
+// terminator it would be a keystroke, which an open menu is exactly what interprets.
 const typeAndSubmit = (deps: TerminalInputDeps, sessionId: string, safe: string): Promise<void> => {
   const clear = deps.canClearBox?.(sessionId) ? CLEAR_BOX : "";
-  if (!deps.writeToSession(sessionId, `${clear}${PASTE_START}${safe}${PASTE_END}`)) {
+  if (!deps.writeToSession(sessionId, `${clear}${PASTE_START}${submittableLine(safe)}${PASTE_END}`)) {
     return Promise.reject(new Error(`session ${sessionId} has no live terminal on this host`));
   }
   const submit = deps.submitSequence?.(sessionId) ?? "\r";

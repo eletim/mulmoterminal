@@ -30,6 +30,24 @@ export const newlineSequence = (mode: TerminalSubmitMode): string => (mode === "
 // where ESC+CR is Alt+Enter, not submit.
 export const submitSequenceForAgent = (agent: string | undefined, mode: TerminalSubmitMode): string => (agent === "claude" ? submitSequence(mode) : CR);
 
+// Text we are about to submit ON the user's behalf, ended so the TUI has no completion menu
+// open when the submit byte(s) arrive.
+//
+// Claude Code holds a completion menu open while the cursor sits at the end of a completion
+// token — a `/command` or an `@path` — and while it is open the TUI runs its Autocomplete
+// keybinding context, where `escape` is the menu's dismiss key. So the ESC+CR that submits in
+// "esc-cr" mode never arrives as one Alt+Enter: the ESC is eaten and the line stays in the box,
+// however many times it is sent (#1142). One trailing space ends the token and closes the menu.
+//
+// Measured against Claude Code 2.1.220 for both `/help` and `@path`; a plain-CR host submits the
+// same line unchanged either way, and off a TUI (a shell) the space is inert (`echo hi ` runs).
+// Deliberately unconditional rather than a list of Claude Code's trigger characters: a trigger
+// we failed to enumerate would silently restore a dead end that looks like a broken feature.
+//
+// For auto-submitted text only. A draft the user still edits keeps exactly what was handed over —
+// their own Enter is a keystroke they can retry once they see the menu.
+export const submittableLine = (text: string): string => (/\S$/.test(text) ? `${text} ` : text);
+
 // The structural shape of a keydown the override needs. A real DOM KeyboardEvent satisfies
 // it, and so does a plain test object — no DOM dependency, so this stays testable and shared.
 export interface EnterKeyEvent {
