@@ -33,8 +33,7 @@ import {
 } from "./splitterWidth";
 import { setFilesPaneOpener } from "../composables/filesPaneOpener";
 import { paneCanShowClick } from "./paneClickTarget";
-import { usePubSub } from "../composables/usePubSub";
-import { TOOL_GROUPS_CHANNEL } from "../toolGroupsChannel";
+import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
 import { hasCanvasGroup } from "../../common/toolGroups";
 import type { RightPane } from "./gridCell";
 import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
@@ -289,19 +288,43 @@ watch(
 // while claude is still being spawned, so its MCP client has not connected yet. Waiting for the
 // server to say so is what stops that first "no" from standing until the user collapses and
 // re-expands the cell.
-const { subscribe: subscribeToolGroups } = usePubSub();
-const offToolGroups = subscribeToolGroups(TOOL_GROUPS_CHANNEL, (data) => {
-  const msg = data as { sessionId?: string; groups?: string[] };
-  if (!msg?.sessionId || msg.sessionId !== expandedSessionId.value) return;
-  // A message with no `groups` is the bare "my MCP client is up" announcement, sent for every
-  // session so a pane that asked too early can ask again. It says nothing about groups — an
-  // all-tools session has none to report — and reading it as an empty list would tell a cell
-  // that can draw that it cannot.
-  if (!Array.isArray(msg.groups)) return;
-  canvasAvailable.value = hasCanvasGroup(msg.groups);
+onToolGroupsAnnounced((announcement) => {
+  if (announcement.sessionId !== expandedSessionId.value) return;
+  // Only the announcement that actually carries groups says anything about them; the bare
+  // "my MCP client is up" one is a cue to ask again, not an empty answer.
+  if (!announcement.groups) return;
+  canvasAvailable.value = hasCanvasGroup(announcement.groups);
   canvasChecked.value = true;
 });
-onBeforeUnmount(() => offToolGroups());
+
+// What EVERY cell type gets from the grid, whatever it is running — GridCellProps and
+// GridCellEmits are already the shared contract in types, and the template used to re-spell both
+// once per cell type. Bound as objects so the three cannot drift: a prop added to the contract and
+// forgotten in one branch is a cell that quietly behaves differently from its neighbours.
+//
+// Deliberately NOT here: `uid` / `session` / `command` / `cwd`, which differ per cell type, and
+// `@session`, which CommandCell does not declare (Vue warns about a listener no component emits).
+const gridCellProps = (cell: Cell) => ({
+  "data-uid": cell.uid,
+  class: cellClass(cell.uid),
+  expanded: cell.uid === props.expandedUid,
+  filesOpen: filesOpen.value,
+  rightPane: rightPane.value,
+  canvasAvailable: canvasAvailable.value,
+  zoomed: zoomed.value,
+  home: props.home,
+  reorderable: props.reorderable ?? false,
+});
+const gridCellEvents = (cell: Cell) => ({
+  "toggle-expand": () => emit("toggle-expand", cell.uid),
+  "toggle-files": toggleFiles,
+  "toggle-canvas": () => toggleRightPane("canvas"),
+  "open-canvas": () => openCanvasFor(cell.uid),
+  "toggle-tools": () => toggleRightPane("tools"),
+  close: () => emit("close", cell.uid),
+  move: (dir: -1 | 1) => emit("move", cell.uid, dir),
+  status: (value: CellStatus) => emit("status", cell.uid, value),
+});
 
 // What the Canvas pane should say instead of its "ask Claude to draw something" hint. The pane
 // outlives the cell it was opened on, so walking the zoom lands it on cells that can never fill
@@ -853,78 +876,31 @@ watch(
          bound only in that mode so it cannot reach the tiled grid or list mode's off-screen one. -->
     <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]">
       <Teleport v-for="cell in cells" :key="cell.uid" :to="zoomMain" :disabled="!(zoomed && cell.uid === expandedUid)">
-        <CommandCell
-          v-if="cell.command"
-          :data-uid="cell.uid"
-          :class="cellClass(cell.uid)"
-          :expanded="cell.uid === expandedUid"
-          :files-open="filesOpen"
-          :right-pane="rightPane"
-          :canvas-available="canvasAvailable"
-          :zoomed="zoomed"
-          :command="cell.command"
-          :home="home"
-          :reorderable="reorderable"
-          @toggle-expand="emit('toggle-expand', cell.uid)"
-          @toggle-files="toggleFiles"
-          @toggle-canvas="toggleRightPane('canvas')"
-          @open-canvas="openCanvasFor(cell.uid)"
-          @toggle-tools="toggleRightPane('tools')"
-          @close="emit('close', cell.uid)"
-          @move="(dir) => emit('move', cell.uid, dir)"
-          @status="(s) => emit('status', cell.uid, s)"
-        />
+        <CommandCell v-if="cell.command" v-bind="gridCellProps(cell)" :command="cell.command" v-on="gridCellEvents(cell)" />
         <LauncherCell
           v-else-if="cell.launcher"
           :uid="cell.uid"
-          :data-uid="cell.uid"
-          :class="cellClass(cell.uid)"
-          :expanded="cell.uid === expandedUid"
-          :files-open="filesOpen"
-          :right-pane="rightPane"
-          :canvas-available="canvasAvailable"
-          :zoomed="zoomed"
+          v-bind="gridCellProps(cell)"
           :launcher="cell.launcher"
           :session="cell.session"
           :cwd="cell.cwd"
-          :home="home"
-          :reorderable="reorderable"
-          @toggle-expand="emit('toggle-expand', cell.uid)"
-          @toggle-files="toggleFiles"
-          @toggle-canvas="toggleRightPane('canvas')"
-          @open-canvas="openCanvasFor(cell.uid)"
-          @toggle-tools="toggleRightPane('tools')"
-          @close="emit('close', cell.uid)"
-          @move="(dir) => emit('move', cell.uid, dir)"
-          @status="(s) => emit('status', cell.uid, s)"
+          v-on="gridCellEvents(cell)"
           @session="(id) => emit('session', cell.uid, id)"
         />
         <TerminalCell
           v-else
           :uid="cell.uid"
-          :data-uid="cell.uid"
-          :class="cellClass(cell.uid)"
-          :expanded="cell.uid === expandedUid"
-          :files-open="filesOpen"
-          :right-pane="rightPane"
-          :canvas-available="canvasAvailable"
-          :zoomed="zoomed"
+          v-bind="gridCellProps(cell)"
           :initial-session-id="cell.session"
           :initial-cwd="cell.cwd"
           :initial-agent="cell.agent"
           :default-cwd="defaultCwd"
           :presets="presets"
           :launchers="launchers"
-          :home="home"
           :open-session-ids="openSessionIds"
           :open-cwds="openCwds"
           :cancellable="cell.uid === cancelUid"
-          :reorderable="reorderable"
-          @toggle-expand="emit('toggle-expand', cell.uid)"
-          @toggle-files="toggleFiles"
-          @toggle-canvas="toggleRightPane('canvas')"
-          @open-canvas="openCanvasFor(cell.uid)"
-          @toggle-tools="toggleRightPane('tools')"
+          v-on="gridCellEvents(cell)"
           @session="(id) => emit('session', cell.uid, id)"
           @agent="(a) => emit('agent', cell.uid, a)"
           @cwd="(c) => emit('cwd', cell.uid, c)"
@@ -933,9 +909,6 @@ watch(
           @run="(cmd) => emit('run', cell.uid, cmd)"
           @run-spare="(cmd) => emit('runSpare', cell.uid, cmd)"
           @launch="(pick) => emit('launch', cell.uid, pick)"
-          @close="emit('close', cell.uid)"
-          @move="(dir) => emit('move', cell.uid, dir)"
-          @status="(s) => emit('status', cell.uid, s)"
         />
       </Teleport>
     </div>

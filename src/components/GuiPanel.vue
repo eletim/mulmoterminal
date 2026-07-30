@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from "vue";
+import { ref, computed, watch } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
-import { usePubSub } from "../composables/usePubSub";
+import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
 import { getPlugin } from "../plugins-registry";
 import PluginFrame from "./PluginFrame.vue";
 import { TOOL_GROUPS, groupOfTool, toolsInGroup } from "../../common/toolGroups";
-import { TOOL_GROUPS_CHANNEL } from "../toolGroupsChannel";
 
 // The GUI panel renders the toolResults produced by GUI-protocol plugins. It
 // mirrors the terminal's active session: live results arrive on that session's
@@ -127,14 +126,10 @@ watch(() => props.sessionId, loadAvailableTools, { immediate: true });
 
 // The answer above is normally asked BEFORE it can be true: the browser is handed a session id
 // while claude is still being spawned, so its MCP client has not connected to the group URLs yet
-// and the server has not learned which tools this cell got. The same channel the grid's Canvas
-// button waits on says when that changes.
-const { subscribe: subscribeToolGroups } = usePubSub();
-const offToolGroups = subscribeToolGroups(TOOL_GROUPS_CHANNEL, (data) => {
-  const msg = data as { sessionId?: string };
-  if (msg?.sessionId && msg.sessionId === props.sessionId) loadAvailableTools(props.sessionId);
+// and the server has not learned which tools this cell got.
+onToolGroupsAnnounced((announcement) => {
+  if (announcement.sessionId === props.sessionId) loadAvailableTools(props.sessionId);
 });
-onBeforeUnmount(() => offToolGroups());
 
 // What this session can be asked for, grouped. Ordered by TOOL_GROUPS (blast radius, least
 // first) rather than by the order the server happened to list them, so the hint does not
