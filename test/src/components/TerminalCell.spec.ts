@@ -2085,6 +2085,37 @@ describe("TerminalCell", () => {
     await nextTick();
     expect((w.find('[data-testid="cell-mcp-toggle-render"]').element as HTMLInputElement).checked).toBe(true);
   });
+
+  // Ticking a group and launching in the same breath is the ordinary way to use these: the switch
+  // is what the session about to start needs. The launch takes the whole form off the screen, so
+  // the write it queued has to be one the form is no longer party to — tie it to the component's
+  // lifetime and the registration is silently dropped for the session it was ticked for.
+  it("still writes a tool-group registration queued a moment before the launch", async () => {
+    const posted: { cwd: string; group: string; enabled: boolean }[] = [];
+    globalThis.fetch = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      if (u.includes("/api/gui-mcp-groups")) {
+        if (init?.method === "POST") {
+          posted.push(JSON.parse(String(init.body)));
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        return { ok: true, json: async () => ({ groups: [] }) };
+      }
+      if (u.includes("/api/worktrees")) return { ok: true, json: async () => ({ isGit: false, worktrees: [] }) };
+      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/home/me/proj", scripts: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+
+    const w = mountCell(null, { defaultCwd: "/home/me/proj" });
+    await flushPromises();
+    await w.find('[data-testid="cell-mcp-toggle-render"]').setValue(true);
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    await flushPromises();
+
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(false); // it really did launch
+    expect(posted).toEqual([{ cwd: "/home/me/proj", group: "render", enabled: true }]);
+  });
 });
 
 // A launch chip says two things at once — which directory it is, and whether a session is
