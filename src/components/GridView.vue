@@ -306,7 +306,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     uid: c.uid,
     cwd: c.cwd,
     agent: c.agent ?? "claude",
-    status: statusForSort.value[c.uid] ?? ("idle" as AttentionStatus),
+    status: statusForSort.value[c.uid] ?? "idle",
     memo: meta.memo,
     summary: meta.aiTitle,
     prompt: meta.lastPrompt,
