@@ -7,7 +7,7 @@ so nothing in `README.md`'s `/api/*` table describes it.
 
 This page is the contract between the two: **every command the host answers, the shapes it
 answers with, and the rules that decide what belongs on which side.** Written because three
-features in a row (#830, #831, #832) each had to re-derive them by reading `handlers.ts`.
+features in a row (#830, #831, #832) each had to re-derive them by reading the handlers.
 
 > Adding or changing a command? Update this page in the same commit, and file the matching
 > issue on `receptron/mulmoserver` — the phone ignores a field it was never taught about, so a
@@ -28,8 +28,9 @@ account, subscribes to a per-user command channel, and answers each doc it sees.
 
 ## Commands
 
-Handlers live in `server/backends/remoteHost/handlers.ts`; the terminal ones are grouped in
-`terminalScreenHandlers`.
+Handlers live in `server/backends/remoteHost/handlers/`, one file per command (the same layout
+MulmoClaude uses); `handlers/index.ts` is the table that names them all, and the terminal ones are
+grouped in `handlers/terminalSession.ts`.
 
 | Command | Params | Answers |
 |---|---|---|
@@ -99,7 +100,7 @@ would mislabel it.
 ## The rules that keep coming up
 
 **`SessionScreen` is the wire shape.** A field added to it reaches the phone without touching
-`handlers.ts` — that is stated in the handler's own comment and is the intended extension
+the handler — that is stated in the handler's own comment and is the intended extension
 point. Adding a command is the exception, not the rule.
 
 **The host decides; the phone renders.** `quickCommands` is filtered to the session's kind
@@ -143,7 +144,7 @@ Consequences the phone has to live with:
 
 | Concern | File |
 |---|---|
-| Command handlers | `server/backends/remoteHost/handlers.ts` |
+| Command handlers | `server/backends/remoteHost/handlers/` (one file per command; `index.ts` is the table) |
 | Session list + screen assembly | `server/backends/remoteHost/terminalScreen.ts` |
 | Typing into a session (sanitize, bracketed paste, Enter timing) | `server/backends/remoteHost/terminalInput.ts` |
 | Quick-command scoping | `server/backends/remoteHost/quickCommands.ts` |
