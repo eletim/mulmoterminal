@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { SESSION_SPINNER, sessionListEmptyMessage, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
+import {
+  SESSION_SPINNER,
+  sessionAttention,
+  sessionDot,
+  sessionListEmptyMessage,
+  useSessionFilter,
+  type SessionListEmits,
+  type SessionListProps,
+} from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 import { relativeTime } from "./cellDisplay";
 
@@ -90,6 +98,16 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
             :class="[SESSION_SPINNER, 'mr-[5px] inline-block align-middle']"
             title="Claude is working"
             aria-label="Claude is working"
+          />
+          <!-- Same slot as the spinner, and no row wants both: `working` excludes `waiting`. Bold
+               already says "wants you"; the hue says which KIND — stopped on a prompt (amber) or
+               finished and unread (green), which used to look identical here (#1139). -->
+          <span
+            v-else-if="sessionDot(sessionAttention(s))"
+            data-testid="session-dot"
+            :class="[sessionDot(sessionAttention(s))?.cls, 'mr-[5px] inline-block align-middle']"
+            :title="sessionDot(sessionAttention(s))?.label"
+            :aria-label="sessionDot(sessionAttention(s))?.label"
           />
           <span
             v-if="s.agent === 'codex'"

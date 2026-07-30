@@ -30,7 +30,6 @@ import {
   nextAttentionUid,
   orderCells,
   pageSlice,
-  activityStatus,
   countByStatus,
   cancelableLaunchUid,
   pageCount,
@@ -39,11 +38,11 @@ import {
   STATE_KEY,
   LEGACY_KEY,
   type GridState,
-  type CellStatus,
   type Cell,
   resolveCellStatus,
   MAX_TERMINALS,
 } from "./gridTabs";
+import { activityStatus, type AttentionStatus } from "./attentionStatus";
 import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composables/gridShortcut";
 import { useCaptureKeydown } from "../composables/useCaptureKeydown";
 import { getActiveKeymap } from "../composables/activeKeymap";
@@ -106,17 +105,17 @@ const noRunningTerminals = computed(() => runningCount(state.value.cells) === 0)
 // no session id (command cells) and a just-launched cell before its id arrives.
 const cellSessionIds = computed(() => state.value.cells.map((c) => c.session).filter((s): s is string => !!s));
 const { activity: gridActivity } = useGridActivity(cellSessionIds);
-const statusByUid = reactive<Record<number, CellStatus>>({});
-const onStatus = (uid: number, s: CellStatus) => (statusByUid[uid] = s);
+const statusByUid = reactive<Record<number, AttentionStatus>>({});
+const onStatus = (uid: number, s: AttentionStatus) => (statusByUid[uid] = s);
 // Which cell the cursor is in, reported up from the grid. Un-zoomed this is the only notion of
 // "the terminal I am on", so the keyboard shortcuts rotate from it.
 const focusedCellUid = ref<number | null>(null);
 const sessionStatus = computed(() => {
-  const m = new Map<string, CellStatus>();
+  const m = new Map<string, AttentionStatus>();
   for (const [id, a] of gridActivity) m.set(id, activityStatus(a.working, a.waiting, a.event));
   return m;
 });
-const statusForSort = computed<Record<number, CellStatus>>(() => resolveCellStatus(state.value.cells, sessionStatus.value, statusByUid));
+const statusForSort = computed<Record<number, AttentionStatus>>(() => resolveCellStatus(state.value.cells, sessionStatus.value, statusByUid));
 // At-a-glance tally across ALL pages, for the toolbar summary.
 const statusCounts = computed(() => countByStatus(state.value.cells, statusForSort.value));
 const reorderable = computed(() => state.value.sortMode === "manual");
@@ -307,7 +306,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     uid: c.uid,
     cwd: c.cwd,
     agent: c.agent ?? "claude",
-    status: statusForSort.value[c.uid] ?? ("idle" as CellStatus),
+    status: statusForSort.value[c.uid] ?? ("idle" as AttentionStatus),
     memo: meta.memo,
     summary: meta.aiTitle,
     prompt: meta.lastPrompt,

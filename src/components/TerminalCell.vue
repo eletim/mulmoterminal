@@ -35,7 +35,8 @@ import CellChromeButtons from "./CellChromeButtons.vue";
 import { cellChromeBinding } from "./cellChromeBinding";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
-import { activityStatus, shellLauncher, type CellStatus } from "./gridTabs";
+import { shellLauncher } from "./gridTabs";
+import { activityStatus, type AttentionStatus } from "./attentionStatus";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import {
@@ -1092,7 +1093,7 @@ const headerDir = computed(() => {
 
 // blocked (needs input) / done (finished, unreviewed) / working / idle — split from
 // the server's working+waiting+event (see activityStatus).
-const status = computed<CellStatus>(() => activityStatus(working.value, waiting.value, activityEvent.value));
+const status = computed<AttentionStatus>(() => activityStatus(working.value, waiting.value, activityEvent.value));
 const STATUS_CLASS = { blocked: "is-blocked", done: "is-done", working: "is-working", idle: "is-idle" } as const;
 const STATUS_LABEL = { blocked: "Needs input", done: "Done — review", working: "Working…", idle: "Idle" } as const;
 const statusClass = computed(() => STATUS_CLASS[status.value]);

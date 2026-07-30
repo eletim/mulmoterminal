@@ -2,6 +2,7 @@ import type { RunCommand } from "./runCommand";
 import { dirPriority } from "./dirPriorityOrder";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
+import type { AttentionStatus } from "./attentionStatus";
 
 // The grid is ONE flat, ordered list of terminal cells, split into pages of 9
 // (the tabs). Closing a cell reflows the whole list so later pages pack forward
@@ -47,21 +48,6 @@ export interface Cell {
 // "auto": attention-first, recomputed from each cell's live status; "priority": the rank each
 // directory declares as `orderPriority` in its .mulmoterminal.json (#876).
 export type SortMode = "manual" | "auto" | "priority";
-// A cell's live activity, reported up from the cell. Drives the "auto" order and the
-// cell's color/label. `blocked` (needs input/permission) and `done` (finished a turn,
-// output unreviewed) both come from the server's `waiting` flag, split by which hook
-// set it. Absent uids are treated as idle.
-export type CellStatus = "blocked" | "done" | "working" | "idle";
-
-// Map the server's raw activity to a CellStatus. `waiting` means "needs the user";
-// the `event` that set it distinguishes a permission/question pause ("Notification"
-// → blocked, most urgent) from a finished-but-unreviewed turn ("Stop" → done).
-export function activityStatus(working: boolean, waiting: boolean, event: string | null | undefined): CellStatus {
-  if (waiting) return event === "Notification" ? "blocked" : "done";
-  if (working) return "working";
-  return "idle";
-}
-
 export interface GridState {
   cells: Cell[];
   expanded: number | null; // uid of the zoomed cell, or null
@@ -284,14 +270,19 @@ export function toggleZoom(state: GridState, order: readonly number[], fromUid: 
 // `working` is deliberately absent: a cell mid-turn is the one place the user has no reason to
 // be, and skipping it is what stops this from being a plain "next cell". This mirrors the
 // attention RANK the "auto" sort already uses, where idle likewise outranks working.
-const ATTENTION_ORDER: readonly CellStatus[] = ["blocked", "done", "idle"];
+const ATTENTION_ORDER: readonly AttentionStatus[] = ["blocked", "done", "idle"];
 
 // Jump to the next terminal that wants the user, cycling from wherever the zoom is now — the
 // "take me to whoever called" key. Also works un-zoomed, where it doubles as a way in.
 //
 // Wraps deliberately: this is a round of pending cells, not a list with ends, so pressing it
 // repeatedly walks all of them and comes back rather than stopping on the last.
-export function nextAttention(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null = null): GridState {
+export function nextAttention(
+  state: GridState,
+  order: readonly number[],
+  statusByUid: Record<number, AttentionStatus>,
+  fromUid: number | null = null,
+): GridState {
   const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
   if (at === undefined) return state;
   // NEVER enlarges or collapses — that is toggleZoom's job alone. Zoomed, this moves which
@@ -305,7 +296,7 @@ export function nextAttention(state: GridState, order: readonly number[], status
 export function nextAttentionUid(
   state: GridState,
   order: readonly number[],
-  statusByUid: Record<number, CellStatus>,
+  statusByUid: Record<number, AttentionStatus>,
   fromUid: number | null = null,
 ): number | null {
   const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
@@ -319,7 +310,7 @@ export function nextAttentionUid(
 // press picks the same first candidate and the key appears dead after the first one. Zoomed,
 // that origin is the enlarged cell; un-zoomed it has to be the focused one, which only the
 // caller knows.
-function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, CellStatus>, fromUid: number | null): number | undefined {
+function nextCandidate(state: GridState, order: readonly number[], statusByUid: Record<number, AttentionStatus>, fromUid: number | null): number | undefined {
   if (order.length === 0) return undefined;
   const from = order.indexOf(fromUid ?? -1); // -1 when nothing is current => search starts at 0
   const rotated = order.map((_, i) => (from + 1 + i) % order.length);
@@ -328,7 +319,7 @@ function nextCandidate(state: GridState, order: readonly number[], statusByUid: 
   // below and a launcher never reports one. countByStatus skips it for the same reason.
   const occupied = new Set(state.cells.filter(isOccupied).map((c) => c.uid));
   for (const status of ATTENTION_ORDER) {
-    // Absent = idle, the convention CellStatus documents: a cell whose status has not been
+    // Absent = idle, the convention AttentionStatus documents: a cell whose status has not been
     // reported yet must not fall out of the search entirely.
     const at = rotated.find((i) => occupied.has(order[i]) && (statusByUid[order[i]] ?? "idle") === status);
     if (at !== undefined) return at;
@@ -380,9 +371,9 @@ export const zoomedUid = (state: GridState): number | null =>
 // Attention-first rank for the "auto" order: blocked (needs input now) first, then
 // done (finished, review it), then idle, then working, with empty launch cells last.
 // Lower sorts earlier.
-const RANK: Record<CellStatus, number> = { blocked: 0, done: 1, idle: 2, working: 3 };
+const RANK: Record<AttentionStatus, number> = { blocked: 0, done: 1, idle: 2, working: 3 };
 const LAUNCH_RANK = 4;
-const cellRank = (c: Cell, statusByUid: Record<number, CellStatus>): number => (isLaunchCell(c) ? LAUNCH_RANK : RANK[statusByUid[c.uid] ?? "idle"]);
+const cellRank = (c: Cell, statusByUid: Record<number, AttentionStatus>): number => (isLaunchCell(c) ? LAUNCH_RANK : RANK[statusByUid[c.uid] ?? "idle"]);
 
 const cellPriority = (c: Cell, priorityByCwd: Record<string, number>): number => dirPriority(c.cwd, priorityByCwd);
 
@@ -395,7 +386,7 @@ const cellPriority = (c: Cell, priorityByCwd: Record<string, number>): number =>
 // in "priority" every unset directory already keys to Infinity, so a key alone could not put
 // a launch cell after them. ("auto" reaches the same place via LAUNCH_RANK — this level is
 // what makes the two modes agree instead of coinciding.)
-export function orderCells(cells: Cell[], statusByUid: Record<number, CellStatus>, mode: SortMode, priorityByCwd: Record<string, number> = {}): Cell[] {
+export function orderCells(cells: Cell[], statusByUid: Record<number, AttentionStatus>, mode: SortMode, priorityByCwd: Record<string, number> = {}): Cell[] {
   if (mode === "manual") return cells;
   const key = mode === "priority" ? (c: Cell) => cellPriority(c, priorityByCwd) : (c: Cell) => cellRank(c, statusByUid);
   const launchesLast = (c: Cell) => (isLaunchCell(c) ? 1 : 0);
@@ -420,16 +411,16 @@ export const visibleCells = (state: GridState): Cell[] => (zoomedUid(state) !== 
 // rather than an omission for a reason: defaulted to {} every directory reads as unset, so a
 // caller that forgot it would order priority mode differently from the grid — the exact drift
 // #720 exists to prevent.
-export const visibleOrdered = (state: GridState, statusByUid: Record<number, CellStatus>, priorityByCwd: Record<string, number> = {}): Cell[] => {
+export const visibleOrdered = (state: GridState, statusByUid: Record<number, AttentionStatus>, priorityByCwd: Record<string, number> = {}): Cell[] => {
   const ordered = orderCells(state.cells, statusByUid, state.sortMode, priorityByCwd);
   return zoomedUid(state) !== null ? ordered : pageSlice(ordered, state.page);
 };
 
-export type StatusCounts = Record<CellStatus, number>;
+export type StatusCounts = Record<AttentionStatus, number>;
 
 // Tally occupied cells (a running session or command) by status — empty launchers are
 // skipped. Powers the toolbar's at-a-glance "N need you" summary across ALL pages.
-export function countByStatus(cells: Cell[], statusByUid: Record<number, CellStatus>): StatusCounts {
+export function countByStatus(cells: Cell[], statusByUid: Record<number, AttentionStatus>): StatusCounts {
   const counts: StatusCounts = { blocked: 0, done: 0, working: 0, idle: 0 };
   for (const c of cells) {
     if (isLaunchCell(c)) continue;
@@ -531,10 +522,10 @@ export function initialState(curRaw: string | null, legacyRaw: string | null): {
 // mode, and the toolbar's "needs you" tally goes with it.
 export function resolveCellStatus(
   cells: readonly { uid: number; session: string | null }[],
-  bySession: ReadonlyMap<string, CellStatus>,
-  byUid: Readonly<Record<number, CellStatus>>,
-): Record<number, CellStatus> {
-  const out: Record<number, CellStatus> = {};
+  bySession: ReadonlyMap<string, AttentionStatus>,
+  byUid: Readonly<Record<number, AttentionStatus>>,
+): Record<number, AttentionStatus> {
+  const out: Record<number, AttentionStatus> = {};
   for (const cell of cells) {
     const fromSession = cell.session ? bySession.get(cell.session) : undefined;
     out[cell.uid] = fromSession ?? byUid[cell.uid] ?? "idle";

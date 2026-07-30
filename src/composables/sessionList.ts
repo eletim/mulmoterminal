@@ -1,12 +1,43 @@
 import { computed } from "vue";
 import { isBackground, isUnread, matchesFilter, type Session, type Filter } from "./useSessions";
 import type { TerminalAgent } from "../../common/sessionAgent";
+import { activityStatus, type AttentionStatus } from "../components/attentionStatus";
 
 // The "Claude is working" ring both layouts show, as utilities rather than a `.spinner` rule in
 // each component's <style> — which is how the two ended up defining the same class name with
 // different values. `animate-spin` is Tailwind's own (1s, was a hand-rolled 0.9s keyframes here);
 // the layouts add their own margin/alignment, which is all they ever differed by.
 export const SESSION_SPINNER = "size-2.5 rounded-full border-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] border-t-[var(--accent)] animate-spin";
+
+// The dot that says WHICH kind of attention a row wants (#1139).
+//
+// Both layouts marked "needs you" with weight alone — bold text here, one red dot in the tab bar —
+// for BOTH states the server's `waiting` flag covers. A row stopped on a permission prompt (nothing
+// happens until you answer) looked exactly like one that had merely finished a turn (read it
+// whenever). The grid and the cockpit roster already split those; this is the same split, in the one
+// channel these narrow rows have to spare.
+//
+// Hues match the roster (rosterAlertClasses.ts) so a session means the same thing in every panel.
+// Deliberately NOT animated: unlike the roster, which is on screen only while a cell is enlarged,
+// these two are always there — a permanent pulse is the annoyance the roster's setting exists to
+// switch off. Bold still marks both states, so the dot refines rather than carries the signal.
+const SESSION_DOT_BASE = "size-[7px] shrink-0 rounded-full";
+const SESSION_DOT: Partial<Record<AttentionStatus, { hue: string; label: string }>> = {
+  blocked: { hue: "bg-[#f59e0b]", label: "Waiting for you" },
+  done: { hue: "bg-[#22c55e]", label: "Finished — unread" },
+};
+
+/** The dot's classes and its accessible name, or null for a status that shows none: `working` has
+ *  the spinner in that slot (the two cannot co-occur) and `idle` has nothing to say. The label is
+ *  not optional — colour is the entire message for a sighted user, so without it the split would be
+ *  invisible to anyone who cannot see it. */
+export function sessionDot(status: AttentionStatus): { cls: string; label: string } | null {
+  const dot = SESSION_DOT[status];
+  return dot ? { cls: `${SESSION_DOT_BASE} ${dot.hue}`, label: dot.label } : null;
+}
+
+/** A row's status, from the same rule the grid and the roster read. */
+export const sessionAttention = (s: Session): AttentionStatus => activityStatus(!!s.working, !!s.waiting, s.event);
 
 // The event contract App.vue wires to both session-list layouts (the vertical
 // Sidebar and the horizontal SessionTabBar); v-model:filter drives update:filter.
