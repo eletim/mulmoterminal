@@ -141,10 +141,16 @@ MCP 登録・worktree がないので、選んでいる間はその 3 つの欄�
 
 Mac のラップトップキーボードには独立した Page Up / Page Down がないため、**`Fn`+`↑`** / **`Fn`+`↓`** を使ってください。
 
-## Claude と Codex を混在 {#claude-and-codex}
+## Claude・Codex・Antigravity を混在 {#claude-and-codex}
 
-同じグリッドで、セルごとに **Claude** でも **Codex** でも起動できます。どちらも同じ端末体験・永続化・GUI パネル・
-可視化の仕組みを共有。得意分野で使い分けたり、同じタスクを両者に投げて見比べたりできます。
+同じグリッドで、セルごとに **Claude**・**Codex**・**Antigravity**（`agy`）を起動できます。端末だけ欲しいときは
+**Shell** も選べます。エージェントはどれも同じ端末体験・永続化・GUI パネル・可視化の仕組みを共有。得意分野で
+使い分けたり、同じタスクを複数に投げて見比べたりできます。
+
+Antigravity は `agy` が `PATH` に載っている必要があります。バイナリ・モデル・会話の置き場所は
+`ANTIGRAVITY_BIN` / `ANTIGRAVITY_MODEL` / `ANTIGRAVITY_HOME` で変えられます。1 点だけ仕組みが違い、GUI パネルの
+登録は**ディレクトリ単位**（`.agents/mcp_config.json`。`git status` には出しません）でセッション単位ではありま
+せん。`agy` がプロジェクト単位で読むファイルがこれ 1 つだけだからです。
 
 ---
 

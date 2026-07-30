@@ -143,10 +143,16 @@ originally zoomed in from.
 
 On a Mac laptop keyboard there are no dedicated Page Up / Page Down keys; use **`Fn`+`↑`** and **`Fn`+`↓`**.
 
-## Mixing Claude and Codex {#claude-and-codex}
+## Mixing Claude, Codex and Antigravity {#claude-and-codex}
 
-In the same grid, you can launch **Claude** or **Codex** per cell. Both share the same terminal experience,
-persistence, GUI panel, and visibility machinery. Use each for its strengths, or throw the same task at both and compare.
+In the same grid, you can launch **Claude**, **Codex** or **Antigravity** (`agy`) per cell — or **Shell**, when
+you only want a terminal. The agents share the same terminal experience, persistence, GUI panel, and visibility
+machinery. Use each for its strengths, or throw the same task at several and compare.
+
+Antigravity needs `agy` on your `PATH`. `ANTIGRAVITY_BIN` / `ANTIGRAVITY_MODEL` / `ANTIGRAVITY_HOME` override the
+binary, the model, and where it keeps conversations. One difference worth knowing: its GUI-panel registration is
+written **per directory** (`.agents/mcp_config.json`, kept out of your `git status`), not per session, because
+that is the only project-scoped file `agy` reads.
 
 ---
 
