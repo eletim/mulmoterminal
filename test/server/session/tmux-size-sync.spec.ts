@@ -206,6 +206,19 @@ describe("createTmuxSizeSync", () => {
       expect(events).toEqual([]); // the abandoned check acted on nothing
     });
 
+    it("does not report `still-wrong` for a size superseded during the verification", async () => {
+      // Two awaits separate the ownership check from the report. `still-wrong` means "the repair
+      // itself failed" — a false one sends the next investigator after a mechanism that isn't
+      // there, which is the opposite of what the logging is for.
+      const { sync, events } = setup([{ cols: 80, rows: 24 }]);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS); // shrink
+      await vi.advanceTimersByTimeAsync(NUDGE_MS); // restore, then start verifying
+      sync.requestCheck(SESSION, { cols: 137, rows: 41 }); // lands mid-verification
+      await vi.advanceTimersByTimeAsync(NUDGE_MS); // the stale probe answers 80x24
+      expect(events.map((e) => e.kind)).toEqual(["repairing"]);
+    });
+
     it("cannot be revived by a session id that comes back after being forgotten", async () => {
       // `--resume` brings an id back after a reap, so `forget` must not reopen the door either.
       const { sync, events } = setup([{ cols: 80, rows: 24 }], PROBE_MS);

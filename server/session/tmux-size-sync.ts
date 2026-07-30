@@ -75,17 +75,25 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
   };
   const holdsNewest = (id: string, ticket: number): boolean => holder.get(id) === ticket;
 
+  // The invariant: every step that follows an `await` either re-checks the ticket or is correct
+  // for any ticket. There is exactly one of the latter, marked below — anything else added here
+  // needs a guard.
   async function nudge(id: string, target: TerminalSize, seen: TerminalSize, ticket: number): Promise<void> {
     deps.onEvent({ kind: "repairing", id, wanted: target, seen });
     deps.resizePty(id, nudgedSize(target));
     await wait(nudgeMs);
-    // The pty must never be left behind the client, so the restore uses the newest size rather
-    // than the one captured above: a resize frame that landed mid-nudge has already set the real
-    // size, and putting the captured one back would undo it.
+    // Deliberately UNGUARDED, and correct for any ticket: the pty must never be left a row short
+    // of the browser, and the size it lands on is read fresh rather than captured — a resize frame
+    // that arrived mid-nudge has already set the real one, and restoring the captured size would
+    // undo it.
     deps.resizePty(id, wanted.get(id) ?? target);
-    if (!holdsNewest(id, ticket)) return; // a newer check owns the verification now
+    if (!holdsNewest(id, ticket)) return; // superseded: skip the probe a newer check will make anyway
     await wait(nudgeMs);
     const after = await deps.windowSizeOf(id);
+    // Guarded AGAIN, because two awaits separate this from the check above. `still-wrong` is the
+    // signal that the repair itself failed — a false one sends the next investigator after a
+    // mechanism that isn't there, so it must never name a size the client has already left.
+    if (!holdsNewest(id, ticket)) return;
     if (after && !sizesAgree(after, target)) deps.onEvent({ kind: "still-wrong", id, wanted: target, seen: after });
   }
 

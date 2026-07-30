@@ -101,6 +101,19 @@ detached session can reattach; teardown is the one place that frees it.
 
 `trackedSessionCount()` exists so this is testable rather than asserted in a comment.
 
+### One guard is not enough (Codex, #1116 review, third pass)
+
+Two more awaits separate the ownership check in `nudge` from the `still-wrong` report, so a resize
+landing in that gap produced a warning naming a size the client had already left. Nothing is
+mutated on that path — but `still-wrong` is the signal that *the repair itself failed*, and a false
+one sends the next investigator after a mechanism that isn't there, which is the opposite of what
+the logging is for.
+
+The invariant is now written down in the code: **every step after an `await` either re-checks the
+ticket or is correct for any ticket.** There is exactly one of the latter (the restore, which reads
+the newest size rather than the captured one) and it is marked as such, so a future reader doesn't
+"fix" it by adding a guard that would leave the pty a row short.
+
 ## Why this is also the detector
 
 The repair logs (`console.warn`) with the two sizes. #957 has been stuck because the bug is
