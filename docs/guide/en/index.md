@@ -8,7 +8,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
-> **[What's new in 2.7.0](v2.7.0.html)** — write your own one-line note on any session, drag the dividers in a zoomed cell, and drop a file from anywhere; one optional setting (as of 2026-07-29)
+> **[What's new in 2.8.0](v2.8.0.html)** — Antigravity as a third agent, a plain shell in an empty cell, paste a screenshot to get its path, and a terminal that no longer stays blank down its right side (as of 2026-07-30)
 >
 > **Update announcements** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci).
 >

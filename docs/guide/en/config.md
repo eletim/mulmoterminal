@@ -63,7 +63,7 @@ Settings live in three places: the **settings modal (Settings)**, the **global c
 
 ---
 
-## Settings modal (Settings) — what you can change where
+## Settings modal (Settings) — what you can change where {#settings-modal}
 
 Open it from **Settings** (the gear) in the toolbar.
 

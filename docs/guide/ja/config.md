@@ -63,7 +63,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 
 ---
 
-## 設定モーダル（Settings）— どこで何を変えられるか
+## 設定モーダル（Settings）— どこで何を変えられるか {#settings-modal}
 
 ツールバーの **Settings**（歯車）から開きます。
 
