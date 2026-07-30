@@ -76,6 +76,7 @@ grid のセル自体は `blocked` に amber を 3 チャンネル使っている
 | 設定 off | `animation-name: none`、リングは `rgba(245,158,11,0.6) 0 0 0 2px` のまま、2 回のサンプルが同一 | **色は残り、動きだけ止まる** |
 | `prefers-reduced-motion: reduce` | 設定は on のまま `animation-name: none`、リングは残る | **OS の設定が勝つ** |
 | 拡大中の行が `blocked` | 左端は青 (`rgb(74,158,255)`)、点滅なし | **見ている行は騒がない** |
+| Settings のチェックを外す（**リロードなし**） | `animation-name` が `roster-alert` → `none`、リングは `0.6 / 2px` で残る。戻すと再開 | **その場で効く** |
 
 ## やらないこと
 

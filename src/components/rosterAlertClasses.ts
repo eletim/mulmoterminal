@@ -20,15 +20,16 @@ import type { CellStatus } from "./gridTabs";
 // utilities wins is decided by Tailwind's output order rather than by the order they are written
 // (the same rule the cell dot and the launcher chip are built around).
 const ROW_BLINK = "animate-roster-alert motion-reduce:animate-none";
-// The still form of the same amber. `prefers-reduced-motion` stops the keyframes, so without a
-// static value underneath, a reduced-motion row would keep whatever the first frame painted.
+// The amber the blink is layered ON TOP of, not an alternative to it: `prefers-reduced-motion` and
+// the setting both stop the keyframes, and without a static value underneath, such a row would keep
+// whatever the animation's first frame happened to paint.
 //
 // The RING is the load-bearing part, and it was added after looking at the real screen: the row's
 // top bar is painted with the directory's colour and covers its upper half, so a wash alone
 // appeared only in the strip below the bar — and on an amber-tinted directory the bar itself read
 // as the alert. The ring sits outside the row's box, where no directory colour can reach it. Same
 // idiom the grid cell already uses for these two states (TerminalCell's CELL_STATUS).
-const ROW_BLOCKED_STILL =
+const ROW_BLOCKED =
   "border-border border-l-[#f59e0b] bg-[color-mix(in_srgb,#f59e0b_14%,var(--bg-panel))] shadow-[0_0_0_2px_color-mix(in_srgb,#f59e0b_60%,transparent)]";
 const ROW_DONE =
   "border-border border-l-[#22c55e] bg-[color-mix(in_srgb,#22c55e_8%,var(--bg-panel))] shadow-[0_0_0_1px_color-mix(in_srgb,#22c55e_45%,transparent)]";
@@ -48,7 +49,7 @@ interface RosterAlertContext {
 
 export function rosterAlertClass(status: CellStatus, { expanded, blink }: RosterAlertContext): string {
   if (expanded) return ROW_EXPANDED;
-  if (status === "blocked") return blink ? `${ROW_BLOCKED_STILL} ${ROW_BLINK}` : ROW_BLOCKED_STILL;
+  if (status === "blocked") return blink ? `${ROW_BLOCKED} ${ROW_BLINK}` : ROW_BLOCKED;
   if (status === "done") return ROW_DONE;
   return ROW_PLAIN;
 }
