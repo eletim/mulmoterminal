@@ -67,14 +67,17 @@ Settings live in three places: the **settings modal (Settings)**, the **global c
 
 Open it from **Settings** (the gear) in the toolbar.
 
-![The Settings modal — Theme, Terminal font size, Directory appearance, Directory settings (acme-web expanded), Notification sounds](../images/config-settings-modal.png)
+![The Settings modal — Theme with its Create a theme… button, Terminal font size, Terminal scroll speed, Waiting rows with the blink checkbox, Directory appearance, and Directory settings with acme-web expanded](../images/config-settings-modal.png)
 
-Fifteen sections, in this order.
+Up to seventeen sections, in this order — **Voice input** is there only on a machine that can transcribe, so most
+setups see sixteen.
 
 | Item | Description |
 |---|---|
 | **Theme** | Midnight / Nord / Daylight / Solarized Light, plus [any you defined yourself](#custom-themes). Picks from what exists; "Create a theme…" starts the `mulmoterminal-theme` skill to write a new one |
 | **Terminal font size** | The xterm font size in px (8–32). Applies to every terminal **in this browser** — a phone and a desktop each keep their own. A directory can override it with `fontSize` ([below](#per-dir)) |
+| **Terminal scroll speed** | How far one wheel notch or trackpad swipe moves the terminal (1× is xterm's own). Per browser, like the font size, because it is a property of the pointing device |
+| **Waiting rows** | In the roster beside an enlarged cell, a row whose agent is **waiting on you** carries an amber ring and blinks; one that has merely **finished** is green and still. The checkbox turns off the movement, not the colour — and no row blinks when your system asks for reduced motion |
 | **Directory appearance** | "Configure appearance…" — set a directory's name badge, colors, terminal palette, and grid position interactively, through the `mulmoterminal-dirs` skill |
 | **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only — "Explain my settings…" starts the `mulmoterminal-config` skill to say why and fix it (→ [When a setting isn't working](#dir-settings-preview)) |
 | **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button. "Configure notifications…" starts the `mulmoterminal-notify` skill for a per-project sound and which moments push (→ [Notification sounds](#sounds)) |

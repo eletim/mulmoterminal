@@ -4,6 +4,7 @@ import { MODAL_FOCUSABLE, trapTabKey } from "../utils/focusTrap";
 import { useTheme } from "../composables/useTheme";
 import { useTerminalFontSize } from "../composables/useTerminalFontSize";
 import { useTerminalScrollSpeed } from "../composables/useTerminalScrollSpeed";
+import { useRosterAlert } from "../composables/useRosterAlert";
 import { previewNotify } from "../composables/useAttentionSound";
 import { useCost } from "../composables/useCost";
 import { activeKeymap } from "../composables/activeKeymap";
@@ -47,7 +48,7 @@ const props = defineProps<{
   dirPaths?: string[];
 }>();
 // Every section of this modal is headed the same way. One constant rather than the same six
-// utilities on 16 elements, so the headings cannot drift apart one edit at a time (CLAUDE.md:
+// utilities on every section, so the headings cannot drift apart one edit at a time (CLAUDE.md:
 // repeated utility runs become a shared component or a class string constant — never a CSS class,
 // which a fragment-root template would silently fail to receive, #787).
 const SECTION_HEADING = "mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted";
@@ -297,6 +298,13 @@ const { fontSize, nudgeFontSize, min: fontSizeMin, max: fontSizeMax, step: fontS
 // property of the pointing device, and a trackpad and a wheel mouse want different answers.
 const { scrollSpeed, nudgeScrollSpeed, min: scrollSpeedMin, max: scrollSpeedMax, step: scrollSpeedStep } = useTerminalScrollSpeed();
 
+// Whether a roster row waiting on the user blinks (#1131) — per browser for the same reason: it is
+// the person watching the screen who finds movement useful or distracting, not the host.
+const { blink: rosterBlink, setBlink: setRosterBlink } = useRosterAlert();
+function onRosterBlinkToggle(e: Event) {
+  if (e.target instanceof HTMLInputElement) setRosterBlink(e.target.checked);
+}
+
 // Google account link. The modal is v-if'd, so a fresh load on mount also picks up
 // out-of-band changes (`mulmoterminal google login`, a deleted token file).
 const {
@@ -508,6 +516,17 @@ onUnmounted(() => {
         How far one wheel notch or trackpad swipe moves the terminal — 1× is the default. Lower it if a two-finger scroll on a Mac trackpad flies past what you
         were reading. Per browser, and it covers both a shell's scrollback and a full-screen app like Claude Code.
       </p>
+
+      <h3 :class="SECTION_HEADING">Waiting rows</h3>
+      <p class="mb-2 mt-1.5 text-[12px] text-dim">
+        In the list beside an enlarged cell, a row whose agent is <strong>waiting on you</strong> — a permission prompt, a question — carries an amber ring and
+        blinks. A row that has simply <strong>finished</strong> is green and holds still. Turning this off keeps both colours and stops the movement; rows never
+        blink when your system asks for reduced motion.
+      </p>
+      <label class="mb-3 flex cursor-pointer items-center gap-2">
+        <input type="checkbox" class="cursor-pointer" :checked="rosterBlink" aria-label="Blink a row that is waiting on me" @change="onRosterBlinkToggle" />
+        <span class="text-[13px]">Blink a row that is waiting on me</span>
+      </label>
 
       <h3 :class="SECTION_HEADING">Directory appearance</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">

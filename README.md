@@ -74,7 +74,9 @@ npx mulmoterminal@latest        # starts on http://localhost:34567 and opens you
 
 *Zoomed in, the **cockpit roster** replaces thumbnails with information: every session as a
 text row — directory, AI summary, your last prompt, the agent's latest reply, a status word,
-and the branch's **PR phase** badge. Click a row to swap the enlarged terminal.*
+and the branch's **PR phase** badge. A row whose agent is **waiting on you** rings amber and
+blinks; one that has merely **finished** rings green and stays still (Settings → Waiting rows
+turns the movement off). Click a row to swap the enlarged terminal.*
 
 ### What it is, under the hood
 
