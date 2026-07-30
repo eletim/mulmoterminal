@@ -23,7 +23,7 @@ let audioCtx: AudioContext | null = null;
 // second view ever listens too.
 const resumeListeners = new Set<() => void>();
 
-export function onAudioResumed(listener: () => void): () => void {
+function onAudioResumed(listener: () => void): () => void {
   resumeListeners.add(listener);
   return () => resumeListeners.delete(listener);
 }
@@ -50,7 +50,7 @@ function getCtx(): AudioContext | null {
 
 /** Create the context up front, so its state is known before the first notification rather than
  *  because of it — the toolbar cannot warn about a block it has not been told about yet. */
-export function primeAudio(): void {
+function primeAudio(): void {
   getCtx();
 }
 
