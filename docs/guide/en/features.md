@@ -91,6 +91,7 @@ so a very large unsaved buffer may not get out.
 | Feature | Description |
 |---|---|
 | File attach | **Drag & drop** a file onto the terminal, or use **Insert a file path** to pick one in the OS dialog — the **absolute path is inserted** |
+| Screenshot paste | **Paste an image** straight into the terminal: it is saved where a dropped file goes and its **absolute path is inserted**. Saves the trip through a file — a screenshot never has to be written somewhere and picked back up. PNG / JPEG / GIF / WebP; pasting text is unchanged |
 | Script execution | Run a command from that directory's `script.json`. From a running session's **Run** menu it launches in **a spare cell next door**, so the conversation isn't interrupted (an empty cell's launcher runs it in place) |
 | Skill menu (**Run a skill in the current session**) | Lists the skills available in that directory (`.claude/skills`); picking one runs its `/<slug>` **in the current session**. Working-dir skills show first; narrow the list with `skills` in `.mulmoterminal.json` |
 | Git actions | One click from a worktree cell: **commit (ask Claude) / push / Open PR** |
