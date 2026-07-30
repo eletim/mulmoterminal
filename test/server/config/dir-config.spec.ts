@@ -12,7 +12,7 @@ import {
   MISSING_DIR_CONFIG_DETAIL,
 } from "../../../server/config/dir-config";
 import { DIR_CONFIG_KEYS } from "../../../common/dirConfigSource";
-import { resolveWorkspace } from "../../../server/config/workspace";
+import { existingWorkspace } from "../../../server/config/workspace";
 
 const tmp = () => makeTempDir("mt-dircfg-");
 const EMPTY = {
@@ -289,7 +289,7 @@ describe("dirConfigWriteTarget", () => {
     const dir = tmp();
     const launchedAs = dir + path.sep;
     const announced = dirConfigWriteTarget("Write", { file_path: path.join(dir, ".mulmoterminal.json") }, launchedAs);
-    expect(announced).toBe(resolveWorkspace(launchedAs));
+    expect(announced).toBe(existingWorkspace(launchedAs));
     expect(announced).toBe(dir);
   });
 

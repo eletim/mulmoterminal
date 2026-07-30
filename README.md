@@ -1140,13 +1140,32 @@ newest first, including freshly-created sessions that aren't yet written to disk
 - `500 { "error": string }` on an unexpected filesystem error. A missing project
   directory is **not** an error — it yields an empty `sessions` array.
 
+### Directories that cannot be used
+
+Every `?cwd=` — on the terminal sockets and on the read routes alike — names the directory
+the request is about. When one is named and cannot be used, the server says so instead of
+quietly answering about the **default workspace** (#1151):
+
+| Where | What happens |
+| --- | --- |
+| `/ws`, `/ws/codex`, `/ws/antigravity`, `/ws/launch`, `/ws/run` | The socket is closed with `{ type: "error", message }`, which the terminal shows as a red banner and does not retry. |
+| A session that is still running (`?session=` names a live PTY or a surviving tmux session) | **Attaches anyway**, with a warning in the server log. Moving or renaming a directory must not shut you out of an agent that is still working in it — and the cwd reported back comes from the running PTY, not from the request. |
+| `GET /api/scripts`, `/api/skills`, `/api/dir-config`, `/api/dir-sound`, `/api/git-status`, `/api/pr-phase`, `/api/header`, `/api/sessions`, `/api/codex/sessions`, `/api/session/:id`, `/api/transcript/*`, `/api/cost` | `404 { error, cwd }` — a directory that is not there. |
+| A `?cwd=` that cannot name a directory at all (relative, or repeated as `?cwd=a&cwd=b`) | `400 { error, cwd }`. |
+
+A request that names **no** directory is unaffected: `CLAUDE_CWD` is then the answer it
+asked for. The wording of the refusal is the one a refused spawn already uses, so the same
+condition reads the same whether it is caught here or by `ptySpawn` itself.
+
 ### HTTP: `GET /api/scripts`
 
 The runnable entries from `<cwd>/script.json` for a cell's chosen directory
-(`?cwd=<dir>`, falling back to `CLAUDE_CWD`); see
-[Scripts (Run menu)](#scripts-run-menu). The resolved `cwd` is echoed back (the
-server may fall back from a bad path), and each entry carries its `index` (the
-position the client sends back to `/ws/run`).
+(`?cwd=<dir>`, or `CLAUDE_CWD` when none is named); see
+[Scripts (Run menu)](#scripts-run-menu). The resolved `cwd` is echoed back, and each
+entry carries its `index` (the position the client sends back to `/ws/run`). A `?cwd=`
+that names a directory the server cannot enter is answered `404 { error, cwd }` rather
+than with the default workspace's scripts — see
+[Directories that cannot be used](#directories-that-cannot-be-used).
 
 ```jsonc
 // GET /api/scripts?cwd=/Users/me/proj
@@ -1164,8 +1183,8 @@ A missing or invalid `script.json` is **not** an error — it yields an empty
 
 ### HTTP: `GET /api/skills`
 
-The Claude skills discoverable for a terminal's chosen directory (`?cwd=<dir>`,
-falling back to `CLAUDE_CWD`) — project scope (`<cwd>/.claude/skills`) plus user scope
+The Claude skills discoverable for a terminal's chosen directory (`?cwd=<dir>`, or
+`CLAUDE_CWD` when none is named) — project scope (`<cwd>/.claude/skills`) plus user scope
 (`~/.claude/skills`), deduped by slug (project shadows user), **working-dir skills
 first**; see [Skills (Skill menu)](#skills-skill-menu). A `skills` allowlist in that
 directory's `.mulmoterminal.json` narrows and reorders the result; absent → all. The
