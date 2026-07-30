@@ -80,8 +80,12 @@ server   ── node-pty  ── tmux (persistence)  ── agent (claude / code
 
 Whether Enter submits or inserts a newline is decided by Claude Code from the received **bytes**,
 and that mapping is environment-dependent. `terminalSubmit` (`"cr"` default / `"esc-cr"`) picks
-which byte submits; it drives the browser key handler **and** the phone remote-view submit, scoped
+which byte submits; it drives the browser key handler, the phone remote-view submit **and** the
+spawn-time `initialPrompt` injection (`session/draft-injection.ts`, #1148 — it had a hardcoded CR,
+so a seeded prompt was typed and never sent on an `esc-cr` host), scoped
 to Claude sessions only (shell/codex keep plain CR). See the [config guide](guide/en/config.html#terminal-submit).
+Anything auto-submitted also ends its line with a space (`submittableLine`, #1142), or an open
+`/command` / `@path` completion menu eats the submit — on **either** mapping.
 The `esc-cr` bare-Enter interception is guarded on `isComposing` so IME confirm isn't eaten.
 
 ### Links — three independent mechanisms
