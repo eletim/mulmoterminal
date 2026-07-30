@@ -55,41 +55,66 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
   const settleMs = deps.settleMs ?? DEFAULT_SETTLE_MS;
   const nudgeMs = deps.nudgeMs ?? DEFAULT_NUDGE_MS;
   const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  // A check is several awaits long, so clearing a timer cannot reach one that has already started.
+  // Each request takes a ticket, and every step past an await asks whether it still holds the
+  // newest — otherwise a nudge would put the pty back to a size the client abandoned mid-flight,
+  // which is the very disagreement this file exists to close.
+  const generation = new Map<string, number>();
+  // The newest size the client asked for, so an in-flight nudge lands on THAT rather than on the
+  // size it captured when it started.
+  const wanted = new Map<string, TerminalSize>();
   const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  // Bumped rather than deleted: a cancel followed by a new request would otherwise reissue a
+  // ticket number an in-flight check is still holding.
+  const nextTicket = (id: string): number => {
+    const ticket = (generation.get(id) ?? 0) + 1;
+    generation.set(id, ticket);
+    return ticket;
+  };
+  const holdsNewest = (id: string, ticket: number): boolean => generation.get(id) === ticket;
 
-  async function nudge(id: string, wanted: TerminalSize, seen: TerminalSize): Promise<void> {
-    deps.onEvent({ kind: "repairing", id, wanted, seen });
-    deps.resizePty(id, nudgedSize(wanted));
+  async function nudge(id: string, target: TerminalSize, seen: TerminalSize, ticket: number): Promise<void> {
+    deps.onEvent({ kind: "repairing", id, wanted: target, seen });
+    deps.resizePty(id, nudgedSize(target));
     await wait(nudgeMs);
-    deps.resizePty(id, wanted);
+    // The pty must never be left behind the client, so the restore uses the newest size rather
+    // than the one captured above: a resize frame that landed mid-nudge has already set the real
+    // size, and putting the captured one back would undo it.
+    deps.resizePty(id, wanted.get(id) ?? target);
+    if (!holdsNewest(id, ticket)) return; // a newer check owns the verification now
     await wait(nudgeMs);
     const after = await deps.windowSizeOf(id);
-    if (after && !sizesAgree(after, wanted)) deps.onEvent({ kind: "still-wrong", id, wanted, seen: after });
+    if (after && !sizesAgree(after, target)) deps.onEvent({ kind: "still-wrong", id, wanted: target, seen: after });
   }
 
-  async function check(id: string, wanted: TerminalSize): Promise<void> {
+  async function check(id: string, target: TerminalSize, ticket: number): Promise<void> {
     const seen = await deps.windowSizeOf(id);
-    if (!seen || sizesAgree(seen, wanted)) return;
-    await nudge(id, wanted, seen);
+    if (!holdsNewest(id, ticket)) return;
+    if (!seen || sizesAgree(seen, target)) return;
+    await nudge(id, target, seen, ticket);
   }
 
+  /** Drop a settling check, and abandon one that has already started. */
   function cancel(id: string): void {
     const timer = pending.get(id);
-    if (timer === undefined) return;
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     pending.delete(id);
+    nextTicket(id);
   }
 
   /** Call on every resize frame; only the last of a burst is acted on. */
-  function requestCheck(id: string, wanted: TerminalSize): void {
-    cancel(id);
+  function requestCheck(id: string, target: TerminalSize): void {
+    const timer = pending.get(id);
+    if (timer !== undefined) clearTimeout(timer);
+    wanted.set(id, target);
+    const ticket = nextTicket(id);
     pending.set(
       id,
       setTimeout(() => {
         pending.delete(id);
         // A probe that throws must not take the process down with it — the session is still fine,
         // it just keeps the screen it has until the next resize.
-        check(id, wanted).catch(() => {});
+        check(id, target, ticket).catch(() => {});
       }, settleMs),
     );
   }

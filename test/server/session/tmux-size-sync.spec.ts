@@ -7,8 +7,12 @@ const SESSION = "11111111-2222-3333-4444-555555555555";
 const SETTLE_MS = 250;
 const NUDGE_MS = 50;
 
-// `window` is what tmux will claim, per call, so a test can say "wrong, then right".
-function setup(windows: Array<TerminalSize | null>) {
+// How long a probe takes to answer. Zero by default (resolved promise); a test that needs to
+// supersede a check WHILE it is probing gives it a duration it can advance the clock into.
+const PROBE_MS = 20;
+
+// `windows` is what tmux will claim, per call, so a test can say "wrong, then right".
+function setup(windows: Array<TerminalSize | null>, probeMs = 0) {
   const resizes: TerminalSize[] = [];
   const events: SizeSyncEvent[] = [];
   const asked: string[] = [];
@@ -16,6 +20,7 @@ function setup(windows: Array<TerminalSize | null>) {
   const sync = createTmuxSizeSync({
     windowSizeOf: async (id) => {
       asked.push(id);
+      if (probeMs > 0) await new Promise((resolve) => setTimeout(resolve, probeMs));
       return windows[Math.min(call++, windows.length - 1)] ?? null;
     },
     resizePty: (_id, size) => {
@@ -133,5 +138,72 @@ describe("createTmuxSizeSync", () => {
     sync.requestCheck(other, { cols: 120, rows: 40 });
     await runTimers();
     expect(asked.sort()).toEqual([SESSION, other].sort());
+  });
+
+  // A started check is SEVERAL awaits long, so clearing a timer cannot reach it. Without a ticket
+  // it would resize the pty to a size the client has already moved off — recreating exactly the
+  // disagreement this module exists to close (raised by Codex on #1116).
+  describe("a check that has already started", () => {
+    it("does nothing once a newer resize has superseded it mid-probe", async () => {
+      const { sync, resizes, events } = setup([{ cols: 80, rows: 24 }], PROBE_MS);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS); // the check starts; its probe is in flight
+      sync.requestCheck(SESSION, { cols: 137, rows: 41 });
+      await vi.advanceTimersByTimeAsync(PROBE_MS); // the stale probe answers — too late to act on
+      expect(resizes).toEqual([]);
+      expect(events).toEqual([]);
+    });
+
+    it("lands the restore on the newest size when a resize arrives mid-nudge", async () => {
+      // The client already set the pty to 137x41; restoring the 120x40 this check captured would
+      // put the pty BEHIND the browser, which is the bug in the other direction.
+      const { sync, resizes } = setup([{ cols: 80, rows: 24 }]);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      expect(resizes).toEqual([{ cols: 120, rows: 39 }]); // shrunk, waiting to restore
+      sync.requestCheck(SESSION, { cols: 137, rows: 41 });
+      await vi.advanceTimersByTimeAsync(NUDGE_MS);
+      expect(resizes[1]).toEqual({ cols: 137, rows: 41 });
+    });
+
+    it("hands the verification to the newer check rather than reporting on a stale size", async () => {
+      const { sync, events } = setup([{ cols: 80, rows: 24 }]);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      sync.requestCheck(SESSION, { cols: 137, rows: 41 });
+      // Far enough for the superseded nudge to reach its own verification (restore + recheck, one
+      // NUDGE_MS each), and short of the newer check settling — so a `still-wrong` here could only
+      // come from the stale one, naming a size nobody wants.
+      await vi.advanceTimersByTimeAsync(NUDGE_MS);
+      await vi.advanceTimersByTimeAsync(NUDGE_MS);
+      expect(NUDGE_MS * 2).toBeLessThan(SETTLE_MS);
+      expect(events.map((e) => e.kind)).toEqual(["repairing"]);
+    });
+
+    it("is abandoned by a cancel, but still leaves the pty at the client's size", async () => {
+      // The socket going away is no reason to leave the pty a row short of what the browser has.
+      const { sync, resizes, events } = setup([{ cols: 80, rows: 24 }]);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      sync.cancel(SESSION);
+      await runTimers();
+      expect(resizes).toEqual([
+        { cols: 120, rows: 39 },
+        { cols: 120, rows: 40 },
+      ]);
+      expect(events.map((e) => e.kind)).toEqual(["repairing"]);
+    });
+
+    it("cannot be revived by a ticket number a later request reuses", async () => {
+      // Deleting the ticket on cancel would hand the same number back to the next request, and the
+      // in-flight check would match it. The counter only ever goes up.
+      const { sync, events } = setup([{ cols: 80, rows: 24 }], PROBE_MS);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      sync.cancel(SESSION);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(PROBE_MS);
+      expect(events).toEqual([]); // the abandoned check acted on nothing
+    });
   });
 });

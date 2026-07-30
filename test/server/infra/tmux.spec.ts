@@ -110,6 +110,13 @@ describe("TMUX_CONF_LINES", () => {
     expect(TMUX_CONF_LINES.filter((l) => l.includes("WheelUpPane"))).toHaveLength(2);
   });
 
+  // Not cosmetic any more: the size check compares `window_height` against the client's, and a
+  // status line reserves a row — so with the bar on, every resize would read as a disagreement and
+  // nudge the pty for nothing (#957). Measured: with the bar on, `client=80x24` vs `window=80x23`.
+  it("turns the status line off, which the window/client size comparison depends on", () => {
+    expect(TMUX_CONF_LINES).toContain("set -g status off");
+  });
+
   // #783: tmux strips OSC 8 hyperlinks (Claude's statusline `PR #NNNN`) unless told the outer
   // terminal has the `hyperlinks` feature — same shape as the Ms override above.
   it("forwards OSC 8 hyperlinks to the outer terminal", () => {

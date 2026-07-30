@@ -75,6 +75,22 @@ Detect the disagreement and close it with a size change tmux cannot miss.
 Debounced, so a splitter drag or a window resize costs one probe, not one per frame. A size
 tmux cannot report is never treated as a disagreement — an unreadable answer must not nudge.
 
+### A started check has to be abandonable (Codex, #1116 review)
+
+A check is several awaits long, so `cancel` clearing a timer cannot reach one that is already
+running. Left alone, a nudge that started for 120x40 would call `resizePty(120, 40)` *after* the
+client had moved to 137x41 — putting the pty back behind the browser, which is the same
+disagreement in the other direction.
+
+So every request takes a monotonic ticket, and each step past an await asks whether it still holds
+the newest. Two details that a weaker version would get wrong:
+
+- **The restore targets the NEWEST size, not the captured one.** A superseded nudge still finishes
+  its second resize, because leaving the pty a row short is worse than finishing — and the size it
+  finishes on has to be the one the client actually has.
+- **The ticket is bumped, never deleted.** Deleting on `cancel` would hand the same number back to
+  the next request, and the in-flight check would match it and come back to life.
+
 ## Why this is also the detector
 
 The repair logs (`console.warn`) with the two sizes. #957 has been stuck because the bug is
@@ -92,7 +108,13 @@ and does NOT close the gap says the mechanism is a third one we have not found.
 - several resize frames in a burst → one probe
 - cancelled before it settles → no probe
 - the re-check warns when the window still disagrees after the nudge
+- a check superseded mid-probe touches nothing
+- a resize arriving mid-nudge → the restore lands on the NEW size
+- a superseded nudge leaves the verification to the newer check
+- `cancel` mid-nudge → abandoned, but the pty still ends at the client's size
+- a cancel followed by a new request cannot revive the abandoned check
 - `parseTmuxWindowSize`: `"120x40"`, junk, empty
+- `TMUX_CONF_LINES` turns the status line off — the comparison's precondition
 
 ## Not done
 
