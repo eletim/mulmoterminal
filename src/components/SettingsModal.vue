@@ -46,6 +46,12 @@ const props = defineProps<{
   // session's own directory when it isn't one of them yet.
   dirPaths?: string[];
 }>();
+// Every section of this modal is headed the same way. One constant rather than the same six
+// utilities on 16 elements, so the headings cannot drift apart one edit at a time (CLAUDE.md:
+// repeated utility runs become a shared component or a class string constant — never a CSS class,
+// which a fragment-root template would silently fail to receive, #787).
+const SECTION_HEADING = "mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted";
+
 const emit = defineEmits<{
   (e: "update-sound", file: string | null): void;
   (e: "update-sound-kinds", kinds: NotifyKind[]): void;
@@ -416,7 +422,7 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Theme</h3>
+      <h3 :class="SECTION_HEADING">Theme</h3>
       <p v-if="missingThemeId" class="mb-2 mt-1.5 text-[12px] text-[var(--warn-text,#e0a030)]" data-testid="theme-missing">
         The selected theme <code>{{ missingThemeId }}</code> is not defined. Add it to <code>themes</code> in <code>~/.mulmoterminal/config.json</code>, or pick
         one below. Your choice is kept until then.
@@ -450,7 +456,7 @@ onUnmounted(() => {
         <SkillLaunchButton skill="mulmoterminal-theme" icon="format_paint" label="Create a theme…" @launch="emit('launch-skill', $event)" />
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Terminal font size</h3>
+      <h3 :class="SECTION_HEADING">Terminal font size</h3>
       <div class="flex items-center gap-2">
         <button
           type="button"
@@ -476,7 +482,7 @@ onUnmounted(() => {
         Applies to every terminal on this browser. A directory can pin its own with <code>fontSize</code> in its <code>.mulmoterminal.json</code>.
       </p>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Terminal scroll speed</h3>
+      <h3 :class="SECTION_HEADING">Terminal scroll speed</h3>
       <div class="flex items-center gap-2">
         <button
           type="button"
@@ -503,14 +509,14 @@ onUnmounted(() => {
         were reading. Per browser, and it covers both a shell's scrollback and a full-screen app like Claude Code.
       </p>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory appearance</h3>
+      <h3 :class="SECTION_HEADING">Directory appearance</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Launch the <code>mulmoterminal-dirs</code> skill to style and order your directories — name badge, colors, terminal palette, grid position. It starts
         from the directories you actually open, reads the settings you already have, and follows the same pattern for the ones that have none.
       </p>
       <SkillLaunchButton skill="mulmoterminal-dirs" icon="palette" label="Configure appearance…" @launch="emit('launch-skill', $event)" />
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Directory settings</h3>
+      <h3 :class="SECTION_HEADING">Directory settings</h3>
       <p class="mb-1 mt-1.5 text-[12px] text-dim">
         What each directory's <code>.mulmoterminal.json</code> is actually doing. Expand one to see the values in force, and any key the app dropped or doesn't
         recognise — a setting that never took effect looks the same as one you never made until you can see this.
@@ -521,7 +527,7 @@ onUnmounted(() => {
       </p>
       <SkillLaunchButton skill="mulmoterminal-config" icon="troubleshoot" label="Explain my settings…" @launch="emit('launch-skill', $event)" />
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Notification sounds</h3>
+      <h3 :class="SECTION_HEADING">Notification sounds</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Which moments beep, and what each one plays. Running many agents at once is what turns notifications into noise — untick the ones you don't need. The
         speaker button in the toolbar silences all of them at once.
@@ -587,7 +593,7 @@ onUnmounted(() => {
       <SkillLaunchButton skill="mulmoterminal-notify" icon="notifications_active" label="Configure notifications…" @launch="emit('launch-skill', $event)" />
 
       <template v-if="voiceCapable">
-        <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Voice input</h3>
+        <h3 :class="SECTION_HEADING">Voice input</h3>
         <p class="mb-3 mt-1.5 text-[12px] text-dim">
           The language you dictate in. Speaking a language the mic is not expecting comes back <strong>translated</strong> into the expected one — so pick the
           one you actually speak rather than leaving it on your browser's.
@@ -601,7 +607,7 @@ onUnmounted(() => {
         </select>
       </template>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Web Push notifications</h3>
+      <h3 :class="SECTION_HEADING">Web Push notifications</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Send a push to your registered devices when a background task finishes. Requires the <strong>RemoteHost</strong> connection — its sign-in provides the
         notification auth, so pushes only send while it's connected.
@@ -627,7 +633,7 @@ onUnmounted(() => {
         </label>
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Google account</h3>
+      <h3 :class="SECTION_HEADING">Google account</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Link a Google account so the <code>google</code> tool and your phone can read and create <strong>Calendar</strong> events. Sign-in opens in a new tab
         and finishes on <strong>this machine</strong>, so use a browser here — over a remote connection, run
@@ -647,7 +653,7 @@ onUnmounted(() => {
       </div>
       <p v-if="googleError" data-testid="google-warn" class="mb-3 mt-1.5 text-[12px] text-err-text" role="alert">{{ googleError }}</p>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Pull request repos</h3>
+      <h3 :class="SECTION_HEADING">Pull request repos</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Repos whose open PRs the cross-repo <strong>Pull requests</strong> view lists. Uses your <code>gh</code> login. Format: <code>owner/repo</code>.
       </p>
@@ -677,7 +683,7 @@ onUnmounted(() => {
         <SettingsButton :disabled="!newRepoValid" @click="addRepo">Add</SettingsButton>
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Launch commands</h3>
+      <h3 :class="SECTION_HEADING">Launch commands</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Programs a grid cell can launch besides Claude — a plain shell, <code>codex</code>, any interactive command. They run in the cell's directory as a
         persistent terminal. Example: <code>Shell</code> → <code>$SHELL</code>, <code>Codex</code> → <code>codex</code>.
@@ -717,7 +723,7 @@ onUnmounted(() => {
         <SettingsButton :disabled="!newLauncherValid" @click="addLauncher">Add</SettingsButton>
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Phone quick commands</h3>
+      <h3 :class="SECTION_HEADING">Phone quick commands</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Phrases you send often, offered as chips on the phone's terminal view. Tapping one puts the text in the input box — it isn't sent until you press send.
         The label is the chip's face, so keep it short. Example: <code>PR</code> → <code>PR作って</code>. Leave every kind unchecked to offer a command
@@ -773,7 +779,7 @@ onUnmounted(() => {
         <span class="text-[11px] text-muted">(none ticked = every kind)</span>
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">MCP servers</h3>
+      <h3 :class="SECTION_HEADING">MCP servers</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         HTTP MCP servers the <strong>single-view</strong> Claude session loads (in addition to the built-in GUI tools). <code>id</code> is the server name;
         <code>url</code> is its streamable-HTTP endpoint. In the Docker sandbox, a <code>localhost</code> URL is reached over <code>host.docker.internal</code>
@@ -814,7 +820,7 @@ onUnmounted(() => {
         <SettingsButton :disabled="!newMcpValid" @click="addMcpServer">Add</SettingsButton>
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Cost (estimated)</h3>
+      <h3 :class="SECTION_HEADING">Cost (estimated)</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Estimated spend for this project from <strong>public per-model pricing</strong> (input, output, and cache tokens) — actual billing may differ, and
         flat-plan (Max) usage isn't reflected. Today / Month roll up this project's sessions.
@@ -838,7 +844,7 @@ onUnmounted(() => {
         Some turns used a model with no known price and are excluded from these estimates.
       </p>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Keyboard shortcuts</h3>
+      <h3 :class="SECTION_HEADING">Keyboard shortcuts</h3>
       <p class="mb-3 mt-1.5 text-[12px] text-dim">
         Read-only. Shortcuts are off until you bind them in <code>~/.mulmoterminal/config.json</code> under <code>keymap</code> — every key you bind stops
         reaching the program inside the terminal, so the skill checks a binding against what your agent already uses before writing it. Or see the
@@ -870,7 +876,7 @@ onUnmounted(() => {
         <SkillLaunchButton skill="mulmoterminal-keys" icon="keyboard" label="Set up shortcuts…" @launch="emit('launch-skill', $event)" />
       </div>
 
-      <h3 class="mb-2 mt-3.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted">Help &amp; user guide</h3>
+      <h3 :class="SECTION_HEADING">Help &amp; user guide</h3>
       <GuideLinks />
 
       <div class="mt-4 flex items-center gap-2">
