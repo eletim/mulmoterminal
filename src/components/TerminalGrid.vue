@@ -15,6 +15,8 @@ import type { PrPhase, WorkPhase } from "./rosterPhase";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { shouldFlipZoom } from "./cellChromeRules";
+import { rosterAlertClass } from "./rosterAlertClasses";
+import { useRosterAlert } from "../composables/useRosterAlert";
 import { formatCwd } from "./cwdDisplay";
 import FilesPane, { type FilesPaneState } from "./FilesPane.vue";
 import GuiPanel from "./GuiPanel.vue";
@@ -93,6 +95,10 @@ const emit = defineEmits<{
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
+
+// Whether a roster row that is waiting on the user blinks (#1131). The row's amber stays either
+// way; this is only the motion.
+const { blink: rosterBlink } = useRosterAlert();
 
 // The keyboard-focused cell, so it can lift + zoom slightly in place. `focusin` bubbles from the
 // xterm textarea up to the grid, so one delegated listener suffices. It's sticky: focus moving to
@@ -717,8 +723,8 @@ watch(
         role="button"
         :tabindex="0"
         data-testid="cockpit-row"
-        class="flex shrink-0 cursor-pointer flex-col gap-1 overflow-hidden rounded-lg border border-l-[3px] bg-panel px-2.5 py-2 text-left text-fg hover:brightness-[1.15] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4a9eff]"
-        :class="row.uid === expandedUid ? 'border-[#4a9eff] border-l-[#4a9eff]' : 'border-border border-l-transparent'"
+        class="flex shrink-0 cursor-pointer flex-col gap-1 overflow-hidden rounded-lg border border-l-[3px] px-2.5 py-2 text-left text-fg hover:brightness-[1.15] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4a9eff]"
+        :class="rosterAlertClass(row.status, { expanded: row.uid === expandedUid, blink: rosterBlink })"
         @click="row.uid !== expandedUid && emit('toggle-expand', row.uid)"
         @keydown.enter.self.prevent="row.uid !== expandedUid && emit('toggle-expand', row.uid)"
         @keydown.space.self.prevent="row.uid !== expandedUid && emit('toggle-expand', row.uid)"

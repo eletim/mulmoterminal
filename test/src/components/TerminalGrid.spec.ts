@@ -271,6 +271,27 @@ describe("grid cockpit (list view)", () => {
     for (const row of w.findAll('[data-testid="cockpit-row"]')) expect(row.classes()).toContain("shrink-0");
   });
 
+  // #1131: the row's status used to live only in an 8px dot and a 10px badge, on a bar painted with
+  // the DIRECTORY's colour — so it was invisible at the scale you scan the list at. Asserting on the
+  // row itself, and asserting that the row you are IN stays out of it: that edge already means
+  // "you are here".
+  it("marks a waiting row on the row itself, and leaves the expanded row alone", async () => {
+    const w = mountCockpit([cell(0, "s0"), cell(1, "s1"), cell(2, "s2")], 0, [
+      rosterRow(0, { status: "blocked" }), // expanded AND blocked — the expanded rule wins
+      rosterRow(1, { status: "blocked" }),
+      rosterRow(2, { status: "done" }),
+    ]);
+    await nextTick();
+    const rows = w.findAll('[data-testid="cockpit-row"]');
+    expect(rows[0].classes()).toContain("border-l-[#4a9eff]");
+    expect(rows[0].classes()).not.toContain("animate-roster-alert");
+    expect(rows[1].classes()).toContain("animate-roster-alert");
+    expect(rows[1].classes()).toContain("border-l-[#f59e0b]");
+    // The weak half of the split: finished is coloured, but it does not move.
+    expect(rows[2].classes()).toContain("border-l-[#22c55e]");
+    expect(rows[2].classes()).not.toContain("animate-roster-alert");
+  });
+
   it("emits toggle-expand when a NON-active row is clicked, and not for the active one", async () => {
     const w = mountCockpit([cell(0, "s0"), cell(1, "s1")], 0, [rosterRow(0), rosterRow(1)]);
     await nextTick();
