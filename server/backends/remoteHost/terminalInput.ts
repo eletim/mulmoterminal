@@ -16,7 +16,7 @@
 //      (submittableLine) — an open menu eats the ESC of an ESC+CR submit.
 
 import type { SessionAgent } from "../../../common/sessionAgent.js";
-import { submittableLine } from "../../../common/terminalSubmit.js";
+import { submittableLineForAgent } from "../../../common/terminalSubmit.js";
 
 // Strip ALL control bytes (C0/C1 — ESC, Ctrl-C, CR/LF, and an embedded
 // bracketed-paste terminator). Only printable text survives, whitespace collapsed.
@@ -77,6 +77,10 @@ export interface TerminalInputDeps {
   // (a shell/codex session in the picker stays on plain CR). Read per send so a config edit
   // applies without a restart. Omitted defaults to CR — the historical behaviour.
   submitSequence?: (sessionId: string) => string;
+  // Which agent runs in this session, for the completion-menu guard below — only Claude Code has
+  // the menu, and only there is a trailing space not real input (#1142). Omitted, or an agent the
+  // host cannot name, means no guard: the bytes stay exactly what the sender wrote.
+  sessionAgent?: (sessionId: string) => SessionAgent | undefined;
   // Injected so tests don't wait on real time.
   scheduleSubmit?: (submit: () => void) => void;
 }
@@ -87,12 +91,13 @@ const defaultSchedule = (submit: () => void): void => {
 
 // Paste, then press Enter a beat later, resolving once the Enter has gone out.
 //
-// The pasted line ends with submittableLine's space so no completion menu is holding the submit
-// byte(s) — the space rides INSIDE the paste, where the TUI takes it as text: sent after the
-// terminator it would be a keystroke, which an open menu is exactly what interprets.
+// A Claude session's pasted line ends with submittableLine's space, so no completion menu is
+// holding the submit byte(s). The space rides INSIDE the paste, where the TUI takes it as text:
+// sent after the terminator it would be a keystroke, which an open menu is exactly what reads.
 const typeAndSubmit = (deps: TerminalInputDeps, sessionId: string, safe: string): Promise<void> => {
   const clear = deps.canClearBox?.(sessionId) ? CLEAR_BOX : "";
-  if (!deps.writeToSession(sessionId, `${clear}${PASTE_START}${submittableLine(safe)}${PASTE_END}`)) {
+  const line = submittableLineForAgent(deps.sessionAgent?.(sessionId), safe);
+  if (!deps.writeToSession(sessionId, `${clear}${PASTE_START}${line}${PASTE_END}`)) {
     return Promise.reject(new Error(`session ${sessionId} has no live terminal on this host`));
   }
   const submit = deps.submitSequence?.(sessionId) ?? "\r";

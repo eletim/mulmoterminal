@@ -30,23 +30,34 @@ export const newlineSequence = (mode: TerminalSubmitMode): string => (mode === "
 // where ESC+CR is Alt+Enter, not submit.
 export const submitSequenceForAgent = (agent: string | undefined, mode: TerminalSubmitMode): string => (agent === "claude" ? submitSequence(mode) : CR);
 
-// Text we are about to submit ON the user's behalf, ended so the TUI has no completion menu
+// Text we are about to submit ON the user's behalf, ended so Claude Code has no completion menu
 // open when the submit byte(s) arrive.
 //
-// Claude Code holds a completion menu open while the cursor sits at the end of a completion
-// token — a `/command` or an `@path` — and while it is open the TUI runs its Autocomplete
-// keybinding context, where `escape` is the menu's dismiss key. So the ESC+CR that submits in
-// "esc-cr" mode never arrives as one Alt+Enter: the ESC is eaten and the line stays in the box,
-// however many times it is sent (#1142). One trailing space ends the token and closes the menu.
+// Claude Code holds a completion menu open while the cursor sits at the end of a completion token
+// — a `/command` or an `@path` — and an open menu consumes the key that should have submitted.
+// Measured against Claude Code 2.1.220:
 //
-// Measured against Claude Code 2.1.220 for both `/help` and `@path`; a plain-CR host submits the
-// same line unchanged either way, and off a TUI (a shell) the space is inert (`echo hi ` runs).
-// Deliberately unconditional rather than a list of Claude Code's trigger characters: a trigger
-// we failed to enumerate would silently restore a dead end that looks like a broken feature.
+//   `/help` + CR        submits          (the one case that always worked)
+//   `/help` + ESC CR    does NOT submit  — the menu's own `escape` binding eats the ESC, so the
+//                                          "esc-cr" submit never lands, however often it is sent
+//   `@path` + CR        does NOT submit  — the file picker takes that CR for itself
+//   either + a trailing space            submits: the space ends the token, closing the menu
+//
+// So this is NOT specific to the reversed submit mapping (#1142 was reported there, but the
+// `@path` half hits the default mapping too), and it is deliberately not a list of Claude Code's
+// trigger characters: a trigger we failed to enumerate would silently restore a dead end that
+// looks like a broken feature.
 //
 // For auto-submitted text only. A draft the user still edits keeps exactly what was handed over —
 // their own Enter is a keystroke they can retry once they see the menu.
 export const submittableLine = (text: string): string => (/\S$/.test(text) ? `${text} ` : text);
+
+// The same Claude-only scoping as submitSequenceForAgent, and for a sharper reason: the completion
+// menu is Claude Code's behaviour, while for every other target the trailing space would be REAL
+// input. A shell line ending in `\` escapes the newline and waits for more (`echo foo\` → a
+// continuation prompt); with a space appended it is an escaped space and runs instead. So a
+// shell/codex/command session's bytes stay exactly what the sender wrote.
+export const submittableLineForAgent = (agent: string | undefined, text: string): string => (agent === "claude" ? submittableLine(text) : text);
 
 // The structural shape of a keydown the override needs. A real DOM KeyboardEvent satisfies
 // it, and so does a plain test object — no DOM dependency, so this stays testable and shared.

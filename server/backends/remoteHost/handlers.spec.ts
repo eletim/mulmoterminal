@@ -14,6 +14,7 @@ const unusedTerminalDeps = {
   writeToSession: () => false,
   canClearBox: () => false,
   submitSequence: () => "\r",
+  sessionAgent: () => "claude" as const,
   launchTerminal: () => ({ ok: true }) as const,
 };
 

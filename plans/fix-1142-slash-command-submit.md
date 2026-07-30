@@ -44,31 +44,47 @@ emptiness decision, by the layer that already owns the framing and the submit by
 | M2 | paste `/help ` → `CR` | menu **closed** on the paste, submitted, command ran |
 | M5 | paste `look at @common/terminalSubmit.ts` | file picker **open** — same trap, not just `/` |
 | M6 | paste `look at @common/terminalSubmit.ts ` | picker **closed** |
+| M7 | paste `look at @…terminalSubmit.ts` → `CR` | **not submitted** — the picker takes the CR itself |
+| M8 | paste `look at @…terminalSubmit.ts ` → `CR` | submitted (turn started) |
 | R1 | **raw-typed** `/help` → `ESC CR` | not submitted — the browser UI's own path has this too |
 | R2 | **raw-typed** `/help ` → `CR` | submitted |
-| S1 | shell (zsh): paste `echo hi ` → `CR` | ran `echo hi` — trailing space is inert off-TUI |
+| S1 | shell (zsh): paste `echo hi ` → `CR` | ran `echo hi` — a trailing space is inert here |
+| S2 | shell (zsh): `echo foo\` → `CR` vs `echo foo\ ` → `CR` | **continuation prompt** vs **runs, prints `foo`** |
 
 M5/M6 are why the fix is not "when the text starts with `/`": a false negative silently
 reproduces a dead end, so the rule must not try to enumerate Claude Code's trigger characters.
 
+M7/M8 are why it is not scoped to `esc-cr` either. The `@path` half of the family breaks on the
+DEFAULT mapping too — one plain CR is consumed by the file picker — so a guard that only ran for
+ESC-prefixed submits would leave every default host with the same dead end.
+
+S2 is why it IS scoped to Claude sessions (Codex's review of this PR raised it). For a shell the
+trailing space is real input: a line ending in `\` escapes the newline and waits for more, and with
+a space appended it is an escaped space that runs instead. Different execution, same bytes from us.
+
 ## Fix
 
 One shared helper next to the submit-byte mapping both sides already read, applied at every
-place that types text and then submits it **for** the user:
+place that types text and then submits it **for** the user — and, like that mapping, scoped to
+Claude sessions:
 
 ```ts
 // common/terminalSubmit.ts
-export const submittableLine = (text: string): string => (/\s$/.test(text) ? text : `${text} `);
+export const submittableLine = (text: string): string => (/\S$/.test(text) ? `${text} ` : text);
+export const submittableLineForAgent = (agent: string | undefined, text: string): string =>
+  agent === "claude" ? submittableLine(text) : text;
 ```
 
 - `server/backends/remoteHost/terminalInput.ts` — inside the bracketed paste, after the
-  emptiness check. Submit bytes untouched.
+  emptiness check. Submit bytes untouched. The agent arrives through a new `sessionAgent` dep,
+  the same `ptys.get(id)?.agent` lookup `canClearBox` and `submitSequence` already use.
 - `src/composables/useTerminalConnections.ts` — `submitText` (header buttons, the Skill menu's
-  `/<slug>`, the worktree commit prompt) and `pasteAndSubmit` (cross-talk). R1 shows the browser
-  Skill menu has the same dead end on an `esc-cr` host.
+  `/<slug>`, the worktree commit prompt) and `pasteAndSubmit` (cross-talk), gated by the existing
+  `isClaudeTarget`. R1 shows the browser Skill menu has the same dead end on an `esc-cr` host.
 
 Not applied to `insertText` / `pasteText`: those hand the user a draft to review, and their own
-Enter is a keystroke they can retry after seeing the menu.
+Enter is a keystroke they can retry after seeing the menu. Not applied to shell / codex / command
+/ dev-terminal sessions at all (S2).
 
 ## Deliberately out of scope
 
@@ -81,7 +97,8 @@ space would not fix it; it needs the configured submit sequence. Reported, not c
 
 - `test/common/terminalSubmit.spec.ts` — the helper: appends exactly one space, is idempotent on
   text already ending in whitespace (no double space), leaves a multi-line block ending in `\n`
-  alone, adds nothing but that one space.
+  alone, adds nothing but that one space. Plus the agent scoping, including a test that it and
+  `submitSequenceForAgent` agree on who counts as Claude, so they cannot drift.
 - `server/backends/remoteHost/terminalInput.spec.ts` — the `/command` regression end to end: the
   guard is **inside** the paste (a bare space keystroke could be read by an open menu), the paste
   is still opened once and closed once, the submit sequence is unchanged in both modes, the
@@ -90,4 +107,7 @@ space would not fix it; it needs the configured submit sequence. Reported, not c
 - `test/server/backends/remoteHost/terminalInput.spec.ts` — the sanitizer still trims a trailing
   space (the behaviour the fix routes around rather than removes).
 - `test/src/composables/useTerminalConnections.spec.ts` — `submitText` / `pasteAndSubmit` carry
-  the guard in both modes; `insertText` / `pasteText` do not.
+  the guard in both modes; a shell cell's `echo foo\` stays byte-exact; `insertText` / `pasteText`
+  do not carry it.
+- Mutation-checked: reducing `submittableLine` to the identity function fails 24 tests, so the
+  suite pins the behaviour rather than describing it.

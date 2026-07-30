@@ -99,6 +99,7 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
       writeToSession: deps.writeToSession,
       canClearBox: deps.canClearBox,
       submitSequence: deps.submitSequence,
+      sessionAgent: deps.sessionAgent,
       launchTerminal: deps.launchTerminal,
     }),
     log: { ...log, debug: () => undefined },

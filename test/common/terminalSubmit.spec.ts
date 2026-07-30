@@ -8,6 +8,7 @@ import {
   newlineSequence,
   submitSequenceForAgent,
   submittableLine,
+  submittableLineForAgent,
   enterKeyOverride,
   type EnterKeyEvent,
   type TerminalSubmitMode,
@@ -87,6 +88,28 @@ describe("submittableLine", () => {
     expect([text, `${text} `]).toContain(out);
     expect(out.startsWith(text)).toBe(true);
     expect(out).not.toMatch(/ {2}$/);
+  });
+});
+
+// The guard belongs to Claude Code and to nothing else. Everywhere else the space would be REAL
+// input: measured in a live zsh, `echo foo\` + CR waits at a continuation prompt while
+// `echo foo\ ` + CR runs and prints `foo`, so a shell's bytes must stay exactly what was written.
+describe("submittableLineForAgent", () => {
+  it("guards a Claude session", () => {
+    expect(submittableLineForAgent("claude", "/sync-repos")).toBe("/sync-repos ");
+  });
+
+  it.each(["shell", "codex", "bash", undefined])("leaves a %j session byte-exact", (agent) => {
+    expect(submittableLineForAgent(agent, "/sync-repos")).toBe("/sync-repos");
+    expect(submittableLineForAgent(agent, "echo foo\\")).toBe("echo foo\\");
+  });
+
+  // Same scoping as submitSequenceForAgent, so the two cannot drift into disagreeing about which
+  // sessions follow Claude Code's behaviour.
+  it.each(["claude", "shell", "codex", undefined])("agrees with submitSequenceForAgent on who is Claude (%j)", (agent) => {
+    const guarded = submittableLineForAgent(agent, "x") !== "x";
+    const followsMapping = submitSequenceForAgent(agent, "esc-cr") !== CR;
+    expect(guarded).toBe(followsMapping);
   });
 });
 

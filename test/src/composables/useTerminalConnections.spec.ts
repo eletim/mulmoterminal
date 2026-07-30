@@ -767,6 +767,33 @@ describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit 
     }
   });
 
+  // The guard is Claude Code's behaviour, so a shell cell's bytes stay exactly what was asked for:
+  // measured in a live zsh, `echo foo\` + CR waits at a continuation prompt while `echo foo\ ` + CR
+  // runs and prints `foo`. Same scoping as the submit bytes above (isClaudeTarget).
+  it("submitText: a shell cell's line end is left untouched", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = openCell("cell-sh-guard", { ...target(null), launcher: { shell: true as const } });
+      conn.submitText("cell-sh-guard", "echo foo\\");
+      expect(ws.sent[0]).toBe(JSON.stringify({ type: "input", data: "echo foo\\" }));
+      conn.release("cell-sh-guard");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pasteAndSubmit: a shell cell's paste is byte-exact too", () => {
+    vi.useFakeTimers();
+    try {
+      const ws = openCell("cell-sh-ps", { ...target(null), launcher: { shell: true as const } });
+      conn.pasteAndSubmit("cell-sh-ps", "echo foo\\");
+      expect(ws.sent[0]).toBe(JSON.stringify({ type: "input", data: "\x1b[200~echo foo\\\x1b[201~" }));
+      conn.release("cell-sh-ps");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("pasteAndSubmit: the guard rides inside the bracketed paste, not after the terminator", () => {
     vi.useFakeTimers();
     try {

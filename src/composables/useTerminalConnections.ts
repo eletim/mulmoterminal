@@ -136,6 +136,11 @@ export const isClaudeTarget = (t: ConnTarget): boolean => !t.devTerminal && !t.c
 const effectiveSubmitMode = (c: Conn): TerminalSubmitMode => (isClaudeTarget(c.target) ? getTerminalSubmitMode() : DEFAULT_TERMINAL_SUBMIT_MODE);
 const submitBytesFor = (c: Conn): string => submitSequence(effectiveSubmitMode(c));
 
+// A line WE are about to submit, ended so Claude's completion menu isn't holding the submit key
+// (#1142). Claude cells only, and scoped by the same predicate as the submit bytes: in a shell the
+// guard's trailing space would be real input (a line ending in `\` escapes the newline there).
+const submittableFor = (c: Conn, text: string): string => (isClaudeTarget(c.target) ? submittableLine(text) : text);
+
 // Forwarded to whatever component is currently attached, so the parent's existing
 // session/cwd/exit wiring (grid_v2 persistence, recent-dir recording, re-run UI)
 // keeps working unchanged. Cleared on detach; a detached slot still tracks its
@@ -747,8 +752,8 @@ export function terminate(key: string) {
 // connection's `terminalSubmit` mapping (ESC+CR for a Claude cell in esc-cr mode), so a GUI
 // send commits the same way the keyboard does. Both writes pin to the socket captured now;
 // if the slot reconnects before the submit fires we skip it rather than submit a stray turn.
-// The text goes through submittableLine so an open completion menu can't eat that submit —
-// the Skill menu's `/<slug>` is the case that made it necessary (#1142).
+// A Claude cell's text goes through submittableFor so an open completion menu can't eat that
+// submit — the Skill menu's `/<slug>` is the case that made it necessary (#1142).
 // Returns whether the text was delivered.
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
@@ -756,7 +761,7 @@ export function submitText(key: string, text: string): boolean {
   const sock = c.ws;
   if (!sock || sock.readyState !== WebSocket.OPEN) return false;
   const submit = submitBytesFor(c);
-  sock.send(JSON.stringify({ type: "input", data: submittableLine(text) }));
+  sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
   setTimeout(() => {
     if (c.ws === sock && sock.readyState === WebSocket.OPEN) {
       sock.send(JSON.stringify({ type: "input", data: submit }));
@@ -791,9 +796,9 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   const sock = c?.ws;
   if (!text || !c || !sock || sock.readyState !== WebSocket.OPEN) return false;
   const submit = submitBytesFor(c);
-  // submittableLine's space rides INSIDE the paste, where the TUI takes it as text — after the
+  // The guard's space rides INSIDE the paste, where the TUI takes it as text — after the
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
-  sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableLine(text)}${PASTE_END}` }));
+  sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableFor(c, text)}${PASTE_END}` }));
   setTimeout(() => {
     if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
   }, PASTE_SUBMIT_MS);

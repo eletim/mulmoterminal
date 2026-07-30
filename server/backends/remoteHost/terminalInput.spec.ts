@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
+import type { SessionAgent } from "../../../common/sessionAgent.js";
 import { CLEAR_BOX, PASTE_END, PASTE_START, canClearInputBox, createTerminalInputSender, sanitizeTerminalInput } from "./terminalInput.js";
 
 // Collects what would have reached the PTY, and runs the delayed Enter on demand
@@ -13,7 +14,10 @@ const hasSequenceIntroducer = (text: string): boolean => text.includes("\u001B")
 // run before asserting on what reached the PTY.
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
-const recorder = (writable = true, canClearBox?: (sessionId: string) => boolean) => {
+// Defaults to a CLAUDE session, which is what the phone is almost always typing into and the
+// only agent the completion-menu guard applies to — pass another agent to check that its bytes
+// stay untouched.
+const recorder = (writable = true, canClearBox?: (sessionId: string) => boolean, agent: SessionAgent = "claude") => {
   const chunks: string[] = [];
   const submits: Array<() => void> = [];
   const deps = {
@@ -23,6 +27,7 @@ const recorder = (writable = true, canClearBox?: (sessionId: string) => boolean)
       return true;
     },
     canClearBox,
+    sessionAgent: () => agent,
     // Queue the Enters instead of timing them, so a test decides when each lands.
     scheduleSubmit: (fn: () => void) => {
       submits.push(fn);
@@ -31,11 +36,13 @@ const recorder = (writable = true, canClearBox?: (sessionId: string) => boolean)
   return { chunks, submits, flushSubmit: () => submits.shift()?.(), send: createTerminalInputSender(deps) };
 };
 
-// What one auto-submitted paste must look like on the wire: the text, then the guard space that
-// keeps a completion menu from holding the submit byte (#1142), all inside one bracketed paste.
-// Spelled out here rather than by calling submittableLine, so the expectation stays an
-// independent statement of the shape instead of agreeing with whatever the helper does.
+// What one auto-submitted paste into a CLAUDE session must look like on the wire: the text, then
+// the guard space that keeps a completion menu from holding the submit byte (#1142), all inside
+// one bracketed paste. Spelled out here rather than by calling submittableLine, so the expectation
+// stays an independent statement of the shape instead of agreeing with whatever the helper does.
 const paste = (text: string): string => `${PASTE_START}${text} ${PASTE_END}`;
+// A session the guard does not apply to: byte-exact, no space added.
+const rawPaste = (text: string): string => `${PASTE_START}${text}${PASTE_END}`;
 
 describe("sanitizeTerminalInput", () => {
   it("keeps ordinary text", () => {
@@ -99,6 +106,7 @@ describe("sendTerminalInput", () => {
         seen.push(id);
         return id === "claude-1" ? "\x1b\r" : "\r";
       },
+      sessionAgent: (id: string) => (id === "claude-1" ? "claude" : "shell"),
       scheduleSubmit: (fn: () => void) => {
         submits.push(fn);
       },
@@ -112,7 +120,9 @@ describe("sendTerminalInput", () => {
     submits.shift()?.();
     await expect(b).resolves.toEqual({ sent: true });
     expect(seen).toEqual(["claude-1", "shell-1"]); // the session id reaches the resolver
-    expect(chunks).toEqual([paste("hi"), "\x1b\r", paste("ls"), "\r"]);
+    // Per session in BOTH respects: the Claude session's ESC+CR and completion guard, the shell's
+    // plain CR and byte-exact text.
+    expect(chunks).toEqual([paste("hi"), "\x1b\r", rawPaste("ls"), "\r"]);
   });
 
   it("defaults the submit sequence to CR when unset", async () => {
@@ -262,6 +272,7 @@ describe("submitting a slash command", () => {
         return true;
       },
       submitSequence: () => "\x1b\r",
+      sessionAgent: () => "claude",
       scheduleSubmit: (fn: () => void) => {
         submits.push(fn);
       },
@@ -297,6 +308,51 @@ describe("submitting a slash command", () => {
     void send("s1", "/sync-repos");
     await tick();
     expect(chunks).toEqual([`${CLEAR_BOX}${PASTE_START}/sync-repos ${PASTE_END}`]);
+  });
+});
+
+// The guard is Claude Code's behaviour, so it must not reach anything else: for every other target
+// the trailing space would be REAL input, and a shell reads line ends for meaning. Measured in a
+// live zsh: `echo foo\` + CR waits at a continuation prompt, while `echo foo\ ` + CR runs and
+// prints `foo` — the same bytes, different execution. So a non-Claude session's paste is byte-exact.
+describe("the completion guard is scoped to Claude sessions", () => {
+  it.each<SessionAgent>(["shell", "codex"])("leaves a %s session's line end untouched", async (agent) => {
+    const { chunks, send } = recorder(true, undefined, agent);
+    void send("s1", "echo foo\\");
+    await tick();
+    expect(chunks[0]).toBe(rawPaste("echo foo\\"));
+  });
+
+  it.each<SessionAgent>(["shell", "codex"])("adds nothing to a %s session's slash-shaped text either", async (agent) => {
+    const { chunks, send } = recorder(true, undefined, agent);
+    void send("s1", "/usr/bin/env");
+    await tick();
+    expect(chunks[0]).toBe(rawPaste("/usr/bin/env"));
+  });
+
+  // A claude session with the same trailing backslash DOES get the space: there the backslash is
+  // Claude Code's own newline escape (`\` + return), so an unguarded line would not submit either.
+  it("still guards a Claude session whose text ends in a backslash", async () => {
+    const { chunks, send } = recorder();
+    void send("s1", "echo foo\\");
+    await tick();
+    expect(chunks[0]).toBe(paste("echo foo\\"));
+  });
+
+  // No agent wired at all (an older caller, or a session the host cannot name) must not be guessed
+  // into the guard — unknown means "send exactly what was written".
+  it("adds nothing when the host cannot name the session's agent", async () => {
+    const chunks: string[] = [];
+    const send = createTerminalInputSender({
+      writeToSession: (_id: string, chunk: string) => {
+        chunks.push(chunk);
+        return true;
+      },
+      scheduleSubmit: () => {},
+    });
+    void send("s1", "/sync-repos");
+    await tick();
+    expect(chunks[0]).toBe(rawPaste("/sync-repos"));
   });
 });
 
