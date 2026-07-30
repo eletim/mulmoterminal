@@ -62,6 +62,13 @@ describe("Sidebar", () => {
     expect(items[2].find('[data-testid="session-dot"]').exists()).toBe(false);
   });
 
+  // The dot is gated by isUnread, which excludes background workers — same population as the bold
+  // and the Unread chip. A dot on a row with no bold would be the contradiction this fixes.
+  it("leaves a background worker unmarked even when it is waiting", () => {
+    const wrapper = mountSidebar({ sessions: [row({ id: "a", waiting: true, event: "Notification", hidden: true })], filter: "background" });
+    expect(wrapper.find('[data-testid="session-dot"]').exists()).toBe(false);
+  });
+
   it("gives an idle row no dot at all", () => {
     const wrapper = mountSidebar({ sessions: [row({ id: "a" })] });
     expect(wrapper.find('[data-testid="session-dot"]').exists()).toBe(false);

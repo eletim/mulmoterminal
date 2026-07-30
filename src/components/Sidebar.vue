@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import {
   SESSION_SPINNER,
-  sessionAttention,
-  sessionDot,
+  sessionDotFor,
   sessionListEmptyMessage,
   useSessionFilter,
   type SessionListEmits,
@@ -103,11 +102,11 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
                already says "wants you"; the hue says which KIND — stopped on a prompt (amber) or
                finished and unread (green), which used to look identical here (#1139). -->
           <span
-            v-else-if="sessionDot(sessionAttention(s))"
+            v-else-if="sessionDotFor(s)"
             data-testid="session-dot"
-            :class="[sessionDot(sessionAttention(s))?.cls, 'mr-[5px] inline-block align-middle']"
-            :title="sessionDot(sessionAttention(s))?.label"
-            :aria-label="sessionDot(sessionAttention(s))?.label"
+            :class="[sessionDotFor(s)?.cls, 'mr-[5px] inline-block align-middle']"
+            :title="sessionDotFor(s)?.label"
+            :aria-label="sessionDotFor(s)?.label"
           />
           <span
             v-if="s.agent === 'codex'"

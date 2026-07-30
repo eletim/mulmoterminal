@@ -27,17 +27,29 @@ const SESSION_DOT: Partial<Record<AttentionStatus, { hue: string; label: string 
   done: { hue: "bg-[#22c55e]", label: "Finished — unread" },
 };
 
-/** The dot's classes and its accessible name, or null for a status that shows none: `working` has
- *  the spinner in that slot (the two cannot co-occur) and `idle` has nothing to say. The label is
- *  not optional — colour is the entire message for a sighted user, so without it the split would be
- *  invisible to anyone who cannot see it. */
-export function sessionDot(status: AttentionStatus): { cls: string; label: string } | null {
+export interface SessionDot {
+  cls: string;
+  label: string;
+}
+
+/** The dot for a status, or null where there is none: `working` has the spinner in that slot (the
+ *  two cannot co-occur) and `idle` has nothing to say. The label is not optional — colour is the
+ *  entire message for a sighted user, so without it the split would be invisible to anyone who
+ *  cannot see it. */
+function statusDot(status: AttentionStatus): SessionDot | null {
   const dot = SESSION_DOT[status];
   return dot ? { cls: `${SESSION_DOT_BASE} ${dot.hue}`, label: dot.label } : null;
 }
 
 /** A row's status, from the same rule the grid and the roster read. */
 export const sessionAttention = (s: Session): AttentionStatus => activityStatus(!!s.working, !!s.waiting, s.event);
+
+/** The dot a ROW should carry, which is not the same question as what its status is: the gate is
+ *  `isUnread`, so which rows get marked stays exactly what it was — a background worker is
+ *  deliberately never marked, and it is `isUnread` that also drives the bold and the Unread chip.
+ *  Reading the status alone here would put a dot on a hidden row that has no bold, which is the
+ *  same contradiction this change exists to remove, one channel over. */
+export const sessionDotFor = (s: Session): SessionDot | null => (isUnread(s) ? statusDot(sessionAttention(s)) : null);
 
 // The event contract App.vue wires to both session-list layouts (the vertical
 // Sidebar and the horizontal SessionTabBar); v-model:filter drives update:filter.

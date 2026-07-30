@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { SESSION_SPINNER, sessionAttention, sessionDot, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
+import { SESSION_SPINNER, sessionDotFor, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 
 // Presentational: list + filter are owned by App.vue and shared with the
@@ -82,11 +82,11 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
              permission prompt and one that had merely finished — and a finished turn is not an
              error. The hue now comes from the same rule the grid and the roster read. -->
         <span
-          v-if="s.id !== props.activeId && sessionDot(sessionAttention(s))"
+          v-if="s.id !== props.activeId && sessionDotFor(s)"
           data-testid="tab-dot"
-          :class="[sessionDot(sessionAttention(s))?.cls, 'shadow-[0_0_0_2px_var(--bg-panel)]']"
-          :title="sessionDot(sessionAttention(s))?.label"
-          :aria-label="sessionDot(sessionAttention(s))?.label"
+          :class="[sessionDotFor(s)?.cls, 'shadow-[0_0_0_2px_var(--bg-panel)]']"
+          :title="sessionDotFor(s)?.label"
+          :aria-label="sessionDotFor(s)?.label"
         />
       </button>
     </div>

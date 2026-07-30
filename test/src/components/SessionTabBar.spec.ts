@@ -74,3 +74,13 @@ describe("SessionTabBar attention dot", () => {
     expect(w.get('[data-testid="tab-dot"]').classes().join(" ")).not.toContain("err-strong");
   });
 });
+
+// Same gate as the sidebar and the bold: a background worker is never marked (isUnread excludes it).
+describe("SessionTabBar background workers", () => {
+  it("shows no dot for a hidden row, however it is waiting", () => {
+    const w = mount(SessionTabBar, {
+      props: { sessions: [session("a", { waiting: true, event: "Notification", hidden: true })], activeId: null, filter: "background" as const },
+    });
+    expect(w.findAll('[data-testid="tab-dot"]')).toHaveLength(0);
+  });
+});
