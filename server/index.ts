@@ -367,7 +367,7 @@ const rateLimitStore = createRateLimitStore(readRateLimitCache(rateLimitCacheFil
 });
 const refreshCodexRateLimits = (): void => {
   const file = newestRolloutFile(codexSessionsDir(), Date.now());
-  if (file) rateLimitStore.report("codex", latestRateLimitsInRollout(readRolloutTail(file)), Date.now());
+  if (file) rateLimitStore.reportCodex(latestRateLimitsInRollout(readRolloutTail(file)), Date.now());
 };
 // Whether a probe could even run. Checked before spawning rather than discovered by spawning
 // (#1011): a machine without `claude` used to fail so fast that it never reached the 90s timeout,
