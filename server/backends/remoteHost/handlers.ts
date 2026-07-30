@@ -19,6 +19,7 @@ import { discoverCollections, listItems, loadCollection, toDetail, toSummary } f
 import { listFeeds, readFeedState } from "@mulmoclaude/core/feeds/server";
 import { normalizeFields, normalizeMutate } from "@mulmoclaude/core/remote-view";
 import { listBooks } from "@mulmoclaude/accounting-plugin/server";
+import { toJsonObject } from "@mulmoclaude/core/remote-host";
 import type { CommandHandlers, JsonObject, JsonValue } from "@mulmoclaude/core/remote-host";
 
 import { readShortcuts } from "../shortcuts.js";
@@ -98,7 +99,7 @@ const composeMessage = (message: string, attachments: Attachment[]): string => {
 // (source "feed") are excluded — they are served by listFeeds.
 const listCollections: CommandHandlers["listCollections"] = async () => {
   const collections = (await discoverCollections()).filter((collection) => collection.source !== "feed").map(toSummary);
-  return { collections } as unknown as JsonObject;
+  return toJsonObject({ collections });
 };
 
 // One collection's detail + a PAGE of its records (pagination mandatory — the result
@@ -123,7 +124,7 @@ const getRemoteView: CommandHandlers["getRemoteView"] = async (params: JsonObjec
   if (!collection) throw new Error(`collection '${slug}' not found`);
   const result = await buildRemoteView(collection, viewId, locale);
   if (result.kind !== "ok") throw new Error(remoteViewFailureMessage(result, slug));
-  return { view: result.view, srcdoc: result.srcdoc, bytes: result.bytes } as unknown as JsonObject;
+  return toJsonObject({ view: result.view, srcdoc: result.srcdoc, bytes: result.bytes });
 };
 
 // One page of a mobile view's records, projected to the view's fields. Image fields are
@@ -138,6 +139,11 @@ const getRemoteViewItems: CommandHandlers["getRemoteViewItems"] = async (params:
   if (!collection) throw new Error(`collection '${slug}' not found`);
   const result = await remoteViewItems(collection, viewId, request);
   if (result.kind !== "ok") throw new Error(remoteViewItemsFailureMessage(result, slug));
+  // `toJsonObject` cannot serve this one, and neither can a single assertion: `RemoteViewPage` has
+  // no index signature at all, so it does not even overlap `JsonObject`. It IS JSON at runtime —
+  // the collection loader only ever puts JSON in it — a fact about the loader these types do not
+  // record. Removing this double cast means giving `RemoteViewPage`/`RemoteViewItem` JSON-valued
+  // types upstream, not adjusting anything here.
   return { page: result.page, inlined: result.inlined, omitted: result.omitted } as unknown as JsonObject;
 };
 
@@ -155,10 +161,12 @@ const mutateRemoteViewItem: CommandHandlers["mutateRemoteViewItem"] = async (par
   // The write applied but its response blew the byte budget — report success (+refetch),
   // not a thrown error the phone shows as a failed edit while keeping stale data (#747).
   if (mutateWriteApplied(result)) {
-    return { op: request.op, id: request.id, applied: true, warning: mutateRemoteViewFailureMessage(result, slug) } as unknown as JsonObject;
+    return toJsonObject({ op: request.op, id: request.id, applied: true, warning: mutateRemoteViewFailureMessage(result, slug) });
   }
   if (result.kind !== "ok") throw new Error(mutateRemoteViewFailureMessage(result, slug));
-  return (result.op === "delete" ? { op: "delete", id: result.id } : { op: "update", item: result.item }) as unknown as JsonObject;
+  // Same reason as getRemoteViewItems above: `CollectionItem`'s `unknown`-valued index signature
+  // is not provably JSON, though the loader only ever writes JSON into it.
+  return (result.op === "delete" ? { op: "delete", id: result.id } : { op: "update", item: result.item }) as JsonObject;
 };
 
 // The phone's remote terminal view (#435): pick a session, read its screen, and —
@@ -181,7 +189,7 @@ const terminalScreenHandlers = ({
   // One sender per host, so its per-session ordering actually spans every command.
   const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence });
   return {
-    listTerminalSessions: async () => ({ sessions: await listTerminalSessions() }) as unknown as JsonObject,
+    listTerminalSessions: async () => toJsonObject({ sessions: await listTerminalSessions() }),
 
     // `suggestion` is the agent's own dim ghost text — the phone offers it as a chip,
     // since it has no Tab key to accept it with (#563). The screen also carries the
@@ -191,7 +199,7 @@ const terminalScreenHandlers = ({
     getTerminalScreen: async (params: JsonObject) => {
       const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
       if (!sessionId) throw new Error("sessionId is required");
-      return (await captureTerminalScreen(sessionId)) as unknown as JsonObject;
+      return toJsonObject(await captureTerminalScreen(sessionId));
     },
 
     // Type a line into the session and press Enter, as if the user were at the
@@ -201,7 +209,7 @@ const terminalScreenHandlers = ({
       const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
       if (!sessionId) throw new Error("sessionId is required");
       const text = typeof params.text === "string" ? params.text : "";
-      return (await sendInput(sessionId, text)) as unknown as JsonObject;
+      return toJsonObject(await sendInput(sessionId, text));
     },
 
     // Open a NEW grid terminal in the directory of the session the phone is viewing (#831).
@@ -214,7 +222,7 @@ const terminalScreenHandlers = ({
     launchTerminal: async (params: JsonObject) => {
       const result = launchTerminal(params.agent, params.sessionId);
       if (!result.ok) throw new Error(result.error);
-      return { ok: true } as unknown as JsonObject;
+      return toJsonObject({ ok: true });
     },
   };
 };
@@ -248,7 +256,7 @@ export function createRemoteHostHandlers(deps: RemoteHostHandlerDeps): CommandHa
         const state = await readFeedState(workspace, feed);
         summaries.push(feedSummary(feed, state.lastFetchedAt));
       }
-      return { feeds: summaries } as unknown as JsonObject;
+      return toJsonObject({ feeds: summaries });
     },
 
     // One feed's detail + a PAGE of its records. A feed IS a LoadedCollection
@@ -267,7 +275,7 @@ export function createRemoteHostHandlers(deps: RemoteHostHandlerDeps): CommandHa
     },
 
     // Pinned launcher shortcuts (favorites), read-only.
-    listShortcuts: async () => ({ shortcuts: await readShortcuts(workspace) }) as unknown as JsonObject,
+    listShortcuts: async () => toJsonObject({ shortcuts: await readShortcuts(workspace) }),
 
     // Discoverable skill ids (~/.claude/skills + <workspace>/.claude/skills),
     // read-only. Collection slugs are subtracted — a skill dir that ships a
@@ -276,13 +284,13 @@ export function createRemoteHostHandlers(deps: RemoteHostHandlerDeps): CommandHa
     listSkills: async () => {
       const [names, collections] = await Promise.all([discoverSkillNames({ workspaceRoot: workspace }), discoverCollections()]);
       const collectionSlugs = new Set(collections.filter((collection) => collection.source !== "feed").map((collection) => collection.slug));
-      return { skills: names.filter((name) => !collectionSlugs.has(name)) } as unknown as JsonObject;
+      return toJsonObject({ skills: names.filter((name) => !collectionSlugs.has(name)) });
     },
 
     // { id, name } per accounting book, for a mobile book picker.
     listAccountingBooks: async () => {
       const { books } = await listBooks(workspace);
-      return { books: books.map((book) => ({ id: book.id, name: book.name })) } as unknown as JsonObject;
+      return toJsonObject({ books: books.map((book) => ({ id: book.id, name: book.name })) });
     },
 
     // Start a visible chat from the phone, seeded with `message`. This host has
