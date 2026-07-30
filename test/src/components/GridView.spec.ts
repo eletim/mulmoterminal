@@ -495,3 +495,28 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
     w.unmount();
   });
 });
+
+// #1114: the launch form's Shell option sends a launcher with no configured index — the grid has to
+// store it as a shell launcher cell. The old handler rebuilt the launcher from `pick.index` alone,
+// which would have written `{ index: undefined }` and reconnected the cell as a Claude session.
+const ShellLaunchStub = {
+  name: "TerminalGrid",
+  props: ["cells"],
+  emits: ["launch"],
+  template: "<button class=\"fire-shell\" @click=\"$emit('launch', cells[0].uid, { launcher: { shell: true, label: 'shell' }, cwd: '/proj' })\" />",
+};
+
+describe("GridView launcher picks (#1114)", () => {
+  it("turns the cell into a shell launcher cell when the form picks Shell", async () => {
+    const w = mount((await import("../../../src/components/GridView.vue")).default, {
+      global: { stubs: { TerminalGrid: ShellLaunchStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+    });
+    await flushPromises();
+    await w.find(".fire-shell").trigger("click");
+    type LauncherCell = { launcher?: { shell?: true; index?: number; label: string } | null; cwd: string | null };
+    const cells = w.findComponent(ShellLaunchStub).props("cells") as LauncherCell[];
+    expect(cells[0].launcher).toEqual({ shell: true, label: "shell" });
+    expect(cells[0].cwd).toBe("/proj");
+    w.unmount();
+  });
+});

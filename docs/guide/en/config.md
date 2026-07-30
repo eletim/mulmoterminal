@@ -82,7 +82,7 @@ Fifteen sections, in this order.
 | **Web Push notifications** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
 | **Google account** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
 | **Pull request repos** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
-| **Launch commands** | Commands you can launch besides Claude in a grid cell (`{ label, command }`) |
+| **Launch commands** | Commands you can launch besides the agents in a grid cell (`{ label, command }`). A plain shell needs no entry — the launcher's **Shell** toggle opens `$SHELL` unconfigured |
 | **Phone quick commands** | Phrases offered as chips on the **phone's** terminal view. Tapping one fills the input box; it is sent when you press send (`quickCommands`) |
 | **MCP servers** | Your own MCP servers to add to single-view sessions |
 | **Cost (estimated)** | Estimated cost readouts for Session / Today / Month |
@@ -1208,8 +1208,8 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
     { "label": "acme-api", "path": "/Users/you/projects/acme-api" }
   ],
   "launchers": [
-    { "label": "Shell", "command": "$SHELL" },
-    { "label": "Node REPL", "command": "node" }
+    { "label": "Node REPL", "command": "node" },
+    { "label": "htop", "command": "htop" }
   ],
   "quickCommands": [
     { "label": "PR", "text": "PR作って", "agents": ["claude"] },
@@ -1225,7 +1225,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | Key | Role |
 |---|---|
 | `cwdPresets` | Working-directory chips in the launcher (`{ label, path }`; click to fill the field, the play icon to launch). Ordered by each directory's [`orderPriority`](#order-priority); the ones that declare none follow, in the order you last launched them |
-| `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell |
+| `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell. Only what you add — a plain shell is already the launcher's **Shell** toggle |
 | `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |

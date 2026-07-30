@@ -2187,3 +2187,90 @@ describe("launch chips: directory colour vs. running", () => {
     expect(painted(running)).toContain("color-mix");
   });
 });
+
+// #1114: an empty cell can start a plain shell with nothing configured. Until this, the only
+// shells reachable from the launch form were the user's own `launchers` entries — so a fresh
+// install offered three agents and no terminal, and the reporter went looking through Settings.
+describe("TerminalCell launch target — the OS default shell (#1114)", () => {
+  const SHELL_PICK = { launcher: { shell: true, label: "shell" }, cwd: "/home/me/proj" };
+
+  // A git repo whose MCP config reads back, so all three agent-only sections are on screen.
+  function mockFetchWithAgentOptions() {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/gui-mcp-groups")) return { ok: true, json: async () => ({ groups: [] }) };
+      if (u.includes("/api/worktrees")) return { ok: true, json: async () => ({ isGit: true, base: "main", worktrees: [] }) };
+      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/home/me/proj", scripts: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+  }
+
+  const pick = (w: ReturnType<typeof mount>, agent: string) => w.find(`[data-testid="cell-target-${agent}"]`).trigger("click");
+
+  it("offers Claude / Codex / Antigravity / Shell, with Claude picked", async () => {
+    const w = mountCell(null);
+    await flushPromises();
+    const row = w.find('[role="radiogroup"]');
+    expect(row.findAll('[role="radio"]').map((b) => b.text())).toEqual(["Claude", "Codex", "Antigravity", "Shell"]);
+    expect(w.find('[data-testid="cell-target-claude"]').attributes("aria-checked")).toBe("true");
+    expect(w.find('[data-testid="cell-target-shell"]').attributes("aria-checked")).toBe("false");
+  });
+
+  it("starts the OS default shell in the typed dir — no configured launcher needed", async () => {
+    const w = mountCell(null);
+    await flushPromises();
+    await pick(w, "shell");
+    await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/proj");
+    await w.find('[data-testid="cell-dir-go"]').trigger("click");
+    // The launcher carries no index: nothing in the user's config is being pointed at.
+    expect(w.emitted("launch")).toEqual([[SHELL_PICK]]);
+    // NOT a session launch — the parent swaps this cell for a launcher cell, so the form stays
+    // put and no agent is persisted for it.
+    expect(w.emitted("agent")).toBeUndefined();
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  // The other launch button in the same form. The selector has to decide here too, or one pick
+  // opens a shell from the dir field and an agent from the chip beside it.
+  it("starts a shell from a directory chip's launch button too", async () => {
+    const w = mountCell(null, { presets: [{ label: "proj", path: "/home/me/proj" }] });
+    await flushPromises();
+    await pick(w, "shell");
+    await w.find('[data-testid="cell-chip-launch"]').trigger("click");
+    expect(w.emitted("launch")).toEqual([[SHELL_PICK]]);
+    expect(w.emitted("agent")).toBeUndefined();
+  });
+
+  it("still starts a Claude session while Claude stays picked", async () => {
+    const w = mountCell(null);
+    await flushPromises();
+    await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/proj");
+    await w.find('[data-testid="cell-dir-go"]').trigger("click");
+    expect(w.emitted("launch")).toBeUndefined();
+    expect(w.emitted("agent")).toEqual([["claude"]]);
+  });
+
+  it("hides the model / MCP / worktree options for a shell and brings them back for an agent", async () => {
+    mockFetchWithAgentOptions();
+    const w = mountCell(null);
+    await flushPromises();
+    expect(w.find('[data-testid="cell-model-help"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-mcp-toggle-render"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-worktrees"]').exists()).toBe(true);
+
+    await pick(w, "shell");
+    expect(w.find('[data-testid="cell-model-help"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-mcp-toggle-render"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-worktrees"]').exists()).toBe(false);
+
+    // Back to an agent: the sections return. Codex keeps its own model configuration, so the
+    // model picker is Claude's alone — that part is unchanged by the shell option.
+    await pick(w, "codex");
+    expect(w.find('[data-testid="cell-mcp-toggle-render"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-worktrees"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-model-help"]').exists()).toBe(false);
+    await pick(w, "claude");
+    expect(w.find('[data-testid="cell-model-help"]').exists()).toBe(true);
+  });
+});
