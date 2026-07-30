@@ -105,14 +105,15 @@ file — the same ceiling as a phone attachment. **A session already running whe
 was launched without that grant**, so drops into it still prompt; new sessions don't.
 
 **Pasting a screenshot** — take a screenshot and paste it straight into the terminal
-(`Cmd`/`Ctrl`+`V`). The image is saved to the session's own drop directory — the same place a dropped file goes — and its **absolute
-path** is inserted at the cursor, so the agent can read it. Unlike a drop, this does not need
-the browser to expose a path — the bytes are on the clipboard — so it also covers Chrome,
-where dropping a file cannot insert a path. It works wherever the browser puts the image on
-the clipboard as `image/png`, `image/jpeg`, `image/gif`, or `image/webp`; anything else
-(including a copy that carries text alongside the image) pastes as text, exactly as before.
-These files exist to be handed over, not kept: anything older than a day is dropped at
-startup, and only the most recent 200 are retained.
+(`Cmd`/`Ctrl`+`V`). The image is saved to the session's own drop directory — the same place a
+dropped file goes, with the same grant, the same 110 MiB ceiling and the same cleanup when the
+session ends — and its **absolute path** is inserted at the cursor, so the agent can read it.
+Unlike a drop, this does not need the browser to expose a path — the bytes are on the
+clipboard — so it also covers Chrome, where dropping a file cannot insert a path. It works
+wherever the browser puts the image on the clipboard as `image/png`, `image/jpeg`,
+`image/gif`, or `image/webp`. Anything else is left to the terminal's own paste handling,
+exactly as before — including a paste that carries **plain text** next to the image, which
+copying from a web page usually does, so that pasting text keeps working.
 
 <a id="clicking-a-file-path"></a>
 
