@@ -104,6 +104,17 @@ when the session ends, and any left by a crash are swept at the next start. Up t
 file — the same ceiling as a phone attachment. **A session already running when you upgrade
 was launched without that grant**, so drops into it still prompt; new sessions don't.
 
+**Pasting a screenshot** — take a screenshot and paste it straight into the terminal
+(`Cmd`/`Ctrl`+`V`). The image is saved to the session's own drop directory — the same place a
+dropped file goes, with the same grant, the same 110 MiB ceiling and the same cleanup when the
+session ends — and its **absolute path** is inserted at the cursor, so the agent can read it.
+Unlike a drop, this does not need the browser to expose a path — the bytes are on the
+clipboard — so it also covers Chrome, where dropping a file cannot insert a path. It works
+wherever the browser puts the image on the clipboard as `image/png`, `image/jpeg`,
+`image/gif`, or `image/webp`. Anything else is left to the terminal's own paste handling,
+exactly as before — including a paste that carries **plain text** next to the image, which
+copying from a web page usually does, so that pasting text keeps working.
+
 <a id="clicking-a-file-path"></a>
 
 **Clicking a file path** — the other direction. A path an agent *prints* becomes a link, and

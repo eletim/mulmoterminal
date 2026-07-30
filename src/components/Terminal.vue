@@ -5,6 +5,7 @@ import { FLIP_MS, shouldRefocusOnZoomChange } from "./cellFlip";
 import { terminalManagesAttention, terminalViewActive } from "./terminalViewActive";
 import { dragCarriesFiles, dropTextFromUriList, toInsertText } from "./dropPaths";
 import { dropUploadErrorMessage, uploadDropBatch } from "./dropUpload";
+import { createImagePasteHandler } from "../composables/usePasteImage";
 import { translateUiSentence } from "../utils/translateUi";
 import { useTheme, currentTermTheme, termThemeFor } from "../composables/useTheme";
 import { useDirConfig } from "../composables/useDirConfig";
@@ -405,12 +406,12 @@ function enqueueDrop(files: File[]) {
 
 async function uploadAndInsert(files: File[]) {
   const session = props.sessionId;
-  if (!session) return showDropMessage(DROP_NO_SESSION_EN);
+  if (!session) return void showHint(DROP_NO_SESSION_EN);
   // Shown in English first and swapped when the (server-cached) translation lands, like the hint.
   void translateUiSentence(DROP_UPLOADING_EN, "mulmoterminal-ui").then((translated) => (dropUploadingText.value = translated));
   const outcome = await uploadDropBatch(session, files, () => props.sessionId);
-  if (outcome.kind === "stale") return showDropMessage(DROP_SESSION_CHANGED_EN);
-  if (outcome.kind === "failed") return showDropMessage(dropUploadErrorMessage(outcome.status));
+  if (outcome.kind === "stale") return void showHint(DROP_SESSION_CHANGED_EN);
+  if (outcome.kind === "failed") return void showHint(dropUploadErrorMessage(outcome.status));
   insertText(toInsertText(outcome.paths));
 }
 
@@ -431,16 +432,30 @@ const dropHint = ref(false);
 const dropHintText = ref("");
 const DROP_HINT_MS = 6000;
 let dropHintTimer: ReturnType<typeof setTimeout> | undefined;
-async function showDropMessage(english: string) {
+// Two hints can now overlap (a failed drop, a failed paste), and a translation that resolves
+// after the next hint has replaced the text would otherwise put the OLD sentence back.
+let hintRequest = 0;
+async function showHint(english: string) {
+  const request = ++hintRequest;
   dropHintText.value = english; // show immediately; the translation (server-cached) swaps in
   dropHint.value = true;
   clearTimeout(dropHintTimer);
   dropHintTimer = setTimeout(() => (dropHint.value = false), DROP_HINT_MS);
   const translated = await translateUiSentence(english, "mulmoterminal-ui");
-  if (dropHint.value) dropHintText.value = translated; // ignore if it resolved after the hint hid
+  if (request === hintRequest && dropHint.value) dropHintText.value = translated;
 }
-const showDropHint = () => showDropMessage(hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN);
+const showDropHint = () => void showHint(hasPickFileButton(headerButtons.value) ? DROP_HINT_PICKER_EN : DROP_HINT_TYPE_EN);
 onUnmounted(() => clearTimeout(dropHintTimer));
+
+// Paste a screenshot to insert the path of the file the server saves it as (#938). Same
+// destination as a dropped file, reached without the round trip through one: a screenshot on
+// the clipboard never has to be written somewhere first and picked back up. Text pastes never
+// reach this — the handler declines them and xterm's own paste handling runs as before.
+const onPaste = createImagePasteHandler({
+  sessionId: () => props.sessionId ?? null,
+  insertText,
+  onError: (message) => void showHint(message),
+});
 
 onUnmounted(() => {
   resizeObserver?.disconnect();
@@ -509,6 +524,7 @@ onUnmounted(() => {
       @dragover="onDragOver"
       @dragleave="dragOver = false"
       @drop="onDrop"
+      @paste.capture="onPaste"
     />
     <Transition
       enter-active-class="transition-opacity duration-200 ease-[ease]"
