@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { sessionListEmptyMessage, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
+import { SESSION_SPINNER, sessionListEmptyMessage, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 import { relativeTime } from "./cellDisplay";
 
@@ -87,7 +87,7 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
           <span
             v-if="s.working && !s.waiting && s.id !== props.activeId"
             data-testid="session-spinner"
-            class="spinner"
+            :class="[SESSION_SPINNER, 'mr-[5px] inline-block align-middle']"
             title="Claude is working"
             aria-label="Claude is working"
           />
@@ -104,25 +104,3 @@ const { unreadCount, backgroundCount, filteredSessions, isUnread } = useSessionF
     </ul>
   </aside>
 </template>
-
-<!-- The spinner's animated ring (custom keyframes + a color-mix border) has no
-     utility equivalent, so it stays scoped; everything else is utilities. -->
-<style scoped>
-.spinner {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 5px;
-  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  vertical-align: middle;
-  animation: sidebar-spin 0.9s linear infinite;
-}
-
-@keyframes sidebar-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>

@@ -208,7 +208,12 @@ const hasTools = computed(() => toolSections.value.some((section) => section.too
       <!-- Guarded as well as cleared on session change: a stale view rendered under an
            "unavailable" heading would contradict it. -->
       <template v-for="r in unavailable ? [] : results" :key="r.uuid">
-        <PluginFrame v-if="getPlugin(r.toolName)" class="frame" :css="getPlugin(r.toolName)!.css" :height="getPlugin(r.toolName)!.height">
+        <PluginFrame
+          v-if="getPlugin(r.toolName)"
+          class="[&+&]:mt-4 [&+&]:border-t [&+&]:border-border [&+&]:pt-4"
+          :css="getPlugin(r.toolName)!.css"
+          :height="getPlugin(r.toolName)!.height"
+        >
           <component
             :is="getPlugin(r.toolName)!.viewComponent"
             :selected-result="r"
@@ -223,10 +228,3 @@ const hasTools = computed(() => toolSections.value.some((section) => section.too
 
 <!-- Adjacent-frame spacing is a sibling-combinator rule with no clean utility
      equivalent, so it stays scoped; everything else is utilities. -->
-<style scoped>
-.frame + .frame {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-</style>

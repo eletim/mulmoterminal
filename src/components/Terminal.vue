@@ -502,13 +502,18 @@ onUnmounted(() => {
         <button
           v-if="voice.capable.value"
           type="button"
-          class="inline-flex cursor-pointer items-center rounded-[4px] border-0 bg-transparent p-0.5 text-[var(--cell-btn,var(--text-muted))] hover:bg-selected hover:text-fg"
-          :class="['voice', { listening: voice.listening.value, busy: voice.downloading.value || voice.transcribing.value }]"
+          class="inline-flex cursor-pointer items-center rounded-[4px] border-0 bg-transparent p-0.5 hover:bg-selected"
+          :class="voice.listening.value ? 'animate-cell-pulse text-[#e5484d]' : 'text-[var(--cell-btn,var(--text-muted))] hover:text-fg'"
           :title="voiceTitle()"
           :aria-label="voiceTitle()"
           @click="voice.toggle()"
         >
-          <span class="material-symbols-outlined text-[18px]" aria-hidden="true">{{ voiceIcon() }}</span>
+          <span
+            class="material-symbols-outlined text-[18px]"
+            :class="{ 'animate-spin': voice.downloading.value || voice.transcribing.value }"
+            aria-hidden="true"
+            >{{ voiceIcon() }}</span
+          >
         </button>
         <!-- The file-path picker and file explorer are now DEFAULT_BUTTONS (server-resolved into
              headerButtons above), so the user can drop/reorder/replace them via config. -->
@@ -553,33 +558,3 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
-
-<!-- The voice button's recording pulse / busy spin need @keyframes, which have no
-     utility equivalent — the rest of the header is utilities. These target .voice
-     directly (the icon-btn base is now utilities). -->
-<style scoped>
-.voice.listening {
-  color: #e5484d;
-  animation: voice-pulse 1.2s ease-in-out infinite;
-}
-
-.voice.busy .material-symbols-outlined {
-  animation: voice-spin 1s linear infinite;
-}
-
-@keyframes voice-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
-@keyframes voice-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>

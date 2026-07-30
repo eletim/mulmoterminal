@@ -161,15 +161,3 @@ useEscapeToClose(isOpen, close);
 
 <!-- Only the lint markdown body stays scoped: it's v-html, so its elements
      can't carry utilities and must be reached via :deep. -->
-<style scoped>
-.wiki-lint :deep(h1),
-.wiki-lint :deep(h2) {
-  font-weight: 650;
-  margin: 1.2em 0 0.4em;
-}
-.wiki-lint :deep(code) {
-  background: var(--bg-subtle);
-  padding: 0.1em 0.35em;
-  border-radius: 4px;
-}
-</style>

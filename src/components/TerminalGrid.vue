@@ -915,6 +915,26 @@ watch(
   </div>
 </template>
 
+<!-- The one <style> block left in the app, and a deliberate exception to CLAUDE.md's
+     "utilities only" rule. Both escapes the rule offers were measured and rejected:
+
+     * The THEME route does not work here. `cell-in` / `strip-in` are referenced from the
+       descendant selectors below, not from an `animate-*` utility on an element — and Tailwind
+       drops an `@theme` keyframes block that no utility mentions (verified: an unused one emits
+       nothing at all). Moving them there would silently stop the FLIP cross-fade, with no error
+       and no failing test.
+     * The GLOBAL-STYLESHEET route needs renames to be safe. `.grid` and `.stage` are generic
+       enough that `.grid` already exists in three other components, so lifting these out of
+       scope invites collisions.
+
+     What is actually being expressed is the grid's layout state machine — three modes (tiled /
+     zoomed+roster / zoomed+strip) applied to `.grid > *`, which are the Teleport-ed cell
+     components. This component does not own their markup, so making these utilities would mean
+     handing grid-layout state to CommandCell, LauncherCell and TerminalCell individually.
+
+     The off-screen box in list mode (`left: -99999px` at a real 900x600) is load-bearing, not
+     cosmetic: it keeps the non-expanded cells mounted with a measurable size so xterm never fits
+     itself to zero. See #1125. -->
 <style scoped>
 .stage {
   height: 100%;

@@ -2,6 +2,12 @@ import { computed } from "vue";
 import { isBackground, isUnread, matchesFilter, type Session, type Filter } from "./useSessions";
 import type { TerminalAgent } from "../../common/sessionAgent";
 
+// The "Claude is working" ring both layouts show, as utilities rather than a `.spinner` rule in
+// each component's <style> — which is how the two ended up defining the same class name with
+// different values. `animate-spin` is Tailwind's own (1s, was a hand-rolled 0.9s keyframes here);
+// the layouts add their own margin/alignment, which is all they ever differed by.
+export const SESSION_SPINNER = "size-2.5 rounded-full border-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] border-t-[var(--accent)] animate-spin";
+
 // The event contract App.vue wires to both session-list layouts (the vertical
 // Sidebar and the horizontal SessionTabBar); v-model:filter drives update:filter.
 export type SessionListEmits = {
