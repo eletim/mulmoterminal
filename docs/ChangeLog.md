@@ -4,6 +4,233 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.8.0 — 2026-07-30
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.8.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.8.0.html))
+
+A feature release. **Antigravity joins Claude and Codex as a third agent**, an empty cell can open
+your own shell with nothing installed and nothing configured, and a screenshot pastes straight into
+the terminal. The fix worth upgrading for is the terminal that came back with its **right side and
+bottom blank** and stayed that way through a reload.
+
+### Antigravity (`agy`) is a third first-class agent (#1095, part of #236)
+
+Antigravity now has everything Claude and Codex have: its own WebSocket (`/ws/antigravity`),
+conversation resume across a reload, the GUI panel over MCP, and a place in every agent picker — the
+single view, grid cells, the sidebar and tab bar, and the Collections browser. Spawned as `agy`, with
+`ANTIGRAVITY_BIN` / `ANTIGRAVITY_MODEL` / `ANTIGRAVITY_HOME` to override. Like Codex it mints its own
+conversation id, so a watcher over `~/.gemini/antigravity-cli/brain/` claims the new conversation
+directory — attributed only when unambiguous — which is what lets a cold reconnect run
+`agy --conversation <id>`.
+
+**The GUI MCP registration works differently**, because `agy` takes no MCP flag: it reads its servers
+from a file, and the only project-scoped file it reads is `.agents/mcp_config.json`, which is per
+**directory** and shared by every session running there. So the registration is written from the
+directory's Canvas switches (the same switches Claude's cells read — `infra/gui-mcp-registration.ts`
+stays the only registry) and rewritten whenever a switch flips or an agy session starts. The tool
+group rides the entry's own `env` because it is a property of the directory; the **session id is
+not**, so it is never written to disk — it reaches the bridge through the spawned process's
+environment only. Servers in that file that MulmoTerminal did not write are left alone, the file is
+removed once no group is on, and it is kept out of your `git status` via `.git/info/exclude` rather
+than your `.gitignore` — the same reasoning as `claude mcp add -s local`.
+
+### Tool Call History works for Codex and Antigravity (#1101)
+
+The tools pane's **Tool Call History** had exactly one writer: `POST /api/hook`, driven by the
+`Pre/PostToolUse` settings that only `claude` carries. Codex has no hook mechanism and neither does
+agy, so for those two the history stayed empty however much they did — while **Available Tools**
+directly above it filled up normally, because that half comes from broker registration. Half-alive
+reads as broken rather than as missing.
+
+The broker is the one place their work reaches us: every GUI tool call arrives at
+`/api/mcp/:sessionId`. It now records start and end around the dispatch, and the existing store,
+channel and pane render it unchanged. A **refused** tool (one outside the URL's group) is recorded as
+failed — precisely what someone reading the history is looking for — and a failed dispatch closes its
+entry rather than leaving `running…` for the life of the session. Recording is fire-and-forget: an
+agent waiting on `presentDocument` must not also wait on our history write.
+
+This is a **partial** history — their Bash, their edits and their other MCP servers never touch us —
+so the pane says which kind it is showing, computed from the same predicate as the gate, so the
+disclaimer and the history can never disagree. Claude keeps using hooks; recording it in the broker
+too would list every GUI call twice, and not as duplicates anything could collapse.
+
+### Paste a screenshot into the terminal (#939, closes #938)
+
+Pasting an image into a terminal saves it to that session's drop directory and inserts the **absolute
+path** at the cursor (it does not send). It works in **every** browser including Chrome, because the
+clipboard carries the bytes and no browser has to disclose a path. Pasting text is unchanged — it
+goes to xterm as before.
+
+No new route and no new store: the upload goes through `POST /api/session/:id/drop` from 2.7.0
+(#1055), since a clipboard image is a `File` without a path, which is exactly what that route already
+takes. The size cap (110 MiB), the destination, the `--add-dir` grant and the cleanup are all
+**identical to a drop**. The paste is intercepted in the capture phase only when there is a savable
+image **and** no `text/plain` — so copying from a web page, which stacks HTML and an image together,
+still pastes as text.
+
+Two related fixes came with it: paste no longer goes dead on **Windows + Chrome**, and the inserted
+text now ends with a **space** — pasting twice in a row used to produce `path1path2`, one word
+pointing at neither file. That last one also affects drag-and-drop and the file button, by design.
+
+### Settings launches the skill that writes each setting (#1113, closes #1111)
+
+Settings only ever shows the settings it *has* a control for, so anything configured by file reads as
+**something the app cannot do**. Theme offered four fixed choices with no hint that `themes` can add
+more; Keyboard shortcuts was read-only, with `/mulmoterminal-keys` mentioned in body text; Directory
+settings displayed keys the validator had **dropped** without connecting you to the way to fix them.
+
+Four sections gained a full-width button, and `-dirs`' existing one moved onto the same path: Theme →
+`mulmoterminal-theme`, Directory appearance → `mulmoterminal-dirs`, Directory settings →
+`mulmoterminal-config` (audit), Notification sounds → `mulmoterminal-notify`, Keyboard shortcuts →
+`mulmoterminal-keys`. The emit is now `launch-skill(skill: BundledSkillName)` rather than one event
+per skill, so adding a button needs no change in the shell.
+
+Pressing one **from the grid no longer throws you into the single view** — the rule is symmetrical
+now: you get a cell in the screen you pressed from. When the grid is full (81 cells) the spawned chat
+is shown in the single view instead of being silently dropped, decided from `insertCellAfter`'s own
+return value rather than a count taken beforehand.
+
+### The config skills split into a router and six writers (#1104, closes #1103)
+
+`mulmoterminal-config` was one 558-line, 31,668-character skill, so wanting to change a colour loaded
+all of it, and a single 1,590-character `description` had to win every trigger — which meant it was
+the only one that ever could. It is now a **router plus six writers**: `-dirs` (per-directory colours,
+`orderPriority`, name, font size), `-theme` (global custom colour schemes), `-header` (buttons and
+chips, global and per-directory, with the merge rules), `-keys` (`keymap`, `send`, `copyOnSelect`,
+`terminalSubmit`), `-model` (providers, per-directory provider/model), `-notify` (`soundKinds`,
+`sounds`, `pushKinds`). The router keeps the audit — reading your real config and naming the keys
+validation dropped.
+
+A single read is now at most 12,934 characters. It also picked up settings that are in real use and
+had **not one line** in the old skill: `themes`, global `buttons` / `chips`, and `soundKinds` /
+`sounds`.
+
+### Launcher chips sit in `orderPriority` order (#1098, closes #1097)
+
+The launcher's directory chips were drawn in `cwdPresets` order, and that array is **MRU** — every
+launch moves an entry to the front, so the row rearranged itself constantly and no chip could be
+found by position. They now sort by each directory's `orderPriority` ascending, the rule the grid
+already uses, so **the side menu and the chips agree**. A directory without one keeps today's
+behaviour: after the ranked ones, relative order as stored.
+
+Display order only — the stored `cwdPresets` stays MRU, because `recordPreset`'s "skip the write if
+it is already first" and `sanitizePresets`' dedupe both depend on that. `UNSET_PRIORITY` /
+`cellPriority` moved out of `gridTabs.ts` into `src/components/dirPriorityOrder.ts` so both readers
+share one rule.
+
+### An empty cell can open your own shell, with nothing to configure (#1115, closes #1114)
+
+The launch row in an empty cell is now **Claude | Codex | Antigravity | Shell**. Pick Shell and the
+existing "Working directory + ▶" starts your OS default shell (`$SHELL`, else `/bin/sh`) there. No
+setting, no launcher entry, no install.
+
+Every part of this already existed — `/ws/launch?shell=1`, `DEFAULT_LAUNCH_CMD`, `CellLauncher`'s
+`{ shell: true }` — and a shell could be opened by shortcut, from a running cell's header, and from
+the phone. The **one** screen it could not be opened from was an empty cell, which is the first
+screen a new user sees. The model picker, the MCP toggles and the worktree box hide when Shell is
+selected, since a shell has none of them.
+
+### A terminal blank on its right and bottom, that a reload did not fix (#1116, for #957)
+
+Reported as "it goes like this and does not come back": text wrapping at about 77 columns inside a
+terminal about 136 columns wide, the rest of every line and the bottom rows empty. Measured from the
+screenshot, that is not a redraw that was missed — **tmux's window really was that size**. Which is
+why reloading did nothing: reattaching sends `term.resize()`, the kernel raises SIGWINCH **only when
+the size actually changes**, and every recovery path we had could do no more than re-send the size
+the PTY already had. Once the window drifted out of step with the client there was no path back.
+
+After a resize settles (250 ms debounce, one probe per burst), the server now asks tmux for the
+window size and compares it with the client's. On a mismatch it shrinks the PTY by one row and puts
+it back 50 ms later — a **real** size change, and the only one of three candidate repairs that was
+measured to work against a live desync. A probe that cannot be answered is treated as **no**
+mismatch, since a repair resizes a live session and must not act on an unreadable answer, and a gap
+the nudge cannot close is not retried forever. `status off` is now applied to live sessions too, not
+just via the conf: a status line eats a row, which would make every comparison read as a permanent
+mismatch.
+
+This is a **countermeasure, not a root-cause fix** — the only mechanism reproduced in the lab is a
+second client attaching to the same session — so #957 stays open. The repair does not depend on the
+mechanism.
+
+### The screen is redrawn after a reattach (#1099, for #1073)
+
+Coming back from a background tab could leave the terminal scrambled: text from different moments
+interleaved character by character, the bottom half empty. The replay is a **diff stream**, not a
+screen — `entry.buffer` is the trailing 1 MiB of tmux output, so a fresh terminal only reconstructs
+the cells that **changed inside that window**, and in a TUI that is the normal state, not an edge
+case: Claude Code draws a conversation line once and never touches it again while spending megabytes
+rewriting one status row.
+
+Two things used to hide this, and neither holds any more: a PTY resize forced tmux to redraw
+everything (but reattaching at the **same** size sends nothing), and the normal buffer reflows (but
+the **alternate** buffer does not). So after a reattach the server now asks tmux to repaint the whole
+pane (`list-clients` → `refresh-client`), on the first `resize` frame after the reattach — that frame
+is what carries the client's settled geometry, and the client always sends one on `onopen`.
+
+### `GET /api/remote-host/status` and `/api/google/status` stop returning 403 (#1100, closes #1094)
+
+With `MULMOTERMINAL_HOST=0.0.0.0` and `MULMOTERMINAL_ALLOWED_ORIGINS` set, a browser on the LAN could
+load the page, run terminals and POST — but those **two GETs** returned 403 forever. The exclusion
+that keeps safe methods from being origin-checked lived **only in the middleware**, and a route with
+its own guard calls the predicate directly, so it never saw it. Browsers do not send `Origin` on a
+same-origin GET, so a guard sitting on a GET has nothing to do but reject an honest page. The only
+thing special about those two was that they were GETs; the other ten happened to be POSTs.
+
+`requestOriginAllowed(req, isAllowedOrigin)` now lives in `same-origin-guard.ts`, all twelve Express
+guards go through it, and `sameOriginGuard` itself calls the same function — one expression of the
+rule. Behaviour changes for those two GETs only. This is also the shape the reference host uses:
+MulmoClaude's `csrfVerdict` returns `ALLOW` for safe methods before looking at origin or peer.
+
+### A running launcher chip is visible again, whatever colour the directory is (#1107, closes #1106)
+
+Two independent facts were using the **same channel at the same strength**: which directory a chip is
+(configured colour, border 55% / wash 14%) and whether a session is running there (blue, border 55% /
+wash 14%). That read correctly only while few directories were coloured — and #1103's
+`mulmoterminal-dirs` skill made colouring all of them a one-step job. Then a tint meant nothing, a
+blue-ish directory looked running while idle, and the 6px dot that was the only distinct marker
+disappeared on a blue chip.
+
+One meaning per channel now: **hue on the leading stripe** says which directory, **background,
+border and a pulse** say running. An idle chip has no background whatever its colour, and the stripe
+carries the colour (8px, replacing the dot). `motion-reduce` drops the pulse — background, border and
+dot still say running, so the signal is redundant rather than resting on animation.
+
+### Your session note reaches the cockpit roster and the phone (#1108, #1112, closes #1105, #1110)
+
+The note added in 2.7.0 was missing from **the cockpit roster** when a cell is zoomed: the server was
+returning `memo` from `GET /api/session/:id` and the client's `mergeSessionMeta()` was dropping it. It
+now sits above the roster row's summary. The cell header and the sidebar were already right.
+
+On the phone it was the mirror image — the note named the session in the **list** but the opened
+session's header fell back to the AI summary. `getTerminalScreen`'s response gained `memo?: string`,
+fed from the same store. It is an **addition** to the wire shape and changes no existing field, so a
+session with no note produces a byte-identical response. It appears on the phone once
+receptron/mulmoserver#122 ships; shipping this side first is safe because the phone ignores fields it
+was not taught.
+
+### The Windows daily build is green again (#1109)
+
+`test/server/session/pty-spawn-env.spec.ts` passed a literal `"/tmp"` as cwd. Since #1078 `ptySpawn`
+stats the cwd before spawning and refuses a directory that does not exist, so on Windows — where
+`/tmp` is not a directory — it raised `SpawnCwdError`. macOS and Linux CI stayed green, and only the
+Windows daily job saw it. Now `process.cwd()`, which is a directory on every platform. Test-only; the
+product code was correct.
+
+### Docs (#1092, #1093, #1102)
+
+- **One searchable line** across README, npm and the docs site (#1093). The npm description still
+  described v1 (no parallelism, no Codex) and the keyword list was missing `codex`; the repo's
+  GitHub description, topics and homepage were **empty** and are now set. The line — "Run multiple
+  Claude Code and Codex sessions in parallel — a browser terminal grid that shows which agent needs
+  you" — is built from vocabulary four interviewed users and two unsolicited posts actually used.
+- **Update announcements** now have a route from the README and both guides (#1092): new releases and
+  features are posted **in Japanese** on X by [Singularity Society](https://x.com/SingularitySoci).
+  The English guide says so explicitly, so nobody follows the link expecting English.
+- **Four environment variables that exist and were documented nowhere** (#1102), found by diffing
+  what the code reads from `process.env` against what the docs mention: added to the README and both
+  guides. Also fixed a `MULMOTERMINAL_HOME` row in the Japanese guide that had been orphaned below
+  the table it belongs to.
+
 ## mulmoterminal@2.7.0 — 2026-07-29
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.7.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.7.0.html))
