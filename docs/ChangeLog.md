@@ -4,6 +4,56 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@2.9.1 — 2026-07-31
+
+> **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.9.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.9.1.html))
+
+A fix-only release, both fixes in the **rate-limit readout**. A user running Claude and Codex
+together reported that Codex usage never appeared and that Claude's 5h window had no data. Both
+halves of that report turn out to be one display bug, plus a second bug that keeps the check stuck.
+
+### The figure beside `claude usage n/a` was Codex's, drawn with no mark (#1161, #1162)
+
+`claude usage n/a | 7d 71%` — that `71%` was **Codex's** seven-day window. The note only appears
+when Claude has no window to show, so the neighbouring number cannot be Claude's; but the mark that
+says which tool a set of figures belongs to was drawn only when **both** tools reported numbers,
+which is exactly what the note rules out. In the one case where the mark was needed it was
+structurally guaranteed to be absent, and the line read as "Claude's 7d is 71%, only the 5h is
+missing".
+
+The note and the marks are now decided by a single `rateLimitReadout()` that returns both, so a
+caller cannot derive them separately and reintroduce the same mismatch. A row with only one tool on
+it still gets no mark.
+
+Also confirmed while investigating: current Codex reports a **7d window only**, no 5h, across every
+rollout on disk. That is upstream behaviour and was not changed.
+
+### A status line from before the first API response was read as "API-key billing" (#1161, #1162)
+
+Claude Code emits its first status line before the session's first API response, and at that point
+`rate_limits` does not exist yet. The store took that window-less report as proof the account has no
+windows — which it surfaces as API-key billing — and counted the probe as *answered*.
+
+So when a probe did not finish (trust prompt, slow start, expired login, already rate-limited), the
+tooltip explained the missing figures with the **wrong reason**, the failure was never counted, and
+the retry stayed pinned to the flat one-hour schedule for `no-windows` instead of the exponential
+backoff for a check that got no answer. Every attempt repeated the same path, so the readout stayed
+`n/a` indefinitely.
+
+`hadApiResponse()` now distinguishes the two using `cost.total_api_duration_ms` (measured against
+Claude Code 2.1.220 on a real PTY: `0` with no `rate_limits` before the response, `2769` with both
+windows after). A pre-response status line moves neither the state nor `lastStatusLineAt_ms`, so a
+probe that dies quietly lands on the correct `no-report` backoff. Where the field is missing or
+unreadable the answer falls back to `false` — concluding nothing from an absent window — because a
+wrong `false` only slows a retry, while a wrong `true` is this bug again.
+
+`report(agent, …)` was split into `reportCodex` / `reportClaudeStatus` so no argument can route
+around the Claude-side check.
+
+### Also in this release
+
+- A launch plan for the project was added under `plans/` (#1159). Nothing user-facing.
+
 ## mulmoterminal@2.9.0 — 2026-07-31
 
 > **Setup guide:** [What changed in this release](https://receptron.github.io/mulmoterminal/guide/en/v2.9.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v2.9.0.html))

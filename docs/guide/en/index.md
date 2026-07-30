@@ -8,7 +8,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
-> **[What's new in 2.9.0](v2.9.0.html)** — a row stuck on a permission prompt no longer looks like one that merely finished, the toolbar says when the browser is blocking your attention sound, and an Antigravity conversation survives a restart (as of 2026-07-31)
+> **[What's new in 2.9.1](v2.9.1.html)** — the rate-limit readout no longer shows Codex's figure unmarked next to `claude usage n/a`, and no longer decides "API-key billing" from a status line that arrived before Claude answered (as of 2026-07-31)
 >
 > **Update announcements** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci).
 >
