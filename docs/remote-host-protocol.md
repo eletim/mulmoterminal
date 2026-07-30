@@ -82,11 +82,19 @@ was never a cell are excluded, even while live.
   quickCommands: { label, text }[];   // the user's saved phrases for THIS session (#830)
   cwd?: string;              // ─┐
   branch?: string;           //  │ absent when the host cannot answer —
-  summary?: string;          //  │ see "absent vs empty" below (#786)
+  memo?: string;             //  │ see "absent vs empty" below (#786)
+  summary?: string;          //  │
   prompt?: string;           //  │
   githubUrl?: string;        // ─┘ the repository ROOT, never /tree/<branch> (#832)
 }
 ```
+
+**`memo` and `summary` are two different sentences, not two spellings of one** (#1110). `memo` is
+the one line the user typed about the session (#1084); `summary` is what the AI called it. The
+picker's `title` carries the memo *instead of* the AI title because a row there is a single line
+and the user's words win — but a header has room for both, so here they arrive as their own fields
+and the memo is drawn above. Putting a handwritten note into a row labelled as the AI's summary
+would mislabel it.
 
 ## The rules that keep coming up
 
