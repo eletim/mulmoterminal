@@ -82,7 +82,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | **Web Push notifications** | 「Notify my devices when a task finishes」トグル（既定 OFF → [スマホ通知](notifications.html)） |
 | **Google account** | Calendar 連携用の Google サインイン（RemoteHost の Connect とは別物） |
 | **Pull request repos** | 横断 PR/Issue ビューが集約するリポ（`owner/repo`） |
-| **Launch commands** | グリッドセルで Claude 以外に起動できるコマンド（`{ label, command }`） |
+| **Launch commands** | グリッドセルでエージェント以外に起動できるコマンド（`{ label, command }`）。素のシェルは登録不要 — ランチャの **Shell** トグルが無設定で `$SHELL` を開く |
 | **Phone quick commands** | **スマホ**のターミナル表示にチップとして並ぶ定型文。タップで入力欄に入るだけで、送信は送信ボタンを押したとき（`quickCommands`） |
 | **MCP servers** | 単一ビューのセッションに追加する自分の MCP サーバ |
 | **Cost (estimated)** | Session / Today / Month の推定コスト表示 |
@@ -1174,8 +1174,8 @@ Merged in #983. Work done in `mulmoterminal5`.
     { "label": "acme-api", "path": "/Users/you/projects/acme-api" }
   ],
   "launchers": [
-    { "label": "Shell", "command": "$SHELL" },
-    { "label": "Node REPL", "command": "node" }
+    { "label": "Node REPL", "command": "node" },
+    { "label": "htop", "command": "htop" }
   ],
   "quickCommands": [
     { "label": "PR", "text": "PR作って", "agents": ["claude"] },
@@ -1191,7 +1191,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 | キー | 役割 |
 |---|---|
 | `cwdPresets` | ランチャに並ぶ作業ディレクトリのチップ（`{ label, path }`。クリックで欄に入力、再生アイコンで即起動）。並び順は各ディレクトリの [`orderPriority`](#order-priority) 順で、未設定のものはその後ろに最後に起動した順で続く |
-| `launchers` | グリッドセルの「OR LAUNCH」に並ぶ起動コマンド |
+| `launchers` | グリッドセルの「OR LAUNCH」に並ぶ起動コマンド。自分で足したものだけ — 素のシェルはランチャの **Shell** トグルが担当 |
 | `quickCommands` | **スマホ**のターミナル表示にチップとして並ぶ定型文（`{ label, text, agents? }`）。タップすると `text` が入力欄に入るだけで、**送信されるのは送信ボタンを押したとき**。`agents` で `"claude"` / `"codex"` / `"shell"` に絞れる（省略＝全種別）。設定画面の **Phone quick commands** で編集 |
 | `prRepos` | 横断 PR/Issue ビューの対象リポ |
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |

@@ -63,6 +63,7 @@ import { nextSortMode } from "./sortModeButton";
 import type { TerminalAgent } from "../../common/sessionAgent";
 import { usePubSub } from "../composables/usePubSub";
 import type { LaunchAgent } from "../../common/launchAgent";
+import type { LaunchPick } from "./launchers";
 
 // The multi-terminal grid view, shown at /terminals. Leaving the grid is just a
 // route push from the shared toolbar (Chat / Collections / a favorite), so there's
@@ -363,10 +364,9 @@ const onToggleExpand = (uid: number) =>
 const onRun = (uid: number, command: RunCommand) => (state.value = runCommand(state.value, uid, command));
 // A running cell's header Run menu: launch in a spare cell (next to it) so the session survives.
 const onRunSpare = (uid: number, command: RunCommand) => (state.value = runScriptInNewCell(state.value, uid, command));
-// The empty cell launcher picked a configured program (shell/codex/…): turn it into a
-// persistent launcher cell. Its session id arrives later via onSession.
-const onLaunch = (uid: number, pick: { index: number; label: string; cwd: string | null }) =>
-  (state.value = launchInCell(state.value, uid, { index: pick.index, label: pick.label }, pick.cwd));
+// The empty cell launcher picked a program — a configured launch command, or the OS default
+// shell: turn it into a persistent launcher cell. Its session id arrives later via onSession.
+const onLaunch = (uid: number, pick: LaunchPick) => (state.value = launchInCell(state.value, uid, pick.launcher, pick.cwd));
 const onMove = (uid: number, dir: -1 | 1) => (state.value = moveCell(state.value, uid, dir));
 const toggleSortMode = () => (state.value = setSortMode(state.value, nextSortMode(state.value.sortMode)));
 const switchTo = (page: number) => (state.value = switchPage(state.value, page));

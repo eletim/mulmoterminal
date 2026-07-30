@@ -399,8 +399,12 @@ today — **Claude Code** (the default), **Codex**, and **Antigravity** (`agy`).
   binary rather than an npm package, so the sandbox image has nothing to install.
 
 **Choosing an agent.** The single view has a **New Codex session** button; each grid
-cell's launch form and the Collections browser carry a **Claude / Codex / Antigravity**
-toggle (your choice is remembered).
+cell's launch form carries a **Claude / Codex / Antigravity / Shell** toggle, and the
+Collections browser a **Claude / Codex / Antigravity** one (your choice is remembered).
+**Shell** is not an agent: it runs your OS default shell (`$SHELL`, or `/bin/sh`) in the
+chosen directory, with nothing to install and nothing to configure. It starts a launcher
+cell, so it has no model, no MCP registration, and no worktree — those rows disappear
+while it is picked.
 
 **Other models.**
 Claude Code can run against any **Anthropic-compatible** backend (OpenRouter, Moonshot, a
@@ -564,7 +568,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
 | `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
 | `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates (via your `gh` login). |
-| `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides Claude — a plain shell, `codex`, any interactive command. |
+| `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides the agents — any interactive command. A plain shell needs no entry: the launch form's **Shell** toggle opens `$SHELL` unconfigured. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
 | `userMcpServers` | `{ id, url }` HTTP MCP servers merged into the **single-view** Claude session's `--mcp-config` (a `localhost` URL is reached over `host.docker.internal` in the Docker sandbox). Takes effect on the next session. |
 | `buttons`    | Header action buttons — see [Header buttons](#header-buttons). Omit to keep the defaults; set to replace them. |
@@ -792,8 +796,9 @@ alongside the Claude sessions. Scripts are **per-directory**: the cell reads the
 different projects' scripts.
 
 The same launcher also has an **or launch** row for your configured **launch commands**
-— a plain interactive shell, `codex`, any command — set in Settings (⚙) → **Launch
-commands** as `{ label, command }` (e.g. `Shell` → `$SHELL`, `Codex` → `codex`). Unlike
+— any interactive command — set in Settings (⚙) → **Launch commands** as
+`{ label, command }` (e.g. `htop` → `htop`, `Codex` → `codex`). A plain shell needs no
+entry here: the launch form's **Shell** toggle already opens `$SHELL`. Unlike
 a one-shot script, a launcher runs as a **persistent terminal in the cell's directory**:
 it survives grid page switches and reconnects, and its dot shows running vs. exited (it
 has no Claude hooks, so no blocked/done states).
@@ -938,7 +943,7 @@ repo without colliding. Worktrees live under `~/.mulmoterminal/worktrees/` (over
 
 ![An empty cell's launch form — choose the agent, working directory, or a worktree](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-launch-form.png)
 
-*Every empty grid cell shows this launch form: toggle **Claude / Codex**, type a **working directory** (frequent ones autocomplete from your presets), or — in a git repo — name a task under **OR ISOLATE IN A WORKTREE** and hit **＋ New worktree** to start the agent on its own isolated branch. **OR LAUNCH** starts a plain shell or any launch command instead.*
+*Every empty grid cell shows this launch form: toggle **Claude / Codex / Antigravity / Shell**, type a **working directory** (frequent ones autocomplete from your presets), or — in a git repo — name a task under **OR ISOLATE IN A WORKTREE** and hit **＋ New worktree** to start the agent on its own isolated branch. **Shell** runs your OS default shell there instead of an agent; **OR LAUNCH** runs one of your configured launch commands.*
 
 A worktree cell's header carries a **diff badge** (`+<commits> ●<dirty>`); click it for a
 **Changes vs `<base>`** panel (file list + patch) with actions:

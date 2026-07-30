@@ -14,6 +14,8 @@ import { isCellContext, isCellUsage, type CellContext, type CellUsage } from "./
 import { TOOL_GROUPS, TOOL_GROUP_HEADINGS, toolGroupServerId, toolsInGroup, type ToolGroup } from "../../common/toolGroups";
 import { queueMcpWrite } from "./mcpWriteQueue";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
+import type { LaunchAgent } from "../../common/launchAgent";
+import { LAUNCH_TARGETS } from "./launchTargets";
 import { unsavedWork } from "./unsavedWork";
 import { relativeTime as relativeTimeFrom, usageBadge } from "./cellDisplay";
 import { applyActivityPush, cellHeaderText } from "./cellActivity";
@@ -32,7 +34,7 @@ import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
-import { activityStatus, type CellStatus } from "./gridTabs";
+import { activityStatus, shellLauncher, type CellStatus } from "./gridTabs";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import {
@@ -113,9 +115,19 @@ const emit = defineEmits<
 // starts empty and lazy-launches when the user picks a dir and clicks Start.
 const launched = ref(props.initialSessionId !== null);
 const sessionId = ref<string | null>(props.initialSessionId);
+// What the launch form's selector will start here. "shell" is the OS default shell, which is a
+// LAUNCHER, not an agent: the parent replaces this cell with a launcher cell, so it never becomes
+// the `agent` below.
+const launchTarget = ref<LaunchAgent>(asTerminalAgent(props.initialAgent));
 // The agent this cell runs (Claude by default). Fixed once launched; restored from the
 // persisted cell on reload so a codex / antigravity cell reconnects to its WS endpoint.
-const agent = ref<TerminalAgent>(asTerminalAgent(props.initialAgent));
+// Derived from the selector so ONE pick drives both — two refs holding the same choice is the
+// kind of pair that drifts. asTerminalAgent maps "shell" to claude, which nothing reads: a shell
+// launch leaves this cell instead of running in it.
+const agent = computed<TerminalAgent>(() => asTerminalAgent(launchTarget.value));
+// The agent-only parts of the launch form: a shell takes no model, registers no MCP servers, and
+// is not what the worktree row starts.
+const launchesAgent = computed(() => launchTarget.value !== "shell");
 const connectKey = ref(0);
 
 // The directory this terminal runs in (shown in the header, sent to the server).
@@ -398,22 +410,30 @@ function launchIn(dir: string | null) {
 // life of the cell so a relaunch in the same cell repeats the choice.
 const launchChoice = ref<LaunchChoice | null>(null);
 
+// Start what the selector picked, in `dir`. EVERY launch in this form goes through here: the
+// selector decides for the dir field, for a preset chip, and for a worktree alike, and a rule
+// that has to hold at three call sites belongs in one of them.
+function startTarget(dir: string | null) {
+  if (launchTarget.value === "shell") emit("launch", { launcher: shellLauncher(), cwd: dir });
+  else launchIn(dir);
+}
+
 function launch() {
-  launchIn(dirInput.value.trim() || props.defaultCwd);
+  startTarget(dirInput.value.trim() || props.defaultCwd);
 }
 
 // Launch a configured program (shell/codex/…) in this cell's chosen dir. The parent
 // turns the empty cell into a persistent launcher cell (index is the server allowlist
 // position); this cell is then replaced by a LauncherCell.
 function launchProgram(index: number, l: Launcher) {
-  emit("launch", { index, label: l.label, cwd: dirInput.value.trim() || props.defaultCwd });
+  emit("launch", { launcher: { index, label: l.label }, cwd: dirInput.value.trim() || props.defaultCwd });
 }
 
 // The chip's launch button: a one-click quick launch — fill the field and jump straight
 // into a fresh session in that dir.
 function selectPreset(p: CwdPreset) {
   dirInput.value = p.path;
-  launchIn(p.path);
+  startTarget(p.path);
 }
 
 // A programmatic dir change (fillDir) loads the lists immediately, so the dirInput watch
@@ -670,7 +690,7 @@ async function loadWorktrees() {
   }
 }
 
-// Create a fresh worktree for the typed task and launch claude in it.
+// Create a fresh worktree for the typed task and start the selected agent in it.
 async function createWorktreeAndLaunch() {
   const repoDir = dirInput.value.trim() || props.defaultCwd;
   const task = worktreeTask.value.trim();
@@ -686,7 +706,7 @@ async function createWorktreeAndLaunch() {
     if (typeof wt.path === "string") {
       worktreeTask.value = "";
       await syncMcpGroupsInto(wt.path);
-      launchIn(wt.path);
+      startTarget(wt.path);
     }
   } catch {
     // best-effort — the launcher stays open so the user can retry
@@ -695,7 +715,7 @@ async function createWorktreeAndLaunch() {
 
 const reuseWorktree = async (w: Worktree) => {
   await syncMcpGroupsInto(w.path);
-  launchIn(w.path);
+  startTarget(w.path);
 };
 
 // Claude Code keys local-scope MCP config by the CLI's working directory, and a worktree launch
@@ -1814,36 +1834,26 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             </button>
           </span>
         </div>
-        <div class="inline-flex gap-0.5 self-start rounded-[7px] border border-border bg-deep p-0.5" role="radiogroup" aria-label="Agent">
+        <!-- Wraps rather than overflowing: four options do not fit one row in a narrow cell, and
+             the one that would fall off the edge is the last, Shell. -->
+        <div
+          class="inline-flex max-w-[360px] flex-wrap gap-0.5 self-start rounded-[7px] border border-border bg-deep p-0.5"
+          role="radiogroup"
+          aria-label="What this terminal runs"
+        >
           <button
+            v-for="t in LAUNCH_TARGETS"
+            :key="t.agent"
             type="button"
+            :data-testid="`cell-target-${t.agent}`"
             class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
-            :class="agent === 'claude' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
+            :class="launchTarget === t.agent ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
             role="radio"
-            :aria-checked="agent === 'claude'"
-            @click="agent = 'claude'"
+            :aria-checked="launchTarget === t.agent"
+            :title="t.title"
+            @click="launchTarget = t.agent"
           >
-            Claude
-          </button>
-          <button
-            type="button"
-            class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
-            :class="agent === 'codex' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
-            role="radio"
-            :aria-checked="agent === 'codex'"
-            @click="agent = 'codex'"
-          >
-            Codex
-          </button>
-          <button
-            type="button"
-            class="cursor-pointer rounded-[5px] border-none px-3.5 py-1 font-sans text-[12px] font-medium"
-            :class="agent === 'antigravity' ? 'bg-elevated text-fg' : 'bg-transparent text-dim hover:text-fg'"
-            role="radio"
-            :aria-checked="agent === 'antigravity'"
-            @click="agent = 'antigravity'"
-          >
-            Antigravity
+            {{ t.label }}
           </button>
         </div>
         <label class="flex w-full max-w-[360px] flex-col items-center gap-1.5">
@@ -1881,8 +1891,10 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             </button>
           </span>
         </label>
-        <!-- Codex has its own model configuration and doesn't read this one. -->
-        <ModelPicker v-if="agent === 'claude'" v-model="launchChoice" />
+        <!-- Codex has its own model configuration and doesn't read this one. Keyed on the SELECTOR,
+             not on `agent`: `agent` reads "claude" while Shell is picked (it has no agent), and a
+             model picker over a shell would offer a choice nothing acts on. -->
+        <ModelPicker v-if="launchTarget === 'claude'" v-model="launchChoice" />
         <!-- A GUI tool group is a per-DIRECTORY registration in Claude Code's own MCP config, not
              a per-launch choice — but it only takes effect when a session starts, so this is
              where it belongs: decided before the thing it configures exists.
@@ -1893,7 +1905,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              One row per group in TOOL_GROUPS, because one switch is one MCP server: render and
              media both draw but differ in what a call costs, and data and external do not draw at
              all — the split is exactly what the grouping exists for (common/toolGroups.ts). -->
-        <template v-if="mcpGroupDir">
+        <template v-if="mcpGroupDir && launchesAgent">
           <!-- The hover names the server id and its tools (mcpGroupTitle); it sits on the ROW so
                the text is reachable from the label as well as the box. -->
           <label v-for="group in TOOL_GROUPS" :key="group" class="flex w-full max-w-[360px] items-center justify-between gap-2" :title="mcpGroupTitle(group)">
@@ -1921,7 +1933,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
             </span>
           </label>
         </template>
-        <div v-if="isGitRepo" data-testid="cell-worktrees" class="flex w-full max-w-[360px] flex-col items-stretch gap-1.5">
+        <div v-if="isGitRepo && launchesAgent" data-testid="cell-worktrees" class="flex w-full max-w-[360px] flex-col items-stretch gap-1.5">
           <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or isolate in a worktree (git repo)</span>
           <div class="flex gap-1.5">
             <input
