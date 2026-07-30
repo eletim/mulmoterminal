@@ -16,6 +16,7 @@ import {
   runScriptInNewCell,
   insertCellAfter,
   shellCell,
+  sessionCell,
   launchInCell,
   canMoveCell,
   setSortMode,
@@ -633,6 +634,27 @@ describe("runScriptInNewCell (Run button → adjacent spare cell)", () => {
 describe("shellCell", () => {
   it("is a launcher cell for the OS default shell ($SHELL)", () => {
     expect(shellCell("/proj")).toEqual({ session: null, cwd: "/proj", launcher: { shell: true, label: "shell" } });
+  });
+});
+
+describe("sessionCell (adopting a session spawned elsewhere)", () => {
+  it("carries a non-Claude agent, so the cell reconnects on that agent's endpoint", () => {
+    expect(sessionCell("s1", "/proj", "codex")).toEqual({ session: "s1", cwd: "/proj", agent: "codex" });
+    expect(sessionCell("s2", "/proj", "antigravity")).toEqual({ session: "s2", cwd: "/proj", agent: "antigravity" });
+  });
+
+  // `toEqual` treats an explicit `agent: undefined` as equal to an absent key, so the invariant has
+  // to be asserted on the KEY. It matters: a persisted cell round-trips through JSON, where
+  // `undefined` disappears — but exactOptionalPropertyTypes also rejects it at the type level, and
+  // both would be satisfied by a shape that reads fine and is wrong.
+  it("writes no agent key at all for Claude, rather than an undefined one", () => {
+    const cell = sessionCell("s3", "/proj", "claude");
+    expect(cell).toEqual({ session: "s3", cwd: "/proj" });
+    expect("agent" in cell).toBe(false);
+  });
+
+  it("accepts a null cwd — the config may not have loaded when a session is adopted", () => {
+    expect(sessionCell("s4", null, "claude")).toEqual({ session: "s4", cwd: null });
   });
 });
 

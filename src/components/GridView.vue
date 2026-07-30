@@ -4,10 +4,9 @@ import TerminalGrid, { type CockpitRow } from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
 import GuideLinks from "./GuideLinks.vue";
-import { startCollectionChat } from "../composables/useChatLauncher";
+import { showSpawnedSession, startCollectionChat } from "../composables/useChatLauncher";
 import { skillSeed } from "./skillSeed";
-import { DIR_CONFIG_SKILL } from "../../common/bundledSkills";
-import { router } from "../router";
+import type { BundledSkillName } from "../../common/bundledSkills";
 import {
   initialState,
   addCell,
@@ -21,6 +20,7 @@ import {
   runScriptInNewCell,
   insertCellAfter,
   shellCell,
+  sessionCell,
   launchInCell,
   setSortMode,
   moveCell,
@@ -485,12 +485,28 @@ const adjacentCwd = (uid: number): string =>
   });
 useCaptureKeydown(onShortcutKey);
 
-// Launch the config skill in a new auto-running session and switch to the single view so it shows
-// (the grid has no single active session). The skill then asks which directory / batch.
-function configureAppearance() {
+// Launch a Settings skill in a new auto-running session and show it as a GRID CELL. The button was
+// pressed in the grid's own Settings, so answering it by switching to the single view reads as the
+// app losing your place — you came back to a different screen than the one you left.
+//
+// Spawned first, then adopted: the spawn route is the only way to seed a first turn (a plain claude
+// cell has no channel to be handed a prompt), and `hidden` is what stops useChatLauncher selecting
+// it in the single view — the switch being avoided. The cell attaches to the session it is given,
+// which is the same path a reload takes to reattach.
+async function launchSkill(skill: BundledSkillName) {
   closeSettings();
-  router.push({ name: "chat" });
-  void startCollectionChat(skillSeed(DIR_CONFIG_SKILL, "claude"));
+  const spawned = await startCollectionChat(skillSeed(skill, "claude"), { hidden: true });
+  if (!spawned) return;
+  // Seeded with the directory the server spawns these in (CLAUDE_CWD, which /api/config reports as
+  // `cwd`); the cell adopts whatever the PTY reports anyway. sessionCell carries the agent, which
+  // matters because a spawn follows the Claude/Codex/Antigravity toggle.
+  const placed = insertCellAfter(state.value, NO_ORIGIN_UID, sessionCell(spawned.id, defaultCwd.value, spawned.agent));
+  // A full grid (MAX_TERMINALS) drops the cell and insertCellAfter hands the state straight back,
+  // which would leave a live agent with nowhere here to appear — show it in the single view instead
+  // of losing it. Judged by identity AFTER the spawn, not by counting before it: the count can
+  // cross the cap while the spawn is in flight, and then the answer taken earlier is wrong.
+  if (placed === state.value) showSpawnedSession(spawned);
+  else state.value = placed;
 }
 </script>
 
@@ -553,6 +569,6 @@ function configureAppearance() {
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
       <GuideLinks />
     </footer>
-    <AppSettingsModal v-if="showSettings" :presets="presets" @configure-appearance="configureAppearance" @close="closeSettings" />
+    <AppSettingsModal v-if="showSettings" :presets="presets" @launch-skill="launchSkill" @close="closeSettings" />
   </div>
 </template>

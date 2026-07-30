@@ -82,9 +82,11 @@ Deliberate divergence is fine — say so in a comment with the reason, and flag 
 
 ## Bundled skills
 `server/skills/` ships skills to end users; they are mirrored to `~/.claude/skills/` and the Codex
-skills root. **`BUNDLED_SKILL_NAMES` in `server/infra/install-bundled-skills.ts` is what ships
-them** — adding a directory is not enough, and a directory nobody lists is copied nowhere with no
-error anywhere (a spec pins the two together).
+skills root. **`BUNDLED_SKILL_NAMES` in `common/bundledSkills.ts` is what ships them** — adding a
+directory is not enough, and a directory nobody lists is copied nowhere with no error anywhere (a
+spec pins the two together). It is in `common/` because the UI names skills too: each Settings
+section a skill can write ends in a `SkillLaunchButton`, whose `skill` prop is a `BundledSkillName`,
+so a slug naming nothing that ships is a type error rather than an agent that can't find it.
 
 `mulmoterminal-config` is the **entry point**: it routes to the skill that owns an area, and it
 reports on how things are configured now. The writing skills are `mulmoterminal-dirs` (per-project
@@ -96,6 +98,11 @@ push). Plus `mulmoterminal-bug-report` and `mulmoterminal-decisions`.
 skill — not the router, which must stay a table of contents. #1097 is the cautionary tale: it
 changed what `orderPriority` does, README and both guides were updated, and the one 558-line
 monolith that also documented it was missed.
+
+**A skill with a Settings section is launched from it, not just named in prose.** `-header` and
+`-model` have no section and so have no button. Give a new writing skill one, and say in the
+section's own copy what the skill does that the controls above it can't — a button that looks like
+a slower way to do what the UI already does is not pressed.
 
 ## Publishing a release
 
