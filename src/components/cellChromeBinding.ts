@@ -53,3 +53,22 @@ export function cellChromeBinding(
     },
   };
 }
+
+// The other half of the same idea, for CellShell: a non-agent cell forwards every event the shell
+// raises straight up to the grid, unchanged. One object so the two callers do not each re-spell
+// seven identical handlers — which is exactly what CellShell was extracted to stop.
+export type CellShellEvent = CellChromeEvent | "move";
+
+export function cellShellEvents(emit: {
+  (event: CellChromeEvent): void;
+  (event: "move", dir: -1 | 1): void;
+}): Record<CellChromeEvent, () => void> & { move: (dir: -1 | 1) => void } {
+  return {
+    "toggle-expand": () => emit("toggle-expand"),
+    "toggle-files": () => emit("toggle-files"),
+    "toggle-canvas": () => emit("toggle-canvas"),
+    "toggle-tools": () => emit("toggle-tools"),
+    close: () => emit("close"),
+    move: (dir: -1 | 1) => emit("move", dir),
+  };
+}
