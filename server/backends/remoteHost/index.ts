@@ -25,7 +25,7 @@ import { publish, clear, listFor } from "@mulmoclaude/core/notifier";
 
 import type { RunnerHealth } from "../../../common/remoteHostHealth.js";
 import { createHealthNotice } from "./healthNotice.js";
-import { createRemoteHostHandlers, type RemoteHostHandlerDeps } from "./handlers.js";
+import { createRemoteHostHandlers, type RemoteHostHandlerDeps } from "./handlers/index.js";
 import { createSaveAttachment } from "./attachmentStore.js";
 import { buildIngestAttachments } from "./ingestAttachments.js";
 import { onExpire } from "./onExpire.js";
