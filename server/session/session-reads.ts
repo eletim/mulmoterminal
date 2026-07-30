@@ -201,12 +201,8 @@ async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
 // 334-character reply — 1.9 seconds with the event loop stopped, every terminal in the app frozen.
 // Past ~512 MB the read could not complete at all (V8's maximum string length), so the button did
 // nothing. The last turn is in the last few lines either way, so the size of the file behind it
-// stopped mattering: the same read now costs 256 KB whatever the transcript weighs.
-//
-// `LAST_TURN_MAX_BYTES` / `tooLarge` are consequently dead as a limit. They stay for now because
-// `tooLarge` reaches the UI (useHandoff, codeBlockCopy) and removing a wire field is its own
-// change; nothing sets it any more.
-export const LAST_TURN_MAX_BYTES = 64 * 1024 * 1024;
+// stopped mattering: the same read now costs 256 KB whatever the transcript weighs. There is
+// consequently no size limit here at all, and no "too large" answer for a caller to handle.
 
 export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex" | "antigravity"): Promise<LastTurn> {
   if (agent === "codex") return codexLastTurn(id);
