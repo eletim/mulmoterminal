@@ -9,7 +9,7 @@ import type { RemoteHostHandlerDeps } from "./deps.js";
 
 type TerminalSessionDeps = Pick<
   RemoteHostHandlerDeps,
-  "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "launchTerminal"
+  "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "sessionAgent" | "launchTerminal"
 >;
 
 export const createTerminalSessionHandlers = ({
@@ -18,10 +18,11 @@ export const createTerminalSessionHandlers = ({
   writeToSession,
   canClearBox,
   submitSequence,
+  sessionAgent,
   launchTerminal,
 }: TerminalSessionDeps): CommandHandlers => {
   // One sender per host, so its per-session ordering actually spans every command.
-  const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence });
+  const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence, sessionAgent });
   return {
     listTerminalSessions: async () => toJsonObject({ sessions: await listTerminalSessions() }),
 

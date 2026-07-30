@@ -190,10 +190,10 @@
      above. Here rather than in the components because CLAUDE.md's styling rule sends the cases a
      utility genuinely cannot express to one global stylesheet, with the reason.
 
-     Two rule sets on purpose: .wiki-body is the full page (WikiPageView), .wiki-lint the compact
-     preview (WikiBrowseOverlay), and their heading rhythm differs. Whether that difference is
-     intended or drift is a product question, so the values are carried over EXACTLY as they were
-     in the two <style> blocks rather than unified here (see #1125). */
+     One rule set, because there is one surface: WikiProse renders both the page body and the
+     lint report. They used to be two containers whose heading rhythm had drifted apart — same
+     commit, same column width, same text size, no comment claiming a reason, and MulmoClaude
+     renders both through one WikiPageBody (#1125). */
   .wiki-body h1,
   .wiki-body h2,
   .wiki-body h3 {
@@ -230,17 +230,6 @@
     color: var(--accent);
     cursor: pointer;
     border-bottom: 1px dotted var(--accent);
-  }
-
-  .wiki-lint h1,
-  .wiki-lint h2 {
-    font-weight: 650;
-    margin: 1.2em 0 0.4em;
-  }
-  .wiki-lint code {
-    background: var(--bg-subtle);
-    padding: 0.1em 0.35em;
-    border-radius: 4px;
   }
 
   /* Project-wide icon convention: Material Symbols (outlined). Icons inherit the

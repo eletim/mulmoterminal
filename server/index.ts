@@ -710,6 +710,9 @@ initRemoteHostBackend({
   // session's agent — the mapping is Claude's binding, so a shell/codex session in the
   // picker keeps plain CR (same agent lookup as canClearBox above).
   submitSequence: (sessionId) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit()),
+  // Which agent the typed text is going to, for the completion-menu guard (#1142) — same lookup
+  // again, because that guard is Claude Code's behaviour and nobody else's.
+  sessionAgent: (sessionId) => ptys.get(sessionId)?.agent,
 });
 
 // Mount per-collection fs.watchers → completion bells via the notifier. After the

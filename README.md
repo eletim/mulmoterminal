@@ -1032,8 +1032,8 @@ your **own HTTP MCP servers** into the single-view session via Settings → `use
 **Wiki.** The toolbar **Wiki** button opens a read-only browser over `<workspace>/data/wiki/`
 — an **index** (tag-filterable page catalog), rendered **pages** with `[[wiki links]]` and
 backlinks, a **graph** view (pages ranked by references), and a **lint** report (orphans /
-broken links / tag drift). Read-only endpoints: `GET /api/wiki`, `/api/wiki/graph`,
-`/api/wiki/lint`.
+broken links / tag drift) whose `[[links]]` are clickable too. Read-only endpoints:
+`GET /api/wiki`, `/api/wiki/graph`, `/api/wiki/lint`.
 
 **Collections.** The toolbar **Collections** button browses the workspace's collection
 "cards" (`@mulmoclaude/collection-plugin`). Running a collection **action** fetches a seed
