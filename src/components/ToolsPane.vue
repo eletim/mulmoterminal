@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
-import { usePubSub } from "../composables/usePubSub";
-import { TOOL_GROUPS_CHANNEL } from "../toolGroupsChannel";
+import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
 
 // The tools pane mirrors MulmoClaude's right sidebar: an "Available Tools" list
 // (the GUI plugin tools, with collapsible descriptions) and a "Tool Call History"
@@ -86,17 +85,13 @@ watch(() => props.sessionId, loadAvailableTools, { immediate: true });
 // the pane — closing and reopening it, or switching cells — which is exactly the "No GUI plugin
 // tools enabled." a freshly started session showed.
 //
-// So re-ask when the server says that session's MCP client is up. The same channel and the same
-// reason as the grid's Canvas button and the GUI panel's tool hint — all three asked once at
-// mount, and all three were asking too early. Re-asking rather than reading the pushed `groups`:
-// the reply also carries the tool DESCRIPTIONS and `guiOnlyHistory`, which the push does not, and
-// the announcement for a single-view session carries no groups at all (see mcp-routes.ts).
-const { subscribe: subscribeToolGroups } = usePubSub();
-const offToolGroups = subscribeToolGroups(TOOL_GROUPS_CHANNEL, (data) => {
-  const msg = data as { sessionId?: string };
-  if (msg?.sessionId && msg.sessionId === props.sessionId) void loadAvailableTools(props.sessionId);
+// So re-ask when the server says that session's MCP client is up. Re-asking rather than reading the
+// pushed `groups`: the reply also carries the tool DESCRIPTIONS and `guiOnlyHistory`, which the push
+// does not, and the announcement for a single-view session carries no groups at all (see
+// mcp-routes.ts).
+onToolGroupsAnnounced((announcement) => {
+  if (announcement.sessionId === props.sessionId) void loadAvailableTools(props.sessionId);
 });
-onUnmounted(offToolGroups);
 
 function callKey(c: ToolCall, i: number): string {
   return c.toolUseId ?? `${c.toolName}-${i}`;

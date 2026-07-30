@@ -4,6 +4,7 @@ import DirBadge from "./DirBadge.vue";
 import { useCellChrome } from "../composables/useCellChrome";
 import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import { cellChromeBinding } from "./cellChromeBinding";
 import type { RunCommand } from "./runCommand";
 import { formatCwd } from "./cwdDisplay";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
@@ -49,6 +50,8 @@ const props = defineProps<
   }
 >();
 const emit = defineEmits<GridCellEmits>();
+
+const { chromeProps, chromeEvents } = cellChromeBinding(props, emit);
 
 // connectKey forces Terminal.vue to (re)connect — bumped to re-run after exit.
 const connectKey = ref(0);
@@ -198,17 +201,7 @@ function onHeaderClick(event: MouseEvent) {
           >
             <span class="material-symbols-outlined" aria-hidden="true">{{ summaryState === "loading" ? "more_horiz" : "auto_awesome" }}</span>
           </button>
-          <CellChromeButtons
-            :expanded="expanded"
-            :files-open="filesOpen"
-            :right-pane="rightPane"
-            :canvas-available="canvasAvailable"
-            @toggle-expand="emit('toggle-expand')"
-            @toggle-files="emit('toggle-files')"
-            @toggle-canvas="emit('toggle-canvas')"
-            @toggle-tools="emit('toggle-tools')"
-            @close="emit('close')"
-          />
+          <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
         </span>
       </div>
       <TerminalView

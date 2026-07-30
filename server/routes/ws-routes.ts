@@ -367,6 +367,24 @@ export function startAndWire(
   session.early.release(deliver);
 }
 
+// Tell the browser which session this is, and from that moment collect what it sends: its first
+// frame is the terminal's real geometry, and it arrives while the caller is still reading config
+// files, so without this it lands on the floor (see early-frames.ts).
+function announceSession(ws: WebSocket, sessionId: string, cwd: string): EarlyFrames<{ toString(): string }> {
+  ws.send(JSON.stringify({ type: "session", id: sessionId, cwd }));
+  return bufferEarlyFrames<{ toString(): string }>(ws);
+}
+
+// False when the client left during those reads — the caller must return WITHOUT spawning. A spawn
+// for a socket that has already closed leaks a pty nobody reaps, because the close handlers are not
+// installed until startAndWire.
+function clientStillConnected(ws: WebSocket, tag: string, sessionId: string, early: EarlyFrames<{ toString(): string }>): boolean {
+  if (ws.readyState === ws.OPEN) return true;
+  console.log(`[ws/${tag}] client left before spawn — abandoning ${sessionId}`);
+  early.discard();
+  return false;
+}
+
 // Launcher terminal (?launcher=<index>&cwd=<dir>, ?session=<id> to reattach): run a
 // configured launch command as a persistent, reattachable PTY. Reuses the /ws session
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
@@ -380,11 +398,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   if (!resolved) return closeWithError(ws, "Launcher not found — check Settings → Launch commands.");
   const { sessionId, live, command } = resolved;
   markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
-
-  // Same reason as the codex path below — the browser's first frame is the terminal's geometry
-  // and it arrives while this is still reading files.
-  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+  const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
 
   // A launcher that runs codex gets the directory's registered tool groups too. The chip and the
   // agent toggle land in the same cell and look the same, so a Canvas that lights up for one and
@@ -392,10 +406,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // other command is passed through untouched (see launcher-gui-mcp.ts).
   const groups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
   const launchCommand = launcherCommandWithGuiMcp(command, codexGuiMcpServers({ sessionId, port: PORT, groups, allTools: false }), process.platform);
-  if (ws.readyState !== ws.OPEN) {
-    console.log(`[ws/launch] client left before spawn — abandoning ${sessionId}`);
-    return early.discard();
-  }
+  if (!clientStillConnected(ws, "launch", sessionId, early)) return;
 
   // A launcher runs the user's own command line, so there is no binary pre-flight — but its cwd
   // is checked like every other spawn's, and that refusal is already a sentence.
@@ -412,24 +423,14 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
-
-  // The browser sends its first frame — the terminal's real geometry — as soon as the socket
-  // opens, and the read below is the first thing on this path that waits. Collected from here so
-  // that frame is replayed into the pty rather than dropped on the floor (see early-frames.ts).
-  const early = bufferEarlyFrames<{ toString(): string }>(ws);
+  const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
 
   // A grid cell's GUI tools are whatever its DIRECTORY registered — the same switches claude's
   // cells read, in the same file. claude picks them up itself; codex is handed resolved URLs at
   // spawn, so the answer has to be read here, before the pty exists. Only for a spawn: a reattach
   // keeps the tools its running process was started with.
   const mcpGroups = !attachGuiMcp && !live ? await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []) : [];
-  // Reading files can take a moment; a client that left in that window would leave a pty nobody
-  // reaps, because the close handlers below are not wired yet (same guard as the claude path).
-  if (ws.readyState !== ws.OPEN) {
-    console.log(`[ws/codex] client left before spawn — abandoning ${sessionId}`);
-    return early.discard();
-  }
+  if (!clientStillConnected(ws, "codex", sessionId, early)) return;
 
   const startFailureMessage = startFailureMessageFor("codex");
   startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage }, () =>
@@ -486,20 +487,14 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  ws.send(JSON.stringify({ type: "session", id: sessionId, cwd: live?.cwd ?? cwd }));
+  const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
 
-  // Collected from here because the read below waits, and the browser's first frame — the
-  // terminal's real geometry — arrives while it does (see early-frames.ts).
-  const early = bufferEarlyFrames<{ toString(): string }>(ws);
   // The directory's registered groups, read here because the lookup reads Claude Code's config
   // files and the spawner is sync. Only for a SPAWN: a reattach keeps the tools its running
   // process was started with, and rewriting the shared file on a reattach would speak for every
   // other session in the directory.
   const mcpGroups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
-  if (ws.readyState !== ws.OPEN) {
-    console.log(`[ws/antigravity] client left before spawn — abandoning ${sessionId}`);
-    return early.discard();
-  }
+  if (!clientStillConnected(ws, "antigravity", sessionId, early)) return;
   // The reattach goes THROUGH startAndWire like the spawn, not around it: reattachPty only swaps
   // the socket and replays the buffer, so returning early here left a reloaded terminal printing
   // output while ignoring every keystroke, and never detaching or reaping on close.

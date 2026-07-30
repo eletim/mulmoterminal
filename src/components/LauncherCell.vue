@@ -4,6 +4,7 @@ import DirBadge from "./DirBadge.vue";
 import { useCellChrome } from "../composables/useCellChrome";
 import TerminalView from "./Terminal.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import { cellChromeBinding } from "./cellChromeBinding";
 import { formatCwd } from "./cwdDisplay";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import { isShellLauncher, type CellLauncher } from "./gridTabs";
@@ -46,6 +47,8 @@ const emit = defineEmits<
     (e: "session", id: string): void;
   }
 >();
+
+const { chromeProps, chromeEvents } = cellChromeBinding(props, emit);
 
 // Clicking the header background zooms (switches to) this cell, except the already-
 // expanded one. Buttons keep their action.
@@ -103,17 +106,7 @@ function relaunch() {
           <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">
             <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
           </button>
-          <CellChromeButtons
-            :expanded="expanded"
-            :files-open="filesOpen"
-            :right-pane="rightPane"
-            :canvas-available="canvasAvailable"
-            @toggle-expand="emit('toggle-expand')"
-            @toggle-files="emit('toggle-files')"
-            @toggle-canvas="emit('toggle-canvas')"
-            @toggle-tools="emit('toggle-tools')"
-            @close="emit('close')"
-          />
+          <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
         </span>
       </div>
       <TerminalView

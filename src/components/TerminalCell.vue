@@ -32,6 +32,7 @@ import TimelineOverlay from "./TimelineOverlay.vue";
 import CopyCodeBlock from "./CopyCodeBlock.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import { cellChromeBinding } from "./cellChromeBinding";
 import type { CwdPreset } from "./presets";
 import type { Launcher, LaunchPick } from "./launchers";
 import { activityStatus, shellLauncher, type CellStatus } from "./gridTabs";
@@ -110,6 +111,9 @@ const emit = defineEmits<
     (e: "agent", value: TerminalAgent): void;
   }
 >();
+
+// `close` rather than a plain forward: this cell's may hold a live session, so it confirms first.
+const { chromeProps, chromeEvents } = cellChromeBinding(props, emit, () => void close());
 
 // A cell with a persisted session relaunches (resumes) on mount; otherwise it
 // starts empty and lazy-launches when the user picks a dir and clicks Start.
@@ -1327,17 +1331,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           @click="onHeaderClick"
         >
           <span class="cell-actions" :class="CELL_ACTIONS">
-            <CellChromeButtons
-              :expanded="expanded"
-              :files-open="filesOpen"
-              :right-pane="rightPane"
-              :canvas-available="canvasAvailable"
-              @toggle-expand="emit('toggle-expand')"
-              @toggle-files="emit('toggle-files')"
-              @toggle-canvas="emit('toggle-canvas')"
-              @toggle-tools="emit('toggle-tools')"
-              @close="close"
-            />
+            <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
           </span>
         </CockpitHeader>
         <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
@@ -1473,17 +1467,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              track, so they're always pinned top-right. `.stop` so they don't trigger the
              header's click-to-zoom. -->
           <span class="cell-actions" :class="CELL_ACTIONS">
-            <CellChromeButtons
-              :expanded="expanded"
-              :files-open="filesOpen"
-              :right-pane="rightPane"
-              :canvas-available="canvasAvailable"
-              @toggle-expand="emit('toggle-expand')"
-              @toggle-files="emit('toggle-files')"
-              @toggle-canvas="emit('toggle-canvas')"
-              @toggle-tools="emit('toggle-tools')"
-              @close="close"
-            />
+            <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
           </span>
         </div>
         <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />
