@@ -223,6 +223,41 @@ force the DOM renderer or observe effects (`window.open`, buffer state) instead 
     (another server, a stray `tmux attach`) and tmux orders them arbitrarily. The pty we spawned IS
     the tmux client, so its pid identifies ours.
 
+### A repaint is only worth as much as the window it repaints (#957)
+
+**tmux learns a client's size from `SIGWINCH`, and the kernel raises `SIGWINCH` only when the size
+actually CHANGES.** So re-sending the size the pty already holds is silent — and that is what every
+path in the app does: the browser's `ResizeObserver` re-fits to the same size, a reload re-attaches
+and sends it again from `sock.onopen`, and `tmuxRedrawClient` repaints faithfully at the size tmux
+still believes in. Once the window and its client disagree, **nothing in the product closes the
+gap**; only a real size change does, which is why resizing the browser window by hand was the
+known workaround.
+
+The screen this produces looks like a lost repaint but is not one: content in the top-left corner,
+blank columns to the right and blank rows below, the agent's input box gone. The tell is that a
+**reload does not fix it** — those cells were never written, because tmux's window really is that
+small. Measured off a report: content wrapping at ~77 columns inside a ~136-column terminal.
+
+Measured on tmux 3.6a against a live disagreement (client 120x40, window 80x24):
+
+| attempted repair | window after |
+|---|---|
+| re-send the size the pty already has | 80x24 — unchanged |
+| `refresh-client -t <our tty>` | 80x24 — unchanged |
+| resize the pty to 120x39, then back | **120x40 — repaired** |
+
+So `session/tmux-size-sync.ts` probes `#{window_width}x#{window_height}` once a resize burst
+settles and, on a disagreement, nudges the pty a row and back. **Do not reach for `resize-window`**
+— it works, and it switches that window to `window-size manual`, after which the window stops
+following its client for good.
+
+Two mechanisms are known to open the gap, and the nudge repairs both: a second client on the
+session (another server holding it, the overlap during a `yarn` restart — `window-size latest`
+sizes the window to *that* client, which reproduces the symptom exactly while it is attached), and
+a `SIGWINCH` that never lands. Which one the field reports came from is **not established**; the
+repair logs both sizes (`[tmux-size]`) so the next occurrence is attributable, and a `still-wrong`
+line means a third mechanism.
+
 ## The tmux passthrough rule
 
 **This is the single most important gotcha.** tmux only forwards a program's advanced terminal

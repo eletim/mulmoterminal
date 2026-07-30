@@ -7,6 +7,7 @@ import {
   parseTmuxEnvironment,
   parseAttachedClientCount,
   parseTmuxTerminalModes,
+  parseTmuxWindowSize,
   redrawTargets,
   planMsOverride,
   MS_OVERRIDE_ENTRY,
@@ -281,5 +282,23 @@ describe("redrawTargets", () => {
 
   it("ignores a line that carries no tty", () => {
     expect(redrawTargets(`${OUR_PID}\n${OUR_PID} /dev/ttys019\n`, OUR_PID)).toEqual(["/dev/ttys019"]);
+  });
+});
+
+describe("parseTmuxWindowSize", () => {
+  it("reads the pair tmux prints", () => {
+    expect(parseTmuxWindowSize("120x40\n")).toEqual({ cols: 120, rows: 40 });
+  });
+
+  // Every non-answer must read as "don't know", never as a disagreement: the caller RESIZES a
+  // live session on a disagreement, and tmux answers with an error line for a session that has
+  // gone (#957).
+  it("refuses anything that is not a pair of numbers", () => {
+    expect(parseTmuxWindowSize("")).toBeNull();
+    expect(parseTmuxWindowSize("can't find session: mt-x")).toBeNull();
+    expect(parseTmuxWindowSize("120x")).toBeNull();
+    expect(parseTmuxWindowSize("x40")).toBeNull();
+    expect(parseTmuxWindowSize("120x40x10")).toBeNull();
+    expect(parseTmuxWindowSize("-1x40")).toBeNull();
   });
 });

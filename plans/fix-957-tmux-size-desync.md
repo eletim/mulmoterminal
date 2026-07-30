@@ -1,0 +1,101 @@
+# fix #957: a tmux window that fell out of step with its client never recovers
+
+## Symptom
+
+The terminal shows content in the top-left corner and blank everywhere else — the right
+columns and the bottom rows are empty, and the agent's input box is gone. Reported as
+"リサイズ/リロード後にターミナルが真っ白になる" (#957); the field report that led here added
+the part the issue did not have: **a page reload does not fix it.** Typing still reaches the
+program.
+
+Measured off the reporter's screenshot: the content wraps at ~77 columns inside a terminal
+that is ~136 columns wide. So this is not a missing repaint of a correct buffer — the cells
+to the right and below were never written, because **tmux's window really is that small.**
+
+## Root cause
+
+tmux learns a client's size from `SIGWINCH`, and the kernel raises `SIGWINCH` only when the
+size actually **changes**. Every repair path we have re-sends the size the pty already holds,
+which is silent:
+
+- `Terminal.vue`'s `ResizeObserver` → `fitAndSyncSize` → `{type:"resize"}` → `term.resize()`
+- a reload re-attaches and sends the same size again from `sock.onopen`
+- `tmuxRedrawClient` (#1073) asks tmux to repaint — which it does, faithfully, at the size it
+  still believes in
+
+So once the window and the client disagree, nothing in the product closes the gap. Only a
+real size change does, which is why resizing the browser window by hand is the known
+workaround.
+
+### Measured (tmux 3.6a, isolated `-L mtprobe` server, two clients on one session)
+
+A live disagreement — our client is 120x40, the window is 80x24:
+
+| attempted repair | window after |
+|---|---|
+| re-send the size the pty already has (what a reload does) | 80x24 — unchanged |
+| `refresh-client -t <our tty>` (the #1073 fix) | 80x24 — unchanged |
+| resize the pty to 120x39, then back to 120x40 | **120x40 — repaired** |
+
+Also measured, and the reason `resize-window` is not the repair: it switches that window's
+`window-size` to `manual`, after which the window stops following the client for good.
+
+### Where the gap comes from
+
+Not established. Two mechanisms are known to produce it, and the fix repairs both:
+
+- a second client on the same tmux session (another mulmoterminal server holding it, the
+  overlap window during a `yarn` restart) — `window-size latest` sizes the window to that
+  client, and the measured probe reproduces the exact symptom while it is attached
+- a `SIGWINCH` that never lands (delivered while our tmux client is still starting up)
+
+The reporter's triggers — page reload, `yarn` restart, hot reload — are all paths that
+re-attach or re-spawn the pty, which is where both mechanisms live.
+
+## The fix
+
+Detect the disagreement and close it with a size change tmux cannot miss.
+
+1. `server/infra/tmux.ts` — ask tmux for `#{window_width}x#{window_height}`
+   (`tmuxWindowSize`, async so a settled browser resize across ten grid cells does not block
+   the event loop ten times), plus a pure parser for the test.
+2. `server/session/tmux-size-sync.ts` (new) — after a resize burst settles, compare tmux's
+   window against the size the client asked for. On a disagreement, shrink the pty by one row
+   and put it straight back, then re-check and warn if it did not take.
+3. `server/session/pty-connection.ts` — call it from the resize branch (tmux sessions only),
+   and cancel a pending check when the socket goes away.
+4. `server/index.ts` — wire the deps to `ptys` and `tmuxWindowSize`.
+5. `server/infra/tmux.ts` — set `status off` in `applyLiveTmuxOptions` too. It is already in
+   `CONF_FILE` for looks, but the comparison now DEPENDS on it: a status line reserves a row, so
+   `window_height` would sit one below the client's forever and every resize would read as a
+   disagreement. A tmux server that predates the conf keeps its status bar across node restarts.
+   Measured: with the status line on, `client=80x24` against `window=80x23`; `set -g status off`
+   on the running server closed it.
+
+Debounced, so a splitter drag or a window resize costs one probe, not one per frame. A size
+tmux cannot report is never treated as a disagreement — an unreadable answer must not nudge.
+
+## Why this is also the detector
+
+The repair logs (`console.warn`) with the two sizes. #957 has been stuck because the bug is
+rare and leaves no trace: this makes every occurrence attributable, and a repair that fires
+and does NOT close the gap says the mechanism is a third one we have not found.
+
+## Tests
+
+`test/server/session/tmux-size-sync.spec.ts` and the parser case in the tmux spec:
+
+- agreeing sizes → no nudge
+- disagreeing sizes → nudge to `rows - 1`, then back to `rows`
+- tmux cannot answer (null) → no nudge
+- a one-row terminal nudges UP (`rows + 1`), since it cannot shrink
+- several resize frames in a burst → one probe
+- cancelled before it settles → no probe
+- the re-check warns when the window still disagrees after the nudge
+- `parseTmuxWindowSize`: `"120x40"`, junk, empty
+
+## Not done
+
+Not reproduced end-to-end in the product, because the symptom cleared before the cause was
+pinned down. What is measured is that the disagreement produces exactly this screen and that
+the nudge is the only repair of the three that works.

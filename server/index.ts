@@ -26,6 +26,7 @@ import {
   tmuxCaptureStyledPane,
   tmuxTerminalModes,
   tmuxRedrawClient,
+  tmuxWindowSize,
 } from "./infra/tmux.js";
 import { sandboxEnabled, sandboxPlatformSupported, dockerAvailable, ensureSandboxImage } from "./infra/sandbox.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
@@ -52,6 +53,7 @@ import { createTitleManager } from "./session/session-title.js";
 import { generateTitleFromTurns } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
+import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
 import {
   activity,
@@ -214,6 +216,26 @@ let pubsub: ReturnType<typeof createPubSub> | null = null;
 // on-disk record) until the user opens it. This keeps `activity` from growing
 // unbounded while preserving the bold-until-viewed behavior.
 
+// Keeps tmux's window in step with the browser's terminal, which SIGWINCH alone does not
+// guarantee (session/tmux-size-sync.ts, #957).
+const tmuxSizeSync = createTmuxSizeSync({
+  windowSizeOf: (id) => tmuxWindowSize(id),
+  resizePty: (id, { cols, rows }) => {
+    try {
+      ptys.get(id)?.term.resize(cols, rows);
+    } catch (err) {
+      // The pty exited between the probe and the repair — the screen it would have fixed is gone.
+      console.warn(`[tmux-size] ${id}: resize dropped: ${messageOf(err)}`);
+    }
+  },
+  onEvent: (event) => {
+    const { id, wanted, seen } = event;
+    const gap = `tmux window ${seen.cols}x${seen.rows}, client ${wanted.cols}x${wanted.rows}`;
+    if (event.kind === "repairing") console.warn(`[tmux-size] ${id}: ${gap} — forcing a resize (#957)`);
+    else console.warn(`[tmux-size] ${id}: ${gap} AFTER the forced resize — the window did not follow (#957)`);
+  },
+});
+
 // Per-connection plumbing (session/pty-connection.ts). The reap decisions stay here —
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
@@ -223,6 +245,8 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   armReapForDetached: (id) => armReapForDetached(id),
   terminalModesOf: (id) => tmuxTerminalModes(id),
   redrawTerminal: (id, clientPid) => tmuxRedrawClient(id, clientPid),
+  checkTerminalSize: (id, size) => tmuxSizeSync.requestCheck(id, size),
+  cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
 });
 
 // Mirrors session activity into Firestore so the phone's terminal viewer can refresh

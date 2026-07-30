@@ -9,7 +9,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { isLauncherEnvVar } from "./pty-env.js";
-import { spawnCapture } from "./spawnCapture.js";
+import { spawnCapture, spawnCaptureAsync } from "./spawnCapture.js";
 import { splitLines } from "./split-lines.js";
 
 const SERVER_SOCKET = "mulmoterminal";
@@ -17,6 +17,7 @@ const SESSION_PREFIX = "mt-";
 const CONF_FILE = path.join(os.homedir(), ".mulmoterminal", "tmux.conf");
 
 const tmux = (args: string[]) => spawnCapture("tmux", ["-L", SERVER_SOCKET, ...args]);
+const tmuxAsync = (args: string[]) => spawnCaptureAsync("tmux", ["-L", SERVER_SOCKET, ...args]);
 
 let cachedAvailable: boolean | null = null;
 
@@ -131,6 +132,11 @@ export function planMsOverride(showStdout: string): MsOverridePlan {
 function applyLiveTmuxOptions(): void {
   tmux(["set", "-g", "mouse", "on"]);
   tmux(["set", "-g", "set-clipboard", "on"]);
+  // The status bar is off in CONF_FILE for looks, but the size check (session/tmux-size-sync.ts)
+  // now DEPENDS on it: a status line reserves a row, so `window_height` would sit one below the
+  // client's forever and every resize would read as a disagreement. A tmux server that predates
+  // the conf keeps its status bar across every node restart, so it has to be set live too.
+  tmux(["set", "-g", "status", "off"]);
   // Rebinding is idempotent, so this needs no "is it already ours?" check (unlike the
   // append-only overrides below). A tmux server started before this shipped keeps the
   // five-line jump until it is rebound here — it outlives every node restart.
@@ -368,6 +374,26 @@ export function tmuxRedrawClient(id: string, clientPid: number): void {
   const clients = tmux(["list-clients", "-t", tmuxSessionName(id), "-F", "#{client_pid} #{client_tty}"]);
   if (clients.status !== 0) return;
   redrawTargets(clients.stdout, clientPid).forEach((tty) => tmux(["refresh-client", "-t", tty]));
+}
+
+/** Parse `#{window_width}x#{window_height}`. Null for anything that isn't a pair of numbers —
+ *  a caller deciding "tmux disagrees with the client" must not read an unreadable answer as a
+ *  disagreement and start resizing on the strength of it. */
+export function parseTmuxWindowSize(stdout: string): { cols: number; rows: number } | null {
+  const pair = /^(\d+)x(\d+)$/.exec(stdout.trim());
+  return pair ? { cols: Number(pair[1]), rows: Number(pair[2]) } : null;
+}
+
+// How big tmux believes the window is. While things are in step this equals the attached
+// client's size — our conf turns the status line off, so no row is reserved — and a difference
+// means the client's SIGWINCH never landed. Nothing repaints its way out of that (see
+// session/tmux-size-sync.ts).
+//
+// Async, unlike its neighbours: a browser window resize settles every open grid cell at once, and
+// ten synchronous tmux spawns in a row would block the event loop for all of them.
+export async function tmuxWindowSize(id: string): Promise<{ cols: number; rows: number } | null> {
+  const r = await tmuxAsync(["display-message", "-p", "-t", tmuxSessionName(id), "#{window_width}x#{window_height}"]);
+  return r.status === 0 ? parseTmuxWindowSize(r.stdout) : null;
 }
 
 // Parse `#{session_attached}`. Its own function so the "unreadable means nobody" rule is
