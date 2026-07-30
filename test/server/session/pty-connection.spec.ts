@@ -58,6 +58,8 @@ function setup(terminalModes: readonly number[] = []) {
       return terminalModes;
     },
     redrawTerminal: (id, clientPid) => calls.push(`redraw:${id}:${clientPid}`),
+    checkTerminalSize: (id, { cols, rows }) => calls.push(`sizeCheck:${id}:${cols}x${rows}`),
+    cancelTerminalSizeCheck: (id) => calls.push(`sizeCheckCancel:${id}`),
   });
   return { ...handlers, calls };
 }
@@ -115,7 +117,29 @@ describe("handleClientFrame", () => {
     const s = fakeSocket();
     const entry = entryWith({ term: t.term as never, ws: s.ws as never, tmux: true });
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
-    expect(calls).toEqual([]);
+    expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([]);
+  });
+
+  // Unlike the redraw, this runs on EVERY resize: a window can fall out of step with its client
+  // long after the reattach, and only a resize frame tells us what the client thinks it is (#957).
+  it("checks the tmux window size on every resize of a tmux session", () => {
+    const { handleClientFrame, calls } = setup();
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const entry = entryWith({ term: t.term as never, ws: s.ws as never, tmux: true });
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    expect(calls.filter((c) => c.startsWith("sizeCheck:"))).toEqual([`sizeCheck:${SESSION}:100x30`, `sizeCheck:${SESSION}:120x40`]);
+  });
+
+  it("never checks the window size of a session that is not in tmux", () => {
+    // No tmux, no window to disagree with — the pty IS the terminal.
+    const { handleClientFrame, calls } = setup();
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const entry = entryWith({ term: t.term as never, ws: s.ws as never });
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
+    expect(calls.filter((c) => c.startsWith("sizeCheck:"))).toEqual([]);
   });
 
   it("ignores a resize outside the allowed bounds", () => {
@@ -388,7 +412,15 @@ describe("handleClientClose", () => {
     const entry = entryWith({ ws: s.ws as never, active: true });
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.ws).toBeNull();
-    expect(calls).toEqual([`armReap:${SESSION}`]);
+    expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `armReap:${SESSION}`]);
+  });
+
+  it("drops a settling size check, which has nobody left to repair the screen for", () => {
+    const { handleClientClose, calls } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never, tmux: true });
+    handleClientClose(entry, s.ws as never, SESSION);
+    expect(calls).toContain(`sizeCheckCancel:${SESSION}`);
   });
 
   it("clears active, so an unclean disconnect cannot suppress the attention flag", () => {

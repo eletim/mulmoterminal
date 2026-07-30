@@ -7,6 +7,7 @@ import {
   parseTmuxEnvironment,
   parseAttachedClientCount,
   parseTmuxTerminalModes,
+  parseTmuxWindowSize,
   redrawTargets,
   planMsOverride,
   MS_OVERRIDE_ENTRY,
@@ -107,6 +108,13 @@ describe("TMUX_CONF_LINES", () => {
   // binding only `copy-mode` leaves anyone with a vi-ish EDITOR on the five-line jump.
   it("binds both copy-mode tables, since mode-keys decides which is live", () => {
     expect(TMUX_CONF_LINES.filter((l) => l.includes("WheelUpPane"))).toHaveLength(2);
+  });
+
+  // Not cosmetic any more: the size check compares `window_height` against the client's, and a
+  // status line reserves a row — so with the bar on, every resize would read as a disagreement and
+  // nudge the pty for nothing (#957). Measured: with the bar on, `client=80x24` vs `window=80x23`.
+  it("turns the status line off, which the window/client size comparison depends on", () => {
+    expect(TMUX_CONF_LINES).toContain("set -g status off");
   });
 
   // #783: tmux strips OSC 8 hyperlinks (Claude's statusline `PR #NNNN`) unless told the outer
@@ -281,5 +289,23 @@ describe("redrawTargets", () => {
 
   it("ignores a line that carries no tty", () => {
     expect(redrawTargets(`${OUR_PID}\n${OUR_PID} /dev/ttys019\n`, OUR_PID)).toEqual(["/dev/ttys019"]);
+  });
+});
+
+describe("parseTmuxWindowSize", () => {
+  it("reads the pair tmux prints", () => {
+    expect(parseTmuxWindowSize("120x40\n")).toEqual({ cols: 120, rows: 40 });
+  });
+
+  // Every non-answer must read as "don't know", never as a disagreement: the caller RESIZES a
+  // live session on a disagreement, and tmux answers with an error line for a session that has
+  // gone (#957).
+  it("refuses anything that is not a pair of numbers", () => {
+    expect(parseTmuxWindowSize("")).toBeNull();
+    expect(parseTmuxWindowSize("can't find session: mt-x")).toBeNull();
+    expect(parseTmuxWindowSize("120x")).toBeNull();
+    expect(parseTmuxWindowSize("x40")).toBeNull();
+    expect(parseTmuxWindowSize("120x40x10")).toBeNull();
+    expect(parseTmuxWindowSize("-1x40")).toBeNull();
   });
 });

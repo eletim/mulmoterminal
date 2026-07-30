@@ -31,6 +31,12 @@ export interface ConnectionDeps {
    *  replayed delta window happened to reconstruct (#1073). `clientPid` identifies OUR tmux client
    *  among the several a session can carry — it is the pty's own pid. */
   redrawTerminal: (id: string, clientPid: number) => void;
+  /** Check, once the resize burst settles, that tmux's window really is the size the browser
+   *  asked for — and force it if not. A repaint cannot fix a window that is genuinely too small,
+   *  and nothing else closes that gap (#957, session/tmux-size-sync.ts). */
+  checkTerminalSize: (id: string, size: { cols: number; rows: number }) => void;
+  /** The socket is gone, so a settling size check has nobody to repair the screen for. */
+  cancelTerminalSizeCheck: (id: string) => void;
 }
 
 // browser -> command PTY. Like handleClientFrame but for the session-less command
@@ -122,6 +128,9 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
           entry.redrawPending = false;
           deps.redrawTerminal(sessionId, entry.term.pid);
         }
+        // And a repaint is only worth as much as the window it repaints: the same silence means
+        // tmux can be left believing in a size the client abandoned long ago (#957).
+        if (entry.tmux) deps.checkTerminalSize(sessionId, { cols: msg.cols, rows: msg.rows });
       }
     } catch (err) {
       // e.g. a write/resize that races the PTY exiting — drop it, never crash.
@@ -135,6 +144,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     // Ignore if a newer client already reattached to this session.
     if (entry.ws !== ws) return;
     entry.ws = null;
+    deps.cancelTerminalSizeCheck(sessionId);
     // A session with no live socket is by definition not being viewed. Clear `active`
     // so an UNCLEAN disconnect (crash / network drop / killed tab, where the client
     // can't send `view active:false`) can't leave the attention flag suppressed until
