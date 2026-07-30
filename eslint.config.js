@@ -137,7 +137,7 @@ export default [
     // comments, and rightly — they hide at the scene). Delete an entry once its file is under
     // the limit; the rule then holds it there.
     files: [
-      "src/components/TerminalCell.vue", // 1605 — extract the launch form (#1122)
+      "src/components/TerminalCell.vue", // 1078 — the launch form is out (#1122); the running cell's chrome (header chips, diff panel, close confirm, handoff menu) is what's left
       "src/components/TerminalGrid.vue", //  815 — layout state machine + its documented <style> exception (#1125)
     ],
     rules: {

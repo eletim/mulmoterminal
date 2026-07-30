@@ -1632,6 +1632,8 @@ src/
     Terminal.vue                             xterm.js terminal; /ws, /ws/codex, /ws/run
     AppToolbar.vue                           shared header + toolbar buttons
     GridView.vue, TerminalGrid.vue, TerminalCell.vue, CommandCell.vue, LauncherCell.vue
+    CellLaunchForm.vue                       what an EMPTY cell shows: dir + target + resume /
+                                             scripts / worktrees / tool groups
     GuiPanel.vue, PluginFrame.vue            GUI panel (Canvas) + Shadow-DOM plugin host
     FilesOverlay.vue                         file browser + CodeMirror editor
     GitBranchChip.vue, ModelContextBadge.vue header chips / badges
