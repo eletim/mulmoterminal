@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { isRecord } from "../../common/isRecord.js";
 import { winFolderDialogScript } from "./win-folder-dialog.js";
+import { PS_UTF8_STDOUT } from "./win-powershell-utf8.js";
 import { requestOriginAllowed } from "../routes/same-origin-guard.js";
 
 // A native "open file/folder" dialog per platform whose stdout is the selection's
@@ -38,7 +39,7 @@ function macArgs(directory: boolean): string[] {
 function winArgs(directory: boolean): string[] {
   if (directory) return ["-NoProfile", "-STA", "-Command", winFolderDialogScript(DIR_PROMPT)];
   const dialog = `$d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join "\`n" }`;
-  return ["-NoProfile", "-STA", "-Command", `Add-Type -AssemblyName System.Windows.Forms; ${dialog}`];
+  return ["-NoProfile", "-STA", "-Command", `${PS_UTF8_STDOUT}; Add-Type -AssemblyName System.Windows.Forms; ${dialog}`];
 }
 
 export function pickFileCommand(platform: NodeJS.Platform, directory = false): { cmd: string; args: string[] } {
@@ -50,6 +51,9 @@ export function pickFileCommand(platform: NodeJS.Platform, directory = false): {
   return { cmd: "zenity", args: zenity };
 }
 
+// `trim` is load-bearing beyond whitespace: U+FEFF is ECMAScript WhiteSpace, so it also drops a
+// UTF-8 BOM a console host may print ahead of the first path — and BOM + `C:\proj` is not an
+// absolute path, which would silently turn every pick into a cancel. A spec pins it.
 export function parsePickerOutput(stdout: string): string[] {
   return stdout
     .split(/\r?\n/)
