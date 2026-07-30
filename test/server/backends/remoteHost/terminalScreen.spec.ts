@@ -3,10 +3,12 @@ import { describe, it, expect, vi } from "vitest";
 
 import {
   agentFromPaneCommand,
+  buildScreenMeta,
   buildSessionList,
   captureSessionScreen,
   definedScreenMeta,
   type CaptureScreenDeps,
+  type ScreenMetaSources,
   type SessionListInput,
 } from "../../../../server/backends/remoteHost/terminalScreen.js";
 import { undefinedPaths } from "@mulmoclaude/core/remote-host/server";
@@ -320,6 +322,110 @@ describe("definedScreenMeta", () => {
   // a prompt's own leading spaces are the user's text, not ours to edit.
   it("passes a value with surrounding whitespace through unchanged", () => {
     expect(definedScreenMeta({ prompt: "  fix it  " })).toEqual({ prompt: "  fix it  " });
+  });
+});
+
+// The join behind the phone's header. Injected sources rather than the server's tables, so the
+// ORDER of the reads is assertable — which is the part a reader cannot verify by looking at the
+// answer (CodeRabbit asked for this on #1112).
+describe("buildScreenMeta", () => {
+  const sources = (over: Partial<ScreenMetaSources> = {}): ScreenMetaSources => ({
+    cwdOf: () => "/repo",
+    branchOf: async () => "feat/1110",
+    githubUrlOf: async () => "https://github.com/o/r",
+    memoOf: () => "ask Tom before merging",
+    summaryOf: () => "Adding meta to the phone view",
+    promptOf: () => "add the memo",
+    memosHydrated: Promise.resolve(),
+    ...over,
+  });
+
+  it("heads the screen with everything the host could answer", async () => {
+    expect(await buildScreenMeta("a", sources())).toEqual({
+      cwd: "/repo",
+      branch: "feat/1110",
+      memo: "ask Tom before merging",
+      summary: "Adding meta to the phone view",
+      prompt: "add the memo",
+      githubUrl: "https://github.com/o/r",
+    });
+  });
+
+  // THE regression this seam exists for. The memo lives only in the server's map, and that map is
+  // filled by a boot read of the append log: reading it first answers "" for every session, which
+  // the phone cannot tell apart from the user having erased the note.
+  it("reads the memo only after the memo store has hydrated", async () => {
+    const order: string[] = [];
+    let hydrate = () => {};
+    const memosHydrated = new Promise<void>((resolve) => {
+      hydrate = () => {
+        order.push("hydrated");
+        resolve();
+      };
+    });
+    const pending = buildScreenMeta(
+      "a",
+      sources({
+        memosHydrated,
+        memoOf: () => {
+          order.push("memoOf");
+          return "ask Tom before merging";
+        },
+      }),
+    );
+    // A full turn of the event loop, not one microtask: every other source here resolves
+    // immediately, so without the barrier the memo would already have been read by now — which
+    // is what makes this assertion fail if the await is ever dropped.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual([]);
+    hydrate();
+    expect((await pending).memo).toBe("ask Tom before merging");
+    expect(order).toEqual(["hydrated", "memoOf"]);
+  });
+
+  // The branch lookup shells out to git, and so does the GitHub remote read. Sequencing them
+  // would double the latency of a screen the phone polls.
+  it("runs the two git reads concurrently", async () => {
+    const order: string[] = [];
+    await buildScreenMeta(
+      "a",
+      sources({
+        branchOf: async () => {
+          order.push("branch:start");
+          await Promise.resolve();
+          order.push("branch:end");
+          return "main";
+        },
+        githubUrlOf: async () => {
+          order.push("github:start");
+          return null;
+        },
+      }),
+    );
+    expect(order).toEqual(["branch:start", "github:start", "branch:end"]);
+  });
+
+  // A session that outlived a restart has no PtyEntry, so the host has no dir for it. Spawning
+  // git against "" would ask about THIS process's cwd — an answer from the wrong repository.
+  it("asks git nothing when the host has no directory for the session", async () => {
+    const branchOf = vi.fn(async () => "main");
+    const githubUrlOf = vi.fn(async () => "https://github.com/o/r");
+    expect(await buildScreenMeta("a", sources({ cwdOf: () => "", branchOf, githubUrlOf }))).toEqual({
+      memo: "ask Tom before merging",
+      summary: "Adding meta to the phone view",
+      prompt: "add the memo",
+    });
+    expect(branchOf).not.toHaveBeenCalled();
+    expect(githubUrlOf).not.toHaveBeenCalled();
+  });
+
+  // A detached HEAD has no branch name, and a session with no note has no memo: both lose the
+  // key rather than arriving as "", which the phone would draw as an empty labelled row.
+  it("drops what the host could not answer, key and all", async () => {
+    const meta = await buildScreenMeta("a", sources({ branchOf: async () => null, memoOf: () => "", githubUrlOf: async () => null }));
+    expect(meta).toEqual({ cwd: "/repo", summary: "Adding meta to the phone view", prompt: "add the memo" });
+    expect(Object.hasOwn(meta, "memo")).toBe(false);
+    expect(Object.hasOwn(meta, "branch")).toBe(false);
   });
 });
 

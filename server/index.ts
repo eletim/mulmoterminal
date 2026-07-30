@@ -78,6 +78,7 @@ import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
 import { renderScreen } from "./session/headlessScreen.js";
 import {
   agentFromPaneCommand,
+  buildScreenMeta,
   buildSessionList,
   captureSessionScreen,
   sessionWorkSummary,
@@ -620,26 +621,22 @@ const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(p
 // dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
 // answers from. A session that outlived a restart has no PtyEntry, so it has no cwd here and
 // no branch to look up — those fields are simply absent, and the phone shows the screen alone.
-const remoteHostSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
-  const cwd = ptys.get(sessionId)?.cwd ?? "";
-  await sessionMemosHydrated; // a screen pulled during startup must not be told the memo is gone
-  // Both git reads are independent, so the phone waits for one spawn rather than two.
-  const [head, repoUrl] = await Promise.all([cwd ? currentBranch(cwd) : null, cwd ? resolveGithubUrl(cwd) : null]);
-  return {
-    cwd,
-    branch: head?.branch ?? "",
-    memo: sessionMemos.get(sessionId) ?? "", // beside the summary, never instead of it — see SessionScreenMeta (#1110)
-    summary: aiTitles.get(sessionId) ?? "",
-    prompt: lastPrompts.get(sessionId) ?? "",
+const remoteHostSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> =>
+  buildScreenMeta(sessionId, {
+    cwdOf: (id) => ptys.get(id)?.cwd ?? "",
+    branchOf: async (cwd) => (await currentBranch(cwd)).branch,
     // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
     // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged
     // branch deleted at merge time keeps resolving here until someone prunes — and every
     // branch this app creates is deleted that way. Measured: the tree URL 404s, the root
     // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
     // on a screen the phone polls (#832).
-    githubUrl: repoUrl ?? "",
-  };
-};
+    githubUrlOf: resolveGithubUrl,
+    memoOf: (id) => sessionMemos.get(id) ?? "", // beside the summary, never instead of it — see SessionScreenMeta (#1110)
+    summaryOf: (id) => aiTitles.get(id) ?? "",
+    promptOf: (id) => lastPrompts.get(id) ?? "",
+    memosHydrated: sessionMemosHydrated,
+  });
 
 const remoteHostCaptureTerminalScreen = (sessionId: string) =>
   captureSessionScreen(sessionId, {
