@@ -180,5 +180,3 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
   // rather than asserted in a comment — nothing in the app reads it.
   return { requestCheck, cancel, forget, trackedSessionCount: tickets.size };
 }
-
-export type TmuxSizeSync = ReturnType<typeof createTmuxSizeSync>;
