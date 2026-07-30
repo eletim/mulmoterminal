@@ -274,7 +274,10 @@ export function rememberAntigravityConversation(sessionId: string, conversationI
   if (!isValidSessionId(sessionId) || !isValidSessionId(conversationId) || !cwd) return;
   const known = antigravityConversations.get(sessionId);
   if (known?.conversationId === conversationId && known.cwd === cwd) return; // already the answer; appending would only grow the log
-  const record: AntigravityConversation = { sessionId, conversationId, cwd, startedAt: Date.now() };
+  // Carried over rather than re-stamped: a session relaunched somewhere else appends a second
+  // line, and taking the clock there would make `startedAt` mean "last written", which is not
+  // what a reader sorting by it would get. The first line for a session is written at its spawn.
+  const record: AntigravityConversation = { sessionId, conversationId, cwd, startedAt: known?.startedAt ?? Date.now() };
   antigravityWrittenIds.add(sessionId);
   applyAntigravityConversation(antigravityConversations, record);
   antigravityPersist = antigravityPersist
