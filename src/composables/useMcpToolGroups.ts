@@ -124,8 +124,14 @@ async function write(switches: Switches, group: ToolGroup, target: string, wante
 // assumed — a wrong assumption here is the stale registration this exists to clear.
 async function syncInto(switches: Switches, worktreePath: string): Promise<void> {
   if (!switches.dir.value || worktreePath === switches.dir.value) return;
+  // Read once, here — same rule `apply` follows. Each write shells out to the `claude` CLI and the
+  // whole loop is awaited with the launcher still on screen, so the switches can be flipped, or
+  // wholesale replaced by a reload for a directory the user typed meanwhile, between deciding what
+  // to write and writing it. Read lazily, the worktree would then be handed another directory's
+  // positions under this repository's name.
+  const wantedNow = { ...switches.enabled.value };
   const already = await registeredIn(worktreePath);
-  const wanted = (group: ToolGroup) => switches.enabled.value[group];
+  const wanted = (group: ToolGroup) => wantedNow[group];
   const changed = TOOL_GROUPS.filter((group) => already === null || already.includes(group) !== wanted(group));
   // Through the same queue as the switches, one group at a time: a launch that fires while a
   // checkbox is still saving would otherwise be the very concurrent write the queue exists for.

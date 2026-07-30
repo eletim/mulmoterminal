@@ -75,6 +75,38 @@ describe("useMcpToolGroups", () => {
     expect(posted.filter((p) => p.group !== "render").every((p) => !p.enabled)).toBe(true);
   });
 
+  // Every write shells out to the `claude` CLI, so the loop runs for seconds with the launcher
+  // still on screen and its directory field editable. A reload for a newly typed directory
+  // replaces the switches wholesale; read lazily, the writes still pending would carry THAT
+  // directory's positions into this repository's worktree.
+  it("writes the positions as they were when the launch started, not as they became", async () => {
+    const posted: Post[] = [];
+    let releaseFirstWrite: () => void = () => {};
+    const firstWrite = new Promise<void>((r) => (releaseFirstWrite = r));
+    globalThis.fetch = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === "POST") {
+        posted.push(JSON.parse(String(init.body)));
+        if (posted.length === 1) await firstWrite;
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
+      const cwd = decodeURIComponent(String(url).split("cwd=")[1] ?? "");
+      // The repo has all four on; the worktree has none, so all four are due to be written.
+      return { ok: true, json: async () => ({ groups: cwd === "/repo" ? [...TOOL_GROUPS] : [] }) };
+    }) as unknown as typeof fetch;
+
+    const mcp = useMcpToolGroups();
+    await mcp.load("/repo");
+    const syncing = mcp.syncInto("/wt/task");
+    await Promise.resolve();
+    // The user types another directory; its reload lands while the first write is still running.
+    await mcp.load("/elsewhere");
+    releaseFirstWrite();
+    await syncing;
+
+    expect(posted).toHaveLength(TOOL_GROUPS.length);
+    expect(posted.every((p) => p.cwd === "/wt/task" && p.enabled)).toBe(true);
+  });
+
   it("writes nothing when the switches belong to no directory, or to the worktree itself", async () => {
     const posted = mockGroups({ "/repo": ["render"] });
     const unloaded = useMcpToolGroups();
