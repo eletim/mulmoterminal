@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { SESSION_SPINNER, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
+import { SESSION_SPINNER, sessionDotFor, useSessionFilter, type SessionListEmits, type SessionListProps } from "../composables/sessionList";
 import SessionFilters from "./SessionFilters.vue";
 
 // Presentational: list + filter are owned by App.vue and shared with the
@@ -73,15 +73,22 @@ const visibleSessions = computed(() => filteredSessions.value.slice(0, MAX_TABS)
         <span
           v-if="s.working && !s.waiting && s.id !== props.activeId"
           :class="[SESSION_SPINNER, 'flex-none']"
+          role="img"
           title="Claude is working"
           aria-label="Claude is working"
         />
         <span v-if="s.agent === 'codex'" class="shrink-0 rounded-[3px] bg-selected px-1 text-[9px] font-bold uppercase text-dim">cx</span>
         <span class="truncate" :class="{ 'font-bold text-fg': isUnread(s) }">{{ s.title }}</span>
+        <!-- One dot, two meanings until #1139: `--err-strong` red marked both a row stopped on a
+             permission prompt and one that had merely finished — and a finished turn is not an
+             error. The hue now comes from the same rule the grid and the roster read. -->
         <span
-          v-if="isUnread(s) && s.id !== props.activeId"
-          class="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--err-strong)] shadow-[0_0_0_2px_var(--bg-panel)]"
-          aria-label="Unread"
+          v-if="s.id !== props.activeId && sessionDotFor(s)"
+          data-testid="tab-dot"
+          :class="[sessionDotFor(s)?.cls, 'shadow-[0_0_0_2px_var(--bg-panel)]']"
+          role="img"
+          :title="sessionDotFor(s)?.label"
+          :aria-label="sessionDotFor(s)?.label"
         />
       </button>
     </div>

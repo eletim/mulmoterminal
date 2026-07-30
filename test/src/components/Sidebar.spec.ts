@@ -44,6 +44,39 @@ describe("Sidebar", () => {
     expect(items[1].classes()).not.toContain("waiting");
   });
 
+  // #1139: bold said "wants you" for two states that mean different things — one is stopped until
+  // you answer, the other is just unread. The dot's hue is which.
+  it("marks a blocked row amber and a finished row green, in the spinner's slot", () => {
+    const wrapper = mountSidebar({
+      sessions: [row({ id: "a", waiting: true, event: "Notification" }), row({ id: "b", waiting: true, event: "Stop" }), row({ id: "c", working: true })],
+    });
+    const items = wrapper.findAll('[data-testid="session-item"]');
+    const blocked = items[0].get('[data-testid="session-dot"]');
+    expect(blocked.classes().join(" ")).toContain("bg-[#f59e0b]");
+    expect(blocked.attributes("aria-label")).toBe("Waiting for you");
+    // An aria-label on a bare <span> is not exposed as a name by much of AT; the role is what makes
+    // it one (CodeRabbit).
+    expect(blocked.attributes("role")).toBe("img");
+    const done = items[1].get('[data-testid="session-dot"]');
+    expect(done.classes().join(" ")).toContain("bg-[#22c55e]");
+    expect(done.attributes("aria-label")).toBe("Finished — unread");
+    // A working row keeps the spinner and takes no dot: one slot, and the states are exclusive.
+    expect(items[2].find('[data-testid="session-spinner"]').exists()).toBe(true);
+    expect(items[2].find('[data-testid="session-dot"]').exists()).toBe(false);
+  });
+
+  // The dot is gated by isUnread, which excludes background workers — same population as the bold
+  // and the Unread chip. A dot on a row with no bold would be the contradiction this fixes.
+  it("leaves a background worker unmarked even when it is waiting", () => {
+    const wrapper = mountSidebar({ sessions: [row({ id: "a", waiting: true, event: "Notification", hidden: true })], filter: "background" });
+    expect(wrapper.find('[data-testid="session-dot"]').exists()).toBe(false);
+  });
+
+  it("gives an idle row no dot at all", () => {
+    const wrapper = mountSidebar({ sessions: [row({ id: "a" })] });
+    expect(wrapper.find('[data-testid="session-dot"]').exists()).toBe(false);
+  });
+
   it("hides the spinner while a session is waiting for input", () => {
     // A waiting session keeps `working` true server-side, but it is blocked on
     // the user — spinning there reads as "thinking", so suppress it.

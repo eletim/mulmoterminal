@@ -1,4 +1,4 @@
-import type { CellStatus } from "./gridTabs";
+import type { AttentionStatus } from "./attentionStatus";
 
 // The cockpit roster row's "whose turn is it" chrome (#1131).
 //
@@ -47,7 +47,7 @@ interface RosterAlertContext {
   blink: boolean;
 }
 
-export function rosterAlertClass(status: CellStatus, { expanded, blink }: RosterAlertContext): string {
+export function rosterAlertClass(status: AttentionStatus, { expanded, blink }: RosterAlertContext): string {
   if (expanded) return ROW_EXPANDED;
   if (status === "blocked") return blink ? `${ROW_BLOCKED} ${ROW_BLINK}` : ROW_BLOCKED;
   if (status === "done") return ROW_DONE;

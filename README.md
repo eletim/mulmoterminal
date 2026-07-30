@@ -83,8 +83,10 @@ turns the movement off). Click a row to swap the enlarged terminal.*
 Each session runs as a real PTY on the server (the agent CLI in a pseudo-terminal) and is
 streamed to an [xterm.js](https://xtermjs.org/) terminal in the browser over a WebSocket. A
 sidebar lists every session for the project and reflects, in real time, which are **working**
-(the agent is thinking) and which **need attention** (waiting for input, or finished with
-output you haven't seen) — driven by Claude/Codex activity hooks the server injects per spawn.
+(the agent is thinking, a spinner), which are **waiting on you** (a permission prompt or a
+question — an amber dot; nothing proceeds until you answer) and which are **finished with output
+you haven't seen** (a green dot) — driven by Claude/Codex activity hooks the server injects per
+spawn. The horizontal tab bar carries the same two dots.
 
 ![Single view — one agent in focus, terminal on the left and a GUI panel on the right](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/single-view.png)
 

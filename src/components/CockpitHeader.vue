@@ -9,11 +9,11 @@ import { formatCwd } from "./cwdDisplay";
 import { CELL_DIR_PATH, DIR_TRUNCATE_FRONT } from "./cellChromeClasses";
 import { headerStyleFor } from "./cellHeaderStyle";
 import { phaseDisplay, WORK_WORD, type PrPhase, type WorkPhase } from "./rosterPhase";
-import type { CellStatus } from "./gridTabs";
+import type { AttentionStatus } from "./attentionStatus";
 
 const props = withDefaults(
   defineProps<{
-    status: CellStatus;
+    status: AttentionStatus;
     agent: string;
     cwd: string | null;
     home: string | null;
@@ -26,10 +26,10 @@ const props = withDefaults(
   { workPhase: null, phase: "none", dirLength: 44 },
 );
 
-const STATUS_WORD: Record<CellStatus, string> = { working: "running", blocked: "waiting", done: "done", idle: "idle" };
+const STATUS_WORD: Record<AttentionStatus, string> = { working: "running", blocked: "waiting", done: "done", idle: "idle" };
 // Hardcoded, token-less roster hues — come through as arbitrary utilities; fill + text paired.
-const DOT_CLASS: Record<CellStatus, string> = { working: "bg-[#4a9eff]", done: "bg-[#22c55e]", blocked: "bg-[#f59e0b]", idle: "bg-[#666]" };
-const BADGE_CLASS: Record<CellStatus, string> = {
+const DOT_CLASS: Record<AttentionStatus, string> = { working: "bg-[#4a9eff]", done: "bg-[#22c55e]", blocked: "bg-[#f59e0b]", idle: "bg-[#666]" };
+const BADGE_CLASS: Record<AttentionStatus, string> = {
   working: "bg-[#4a9eff] text-[#04121f]",
   done: "bg-[#22c55e] text-[#04120a]",
   blocked: "bg-[#f59e0b] text-[#1f1300]",
