@@ -10,8 +10,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
-import { PORT, SESSION_ID_RE } from "../config/env.js";
-import { resolveWorkspace } from "../config/workspace.js";
+import { CLAUDE_CWD, PORT, SESSION_ID_RE } from "../config/env.js";
+import { workspaceRequest } from "../config/workspace.js";
 import { getHeaderConfig } from "../config/config-routes.js";
 import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.js";
 import { resolveButtonCommand, shellQuoteFor } from "../config/header-resolve.js";
@@ -96,12 +96,44 @@ export function effectiveSessionCwd(liveCwd: string | undefined, requestCwd: str
 // genuinely absent on some upgrades.
 type WsUpgradeRequest = { url?: string | undefined; headers?: unknown };
 
-function wsConnectionContext(req: WsUpgradeRequest): { url: URL; requested: string | null; cwd: string } {
+// The default is still what an unusable `?cwd=` resolves to, because a REATTACH is allowed to
+// proceed on it (see refuseUnusableWorkspace) and handing tmux a directory that is not there
+// would break the one path this must not break.
+export function workspaceFromUrl(url: URL): { cwd: string; unusable: string | null } {
+  // getAll, not get: a repeated `?cwd=a&cwd=b` names two directories, and `get` would silently
+  // pick the first — the same swap this exists to stop, and the HTTP routes already refuse it
+  // (express hands them the array). Passing the array on keeps ONE rule for both transports.
+  const values = url.searchParams.getAll("cwd");
+  const request = workspaceRequest(values.length > 1 ? values : values[0]);
+  if (request.kind === "unusable") return { cwd: CLAUDE_CWD, unusable: request.problem };
+  return { cwd: request.cwd, unusable: null };
+}
+
+function wsConnectionContext(req: WsUpgradeRequest): { url: URL; requested: string | null; cwd: string; unusable: string | null } {
   const url = new URL(req.url ?? "/", "http://localhost");
   const raw = url.searchParams.get("session");
   const requested = raw && SESSION_ID_RE.test(raw) ? raw : null;
-  const cwd = resolveWorkspace(url.searchParams.get("cwd"));
-  return { url, requested, cwd };
+  return { url, requested, ...workspaceFromUrl(url) };
+}
+
+// A directory was named and cannot be entered. For a FRESH start that is the end of it: this is
+// the refusal `ptySpawn` would have made (#1078), moved to the only place it can still happen —
+// `resolveWorkspace` used to swap the path for the default workspace first, so the terminal came
+// up silently in another project and #1146 had no symptom but "it opened somewhere else" (#1151).
+//
+// A reattach is let through with a warning, exactly as `refuseUnusableCwd` lets one through:
+// shutting someone out of an agent that is still running because they moved its directory would
+// be a worse bug than the one being reported. It runs no new program, and the cwd it reports
+// comes from the live PTY rather than from this request (effectiveSessionCwd).
+export function refuseUnusableWorkspace(ws: WebSocket, kind: TerminalWsKind, unusable: string | null, requested: string | null): boolean {
+  if (!unusable) return false;
+  if (requested && (ptys.has(requested) || tmuxHasSession(requested))) {
+    console.warn(`[ws/${kind}] attaching ${requested} despite an unusable ?cwd= — ${unusable}`);
+    return false;
+  }
+  console.warn(`[ws/${kind}] refusing to start — ${unusable}`);
+  closeWithError(ws, unusable);
+  return true;
 }
 
 async function resolveButtonRun(url: URL, cwd: string): Promise<{ command: string; cwd: string } | null> {
@@ -116,8 +148,7 @@ async function resolveButtonRun(url: URL, cwd: string): Promise<{ command: strin
   return command ? { command, cwd } : null;
 }
 
-async function resolveRunTarget(url: URL): Promise<{ command: string; cwd: string } | null> {
-  const cwd = resolveWorkspace(url.searchParams.get("cwd"));
+async function resolveRunTarget(url: URL, cwd: string): Promise<{ command: string; cwd: string } | null> {
   const byButton = await resolveButtonRun(url, cwd);
   if (byButton) return byButton;
   return resolveScript(cwd, parseIndexParam(url.searchParams.get("index")));
@@ -134,7 +165,10 @@ export function attachSocketErrorLogger(ws: Pick<WebSocket, "on">, kind: Termina
 }
 
 async function startRunTerminal(deps: WsRouteDeps, ws: WebSocket, url: URL): Promise<void> {
-  const resolved = await resolveRunTarget(url);
+  // No session to reattach: /ws/run is ephemeral, so an unusable directory is always a refusal.
+  const { cwd, unusable } = workspaceFromUrl(url);
+  if (refuseUnusableWorkspace(ws, "run", unusable, null)) return;
+  const resolved = await resolveRunTarget(url, cwd);
   if (!resolved) return closeWithError(ws, "Command not found — check your config / script.json.");
   beginRunTerminal(deps, ws, resolved);
 }
@@ -234,7 +268,8 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // ?session=<id> resumes an existing conversation; absent => fresh session. For
   // new sessions we generate the id ourselves (--session-id) so the server always
   // knows the current session's id, even before any file exists.
-  const { url, requested, cwd } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable } = wsConnectionContext(req);
+  if (refuseUnusableWorkspace(ws, "claude", unusable, requested)) return;
   // A bad id is never silently reused — closing the socket without a replacement
   // makes the client auto-reconnect with the same bad id forever, so we warn and
   // fall through to mint a fresh session, then tell the browser the new id.
@@ -390,7 +425,8 @@ function clientStillConnected(ws: WebSocket, tag: string, sessionId: string, ear
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
 // and is marked a dev-terminal session so it stays out of the chat sidebar.
 async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
-  const { url, requested, cwd } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable } = wsConnectionContext(req);
+  if (refuseUnusableWorkspace(ws, "launch", unusable, requested)) return;
   const index = parseIndexParam(url.searchParams.get("launcher"));
   const shell = url.searchParams.get("shell") === "1";
 
@@ -418,7 +454,8 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
 // codex without the GUI MCP and keeps it out of the sidebar; absent (single view) attaches the GUI
 // MCP so codex drives the GUI panel like claude.
 async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
-  const { url, requested, cwd } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable } = wsConnectionContext(req);
+  if (refuseUnusableWorkspace(ws, "codex", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
@@ -483,7 +520,8 @@ function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: Antigrav
 // in the DIRECTORY, so every session there reaches whatever that directory registered — `?gui=0`
 // only keeps a grid dev terminal out of the sidebar.
 async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
-  const { url, requested, cwd } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable } = wsConnectionContext(req);
+  if (refuseUnusableWorkspace(ws, "antigravity", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
