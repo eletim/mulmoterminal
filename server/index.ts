@@ -272,6 +272,7 @@ const lifecycle = createSessionLifecycle({
   sessionActivityPublisher,
   workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
+  forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
 });
 const { cancelReap, reap, armReapForDetached, publishActivity, setWorking, setWaiting } = lifecycle;
 

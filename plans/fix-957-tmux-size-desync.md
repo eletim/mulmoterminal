@@ -88,8 +88,18 @@ the newest. Two details that a weaker version would get wrong:
 - **The restore targets the NEWEST size, not the captured one.** A superseded nudge still finishes
   its second resize, because leaving the pty a row short is worse than finishing — and the size it
   finishes on has to be the one the client actually has.
-- **The ticket is bumped, never deleted.** Deleting on `cancel` would hand the same number back to
-  the next request, and the in-flight check would match it and come back to life.
+- **A ticket is never handed out twice.** The counter is per-process, not per-session, so freeing a
+  session's entry cannot let a resumed id reissue a number an in-flight check still holds — the
+  check simply fails the guard, which is the right answer.
+
+### The bookkeeping has to be freed (Codex, #1116 review, second pass)
+
+`handleClientClose` cancels for EVERY session, tmux or not, so a `cancel` that allocated would leak
+an entry per disconnect for the server's whole life. `cancel` now touches nothing for an id it has
+not seen, and `reap` calls `forget` — a socket close only pauses the bookkeeping, because a
+detached session can reattach; teardown is the one place that frees it.
+
+`trackedSessionCount()` exists so this is testable rather than asserted in a comment.
 
 ## Why this is also the detector
 

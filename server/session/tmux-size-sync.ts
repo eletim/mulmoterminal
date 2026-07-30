@@ -59,19 +59,21 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
   // Each request takes a ticket, and every step past an await asks whether it still holds the
   // newest — otherwise a nudge would put the pty back to a size the client abandoned mid-flight,
   // which is the very disagreement this file exists to close.
-  const generation = new Map<string, number>();
+  const holder = new Map<string, number>();
   // The newest size the client asked for, so an in-flight nudge lands on THAT rather than on the
   // size it captured when it started.
   const wanted = new Map<string, TerminalSize>();
   const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  // Bumped rather than deleted: a cancel followed by a new request would otherwise reissue a
-  // ticket number an in-flight check is still holding.
+  // Counted across the whole process, not per session. That is what makes `forget` safe: a number
+  // is never handed out twice, so dropping a session's entry can't let a resumed id reissue a
+  // ticket some in-flight check is still holding — it just fails the guard, which is correct.
+  let issued = 0;
   const nextTicket = (id: string): number => {
-    const ticket = (generation.get(id) ?? 0) + 1;
-    generation.set(id, ticket);
-    return ticket;
+    issued += 1;
+    holder.set(id, issued);
+    return issued;
   };
-  const holdsNewest = (id: string, ticket: number): boolean => generation.get(id) === ticket;
+  const holdsNewest = (id: string, ticket: number): boolean => holder.get(id) === ticket;
 
   async function nudge(id: string, target: TerminalSize, seen: TerminalSize, ticket: number): Promise<void> {
     deps.onEvent({ kind: "repairing", id, wanted: target, seen });
@@ -94,12 +96,28 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
     await nudge(id, target, seen, ticket);
   }
 
-  /** Drop a settling check, and abandon one that has already started. */
+  /** Drop a settling check, and abandon one that has already started. Called on every socket
+   *  close, including sessions with no tmux and therefore no check ever — so it must allocate
+   *  nothing for an id it has not seen, or the maps would grow with every disconnect. */
   function cancel(id: string): void {
     const timer = pending.get(id);
     if (timer !== undefined) clearTimeout(timer);
     pending.delete(id);
-    nextTicket(id);
+    if (holder.has(id)) nextTicket(id);
+  }
+
+  /** The session is gone for good (reaped). A `cancel` alone keeps the ticket, because a detached
+   *  session can still reattach; this is the teardown that actually frees the state. */
+  function forget(id: string): void {
+    cancel(id);
+    holder.delete(id);
+    wanted.delete(id);
+  }
+
+  /** How many sessions this holds state for. Exists so "a cancel must not allocate, and a reap
+   *  must free" is testable — nothing in the app reads it. */
+  function trackedSessionCount(): number {
+    return holder.size;
   }
 
   /** Call on every resize frame; only the last of a burst is acted on. */
@@ -119,7 +137,7 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
     );
   }
 
-  return { requestCheck, cancel };
+  return { requestCheck, cancel, forget, trackedSessionCount };
 }
 
 export type TmuxSizeSync = ReturnType<typeof createTmuxSizeSync>;

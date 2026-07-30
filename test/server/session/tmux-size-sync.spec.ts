@@ -195,8 +195,8 @@ describe("createTmuxSizeSync", () => {
     });
 
     it("cannot be revived by a ticket number a later request reuses", async () => {
-      // Deleting the ticket on cancel would hand the same number back to the next request, and the
-      // in-flight check would match it. The counter only ever goes up.
+      // Tickets are counted across the whole process, so no number is ever handed out twice —
+      // not after a cancel, and not after the session's state has been forgotten entirely.
       const { sync, events } = setup([{ cols: 80, rows: 24 }], PROBE_MS);
       sync.requestCheck(SESSION, { cols: 120, rows: 40 });
       await vi.advanceTimersByTimeAsync(SETTLE_MS);
@@ -204,6 +204,51 @@ describe("createTmuxSizeSync", () => {
       sync.requestCheck(SESSION, { cols: 120, rows: 40 });
       await vi.advanceTimersByTimeAsync(PROBE_MS);
       expect(events).toEqual([]); // the abandoned check acted on nothing
+    });
+
+    it("cannot be revived by a session id that comes back after being forgotten", async () => {
+      // `--resume` brings an id back after a reap, so `forget` must not reopen the door either.
+      const { sync, events } = setup([{ cols: 80, rows: 24 }], PROBE_MS);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(SETTLE_MS);
+      sync.forget(SESSION);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await vi.advanceTimersByTimeAsync(PROBE_MS);
+      expect(events).toEqual([]);
+    });
+  });
+
+  // `handleClientClose` cancels for EVERY session, tmux or not — so a cancel that allocated would
+  // leak an entry per disconnect for the server's whole life (raised by Codex on #1116).
+  describe("per-session state", () => {
+    it("allocates nothing for a session that never had a check", () => {
+      const { sync } = setup([{ cols: 120, rows: 40 }]);
+      sync.cancel("a-session-with-no-tmux-and-no-check");
+      sync.cancel("another-one");
+      expect(sync.trackedSessionCount()).toBe(0);
+    });
+
+    it("keeps a cancelled session's state, because a detached session can reattach", async () => {
+      const { sync } = setup([{ cols: 120, rows: 40 }]);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      sync.cancel(SESSION);
+      await runTimers();
+      expect(sync.trackedSessionCount()).toBe(1);
+    });
+
+    it("frees it when the session is forgotten", async () => {
+      const { sync } = setup([{ cols: 120, rows: 40 }]);
+      sync.requestCheck(SESSION, { cols: 120, rows: 40 });
+      await runTimers();
+      sync.forget(SESSION);
+      expect(sync.trackedSessionCount()).toBe(0);
+    });
+
+    it("holds one entry per session, however many resize frames arrive", async () => {
+      const { sync } = setup([{ cols: 120, rows: 40 }]);
+      for (let i = 0; i < 50; i++) sync.requestCheck(SESSION, { cols: 120, rows: 40 + i });
+      await runTimers();
+      expect(sync.trackedSessionCount()).toBe(1);
     });
   });
 });
