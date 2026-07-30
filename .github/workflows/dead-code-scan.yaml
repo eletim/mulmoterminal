@@ -65,16 +65,21 @@ jobs:
       # to be installed. `--frozen-lockfile` keeps CI honest against yarn.lock.
       - run: yarn install --frozen-lockfile --network-timeout 120000
 
-      # `|| true`: knip exits non-zero when it finds anything, and this workflow is
-      # report-only. The report goes to the PR job summary.
+      # knip's exit code is captured rather than swallowed, and rather than left to decide the
+      # step on its own: the summary has to be written EITHER WAY (a failing job is exactly when
+      # someone wants to read what it found), and a `{ ... } >> $GITHUB_STEP_SUMMARY` block ends
+      # with printf's status, so the knip result would be lost even without a `|| true`.
       - name: Run knip
         run: |
           set -uo pipefail
+          knip_status=0
+          output=$(yarn --silent knip --reporter compact 2>&1) || knip_status=$?
           {
             printf '## Dead code scan (knip)\n\n'
-            printf 'Unused exports / files below. Report-only — a human decides what is\n'
-            printf 'real. See .github/workflows/dead-code-scan.yaml.\n\n'
+            printf 'An unused FILE fails this job. Everything else below is reported for a human\n'
+            printf 'to judge. See .github/workflows/dead-code-scan.yaml.\n\n'
             printf '```\n'
-            yarn --silent knip --reporter compact 2>&1 || true
+            printf '%s\n' "$output"
             printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$knip_status"
