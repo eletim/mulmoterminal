@@ -12,8 +12,12 @@
 //      keystrokes it might interpret one by one.
 //   3. Send the submitting Enter as a SEPARATE write a beat later — Claude's TUI
 //      drops a CR that arrives while it is still committing the paste.
-//   4. End the pasted line so no completion menu is open when that Enter lands
-//      (submittableLine) — an open menu eats the ESC of an ESC+CR submit.
+//   4. For a CLAUDE session, end the pasted line with a space (submittableLine) so no
+//      completion menu is open when that Enter lands. An open menu takes the key for
+//      itself: it eats the ESC of an ESC+CR submit, and the `@path` picker eats even a
+//      plain CR — which is why the guard is not scoped to the reversed submit mapping.
+//      Claude-only because anywhere else that space is real input: a shell line ending
+//      in `\` escapes the newline, and with a space appended it runs instead.
 
 import type { SessionAgent } from "../../../common/sessionAgent.js";
 import { submittableLineForAgent } from "../../../common/terminalSubmit.js";
