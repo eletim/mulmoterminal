@@ -28,3 +28,30 @@ export interface RepoDirs {
 export interface RepoDirsResponse {
   repos: RepoDirs[];
 }
+
+// The server is the only writer of this shape, but it arrives as a network response: an older
+// build, a proxy returning HTML, or a half-deployed server would otherwise put `undefined` where
+// a WORKING DIRECTORY is expected — and this value becomes the cwd a session is started in.
+// Anything malformed is dropped rather than repaired, so a bad entry offers no clone at all
+// instead of a wrong one.
+const isCandidate = (v: unknown): v is RepoDirCandidate =>
+  isObject(v) &&
+  typeof v.path === "string" &&
+  v.path !== "" &&
+  typeof v.label === "string" &&
+  (v.orderPriority === null || typeof v.orderPriority === "number");
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+export function parseRepoDirsResponse(data: unknown): RepoDirs[] {
+  if (!isObject(data) || !Array.isArray(data.repos)) return [];
+  return data.repos.filter(isObject).flatMap((entry) => {
+    if (typeof entry.repo !== "string" || entry.repo === "" || !Array.isArray(entry.dirs)) return [];
+    const dirs = entry.dirs.filter(isCandidate);
+    // `primary` must name one of the candidates it came with. A recording the server kept but a
+    // candidate list that no longer holds it would otherwise start work in a directory this side
+    // never offered.
+    const primary = typeof entry.primary === "string" && dirs.some((d) => d.path === entry.primary) ? entry.primary : null;
+    return [{ repo: entry.repo, dirs, primary }];
+  });
+}

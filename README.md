@@ -993,6 +993,14 @@ PRs show a CI-rollup / review-decision / draft badge; each repo lists its latest
 issues. Rows are real links, per-repo errors don't sink the view, and the two lists load
 independently. Backed by `GET /api/prs` and `GET /api/issues`.
 
+**Starting work from an issue row.** Each issue row carries a **▶** button that does the setup in
+one click: read the issue, cut an `issue/<number>-<slug>` worktree in your clone of that repo, and
+open Claude there as a grid cell with the issue **typed into its input box but not sent**. The
+prompt is seeded server-side as a *draft* (`server/session/draft-injection.ts`), which waits for
+claude's input box to be ready — text pushed in before that lands in the scrollback instead. A repo
+with several clones asks which one the first time and remembers the answer; a repo with no clone
+here disables the button and says why. Backed by `POST /api/issues/start`.
+
 **Which clone a repo's work happens in.** `GET /api/repo-dirs` answers the reverse of the
 GitHub link a cell already shows: given `owner/repo`, which of your saved directories are
 clones of it. The candidates are derived from your directory presets by reading each one's
@@ -1323,6 +1331,7 @@ same-origin-guarded.
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>` — or, with `issue: <N>`, on `issue/<N>-<slug>` forked from a freshly fetched `origin/<base>`; remove (managed root only), push, open a PR (`gh`, else compare URL). |
 | `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` (via `gh`). |
 | `GET /api/repo-dirs` | Which saved directories clone which GitHub repo, ordered, with the recorded choice per repo. |
+| `POST /api/issues/start` | Cut an issue's worktree in one of that repo's known clones and spawn a session there, seeded with the issue as a draft. |
 | `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |
 
 **Workspace views**
