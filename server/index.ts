@@ -28,7 +28,6 @@ import {
   tmuxRedrawClient,
   tmuxWindowSize,
 } from "./infra/tmux.js";
-import { sandboxEnabled, sandboxPlatformSupported, dockerAvailable, ensureSandboxImage } from "./infra/sandbox.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
 import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE } from "./config/env.js";
@@ -43,6 +42,7 @@ import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
 import { hasBinary } from "./infra/has-binary.js";
 import { newProbeSessionId } from "./agents/probe-session.js";
 import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
+import { removeLegacySandboxCredentials, removeLegacySandboxContainers } from "./infra/fs-cleanup.js";
 import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
@@ -301,7 +301,7 @@ const spawnDeps: SpawnDeps = {
   outputBufferLimit: OUTPUT_BUFFER_LIMIT,
   hookSettingsJson: (host, sessionId, env) => hookSettingsJson({ host, port: PORT, sessionId, env }),
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
-  mcpConfigJson: (sessionId, host, sandbox) => mcpConfigJson({ sessionId, host, port: PORT, userMcpServers: getUserMcpServers(), sandbox }),
+  mcpConfigJson: (sessionId, host) => mcpConfigJson({ sessionId, host, port: PORT, userMcpServers: getUserMcpServers() }),
   reap: (id) => reap(id),
   setWorking: (id, working, event) => setWorking(id, working, event),
   setWaiting: (id, waiting, event) => setWaiting(id, waiting, event),
@@ -428,6 +428,14 @@ const startClaudeRateLimitProbe = (): void => {
 // window in which that matters is closed rather than reopened on every boot (Codex review on
 // #1030). It also means a 500MB transcript directory is read once, not once per `yarn dev` save.
 void sweepLegacyProbeTranscriptsOnce(CLAUDE_CWD, MULMOTERMINAL_HOME).catch(() => {});
+// The removed Docker sandbox left two things behind when a server was killed or upgraded
+// mid-session: a per-session export of the Keychain credential on disk, and a container still
+// running with the workspace and ~/.claude mounted. Both deleters went with the feature.
+//
+// The directory is the EVIDENCE that this machine ever ran the sandbox, so the container sweep is
+// gated on it: nearly every install never turned it on (opt-in, macOS-only) and never invokes
+// docker here at all (Codex, PR #1195).
+if (removeLegacySandboxCredentials(MULMOTERMINAL_HOME)) void removeLegacySandboxContainers(MULMOTERMINAL_HOME).catch(() => {});
 
 // Codex costs nothing to read, so it is current before the first browser arrives.
 refreshCodexRateLimits();
@@ -871,19 +879,7 @@ server.listen(Number(PORT), BIND_HOST, () => {
     const where = peers.map((p) => (p.port === null ? `pid ${p.pid}` : `port ${p.port}`)).join(", ");
     console.warn(`[instances] ${peers.length} other MulmoTerminal server(s) running (${where}) — they share ~/.mulmoterminal, which is not a supported setup`);
   }
-  if (sandboxEnabled()) {
-    if (!sandboxPlatformSupported()) {
-      console.log("[sandbox] MULMOTERMINAL_SANDBOX set but only supported on macOS for now — using host spawn");
-    } else if (!dockerAvailable()) {
-      console.log("[sandbox] MULMOTERMINAL_SANDBOX set but Docker daemon unreachable — using host spawn");
-    } else if (ensureSandboxImage()) {
-      console.log("[sandbox] on — single-view Claude runs in a Docker container");
-    } else {
-      console.log(
-        "[sandbox] sandbox image unavailable (build failed?) — using host spawn. Build it with: docker build -f Dockerfile.sandbox -t mulmoterminal-sandbox .",
-      );
-    }
-  }
+
   // Run the update check for the header badge (best-effort, non-blocking). Works under
   // `yarn dev` too, where the launcher — which used to be the only checker — isn't involved.
   void refreshUpdateStatus();
