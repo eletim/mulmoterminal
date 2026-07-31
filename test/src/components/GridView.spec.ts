@@ -101,6 +101,32 @@ describe("GridView roster ordering (#720)", () => {
     expect(grid.props("cells").map((c: { uid: number }) => c.uid)).toEqual([1, 0, 2]);
     w.unmount();
   });
+
+  // The last untested link in the parking chain (#992): the cell's persisted flag has to reach the
+  // roster ROW that renders it. rosterAlertClass and the row's binding are each pinned elsewhere,
+  // so a mapping stuck at `false` here would leave every one of those green while no roster row
+  // ever sank. Driven from localStorage, the way a reloaded grid actually gets the flag.
+  it("carries each cell's parked flag onto its roster row", async () => {
+    localStorage.setItem(
+      "grid_v2",
+      JSON.stringify({
+        cells: [
+          { uid: 20, session: IDS.idleA, cwd: "/w" },
+          { uid: 21, session: IDS.idleB, cwd: "/w", parked: true },
+        ],
+        expanded: 20,
+        page: 0,
+        sortMode: "manual",
+      }),
+    );
+    const w = mount((await import("../../../src/components/GridView.vue")).default, {
+      global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+    });
+    await flushPromises();
+    const rows = w.findComponent(OrderStub).props("listRows");
+    expect(rows.map((r: { parked: boolean }) => r.parked)).toEqual([false, true]);
+    w.unmount();
+  });
 });
 
 // A toolbar stub that surfaces the view-toggle props and can fire the toggle-view event, plus a
