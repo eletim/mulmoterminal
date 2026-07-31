@@ -246,6 +246,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   terminalModesOf: (id) => tmuxTerminalModes(id),
   redrawTerminal: (id, clientPid) => tmuxRedrawClient(id, clientPid),
   checkTerminalSize: (id, size) => tmuxSizeSync.requestCheck(id, size),
+  recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
 });
 

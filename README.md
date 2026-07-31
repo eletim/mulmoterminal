@@ -1385,6 +1385,10 @@ connection (or reattach to an existing background PTY).
   background PTY exists for `<id>`, the socket reattaches to it (and its recent
   output buffer is replayed); otherwise the server spawns
   `claude --resume <id> --settings <hooks>`.
+- `&cols=<n>&rows=<n>` — the terminal's geometry, on every endpoint that starts a PTY. The
+  PTY is created at it instead of the 120x30 default, so nothing is ever drawn at a size the
+  browser didn't ask for. Out-of-range values are ignored (same bounds as a `resize` frame),
+  and a connection that sends none keeps the default until its first `resize`.
 
 **Server → client** (JSON text frames):
 
