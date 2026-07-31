@@ -11,6 +11,7 @@ import { isCellContext, isCellUsage, type CellContext, type CellUsage } from "./
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import type { LaunchAgent } from "../../common/launchAgent";
 import { unsavedWork } from "./unsavedWork";
+import { shouldPromptTidy } from "./mergedTidy";
 import { usageBadge } from "./cellDisplay";
 import { applyActivityPush, cellHeaderText } from "./cellActivity";
 import { MEMO_MAX_LENGTH, normalizeMemo } from "../../common/sessionMemo";
@@ -18,6 +19,7 @@ import { preferredLaunchDir, shouldSyncLaunchDir } from "./launchDir";
 import CellLaunchForm from "./CellLaunchForm.vue";
 import GitBranchChip from "./GitBranchChip.vue";
 import WorkItemChip from "./WorkItemChip.vue";
+import CellTidyPrompt from "./CellTidyPrompt.vue";
 import ModelContextBadge from "./ModelContextBadge.vue";
 import type { LaunchChoice } from "./wsUrl";
 import type { RunCommand } from "./runCommand";
@@ -601,6 +603,14 @@ function teardown() {
 
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
 // discards uncommitted/unpushed work); other cells just tear down.
+// "Its PR merged — tidy up?" (#1182). Offered rather than done: the close flow below already asks
+// keep-or-remove and refuses to discard unsaved work, so this only has to get the user there.
+const dismissedTidyPr = ref<number | null>(null);
+const promptTidy = computed(() =>
+  shouldPromptTidy({ phase: workItem.value.phase, pr: workItem.value.pr, isWorktree: isWorktreeCell.value, dismissedPr: dismissedTidyPr.value }),
+);
+const dismissTidy = () => (dismissedTidyPr.value = workItem.value.pr);
+
 const closeConfirm = ref(false);
 const closeChecking = ref(false); // refreshing dirty/ahead — the destructive action is held until it's accurate
 const closeError = ref<string | null>(null);
@@ -1005,6 +1015,9 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               >
                 <span class="material-symbols-outlined text-[13px]" aria-hidden="true">draw</span>{{ unseenCanvas }}
               </button>
+              <!-- Outside the chip loop on purpose: a prompt rather than a configurable chip, so it
+                   appears whether or not the user kept the `work` chip. -->
+              <CellTidyPrompt v-if="promptTidy && workItem.pr !== null" :pr="workItem.pr" @tidy="close()" @dismiss="dismissTidy()" />
               <template v-for="chip in cellChips" :key="chip.key">
                 <GitBranchChip v-if="chip.builtin === 'git'" :status="gitStatus" :hide-dirty="isWorktreeCell" />
                 <WorkItemChip v-else-if="chip.builtin === 'work'" :item="workItem" />
