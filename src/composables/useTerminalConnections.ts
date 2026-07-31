@@ -600,7 +600,11 @@ function connect(c: Conn) {
   // same session instead of spawning a fresh one each retry.
   const resumeId = c.knownSessionId ?? c.target.sessionId;
   const secure = location.protocol === "https:";
-  const url = connWsUrl(c.target, resumeId, location.host, secure);
+  // The geometry rides on the URL as well as in the `resize` frame below: the frame is what keeps a
+  // live pty in step, but it arrives as a separate message, and a pty spawned before it lands draws
+  // its first frame at the server's default (#1178). Callers fit before connecting, so by here
+  // `term.cols/rows` is the real cell.
+  const url = connWsUrl(c.target, resumeId, location.host, secure, { cols: c.term.cols, rows: c.term.rows });
   const sock = new WebSocket(url);
   c.ws = sock;
 
@@ -682,8 +686,11 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   // fitAndSyncSize below re-derives cols/rows from the new cell size, so this must land
   // before it, not after.
   if (!sameFont(c.font, font)) applyFont(c, font);
-  if (created) connect(c);
+  // Fit BEFORE connecting, not after: connect() puts the terminal's geometry on the URL so the pty
+  // is spawned at it, and an unfitted terminal would send xterm's 80x24 default there (#1178). For
+  // an already-live slot this is the same sync it always was — the send is a no-op until OPEN.
   fitAndSyncSize(c);
+  if (created) connect(c);
   c.term.focus();
   // The persisted xterm was just re-parented into a new host. The sync fit() above can no-op (same size)
   // or run before layout, leaving the canvas renderer blank until a scroll. Re-fit + force a repaint next
@@ -868,10 +875,21 @@ export function readBuffer(key: string): string {
   return lines.join("\n").trimEnd();
 }
 
+// A slot whose xterm is still on screen IS attached, whatever the bookkeeping says. `attachedEl` is
+// what fit() and the rAF repaint key off, and it used to be a one-way door: a detach that raced a
+// re-attach cleared it, and from then on the cell never fit, never sent a resize and never repainted
+// — the pty froze at its last size while the browser drew the cell at a new one (#1178, and the
+// blank-terminal half of #957). The host's own parent is the truth, so read it back rather than
+// leaving the slot dead.
+function attachedHostOf(c: Conn): HTMLElement | null {
+  if (!c.attachedEl) c.attachedEl = c.host.parentElement;
+  return c.attachedEl;
+}
+
 // Refit to the current host size and push the new dimensions to the PTY.
 export function fit(key: string) {
   const c = conns.get(key);
-  if (!c || !c.attachedEl) return;
+  if (!c || !attachedHostOf(c)) return;
   fitAndSyncSize(c);
   // A resize is what trips the upstream buffer bug, so this is where a short buffer shows up
   // first — usually while the terminal is still alive (#846).
