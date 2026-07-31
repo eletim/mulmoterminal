@@ -6,7 +6,7 @@
 // removed the `work` chip still needs to be told their worktree is finished. It is also the only
 // handle left at that point — the work-item chip hides itself at `merged`.
 defineProps<{ pr: number }>();
-const emit = defineEmits<{ (e: "tidy"): void; (e: "dismiss"): void }>();
+const emit = defineEmits<{ (e: "tidy" | "dismiss"): void }>();
 </script>
 
 <template>
