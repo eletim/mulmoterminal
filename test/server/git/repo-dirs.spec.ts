@@ -103,6 +103,18 @@ describe("repoDirsFromPresets", () => {
       expect(result[0].primary).toBeNull();
     });
 
+    // The recording is keyed by whatever the UI had — which comes from the hand-typed `prRepos` —
+    // while the entry's own name is derived from the remote URL. GitHub treats the two spellings as
+    // one repository, so an exact-key lookup made a saved choice never stick (Codex review).
+    it.each([
+      ["Owner/Repo cased differently", "O/R"],
+      ["all caps", "O/R".toUpperCase()],
+    ])("is honoured when recorded under %s", async (_case, key) => {
+      const { repoOf } = fakeRepos({ "/w/mt": "o/r", "/w/mt2": "o/r" });
+      const result = await repoDirsFromPresets([preset("mt", "/w/mt"), preset("mt2", "/w/mt2")], { [key]: "/w/mt2" }, deps({ repoOf }));
+      expect(result[0].primary).toBe("/w/mt2");
+    });
+
     it("is dropped when the recorded directory now clones a different repo", async () => {
       const { repoOf } = fakeRepos({ "/w/mt": "o/r", "/w/moved": "other/project" });
       const result = await repoDirsFromPresets([preset("mt", "/w/mt"), preset("moved", "/w/moved")], { "o/r": "/w/moved" }, deps({ repoOf }));
