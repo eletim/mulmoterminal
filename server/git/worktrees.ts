@@ -262,9 +262,10 @@ function serializeCreate<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Create a fresh worktree + branch for `task`, forked from the repo's base branch as the remote
-// has it. Pass `issue` to anchor the branch to a GitHub issue (`issue/<N>-<slug>`). Returns the
-// worktree path + branch, or null if `repoDir` isn't a git repo / the worktree add fails.
+// Create a fresh worktree + branch for `task`, forked from the repo's base branch. Pass `issue`
+// to anchor the branch to a GitHub issue (`issue/<N>-<slug>`), which also forks from the base as
+// the REMOTE has it. Returns the worktree path + branch, or null if `repoDir` isn't a git repo /
+// the worktree add fails.
 export async function createWorktree(repoDir: string, task: string, issue?: number | undefined): Promise<{ path: string; branch: string } | null> {
   const repo = await repoRoot(repoDir);
   if (!repo) return null;
