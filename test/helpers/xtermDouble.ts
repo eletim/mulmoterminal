@@ -174,10 +174,3 @@ export class FakeWebSocket {
     this.readyState = FakeWebSocket.CLOSED;
   }
 }
-
-/** Install the WebSocket double for a spec run. Returns the instance list, already cleared. */
-export function useFakeWebSocket(): FakeWebSocket[] {
-  FakeWebSocket.instances.length = 0;
-  globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
-  return FakeWebSocket.instances;
-}
