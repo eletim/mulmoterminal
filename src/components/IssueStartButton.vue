@@ -57,7 +57,7 @@ const label = computed(() => (plan.value.kind === "choose" ? "Work on this issue
     <div
       v-if="open && plan.kind === 'choose'"
       data-testid="issue-start-menu"
-      class="absolute right-0 z-10 mt-1 min-w-[220px] rounded-md border border-border bg-elevated py-1 shadow-lg"
+      class="absolute right-0 z-10 mt-1 w-max min-w-[220px] rounded-md border border-border bg-elevated py-1 shadow-lg"
     >
       <p class="px-2.5 py-1 text-[11px] text-dim">Which clone should this work happen in?</p>
       <button
@@ -65,7 +65,7 @@ const label = computed(() => (plan.value.kind === "choose" ? "Work on this issue
         :key="d.path"
         type="button"
         data-testid="issue-start-clone"
-        class="block w-full cursor-pointer border-none bg-transparent px-2.5 py-1 text-left text-[12px] text-secondary hover:bg-hover hover:text-fg"
+        class="block w-full cursor-pointer whitespace-nowrap border-none bg-transparent px-2.5 py-1 text-left text-[12px] text-secondary hover:bg-hover hover:text-fg"
         :title="d.path"
         @click.stop.prevent="pick(d.path)"
       >

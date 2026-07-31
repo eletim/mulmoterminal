@@ -8,7 +8,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
-> **[What's new in 2.9.1](v2.9.1.html)** — the rate-limit readout no longer shows Codex's figure unmarked next to `claude usage n/a`, and no longer decides "API-key billing" from a status line that arrived before Claude answered (as of 2026-07-31)
+> **[What's new in 3.0.0](v3.0.0.html)** — the **PRs & Issues** view becomes somewhere to *start*: one button on an issue row cuts an `issue/<number>-…` worktree and opens Claude in it with the issue already in the input box. Plus **parking** a terminal you do not need to watch (as of 2026-07-31)
 >
 > **Follow us on X** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci). That is where everything ships first, so [**follow @SingularitySoci**](https://x.com/SingularitySoci) to hear about it as it lands.
 >
