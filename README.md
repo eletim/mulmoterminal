@@ -958,6 +958,18 @@ separate working tree that shares the repo's `.git`, so several agents can work 
 repo without colliding. Worktrees live under `~/.mulmoterminal/worktrees/` (override with
 `MULMOTERMINAL_HOME`), and existing ones are listed for reuse.
 
+A worktree started **from an issue** gets an `issue/<N>-<slug>` branch instead. The number
+in the name is what later tells the app which issue the work belongs to: the ⧉ Open PR
+button puts `Fixes #<N>` in the PR body, and the branch chip, the issue work comment and
+the merge-time auto-close all read the same number rather than guessing at it.
+
+That path also **fetches first and forks from `origin/<base>`**, because several clones of
+one repo often run side by side and only the one being worked in gets pulled — forking from
+the local branch would start the work on however old that clone happens to be. A local base
+that already contains the remote wins anyway (it is a superset, so nothing is lost), and
+with no remote reachable the local branch is used and the worktree is still created.
+Typing a task name yourself keeps the local base it has always used, with no fetch.
+
 ![An empty cell's launch form — choose the agent, working directory, or a worktree](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-launch-form.png)
 
 *Every empty grid cell shows this launch form: toggle **Claude / Codex / Antigravity / Shell**, type a **working directory** (frequent ones autocomplete from your presets), or — in a git repo — name a task under **OR ISOLATE IN A WORKTREE** and hit **＋ New worktree** to start the agent on its own isolated branch. **Shell** runs your OS default shell there instead of an agent; **OR LAUNCH** runs one of your configured launch commands.*
@@ -1297,7 +1309,7 @@ same-origin-guarded.
 | `GET /api/git-status?cwd=` | `{ repo, branch, detached, dirty, ahead, behind, upstream }`. |
 | `POST /api/git-remote` | The dir's GitHub repo URL (for the header GitHub menu). |
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
-| `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>`, remove (managed root only), push, open a PR (`gh`, else compare URL). |
+| `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>` — or, with `issue: <N>`, on `issue/<N>-<slug>` forked from a freshly fetched `origin/<base>`; remove (managed root only), push, open a PR (`gh`, else compare URL). |
 | `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` (via `gh`). |
 | `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |
 
