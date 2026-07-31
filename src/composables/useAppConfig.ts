@@ -54,6 +54,13 @@ function adoptSoundConfig(c: Record<string, unknown>): void {
 // Cross-repo PR list's repos — also a SINGLETON, so the settings modal (openable from
 // either view) and any future reader share one list; a save in one view is seen by the
 // other instead of each useAppConfig() keeping a divergent copy.
+// The server's home directory, used to shorten paths for display (`formatCwd`). A SINGLETON like
+// the settings below, and for a sharper reason: it is only ever written by `loadConfig`, so a
+// component that calls useAppConfig() WITHOUT calling loadConfig — which anything outside the two
+// views does — held its own copy that stayed null forever, and every path it showed came out
+// unshortened. Found by looking at a screenshot of the issue rows' clone menu.
+const home = ref<string | null>(null);
+
 const prRepos = ref<string[]>([]);
 
 // Which clone each repo's work starts in (#1172) — a SINGLETON for the same reason, and read from
@@ -332,7 +339,6 @@ const soundSettings = { soundFile, soundKinds, sounds, saveSound, saveSoundKinds
 // user who has opened no directories. Take them from the shell that loaded them instead.
 export function useAppConfig() {
   const defaultCwd = ref<string | null>(null);
-  const home = ref<string | null>(null);
   const presets = ref<CwdPreset[]>([]);
   const saving = ref(false);
   const error = ref<string | null>(null);
