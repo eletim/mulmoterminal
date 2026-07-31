@@ -15,10 +15,14 @@ import type { AttentionStatus } from "./attentionStatus";
 // working row, so a second moving thing is a real cost — paid only for the state where the user
 // is what the work waits on, and switchable off (see useRosterAlert).
 //
-// Every branch names the frame colour, the left edge AND the background. A branch that set only
-// what it changes would leave the other properties to the base class, and which of two competing
-// utilities wins is decided by Tailwind's output order rather than by the order they are written
-// (the same rule the cell dot and the launcher chip are built around).
+// Every branch names the frame colour, the left edge, the background AND the hover background. A
+// branch that set only what it changes would leave the other properties to the base class, and
+// which of two competing utilities wins is decided by Tailwind's output order rather than by the
+// order they are written (the same rule the cell dot and the launcher chip are built around).
+//
+// A blinking row is the one place where the hover wash does not land: the keyframes animate
+// `background-color`, and an animation outranks a plain declaration. Forcing it would freeze the
+// wash under the pointer while the ring kept pulsing, and the blink is already the feedback.
 const ROW_BLINK = "animate-roster-alert motion-reduce:animate-none";
 // The amber the blink is layered ON TOP of, not an alternative to it: `prefers-reduced-motion` and
 // the setting both stop the keyframes, and without a static value underneath, such a row would keep
@@ -29,13 +33,19 @@ const ROW_BLINK = "animate-roster-alert motion-reduce:animate-none";
 // appeared only in the strip below the bar — and on an amber-tinted directory the bar itself read
 // as the alert. The ring sits outside the row's box, where no directory colour can reach it. Same
 // idiom the grid cell already uses for these two states (TerminalCell's CELL_STATUS).
+// Hover mixes MORE of the same colour instead of brightening the row (#1168). One
+// `brightness(1.15)` on the row is right on a dark panel and wrong on a light one: `--bg-panel` is
+// pure white in Daylight, so an 8% wash sits within a few percent of white, every channel clips,
+// and the hovered row goes white — the state colour disappears exactly while you point at it.
+// A stronger mix of the SAME colour keeps the hue in all four themes.
 const ROW_BLOCKED =
-  "border-border border-l-[#f59e0b] bg-[color-mix(in_srgb,#f59e0b_14%,var(--bg-panel))] shadow-[0_0_0_2px_color-mix(in_srgb,#f59e0b_60%,transparent)]";
+  "border-border border-l-[#f59e0b] bg-[color-mix(in_srgb,#f59e0b_14%,var(--bg-panel))] hover:bg-[color-mix(in_srgb,#f59e0b_24%,var(--bg-panel))] shadow-[0_0_0_2px_color-mix(in_srgb,#f59e0b_60%,transparent)]";
 const ROW_DONE =
-  "border-border border-l-[#22c55e] bg-[color-mix(in_srgb,#22c55e_8%,var(--bg-panel))] shadow-[0_0_0_1px_color-mix(in_srgb,#22c55e_45%,transparent)]";
-// The row you are looking at, and a row with nothing to say — both unchanged by this feature.
-const ROW_EXPANDED = "border-[#4a9eff] border-l-[#4a9eff] bg-panel";
-const ROW_PLAIN = "border-border border-l-transparent bg-panel";
+  "border-border border-l-[#22c55e] bg-[color-mix(in_srgb,#22c55e_8%,var(--bg-panel))] hover:bg-[color-mix(in_srgb,#22c55e_18%,var(--bg-panel))] shadow-[0_0_0_1px_color-mix(in_srgb,#22c55e_45%,transparent)]";
+// The row you are looking at, and a row with nothing to say — neither carries a status colour, so
+// their hover is the theme's own.
+const ROW_EXPANDED = "border-[#4a9eff] border-l-[#4a9eff] bg-panel hover:bg-hover";
+const ROW_PLAIN = "border-border border-l-transparent bg-panel hover:bg-hover";
 // A row the user has set aside (#992). It names the same frame, edge and background as a plain
 // row and sinks with `opacity` — the one property no branch above sets, so the two never race.
 const ROW_PARKED = `${ROW_PLAIN} opacity-45`;
