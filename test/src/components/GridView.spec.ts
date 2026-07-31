@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
-import { h, KeepAlive, type Component } from "vue";
+import { defineComponent, h, KeepAlive, type Component } from "vue";
 
 // App.vue renders GridView inside <KeepAlive>, and the grid registers its openers (new terminal,
 // spawned-chat placement) on ACTIVATE so a cached-but-hidden grid is never mutated behind the
@@ -525,6 +525,89 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
     (await import("../../../src/composables/useChatLauncher")).registerChatOpener(openSession);
     const w = await launchFrom(filledGrid(81)); // MAX_TERMINALS
     expect(openSession).toHaveBeenCalledWith(SPAWNED, expect.objectContaining({ agent: "claude" }));
+    w.unmount();
+  });
+
+  // PR3b: the durable half. A chat spawned while no tab was open — a scheduled task at 3am, the
+  // phone, an agent calling the tool from another session — has nowhere to appear once the single
+  // view is gone. The grid asks for those on activate and adopts them.
+  it("adopts sessions the server spawned while nothing was open", async () => {
+    const UNPLACED = "44444444-4444-4444-4444-444444444444";
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/unplaced"))
+        return { ok: true, json: async () => ({ sessions: [{ id: UNPLACED, agent: "codex", cwd: "/proj" }] }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const w = mountActivated((await import("../../../src/components/GridView.vue")).default, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+
+    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null; agent?: string; cwd?: string | null }>;
+    const adopted = cells.find((c) => c.session === UNPLACED);
+    expect(adopted).toBeDefined();
+    // The agent travels with it, or the cell reconnects on the wrong endpoint; so does the cwd it
+    // was actually spawned in, rather than this grid's default.
+    expect(adopted?.agent).toBe("codex");
+    expect(adopted?.cwd).toBe("/proj");
+    w.unmount();
+  });
+
+  // CodeRabbit, on this PR. onActivated fires again when the user leaves the grid and comes
+  // straight back. Both runs read `cells` before either inserts, so the per-row guard cannot see
+  // the other — and the same unplaced session gets two cells fighting over one socket.
+  it("runs one adoption sweep at a time", async () => {
+    let asked = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/unplaced")) {
+        asked++;
+        return new Promise<Response>(() => {}); // never resolves: both activations are in flight
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+
+    const GridView = (await import("../../../src/components/GridView.vue")).default;
+    const holder = defineComponent({
+      props: { show: { type: Boolean, default: true } },
+      render() {
+        return h(KeepAlive, null, [this.show ? h(GridView) : h("div")]);
+      },
+    });
+    const w = mount(holder, {
+      props: { show: true },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+    expect(asked).toBe(1);
+
+    await w.setProps({ show: false }); // deactivate
+    await w.setProps({ show: true }); // ...and straight back
+    await flushPromises();
+
+    expect(asked).toBe(1); // the first sweep is still in flight, so the second is refused
+    w.unmount();
+  });
+
+  it("does not adopt a session it already has a cell for", async () => {
+    // The server clears the mark when a cell attaches, but this tab may still be holding a cell
+    // whose attach has not landed. Two cells for one session fight over its socket.
+    const DUPE = "55555555-5555-5555-5555-555555555555";
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 3, session: DUPE, cwd: "/w" }], expanded: null, page: 0, sortMode: "manual" }));
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/unplaced"))
+        return { ok: true, json: async () => ({ sessions: [{ id: DUPE, agent: "claude", cwd: "/w" }] }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const w = mountActivated((await import("../../../src/components/GridView.vue")).default, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+
+    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>;
+    expect(cells.filter((c) => c.session === DUPE)).toHaveLength(1);
     w.unmount();
   });
 
