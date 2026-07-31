@@ -206,6 +206,72 @@ describe("git worktree lifecycle", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 
+  // The other half of the rule: preferring the remote unconditionally would drop commits that
+  // were made locally and not pushed yet. When local already contains the remote it is a
+  // superset, so nothing is lost by staying on it.
+  it.skipIf(!hasGit)(
+    "keeps the local branch when it is ahead of origin",
+    async () => {
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+      const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+      const head = () => execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+      g("update-ref", "refs/remotes/origin/main", head()); // origin is level with local...
+      writeFileSync(path.join(repo, "unpushed.txt"), "committed here, never pushed");
+      g("add", "-A");
+      g("commit", "-m", "local work"); // ...and now local is one ahead
+
+      expect(await baseStartPoint(repo, "main")).toBe("main");
+      const wt = await createWorktree(repo, "keeps local work");
+      if (!wt) throw new Error("expected a worktree");
+      expect(existsSync(path.join(wt.path, "unpushed.txt"))).toBe(true);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // Diverged is not "ahead": local holds a commit origin doesn't, but it is also MISSING one.
+  // The mainline wins, because a branch forked from the local side would be built on a commit
+  // the repository never took.
+  it.skipIf(!hasGit)(
+    "takes origin when local and origin have diverged",
+    async () => {
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+      const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+      const head = () => execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+      const shared = head();
+      writeFileSync(path.join(repo, "theirs.txt"), "x");
+      g("add", "-A");
+      g("commit", "-m", "theirs");
+      g("update-ref", "refs/remotes/origin/main", head());
+      g("reset", "--hard", shared);
+      writeFileSync(path.join(repo, "ours.txt"), "y");
+      g("add", "-A");
+      g("commit", "-m", "ours"); // same parent as theirs — the two have diverged
+
+      expect(await baseStartPoint(repo, "main")).toBe("origin/main");
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // Two prefixes, one directory namespace: the directory drops the prefix segment, so these two
+  // branch names both want `<root>/1171-x`. `worktree add` would fail the whole create.
+  it.skipIf(!hasGit)(
+    "does not let an anchored branch collide with an unanchored one over the same directory",
+    async () => {
+      const unanchored = await createWorktree(repo, "1171 x");
+      const anchored = await createWorktree(repo, "x", 1171);
+      if (!unanchored || !anchored) throw new Error("expected two worktrees");
+      expect(unanchored.branch).toBe("agent/1171-x");
+      expect(anchored.branch).toBe("issue/1171-x-2"); // suffixed because the directory was taken
+      expect(anchored.path).not.toBe(unanchored.path);
+      expect(existsSync(anchored.path)).toBe(true);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
   it.skipIf(!hasGit)(
     "forks a unique branch on a name clash",
     async () => {

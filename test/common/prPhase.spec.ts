@@ -2,7 +2,7 @@
 // user as a number they can click. A wrong guess is worse than none — it points at somebody
 // else's issue — so the rules are pinned here rather than left to the regexes.
 import { describe, it, expect } from "vitest";
-import { issueRefFromPrBody, issueCandidateFromBranch, issueFromAnchoredBranch, isPrPhase, EMPTY_WORK_ITEM } from "../../common/prPhase";
+import { issueRefFromPrBody, issueCandidateFromBranch, issueFromAnchoredBranch, isIssueNumber, isPrPhase, EMPTY_WORK_ITEM } from "../../common/prPhase";
 
 describe("issueRefFromPrBody", () => {
   it.each([
@@ -121,6 +121,18 @@ describe("issueFromAnchoredBranch", () => {
     ["undefined", undefined],
   ])("declines %s", (_label, branch) => {
     expect(issueFromAnchoredBranch(branch)).toBeNull();
+  });
+});
+
+// One rule, four call sites (the branch/body parsers, the pr-phase route, the create route and
+// the header chip). Pinned here so tightening it in one place cannot leave the others behind.
+describe("isIssueNumber", () => {
+  it.each([[1], [966], [Number.MAX_SAFE_INTEGER]])("accepts %j", (v) => {
+    expect(isIssueNumber(v)).toBe(true);
+  });
+
+  it.each([[0], [-1], [1.5], [Number.MAX_SAFE_INTEGER + 2], [NaN], [Infinity], ["966"], [null], [undefined], [{}]])("rejects %j", (v) => {
+    expect(isIssueNumber(v)).toBe(false);
   });
 });
 

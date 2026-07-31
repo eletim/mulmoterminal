@@ -44,12 +44,15 @@ export function workItemHeadline(item: WorkItem): string | null {
 // typos, and a typo that renders as a link to somebody else's issue is worse than no chip.
 const CLOSING_KEYWORD = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[:\s]+#([1-9]\d*)/i;
 
-// Digits from a body or a branch name are unbounded, and `Number("9".repeat(20))` is 1e20 — which
-// would render in the chip as "#1e+20" and link nowhere. Anything past the safe-integer range is
-// not an issue number (found by Codex review).
+// An issue or PR number as anything in this app will accept it. Shared because every surface that
+// handles one applies the same rule and a divergence would show as a link to nothing: digits from
+// a body or a branch name are unbounded, and `Number("9".repeat(20))` is 1e20 — which renders in
+// the chip as "#1e+20" (found by Codex review). There is also no issue #0 and no negative one.
+export const isIssueNumber = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+
 function toIssueNumber(digits: string): number | null {
   const n = Number(digits);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return isIssueNumber(n) ? n : null;
 }
 
 // The issue a PR body says it closes, or null. Deliberately blind to the full-URL form

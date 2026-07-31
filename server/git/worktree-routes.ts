@@ -7,6 +7,7 @@ import { repoRoot, defaultBaseBranch, listWorktrees, createWorktree, removeWorkt
 import { worktreeDiff } from "./worktree-diff.js";
 import { pushWorktree, createOrOpenPR } from "./worktree-pr.js";
 import { requestOriginAllowed } from "../routes/same-origin-guard.js";
+import { isIssueNumber } from "../../common/prPhase.js";
 
 interface WorktreeRouteOptions {
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
@@ -19,8 +20,6 @@ function statusFor(result: { ok: boolean; reason?: string | undefined }): number
   if (result.ok) return 200;
   return SERVER_ERROR_REASONS.has(result.reason ?? "") ? 500 : 409;
 }
-
-const isIssueNumber = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 
 export function mountWorktreeRoutes(app: Express, { isAllowedOrigin }: WorktreeRouteOptions): void {
   // Repo status + the managed worktrees for a cell's chosen dir (each with `dirty`
@@ -55,7 +54,9 @@ export function mountWorktreeRoutes(app: Express, { isAllowedOrigin }: WorktreeR
     if (issue !== undefined && !isIssueNumber(issue)) {
       return res.status(400).json({ error: "issue must be a positive integer" });
     }
-    const wt = await createWorktree(repoDir, task, issue);
+    // Re-checked rather than reusing the guard above: `req.body` is `any`, and narrowing it there
+    // does not survive to here — the call would take `any` and typecheck would not notice.
+    const wt = await createWorktree(repoDir, task, isIssueNumber(issue) ? issue : undefined);
     if (!wt) return res.status(500).json({ error: "could not create the worktree (is this a git repo?)" });
     res.json(wt);
   });

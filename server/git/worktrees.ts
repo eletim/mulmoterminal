@@ -6,7 +6,7 @@
 // parse / paths) are split out for unit tests; the rest shell out to git.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isStrictlyWithin } from "../infra/path-within.js";
@@ -173,13 +173,20 @@ async function fetchOrigin(repo: string): Promise<void> {
   await git(["fetch", "origin"], repo, FETCH_TIMEOUT_MS);
 }
 
-// The commit a new branch forks FROM: the fetched `origin/<base>` when it exists, else the local
-// branch. Several clones of one repo run side by side here and only the one being worked in gets
-// pulled, so forking from local `main` silently starts the work on however old that clone is —
-// and nothing about the result says so. A repo with no origin still gets its local branch.
+// The commit a new branch forks FROM. Several clones of one repo run side by side here and only
+// the one being worked in gets pulled, so forking from local `main` silently starts the work on
+// however old that clone is — and nothing about the result says so.
+//
+// But "always take the remote" would be a different silent loss: a local base holding commits
+// that were never pushed would have them dropped from under the new branch. So the local one
+// wins whenever it ALREADY CONTAINS the remote — then it is a superset and nothing is lost. Only
+// when it is behind or diverged does the mainline win. A repo with no origin has no remote ref
+// and keeps its local branch.
 export async function baseStartPoint(repo: string, base: string): Promise<string> {
   const remote = `origin/${base}`;
-  return (await git(["rev-parse", "--verify", "--quiet", remote], repo)).ok ? remote : base;
+  if (!(await git(["rev-parse", "--verify", "--quiet", remote], repo)).ok) return base;
+  const localHasRemote = await git(["merge-base", "--is-ancestor", remote, base], repo);
+  return localHasRemote.ok ? base : remote;
 }
 
 // The managed worktrees for a repo (excludes the main checkout and any worktrees
@@ -220,12 +227,17 @@ export function worktreeDirName(branch: string): string {
   return segments.length > 1 ? segments.slice(1).join("-") : branch;
 }
 
-// A branch name for `stem` that isn't already taken (<stem>, then -2, -3…).
+// A branch name for `stem` whose branch AND whose worktree directory are both free (<stem>, then
+// -2, -3…). Both, because the directory drops the prefix segment: `agent/1171-x` and
+// `issue/1171-x` are two branches that want the one directory, and `worktree add` would fail the
+// whole create with an unexplained error. While every branch was `agent/…` a free branch implied
+// a free directory, so this only became possible with the second prefix.
 const MAX_BRANCH_SUFFIX = 99;
-async function uniqueBranch(repo: string, stem: string): Promise<string> {
+async function uniqueBranch(repo: string, stem: string, root: string): Promise<string> {
   for (let n = 1; n <= MAX_BRANCH_SUFFIX; n++) {
     const name = n === 1 ? stem : `${stem}-${n}`;
-    if (!(await git(["rev-parse", "--verify", "--quiet", name], repo)).ok) return name;
+    const branchTaken = (await git(["rev-parse", "--verify", "--quiet", name], repo)).ok;
+    if (!branchTaken && !existsSync(path.join(root, worktreeDirName(name)))) return name;
   }
   return `${stem}-${Date.now()}`;
 }
@@ -251,11 +263,12 @@ export async function createWorktree(repoDir: string, task: string, issue?: numb
   const repo = await repoRoot(repoDir);
   if (!repo) return null;
   const stem = branchStem(task, issue);
+  const root = worktreesRoot(repo);
   await fetchOrigin(repo);
   const start = await baseStartPoint(repo, await defaultBaseBranch(repo));
   return serializeCreate(async () => {
-    const branch = await uniqueBranch(repo, stem);
-    const dir = path.join(worktreesRoot(repo), worktreeDirName(branch));
+    const branch = await uniqueBranch(repo, stem, root);
+    const dir = path.join(root, worktreeDirName(branch));
     const res = await git(["worktree", "add", "-b", branch, dir, start], repo);
     return res.ok ? { path: dir, branch } : null;
   });
