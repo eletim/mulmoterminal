@@ -2,7 +2,15 @@
 // user as a number they can click. A wrong guess is worse than none — it points at somebody
 // else's issue — so the rules are pinned here rather than left to the regexes.
 import { describe, it, expect } from "vitest";
-import { issueRefFromPrBody, issueCandidateFromBranch, issueFromAnchoredBranch, isIssueNumber, isPrPhase, EMPTY_WORK_ITEM } from "../../common/prPhase";
+import {
+  issueRefFromPrBody,
+  issueCandidateFromBranch,
+  issueFromAnchoredBranch,
+  isIssueNumber,
+  declaresClosingReference,
+  isPrPhase,
+  EMPTY_WORK_ITEM,
+} from "../../common/prPhase";
 
 describe("issueRefFromPrBody", () => {
   it.each([
@@ -121,6 +129,35 @@ describe("issueFromAnchoredBranch", () => {
     ["undefined", undefined],
   ])("declines %s", (_label, branch) => {
     expect(issueFromAnchoredBranch(branch)).toBeNull();
+  });
+});
+
+// The question `issueRefFromPrBody` does NOT answer: has the author already said what merging
+// closes? The URL form has to count here even though that one ignores it, because appending a
+// second keyword under it closes both issues.
+describe("declaresClosingReference", () => {
+  it.each([
+    ["the shorthand form", "Fixes #966"],
+    ["a URL in this repo", "Fixes https://github.com/receptron/mulmoterminal/issues/966"],
+    ["a URL in another repo", "Closes https://github.com/other/project/issues/5"],
+    ["a URL after a colon", "Resolves: https://github.com/o/r/issues/7"],
+    ["http rather than https", "Fixes http://github.com/o/r/issues/7"],
+    ["a keyword mid-paragraph", "## Summary\n\nThis resolves #42 along the way."],
+  ])("sees %s", (_case, body) => {
+    expect(declaresClosingReference(body)).toBe(true);
+  });
+
+  it.each([
+    ["a bare mention", "Related to #12"],
+    ["an issue URL with no keyword", "Background: https://github.com/o/r/issues/7"],
+    ["a keyword pointing at a pull request URL", "Fixes https://github.com/o/r/pull/7"],
+    ["a keyword with no reference at all", "Fixes the login bug."],
+    ["issue zero", "Fixes #0"],
+    ["empty", ""],
+    ["null", null],
+    ["undefined", undefined],
+  ])("does not see %s", (_case, body) => {
+    expect(declaresClosingReference(body)).toBe(false);
   });
 });
 

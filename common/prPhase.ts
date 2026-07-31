@@ -42,7 +42,13 @@ export function workItemHeadline(item: WorkItem): string | null {
 //
 // `[1-9]\d*` rather than `\d+`: there is no issue #0, and `#0123` is not issue 123 — both are
 // typos, and a typo that renders as a link to somebody else's issue is worse than no chip.
-const CLOSING_KEYWORD = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[:\s]+#([1-9]\d*)/i;
+const CLOSING_VERB = "(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)";
+const CLOSING_KEYWORD = new RegExp(`\\b${CLOSING_VERB}[:\\s]+#([1-9]\\d*)`, "i");
+
+// The other form GitHub accepts for the same statement: the issue's full URL. Each path segment
+// is a run of non-slash characters rather than `\S+`, so there is nothing for the engine to
+// backtrack over — same reason the separator above is one character class.
+const CLOSING_URL = new RegExp(`\\b${CLOSING_VERB}[:\\s]+https?://[^\\s/]+(?:/[^\\s/]+){2}/issues/[1-9]\\d*`, "i");
 
 // An issue or PR number as anything in this app will accept it. Shared because every surface that
 // handles one applies the same rule and a divergence would show as a link to nothing: digits from
@@ -62,6 +68,14 @@ export function issueRefFromPrBody(body: string | null | undefined): number | nu
   const found = typeof body === "string" ? CLOSING_KEYWORD.exec(body) : null;
   return found ? toIssueNumber(found[1]) : null;
 }
+
+// Whether the body ALREADY states what merging it closes, in either form GitHub honours. Broader
+// than issueRefFromPrBody on purpose, and the difference matters: that one answers "which issue in
+// THIS repo" and so must ignore a URL that may name another repository, while this one answers
+// "has the author already declared a closure" — where the URL form counts just as much, because
+// adding a second keyword on top of it closes BOTH issues on merge (found by Codex review).
+export const declaresClosingReference = (body: string | null | undefined): boolean =>
+  typeof body === "string" && (CLOSING_KEYWORD.test(body) || CLOSING_URL.test(body));
 
 // A branch named after its issue the way this repo names them: `fix/966-preserve-unknown-keys`.
 // Requires a type prefix and a hyphen after the digits, so `chore/dep-updates-20260728` is not

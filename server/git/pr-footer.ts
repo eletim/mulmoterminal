@@ -4,7 +4,7 @@
 // which one produced it — nor, since `gh pr create --fill` copies the commits verbatim, anything
 // that links it back to the issue the work started from.
 import path from "node:path";
-import { issueRefFromPrBody } from "../../common/prPhase.js";
+import { declaresClosingReference } from "../../common/prPhase.js";
 
 // A clone name is a DIRECTORY name, and on POSIX that may contain newlines, tabs and control
 // characters. The line goes into a PR body and — since #973 — into a session's system prompt, so
@@ -41,9 +41,10 @@ export function withFooter(body: string, footer: string): string {
 }
 
 /** `body` with `Fixes #issue`, so merging the PR closes the issue the work started from.
- *  Left alone when the body ALREADY declares a closing reference: whatever the author (or the
- *  commits `--fill` copied) named is their statement about what this PR finishes, and a second
- *  keyword naming a different issue would close both. */
+ *  Left alone when the body ALREADY declares a closing reference in EITHER form GitHub honours —
+ *  `Fixes #12` or `Fixes https://…/issues/12`. Whatever the author (or the commits `--fill`
+ *  copied) named is their statement about what this PR finishes, and a second keyword on top of
+ *  it closes both issues on merge. */
 export function withIssueRef(body: string, issue: number): string {
-  return issueRefFromPrBody(body) === null ? appendParagraph(body, `Fixes #${issue}`) : body;
+  return declaresClosingReference(body) ? body : appendParagraph(body, `Fixes #${issue}`);
 }

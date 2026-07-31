@@ -91,7 +91,19 @@ describe("withIssueRef", () => {
     ["the same issue", "Repairs it.\n\nFixes #1171"],
     ["a different issue", "Repairs it.\n\nCloses #900"],
     ["a keyword written mid-sentence", "This resolves #42 as a side effect."],
+    // The URL form closes the issue on GitHub exactly as the shorthand does, so appending a
+    // second keyword under it would close BOTH. `issueRefFromPrBody` ignores this form on
+    // purpose — it answers a different question — which is how it was missed (Codex review).
+    ["the same repo's issue by URL", "Repairs it.\n\nFixes https://github.com/receptron/mulmoterminal/issues/900"],
+    ["another repo's issue by URL", "Repairs it.\n\nCloses https://github.com/other/project/issues/5"],
+    ["a URL reference with a colon", "Repairs it.\n\nResolves: https://github.com/o/r/issues/7"],
   ])("leaves a body that already declares %s alone", (_case, body) => {
     expect(withIssueRef(body, 1171)).toBe(body);
+  });
+
+  // Not every issue URL is a closure: without a keyword in front it is a mention, and a body that
+  // only links to context still needs the reference we came to add.
+  it("still adds the reference when an issue URL is only mentioned", () => {
+    expect(withIssueRef("Background: https://github.com/o/r/issues/7", 1171)).toBe("Background: https://github.com/o/r/issues/7\n\nFixes #1171");
   });
 });
