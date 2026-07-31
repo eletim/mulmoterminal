@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { withFooter, workdirFooter } from "../../../server/git/pr-footer.js";
+import { withFooter, withIssueRef, workdirFooter } from "../../../server/git/pr-footer.js";
 
 const FOOTER = "work in mulmoclaude3";
 
@@ -67,5 +67,31 @@ describe("withFooter", () => {
     ["carries the footer above later text", `${FOOTER}\n\nmore notes added later`],
   ])("leaves the body untouched when it %s", (_case, body) => {
     expect(withFooter(body, FOOTER)).toBe(body);
+  });
+});
+
+describe("withIssueRef", () => {
+  it.each([
+    ["a plain body", "Repairs the login bug.", "Repairs the login bug."],
+    ["the trailing newline gh returns", "Repairs the login bug.\n", "Repairs the login bug."],
+    // A mention is not a closing keyword — GitHub would not close #900 for this body, so the
+    // reference we came to add is still missing.
+    ["a body that only mentions another issue", "Related to #900.", "Related to #900."],
+  ])("appends the reference after %s", (_case, body, kept) => {
+    expect(withIssueRef(body, 1171)).toBe(`${kept}\n\nFixes #1171`);
+  });
+
+  it("is the whole body when the commits produced none", () => {
+    expect(withIssueRef("", 1171)).toBe("Fixes #1171");
+  });
+
+  // Whatever keyword the body already carries is the author's statement about what this PR
+  // finishes. Adding a second one naming a different issue would close both on merge.
+  it.each([
+    ["the same issue", "Repairs it.\n\nFixes #1171"],
+    ["a different issue", "Repairs it.\n\nCloses #900"],
+    ["a keyword written mid-sentence", "This resolves #42 as a side effect."],
+  ])("leaves a body that already declares %s alone", (_case, body) => {
+    expect(withIssueRef(body, 1171)).toBe(body);
   });
 });

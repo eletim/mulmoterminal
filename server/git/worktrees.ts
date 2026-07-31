@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { isStrictlyWithin } from "../infra/path-within.js";
 import { splitLines } from "../infra/split-lines.js";
+import { ISSUE_BRANCH_PREFIX } from "../../common/prPhase.js";
 
 // realpathSync.native, not the JS one: on Windows only the native call expands an
 // 8.3 short component (C:\Users\RUNNER~1 → …\runneradmin) to the long form that
@@ -114,10 +115,10 @@ const GIT_TIMEOUT_MS = 120_000;
 
 // Run git with argv (no shell) in `cwd`; resolve { ok, stdout } — never reject, so
 // a missing git / non-repo dir is just `ok:false` and the caller falls back.
-export function git(args: string[], cwd?: string): Promise<{ ok: boolean; stdout: string }> {
+export function git(args: string[], cwd?: string, timeoutMs: number = GIT_TIMEOUT_MS): Promise<{ ok: boolean; stdout: string }> {
   return new Promise((resolve) => {
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' is a standard tool from PATH in this local dev server; all inputs go through argv (no shell)
-    const child = spawn("git", cwd ? ["-C", cwd, ...args] : args, { stdio: ["ignore", "pipe", "pipe"], timeout: GIT_TIMEOUT_MS });
+    const child = spawn("git", cwd ? ["-C", cwd, ...args] : args, { stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs });
     // Collect bytes and decode ONCE: a chunk can split a multibyte UTF-8 character, and
     // per-chunk toString() would turn a non-ASCII path/message into replacement chars.
     const chunks: Buffer[] = [];
@@ -146,8 +147,10 @@ export async function repoRoot(dir: string): Promise<string | null> {
   return parseWorktreeList(res.stdout)[0]?.path ?? null;
 }
 
-// The branch new worktrees should fork from: origin's default (HEAD), else main /
-// master if present, else the repo's current branch.
+// The BASE BRANCH a worktree's work targets: origin's default (HEAD), else main / master if
+// present, else the repo's current branch. A branch NAME — it is what a PR's `--base` and the
+// compare URL take, so it must stay local-style (`main`, not `origin/main`). Where the new
+// branch actually forks from is `baseStartPoint` below, which is a different question.
 export async function defaultBaseBranch(repo: string): Promise<string> {
   const head = await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo);
   if (head.ok && head.stdout.trim()) return head.stdout.trim().replace(/^origin\//, "");
@@ -156,6 +159,27 @@ export async function defaultBaseBranch(repo: string): Promise<string> {
   }
   const cur = await git(["rev-parse", "--abbrev-ref", "HEAD"], repo);
   return cur.ok && cur.stdout.trim() ? cur.stdout.trim() : "main";
+}
+
+// Shorter than GIT_TIMEOUT_MS: this one runs while the user waits on a worktree, and a network
+// that isn't answering must cost seconds before we fall back to what is already fetched — not
+// the two minutes a local `worktree add` is allowed to take.
+const FETCH_TIMEOUT_MS = 30_000;
+
+// Best-effort refresh of the remote-tracking refs before forking a branch. Failure is normal and
+// silent: a repo with no origin, an offline laptop, a private remote with no agent loaded — none
+// of those should stop a worktree from being created.
+async function fetchOrigin(repo: string): Promise<void> {
+  await git(["fetch", "origin"], repo, FETCH_TIMEOUT_MS);
+}
+
+// The commit a new branch forks FROM: the fetched `origin/<base>` when it exists, else the local
+// branch. Several clones of one repo run side by side here and only the one being worked in gets
+// pulled, so forking from local `main` silently starts the work on however old that clone is —
+// and nothing about the result says so. A repo with no origin still gets its local branch.
+export async function baseStartPoint(repo: string, base: string): Promise<string> {
+  const remote = `origin/${base}`;
+  return (await git(["rev-parse", "--verify", "--quiet", remote], repo)).ok ? remote : base;
 }
 
 // The managed worktrees for a repo (excludes the main checkout and any worktrees
@@ -180,14 +204,30 @@ export async function isDirty(worktreePath: string): Promise<boolean> {
   return res.ok && res.stdout.trim().length > 0;
 }
 
-// A branch name for `task` that isn't already taken (agent/<slug>, then -2, -3…).
+// What a new worktree's branch is called before the uniqueness suffix. An issue-started one puts
+// the number IN the name (#1171), which is what lets the PR body, the work-item chip and the
+// issue comment all learn which issue this branch belongs to without being told a second time.
+export function branchStem(task: string, issue?: number | undefined): string {
+  const slug = slugify(task);
+  return issue ? `${ISSUE_BRANCH_PREFIX}${issue}-${slug}` : `agent/${slug}`;
+}
+
+// The managed worktree's DIRECTORY name: the branch with its prefix segment dropped, joined so
+// the result is always ONE path segment. It has to be — `worktree add` would happily create
+// `<root>/issue/1026-x`, nesting a level below the root with no error anywhere.
+export function worktreeDirName(branch: string): string {
+  const segments = branch.split("/").filter(Boolean);
+  return segments.length > 1 ? segments.slice(1).join("-") : branch;
+}
+
+// A branch name for `stem` that isn't already taken (<stem>, then -2, -3…).
 const MAX_BRANCH_SUFFIX = 99;
-async function uniqueBranch(repo: string, slug: string): Promise<string> {
+async function uniqueBranch(repo: string, stem: string): Promise<string> {
   for (let n = 1; n <= MAX_BRANCH_SUFFIX; n++) {
-    const name = n === 1 ? `agent/${slug}` : `agent/${slug}-${n}`;
+    const name = n === 1 ? stem : `${stem}-${n}`;
     if (!(await git(["rev-parse", "--verify", "--quiet", name], repo)).ok) return name;
   }
-  return `agent/${slug}-${Date.now()}`;
+  return `${stem}-${Date.now()}`;
 }
 
 // Serialize worktree creation process-wide so the uniqueBranch → `worktree add`
@@ -204,18 +244,19 @@ function serializeCreate<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Create a fresh worktree + branch for `task`, forked from the repo's base branch.
-// Returns the worktree path + branch, or null if `repoDir` isn't a git repo / the
-// worktree add fails.
-export async function createWorktree(repoDir: string, task: string): Promise<{ path: string; branch: string } | null> {
+// Create a fresh worktree + branch for `task`, forked from the repo's base branch as the remote
+// has it. Pass `issue` to anchor the branch to a GitHub issue (`issue/<N>-<slug>`). Returns the
+// worktree path + branch, or null if `repoDir` isn't a git repo / the worktree add fails.
+export async function createWorktree(repoDir: string, task: string, issue?: number | undefined): Promise<{ path: string; branch: string } | null> {
   const repo = await repoRoot(repoDir);
   if (!repo) return null;
-  const slug = slugify(task);
-  const base = await defaultBaseBranch(repo);
+  const stem = branchStem(task, issue);
+  await fetchOrigin(repo);
+  const start = await baseStartPoint(repo, await defaultBaseBranch(repo));
   return serializeCreate(async () => {
-    const branch = await uniqueBranch(repo, slug);
-    const dir = path.join(worktreesRoot(repo), branch.replace(/^agent\//, ""));
-    const res = await git(["worktree", "add", "-b", branch, dir, base], repo);
+    const branch = await uniqueBranch(repo, stem);
+    const dir = path.join(worktreesRoot(repo), worktreeDirName(branch));
+    const res = await git(["worktree", "add", "-b", branch, dir, start], repo);
     return res.ok ? { path: dir, branch } : null;
   });
 }

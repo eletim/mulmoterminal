@@ -16,7 +16,11 @@ import {
   isDirty,
   removeWorktree,
   git,
+  branchStem,
+  worktreeDirName,
+  baseStartPoint,
 } from "../../../server/git/worktrees";
+import { issueFromAnchoredBranch } from "../../../common/prPhase";
 
 describe("slugify", () => {
   it("makes a filesystem-safe slug, with a fallback", () => {
@@ -25,6 +29,31 @@ describe("slugify", () => {
     expect(slugify("")).toBe("task");
     expect(slugify("***")).toBe("task");
     expect(slugify("a".repeat(80))).toHaveLength(40);
+  });
+});
+
+describe("branchStem / worktreeDirName", () => {
+  it("puts the issue number in the branch, and leaves an unanchored task as it was", () => {
+    expect(branchStem("Anchor the worktree", 1171)).toBe("issue/1171-anchor-the-worktree");
+    expect(branchStem("Fix Login")).toBe("agent/fix-login");
+  });
+
+  // The round trip is the whole point of the naming: what creation writes, the PR body reads back.
+  it("round-trips through issueFromAnchoredBranch", () => {
+    expect(issueFromAnchoredBranch(branchStem("whatever", 1171))).toBe(1171);
+    expect(issueFromAnchoredBranch(branchStem("whatever"))).toBeNull();
+  });
+
+  // `worktree add` would create `<root>/issue/1026-x` without complaining, nesting a level below
+  // the managed root — which nothing errors on and nothing shows.
+  it.each([
+    ["agent/fix-login", "fix-login"],
+    ["issue/1171-anchor", "1171-anchor"],
+    ["a/b/c", "b-c"],
+    ["no-prefix", "no-prefix"],
+  ])("keeps %s to a single path segment: %s", (branch, expected) => {
+    expect(worktreeDirName(branch)).toBe(expected);
+    expect(worktreeDirName(branch)).not.toContain("/");
   });
 });
 
@@ -118,6 +147,61 @@ describe("git worktree lifecycle", () => {
       // when the branch lookup compared non-canonical paths and found no match.
       const branchList = await git(["branch", "--list", wt.branch], repo);
       expect(branchList.stdout.trim()).toBe("");
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(!hasGit)(
+    "anchors the branch to an issue, and still puts the worktree directly under the managed root",
+    async () => {
+      const wt = await createWorktree(repo, "Anchor the worktree", 1171);
+      if (!wt) throw new Error("expected a worktree");
+      expect(wt.branch).toBe("issue/1171-anchor-the-worktree");
+      // The directory is what breaks silently if the branch prefix leaks into the path.
+      expect(path.dirname(wt.path)).toBe(worktreesRoot(repo));
+      expect(existsSync(wt.path)).toBe(true);
+      expect((await listWorktrees(repo)).map((w) => w.branch)).toEqual(["issue/1171-anchor-the-worktree"]);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // The bug this closes: several clones of one repo sit side by side and only the one being
+  // worked in gets pulled, so forking from LOCAL main starts the work on however old that clone
+  // is. Here the remote-tracking ref is ahead of local main, and the new worktree must be at the
+  // remote's commit — the old code produced the local one and nothing said so.
+  it.skipIf(!hasGit)(
+    "forks from origin/<base> rather than the local branch when the two differ",
+    async () => {
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+      const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+      const rev = (ref: string) =>
+        // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+        execFileSync("git", ["-C", repo, "rev-parse", ref], { encoding: "utf8" }).trim();
+
+      const local = rev("HEAD");
+      writeFileSync(path.join(repo, "remote-only.txt"), "landed on the mainline while this clone sat still");
+      g("add", "-A");
+      g("commit", "-m", "remote work");
+      const remote = rev("HEAD");
+      g("update-ref", "refs/remotes/origin/main", remote);
+      g("reset", "--hard", local); // the clone is now behind what origin has
+
+      expect(await baseStartPoint(repo, "main")).toBe("origin/main");
+      const wt = await createWorktree(repo, "start point");
+      if (!wt) throw new Error("expected a worktree");
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
+      expect(execFileSync("git", ["-C", wt.path, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()).toBe(remote);
+      expect(existsSync(path.join(wt.path, "remote-only.txt"))).toBe(true);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // A repo with no remote at all — the fork point has to fall back to the local branch, or the
+  // launcher stops working offline / on a repo that was never pushed.
+  it.skipIf(!hasGit)(
+    "falls back to the local branch when there is no remote-tracking ref",
+    async () => {
+      expect(await baseStartPoint(repo, "main")).toBe("main");
     },
     GIT_TEST_TIMEOUT_MS,
   );

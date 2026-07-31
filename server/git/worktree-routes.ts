@@ -20,6 +20,8 @@ function statusFor(result: { ok: boolean; reason?: string | undefined }): number
   return SERVER_ERROR_REASONS.has(result.reason ?? "") ? 500 : 409;
 }
 
+const isIssueNumber = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+
 export function mountWorktreeRoutes(app: Express, { isAllowedOrigin }: WorktreeRouteOptions): void {
   // Repo status + the managed worktrees for a cell's chosen dir (each with `dirty`
   // so the UI can confirm before deleting). A non-git dir is `isGit:false`, not an
@@ -43,11 +45,17 @@ export function mountWorktreeRoutes(app: Express, { isAllowedOrigin }: WorktreeR
 
   app.post("/api/worktrees/create", async (req, res) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).end();
-    const { repoDir, task } = req.body ?? {};
+    const { repoDir, task, issue } = req.body ?? {};
     if (typeof repoDir !== "string" || typeof task !== "string" || !task.trim()) {
       return res.status(400).json({ error: "repoDir and a non-empty task are required" });
     }
-    const wt = await createWorktree(repoDir, task);
+    // An unusable `issue` is refused rather than dropped: the number ends up in the branch name
+    // and from there in the PR's `Fixes`, so silently creating an UNANCHORED worktree would look
+    // like it worked and only diverge later, once nothing closes the issue.
+    if (issue !== undefined && !isIssueNumber(issue)) {
+      return res.status(400).json({ error: "issue must be a positive integer" });
+    }
+    const wt = await createWorktree(repoDir, task, issue);
     if (!wt) return res.status(500).json({ error: "could not create the worktree (is this a git repo?)" });
     res.json(wt);
   });

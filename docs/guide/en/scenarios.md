@@ -41,6 +41,11 @@ When you want to try something *without polluting main*, isolate the work in a *
 2. Click **New worktree** to create a worktree dedicated to that task and launch the session.
 3. As changes pile up, a diff badge appears in the cell header. From there it's one click to **push / create a PR**.
 
+The new branch is `agent/<task>`, and it forks from **`origin/<base>`** after a fetch — not from
+your local `main`. If you keep several clones of one repo side by side, only the one you happen to
+be working in gets pulled, and forking from it would quietly start the work on week-old code. With
+no remote reachable, the local branch is used instead and the worktree is still created.
+
 ![Worktrees start from the launcher form](../images/grid-launch-form.png)
 
 ## 3. Work across multiple repositories

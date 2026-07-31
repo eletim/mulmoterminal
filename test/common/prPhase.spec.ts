@@ -2,7 +2,7 @@
 // user as a number they can click. A wrong guess is worse than none — it points at somebody
 // else's issue — so the rules are pinned here rather than left to the regexes.
 import { describe, it, expect } from "vitest";
-import { issueRefFromPrBody, issueCandidateFromBranch, isPrPhase, EMPTY_WORK_ITEM } from "../../common/prPhase";
+import { issueRefFromPrBody, issueCandidateFromBranch, issueFromAnchoredBranch, isPrPhase, EMPTY_WORK_ITEM } from "../../common/prPhase";
 
 describe("issueRefFromPrBody", () => {
   it.each([
@@ -93,6 +93,34 @@ describe("issueCandidateFromBranch", () => {
     ["undefined", undefined],
   ])("declines %s", (_label, branch) => {
     expect(issueCandidateFromBranch(branch)).toBeNull();
+  });
+});
+
+// The counterpart of the candidate above, and the reason it exists: this one's answer goes into a
+// PR body's `Fixes`, where a wrong number closes somebody else's issue the moment the PR merges.
+// It is only sound because the prefix is one this app writes — so what it must DECLINE is every
+// branch shape it did not write, including the ones the candidate happily reads.
+describe("issueFromAnchoredBranch", () => {
+  it.each([
+    ["issue/1171-anchor-the-worktree", 1171],
+    ["issue/7-x", 7],
+  ])("reads %s as issue %i", (branch, expected) => {
+    expect(issueFromAnchoredBranch(branch)).toBe(expected);
+  });
+
+  it.each([
+    ["the launcher's own unanchored branches", "agent/fix-login"],
+    ["a hand-made branch following the repo convention", "fix/1152-attention-sound-blocked"],
+    ["the release branch the candidate misreads as issue 2026", "release/2026-07-28-hotfix"],
+    ["a nested prefix", "wip/issue/1171-x"],
+    ["no hyphen after the digits", "issue/1171"],
+    ["no digits at all", "issue/anchor-the-worktree"],
+    ["a leading zero", "issue/01171-x"],
+    ["empty", ""],
+    ["null", null],
+    ["undefined", undefined],
+  ])("declines %s", (_label, branch) => {
+    expect(issueFromAnchoredBranch(branch)).toBeNull();
   });
 });
 

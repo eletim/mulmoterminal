@@ -73,3 +73,19 @@ export function issueCandidateFromBranch(branch: string | null | undefined): num
   const found = typeof branch === "string" ? BRANCH_ISSUE.exec(branch) : null;
   return found ? toIssueNumber(found[1]) : null;
 }
+
+// The prefix this app gives a branch it creates FOR an issue (#1171). Shared because the two
+// sides must agree on the same string: worktree creation writes it, and the reader below is only
+// sound because nothing else in the app produces it.
+export const ISSUE_BRANCH_PREFIX = "issue/";
+
+const ANCHORED_ISSUE = new RegExp(`^${ISSUE_BRANCH_PREFIX}([1-9]\\d*)-`);
+
+// The issue a branch was CREATED for. Unlike the candidate above this is not a guess — the prefix
+// is one this app writes, so a match is a statement it made about its own branch. That is what
+// makes it safe to derive a PR body's `Fixes #N` from: a wrong number there closes somebody
+// else's issue the moment the PR merges, which no amount of confirming afterwards undoes.
+export function issueFromAnchoredBranch(branch: string | null | undefined): number | null {
+  const found = typeof branch === "string" ? ANCHORED_ISSUE.exec(branch) : null;
+  return found ? toIssueNumber(found[1]) : null;
+}
