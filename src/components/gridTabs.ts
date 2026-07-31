@@ -1,5 +1,5 @@
 import type { RunCommand } from "./runCommand";
-import { dirPriority } from "./dirPriorityOrder";
+import { dirPriority } from "../../common/dirPriorityOrder";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 import type { AttentionStatus } from "./attentionStatus";

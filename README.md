@@ -585,6 +585,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
 | `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
 | `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates (via your `gh` login). |
+| `repoDirs`   | `{ "owner/repo": "/abs/path" }` — which local clone work on a repo starts in, when you keep several side by side. Only the *choice* is stored; which clones exist is re-derived from `cwdPresets` on every read, and an entry that no longer names a clone of that repo is ignored. |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides the agents — any interactive command. A plain shell needs no entry: the launch form's **Shell** toggle opens `$SHELL` unconfigured. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
 | `userMcpServers` | `{ id, url }` HTTP MCP servers merged into the **single-view** Claude session's `--mcp-config` (a `localhost` URL is reached over `host.docker.internal` in the Docker sandbox). Takes effect on the next session. |
@@ -992,6 +993,16 @@ PRs show a CI-rollup / review-decision / draft badge; each repo lists its latest
 issues. Rows are real links, per-repo errors don't sink the view, and the two lists load
 independently. Backed by `GET /api/prs` and `GET /api/issues`.
 
+**Which clone a repo's work happens in.** `GET /api/repo-dirs` answers the reverse of the
+GitHub link a cell already shows: given `owner/repo`, which of your saved directories are
+clones of it. The candidates are derived from your directory presets by reading each one's
+`origin` — there is no second list to keep in step — and are ordered by each directory's
+`orderPriority`, then by path. Several clones of one repo commonly run side by side, so the
+answer is a choice rather than a lookup; once you make it, `repoDirs` in the config records
+`owner/repo` → the chosen path and it is used from then on. A recording is dropped if the
+directory is no longer a saved clone of that repo, and a repo with no clone here is simply
+absent from the answer — which is how a caller learns work cannot start on it.
+
 ---
 
 ## Cost & token usage
@@ -1311,6 +1322,7 @@ same-origin-guarded.
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>` — or, with `issue: <N>`, on `issue/<N>-<slug>` forked from a freshly fetched `origin/<base>`; remove (managed root only), push, open a PR (`gh`, else compare URL). |
 | `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` (via `gh`). |
+| `GET /api/repo-dirs` | Which saved directories clone which GitHub repo, ordered, with the recorded choice per repo. |
 | `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |
 
 **Workspace views**
