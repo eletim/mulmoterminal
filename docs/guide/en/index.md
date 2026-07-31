@@ -10,7 +10,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 > **[What's new in 2.9.1](v2.9.1.html)** — the rate-limit readout no longer shows Codex's figure unmarked next to `claude usage n/a`, and no longer decides "API-key billing" from a status line that arrived before Claude answered (as of 2026-07-31)
 >
-> **Update announcements** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci).
+> **Follow us on X** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci). That is where everything ships first, so [**follow @SingularitySoci**](https://x.com/SingularitySoci) to hear about it as it lands.
 >
 > **Something looks wrong?** Type `/mulmoterminal-bug-report` in any session. The bundled skill hears the symptom out, checks your **real** config and version to see whether it is configuration or by design, searches the existing issues — and only helps you file one if none of that explains it, with the environment collected and secrets masked.
 

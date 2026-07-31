@@ -10,7 +10,7 @@ description: 複数の AI コーディングエージェント（Claude Code / C
 
 > **[2.9.1 で変わったこと](v2.9.1.html)** — レート制限表示が `claude usage n/a` の隣に Codex の数字を無印で並べなくなり、Claude が答える前の status line から「API キー課金」と決めつけなくなった（2026-07-31 時点）
 >
-> **アップデート情報（日本語）** — 新バージョンや新機能のお知らせは X の [Singularity Society（@SingularitySoci）](https://x.com/SingularitySoci) で流しています。
+> **X で最新情報を発信しています** — 新バージョンや新機能のお知らせは X の [Singularity Society（@SingularitySoci）](https://x.com/SingularitySoci) で流していきます。ここが一番早いので、[**@SingularitySoci をフォローしてください！**](https://x.com/SingularitySoci)
 >
 > **「なんか変」と思ったら** — セッションで `/mulmoterminal-bug-report` と打ってください。同梱スキルが症状を聞き、**実際の**設定とバージョンを読んで仕様・設定で説明がつかないかを先に確かめ、既知の issue を検索し、それでも残ったものだけを報告にまとめます（環境情報は自動収集、鍵はマスク）。
 
