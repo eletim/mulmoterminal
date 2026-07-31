@@ -61,6 +61,10 @@ interface RosterAlertContext {
 // answers, and a row that cannot be seen because it was set aside is the accident this feature
 // must not cause. `done` does NOT outrank it — a parked agent finishing its turn is the expected
 // outcome of parking it, and floating that back up would undo the setting on its own.
+// A parked, blocked, EXPANDED row is sunk here while the cell it points at is at full strength
+// (isCellSunk lets `blocked` through). That asymmetry is deliberate and safe: the session is on
+// screen, enlarged, so nothing is hidden — and this row's job in that moment is only to say which
+// one you are on. The safety rule is about the SESSION being visible, not about its list entry.
 export function rosterAlertClass(status: AttentionStatus, { expanded, blink, parked }: RosterAlertContext): string {
   if (expanded) return parked ? ROW_PARKED_EXPANDED : ROW_EXPANDED;
   if (status === "blocked") return blink ? `${ROW_BLOCKED} ${ROW_BLINK}` : ROW_BLOCKED;

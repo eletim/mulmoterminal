@@ -712,7 +712,9 @@ const sunkClass = computed(() => (sunk.value ? SUNK_CELL : ""));
 const togglePark = () => emit("park", !parked.value);
 // Typing into it is the un-parking gesture. Guarded on `parked` so an awake cell does not ask the
 // grid to rewrite its state on every keystroke.
-const onTerminalInput = () => parked.value && emit("park", false);
+const onTerminalInput = (): void => {
+  if (parked.value) emit("park", false);
+};
 const dotStatusClass = computed(() => (sunk.value ? SUNK_DOT_STATUS : DOT_STATUS)[status.value]);
 // This session raised a notification nothing announced — the audio was still locked, or the row
 // arrived as the page's first sighting and was swallowed as baseline (#1152). A ring on the dot

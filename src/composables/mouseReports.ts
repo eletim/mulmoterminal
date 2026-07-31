@@ -61,6 +61,10 @@ export function isMouseReport(data: string): boolean {
   // The introducer is matched as a string, not inside the pattern: a literal ESC in a regex is
   // both unreadable and a lint error, and what actually distinguishes the two encodings is the
   // body anyway.
+  // Anchored: ONE report per chunk. Every producer here sends them that way — this app calls
+  // `term.input()` once per sequence, and xterm emits one per event — so a chunk carrying two
+  // concatenated reports would fall through as "typed". Benign if it ever happens (a parked cell
+  // wakes early), which is why this stays a single readable pattern rather than a scanner.
   const body = data.slice(CSI.length);
   return body.startsWith("M") || /^<\d+;\d+;\d+[Mm]$/.test(body);
 }

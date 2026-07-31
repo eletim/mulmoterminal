@@ -88,6 +88,13 @@ const emit = defineEmits<{
   (e: "exit", exitCode: number | null): void;
   (e: "run", command: RunCommand): void;
   // The user typed (or pasted) into this terminal. Output the server writes back never fires it.
+  //
+  // DECLARING this one is load-bearing. xterm keeps a hidden <textarea> that fires a NATIVE
+  // `input` event on every keystroke and all through IME composition, and it bubbles to this
+  // component's root — but a declared emit is excluded from fallthrough, so a parent's `@input`
+  // binds to the component event alone. Remove the declaration and that same `@input` silently
+  // becomes a native listener, firing on composition and bypassing the pointer/focus filtering in
+  // terminalUserInput that is the entire reason this event exists. Pinned by a spec.
   (e: "input"): void;
 }>();
 
