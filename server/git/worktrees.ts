@@ -173,9 +173,9 @@ async function fetchOrigin(repo: string): Promise<void> {
   await git(["fetch", "origin"], repo, FETCH_TIMEOUT_MS);
 }
 
-// The commit a new branch forks FROM. Several clones of one repo run side by side here and only
-// the one being worked in gets pulled, so forking from local `main` silently starts the work on
-// however old that clone is — and nothing about the result says so.
+// The commit an ISSUE-STARTED branch forks FROM. Several clones of one repo run side by side here
+// and only the one being worked in gets pulled, so forking from local `main` silently starts the
+// work on however old that clone is — and nothing about the result says so.
 //
 // But "always take the remote" would be a different silent loss: a local base holding commits
 // that were never pushed would have them dropped from under the new branch. So the local one
@@ -188,6 +188,12 @@ export async function baseStartPoint(repo: string, base: string): Promise<string
   const localHasRemote = await git(["merge-base", "--is-ancestor", remote, base], repo);
   return localHasRemote.ok ? base : remote;
 }
+
+// Refresh the remote, then resolve the fork point against it.
+const freshStartPoint = async (repo: string): Promise<string> => {
+  await fetchOrigin(repo);
+  return baseStartPoint(repo, await defaultBaseBranch(repo));
+};
 
 // The managed worktrees for a repo (excludes the main checkout and any worktrees
 // outside our root), each tagged with its task = directory name.
@@ -264,8 +270,10 @@ export async function createWorktree(repoDir: string, task: string, issue?: numb
   if (!repo) return null;
   const stem = branchStem(task, issue);
   const root = worktreesRoot(repo);
-  await fetchOrigin(repo);
-  const start = await baseStartPoint(repo, await defaultBaseBranch(repo));
+  // Only an issue-started worktree pays for a fresh base. Refreshing the remote is a network
+  // round trip on every create, and the launcher's type-a-task-name path keeps the local base it
+  // has always forked from — a deliberate asymmetry, pinned by a test.
+  const start = issue ? await freshStartPoint(repo) : await defaultBaseBranch(repo);
   return serializeCreate(async () => {
     const branch = await uniqueBranch(repo, stem, root);
     const dir = path.join(root, worktreeDirName(branch));

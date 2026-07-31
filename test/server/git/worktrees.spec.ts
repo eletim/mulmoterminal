@@ -187,11 +187,19 @@ describe("git worktree lifecycle", () => {
       g("reset", "--hard", local); // the clone is now behind what origin has
 
       expect(await baseStartPoint(repo, "main")).toBe("origin/main");
-      const wt = await createWorktree(repo, "start point");
+      const wt = await createWorktree(repo, "start point", 1171);
       if (!wt) throw new Error("expected a worktree");
       // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' from PATH in a test; argv only, no shell
       expect(execFileSync("git", ["-C", wt.path, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()).toBe(remote);
       expect(existsSync(path.join(wt.path, "remote-only.txt"))).toBe(true);
+
+      // The deliberate asymmetry: only an issue-started worktree pays for a fresh base. The
+      // launcher's type-a-task-name path keeps forking from the local branch it always has, so
+      // the same repo state gives the two paths DIFFERENT answers — which is the decision, not
+      // an oversight, and is why it is asserted rather than left implied.
+      const unanchored = await createWorktree(repo, "unanchored");
+      if (!unanchored) throw new Error("expected a worktree");
+      expect(existsSync(path.join(unanchored.path, "remote-only.txt"))).toBe(false);
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -223,7 +231,7 @@ describe("git worktree lifecycle", () => {
       g("commit", "-m", "local work"); // ...and now local is one ahead
 
       expect(await baseStartPoint(repo, "main")).toBe("main");
-      const wt = await createWorktree(repo, "keeps local work");
+      const wt = await createWorktree(repo, "keeps local work", 1171);
       if (!wt) throw new Error("expected a worktree");
       expect(existsSync(path.join(wt.path, "unpushed.txt"))).toBe(true);
     },

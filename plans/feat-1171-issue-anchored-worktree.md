@@ -30,14 +30,18 @@
 `worktreeDirName(branch)` として切り出し、**必ず1セグメントになる**ことをテストで固定する。
 `agent/<slug>` に対する出力は従来と同じ。
 
-### 3. base を `origin/<default>` にし、作成前に fetch する
+### 3. issue 起点のときだけ base を `origin/<default>` にし、作成前に fetch する
 
 `git worktree add -b <branch> <dir> main` は**ローカル main から分岐**している。
 実測: この repo の作業クローンは `git fetch` 前 `HEAD..origin/main = 0`、fetch 後 **20**。
 fetch していないクローンの「遅れていない」は根拠にならない。
 
 - 作成前に `git fetch origin`（best-effort、失敗しても作成は続ける。オフラインで使えなくならないこと）
-- fork 元は `origin/<base>` が存在すればそれ、無ければ従来どおりローカル `<base>`
+- fork 元は `origin/<base>`。ただし**ローカル `<base>` が既に `origin/<base>` を含んでいる場合はローカル**
+  （上位集合なので何も失われず、push していないローカルコミットを落とさない）。behind / diverged のときだけ
+  リモートを取る。`origin/<base>` が無ければ従来どおりローカル
+- **適用は issue 起点の作成だけ**（ユーザー決定）。手でタスク名を入れる既存の導線は
+  ローカル base のまま・fetch なしで、体感を変えない。この非対称はテストで固定する
 - **`defaultBaseBranch` の戻り値は変えない。** あれは PR の `--base` と compare URL に使う
   「ベースブランチ名」であり、`origin/main` を渡すと PR が壊れる。fork 元は別の関数にする
 - fetch はネットワーク待ちなので `git()` に短めのタイムアウトを渡せるようにする
