@@ -13,6 +13,7 @@ import {
   setSession,
   setCwd,
   setCellAgent,
+  setCellParked,
   closeCell,
   toggleExpand,
   switchPage,
@@ -316,6 +317,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     workPhase: meta.workPhase,
     headerColor: chrome.headerColor,
     headerTextColor: chrome.headerTextColor,
+    parked: c.parked === true,
   };
 };
 const listRows = computed(() => orderedCells.value.map(rosterRow));
@@ -343,6 +345,7 @@ function onAddTerminal() {
 const onSession = (uid: number, id: string) => (state.value = setSession(state.value, uid, id));
 const onCwd = (uid: number, cwd: string) => (state.value = setCwd(state.value, uid, cwd));
 const onAgent = (uid: number, agent: TerminalAgent) => (state.value = setCellAgent(state.value, uid, agent));
+const onPark = (uid: number, parked: boolean) => (state.value = setCellParked(state.value, uid, parked));
 // Pass the on-screen order so closing the zoomed cell stays zoomed on its filmstrip
 // neighbour (previous, or next when it was the first) instead of collapsing the grid.
 const onClose = (uid: number) =>
@@ -553,6 +556,7 @@ async function launchSkill(skill: BundledSkillName) {
       :list-mode="listModeOn"
       @session="onSession"
       @agent="onAgent"
+      @park="onPark"
       @cwd="onCwd"
       @record-cwd="recordPreset"
       @remove-preset="removePreset"

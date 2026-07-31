@@ -86,6 +86,7 @@ const rosterRow = (uid: number, over: Partial<CockpitRow> = {}): CockpitRow => (
   workPhase: null,
   headerColor: null,
   headerTextColor: null,
+  parked: false,
   ...over,
 });
 const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[], reorderable = false, listMode = true) =>

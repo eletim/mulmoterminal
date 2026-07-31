@@ -17,6 +17,10 @@ const mockTermState: {
   selection: string;
   onSelectionChange: () => void;
   helperTextarea: HTMLTextAreaElement | null;
+  // What xterm hands the manager for every chunk on its way to the PTY — keystrokes AND the
+  // pointer reports the app feeds back through `term.input()`. Captured so a test can push
+  // either kind through the real `send` and see which one counts as the user typing (#992).
+  emitData: (data: string) => void;
 } = vi.hoisted(() => ({
   options: {},
   csiHandlers: [],
@@ -27,6 +31,7 @@ const mockTermState: {
   selection: "",
   onSelectionChange: () => {},
   helperTextarea: null,
+  emitData: () => {},
 }));
 
 // Mock xterm + addons so the manager runs headless (no real DOM terminal / canvas).
@@ -55,7 +60,9 @@ vi.mock("@xterm/xterm", () => ({
       host.appendChild(textarea);
       mockTermState.helperTextarea = textarea;
     }
-    onData() {}
+    onData(fn: (data: string) => void) {
+      mockTermState.emitData = fn;
+    }
     attachCustomKeyEventHandler(fn: (e: unknown) => boolean) {
       mockKeyState.handler = fn;
     }
@@ -137,6 +144,7 @@ import * as conn from "../../../src/composables/useTerminalConnections";
 import { newlineSequence, submitSequence } from "../../../common/terminalSubmit";
 import { setTerminalSubmitMode } from "../../../src/composables/terminalSubmitMode";
 import { setCopyOnSelect } from "../../../src/composables/copyOnSelect";
+import { clickReportSequences } from "../../../src/composables/mouseReports";
 
 const target = (sessionId: string | null) => ({ sessionId, cwd: "/typed", devTerminal: false, command: null, launcher: null });
 
@@ -206,6 +214,57 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     ).toBe(true);
     expect(ws.sent).toHaveLength(0);
     conn.release("cell-key");
+  });
+
+  // A parked cell wakes on input (#992), so `onInput` has to mean "the user put something in" and
+  // nothing else. It rides the one function every keystroke, bound key and paste funnels through
+  // on the way to the socket — which is also why output arriving from the server cannot reach it.
+  it("reports user input, and never reports it for output the server sends", () => {
+    mockKeyState.handler = () => true;
+    setTerminalSubmitMode("cr");
+    const onInput = vi.fn();
+    conn.attach("cell-input", target(null), { onSession: vi.fn(), onCwd: vi.fn(), onInput }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "hello from the agent" }) } as MessageEvent);
+    expect(onInput).not.toHaveBeenCalled();
+
+    const shiftEnter = {
+      type: "keydown",
+      key: "Enter",
+      shiftKey: true,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      isComposing: false,
+      preventDefault: vi.fn(),
+    };
+    mockKeyState.handler(shiftEnter);
+    expect(onInput).toHaveBeenCalled();
+    conn.release("cell-input");
+  });
+
+  // Clicking a parked cell to READ it must leave it parked — but a click on a mouse-tracking app
+  // is delivered as input on the very channel keystrokes use, which is what made the cell wake on
+  // the click rather than on the typing. The report still reaches the PTY; it just is not the
+  // user typing.
+  it("forwards a pointer report to the PTY without calling it user input", () => {
+    const onInput = vi.fn();
+    conn.attach("cell-click", target(null), { onSession: vi.fn(), onCwd: vi.fn(), onInput }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    const [press] = clickReportSequences(4, 9);
+    mockTermState.emitData(press);
+    expect(ws.sent).toContain(JSON.stringify({ type: "input", data: press }));
+    expect(onInput).not.toHaveBeenCalled();
+
+    mockTermState.emitData("x");
+    expect(onInput).toHaveBeenCalledTimes(1);
+    conn.release("cell-click");
   });
 
   it("wires the Enter handler through ensure() (esc-cr mode): submits a bare Enter with \\x1b\\r and makes Shift+Enter a \\r newline", () => {

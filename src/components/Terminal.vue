@@ -87,6 +87,8 @@ const emit = defineEmits<{
   (e: "session" | "cwd", value: string): void;
   (e: "exit", exitCode: number | null): void;
   (e: "run", command: RunCommand): void;
+  // The user typed (or pasted) into this terminal. Output the server writes back never fires it.
+  (e: "input"): void;
 }>();
 
 // The durable runtime (socket + xterm) lives in the manager, keyed by a stable slot
@@ -238,6 +240,7 @@ onMounted(() => {
       onSession: (id) => emit("session", id),
       onCwd: (c) => emit("cwd", c),
       onExit: (exitCode) => emit("exit", exitCode),
+      onInput: () => emit("input"),
     },
     container,
     effectiveTermTheme(),

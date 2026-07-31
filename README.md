@@ -1063,6 +1063,17 @@ Favorited collections get their own toolbar buttons.
 
 ![Zoom — one agent enlarged, the others as a filmstrip along the bottom](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-zoom.png)
 
+- **Set a terminal aside** — the moon button in a cell's header **sinks** it: the tile, its
+  filmstrip thumbnail and its cockpit-roster row all fade, and the working dot stops pulsing.
+  The session stays **connected and keeps its whole history** — this is what to reach for
+  instead of `/clear`-ing a cell you are done with for now, which resets the conversation just
+  to change how the cell looks. The setting survives a reload. **Enlarging it keeps it faded** —
+  that is how you read a set-aside session without waking it, and its roster row keeps the blue
+  "you are here" edge either way — while **typing into it wakes it**, so nothing has to be undone
+  by hand. Clicking or scrolling to read it does *not* wake it, even though a mouse-tracking agent
+  receives those as input. A cell that **stops for a permission prompt comes back to full strength
+  on its own**, so setting one aside can never hide a session that is waiting on you; a merely *finished* turn
+  does not, since that is the expected outcome of setting a running agent aside.
 - **Timeline** (🕘) — a read-only per-session activity timeline (tools run, newest first),
   from `GET /api/transcript/timeline`.
 - **Bring another cell's turn here** (💬) — pick another terminal in the grid and its
