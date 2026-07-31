@@ -29,7 +29,7 @@ const seed = (activity: Activity) => {
   })) as unknown as typeof fetch;
 };
 
-function mountCell(props: { parked?: boolean; expanded?: boolean } = {}) {
+function mountCell(props: { parked?: boolean; expanded?: boolean; zoomed?: boolean } = {}) {
   return mount(TerminalCell, {
     props: {
       uid: 1,
@@ -112,6 +112,17 @@ describe("TerminalCell parking", () => {
   it("stays sunk while it is the enlarged cell", async () => {
     const w = mountCell({ parked: true, expanded: true });
     await flushPromises();
+    expect(innerClasses(w)).toContain(SUNK_CELL);
+  });
+
+  // The claim the whole design rests on: a tile and a filmstrip thumbnail are the SAME component
+  // instance, teleported rather than remounted (docs/grid-view-modes.md), so one rule covers both.
+  // Every other case here mounts the tiled path, which left that claim asserted only in prose.
+  // `zoomed && !expanded` is what puts a cell in the strip.
+  it("sinks a thumbnail in the filmstrip, not just a tile", async () => {
+    const w = mountCell({ parked: true, zoomed: true });
+    await flushPromises();
+    expect(w.find(".cell-header").exists()).toBe(true); // the strip's CockpitHeader variant
     expect(innerClasses(w)).toContain(SUNK_CELL);
   });
 

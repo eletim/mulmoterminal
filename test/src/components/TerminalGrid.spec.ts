@@ -146,6 +146,18 @@ describe("TerminalGrid (page renderer)", () => {
     expect(w.emitted("status")?.[0]).toEqual([7, "waiting"]);
   });
 
+  // rosterAlertClass is covered on its own, but nothing asserted that the ROW actually passes
+  // `row.parked` into it — a binding that could read `false` forever while every unit test still
+  // passed. Same shape of gap as the Terminal.vue input wire (#992 review).
+  it("sinks the roster row of a parked session, and leaves its neighbours alone", async () => {
+    const cells = [cell(0, "s0"), cell(1, "s1")];
+    const w = mountCockpit(cells, 0, [rosterRow(0), rosterRow(1, { parked: true })]);
+    await nextTick();
+    const rows = w.findAll('[data-testid="cockpit-row"]');
+    expect(rows[1].classes()).toContain("opacity-45");
+    expect(rows[0].classes()).not.toContain("opacity-45");
+  });
+
   it("puts a ⋮ reorder menu on cockpit rows only in manual mode, emitting move tagged with uid", async () => {
     const cells = [cell(0, "s0"), cell(1, "s1"), cell(2)]; // two running + a trailing launch cell
     const rows = [rosterRow(0), rosterRow(1)];
