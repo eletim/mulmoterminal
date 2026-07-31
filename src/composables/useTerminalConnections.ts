@@ -881,8 +881,11 @@ export function readBuffer(key: string): string {
 // — the pty froze at its last size while the browser drew the cell at a new one (#1178, and the
 // blank-terminal half of #957). The host's own parent is the truth, so read it back rather than
 // leaving the slot dead.
+// `isConnected`, not merely "has a parent": a host sitting in a container that was itself removed
+// from the document is not on screen, and adopting that orphan would point the slot at an element
+// nothing can measure.
 function attachedHostOf(c: Conn): HTMLElement | null {
-  if (!c.attachedEl) c.attachedEl = c.host.parentElement;
+  if (!c.attachedEl && c.host.isConnected) c.attachedEl = c.host.parentElement;
   return c.attachedEl;
 }
 

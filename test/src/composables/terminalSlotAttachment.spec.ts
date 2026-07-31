@@ -59,6 +59,7 @@ describe("slot attachment", () => {
   // repaints it again.
   it("re-adopts a slot whose attachment was lost while its terminal is still on screen", () => {
     const el = document.createElement("div");
+    document.body.appendChild(el); // on screen is the condition — a detached container is not it
     conn.attach(KEY, target, {}, el);
     const host = el.firstElementChild;
     if (!host) throw new Error("no host attached");
@@ -71,5 +72,26 @@ describe("slot attachment", () => {
     ws.sent.length = 0;
     conn.fit(KEY);
     expect(resizeFrames(ws)).toHaveLength(1);
+    el.remove();
+  });
+
+  // The other half of that rule: a container that has left the document is not somewhere the
+  // terminal can be measured, so the slot stays detached rather than pointing at an orphan.
+  it("does not adopt a host whose container has left the document", () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    conn.attach(KEY, target, {}, el);
+    const host = el.firstElementChild;
+    if (!host) throw new Error("no host attached");
+
+    conn.detach(KEY, null);
+    el.appendChild(host);
+    el.remove(); // the whole cell went away with its terminal inside it
+
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.sent.length = 0;
+    conn.fit(KEY);
+    expect(resizeFrames(ws)).toEqual([]);
   });
 });
