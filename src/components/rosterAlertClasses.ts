@@ -46,6 +46,13 @@ const ROW_DONE =
 // their hover is the theme's own.
 const ROW_EXPANDED = "border-[#4a9eff] border-l-[#4a9eff] bg-panel hover:bg-hover";
 const ROW_PLAIN = "border-border border-l-transparent bg-panel hover:bg-hover";
+// A row the user has set aside (#992). It names the same frame, edge and background as a plain
+// row and sinks with `opacity` — the one property no branch above sets, so the two never race.
+const ROW_PARKED = `${ROW_PLAIN} opacity-45`;
+// Parked AND the row being looked at. The blue edge is NAVIGATION — "you are here" — so it stays;
+// the sink is the STATE, so it stays too. Dropping either would answer a different question than
+// the one that was asked: selecting a parked session must not make it read as awake.
+const ROW_PARKED_EXPANDED = `${ROW_EXPANDED} opacity-45`;
 
 interface RosterAlertContext {
   // The row whose terminal is enlarged beside the list. It never alerts: a session you are
@@ -55,11 +62,23 @@ interface RosterAlertContext {
   // The user's setting (default on). Off leaves both states their still colours, which is the
   // point of the switch: the row stays findable, it just stops moving.
   blink: boolean;
+  // Set aside by the user (#992). It sinks the row, but it is NOT allowed to hide a session that
+  // has stopped and is waiting to be answered — hence the order below.
+  parked: boolean;
 }
 
-export function rosterAlertClass(status: AttentionStatus, { expanded, blink }: RosterAlertContext): string {
-  if (expanded) return ROW_EXPANDED;
+// `blocked` outranks `parked` deliberately: nothing proceeds on that session until the user
+// answers, and a row that cannot be seen because it was set aside is the accident this feature
+// must not cause. `done` does NOT outrank it — a parked agent finishing its turn is the expected
+// outcome of parking it, and floating that back up would undo the setting on its own.
+// A parked, blocked, EXPANDED row is sunk here while the cell it points at is at full strength
+// (isCellSunk lets `blocked` through). That asymmetry is deliberate and safe: the session is on
+// screen, enlarged, so nothing is hidden — and this row's job in that moment is only to say which
+// one you are on. The safety rule is about the SESSION being visible, not about its list entry.
+export function rosterAlertClass(status: AttentionStatus, { expanded, blink, parked }: RosterAlertContext): string {
+  if (expanded) return parked ? ROW_PARKED_EXPANDED : ROW_EXPANDED;
   if (status === "blocked") return blink ? `${ROW_BLOCKED} ${ROW_BLINK}` : ROW_BLOCKED;
+  if (parked) return ROW_PARKED;
   if (status === "done") return ROW_DONE;
   return ROW_PLAIN;
 }

@@ -34,6 +34,7 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { swallowsMouseTracking } from "./mouseTrackingModes";
 import { clearResetModes, recordSwallowedModes } from "./mouseReports";
 import { guardMouseClicks, guardMouseWheel } from "./terminalMouseInput";
+import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
@@ -152,6 +153,10 @@ export interface ConnHandlers {
   // failure, or an agent session that ended without one). A Run cell reads it to tell a
   // clean finish from a broken build.
   onExit?: (exitCode: number | null) => void;
+  // The user put something INTO this terminal. Fired from the one place keystrokes, bound keys
+  // and pastes all funnel through on their way to the socket, so it cannot be reached by output
+  // the server writes back or by anything the app renders — only by someone using the session.
+  onInput?: () => void;
 }
 
 // The two xterm options that decide the CELL METRICS, so they travel together: both change how
@@ -363,6 +368,13 @@ function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): v
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
+    // Announced even when the socket is down: the user typed either way, and what a parked cell
+    // reads it for (#992) is "someone is using this", not "the PTY received it".
+    //
+    // Pointer and focus reports ride this same function — the app feeds its own clicks and wheel
+    // through `term.input()` — so they have to be excluded here or clicking a parked cell to READ
+    // it would wake it, which is the one thing parking is for.
+    if (isTypedInput(data)) c.handlers.onInput?.();
     if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
   };
   term.onData(send);
