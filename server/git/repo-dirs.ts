@@ -63,11 +63,23 @@ function orderCandidates(candidates: RepoDirCandidate[]): RepoDirCandidate[] {
   return orderByDirPriority(byPath, (c) => c.path, priorityByPath);
 }
 
+// GitHub treats `Owner/Repo` and `owner/repo` as one repository, and the two spellings reach us
+// from different places: a recording is keyed by whatever the UI had (which comes from the
+// hand-typed `prRepos`), while an entry's own name is derived from the remote URL. An exact-key
+// lookup made a saved choice silently fail to stick whenever those differed — the user picked a
+// clone, it was written to the config, and the next read offered the menu again (Codex review).
+function recordedDir(repo: string, recorded: Record<string, string>): string | undefined {
+  const exact = recorded[repo];
+  if (exact !== undefined) return exact;
+  const wanted = repo.toLowerCase();
+  return Object.entries(recorded).find(([key]) => key.toLowerCase() === wanted)?.[1];
+}
+
 // A recorded choice is honoured only while it still names a clone of THAT repo. A directory that
 // was deleted, or repointed at another project, would otherwise send the next session's work into
 // the wrong tree — and silently, since the recording is invisible in the UI.
 const recordedPrimary = (repo: string, dirs: RepoDirCandidate[], recorded: Record<string, string>): string | null => {
-  const wanted = recorded[repo];
+  const wanted = recordedDir(repo, recorded);
   return wanted && dirs.some((d) => d.path === wanted) ? wanted : null;
 };
 

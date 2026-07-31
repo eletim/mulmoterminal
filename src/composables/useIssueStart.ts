@@ -41,6 +41,22 @@ export function clonesFor(repo: string): RepoDirs | undefined {
 
 export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo));
 
+/** Adopt a chosen clone into the loaded answer, and return the name to record it under.
+ *
+ *  Locally first, rather than waiting on the write or on another `/api/repo-dirs` read: without
+ *  this the snapshot still says "several clones, nothing chosen", so the NEXT issue row in the same
+ *  repo asked again — the choice only took effect after a reload (Codex review). The directory came
+ *  from this repo's own candidate list, so it is already known to be one of them.
+ *
+ *  The returned name is the entry's own spelling — derived from the remote — so the config is keyed
+ *  the way the server reads it rather than however `prRepos` happens to be typed. */
+export function rememberClone(repo: string, dir: string): string {
+  const entry = clonesFor(repo);
+  if (!entry || !entry.dirs.some((d) => d.path === dir)) return repo;
+  entry.primary = dir;
+  return entry.repo;
+}
+
 async function requestStart(repo: string, issue: number, dir: string): Promise<boolean> {
   const res = await fetch("/api/issues/start", {
     method: "POST",
@@ -88,6 +104,7 @@ export function useIssueStart() {
     clonesFor,
     planFor,
     startIssueWork,
+    rememberClone,
     isStarting: (repo: string, issue: number) => starting.value === keyOf(repo, issue),
   };
 }

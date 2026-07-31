@@ -11,7 +11,7 @@ import { formatCwd } from "./cwdDisplay";
 
 const props = defineProps<{ repo: string; issue: number }>();
 
-const { planFor, startIssueWork, isStarting } = useIssueStart();
+const { planFor, startIssueWork, rememberClone, isStarting } = useIssueStart();
 const { home, saveRepoDir } = useAppConfig();
 
 const plan = computed(() => planFor(props.repo));
@@ -27,12 +27,13 @@ function onClick() {
   else if (current.kind === "choose") toggle();
 }
 
-// Picking a clone RECORDS it before starting, so the next issue in this repo is one click. The
-// start does not wait on the write: a failed save costs the user one more pick later, while
-// blocking the launch on it would cost them the launch.
+// Picking a clone RECORDS it before starting, so the next issue in this repo is one click — in
+// this session as well as after a reload, which is what `rememberClone` is for. The start does not
+// wait on the write: a failed save costs the user one more pick later, while blocking the launch on
+// it would cost them the launch.
 async function pick(dir: string) {
   close();
-  void saveRepoDir(props.repo, dir);
+  void saveRepoDir(rememberClone(props.repo, dir), dir);
   await startIssueWork(props.repo, props.issue, dir);
 }
 
