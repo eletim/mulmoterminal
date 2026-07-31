@@ -43,7 +43,28 @@ describe("rosterAlertClass", () => {
 
   it("leaves working and idle rows plain", () => {
     for (const status of ["working", "idle"] satisfies AttentionStatus[]) {
-      expect(rosterAlertClass(status, { expanded: false, blink: true })).toBe("border-border border-l-transparent bg-panel");
+      expect(rosterAlertClass(status, { expanded: false, blink: true })).toBe("border-border border-l-transparent bg-panel hover:bg-hover");
+    }
+  });
+
+  // The state colour has to survive the pointer being on it (#1168): hovering used to brighten the
+  // whole row, which on a light theme — where the wash sits a few percent from white — clipped it to
+  // pure white, so the one row you were looking at was the one with no colour.
+  it("keeps the state colour in the hovered background", () => {
+    expect(rosterAlertClass("done", { expanded: false, blink: true })).toContain("hover:bg-[color-mix(in_srgb,#22c55e_18%,var(--bg-panel))]");
+    expect(rosterAlertClass("blocked", { expanded: false, blink: false })).toContain("hover:bg-[color-mix(in_srgb,#f59e0b_24%,var(--bg-panel))]");
+  });
+
+  // Same reason the background is named in every branch: with the row's static class no longer
+  // carrying a hover of its own, a branch that names none has no hover at all.
+  it("names a hover background in every branch", () => {
+    const statuses = ["blocked", "done", "working", "idle"] satisfies AttentionStatus[];
+    for (const status of statuses) {
+      for (const expanded of [true, false]) {
+        for (const blink of [true, false]) {
+          expect(rosterAlertClass(status, { expanded, blink })).toMatch(/\bhover:bg-/);
+        }
+      }
     }
   });
 
@@ -61,7 +82,8 @@ describe("rosterAlertClass", () => {
     for (const status of statuses) {
       for (const expanded of [true, false]) {
         for (const blink of [true, false]) {
-          expect(rosterAlertClass(status, { expanded, blink })).toMatch(/\bbg-/);
+          // Anchored to a class boundary so a `hover:bg-*` cannot stand in for the resting one.
+          expect(rosterAlertClass(status, { expanded, blink })).toMatch(/(^| )bg-/);
         }
       }
     }
