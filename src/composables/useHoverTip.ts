@@ -51,6 +51,8 @@ export function hideHoverTip(): void {
   tip.value = null;
 }
 
+// Ids start at 1, so the `owner = 0` default above means "opened by no anchor" and can never be
+// mistaken for one. Handing out 0 would make whichever chip holds it claim every such tip.
 let nextAnchorId = 0;
 
 /** Bind a chip to the shared tip. `content` is read at hover time rather than watched, because a
