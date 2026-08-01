@@ -140,7 +140,7 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
   // The directory IS the state: every sweep reads it fresh, so entries another server on
   // this workspace wrote are swept by us too, with nothing to reconcile or lose.
   const readRecords = async (): Promise<ScheduledSessionRecord[]> => {
-    const names = await fs.readdir(deps.dir).catch(() => [] as string[]);
+    const names = await fs.readdir(deps.dir).catch((): string[] => []);
     const entries = await Promise.all(names.map(readEntry));
     return entries.filter((entry): entry is ScheduledSessionRecord => entry !== null);
   };
