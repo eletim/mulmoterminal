@@ -19,6 +19,12 @@ describe("forgeOf", () => {
     expect(forgeOf(url)).toMatchObject({ host: "github.com", kind: "github", webUrl: "https://github.com/owner/repo" });
   });
 
+  // How the value actually arrives: `git config --get remote.origin.url` ends in a newline, and
+  // callers pass its stdout straight in. Pinned here now that it is this parser's job.
+  it("trims the whitespace and trailing newline git leaves on its output", () => {
+    expect(forgeOf("  git@github.com:owner/repo.git\n")).toMatchObject({ kind: "github", webUrl: "https://github.com/owner/repo" });
+  });
+
   it("reads gitlab.com", () => {
     expect(forgeOf("git@gitlab.com:group/project.git")).toMatchObject({ host: "gitlab.com", kind: "gitlab" });
   });

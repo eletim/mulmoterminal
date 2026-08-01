@@ -9,20 +9,8 @@ import { repoForRemote } from "../git/forge-support.js";
 import { mergeHeaderConfig, type HeaderConfig, type HeaderContext } from "./header-config.js";
 import { loadDirConfig } from "./dir-config.js";
 import { isStrictlyWithin } from "../infra/path-within.js";
-import { parseRemoteRef } from "../git/remote-ref.js";
-import { GITHUB_HOST } from "../git/forge-host.js";
 
 const WORKTREES_ROOT = path.join(os.homedir(), ".mulmoterminal", "worktrees");
-
-// The repository path in a web URL — `owner/repo` out of "https://github.com/owner/repo" — for
-// ${repo}. Parsed with the shared remote parser rather than by splitting on the host name (#981);
-// the GitHub check stays, because ${repo} is interpolated into https://github.com/${repo} by the
-// default header button, so a path from another host would build a link to the wrong site.
-// Widening that is part of the forge abstraction, not of moving the parsing.
-export function repoFromWebUrl(webUrl: string | null): string | null {
-  const ref = webUrl ? parseRemoteRef(webUrl) : null;
-  return ref?.host === GITHUB_HOST ? ref.path : null;
-}
 
 // A managed worktree lives at <root>/<repo>-<hash>/<task>. The task is the FIRST segment
 // under <root> — NOT path.basename, which would return the wrong name for any cwd deeper
