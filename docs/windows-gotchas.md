@@ -78,7 +78,7 @@ const SIBLING = path.resolve(BASE, "../lib");  // the expectation, computed the 
 pick a log apart by basename, and `String(file).split("/").pop()` returns the whole path on
 Windows — so a read falls through to `""` and a recorded write filters out to nothing. Neither
 throws: the spec reads empty logs and reports the feature as broken. #1189 and #1196 each shipped
-one, and Windows daily stayed red for eight days.
+one, and Windows daily went red on 12 consecutive runs before it was traced (#1212).
 
 Use `mockedFileName()` from `test/support/mockFsPath.ts` (`split(/[/\\]/)`). Not `path.basename` —
 correct at runtime, but on POSIX it leaves `\` alone, so the Windows case cannot be asserted on the

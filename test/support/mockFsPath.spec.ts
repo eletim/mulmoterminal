@@ -2,8 +2,8 @@
 // The Windows spelling, asserted on whatever platform is running.
 //
 // This helper exists because two registry specs read a `\`-separated path as one nameless blob and
-// went red on Windows only, for eight days, on every daily run. So the case that matters is the one
-// this machine will never produce on its own — it is passed in literally.
+// went red on Windows only, on 12 consecutive daily runs. So the case that matters is the one this
+// machine will never produce on its own — it is passed in literally.
 import { describe, it, expect } from "vitest";
 
 import { mockedFileName } from "./mockFsPath.js";
