@@ -65,6 +65,22 @@ function withMulmoScriptHostAdapter(inner: Component): Component {
   );
 }
 
+// gui-chat-protocol types `viewComponent` as OPTIONAL (vue.d.ts) — a plugin may ship a tool with
+// no Vue view at all. Every package registered below is one whose view is the whole reason it is
+// registered, so a missing one is a packaging error, and this says which package rather than
+// storing `undefined` and leaving the Canvas holding a tool it cannot draw.
+//
+// DELIBERATE DIVERGENCE from MulmoClaude, which treats an absent view as normal: it declares the
+// field optional in its own runtimeLoader and guards at the render site (`v-if="...?.viewComponent"`).
+// It has to — it loads plugins the USER installed at runtime, so a view-less one is a condition, not
+// a defect. Here the packages are pinned npm deps that Vite bundles at build time, so absence cannot
+// vary per user, and GuiPanel renders them through `getPlugin(...)!` without a guard. Failing at
+// registration with the package name beats crashing later inside a template.
+function viewOf(packageName: string, viewComponent: Component | undefined): Component {
+  if (!viewComponent) throw new Error(`${packageName} ships no viewComponent, so the Canvas cannot render its results`);
+  return viewComponent;
+}
+
 interface Registration {
   toolName: string;
   viewComponent: Component;
@@ -93,7 +109,7 @@ const PACKAGES: Record<string, Registration> = {
     // The package View uses useRuntime() (dispatch/pubsub/locale/openUrl), so wrap
     // it in MulmoTerminal's runtime provider. scope "markdown" matches the server's
     // file-change forward channel; dispatch targets the presentDocument route.
-    viewComponent: wrapWithPluginRuntime("markdown", markdownPlugin.toolDefinition.name, markdownPlugin.viewComponent as unknown as Component),
+    viewComponent: wrapWithPluginRuntime("markdown", markdownPlugin.toolDefinition.name, viewOf("@mulmoclaude/markdown-plugin", markdownPlugin.viewComponent)),
     css: markdownCss,
     // Re-presenting one document supersedes the card showing its older state; inline markdown has
     // no path and stands alone. See canvasIdentity.ts.
@@ -101,7 +117,7 @@ const PACKAGES: Record<string, Registration> = {
   },
   "@mulmoclaude/form-plugin": {
     toolName: formPlugin.toolDefinition.name,
-    viewComponent: formPlugin.viewComponent as Component,
+    viewComponent: viewOf("@mulmoclaude/form-plugin", formPlugin.viewComponent),
     css: formCss,
   },
   "@mulmoclaude/html-plugin": {
@@ -110,7 +126,7 @@ const PACKAGES: Record<string, Registration> = {
     // for live-refresh). scope "html" matches the server's file-change channel
     // (plugin:html:file:<path>); dispatch targets /api/plugin/presentHtml, where the
     // server intercepts loadHtml/saveHtml (see server/backends/html.ts).
-    viewComponent: wrapWithPluginRuntime("html", htmlPlugin.toolDefinition.name, htmlPlugin.viewComponent as unknown as Component),
+    viewComponent: wrapWithPluginRuntime("html", htmlPlugin.toolDefinition.name, viewOf("@mulmoclaude/html-plugin", htmlPlugin.viewComponent)),
     css: htmlCss,
     // The View renders an h-full iframe; give it a definite frame height (like the
     // collection card) so the page renders, with internal scroll.
@@ -120,7 +136,7 @@ const PACKAGES: Record<string, Registration> = {
   },
   "@mulmochat-plugin/generate-image": {
     toolName: GenerateImagePlugin.plugin.toolDefinition.name,
-    viewComponent: GenerateImagePlugin.plugin.viewComponent as Component,
+    viewComponent: viewOf("@mulmochat-plugin/generate-image", GenerateImagePlugin.plugin.viewComponent),
     css: mulmochatPluginCss,
   },
   "@mulmoclaude/chart-plugin": {
@@ -128,7 +144,7 @@ const PACKAGES: Record<string, Registration> = {
     // No runtime wrap: the chart View reads everything from selectedResult.data and
     // only optionally injects the runtime for locale (inject(KEY, undefined)?.locale
     // ?? "en"), so it renders standalone. Its style.css is self-contained Tailwind.
-    viewComponent: chartPlugin.viewComponent as Component,
+    viewComponent: viewOf("@mulmoclaude/chart-plugin", chartPlugin.viewComponent),
     css: chartCss,
   },
   "@mulmoclaude/mulmoscript-plugin": {
@@ -141,7 +157,7 @@ const PACKAGES: Record<string, Registration> = {
     viewComponent: wrapWithPluginRuntime(
       "mulmoScript",
       mulmoScriptPlugin.toolDefinition.name,
-      withMulmoScriptHostAdapter(mulmoScriptPlugin.viewComponent as unknown as Component),
+      withMulmoScriptHostAdapter(viewOf("@mulmoclaude/mulmoscript-plugin", mulmoScriptPlugin.viewComponent)),
     ),
     css: mulmoScriptCss,
     // Full storyboard editor with an internal h-full layout — give it a definite
@@ -163,7 +179,7 @@ const PACKAGES: Record<string, Registration> = {
     // root as the record modal's teleport target (see the component + collectionUi).
     // The binding (data fetch, asset URLs, nav, confirm) is configured once at
     // startup by importing ./composables/collectionUi in main.ts.
-    viewComponent: CollectionCardView as Component,
+    viewComponent: CollectionCardView,
     css: collectionShadowCss,
     // The collection View uses an internal h-full layout (table/kanban scroll
     // areas, and the custom-view iframe has no intrinsic content height). Give it a
@@ -181,7 +197,7 @@ const localModules = import.meta.glob<{ REGISTRATION: Registration }>("../plugin
   eager: true,
 });
 
-const cfg = config as { packages?: string[]; local?: string[] };
+const cfg: { packages?: string[]; local?: string[] } = config;
 const registry: Record<string, Registration> = {};
 
 for (const name of cfg.packages ?? []) {
@@ -205,7 +221,7 @@ for (const [modulePath, mod] of Object.entries(localModules)) {
 // host via its own configureAccountingHost DI (see composables/accountingUi.ts).
 registry["manageAccounting"] = {
   toolName: "manageAccounting",
-  viewComponent: AccountingView as Component,
+  viewComponent: AccountingView,
   css: accountingCss,
   // Full canvas app with an internal h-full layout — give it a fixed frame height
   // (like the collection/html cards) so that chain resolves.
