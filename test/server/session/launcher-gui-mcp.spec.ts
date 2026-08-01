@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { launcherProgram, launcherCommandWithGuiMcp, launcherRunsAgent } from "../../../server/session/launcher-gui-mcp.js";
+import { launcherProgram, launcherCommandWithGuiMcp, launcherRunsAgent, launcherAgent } from "../../../server/session/launcher-gui-mcp.js";
 
 // The "Codex" launcher chip and the Claude|Codex agent toggle land in the same grid cell and look
 // the same, but the chip runs a COMMAND STRING through the login shell — there is no argv to add
@@ -97,5 +97,28 @@ describe("launcherCommandWithGuiMcp", () => {
   it("quotes for the platform it will run on", () => {
     const out = launcherCommandWithGuiMcp("codex", [SERVERS[0]], "win32");
     expect(out).toContain(`-c 'mcp_servers.mulmoterminal-render.url="http://127.0.0.1:34567/api/mcp/render/s1"'`);
+  });
+});
+
+// The other half of the same question (Codex, on #1208): a launcher's agent was recorded as a
+// plain shell, so the session it started was refused on the way IN but then invisible to the
+// occupancy read — leaving the worktree free for a second agent as soon as the first detached.
+describe("launcherAgent", () => {
+  it("records the agent a launcher actually runs", () => {
+    expect(launcherAgent("codex")).toBe("codex");
+    expect(launcherAgent("/opt/homebrew/bin/claude --model opus")).toBe("claude");
+    expect(launcherAgent("antigravity")).toBe("antigravity");
+  });
+
+  it("records everything else as a shell", () => {
+    for (const command of ["zsh", "yarn dev", "lazygit", "FOO=1 codex", ""]) expect(launcherAgent(command)).toBe("shell");
+  });
+
+  // The pair has to agree: a command line that is held to the worktree limit must also be seen as
+  // the worktree's occupant afterwards, or the limit protects a directory it cannot then measure.
+  it("agrees with launcherRunsAgent on every command line", () => {
+    for (const command of ["codex", "claude", "antigravity", "zsh", "yarn dev", "FOO=1 codex", "codex.cmd", ""]) {
+      expect(launcherAgent(command) !== "shell", command).toBe(launcherRunsAgent(command));
+    }
   });
 });

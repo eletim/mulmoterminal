@@ -11,7 +11,7 @@
 // has to be a narrow, recognisable case rather than a guess.
 import path from "node:path";
 import { shellQuoteFor } from "../config/header-resolve.js";
-import { isTerminalAgent } from "../../common/sessionAgent.js";
+import { isTerminalAgent, type SessionAgent } from "../../common/sessionAgent.js";
 import type { GuiMcpServer } from "../agents/codex-args.js";
 
 // The program a command line runs, without its directory or a Windows extension: `codex`,
@@ -35,6 +35,13 @@ export function launcherProgram(command: string): string {
  * direction that never blocks someone from their own tools.
  */
 export const launcherRunsAgent = (command: string): boolean => isTerminalAgent(launcherProgram(command));
+
+/** What to RECORD for a launcher's session. The same answer as above, as the session kind — so a
+ *  launcher's codex is the worktree's occupant afterwards, not only refused on the way in. */
+export function launcherAgent(command: string): SessionAgent {
+  const program = launcherProgram(command);
+  return isTerminalAgent(program) ? program : "shell";
+}
 
 /**
  * The command to actually run, with codex's MCP overrides inserted when this launcher runs codex.

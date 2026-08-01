@@ -99,6 +99,14 @@ is the direction that never stands between someone and their own tools.
 reason on it. This is what closes B and C: the badge no longer depends on the browser having the
 other viewer in its own grid.
 
+A launcher that runs an agent is also RECORDED as that agent (`launcherAgent()`), so it is the
+worktree's occupant afterwards and not only refused on the way in. What stays uncovered is a
+command line the recogniser cannot read — `FOO=1 codex`, `env codex`, a wrapper script. That is
+deliberate: the recogniser is shared with the MCP injection, whose "do not see through a wrapper"
+rule is a decision with its own tests, and a guard that were cleverer than the injection would make
+one command line read as codex to one and not the other. Parsing shell syntax to decide whether to
+REFUSE someone a terminal is also the wrong direction to be clever in.
+
 ## Not done here
 
 - No cross-process lock or handover. "Open elsewhere" is reported and refused, not stolen.
