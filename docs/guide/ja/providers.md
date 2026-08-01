@@ -2,7 +2,7 @@
 title: OpenRouter で別のモデルを使う
 layout: default
 parent: 日本語
-nav_order: 6
+nav_order: 7
 description: OpenRouter などの Anthropic 互換バックエンドを登録して、Claude Code を Claude 以外のモデルで動かす手順。
 ---
 

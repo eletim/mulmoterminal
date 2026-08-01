@@ -12,6 +12,8 @@ description: 複数の AI コーディングエージェント（Claude Code / C
 >
 > **X で最新情報を発信しています** — 新バージョンや新機能のお知らせは X の [Singularity Society（@SingularitySoci）](https://x.com/SingularitySoci) で流していきます。ここが一番早いので、[**@SingularitySoci をフォローしてください！**](https://x.com/SingularitySoci)
 >
+> **[❓ よくある質問（FAQ）](faq.html)** — VS Code / Cursor / tmux 分割との違い、**既存の Claude Code セッションはそのまま使えるのか**、Windows で動くのか、トークン代はどうなるのか。試す前に聞かれることをまとめました
+>
 > **「なんか変」と思ったら** — セッションで `/mulmoterminal-bug-report` と打ってください。同梱スキルが症状を聞き、**実際の**設定とバージョンを読んで仕様・設定で説明がつかないかを先に確かめ、既知の issue を検索し、それでも残ったものだけを報告にまとめます（環境情報は自動収集、鍵はマスク）。
 >
 > **直したいところがあったら** — **pull request ではなく issue を立ててください。**外部からの PR は規模によらず自動でクローズされます。冷たく聞こえるかもしれませんが、いま足りないのは手ではなく、こちらの環境では踏めないバグと、思いついていないアイデアです。詳細は [CONTRIBUTING.md](https://github.com/receptron/mulmoterminal/blob/main/CONTRIBUTING.md)。
