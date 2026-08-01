@@ -13,6 +13,11 @@ import { GITHUB_HOST, GITLAB_HOST, parseRepoEntry } from "./repoEntry";
 // still refuses, and says which host it is rather than blaming a missing clone (#981).
 const STARTABLE_HOSTS: ReadonlySet<string> = new Set([GITHUB_HOST, GITLAB_HOST]);
 
+/** The hosts named in a refusal, read off the set rather than written out beside it — a hardcoded
+ *  "github.com only" survived GitLab becoming startable and told users the opposite of the truth
+ *  (Codex review). Exported so the phone's refusal says the same thing. */
+export const startableHosts = (): string => [...STARTABLE_HOSTS].join(" and ");
+
 export type IssueStartPlan =
   /** No clone of this repo on this machine, so there is nowhere for the work to happen. */
   | { kind: "no-clone" }
@@ -48,6 +53,6 @@ export function issueStartPlan(entry: RepoDirs | undefined, repo: string): Issue
 
 /** Why the control is disabled, for the row's title text. Null when it is not disabled. */
 export function issueStartBlockedReason(plan: IssueStartPlan, repo: string): string | null {
-  if (plan.kind === "unsupported-forge") return `Starting work is github.com only — ${plan.host} issues are listed here, not started from`;
+  if (plan.kind === "unsupported-forge") return `Starting work supports ${startableHosts()} — ${plan.host} issues are listed here, not started from`;
   return plan.kind === "no-clone" ? `No local clone of ${repo} — add one to your directory presets to start work here` : null;
 }

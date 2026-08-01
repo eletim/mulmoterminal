@@ -14,7 +14,7 @@ import { getCwdPresets, getPrRepos, getRepoDirs } from "../../../config/config-r
 import { listIssuesAcrossRepos } from "../../../git/issues.js";
 import { startIssueWork } from "../../../git/issue-work.js";
 import { repoDirsFromPresets } from "../../../git/repo-dirs.js";
-import { issueStartPlan, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
+import { issueStartPlan, startableHosts, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
 import { isRepoEntry, repoIdentity } from "../../../../common/repoEntry.js";
 import { isIssueNumber } from "../../../../common/prPhase.js";
 import type { RepoDirs } from "../../../../common/repoDirs.js";
@@ -37,7 +37,8 @@ const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => {
 export function issueStartRefusal(plan: BlockedIssueStartPlan, repo: string): string {
   // Named separately from "no clone" on purpose: adding a clone would not help, so a reader told
   // the wrong reason would go and do something useless (#981).
-  if (plan.kind === "unsupported-forge") return `${repo} is on ${plan.host}. Its issues are listed here, but starting work on them is github.com only for now.`;
+  if (plan.kind === "unsupported-forge")
+    return `${repo} is on ${plan.host}. Its issues are listed here, but work can only be started on ${startableHosts()} for now.`;
   return plan.kind === "no-clone"
     ? `No local clone of ${repo} on this machine. Add one to your directory presets on the desktop to start work here.`
     : `${repo} has several clones on this machine and none is chosen yet. Start one issue from the desktop to choose which clone the work happens in, and this will use it from then on.`;

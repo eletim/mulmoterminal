@@ -78,8 +78,21 @@ export async function fetchIssueDetail(repo: string, issue: number): Promise<Iss
 // NOT submitted — the seed is a draft (see draft-injection.ts), so the user reads it and presses
 // Enter. That matters here more than anywhere else in the app: this text was written by whoever
 // opened the issue, which is often not the person about to run it.
+// What to call the thing and where it lives. Both were hardcoded to GitHub, which for a GitLab
+// entry produced `https://github.com/gitlab.com/group/project/issues/N` — a link to nothing, in the
+// text the agent is about to read (Codex review). `forge.webUrl` already knows the right answer.
+//
+// GitLab puts a project's own pages under `/-/`, and serves issues from `/-/issues/<iid>`.
+const issueLabel = (repo: string): string => (forgeFromRepoEntry(repo)?.kind === "gitlab" ? "GitLab issue" : "GitHub issue");
+
+function issueUrl(repo: string, number: number): string {
+  const forge = forgeFromRepoEntry(repo);
+  if (!forge?.webUrl) return `https://github.com/${repo}/issues/${number}`;
+  return forge.kind === "gitlab" ? `${forge.webUrl}/-/issues/${number}` : `${forge.webUrl}/issues/${number}`;
+}
+
 export function issueSeedPrompt(repo: string, issue: IssueDetail): string {
-  const lines = [`GitHub issue #${issue.number}: ${issue.title}`, `https://github.com/${repo}/issues/${issue.number}`, ""];
+  const lines = [`${issueLabel(repo)} #${issue.number}: ${issue.title}`, issueUrl(repo, issue.number), ""];
   if (issue.body.trim()) lines.push(issue.body.trim(), "");
   lines.push(`Let's work on this issue. Read it through first and confirm the approach with me before implementing.`);
   return lines.join("\n");

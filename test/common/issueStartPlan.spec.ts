@@ -98,3 +98,18 @@ describe("a GitHub entry that spells its host out", () => {
     expect(issueStartPlan(undefined, "github.com/acme/web")).toEqual({ kind: "no-clone" });
   });
 });
+
+// The refusal names the hosts it reads off `STARTABLE_HOSTS`, not a sentence written beside it: a
+// hardcoded "github.com only" survived GitLab becoming startable and told users the opposite of
+// what the code did (Codex review, #1257).
+describe("what the refusal says work is supported on", () => {
+  it("names every startable host, so the sentence cannot go stale", () => {
+    const reason = issueStartBlockedReason(issueStartPlan(undefined, "codeberg.org/owner/repo"), "codeberg.org/owner/repo");
+    expect(reason).toContain("github.com");
+    expect(reason).toContain("gitlab.com");
+  });
+
+  it("does not claim only one host is supported", () => {
+    expect(issueStartBlockedReason(issueStartPlan(undefined, "codeberg.org/owner/repo"), "codeberg.org/owner/repo")).not.toContain("only");
+  });
+});
