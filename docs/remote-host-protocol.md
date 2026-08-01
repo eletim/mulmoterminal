@@ -40,7 +40,7 @@ grouped in `handlers/terminalSession.ts`.
 | `launchTerminal` | `agent`, `sessionId` | `{ ok: true }` |
 | `startChat` | `message`, `attachments?` | `{ started: true, chatId }` |
 | `listIssues` | — | `{ repos: RepoIssueRows[] }` |
-| `startIssueWork` | `repo`, `issue` | `{ started: true, sessionId, branch, issue }` |
+| `startIssueWork` | `repo`, `issue`, `run?` | `{ started: true, sessionId, branch, issue, outcome, ran }` |
 | `listFeeds` | — | `{ feeds }` |
 | `getFeed` | `slug`, `offset?`, `limit?` | the feed page |
 | `listCollections` | — | `{ collections }` (feed-backed ones excluded) |
@@ -74,15 +74,14 @@ Settings' `prRepos`, capped per repo, no bodies. Each repo row carries what
 ```
 
 `startIssueWork` then reads the issue, cuts its `issue/<N>-<slug>` worktree off the fetched
-mainline, and spawns a session there with the issue **waiting in the input box, not submitted** —
-the text was written by whoever opened the issue, so the Enter is the user's. It answers
-`{ started: true, sessionId, branch, issue: { number, title }, outcome }`; `sessionId` is the id
-`getTerminalScreen` takes, so the phone can watch what it just started.
+mainline, and spawns a session there seeded with the issue. It answers
+`{ started: true, sessionId, branch, issue: { number, title }, outcome, ran }`; `sessionId` is the
+id `getTerminalScreen` takes, so the phone can watch what it just started.
 
 **An issue has ONE worktree, so a second call for it does not start a second thing** (#1219).
 `outcome` says which of three happened:
 
-| `outcome` | what happened | is the issue in the input box? |
+| `outcome` | what happened | was the issue typed into it? |
 |---|---|---|
 | `created` | the worktree was cut and a session seeded in it | yes |
 | `reused` | the worktree was already there and empty; the session is new | yes |
@@ -91,6 +90,43 @@ the text was written by whoever opened the issue, so the Enter is the user's. It
 A fourth case is a refusal rather than an answer: the worktree's session is **open in another
 terminal**, and the sentence says to close it there first. One working tree runs one agent
 (#1207), and that rule is not suspended because the request came from the phone.
+
+### `run` — start it, don't just type it (#1253)
+
+By default the seed is **typed and not submitted**: the text was written by whoever opened the
+issue, so the Enter is the user's. That is right on the desktop and wrong on a phone, which has no
+Enter key — the work simply stops there. **`run: true`** submits it instead.
+
+**Only the host can do this.** The seed is typed once the TUI's input box has painted
+(`server/session/draft-injection.ts`), so an Enter sent from the phone would race the injection,
+and nothing outside this process knows when it landed. `sendTerminalInput` cannot send a bare Enter
+either (empty text is rejected), and a one-character workaround would be cleared by the
+before-paste Ctrl-C. So this is a parameter here rather than a sequence the phone performs.
+
+**Auto-running is safe because of what the seed says.** `issueSeedPrompt` ends with *"Read it
+through first and confirm the approach with me before implementing"*, so the session stops for a
+decision before it writes anything.
+
+`ran` is not an echo of `run` — it is false whenever nothing was seeded, whatever was asked:
+
+| | `run: true` | `run` absent / `false` |
+|---|---|---|
+| `created` / `reused` | `ran: true` — typed and submitted | `ran: false` — typed, waiting for Enter |
+| `resumed` | **`ran: false`** — nothing was typed, so there is nothing to submit | `ran: false` |
+
+`resumed` never runs, whatever was asked: that session has its own history and **nothing was typed
+into it**, so submitting would send whatever the user left in its box, or an empty line. Anything
+other than `true` is read as `false`, which leaves the behaviour every caller had before this
+option existed.
+
+**`ran: true` means the session was started to run its seed, not that a keystroke has landed.** The
+reply is sent as soon as the session exists; the seed is typed — and submitted — afterwards, once
+the TUI's input box has painted. So the phone should word it as *started*, not as *the agent has
+answered*, and read the session itself (`getTerminalScreen`) for the latter.
+
+**The desktop keeps the draft.** `POST /api/issues/start` takes no `run` — there, the person who
+opened the issue and the person about to run it are often not the same, and the reviewing Enter is
+the point.
 
 **It takes no `dir`, by rule** (see "The phone never sends a path" below). The work starts in the
 clone recorded for that repo — or in the only one, when the repo has exactly one here. When
@@ -207,6 +243,7 @@ that SPAWNS can mark its session unplaced and let a grid adopt it later, which i
 | Quick-command scoping | `server/backends/remoteHost/quickCommands.ts` |
 | Launch validation | `server/backends/remoteHost/launchTerminal.ts` |
 | Issue work (list, refuse, start) | `server/backends/remoteHost/handlers/issueWork.ts`, `server/git/issue-work.ts` |
+| Whether the seed is typed or typed-and-run | `server/session/issue-spawn-options.ts` |
 | Which clone a repo starts in | `server/git/repo-dirs.ts`, `common/issueStartPlan.ts` |
 | Reconnect + health | `server/backends/remoteHost/resilientRunner.ts`, `healthNotice.ts` |
 | Wiring (PTY table, pub/sub, config) | `server/index.ts` |

@@ -45,7 +45,7 @@ export function issueStartRefusal(plan: BlockedIssueStartPlan, repo: string): st
 
 const repoDirsNow = (): Promise<RepoDirs[]> => repoDirsFromPresets(getCwdPresets(), getRepoDirs());
 
-type IssueWorkDeps = Pick<RemoteHostHandlerDeps, "spawnIssueDraft">;
+type IssueWorkDeps = Pick<RemoteHostHandlerDeps, "spawnIssueSeed">;
 
 // `canStart` is always present and the sentence only when there is one: the phone's rule is
 // "render it if it's there", and an empty string would read as a reason nobody could name.
@@ -60,19 +60,32 @@ const listIssuesHandler: CommandHandlers[string] = async () => {
 };
 
 const startIssueWorkHandler =
-  ({ spawnIssueDraft }: IssueWorkDeps): CommandHandlers[string] =>
+  ({ spawnIssueSeed }: IssueWorkDeps): CommandHandlers[string] =>
   async (params: JsonObject) => {
     const repo = typeof params.repo === "string" ? params.repo.trim() : "";
     if (!isRepoEntry(repo)) throw new Error("repo is required, as [host/]owner/repo");
     const { issue } = params;
     if (!isIssueNumber(issue)) throw new Error("issue is required, as a positive issue number");
+    // Anything that is not `true` leaves the seed as a draft — the behaviour every caller had
+    // before this option existed. A caller that meant to run and spelled it wrong learns so from
+    // `ran` below, which reports what happened rather than what was asked for.
+    const run = params.run === true;
 
     const plan = issueStartPlan(entryFor(await repoDirsNow(), repo), repo);
     if (plan.kind !== "ready") throw new Error(issueStartRefusal(plan, repo));
 
+    // OBSERVED, not derived from the outcome: startIssueWork spawns for `created` and `reused` and
+    // skips it for `resumed`, and that rule lives there. Reading it off the outcome here would be
+    // a second copy of it, right up until a fourth outcome is added.
+    let seeded = false;
     // Named the way its own host does, like the desktop route — an entry may declare a host that
     // the repo's own identity does not carry.
-    const result = await startIssueWork(canonicalRepo(repo), issue, plan.dir, { spawnDraft: spawnIssueDraft });
+    const result = await startIssueWork(canonicalRepo(repo), issue, plan.dir, {
+      spawnDraft: (cwd, seed) => {
+        seeded = true;
+        return spawnIssueSeed(cwd, seed, run);
+      },
+    });
     // A failed step stops here with the reason it failed — the same detail the desktop route turns
     // into a status code, which on this channel is simply the sentence the phone shows.
     if (!result.ok || !result.sessionId) throw new Error(result.detail ?? `could not start work on ${repo}#${issue}`);
@@ -84,6 +97,11 @@ const startIssueWorkHandler =
       // describe as a fresh start: that session was already working on this issue, and the issue
       // text is NOT waiting in its box.
       outcome: result.outcome ?? "created",
+      // Whether this session was started to SUBMIT its seed (#1253), so the phone says "started"
+      // rather than "it's in the input box, press Enter yourself" — which on a phone is not
+      // something the reader can do. Not a landed keystroke: the typing happens after this reply,
+      // once the TUI's input box has painted.
+      ran: run && seeded,
       // The title, so the phone can confirm WHICH issue it just started without a second call. The
       // body is deliberately not echoed: it is already in the session's input box, and it is the
       // one field here with no upper bound.
