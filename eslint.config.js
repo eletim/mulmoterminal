@@ -113,6 +113,30 @@ export default [
     },
   },
   {
+    // `as` casts, which CLAUDE.md forbids ("MUST use type guards instead") and nothing was
+    // enforcing — so they accumulated to 90 in the app while the rule existed only on paper.
+    // A cast asserts a type the compiler could not prove; a type guard PROVES it, and the
+    // difference shows up at runtime, on the data you least control.
+    //
+    // WARN while the existing ones are worked off file by file (#1231), so CI keeps passing and
+    // the remaining count stays visible. It goes to ERROR once the last one is resolved — the
+    // allowlist below is the only way to keep one, with a reason, since inline eslint-disable
+    // is forbidden and hides the debt at the scene.
+    files: ["**/*.{ts,tsx,mts,cts}", "**/*.vue"],
+    rules: {
+      "@typescript-eslint/consistent-type-assertions": ["warn", { assertionStyle: "never" }],
+    },
+  },
+  {
+    // Tests may build values the types forbid on purpose: a malformed payload to prove the
+    // parser rejects it, a partial stub standing in for a big interface. Asserting there is
+    // the point of the test, not a hole in the app.
+    files: ["**/*.spec.{ts,tsx,js}", "**/*.test.{ts,tsx,js}", "test/**/*.{ts,tsx,js}"],
+    rules: {
+      "@typescript-eslint/consistent-type-assertions": "off",
+    },
+  },
+  {
     // Test files: a describe/it suite is one big (nested) callback by design, so the
     // length + callback-nesting guards are noise here. Keep the logic-complexity guards on.
     files: ["**/*.spec.{ts,js}", "**/*.test.{ts,js}"],
