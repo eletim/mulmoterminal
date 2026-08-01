@@ -3,7 +3,7 @@
 // Both entry points are dependency-injected and free of server/index.ts internals, so the
 // join rules and the capture fallback are unit-testable without a live PTY or tmux.
 import { parseStyledRows, rowsToScreen, suggestionFromRows, type ScreenRow } from "../../session/screen-rows.js";
-import type { SessionAgent } from "../../../common/sessionAgent.js";
+import { TERMINAL_AGENTS, type SessionAgent } from "../../../common/sessionAgent.js";
 import { workItemHeadline, type PrPhase, type WorkItem } from "../../../common/prPhase.js";
 import type { QuickCommandChip } from "./quickCommands.js";
 import { basename } from "node:path";
@@ -23,9 +23,11 @@ const AGENT_DEFAULT_COMMAND: Record<AgentKind, string> = { claude: "claude", cod
 
 const agentCommands = (): Record<string, SessionAgent> => {
   const map: Record<string, SessionAgent> = {};
-  for (const [kind, command] of Object.entries(AGENT_DEFAULT_COMMAND)) {
-    map[command] = kind as SessionAgent;
-    map[basename(getAgentAdapter(kind as AgentKind).bin())] = kind as SessionAgent;
+  // Over the KIND list rather than Object.entries, which widens the keys of a Record back to
+  // `string` and cost three assertions to undo.
+  for (const kind of TERMINAL_AGENTS) {
+    map[AGENT_DEFAULT_COMMAND[kind]] = kind;
+    map[basename(getAgentAdapter(kind).bin())] = kind;
   }
   return map;
 };

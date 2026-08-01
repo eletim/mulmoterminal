@@ -152,7 +152,10 @@ function serializePerIssue<T>(key: string, task: () => Promise<T>): Promise<T> {
  *  must already have been checked against the repo's known clones by the caller — this does not
  *  resolve it. */
 export function startIssueWork(repo: string, issue: number, dir: string, deps: StartIssueWorkDeps): Promise<StartedResult> {
-  return serializePerIssue(`${dir} ${issue}`, () => runIssueWork(repo, issue, dir, deps));
+  // NUL joins the two halves because a directory path may contain anything else. Written as the
+  // ESCAPE: a literal NUL in the source makes the file binary to grep, which then skips it
+  // SILENTLY — this module was invisible to several "every place that calls gh" sweeps.
+  return serializePerIssue(`${dir}\0${issue}`, () => runIssueWork(repo, issue, dir, deps));
 }
 
 async function runIssueWork(repo: string, issue: number, dir: string, deps: StartIssueWorkDeps): Promise<StartedResult> {
