@@ -31,6 +31,9 @@ const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => repo
  *  because that is where the missing answer is given — a sentence that only says "no" would leave
  *  the reader with nothing to do about it. */
 export function issueStartRefusal(plan: BlockedIssueStartPlan, repo: string): string {
+  // Named separately from "no clone" on purpose: adding a clone would not help, so a reader told
+  // the wrong reason would go and do something useless (#981).
+  if (plan.kind === "unsupported-forge") return `${repo} is on ${plan.host}. Its issues are listed here, but starting work on them is github.com only for now.`;
   return plan.kind === "no-clone"
     ? `No local clone of ${repo} on this machine. Add one to your directory presets on the desktop to start work here.`
     : `${repo} has several clones on this machine and none is chosen yet. Start one issue from the desktop to choose which clone the work happens in, and this will use it from then on.`;
@@ -46,7 +49,7 @@ const listIssuesHandler: CommandHandlers[string] = async () => {
   const [repos, dirs] = await Promise.all([listIssuesAcrossRepos(getPrRepos()), repoDirsNow()]);
   return toJsonObject({
     repos: repos.map((row) => {
-      const plan = issueStartPlan(entryFor(dirs, row.repo));
+      const plan = issueStartPlan(entryFor(dirs, row.repo), row.repo);
       return plan.kind === "ready" ? { ...row, canStart: true } : { ...row, canStart: false, startBlocked: issueStartRefusal(plan, row.repo) };
     }),
   });
@@ -60,7 +63,7 @@ const startIssueWorkHandler =
     const { issue } = params;
     if (!isIssueNumber(issue)) throw new Error("issue is required, as a positive issue number");
 
-    const plan = issueStartPlan(entryFor(await repoDirsNow(), repo));
+    const plan = issueStartPlan(entryFor(await repoDirsNow(), repo), repo);
     if (plan.kind !== "ready") throw new Error(issueStartRefusal(plan, repo));
 
     const result = await startIssueWork(repo, issue, plan.dir, { spawnDraft: spawnIssueDraft });

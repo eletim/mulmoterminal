@@ -39,7 +39,7 @@ export function clonesFor(repo: string): RepoDirs | undefined {
   return repoDirs.value.find((r) => r.repo.toLowerCase() === wanted);
 }
 
-export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo));
+export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo), repo);
 
 /** Adopt a chosen clone into the loaded answer, and return the name to record it under.
  *

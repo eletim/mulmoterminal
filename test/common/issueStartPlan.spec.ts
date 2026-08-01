@@ -55,3 +55,26 @@ describe("issueStartBlockedReason", () => {
     expect(issueStartBlockedReason(plan, "acme/web")).toBeNull();
   });
 });
+
+// A GitLab repo has no entry in the clone answer, so before this it planned as `no-clone` and the
+// row said "add a local clone" — a fix that would not have helped, because starting work is
+// GitHub-only whatever clones exist (Codex review, #981).
+describe("a repo on a forge that can be listed but not started from", () => {
+  it("names the forge instead of blaming a missing clone", () => {
+    const plan = issueStartPlan(undefined, "gitlab.com/group/project");
+    expect(plan).toEqual({ kind: "unsupported-forge", host: "gitlab.com" });
+    expect(issueStartBlockedReason(plan, "gitlab.com/group/project")).toContain("gitlab.com");
+    expect(issueStartBlockedReason(plan, "gitlab.com/group/project")).not.toContain("No local clone");
+  });
+
+  // Checked before the clone list: a GitLab repo that somehow HAS a clone still cannot be started
+  // from, so the answer must not depend on whether one is present.
+  it("holds even when a clone exists", () => {
+    const entry = { repo: "gitlab.com/group/project", dirs: [{ path: "/w/p", label: "p", orderPriority: null }], primary: "/w/p" };
+    expect(issueStartPlan(entry, "gitlab.com/group/project").kind).toBe("unsupported-forge");
+  });
+
+  it.each([["acme/web"], ["github.com/acme/web"]])("leaves a GitHub entry (%s) alone", (repo) => {
+    expect(issueStartPlan(undefined, repo)).toEqual({ kind: "no-clone" });
+  });
+});

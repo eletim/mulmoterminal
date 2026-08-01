@@ -15,20 +15,10 @@ export function runGlab(args: string[]): Promise<GhResult> {
 // else entirely (`--output-format` = details|ids|urls) and the format flag is `-O`. Verified
 // against glab 1.111.0 — writing these from memory produces a command that runs and returns the
 // wrong thing.
-// State: `glab issue list` takes `--opened`, so it is passed rather than assumed. `glab mr list`
-// has no such flag — its help states "Defaults to open merge requests", and the only state flags
-// are `--all` / `--closed` / `--merged`. Documented default, not a guess; checked with `--help`
-// because a list that quietly included merged requests would look like the view was broken.
+// State: neither list is given a state flag. `mr list` has none to give (its help documents the
+// open default), and `issue list`'s `--opened` is DEPRECATED — running it prints "Flag --opened has
+// been deprecated, default if --closed is not used", which both states the default and warns that
+// the flag is going away. Learned by running it, not from the help.
 export const glabMrListArgs = (project: string, limit: number): string[] => ["mr", "list", "--repo", project, "--per-page", String(limit), "-F", "json"];
 
-export const glabIssueListArgs = (project: string, limit: number): string[] => [
-  "issue",
-  "list",
-  "--repo",
-  project,
-  "--opened",
-  "--per-page",
-  String(limit),
-  "-O",
-  "json",
-];
+export const glabIssueListArgs = (project: string, limit: number): string[] => ["issue", "list", "--repo", project, "--per-page", String(limit), "-O", "json"];

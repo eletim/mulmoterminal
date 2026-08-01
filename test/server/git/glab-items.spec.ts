@@ -123,7 +123,10 @@ describe("glab list arguments", () => {
 
   // `-F` on `issue list` is `--output-format` (details|ids|urls), NOT the output format — that is
   // `-O`. The same short flag, a different meaning, one subcommand apart.
-  it("asks issue list for json with -O, and for open items explicitly", () => {
-    expect(glabIssueListArgs("group/project", 21)).toEqual(["issue", "list", "--repo", "group/project", "--opened", "--per-page", "21", "-O", "json"]);
+  //
+  // No state flag: `--opened` exists but is deprecated, and running it prints a warning saying the
+  // open list is the default. Passing it would add noise now and break later.
+  it("asks issue list for json with -O, and passes no state flag", () => {
+    expect(glabIssueListArgs("group/project", 21)).toEqual(["issue", "list", "--repo", "group/project", "--per-page", "21", "-O", "json"]);
   });
 });
