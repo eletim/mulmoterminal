@@ -1,8 +1,8 @@
 // What the issue row's start control can do — three outcomes, each a different thing for the
 // user to see, so each is pinned rather than left to the component.
 import { describe, it, expect } from "vitest";
-import { issueStartPlan, issueStartBlockedReason } from "../../../src/composables/issueStartPlan";
-import type { RepoDirs } from "../../../common/repoDirs";
+import { issueStartPlan, issueStartBlockedReason } from "../../common/issueStartPlan";
+import type { RepoDirs } from "../../common/repoDirs";
 
 const entry = (paths: string[], primary: string | null = null): RepoDirs => ({
   repo: "acme/web",

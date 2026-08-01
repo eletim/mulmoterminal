@@ -93,6 +93,7 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
     handlers: createRemoteHostHandlers({
       workspace: deps.workspace,
       spawnChat: deps.spawnChat,
+      spawnIssueDraft: deps.spawnIssueDraft,
       ingest,
       listTerminalSessions: deps.listTerminalSessions,
       captureTerminalScreen: deps.captureTerminalScreen,

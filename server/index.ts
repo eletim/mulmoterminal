@@ -574,6 +574,16 @@ const remoteHostSpawnChat = (message: string) => {
   markUnplacedSession(sessionId);
   return { chatId: sessionId };
 };
+// Starting work on an issue from the phone (#1184). The same spawn the desktop's POST
+// /api/issues/start makes — a working session in a repository, so the project's own MCP servers
+// load instead of being replaced by the GUI one — plus the unplaced mark for the same reason as
+// above: the phone has no grid, so nothing else would give this session a cell.
+const remoteHostSpawnIssueDraft = (cwd: string, draft: string): string => {
+  const sessionId = randomUUID();
+  spawnClaudePty(sessionId, null, null, { cwd, draft, attachGuiMcp: false });
+  markUnplacedSession(sessionId);
+  return sessionId;
+};
 // The phone's remote terminal view (#435). Both accessors live here because the PTY table
 // and the title/activity side-tables do; the backend only sees the two functions.
 // A live session knows what it spawned. One that outlived us has no PtyEntry left, so ask
@@ -716,6 +726,7 @@ const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
 initRemoteHostBackend({
   workspace: CLAUDE_CWD,
   spawnChat: remoteHostSpawnChat,
+  spawnIssueDraft: remoteHostSpawnIssueDraft,
   launchTerminal: remoteHostLaunchTerminal,
   listTerminalSessions: remoteHostListTerminalSessions,
   captureTerminalScreen: remoteHostCaptureTerminalScreen,
