@@ -16,6 +16,8 @@ import CellChromeButtons from "./CellChromeButtons.vue";
 import { cellChromeBinding, type CellChromeSource } from "./cellChromeBinding";
 import { useCellChrome } from "../composables/useCellChrome";
 import { formatCwd } from "./cwdDisplay";
+import { HOVER_TIP_ID, useHoverTipAnchor } from "../composables/useHoverTip";
+import { textTip } from "./tipContent";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
 import {
   CELL_ACTIONS,
@@ -67,6 +69,11 @@ const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(toRef(() => 
 
 const dirDisplay = computed(() => formatCwd(props.cwd, props.home));
 
+// The header shows the path shortened to fit; the tip is the full one. Anchored on the dir span
+// only — the running/idle dot beside it keeps its `title`, since a two-word state does not need a
+// panel and the dot is not what anyone hovers to read.
+const { described: dirDescribed, show: showDirTip, hide: hideDirTip } = useHoverTipAnchor(() => textTip(props.cwd));
+
 // Clicking the header background zooms (switches to) this cell, except the already-expanded one.
 // Buttons keep their action.
 function onHeaderClick(event: MouseEvent) {
@@ -83,7 +90,15 @@ function onHeaderClick(event: MouseEvent) {
           :class="[CELL_DOT, finished ? `is-idle ${CELL_DOT_IDLE}` : `is-working ${CELL_DOT_WORKING}`]"
           :title="finished ? idleTitle : 'Running…'"
         />
-        <span v-if="dirDisplay" class="cell-dir" :class="CELL_DIR" :title="cwd ?? ''"
+        <span
+          v-if="dirDisplay"
+          class="cell-dir"
+          :class="CELL_DIR"
+          :aria-describedby="dirDescribed ? HOVER_TIP_ID : undefined"
+          @pointerenter="showDirTip"
+          @pointerleave="hideDirTip"
+          @focusin="showDirTip"
+          @focusout="hideDirTip"
           ><span class="cell-dir-path" :class="CELL_DIR_PATH">{{ dirDisplay }}</span></span
         >
         <DirBadge :name="dirConfig.name" :color="dirConfig.badgeColor" />

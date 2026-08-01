@@ -114,7 +114,9 @@ describe("WorkItemChip", () => {
     expect(w.get('[data-testid="work-issue"]').text()).toBe("#966");
     expect(w.get('[data-testid="work-issue"]').attributes("href")).toBe("https://x/issues/966");
     expect(w.get('[data-testid="work-phase"]').text()).toBe("ready");
-    expect(w.get('[data-testid="work-chip"]').attributes("title")).toContain("PR #977");
+    // The detail moved to the shared hover tip (#1235) — see tipContent.spec.ts. The native
+    // attribute must be gone, or the browser's own slow tooltip appears on top of the new one.
+    expect(w.get('[data-testid="work-chip"]').attributes("title")).toBeUndefined();
   });
 
   it("renders the issue alone before a PR exists, with no arrow", () => {

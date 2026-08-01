@@ -15,6 +15,7 @@ import AccountingOverlay from "./components/AccountingOverlay.vue";
 import WikiBrowseOverlay from "./components/WikiBrowseOverlay.vue";
 import PrsOverlay from "./components/PrsOverlay.vue";
 import FilesOverlay from "./components/FilesOverlay.vue";
+import HoverTip from "./components/HoverTip.vue";
 import GridView from "./components/GridView.vue";
 import { useSessions } from "./composables/useSessions";
 import { useAppConfig } from "./composables/useAppConfig";
@@ -86,4 +87,8 @@ useFaviconState(sessions);
   <!-- Full-screen file explorer + editor; opened by the toolbar's Files button, or by a terminal
        header's Files button rooted at that terminal's own directory. -->
   <FilesOverlay />
+  <!-- The one hover tip every cell-header chip opens (#1235). Mounted here, and only here, so the
+       document can never hold two — it teleports to <body> and positions itself against whichever
+       chip the pointer is on. -->
+  <HoverTip />
 </template>

@@ -8,7 +8,9 @@ import { computed } from "vue";
 import { formatCwd } from "./cwdDisplay";
 import { CELL_DIR_PATH, DIR_TRUNCATE_FRONT } from "./cellChromeClasses";
 import { headerStyleFor } from "./cellHeaderStyle";
+import { HOVER_TIP_ID, useHoverTipAnchor } from "../composables/useHoverTip";
 import { phaseDisplay, WORK_WORD, type PrPhase, type WorkPhase } from "./rosterPhase";
+import { textTip } from "./tipContent";
 import type { AttentionStatus } from "./attentionStatus";
 import { agentBadge } from "../../common/sessionAgent";
 
@@ -48,6 +50,12 @@ const PHASE_CLASS: Record<string, string> = {
 // A working cell shows what it's doing (planning / editing) when known, else the plain word.
 const badgeWord = computed(() => (props.status === "working" && props.workPhase ? WORK_WORD[props.workPhase] : STATUS_WORD[props.status]));
 const phaseInfo = computed(() => phaseDisplay(props.phase ?? "none"));
+
+// The roster row is its own template, not a TerminalCell (docs/grid-view-modes.md), so it binds the
+// shared tip itself. Its two chips are the ones that hide something: a phase pill abbreviated to a
+// word, and a path truncated from the front.
+const { described: phaseDescribed, show: showPhaseTip, hide: hidePhaseTip } = useHoverTipAnchor(() => textTip(phaseInfo.value?.title));
+const { described: dirDescribed, show: showDirTip, hide: hideDirTip } = useHoverTipAnchor(() => textTip(props.cwd));
 // Null for claude (the default, so nearly every row) and for a shell, which is not an agent.
 const badge = computed(() => agentBadge(props.agent));
 const phaseColor = computed(() => PHASE_CLASS[props.phase ?? "none"] ?? "text-[#9aa4b2]");
@@ -68,7 +76,11 @@ const barStyle = computed(() => headerStyleFor(props.headerColor, props.headerTe
       data-testid="cockpit-phase"
       class="flex-none whitespace-nowrap rounded-full border border-current px-1.5 text-[10px] font-bold"
       :class="[`ph-${phase}`, phaseColor]"
-      :title="phaseInfo.title"
+      :aria-describedby="phaseDescribed ? HOVER_TIP_ID : undefined"
+      @pointerenter="showPhaseTip"
+      @pointerleave="hidePhaseTip"
+      @focusin="showPhaseTip"
+      @focusout="hidePhaseTip"
       >{{ phaseInfo.label }}</span
     >
     <span v-if="badge" class="flex-none rounded-[4px] border border-border px-1 text-[10px] text-[#9ab]">{{ badge.full }}</span>
@@ -76,7 +88,11 @@ const barStyle = computed(() => headerStyleFor(props.headerColor, props.headerTe
       data-testid="cockpit-dir"
       class="min-w-0 flex-auto text-[11px] text-[var(--cell-header-fg,var(--text-dim))]"
       :class="DIR_TRUNCATE_FRONT"
-      :title="cwd ?? ''"
+      :aria-describedby="dirDescribed ? HOVER_TIP_ID : undefined"
+      @pointerenter="showDirTip"
+      @pointerleave="hideDirTip"
+      @focusin="showDirTip"
+      @focusout="hideDirTip"
       ><span :class="CELL_DIR_PATH">{{ dirText }}</span></span
     >
     <slot />
