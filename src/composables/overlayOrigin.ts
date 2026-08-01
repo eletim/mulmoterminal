@@ -5,14 +5,16 @@
 // browser back/forward restores that entry's own origin instead of a stale one, and a fresh
 // or direct load has none and falls back. Navigating INSIDE an overlay carries the same
 // origin forward.
-import { computed } from "vue";
 import { router } from "../router";
 
 // The routes that render as a full-screen panel ON TOP of a view. Every one of them starts
 // below the header (`top-10`), so the header stays visible while they are open — which means
 // the view underneath must not change when one opens.
-const OVERLAY_ROUTES = new Set([
-  "prs",
+// The CONTENT surfaces: the workspace's own data, as opposed to the terminals. Entered through the
+// Collections button, which then reveals its siblings — so this set is what "am I in there?"
+// means, and it lives beside OVERLAY_ROUTES because the two lists must not drift. PRs is the one
+// overlay that is NOT content: it is about work under supervision, and belongs with the grid.
+export const CONTENT_ROUTES = new Set([
   "accounting",
   "files",
   "wiki",
@@ -24,6 +26,8 @@ const OVERLAY_ROUTES = new Set([
   "feeds",
   "feedDetail",
 ]);
+
+const OVERLAY_ROUTES = new Set([...CONTENT_ROUTES, "prs"]);
 
 /** The route an open overlay should return to. */
 export function overlayReturnPath(): string {
@@ -50,14 +54,3 @@ export function overlayOriginState(): { returnPath: string } {
   const here = router.currentRoute.value;
   return { returnPath: OVERLAY_ROUTES.has(String(here.name)) ? overlayReturnPath() : here.fullPath };
 }
-
-/** Is the view UNDER the current screen the grid? An open overlay answers with the view it
- *  was opened from, not with itself: the header stays on screen above it, so switching the
- *  toolbar (and the shell behind it) would take away the very button that was just clicked
- *  — and would mount the single view's terminal behind an overlay opened from the grid. */
-export const viewIsGrid = computed(() => {
-  const name = String(router.currentRoute.value.name);
-  if (name === "terminals") return true;
-  if (!OVERLAY_ROUTES.has(name)) return false;
-  return String(router.resolve(overlayReturnPath()).name) === "terminals";
-});
