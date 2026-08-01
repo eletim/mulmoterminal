@@ -41,6 +41,16 @@ describe("forgeFromRepoEntry", () => {
   it("rejects a host with only one segment after it", () => {
     expect(forgeFromRepoEntry("foo.bar/baz")).toBeNull();
   });
+
+  // An empty segment must not be forgiven. The entry is stored VERBATIM and handed to `gh --repo`,
+  // so a parser that quietly reads `owner//repo` as `owner/repo` accepts a string the CLI then
+  // rejects — the same shape of disagreement as the hostless multi-segment case (Codex review).
+  it.each([["owner//repo"], ["owner/repo/"], ["/owner/repo"], ["gitlab.com//group/project"], ["gitlab.com/group//project"]])(
+    "rejects the empty segment in %s",
+    (entry) => {
+      expect(forgeFromRepoEntry(entry)).toBeNull();
+    },
+  );
 });
 
 describe("repoSupport", () => {

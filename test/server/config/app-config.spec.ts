@@ -96,7 +96,7 @@ describe("sanitizeRepos", () => {
   });
 
   it("still rejects anything that is not a slug path", () => {
-    expect(sanitizeRepos(["one", "has space/repo", "/leading", "trailing/"])).toEqual([]);
+    expect(sanitizeRepos(["one", "has space/repo", "a//b", "/leading", "trailing/"])).toEqual([]);
   });
 
   // What may be stored is exactly what the parser can read, so an ambiguous entry never reaches a

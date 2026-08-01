@@ -75,8 +75,12 @@ const NAMESPACED = 2;
  *  feeds disagreeing about which server to talk to (Codex review).
  */
 export function forgeFromRepoEntry(entry: string): RemoteForge | null {
-  const segments = entry.trim().split("/").filter(Boolean);
-  if (!HOST_SEGMENT.test(segments[0] ?? "")) {
+  const segments = entry.trim().split("/");
+  // An empty segment is a doubled, leading or trailing slash. Dropping them here would let
+  // `owner//repo` parse as `owner/repo` while the entry is STORED verbatim and handed to
+  // `gh --repo` with the extra slash still in it, which is a parse error there (Codex review).
+  if (segments.some((segment) => segment === "")) return null;
+  if (!HOST_SEGMENT.test(segments[0])) {
     return segments.length === NAMESPACED ? forgeAt(GITHUB_HOST, segments.join("/")) : null;
   }
   const path = segments.slice(1);
