@@ -36,6 +36,7 @@ import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
 import { mcpConfigJson } from "./session/mcp-config.js";
 import { createClaudeSpawner } from "./session/spawn-claude.js";
+import { issueSpawnOptions } from "./session/issue-spawn-options.js";
 import { spawnPty } from "./session/pty-spawn.js";
 import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
@@ -577,12 +578,12 @@ const remoteHostSpawnChat = (message: string) => {
   return { chatId: sessionId };
 };
 // Starting work on an issue from the phone (#1184). The same spawn the desktop's POST
-// /api/issues/start makes — a working session in a repository, so the project's own MCP servers
-// load instead of being replaced by the GUI one — plus the unplaced mark for the same reason as
-// above: the phone has no grid, so nothing else would give this session a cell.
-const remoteHostSpawnIssueDraft = (cwd: string, draft: string): string => {
+// /api/issues/start makes, plus the unplaced mark for the same reason as above: the phone has no
+// grid, so nothing else would give this session a cell. `run` submits the seed rather than leaving
+// it in the box (#1253) — see issueSpawnOptions for why the choice is a function and not two keys.
+const remoteHostSpawnIssueSeed = (cwd: string, seed: string, run: boolean): string => {
   const sessionId = randomUUID();
-  spawnClaudePty(sessionId, null, null, { cwd, draft, attachGuiMcp: false });
+  spawnClaudePty(sessionId, null, null, issueSpawnOptions(cwd, seed, run));
   markUnplacedSession(sessionId);
   return sessionId;
 };
@@ -733,7 +734,7 @@ const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
 initRemoteHostBackend({
   workspace: CLAUDE_CWD,
   spawnChat: remoteHostSpawnChat,
-  spawnIssueDraft: remoteHostSpawnIssueDraft,
+  spawnIssueSeed: remoteHostSpawnIssueSeed,
   launchTerminal: remoteHostLaunchTerminal,
   listTerminalSessions: remoteHostListTerminalSessions,
   captureTerminalScreen: remoteHostCaptureTerminalScreen,

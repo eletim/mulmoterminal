@@ -9,7 +9,7 @@ import type { SessionScreen } from "./terminalScreen.js";
 import { initCollectionsBackend } from "../collections.js";
 
 const unusedTerminalDeps = {
-  spawnIssueDraft: () => "unused-session",
+  spawnIssueSeed: () => "unused-session",
   listTerminalSessions: async () => [],
   captureTerminalScreen: async () => ({ screen: "", suggestion: "", quickCommands: [] }),
   writeToSession: () => false,

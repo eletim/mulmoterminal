@@ -31,16 +31,27 @@ const { createIssueWorkHandlers } = await import("./handlers/issueWork.js");
 const clone = (path: string, label = path): RepoDirs["dirs"][number] => ({ path, label, orderPriority: null });
 const repoDirs = (paths: string[], primary: string | null = null, repo = "acme/web"): RepoDirs => ({ repo, dirs: paths.map((p) => clone(p)), primary });
 
-const spawnIssueDraft = vi.fn<(cwd: string, draft: string) => string>();
-const handlers = createIssueWorkHandlers({ spawnIssueDraft });
+const spawnIssueSeed = vi.fn<(cwd: string, seed: string, run: boolean) => string>();
+const handlers = createIssueWorkHandlers({ spawnIssueSeed });
 
 const start = (params: Record<string, unknown>) => handlers.startIssueWork({ ...params } as Parameters<(typeof handlers)["startIssueWork"]>[0]);
 const list = () => handlers.listIssues({});
 
+// A start that actually seeds a session — `created` / `reused`. The suites' default stub answers
+// without ever calling the spawner, which is what `resumed` does, so a case about what reached the
+// spawner has to say so.
+const startsBySpawning = (outcome: "created" | "reused" = "created") =>
+  issueWork.start.mockImplementation(async (_repo: string, _issue: number, _dir: string, deps: { spawnDraft: (cwd: string, seed: string) => string }) => ({
+    ok: true,
+    outcome,
+    sessionId: deps.spawnDraft("/wt/thing", "GitHub issue #7"),
+    branch: "issue/7-thing",
+  }));
+
 describe("startIssueWork (phone)", () => {
   beforeEach(() => {
-    spawnIssueDraft.mockReset();
-    spawnIssueDraft.mockReturnValue("s-1");
+    spawnIssueSeed.mockReset();
+    spawnIssueSeed.mockReturnValue("s-1");
     issueWork.start.mockReset();
     issueWork.start.mockResolvedValue({ ok: true, sessionId: "s-1", branch: "issue/7-thing", worktree: "/wt/thing", issue: { number: 7, title: "The thing" } });
     dirs.rows = [repoDirs(["/clones/web"], "/clones/web")];
@@ -130,14 +141,66 @@ describe("startIssueWork (phone)", () => {
   });
 
   it("passes the spawner through, so the session is the one the host started", async () => {
-    issueWork.start.mockImplementation(async (_repo: string, _issue: number, _dir: string, deps: { spawnDraft: (cwd: string, draft: string) => string }) => ({
-      ok: true,
-      sessionId: deps.spawnDraft("/wt/thing", "GitHub issue #7"),
-      branch: "issue/7-thing",
-    }));
+    startsBySpawning();
     const answer = await start({ repo: "acme/web", issue: 7 });
-    expect(spawnIssueDraft).toHaveBeenCalledWith("/wt/thing", "GitHub issue #7");
+    expect(spawnIssueSeed).toHaveBeenCalledWith("/wt/thing", "GitHub issue #7", false);
     expect(answer).toMatchObject({ sessionId: "s-1" });
+  });
+});
+
+// #1253. The phone has no Enter key, so a seed left in the input box is where the work stops.
+describe("startIssueWork run (phone)", () => {
+  beforeEach(() => {
+    spawnIssueSeed.mockReset();
+    spawnIssueSeed.mockReturnValue("s-1");
+    issueWork.start.mockReset();
+    dirs.rows = [repoDirs(["/clones/web"], "/clones/web")];
+  });
+
+  it("submits the seed when the caller asks it to, and says it ran", async () => {
+    startsBySpawning();
+    const answer = await start({ repo: "acme/web", issue: 7, run: true });
+    expect(spawnIssueSeed).toHaveBeenCalledWith("/wt/thing", "GitHub issue #7", true);
+    expect(answer).toMatchObject({ ran: true });
+  });
+
+  it("runs a reused worktree's new session too — it is seeded like a fresh one", async () => {
+    startsBySpawning("reused");
+    await expect(start({ repo: "acme/web", issue: 7, run: true })).resolves.toMatchObject({ outcome: "reused", ran: true });
+    expect(spawnIssueSeed).toHaveBeenCalledWith("/wt/thing", "GitHub issue #7", true);
+  });
+
+  // The case that must not run: nothing was typed into that session, so submitting would send
+  // whatever the user left in its box — or an empty line.
+  it("does not run a resumed session, even when asked to", async () => {
+    issueWork.start.mockResolvedValue({ ok: true, outcome: "resumed", sessionId: "s-old", branch: "issue/7-thing" });
+    await expect(start({ repo: "acme/web", issue: 7, run: true })).resolves.toMatchObject({ outcome: "resumed", ran: false });
+    expect(spawnIssueSeed).not.toHaveBeenCalled();
+  });
+
+  // The desktop's behaviour, which is also every caller's default: typed, not sent.
+  it.each([
+    ["run is absent", {}],
+    ["run is false", { run: false }],
+    // Not `true` is not a run. A caller that meant to and spelled it wrong reads `ran` and learns
+    // so, rather than being told the work started when it is sitting in an input box.
+    ["run is a string", { run: "true" }],
+    ["run is 1", { run: 1 }],
+  ])("leaves the seed as a draft when %s", async (_case, extra) => {
+    startsBySpawning();
+    await expect(start({ repo: "acme/web", issue: 7, ...extra })).resolves.toMatchObject({ ran: false });
+    expect(spawnIssueSeed).toHaveBeenCalledWith("/wt/thing", "GitHub issue #7", false);
+  });
+
+  // One working tree runs one agent (#1207), and asking to run does not suspend that.
+  it("still refuses a worktree held by another terminal", async () => {
+    issueWork.start.mockResolvedValue({
+      ok: false,
+      reason: "worktree-busy",
+      detail: "this worktree's session is open in another terminal — close it there first",
+    });
+    await expect(start({ repo: "acme/web", issue: 7, run: true })).rejects.toThrow(/open in another terminal/);
+    expect(spawnIssueSeed).not.toHaveBeenCalled();
   });
 });
 
