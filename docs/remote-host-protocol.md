@@ -39,6 +39,8 @@ grouped in `handlers/terminalSession.ts`.
 | `sendTerminalInput` | `sessionId`, `text` | `{ sent: true }` |
 | `launchTerminal` | `agent`, `sessionId` | `{ ok: true }` |
 | `startChat` | `message`, `attachments?` | `{ started: true, chatId }` |
+| `listIssues` | — | `{ repos: RepoIssueRows[] }` |
+| `startIssueWork` | `repo`, `issue` | `{ started: true, sessionId, branch, issue }` |
 | `listFeeds` | — | `{ feeds }` |
 | `getFeed` | `slug`, `offset?`, `limit?` | the feed page |
 | `listCollections` | — | `{ collections }` (feed-backed ones excluded) |
@@ -61,6 +63,41 @@ the byte budget, so a successful edit is never shown as a failure (#747).
 Image fields are **not** inlined by this host (there is no thumbnail store yet): they come back
 as workspace paths, unrenderable on the phone, and count toward `omitted`.
 
+### Starting work on an issue (#1184)
+
+`listIssues` is the phone's half of the `/prs` issue list: the open issues of the repos in
+Settings' `prRepos`, capped per repo, no bodies. Each repo row carries what
+`GET /api/issues` answers with (`repo`, `issues[]`, `truncated?`, `url?`, `error?`) plus:
+
+```ts
+{ canStart: boolean; startBlocked?: string }   // the sentence only when canStart is false
+```
+
+`startIssueWork` then reads the issue, cuts its `issue/<N>-<slug>` worktree off the fetched
+mainline, and spawns a session there with the issue **waiting in the input box, not submitted** —
+the text was written by whoever opened the issue, so the Enter is the user's. It answers
+`{ started: true, sessionId, branch, issue: { number, title } }`; `sessionId` is the id
+`getTerminalScreen` takes, so the phone can watch what it just started.
+
+**It takes no `dir`, by rule** (see "The phone never sends a path" below). The work starts in the
+clone recorded for that repo — or in the only one, when the repo has exactly one here. When
+several clones could host it and none has been recorded, the command **refuses** and says to
+choose once on the desktop. Picking for the user is not a smaller decision than it looks: an
+agent runs where it is started, that cannot be undone, and the phone has no way to show which
+tree it landed in. `canStart` exists so the phone learns this before the tap rather than after.
+
+**It has no open-tab prerequisite**, unlike `launchTerminal` below. The spawn is the host's own,
+and the session is marked *unplaced* (`server/session/registry.ts`), which is how a session
+nobody's browser asked for gets a cell: a desktop grid that is already on screen adopts it within
+the moment, and one that isn't picks it up the next time it loads.
+
+The same mark is what puts the session in **`listTerminalSessions`** before any of that happens.
+That list is the grid's cells, and a session joins that set on a browser attach and in no other
+way — so until #1184 a session the phone had just started was absent from the phone's own list,
+and the work it began was findable only by holding on to the returned `sessionId`. It now answers
+with cells **and** the sessions on their way to being one, which is the same set one moment later.
+This covers `startChat` too, which had the same hole.
+
 ### `TerminalSessionSummary`
 
 ```ts
@@ -71,8 +108,9 @@ as workspace paths, unrenderable on the phone, and count toward `omitted`.
 (`capture-pane` doesn't need our process) but **not writable**, and `agent` is then `null`
 because the process that knew what it was launched with is gone.
 
-The list is filtered to **grid cells**: the single-view chat session and any tmux shell that
-was never a cell are excluded, even while live.
+The list is filtered to **grid cells, plus the sessions waiting to become one** — a chat or an
+issue the phone started that no browser has adopted yet (`isPhoneListableSession`). A tmux shell
+that was never a cell and that nobody spawned for one is excluded, even while live.
 
 ### `SessionScreen`
 
@@ -115,8 +153,10 @@ rather than "not known". **It calls `.trim()` on every value, so only strings ma
 always present, `[]` when nothing applies.
 
 **The phone never sends a path.** `launchTerminal` takes a session id and the host looks the
-directory up (`ptys.get(id)?.cwd`). A path parameter would let a remote client choose where a
-process starts. Apply this to anything new that touches the filesystem.
+directory up (`ptys.get(id)?.cwd`). `startIssueWork` takes `owner/repo` and the host looks up the
+clone recorded for it. A path parameter would let a remote client choose where a process starts.
+Apply this to anything new that touches the filesystem — including when the host would then have
+to refuse, which is the honest answer and not a gap to close by accepting the path.
 
 **Authorization is the connected Firebase account, with no per-command gate.**
 `sendTerminalInput` already types arbitrary text into a Claude session, which can run anything,
@@ -140,6 +180,10 @@ Consequences the phone has to live with:
 - `agent` is `"shell" | "claude" | "codex"` (`common/launchAgent.ts`) — deliberately not the
   user's configured `launchers`, which are arbitrary commands.
 
+This is about opening a cell for a session that already exists, not about starting one: a command
+that SPAWNS can mark its session unplaced and let a grid adopt it later, which is what
+`startChat` and `startIssueWork` do. Nothing has to be open for those.
+
 ## Where the pieces are
 
 | Concern | File |
@@ -149,6 +193,8 @@ Consequences the phone has to live with:
 | Typing into a session (sanitize, bracketed paste, Enter timing) | `server/backends/remoteHost/terminalInput.ts` |
 | Quick-command scoping | `server/backends/remoteHost/quickCommands.ts` |
 | Launch validation | `server/backends/remoteHost/launchTerminal.ts` |
+| Issue work (list, refuse, start) | `server/backends/remoteHost/handlers/issueWork.ts`, `server/git/issue-work.ts` |
+| Which clone a repo starts in | `server/git/repo-dirs.ts`, `common/issueStartPlan.ts` |
 | Reconnect + health | `server/backends/remoteHost/resilientRunner.ts`, `healthNotice.ts` |
 | Wiring (PTY table, pub/sub, config) | `server/index.ts` |
 | Shared with the UI | `common/sessionAgent.ts`, `common/quickCommands.ts`, `common/launchAgent.ts` |
@@ -156,4 +202,4 @@ Consequences the phone has to live with:
 ## Related
 
 `docs/spawn-architecture.md` (how a session is spawned), `docs/terminal-notes.md` (the terminal
-stack). Issues: #435, #445, #563, #572, #781, #786, #823, #830, #831, #832.
+stack). Issues: #435, #445, #563, #572, #781, #786, #823, #830, #831, #832, #1184.

@@ -8,7 +8,7 @@
 // startCollectionChat does for the collection plugin.
 import { ref } from "vue";
 import { placeSpawnedChat } from "./useSpawnedChat";
-import { issueStartPlan, type IssueStartPlan } from "./issueStartPlan";
+import { issueStartPlan, type IssueStartPlan } from "../../common/issueStartPlan";
 import { isRecord } from "../../common/isRecord";
 import { parseRepoDirsResponse, type RepoDirs } from "../../common/repoDirs";
 
