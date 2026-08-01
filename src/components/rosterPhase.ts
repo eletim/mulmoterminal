@@ -9,16 +9,20 @@ import type { PrPhase } from "../../common/prPhase";
 // shows the agent status until a PR exists.
 interface PhaseDisplay {
   label: string;
+  /** Standalone wording, for a place that has not already said what it is talking about. */
   title: string;
+  /** The same state where the PR is ALREADY named. Without it, a heading that begins `PR #2689`
+   *  runs into a title that begins `PR —` and reads `PR #2689 · PR — CI running` (#1235). */
+  state: string;
 }
 const DISPLAY: Record<Exclude<PrPhase, "none">, PhaseDisplay> = {
-  draft: { label: "draft", title: "Draft PR" },
-  "ci-failing": { label: "CI fail", title: "PR — CI failing" },
-  "changes-requested": { label: "changes", title: "PR — changes requested" },
-  "ci-running": { label: "CI…", title: "PR — CI running" },
-  ready: { label: "ready", title: "PR ready to merge" },
-  merged: { label: "merged", title: "PR merged" },
-  closed: { label: "closed", title: "PR closed" },
+  draft: { label: "draft", title: "Draft PR", state: "draft" },
+  "ci-failing": { label: "CI fail", title: "PR — CI failing", state: "CI failing" },
+  "changes-requested": { label: "changes", title: "PR — changes requested", state: "changes requested" },
+  "ci-running": { label: "CI…", title: "PR — CI running", state: "CI running" },
+  ready: { label: "ready", title: "PR ready to merge", state: "ready to merge" },
+  merged: { label: "merged", title: "PR merged", state: "merged" },
+  closed: { label: "closed", title: "PR closed", state: "closed" },
 };
 
 export const phaseDisplay = (phase: PrPhase): PhaseDisplay | null => (phase === "none" ? null : DISPLAY[phase]);
