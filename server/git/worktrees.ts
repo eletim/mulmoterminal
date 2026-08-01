@@ -220,9 +220,14 @@ export async function listWorktrees(repoDir: string): Promise<WorktreeInfo[]> {
  *  Read through `issueFromAnchoredBranch` — the same reader the PR body's `Fixes #N` and the work
  *  chip use — so "which issue is this branch for" has ONE answer in the app rather than a second
  *  regex that can drift from it. A uniqueness suffix does not change the number, so an
- *  `issue/12-x-2` created before this existed is still found and reopened. */
+ *  `issue/12-x-2` created before this existed is still found and reopened.
+ *
+ *  A worktree whose DIRECTORY is gone does not count. `git worktree list` keeps reporting one that
+ *  was deleted by hand until somebody prunes, and the caller starts a session in what this returns
+ *  — so trusting the list alone would spawn an agent in a directory that no longer exists, where
+ *  before it would simply have cut a new tree. */
 export async function issueWorktree(repoDir: string, issue: number): Promise<WorktreeInfo | null> {
-  const found = (await listWorktrees(repoDir)).find((w) => issueFromAnchoredBranch(w.branch) === issue);
+  const found = (await listWorktrees(repoDir)).find((w) => issueFromAnchoredBranch(w.branch) === issue && existsSync(w.path));
   return found ?? null;
 }
 

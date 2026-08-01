@@ -303,6 +303,22 @@ describe("git worktree lifecycle", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 
+  // git keeps reporting a worktree whose directory was deleted by hand until somebody prunes.
+  // The caller STARTS A SESSION in what this returns, so a stale entry would put an agent in a
+  // directory that is not there — where cutting a fresh tree is what should happen.
+  it.skipIf(!hasGit)(
+    "does not answer with a worktree whose directory has been deleted",
+    async () => {
+      const wt = await createWorktree(repo, "gone", 1171);
+      if (!wt) throw new Error("expected a worktree");
+      expect(await issueWorktree(repo, 1171)).not.toBeNull();
+
+      rmDirRetrying(wt.path);
+      expect(await issueWorktree(repo, 1171)).toBeNull();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
   it.skipIf(!hasGit)(
     "forks a unique branch on a name clash",
     async () => {
