@@ -1,17 +1,17 @@
 import type { Express, Request } from "express";
 import { spawn } from "node:child_process";
 import { resolveDirRequest } from "../files/dirRequest.js";
-import { forgeOf, GITHUB_HOST, type RemoteForge } from "./forge-host.js";
+import { forgeOf, type RemoteForge } from "./forge-host.js";
 
-export { GITHUB_HOST };
+// The GitHub view of a forge lookup — the shape this module's callers have always read. A remote
+// on any other host has no GitHub URL, which is exactly what they treat as "not a GitHub repo".
+const githubUrlOf = (forge: RemoteForge | null): string | null => (forge?.kind === "github" ? forge.webUrl : null);
 
-// The GitHub view of a remote: its repository web URL, or null when the remote isn't on
-// github.com. Which host a remote points at — and that a GitHub project is exactly `owner/repo`
-// while a GitLab one nests — now lives in forge-host.ts (#981 step 1); this stays as the
-// GitHub-shaped answer its six callers already read, so none of them change.
+// Which host a remote points at — and that a GitHub project is exactly `owner/repo` while a GitLab
+// one nests — lives in forge-host.ts (#981 step 1). This stays as the GitHub-shaped answer its six
+// callers already read, so none of them change.
 export function parseGithubWebUrl(remoteUrl: string): string | null {
-  const forge = forgeOf(remoteUrl);
-  return forge?.kind === "github" ? forge.webUrl : null;
+  return githubUrlOf(forgeOf(remoteUrl));
 }
 
 // Read the dir's `origin` remote. Null when the dir isn't a git repo, has no origin, or git is
@@ -36,8 +36,7 @@ export async function resolveRemoteForge(dir: string): Promise<RemoteForge | nul
 
 // Kept for the callers that only ever wanted the GitHub URL.
 export async function resolveGithubUrl(dir: string): Promise<string | null> {
-  const forge = await resolveRemoteForge(dir);
-  return forge?.kind === "github" ? forge.webUrl : null;
+  return githubUrlOf(await resolveRemoteForge(dir));
 }
 
 interface GitRemoteOptions {
@@ -56,7 +55,8 @@ export function mountGitRemoteRoute(app: Express, { isAllowedOrigin }: GitRemote
   app.post("/api/git-remote", async (req: Request, res) => {
     const dir = resolveDirRequest(req, res, isAllowedOrigin);
     if (!dir) return;
+    // One lookup for both fields: resolveGithubUrl would spawn git a second time for the same dir.
     const forge = await resolveRemoteForge(dir);
-    res.json({ githubUrl: forge?.kind === "github" ? forge.webUrl : null, forge });
+    res.json({ githubUrl: githubUrlOf(forge), forge });
   });
 }
