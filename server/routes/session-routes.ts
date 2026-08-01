@@ -40,6 +40,8 @@ import {
 } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
+import { sessionAttached } from "../session/dir-session.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import type { SessionMeta } from "../session/types.js";
@@ -217,7 +219,12 @@ async function sessionList(req: Request, res: Response) {
       .filter((s): s is SessionMeta => s !== null)
       .sort((a, b) => b.mtime - a.mtime);
 
-    res.json({ cwd, sessions });
+    // Who is HOLDING each row, from one `list-clients` call for the whole list (#1207). The
+    // picker used to answer this from the current page's own grid, which is blind to a second
+    // browser tab and to a second mulmoterminal process — the two ways a running session got
+    // taken over without anything warning first.
+    const tmuxCounts = tmuxAttachedCounts();
+    res.json({ cwd, sessions: sessions.map((s) => ({ ...s, attached: sessionAttached(s.id, tmuxCounts) })) });
   } catch (err) {
     console.error("[api] /api/sessions failed:", err);
     res.status(500).json({ error: String(err) });

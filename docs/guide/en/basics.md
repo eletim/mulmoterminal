@@ -53,8 +53,24 @@ Empty cells in the grid show a **launcher form**. This is where you choose **wha
 | **Claude / Codex / Antigravity / Shell** toggle | Choose what runs in this cell — an **agent**, or **Shell**: your OS default shell (`$SHELL`), with nothing to install and nothing to configure |
 | **WORKING DIRECTORY** | Enter the working directory (the play button launches it). Frequently used directories are offered as clickable *cwd preset* **chips** that fill the field (the chip's play button launches right away) |
 | **Model picker** (when Claude is selected) | Pick the backend / model for this session only (→ [providers](providers.html)) |
-| **OR ISOLATE IN A WORKTREE** | In a git repo, enter a task name and hit **New worktree** to create an isolated worktree and launch there |
+| **OR ISOLATE IN A WORKTREE** | In a git repo, enter a task name and hit **New worktree** to create an isolated worktree and launch there. Existing worktrees are listed below it |
+| **OR RESUME HERE** | Sessions that already exist in this directory — click one to continue it |
 | **OR LAUNCH** | Start a configured **launch command** (`codex`, `htop`, anything) as a persistent terminal |
+
+**A worktree holds one session.** It is tied to a branch, so it is never started twice: a listed
+worktree row says `resume` and continues the session it already has, or nothing and starts its
+first one. A row marked `in use` has its session open in another terminal and cannot be clicked —
+close it there first. The refusal follows the directory rather than the row, so the same worktree
+pasted into **WORKING DIRECTORY** or picked from a recent-dir chip will not launch either — the
+server refuses it whichever client asks, so a path spelled another way does not slip past.
+
+The limit is on **agents**: Claude, Codex or Antigravity, including an **OR LAUNCH** command that
+runs one of them. A **Shell**, and a launcher that runs anything else (`yarn dev`, `lazygit`),
+stays free — a worktree an agent is working in is exactly where you want those.
+
+**OR RESUME HERE** works the same way: a session marked `● open` is being viewed somewhere and is
+refused, because opening it here would detach whoever has it. "Somewhere" includes another browser
+tab and a second `mulmoterminal` running on this machine.
 
 **Shell** takes the same working directory and the same play button as an agent. A shell has no
 model, no MCP registration and no worktree, so those rows disappear while it is picked — and the
