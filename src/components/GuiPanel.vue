@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
 import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
 import { getPlugin } from "../plugins-registry";
 import PluginFrame from "./PluginFrame.vue";
 import { TOOL_GROUPS, groupOfTool, toolsInGroup } from "../../common/toolGroups";
 import { reconcileCollectionCard } from "../../common/collectionSeed";
+import { collapseByIdentity } from "../utils/canvasCollapse";
 
 // The GUI panel renders the toolResults produced by GUI-protocol plugins. It
 // mirrors the terminal's active session: live results arrive on that session's
@@ -37,6 +38,15 @@ const emit = defineEmits<{ toggleTools: [] }>();
 
 const results = ref<ToolResult[]>([]);
 
+// Auto-follow state. Declared HERE, above useSessionFeed: its session watcher is `immediate`, so
+// the onSessionChange below runs during that call — a declaration further down would still be in
+// its temporal dead zone when it fires.
+const scrollRef = ref<HTMLElement | null>(null);
+// True while the reader is parked at the end. Ported from MulmoClaude's StackView (#2179): a
+// reader who scrolled UP to look at an earlier card must not be yanked back down.
+const stickToBottom = ref(true);
+const NEAR_BOTTOM_THRESHOLD_PX = 80;
+
 // Deduping by uuid mirrors applyToolResultToSession.
 const { upsert } = useSessionFeed(results, {
   sessionId: () => props.sessionId,
@@ -52,7 +62,14 @@ const { upsert } = useSessionFeed(results, {
   // Drop the previous session's views the moment the session changes, rather than when its
   // replacement's history arrives: until then the panel would still be showing another cell's
   // drawings under this cell's name.
-  onSessionChange: () => (results.value = []),
+  //
+  // Re-arming the auto-follow gate is part of the same reset: having scrolled up in the cell you
+  // came from must not decide where you land in the one you switched to, and arriving on the
+  // newest card is the point of the follow.
+  onSessionChange: () => {
+    results.value = [];
+    stickToBottom.value = true;
+  },
 });
 
 // A plugin view changed its state (e.g. a form field edited / submitted). Per the
@@ -83,6 +100,66 @@ async function onUpdateResult(existing: ToolResult, update: Partial<ToolResult>)
 }
 
 const hasContent = computed(() => results.value.length > 0);
+
+// What a result IS, for the purpose of "this is the same thing you already drew". The plugin
+// decides (Registration.identityOf); the toolName prefix is added here so two plugins returning
+// the same string — a collection slug that happens to read like a path — stay separate.
+function cardIdentity(result: ToolResult): string | null {
+  const identity = getPlugin(result.toolName)?.identityOf?.(result) ?? null;
+  return identity === null ? null : `${result.toolName}:${identity}`;
+}
+
+// The cards actually rendered: one per identity, newest at that identity's newest position. See
+// canvasCollapse.ts for why the superseded ones are dropped rather than kept as members.
+const cards = computed(() => collapseByIdentity(results.value, cardIdentity));
+
+// v-for key. The UUID, deliberately — NOT the identity, which would look like the tidier choice
+// (same subject, same key, one instance kept across edits) and is the wrong one.
+//
+// The remount IS the refresh. A re-presented card is meant to show state that CHANGED, and the
+// views have no other way to learn that. The collection View reloads from a
+// `watch(activeSlug, …)`: re-presenting the same collection leaves that slug identical, so the
+// watch never fires, and MulmoTerminal does not configure the package's optional
+// `subscribeChanges` hook (see src/composables/collectionUi.ts) that would otherwise push the
+// change in. Keeping the instance therefore keeps its STALE contents — a card that collapsed to
+// "the newest" while rendering the oldest, which is worse than the stacking this replaces.
+// presentHtml's iframe and presentDocument's rendered body are the same story.
+//
+// What is lost is what the view held internally — the table's scroll position, expanded rows —
+// and that is exactly what today's behaviour already loses, since today every edit draws a whole
+// new card. Correct-and-unchanged beats stale-but-smooth. Caught by Codex on PR #1223; pinned by
+// "remounts the view … so it refetches" in GuiPanelCollapse.spec.ts.
+const cardKey = (result: ToolResult) => result.uuid;
+
+// Auto-follow. The pane never scrolled itself, so each new card landed below the fold and the
+// user had to go find it; collapsing above removes most of that, but a card can still arrive
+// under an earlier one that is still on screen. State is declared above useSessionFeed.
+function onScroll() {
+  const element = scrollRef.value;
+  if (!element) return;
+  // A programmatic jump lands AT the bottom, so it re-affirms the gate rather than cancelling it
+  // — which is why this needs no suppression flag around the scroll below.
+  stickToBottom.value = element.scrollHeight - element.scrollTop - element.clientHeight <= NEAR_BOTTOM_THRESHOLD_PX;
+}
+
+// Changes when a card is added, or when a DIFFERENT result takes the last slot (a re-presented
+// collection moving down from above). Deliberately NOT sensitive to a view persisting its own
+// state: onUpdateResult replaces the object but keeps its uuid, and following a form's every
+// keystroke back to the bottom would fight the person typing in it.
+const latestCardKey = computed(() => {
+  const list = cards.value;
+  const last = list[list.length - 1];
+  return `${list.length}:${last?.uuid ?? ""}`;
+});
+
+watch(latestCardKey, () => {
+  if (!stickToBottom.value) return;
+  // After the new card has been laid out — its height is what we are scrolling past.
+  nextTick(() => {
+    const element = scrollRef.value;
+    if (element) element.scrollTop = element.scrollHeight;
+  });
+});
 
 // What each tool produces, so the empty state says what asking for one would get rather than
 // only naming it. A Map for the same reason common/toolGroups.ts uses one, and consulted with a
@@ -174,7 +251,7 @@ const hasTools = computed(() => toolSections.value.some((section) => section.too
         <span class="material-symbols-outlined" aria-hidden="true">build</span>
       </button>
     </div>
-    <div class="flex-1 overflow-y-auto px-4 py-3 font-sans text-[14px] leading-normal text-fg">
+    <div ref="scrollRef" data-testid="canvas-scroll" class="flex-1 overflow-y-auto px-4 py-3 font-sans text-[14px] leading-normal text-fg" @scroll="onScroll">
       <!-- Unavailable outranks empty: both look like "nothing here", but only one of them is
            something the user can act on by talking to the agent. -->
       <div v-if="unavailable" data-testid="canvas-unavailable" class="text-[13px] text-dim">
@@ -213,7 +290,7 @@ const hasTools = computed(() => toolSections.value.some((section) => section.too
       </div>
       <!-- Guarded as well as cleared on session change: a stale view rendered under an
            "unavailable" heading would contradict it. -->
-      <template v-for="r in unavailable ? [] : results" :key="r.uuid">
+      <template v-for="r in unavailable ? [] : cards" :key="cardKey(r)">
         <PluginFrame
           v-if="getPlugin(r.toolName)"
           class="[&+&]:mt-4 [&+&]:border-t [&+&]:border-border [&+&]:pt-4"
