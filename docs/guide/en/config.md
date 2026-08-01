@@ -87,7 +87,7 @@ setups see sixteen.
 | **Pull request repos** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
 | **Launch commands** | Commands you can launch besides the agents in a grid cell (`{ label, command }`). A plain shell needs no entry — the launcher's **Shell** toggle opens `$SHELL` unconfigured |
 | **Phone quick commands** | Phrases offered as chips on the **phone's** terminal view. Tapping one fills the input box; it is sent when you press send (`quickCommands`) |
-| **MCP servers** | Your own MCP servers to add to single-view sessions |
+| **MCP servers** | Your own HTTP MCP servers (`userMcpServers`), merged into the sessions that carry the full GUI MCP — a cell whose working directory is the **workspace**, and any session the server starts on its own (the phone, a scheduled task). A cell in a project directory loads its own MCP config instead |
 | **Cost (estimated)** | Estimated cost readouts for Session / Today / Month |
 | **Keyboard shortcuts** | What is bound to what, read-only. **Everything starts as Not set** — "Set up shortcuts…" starts the `mulmoterminal-keys` skill to bind them in `keymap` (→ [Keyboard shortcuts](#keymap)) |
 | **Help & user guide** | Links into this guide |
