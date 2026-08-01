@@ -6,6 +6,7 @@
 // single answer per directory rather than a list to choose from (#1207).
 
 import path from "node:path";
+import { canonicalPath } from "../git/worktrees.js";
 import { isSessionAttached, type SessionOccupancy } from "../../common/sessionOccupancy.js";
 import { isTerminalAgent, type TerminalAgent } from "../../common/sessionAgent.js";
 import { isProbeSessionId } from "../agents/probe-session.js";
@@ -62,9 +63,14 @@ export function sessionAttached(id: string, tmuxCounts: Map<string, number> | nu
 // A plain shell parked in a worktree is deliberately NOT the worktree's session: it is a terminal
 // someone opened, not an agent editing the tree, and refusing the worktree on the strength of one
 // would be a lock nobody can see the reason for.
+// Matched on the CANONICAL path, not a resolved string: a session started through a symlinked
+// spelling of the same worktree would otherwise not be found here, and once its socket closed
+// nothing would report the worktree as occupied — least of all for codex or antigravity, which
+// have no transcript pass below to fall back on (#1208, found by Codex). Same canonicalization
+// `isManagedWorktree` uses to decide the directory is a worktree in the first place.
 function livePtyCandidates(dir: string, tmuxCounts: Map<string, number> | null, now: number): DirSessionCandidate[] {
   return [...ptys.entries()].flatMap(([id, entry]) => {
-    if (!isUserSession(id) || !isTerminalAgent(entry.agent) || path.resolve(entry.cwd) !== dir) return [];
+    if (!isUserSession(id) || !isTerminalAgent(entry.agent) || canonicalPath(entry.cwd) !== dir) return [];
     return [{ id, live: true, mtime: now, agent: entry.agent, attached: sessionAttached(id, tmuxCounts) }];
   });
 }
@@ -85,7 +91,8 @@ async function transcriptCandidates(dir: string, tmuxCounts: Map<string, number>
 /** `tmuxCounts` and `now` are passed in so a whole list of directories is answered from one
  *  `list-clients` call and one clock read. */
 export async function dirSession(dir: string, tmuxCounts: Map<string, number> | null, now: number): Promise<DirSession | null> {
-  const resolved = path.resolve(dir);
-  const live = livePtyCandidates(resolved, tmuxCounts, now);
-  return pickDirSession([...live, ...(await transcriptCandidates(resolved, tmuxCounts))]);
+  const live = livePtyCandidates(canonicalPath(dir), tmuxCounts, now);
+  // The transcript pass is deliberately NOT canonicalized: claude names a project directory after
+  // the cwd it was given, so the spelling the caller used is the one that finds its transcripts.
+  return pickDirSession([...live, ...(await transcriptCandidates(path.resolve(dir), tmuxCounts))]);
 }

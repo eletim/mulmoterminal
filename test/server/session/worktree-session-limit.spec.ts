@@ -3,7 +3,7 @@
 // is only the explanation. This is the guarantee, and it is what Codex asked for on #1208: the
 // client compared paths with `===`, so a directory spelled another way walked straight past it.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { writeFileSync } from "node:fs";
+import { symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { makeTempDir } from "../../support/tempDir.js";
@@ -122,6 +122,25 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
       } finally {
         rmDirRetrying(plain);
       }
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // Codex, fourth pass: the live-pty match was a lexical compare, so a session started through a
+  // symlinked spelling of the same worktree was invisible here — and for codex or antigravity
+  // there is no transcript pass to fall back on, so the worktree read as free.
+  it(
+    "finds a session started through a symlinked spelling of the worktree",
+    async () => {
+      const link = path.join(home, "link-to-worktree");
+      try {
+        symlinkSync(worktree, link, "junction");
+      } catch {
+        return; // Windows without the privilege to create one — the rule is the same, unobservable here
+      }
+      ptys.set(SESSION, { cwd: link, agent: "codex", ws: OPEN_SOCKET, tmux: true } as never);
+      expect((await worktreeOccupancy(worktree)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
+      expect((await worktreeOccupancy(link)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
     },
     GIT_TEST_TIMEOUT_MS,
   );
