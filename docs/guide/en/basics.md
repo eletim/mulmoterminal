@@ -2,7 +2,7 @@
 title: Basics
 layout: default
 parent: English
-nav_order: 1
+nav_order: 2
 description: Running several AI coding agents (Claude Code, Codex) in parallel from a browser terminal — how to read a cell, what the status colours mean, and the cockpit roster. Vibe coding with the terminal as your hub.
 ---
 

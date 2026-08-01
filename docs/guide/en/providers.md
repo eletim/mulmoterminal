@@ -2,7 +2,7 @@
 title: Using another model via OpenRouter
 layout: default
 parent: English
-nav_order: 6
+nav_order: 7
 description: Point Claude Code at an Anthropic-compatible backend such as OpenRouter and run a session on a model other than Claude.
 ---
 

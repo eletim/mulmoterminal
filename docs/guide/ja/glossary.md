@@ -2,7 +2,7 @@
 title: 用語集
 layout: default
 parent: 日本語
-nav_order: 5
+nav_order: 6
 description: バイブコーディング（vibe coding）、並列エージェント、AI コーディングエージェント、git worktree、コックピットなど、MulmoTerminal のドキュメントに出てくる言葉を、実際の画面と結びつけて説明します。
 ---
 

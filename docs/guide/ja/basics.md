@@ -2,7 +2,7 @@
 title: 基本編
 layout: default
 parent: 日本語
-nav_order: 1
+nav_order: 2
 description: グリッドで複数の AI コーディングエージェント（Claude Code / Codex）を並列に動かす基本。バイブコーディング（vibe coding）をターミナルで回すときの、セルの読み方・状態の色・コックピットロスター。
 ---
 
