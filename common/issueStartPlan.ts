@@ -24,10 +24,13 @@ export type IssueStartPlan =
  *  can be given a sentence rather than a nullable one — see the phone's refusal (#1184). */
 export type BlockedIssueStartPlan = Exclude<IssueStartPlan, { kind: "ready" }>;
 
-export function issueStartPlan(entry: RepoDirs | undefined, repo?: string): IssueStartPlan {
+// `repo` is REQUIRED, not optional, even though only one branch reads it: a caller that omitted it
+// would get `no-clone` for a GitLab repo, which is the exact wrong answer this parameter was added
+// to fix. Making the compiler ask for it is what stops that coming back.
+export function issueStartPlan(entry: RepoDirs | undefined, repo: string): IssueStartPlan {
   // Checked before the clone list, because a GitLab repo has no entry there and would otherwise
   // read as "no clone" — a reason that is not true and points at the wrong fix.
-  const parsed = repo === undefined ? null : parseRepoEntry(repo);
+  const parsed = parseRepoEntry(repo);
   if (parsed && parsed.host !== GITHUB_HOST) return { kind: "unsupported-forge", host: parsed.host };
   const dirs = entry?.dirs ?? [];
   if (dirs.length === 0) return { kind: "no-clone" };

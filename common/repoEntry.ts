@@ -32,6 +32,3 @@ export function parseRepoEntry(entry: string): RepoEntry | null {
   const declared = segments.length > 1 && HOST_SEGMENT.test(segments[0]);
   return declared ? { host: segments[0].toLowerCase(), path: segments.slice(1), declared } : { host: GITHUB_HOST, path: segments, declared };
 }
-
-/** Whether an entry names a repository on github.com — the only host work can be STARTED on. */
-export const isGithubRepoEntry = (entry: string): boolean => parseRepoEntry(entry)?.host === GITHUB_HOST;
