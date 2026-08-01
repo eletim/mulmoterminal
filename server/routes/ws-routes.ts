@@ -40,7 +40,7 @@ import { handleCommandFrame } from "../session/pty-connection.js";
 import { closeWithError } from "../session/ws-frames.js";
 import { ProviderRefusedError } from "../session/provider-env.js";
 import { sessionExistsOnDisk } from "../session/session-reads.js";
-import { canStartLauncher, resolveReattachableId, resolveSession, type SessionResolution } from "../session/session-resolve.js";
+import { canStartLauncher, isContinuingSession, resolveReattachableId, resolveSession, type SessionResolution } from "../session/session-resolve.js";
 import type { PtyEntry } from "../session/types.js";
 import type { SpawnClaudePty, SpawnCodexPty, SpawnAntigravityPty, SpawnCommandPty, SpawnLauncherPty, ResolveLauncher } from "../session/spawners.js";
 import { terminalWsKind, type TerminalWsKind } from "./terminal-ws-path.js";
@@ -169,12 +169,23 @@ export function refuseUnusableWorkspace(ws: WebSocket, kind: TerminalWsKind, unu
 /**
  * Refuse a FRESH agent session in a worktree that already has one (#1207).
  *
- * Only a fresh one: reattaching or resuming the session the worktree already has is the whole
- * point of the rule, not a violation of it. The refusal has to happen before the browser is told a
- * session id, or a cell adopts an id for a terminal that is about to be closed under it.
+ * Only a fresh one: reattaching or resuming a session that already exists is the whole point of
+ * the rule, not a violation of it. The refusal has to happen before the browser is told a session
+ * id, or a cell adopts an id for a terminal that is about to be closed under it.
+ *
+ * "Fresh" is read off the id the resolver settled on rather than re-listing the ways a session can
+ * continue: every resolver here keeps the REQUESTED id exactly when something can serve it (a live
+ * pty, a surviving tmux session, a transcript or rollout to resume) and mints a new one otherwise.
+ * Codex caught the first version spelling that list out per call site and omitting tmux-only
+ * liveness — which reads a reconnect after a server restart as a brand-new session (#1208).
  */
-async function refuseSecondWorktreeSession(ws: WebSocket, kind: TerminalWsKind, cwd: string, continuing: boolean): Promise<boolean> {
-  if (continuing) return false;
+async function refuseSecondWorktreeSession(
+  ws: WebSocket,
+  kind: TerminalWsKind,
+  cwd: string,
+  session: { requested: string | null; sessionId: string },
+): Promise<boolean> {
+  if (isContinuingSession(session.requested, session.sessionId)) return false;
   const occupied = await occupiedWorktreeSession(cwd);
   if (!occupied) return false;
   console.warn(`[ws/${kind}] refusing a second session in ${cwd} — ${occupied.id} already holds it`);
@@ -342,7 +353,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // re-persists, so the reload just reopens a working terminal seamlessly.
   const { reattachId, resume, sessionId } = resolveClaudeSession(requested, cwd);
   const live = reattachId ? ptys.get(reattachId) : undefined;
-  if (await refuseSecondWorktreeSession(ws, "claude", cwd, !!reattachId || !!resume)) return;
+  if (await refuseSecondWorktreeSession(ws, "claude", cwd, { requested, sessionId })) return;
 
   // A dev terminal (gui=0) is a multi-terminal GRID cell: remember its session id so
   // it's excluded from the chat sidebar (see devTerminalSessions). This is the single
@@ -470,7 +481,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // A launcher is a command line, so the limit follows what it RUNS: a launcher configured as
   // `codex` is the agent toggle by another name and is held to the same rule, while `yarn dev` or
   // a shell is not an agent editing the tree and stays free (see launcherRunsAgent).
-  if (launcherRunsAgent(command) && (await refuseSecondWorktreeSession(ws, "launch", cwd, !!live))) return;
+  if (launcherRunsAgent(command) && (await refuseSecondWorktreeSession(ws, "launch", cwd, { requested, sessionId }))) return;
   markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
@@ -500,7 +511,7 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
-  if (await refuseSecondWorktreeSession(ws, "codex", cwd, !!live || !!resumeRolloutId)) return;
+  if (await refuseSecondWorktreeSession(ws, "codex", cwd, { requested, sessionId })) return;
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
@@ -571,7 +582,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   // conversation that is right there — which is the restart case this exists for.
   await antigravityConversationsHydrated;
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
-  if (await refuseSecondWorktreeSession(ws, "antigravity", cwd, !!live || !!resumeConversationId)) return;
+  if (await refuseSecondWorktreeSession(ws, "antigravity", cwd, { requested, sessionId })) return;
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
