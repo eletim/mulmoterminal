@@ -414,7 +414,15 @@ function startTarget(dir: string | null) {
 
 // Attach to a session the form listed, in the cwd those rows were fetched for (not the
 // possibly-changed input).
-function resumeSession({ id, cwd: dir }: { id: string; cwd: string | null }) {
+//
+// `resumeAgent` is what the session IS, which a worktree row knows and the selector may disagree
+// with: connecting a live codex id to /ws because the picker still says Claude runs the wrong
+// endpoint against a real session. Absent (the resume list, all Claude) leaves the pick alone.
+function resumeSession({ id, cwd: dir, agent: resumeAgent }: { id: string; cwd: string | null; agent?: TerminalAgent }) {
+  if (resumeAgent) {
+    launchTarget.value = resumeAgent;
+    emit("agent", resumeAgent); // the grid persists which agent this cell runs
+  }
   cwd.value = dir;
   sessionId.value = id;
   connectKey.value++;

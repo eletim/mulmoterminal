@@ -912,7 +912,20 @@ and the cell launches its agent inside a fresh
 [git worktree](https://git-scm.com/docs/git-worktree) on a new `agent/<slug>` branch — a
 separate working tree that shares the repo's `.git`, so several agents can work the same
 repo without colliding. Worktrees live under `~/.mulmoterminal/worktrees/` (override with
-`MULMOTERMINAL_HOME`), and existing ones are listed for reuse.
+`MULMOTERMINAL_HOME`), and existing ones are listed below the field.
+
+**One worktree, one session.** A worktree is tied to a branch, so it is never started
+twice: a listed row **resumes** that worktree's session when it has one, and **starts** one
+only when it has none. A row whose session is open in another terminal reads `in use` and
+cannot be clicked — close it there first. The refusal follows the *directory*, not the row:
+the same worktree reached by pasting its path into **WORKING DIRECTORY**, or by a recent-dir
+chip, will not launch either.
+
+The same holds for **OR RESUME HERE**: a session someone is holding is listed with `● open`
+and refused, where before it could be confirmed away — which detached whoever had it.
+"Someone" means any terminal anywhere, including another browser tab and a second
+`mulmoterminal` process on this machine: the server answers from its own PTY table plus
+tmux, not from what one page can see.
 
 A worktree started **from an issue** gets an `issue/<N>-<slug>` branch instead. The number
 in the name is what later tells the app which issue the work belongs to: the ⧉ Open PR

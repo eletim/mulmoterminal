@@ -18,6 +18,12 @@ export type TerminalAgent = (typeof TERMINAL_AGENTS)[number];
 // persisted cell (written before the field existed) means.
 export const asTerminalAgent = (value: unknown): TerminalAgent => (TERMINAL_AGENTS.some((agent) => agent === value) ? (value as TerminalAgent) : "claude");
 
+// Narrowing rather than coercing, for the callers that must be able to say "this is not an agent
+// at all": a shell is a session kind but not something a cell can be relaunched AS, and reading
+// one as Claude (which asTerminalAgent does, correctly, for a remembered value) would offer to
+// resume a shell as a conversation.
+export const isTerminalAgent = (agent: SessionAgent): agent is TerminalAgent => TERMINAL_AGENTS.some((known) => known === agent);
+
 export interface AgentBadge {
   /** Where there is room for it — a sidebar row, a header bar. */
   full: string;

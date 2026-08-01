@@ -273,27 +273,18 @@ describe("TerminalCell", () => {
     expect(items[1].find('[data-testid="ri-open"]').exists()).toBe(false);
   });
 
-  it("confirms before resuming a session open elsewhere, and bails on cancel", async () => {
-    const openId = "88888888-8888-8888-8888-888888888888";
-    mockFetch([{ id: openId, title: "running over there", mtime: Date.now() }]);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const w = mountCell(null, { defaultCwd: "/home/me/proj", openSessionIds: [openId] });
-    await flushPromises();
-    await w.find('[data-testid="cell-resume-item"]').trigger("click");
-    expect(confirmSpy).toHaveBeenCalledOnce();
-    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(false);
-    confirmSpy.mockRestore();
-  });
-
-  it("resumes a session open elsewhere once the confirm is accepted", async () => {
+  // It used to confirm and then take the session anyway. A confirm is the wrong instrument here:
+  // whoever holds that session is detached the moment this cell gets it, and they are not the one
+  // answering the dialog (#1207).
+  it("will not resume a session open elsewhere at all", async () => {
     const openId = "88888888-8888-8888-8888-888888888888";
     mockFetch([{ id: openId, title: "running over there", mtime: Date.now() }]);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const w = mountCell(null, { defaultCwd: "/home/me/proj", openSessionIds: [openId] });
     await flushPromises();
     await w.find('[data-testid="cell-resume-item"]').trigger("click");
-    expect(confirmSpy).toHaveBeenCalledOnce();
-    expect(w.findComponent({ name: "TerminalView" }).props("sessionId")).toBe(openId);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(false);
     confirmSpy.mockRestore();
   });
 
