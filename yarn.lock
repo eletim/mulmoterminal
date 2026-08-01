@@ -2021,12 +2021,12 @@
   resolved "https://registry.yarnpkg.com/@mulmoclaude/form-plugin/-/form-plugin-1.0.2.tgz#8768bcddcd0f388a7a9dbe01c112b8b1bf0ce255"
   integrity sha512-UPlsbsrB4HnDp93zjJGAB0QkKRPLYST9x4KKuPHEIw3nTmXX9xrQ3j/UA7CI+sonik1AnqUYJjjlkS1bAkIDPA==
 
-"@mulmoclaude/google-plugin@^1.2.0":
-  version "1.2.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/google-plugin/-/google-plugin-1.2.0.tgz#2e6c1bafc2a7fffbc59fd990ff45d9db1e7541df"
-  integrity sha512-UQ658N2r+Ldr/cUT2O0ObZ/2emwbVpfGMfNHGeEEQe/qbeD+dw8bl8PPZ4ysqGGwvIvhRNwWLNDcYERjLARb2g==
+"@mulmoclaude/google-plugin@^1.2.1":
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/google-plugin/-/google-plugin-1.2.1.tgz#776eefa12a0a13c5e4f12bc45cdde3d3b338cfac"
+  integrity sha512-OqfSZbiALNg+n3WnhTLGeygS4f6haDOitrPFlduY22OtxIEOL8fHArejFMWudtgvVXgo45bRS6MFK/4fZLkGyg==
   dependencies:
-    "@mulmoclaude/core" "^1.5.0"
+    "@mulmoclaude/core" "^1.12.0"
 
 "@mulmoclaude/html-plugin@^1.2.0":
   version "1.2.0"
