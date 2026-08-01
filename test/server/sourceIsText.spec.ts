@@ -12,7 +12,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
-const ROOTS = ["server", "src", "common", "bin"];
+// `test` is in the list because a spec is where fixtures live — pasted terminal output is
+// exactly how a literal ESC gets into a file — and a spec hidden from grep is hidden just the
+// same. Three of the four offenders found were specs.
+const ROOTS = ["server", "src", "common", "bin", "test", "scripts"];
 const SOURCE = /\.(ts|tsx|vue|js|mjs)$/;
 
 // Tab, newline and carriage return are the only control bytes source is allowed to hold.
