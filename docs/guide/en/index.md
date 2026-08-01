@@ -8,7 +8,7 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
-> **[What's new in 3.0.0](v3.0.0.html)** — the **PRs & Issues** view becomes somewhere to *start*: one button on an issue row cuts an `issue/<number>-…` worktree and opens Claude in it with the issue already in the input box. Plus **parking** a terminal you do not need to watch (as of 2026-07-31)
+> **[What's new in 4.0.0](v4.0.0.html)** — the **single terminal view is removed**: the grid is the app, focusing on one agent is zooming its cell, and the content surfaces get a **Collections** door in the toolbar. A **worktree now runs one agent session** and refuses a second. The Docker sandbox is gone (as of 2026-08-01)
 >
 > **Follow us on X** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci). That is where everything ships first, so [**follow @SingularitySoci**](https://x.com/SingularitySoci) to hear about it as it lands.
 >

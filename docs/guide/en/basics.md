@@ -23,24 +23,28 @@ agent (or terminal). While one is thinking, you push another cell forward and pi
 call you** — **amber** for a cell awaiting input or a permission, a **blue ring** for a turn that finished and
 awaits review — the goal is to run many agents solo instead of babysitting them all.
 
-MulmoTerminal has two display modes; switch between them with the **chat / grid** icons in the top toolbar.
+**The grid is the app.** `http://localhost:34567/` lands here (the URL settles on `/terminals`), and
+there is no second screen to switch to: focusing on one agent is **zooming its cell**, which gives
+it the window and opens the **GUI panel (Canvas)** beside it — where that agent's tool calls render
+as diagrams, forms, images, documents and slides rather than printed text.
 
-- **Single view** — the screen for **focusing** on one agent (conversation on the left, a GUI panel on the right for diagrams, forms, images, documents, video, and more). Its URL is **`/chat`**.
-- **Grid view** — the screen for **supervising many agents at once**, tiled side by side. This is the star of this guide, and **what the app opens on**: `http://localhost:34567/` lands here (the URL settles on `/terminals`).
+{: .note }
+> **Changed in 4.0.0.** Until 3.x there was a separate *single view* at `/chat` with its own
+> toolbar. It is gone; everything it had is in the grid, and `/chat` now lands on the grid like any
+> other unknown URL. → [4.0.0 setup guide](v4.0.0.html)
 
-Bookmark `/chat` if you would rather start on the single view.
+The top toolbar is one row, split by a rule into **which view you are in** and **what you do inside
+it**:
 
-**The top toolbar differs between the two**, because the two screens are for different things:
+| Group | Buttons |
+|---|---|
+| **Switch view** (left of the rule) | **Grid** and **Collections** — the two places to be |
+| Inside Collections | **Feeds**, **Wiki**, **Accounting**, **Files** appear once you are in the content section |
+| Inside the grid | **Pull requests**, **Worklog**, **New terminal**, cell ordering, the status tally |
+| Always | sound, roster / filmstrip, **Settings** |
 
-| | Grid | Single view |
-|---|---|---|
-| Running agents | New terminal, cell ordering, the status tally, **Pull requests**, **Worklog** | — |
-| Content | — | **Collections**, **Accounting**, **Wiki**, your pinned favourites |
-| Switching | chat / grid icons | chat / grid icons |
-
-A full-screen surface (Collections, Wiki, PRs, Accounting, Files) now **returns to the view you opened it from** when you close it.
-
-![Single view — focus on one agent](../images/single-view.png)
+A full-screen surface (Collections, Wiki, PRs, Accounting, Files) **returns to the view you opened
+it from** when you close it.
 
 ## Launching an agent or a shell (launcher form)
 
