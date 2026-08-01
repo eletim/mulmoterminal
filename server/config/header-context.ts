@@ -10,7 +10,7 @@ import { mergeHeaderConfig, type HeaderConfig, type HeaderContext } from "./head
 import { loadDirConfig } from "./dir-config.js";
 import { isStrictlyWithin } from "../infra/path-within.js";
 import { parseRemoteRef } from "../git/remote-ref.js";
-import { GITHUB_HOST } from "../git/gitRemote.js";
+import { GITHUB_HOST } from "../git/forge-host.js";
 
 const WORKTREES_ROOT = path.join(os.homedir(), ".mulmoterminal", "worktrees");
 
