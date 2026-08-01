@@ -8,6 +8,7 @@
 import { ref, computed } from "vue";
 import { THEME_VAR_KEYS, resolveThemeVars, isLightTheme, termThemeFromVars, type CustomThemeInput, type ThemeVars } from "../../common/themeVars";
 import type { ThemeId } from "../../common/themeIds";
+import { isRecord } from "../../common/isRecord";
 
 // The built-in palettes, read from the stylesheet rather than restated here — style.css is the
 // source of truth for what Midnight is, and a second copy would drift the moment one is edited.
@@ -43,8 +44,11 @@ function ruleVars(id: ThemeId, sheets: readonly CSSStyleSheet[]): ThemeVars | nu
       });
     }
   }
-  return THEME_VAR_KEYS.every((key) => found[key]) ? (found as ThemeVars) : null;
+  return isCompleteVars(found) ? found : null;
 }
+
+// Every variable present — a guard so the check narrows instead of being restated as a cast.
+const isCompleteVars = (vars: Partial<ThemeVars>): vars is ThemeVars => THEME_VAR_KEYS.every((key) => !!vars[key]);
 
 export function readBuiltinVars(id: ThemeId, doc: Document = document): ThemeVars | null {
   return ruleVars(
@@ -61,8 +65,8 @@ export function setCustomThemes(input: unknown): void {
 }
 
 function isCustomThemeInput(value: unknown): value is CustomThemeInput {
-  if (typeof value !== "object" || value === null) return false;
-  const theme = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const theme = value;
   return typeof theme.id === "string" && typeof theme.label === "string" && typeof theme.colors === "object" && theme.colors !== null;
 }
 

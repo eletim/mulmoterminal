@@ -1,3 +1,4 @@
+import { isRecord } from "../../common/isRecord";
 // Pure parse of a "sessions" pub/sub payload into an attention-state update, so the
 // grid can track a cell's blocked/done even while the cell is OFF-PAGE (unmounted).
 // The payload carries dev-terminal (grid) activity that the /api/sessions list drops,
@@ -12,8 +13,8 @@ export interface CellActivity {
 export type SessionActivityUpdate = { id: string; closed: true } | { id: string; activity: CellActivity };
 
 export function parseSessionActivityPayload(data: unknown): SessionActivityUpdate | null {
-  if (!data || typeof data !== "object") return null;
-  const d = data as Record<string, unknown>;
+  if (!isRecord(data)) return null;
+  const d = data;
   if (typeof d.id !== "string") return null;
   // A "closed" push means the session's PTY was reaped — drop it (no attention).
   if (d.event === "closed") return { id: d.id, closed: true };

@@ -27,7 +27,7 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let watchers = 0;
 
 const PROBE_STATES: readonly ClaudeProbeState[] = ["ok", "no-claude", "no-windows", "no-report"];
-const isProbeState = (v: unknown): v is ClaudeProbeState => typeof v === "string" && (PROBE_STATES as readonly string[]).includes(v);
+const isProbeState = (v: unknown): v is ClaudeProbeState => typeof v === "string" && PROBE_STATES.some((state) => state === v);
 
 // A failure leaves the last known windows in place. Blanking them would read as "0% used", which
 // is the opposite of the truth we just failed to fetch.
