@@ -91,6 +91,13 @@ and the session is marked *unplaced* (`server/session/registry.ts`), which is ho
 nobody's browser asked for gets a cell: a desktop grid that is already on screen adopts it within
 the moment, and one that isn't picks it up the next time it loads.
 
+The same mark is what puts the session in **`listTerminalSessions`** before any of that happens.
+That list is the grid's cells, and the id is written by a browser attach and by nothing else — so
+until #1184 a session the phone had just started was absent from the phone's own list, and the
+work it began was findable only by holding on to the returned `sessionId`. The list now answers
+with cells **and** the sessions on their way to being one, which is the same set one moment later.
+This covers `startChat` too, which had the same hole.
+
 ### `TerminalSessionSummary`
 
 ```ts
@@ -101,8 +108,9 @@ the moment, and one that isn't picks it up the next time it loads.
 (`capture-pane` doesn't need our process) but **not writable**, and `agent` is then `null`
 because the process that knew what it was launched with is gone.
 
-The list is filtered to **grid cells**: the single-view chat session and any tmux shell that
-was never a cell are excluded, even while live.
+The list is filtered to **grid cells, plus the sessions waiting to become one** — a chat or an
+issue the phone started that no browser has adopted yet (`isPhoneListableSession`). A tmux shell
+that was never a cell and that nobody spawned for one is excluded, even while live.
 
 ### `SessionScreen`
 

@@ -59,14 +59,16 @@ import {
   activity,
   aiTitles,
   backgroundMarkers,
-  devTerminalSessions,
+  isPhoneListableSession,
   knownSessions,
   lastPrompts,
+  placedSessionsHydrated,
   ptys,
   sessionCwd,
   sessionMemos,
   sessionMemosHydrated,
   markUnplacedSession,
+  unplacedSessionsHydrated,
 } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
@@ -621,14 +623,18 @@ const remoteHostListTerminalSessions = async () => {
   const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
   const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
   await sessionMemosHydrated; // the memo IS the phone's row title when there is one
+  // Both unplaced logs, because a session waiting for a cell is one the phone may list — and the
+  // case that mark exists for is a server that restarted before any tab opened, where the answer
+  // lives only on disk.
+  await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated]);
   return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
     isResumable: await resumableSessionPredicate(),
-    // The phone lists the multi-terminal grid's cells only — not the single-view chat
-    // session or a tmux shell that was never a grid cell. resumableSessionPredicate()
-    // above already awaited devTerminalSessionsHydrated, so this set is fully seeded.
-    isGridSession: (id) => devTerminalSessions.has(id),
+    // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
+    // one — never a tmux shell that was never a cell. resumableSessionPredicate() above already
+    // awaited devTerminalSessionsHydrated, and the unplaced logs are awaited below.
+    isGridSession: isPhoneListableSession,
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {
