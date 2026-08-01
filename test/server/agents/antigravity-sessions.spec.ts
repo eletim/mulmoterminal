@@ -131,15 +131,19 @@ describe("listAntigravitySessions", () => {
 
   // The log only grows and nothing prunes it, so without a bound every session-list refresh would
   // do filesystem work proportional to every agy conversation ever started in the directory.
-  it("touches the filesystem for a bounded number of conversations", async () => {
+  //
+  // The oldest-STARTED conversations are given the newest mtimes, which is what makes this test
+  // able to fail: an implementation that reads every record would rank exactly those first, so
+  // their absence from the answer is proof that the window is applied before the filesystem.
+  it("never reads the conversations outside the newest-started window", async () => {
     const uuid = (i: number) => `${String(i).padStart(8, "0")}-1111-4111-8111-111111111111`;
+    const OUTSIDE = 60; // 260 records against a 200-wide window
     const records = Array.from({ length: 260 }, (_, i) => record({ sessionId: uuid(i), conversationId: uuid(i), startedAt: i }));
-    // Only the newest 200 by startedAt exist on disk; the oldest 60 would each cost a lookup.
-    for (let i = 60; i < 260; i++) writeConversation(uuid(i), `prompt ${i}`, new Date((i + 1) * 1000));
+    for (let i = 0; i < 260; i++) writeConversation(uuid(i), `prompt ${i}`, new Date(i < OUTSIDE ? 9_000_000 + i : 1_000_000 + i));
+
     const sessions = await listAntigravitySessions(brainDir, records, CWD, 50);
     expect(sessions).toHaveLength(50);
+    expect(sessions.filter((s) => Number(s.id.slice(0, 8)) < OUTSIDE)).toEqual([]);
     expect(sessions[0].title).toBe("prompt 259");
-    // Every returned row was read, not defaulted — the window covers what is actually on disk.
-    expect(sessions.filter((s) => s.title === "Antigravity session")).toEqual([]);
   });
 });
