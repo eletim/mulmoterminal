@@ -97,7 +97,7 @@ import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/la
 import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
 import { currentBranch, gitStatus } from "./git/git-status.js";
 import { phaseForRepoBranch } from "./git/prPhase.js";
-import { repoFromWebUrl } from "./config/header-context.js";
+import { repoForDir } from "./git/forge-support.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
 import { initCollectionsBackend } from "./backends/collections.js";
@@ -604,7 +604,7 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
       try {
         const status = await gitStatus(cwd);
         if (!status.repo || !status.branch) return;
-        const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
+        const repo = (await repoForDir(cwd))?.repo ?? null;
         if (!repo) return;
         const summary = sessionWorkSummary(await phaseForRepoBranch(repo, status.branch));
         if (summary) out.set(cwd, summary);

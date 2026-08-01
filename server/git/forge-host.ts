@@ -36,13 +36,18 @@ const GITHUB_PATH_SEGMENTS = 2;
 
 // GitLab nests groups (`group/subgroup/project`), so the whole path names the project and there is
 // no segment count to apply.
+const projectPathFor = (kind: ForgeKind, path: string): string | null => {
+  if (kind === "github") return topSegments(path, GITHUB_PATH_SEGMENTS);
+  return kind === "gitlab" ? path : null;
+};
+
+/** How the host itself addresses this project — GitHub's `owner/repo`, GitLab's whole group path —
+ *  or null for a host whose layout we do not know. */
+export const projectPath = (forge: RemoteForge): string | null => projectPathFor(forge.kind, forge.path);
+
 function webUrlFor(kind: ForgeKind, host: string, path: string): string | null {
-  if (kind === "github") {
-    const repo = topSegments(path, GITHUB_PATH_SEGMENTS);
-    return repo ? `https://${host}/${repo}` : null;
-  }
-  if (kind === "gitlab") return `https://${host}/${path}`;
-  return null;
+  const project = projectPathFor(kind, path);
+  return project ? `https://${host}/${project}` : null;
 }
 
 /** What forge a remote URL points at, or null when it is not a remote URL we can read at all. */

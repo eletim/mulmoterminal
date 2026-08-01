@@ -1,7 +1,10 @@
 // Whether a configured repo can be listed, and what the row says when it cannot. The message is
 // the feature: an unsupported forge used to produce an empty section with no explanation (#981).
 import { describe, it, expect } from "vitest";
-import { repoSupport, isSupported } from "../../../server/git/forge-support.js";
+import { repoSupport, isSupported, repoForRemote, repoForDir } from "../../../server/git/forge-support.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { forgeFromRepoEntry } from "../../../server/git/forge-host.js";
 
 describe("forgeFromRepoEntry", () => {
@@ -77,5 +80,53 @@ describe("repoSupport", () => {
   it("says what a malformed entry should look like", () => {
     const support = repoSupport("owner");
     expect(!isSupported(support) && support.error).toContain("owner/repo");
+  });
+});
+
+// The dir-derived half (#981 step 2b). Five call sites each wrote
+// `repoFromWebUrl(await resolveGithubUrl(dir))`, which answers null for BOTH "no remote" and "a
+// remote we cannot act on" — and then reported the second as the first.
+describe("repoForRemote", () => {
+  it("gives the owner/repo a GitHub remote names", () => {
+    expect(repoForRemote("git@github.com:receptron/mulmoterminal.git")).toMatchObject({ repo: "receptron/mulmoterminal", forge: { kind: "github" } });
+  });
+
+  // The distinction the whole step exists for: the repository is SEEN (there is a forge) but not
+  // one this app can act on, so `repo` is null while the answer itself is not.
+  it.each([
+    ["a GitLab remote", "git@gitlab.com:group/project.git", "gitlab"],
+    ["a self-hosted remote", "git@git.example.com:team/project.git", "unknown"],
+  ])("reports %s as seen but not actionable", (_case, url, kind) => {
+    const found = repoForRemote(url);
+    expect(found).not.toBeNull();
+    expect(found?.repo).toBeNull();
+    expect(found?.forge.kind).toBe(kind);
+  });
+
+  // Null stays reserved for "there is nothing here to read", which is what the callers turn into
+  // "no repo".
+  it.each([[""], ["not a remote"]])("is null for %s", (url) => {
+    expect(repoForRemote(url)).toBeNull();
+  });
+
+  // A GitHub remote pointing deeper than owner/repo still names the project, unchanged from what
+  // the old helper produced.
+  it("truncates a deeper GitHub path the way the previous helper did", () => {
+    expect(repoForRemote("https://github.com/owner/repo/tree/main")?.repo).toBe("owner/repo");
+  });
+});
+
+describe("repoForDir", () => {
+  it("reads this repository's own origin", async () => {
+    expect((await repoForDir(process.cwd()))?.repo).toMatch(/^[^/]+\/[^/]+$/);
+  });
+
+  it("is null for a directory with no remote", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "forge-support-"));
+    try {
+      expect(await repoForDir(dir)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

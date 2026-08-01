@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { gitStatus } from "../git/git-status.js";
 import { git } from "../git/worktrees.js";
-import { parseGithubWebUrl } from "../git/gitRemote.js";
+import { repoForRemote } from "../git/forge-support.js";
 import { mergeHeaderConfig, type HeaderConfig, type HeaderContext } from "./header-config.js";
 import { loadDirConfig } from "./dir-config.js";
 import { isStrictlyWithin } from "../infra/path-within.js";
@@ -38,7 +38,7 @@ export function worktreeTask(cwd: string, root: string = WORKTREES_ROOT): string
 async function remoteInfo(cwd: string): Promise<{ remoteUrl: string | null; repo: string | null }> {
   const res = await git(["remote", "get-url", "origin"], cwd);
   const remoteUrl = res.ok && res.stdout.trim() ? res.stdout.trim() : null;
-  const repo = remoteUrl ? repoFromWebUrl(parseGithubWebUrl(remoteUrl)) : null;
+  const repo = remoteUrl ? (repoForRemote(remoteUrl)?.repo ?? null) : null;
   return { remoteUrl, repo };
 }
 
