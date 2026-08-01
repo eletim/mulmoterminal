@@ -107,6 +107,20 @@ rule is a decision with its own tests, and a guard that were cleverer than the i
 one command line read as codex to one and not the other. Parsing shell syntax to decide whether to
 REFUSE someone a terminal is also the wrong direction to be clever in.
 
+## Known limits
+
+Two, both narrow, both stated rather than papered over:
+
+- **A transcript written under a spelling nobody asks by.** The occupancy read looks under the
+  spelling the launch arrives by AND its canonical form, which covers a launch arriving by an
+  alias. The reverse — a session once started through a symlink alias, later launched against by
+  the canonical path, with no live pty left — cannot be resolved without enumerating every symlink
+  that points at the directory. Closing it properly means consulting the recorded per-session cwds
+  (`registry.sessionCwd`), which is a realpath syscall per recorded session on a list endpoint that
+  reloads while the user types; not worth it for the case.
+- **A launcher command line the recogniser cannot read** (`FOO=1 codex`, a wrapper script) — see
+  above.
+
 ## Not done here
 
 - No cross-process lock or handover. "Open elsewhere" is reported and refused, not stolen.

@@ -3,7 +3,7 @@
 // is only the explanation. This is the guarantee, and it is what Codex asked for on #1208: the
 // client compared paths with `===`, so a directory spelled another way walked straight past it.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { makeTempDir } from "../../support/tempDir.js";
@@ -19,6 +19,7 @@ vi.mock("../../../server/infra/tmux.js", async (importOriginal) => ({
 const { claimLaunch, worktreeOccupancy } = await import("../../../server/session/worktree-session-limit.js");
 const { createWorktree, gitTopLevel } = await import("../../../server/git/worktrees.js");
 const { ptys } = await import("../../../server/session/registry.js");
+const { projectSessionsDir } = await import("../../../server/session/project-dir.js");
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
 const OPEN_SOCKET = { readyState: 1, OPEN: 1 };
@@ -141,6 +142,32 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
       ptys.set(SESSION, { cwd: link, agent: "codex", ws: OPEN_SOCKET, tmux: true } as never);
       expect((await worktreeOccupancy(worktree)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
       expect((await worktreeOccupancy(link)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // Codex, fifth pass: the transcript lookup used ONE spelling. This app hands claude a lexically
+  // resolved cwd on purpose (config/workspace.ts says why), so a session started through a symlink
+  // alias has its transcripts under that alias — and a launch arriving by the same alias would look
+  // only under the canonical name and find nothing. A missed session is a worktree that reads free.
+  it(
+    "finds a detached claude session through the spelling the launch arrives by",
+    async () => {
+      const link = path.join(home, "link-for-transcripts");
+      try {
+        symlinkSync(worktree, link, "junction");
+      } catch {
+        return; // Windows without the privilege to create one
+      }
+      // No pty at all: the detached case, where only the transcript pass can answer.
+      const transcripts = projectSessionsDir(worktree);
+      mkdirSync(transcripts, { recursive: true });
+      writeFileSync(path.join(transcripts, `${SESSION}.jsonl`), "{}\n");
+      try {
+        expect((await worktreeOccupancy(link)).session).toEqual({ id: SESSION, attached: false, agent: "claude" });
+      } finally {
+        rmDirRetrying(transcripts);
+      }
     },
     GIT_TEST_TIMEOUT_MS,
   );

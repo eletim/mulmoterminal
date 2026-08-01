@@ -88,11 +88,24 @@ async function transcriptCandidates(dir: string, tmuxCounts: Map<string, number>
     .map((s) => ({ id: s.id, live: false, mtime: s.mtime, agent: "claude" as const, attached: sessionAttached(s.id, tmuxCounts) }));
 }
 
+// BOTH spellings, because neither one alone is right (#1208). Claude names its project directory
+// after the cwd it was handed, and this app hands over a LEXICALLY resolved path on purpose
+// (config/workspace.ts explains why it does not realpath) — so transcripts can sit under the
+// caller's spelling. But the caller may equally arrive with git's canonical spelling of a worktree
+// reached through a symlink, whose transcripts are under the other name. Looking under one name
+// misses the session and lets a second start; looking under both cannot.
+async function transcriptCandidatesEitherSpelling(dir: string, tmuxCounts: Map<string, number> | null): Promise<DirSessionCandidate[]> {
+  const spellings = [...new Set([path.resolve(dir), canonicalPath(dir)])];
+  const found = await Promise.all(spellings.map((spelling) => transcriptCandidates(spelling, tmuxCounts)));
+  // Deduped by id: one session listed twice would be picked as itself either way, but a duplicate
+  // is a fact about the LOOKUP rather than about the directory, and nothing downstream should have
+  // to know that.
+  return [...new Map(found.flat().map((candidate) => [candidate.id, candidate])).values()];
+}
+
 /** `tmuxCounts` and `now` are passed in so a whole list of directories is answered from one
  *  `list-clients` call and one clock read. */
 export async function dirSession(dir: string, tmuxCounts: Map<string, number> | null, now: number): Promise<DirSession | null> {
   const live = livePtyCandidates(canonicalPath(dir), tmuxCounts, now);
-  // The transcript pass is deliberately NOT canonicalized: claude names a project directory after
-  // the cwd it was given, so the spelling the caller used is the one that finds its transcripts.
-  return pickDirSession([...live, ...(await transcriptCandidates(path.resolve(dir), tmuxCounts))]);
+  return pickDirSession([...live, ...(await transcriptCandidatesEitherSpelling(dir, tmuxCounts))]);
 }
