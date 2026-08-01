@@ -167,6 +167,20 @@ describe("POST /api/issues/start", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 
+  // #1219: the issue's worktree is open in somebody's terminal. Something the user can act on
+  // (close it there), so it shares the 409 with the other preconditions rather than reading as a
+  // server fault.
+  it.skipIf(!hasGit)(
+    "reports a worktree somebody is holding as a 409, with the sentence saying what to do",
+    async () => {
+      issueWork.start.mockResolvedValue({ ok: false, reason: "worktree-busy", detail: "this worktree's session is open in another terminal" });
+      const res = await post({ repo: "acme/web", issue: 7, dir: clone });
+      expect(res.statusCode).toBe(409);
+      expect(res.payload).toMatchObject({ detail: expect.stringContaining("another terminal") });
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
   it.skipIf(!hasGit)(
     "reports an unreadable issue as a 409 the user can act on",
     async () => {

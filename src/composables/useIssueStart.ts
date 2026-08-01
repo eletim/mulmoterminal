@@ -57,6 +57,18 @@ export function rememberClone(repo: string, dir: string): string {
   return entry.repo;
 }
 
+// The route answers a failure in one of TWO shapes, and the sentence worth showing lives in a
+// different key in each: `{ error }` for a request it would not accept at all (bad repo, a
+// directory that is not this repo's clone), and `{ ok: false, reason, detail }` for a step that
+// ran and stopped — which is where the one sentence saying what to DO about it lives, e.g. the
+// worktree being open in another terminal (#1219). Reading only `error` dropped that on the floor
+// and showed "could not start work on acme/web#7" instead.
+const failureSentence = (data: unknown): string | null => {
+  if (!isRecord(data)) return null;
+  if (typeof data.error === "string" && data.error) return data.error;
+  return typeof data.detail === "string" && data.detail ? data.detail : null;
+};
+
 async function requestStart(repo: string, issue: number, dir: string): Promise<boolean> {
   const res = await fetch("/api/issues/start", {
     method: "POST",
@@ -65,17 +77,19 @@ async function requestStart(repo: string, issue: number, dir: string): Promise<b
   });
   const data: unknown = await res.json().catch(() => null);
   if (!res.ok) {
-    startError.value = isRecord(data) && typeof data.error === "string" ? data.error : `could not start work on ${repo}#${issue}`;
+    startError.value = failureSentence(data) ?? `could not start work on ${repo}#${issue}`;
     return false;
   }
   if (!isRecord(data) || typeof data.sessionId !== "string") {
     startError.value = "the server started nothing";
     return false;
   }
-  // `draft: true` — the issue is typed into the input box and left there. It was written by
-  // whoever opened the issue, which is usually not the person about to run it, so the Enter is
-  // theirs to press.
-  placeSpawnedChat({ id: data.sessionId, agent: "claude", draft: true });
+  // `draft` — the issue is typed into the input box and left there. It was written by whoever
+  // opened the issue, which is usually not the person about to run it, so the Enter is theirs to
+  // press. NOT for a resumed session (#1219): that one was already working on this issue, nothing
+  // was typed into it, and claiming otherwise would leave the cell waiting for an Enter that has
+  // no draft behind it.
+  placeSpawnedChat({ id: data.sessionId, agent: "claude", draft: data.outcome !== "resumed" });
   return true;
 }
 

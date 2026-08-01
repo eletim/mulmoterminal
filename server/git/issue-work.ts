@@ -6,8 +6,10 @@
 // and the browser is the wrong place to unwind that. Here a failed step simply stops, and the
 // caller learns which one.
 import { runGh } from "./gh.js";
-import { createWorktree } from "./worktrees.js";
+import { createWorktree, issueWorktree } from "./worktrees.js";
+import { worktreeOccupancy, type WorktreeOccupancy } from "../session/worktree-session-limit.js";
 import { isRecord } from "../../common/isRecord.js";
+import { worktreeAction, worktreeLimitReason } from "../../common/worktreeSession.js";
 
 export interface IssueDetail {
   number: number;
@@ -15,12 +17,24 @@ export interface IssueDetail {
   body: string;
 }
 
-export type StartIssueWorkReason = "issue-not-found" | "worktree-failed";
+export type StartIssueWorkReason = "issue-not-found" | "worktree-failed" | "worktree-busy";
+
+/** How the work was reached. An issue has ONE worktree, so the second call for it is not a second
+ *  piece of work — it is the same one, found again (#1219). */
+export type StartIssueWorkOutcome =
+  /** A worktree was cut for this issue and a session seeded in it. */
+  | "created"
+  /** The issue's worktree was already there and empty; the session is new, seed and all. */
+  | "reused"
+  /** The issue's worktree was already there WITH its session; that session is what opens, so
+   *  nothing was spawned and the issue is not typed into anything. */
+  | "resumed";
 
 export interface StartIssueWorkResult {
   ok: boolean;
   reason?: StartIssueWorkReason;
   detail?: string;
+  outcome?: StartIssueWorkOutcome;
   worktree?: string;
   branch?: string;
   issue?: IssueDetail;
@@ -65,22 +79,54 @@ export function issueSeedPrompt(repo: string, issue: IssueDetail): string {
 export interface StartIssueWorkDeps {
   fetchIssue?: (repo: string, issue: number) => Promise<IssueDetail | null>;
   makeWorktree?: (repoDir: string, task: string, issue: number) => Promise<{ path: string; branch: string } | null>;
+  /** The worktree this issue already has here, if any (#1219). */
+  findWorktree?: (repoDir: string, issue: number) => Promise<{ path: string; branch: string | null } | null>;
+  /** Who is in that worktree, in the one-session-per-worktree sense (#1207). */
+  occupancyOf?: (dir: string) => Promise<WorktreeOccupancy>;
   /** Spawn the session in the worktree with the seed waiting in its input box. Returns the id. */
   spawnDraft: (cwd: string, draft: string) => string;
 }
 
-/** Read the issue, cut its worktree, and spawn the session. `dir` must already have been checked
- *  against the repo's known clones by the caller — this does not resolve it. */
-export async function startIssueWork(
+type StartedResult = StartIssueWorkResult & { sessionId?: string };
+
+/** What to do about a worktree this issue already has. The three answers are #1207's, reached
+ *  through its own vocabulary rather than a second rule: a worktree holds one session, so the
+ *  question "may I start here" has already been answered once for every other caller. */
+async function reopenIssueWorktree(
+  worktree: { path: string; branch: string | null },
+  detail: IssueDetail,
   repo: string,
-  issue: number,
-  dir: string,
-  deps: StartIssueWorkDeps,
-): Promise<StartIssueWorkResult & { sessionId?: string }> {
-  const { fetchIssue = fetchIssueDetail, makeWorktree = createWorktree, spawnDraft } = deps;
+  deps: Pick<StartIssueWorkDeps, "spawnDraft"> & { occupancyOf: (dir: string) => Promise<WorktreeOccupancy> },
+): Promise<StartedResult> {
+  // The branch key is spread in only when git named one: a detached worktree has none, and a key
+  // present holding `undefined` is not the same as an absent one for a result that crosses the
+  // wire (the phone's channel rejects the whole reply over one).
+  const found = { worktree: worktree.path, issue: detail, ...(worktree.branch ? { branch: worktree.branch } : {}) };
+  const { session } = await deps.occupancyOf(worktree.path);
+  const action = worktreeAction(session);
+  // `busy` is somebody else's terminal, so this stops here and says so — the alternative is two
+  // agents in one working tree, which is what the whole rule exists to prevent.
+  if (action === "busy" && session) return { ok: false, reason: "worktree-busy", detail: worktreeLimitReason(session), ...found };
+  // `resume`: the worktree's session exists and nobody holds it, so THAT is the work — opening it
+  // is what the launcher's resume row does. No spawn, and no seed: it has its own history, and the
+  // issue text would be typed over whatever the user left in the box.
+  if (action === "resume" && session) return { ok: true, outcome: "resumed", sessionId: session.id, ...found };
+  return { ok: true, outcome: "reused", sessionId: deps.spawnDraft(worktree.path, issueSeedPrompt(repo, detail)), ...found };
+}
+
+/** Read the issue, open the worktree it already has or cut one, and get a session into it. `dir`
+ *  must already have been checked against the repo's known clones by the caller — this does not
+ *  resolve it. */
+export async function startIssueWork(repo: string, issue: number, dir: string, deps: StartIssueWorkDeps): Promise<StartedResult> {
+  const { fetchIssue = fetchIssueDetail, makeWorktree = createWorktree, findWorktree = issueWorktree, occupancyOf = worktreeOccupancy, spawnDraft } = deps;
 
   const detail = await fetchIssue(repo, issue);
   if (!detail) return { ok: false, reason: "issue-not-found", detail: `could not read ${repo}#${issue}`.slice(0, DETAIL_LIMIT) };
+
+  // Looked up BEFORE cutting anything: an issue has one worktree, and a second one differing only
+  // by a `-2` suffix is two branches claiming the same issue, with `Fixes #N` in both (#1219).
+  const existing = await findWorktree(dir, issue);
+  if (existing) return reopenIssueWorktree(existing, detail, repo, { occupancyOf, spawnDraft });
 
   // The title becomes the branch slug, so the branch reads as what the work IS rather than as a
   // number alone — `issue/1173-start-from-the-issue-row`.
@@ -88,5 +134,5 @@ export async function startIssueWork(
   if (!worktree) return { ok: false, reason: "worktree-failed", detail: "could not create the worktree (is this a git repo?)" };
 
   const sessionId = spawnDraft(worktree.path, issueSeedPrompt(repo, detail));
-  return { ok: true, sessionId, worktree: worktree.path, branch: worktree.branch, issue: detail };
+  return { ok: true, outcome: "created", sessionId, worktree: worktree.path, branch: worktree.branch, issue: detail };
 }
