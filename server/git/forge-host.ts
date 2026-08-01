@@ -10,7 +10,7 @@
 // Nothing here decides what to SHOW. Splitting the question from the answer is the point: the
 // showing is a separate decision, and one this repo has not made yet.
 import { parseRemoteRef, topSegments } from "./remote-ref.js";
-import { parseRepoEntry } from "../../common/repoEntry.js";
+import { isRepoEntry, parseRepoEntry } from "../../common/repoEntry.js";
 
 export type ForgeKind = "github" | "gitlab" | "unknown";
 
@@ -63,10 +63,6 @@ const forgeAt = (host: string, path: string): RemoteForge => {
   return { host, kind, path, webUrl: webUrlFor(kind, host, path) };
 };
 
-// Every forge here names a project as namespace + name, so one segment is never a repository — it
-// is a bare owner, or a host with nothing after it.
-const NAMESPACED = 2;
-
 /** A configured repository entry as a forge, or null when it does not UNAMBIGUOUSLY name one.
  *
  *  Only the two forms are accepted, and a hostless entry must be exactly `owner/repo`. `a/b/c` is
@@ -79,9 +75,6 @@ export function forgeFromRepoEntry(entry: string): RemoteForge | null {
   // here is the SEGMENT COUNT, which is the forge's own: a hostless entry must be exactly
   // `owner/repo`, because `gh --repo` reads `a/b/c` as host `a` and would aim at another server
   // than this side thinks (Codex review). A declared host may be followed by a nested GitLab group.
-  const parsed = parseRepoEntry(entry);
-  if (!parsed) return null;
-  const { host, path, declared } = parsed;
-  if (!declared) return path.length === NAMESPACED ? forgeAt(host, path.join("/")) : null;
-  return path.length >= NAMESPACED ? forgeAt(host, path.join("/")) : null;
+  const parsed = isRepoEntry(entry) ? parseRepoEntry(entry) : null;
+  return parsed ? forgeAt(parsed.host, parsed.path.join("/")) : null;
 }

@@ -31,7 +31,7 @@ import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "
 import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
-import { forgeFromRepoEntry } from "../git/forge-host.js";
+import { isRepoEntry } from "../../common/repoEntry.js";
 
 export interface AppConfig {
   cwdPresets: CwdPreset[];
@@ -221,13 +221,11 @@ export function sanitizeQuickCommands(input: unknown): QuickCommand[] {
 // `owner/repo`, or `host/owner/repo` for a repository that is not on GitHub — GitLab nests groups,
 // so the tail can be longer than two segments (#981).
 //
-// What may be STORED is exactly what `forgeFromRepoEntry` can READ, by calling it: two rules that
-// merely agreed today would drift, and the gap between them is a value the config accepts and the
-// CLI then aims at the wrong server (`gh --repo a/b/c` reads host `a`). The pattern is only the
-// character check the parser does not do — the value reaches a CLI's `--repo`, so no spaces, no
-// flags, nothing that could be read as one.
-const REPO_CHARS_RE = /^[A-Za-z0-9._/-]+$/;
-const isRepoEntry = (entry: string): boolean => REPO_CHARS_RE.test(entry) && forgeFromRepoEntry(entry) !== null;
+// What may be STORED is `isRepoEntry` in common/, the same rule the two issue-start endpoints and
+// the Settings field apply. It was written out four times, and widening only this one meant an
+// entry the user could save was rejected by everything downstream — including the form meant to
+// accept it (#981).
+
 export function sanitizeRepos(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();

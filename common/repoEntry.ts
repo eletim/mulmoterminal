@@ -42,3 +42,24 @@ export function parseRepoEntry(entry: string): RepoEntry | null {
  *  and reports "no local clone" for a repo that has one (Codex review).
  */
 export const canonicalRepo = (entry: string): string => parseRepoEntry(entry)?.path.join("/") ?? entry.trim();
+
+// The value reaches a CLI's `--repo`, so no spaces and nothing readable as a flag.
+const REPO_CHARS_RE = /^[A-Za-z0-9._/-]+$/;
+// Every forge names a project as namespace + name, so one segment is never a repository.
+const NAMESPACED = 2;
+
+/** Whether a string may be stored and used as a repository entry.
+ *
+ *  The ONE rule. It was written out four times — the config sanitizer, both issue-start endpoints
+ *  and the Settings field — and widening only the first meant an entry the user could save was
+ *  rejected by everything downstream, including the form that was supposed to accept it (#981).
+ *
+ *  A hostless entry must be exactly `owner/repo`: `gh --repo` reads `a/b/c` as host `a`, so
+ *  accepting it would have this side and the CLI aiming at different servers. A declared host may
+ *  be followed by a nested GitLab group.
+ */
+export function isRepoEntry(entry: string): boolean {
+  const parsed = REPO_CHARS_RE.test(entry.trim()) ? parseRepoEntry(entry) : null;
+  if (!parsed) return false;
+  return parsed.declared ? parsed.path.length >= NAMESPACED : parsed.path.length === NAMESPACED;
+}

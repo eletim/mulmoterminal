@@ -15,14 +15,13 @@ import { listIssuesAcrossRepos } from "../../../git/issues.js";
 import { startIssueWork } from "../../../git/issue-work.js";
 import { repoDirsFromPresets } from "../../../git/repo-dirs.js";
 import { issueStartPlan, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
-import { canonicalRepo } from "../../../../common/repoEntry.js";
+import { canonicalRepo, isRepoEntry } from "../../../../common/repoEntry.js";
 import { isIssueNumber } from "../../../../common/prPhase.js";
 import type { RepoDirs } from "../../../../common/repoDirs.js";
 import type { RemoteHostHandlerDeps } from "./deps.js";
 
 // The same slug shape `prRepos` accepts, checked here too because this value is interpolated into
 // a `gh --repo` argument and an issue URL.
-const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 // GitHub treats `Owner/Repo` and `owner/repo` as one repository, and the two spellings arrive from
 // different places: `prRepos` is typed by hand, an entry's own name comes from the remote URL —
@@ -64,14 +63,16 @@ const startIssueWorkHandler =
   ({ spawnIssueDraft }: IssueWorkDeps): CommandHandlers[string] =>
   async (params: JsonObject) => {
     const repo = typeof params.repo === "string" ? params.repo.trim() : "";
-    if (!REPO_RE.test(repo)) throw new Error("repo is required, as owner/repo");
+    if (!isRepoEntry(repo)) throw new Error("repo is required, as [host/]owner/repo");
     const { issue } = params;
     if (!isIssueNumber(issue)) throw new Error("issue is required, as a positive issue number");
 
     const plan = issueStartPlan(entryFor(await repoDirsNow(), repo), repo);
     if (plan.kind !== "ready") throw new Error(issueStartRefusal(plan, repo));
 
-    const result = await startIssueWork(repo, issue, plan.dir, { spawnDraft: spawnIssueDraft });
+    // Named the way its own host does, like the desktop route — an entry may declare a host that
+    // the repo's own identity does not carry.
+    const result = await startIssueWork(canonicalRepo(repo), issue, plan.dir, { spawnDraft: spawnIssueDraft });
     // A failed step stops here with the reason it failed — the same detail the desktop route turns
     // into a status code, which on this channel is simply the sentence the phone shows.
     if (!result.ok || !result.sessionId) throw new Error(result.detail ?? `could not start work on ${repo}#${issue}`);
