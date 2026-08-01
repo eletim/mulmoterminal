@@ -632,8 +632,9 @@ const remoteHostListTerminalSessions = async () => {
     tmuxIds: tmuxListSessionIds(),
     isResumable: await resumableSessionPredicate(),
     // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
-    // one — never a tmux shell that was never a cell. resumableSessionPredicate() above already
-    // awaited devTerminalSessionsHydrated, and the unplaced logs are awaited below.
+    // one — never a tmux shell that was never a cell. resumableSessionPredicate() below already
+    // awaited devTerminalSessionsHydrated, and the unplaced logs are awaited just above; a
+    // session that has only just been spawned passes `isResumable` on its live pty.
     isGridSession: isPhoneListableSession,
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
