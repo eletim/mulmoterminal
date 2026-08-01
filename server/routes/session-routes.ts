@@ -14,6 +14,8 @@ import {
   activity,
   activityStateHydrated,
   aiTitles,
+  antigravityConversations,
+  antigravityConversationsHydrated,
   backgroundSessionsHydrated,
   failedWorkersHydrated,
   unplacedSessionsHydrated,
@@ -44,6 +46,8 @@ import { sessionAttached } from "../session/dir-session.js";
 import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
+import { antigravityBrainRoot } from "../agents/antigravity-session.js";
+import { listAntigravitySessions } from "../agents/antigravity-sessions.js";
 import type { SessionMeta } from "../session/types.js";
 import { parseActivityIds, selectSessionRows } from "../session/session-list.js";
 import { sessionDetailView } from "../session/session-detail-view.js";
@@ -245,6 +249,23 @@ async function codexSessionList(req: Request, res: Response) {
   }
 }
 
+// agy's own conversations for a workspace (?cwd=, default CLAUDE_CWD). Mirrors the codex route
+// above, with one difference that is not cosmetic: the cwd comes from OUR log rather than from
+// agy, so the answer is empty until that log has been read off disk. codex needs no such wait —
+// it re-reads its rollouts on every request.
+async function antigravitySessionList(req: Request, res: Response) {
+  try {
+    const cwd = workspaceForRoute(req.query.cwd, res);
+    if (cwd === null) return;
+    await antigravityConversationsHydrated;
+    const sessions = await listAntigravitySessions(antigravityBrainRoot(), antigravityConversations.values(), cwd, SESSION_LIST_LIMIT);
+    res.json({ cwd, sessions });
+  } catch (err) {
+    console.error("[api] /api/antigravity/sessions failed:", err);
+    res.status(500).json({ error: String(err) });
+  }
+}
+
 export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps.freshenRosterTitle));
   app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps.publishActivity));
@@ -276,4 +297,5 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);
+  app.get("/api/antigravity/sessions", antigravitySessionList);
 }
