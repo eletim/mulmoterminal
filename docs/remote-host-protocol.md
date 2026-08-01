@@ -92,9 +92,9 @@ nobody's browser asked for gets a cell: a desktop grid that is already on screen
 the moment, and one that isn't picks it up the next time it loads.
 
 The same mark is what puts the session in **`listTerminalSessions`** before any of that happens.
-That list is the grid's cells, and the id is written by a browser attach and by nothing else — so
-until #1184 a session the phone had just started was absent from the phone's own list, and the
-work it began was findable only by holding on to the returned `sessionId`. The list now answers
+That list is the grid's cells, and a session joins that set on a browser attach and in no other
+way — so until #1184 a session the phone had just started was absent from the phone's own list,
+and the work it began was findable only by holding on to the returned `sessionId`. It now answers
 with cells **and** the sessions on their way to being one, which is the same set one moment later.
 This covers `startChat` too, which had the same hole.
 
