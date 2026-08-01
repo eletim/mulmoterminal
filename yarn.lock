@@ -1972,10 +1972,10 @@
   resolved "https://registry.yarnpkg.com/@mulmoclaude/common/-/common-1.1.1.tgz#38c57cb4d6530679996e9ce2732d3be207ad3872"
   integrity sha512-bq47GoDVsKFraKrvRpzhkRJHQ6/omXCIRYrMNch7mq8eXU/kRNHFU7e+rfdoNaoDnLt1S/lZY5nZu7RVoPx9CA==
 
-"@mulmoclaude/core@^1.11.0":
-  version "1.11.0"
-  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.11.0.tgz#dc25c80e9570ade4443130f76156f19516957253"
-  integrity sha512-KvIvnKLpDdg73dJaSCO4qMXFY7Ii6kXnISAT6bB+0rN7s/Au51SoOtdLidGF2NqpS89NlN5YwxX4Gu4wWmOcwg==
+"@mulmoclaude/core@^1.12.0":
+  version "1.12.0"
+  resolved "https://registry.yarnpkg.com/@mulmoclaude/core/-/core-1.12.0.tgz#a871cb8b9860ad17cdb259a31162c8e0dcf45c80"
+  integrity sha512-y0Ik+9nJeoQ87ztv0XL7bDIcAmYIEHgPfAglQQnJ7VvxHeojW4Gq3eIzTAFNZzzEpsAtLxWCQa7MecrHKG+Ypg==
   dependencies:
     "@duckdb/node-api" "^1.5.5-r.2"
     "@mulmoclaude/common" "^1.1.1"
