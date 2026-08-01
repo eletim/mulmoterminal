@@ -1,0 +1,54 @@
+// Which FORGE a git remote points at — the layer between "what the URL says" (remote-ref.ts, pure
+// git) and "what we can do with it" (the gh-backed features). #981 step 1.
+//
+// It exists because `parseGithubWebUrl` answers one question with `string | null`, which collapses
+// two very different situations into the same value: "this is a GitLab repo" and "this directory
+// has no origin at all". Every feature downstream reads that null as "no GitHub here" and removes
+// itself, so a GitLab user gets silence rather than an explanation — and the surface doing that
+// keeps growing (three more `gh` call sites arrived after #981 was written).
+//
+// Nothing here decides what to SHOW. Splitting the question from the answer is the point: the
+// showing is a separate decision, and one this repo has not made yet.
+import { parseRemoteRef, topSegments } from "./remote-ref.js";
+
+export type ForgeKind = "github" | "gitlab" | "unknown";
+
+export interface RemoteForge {
+  /** Lower-cased hostname the remote points at. */
+  host: string;
+  kind: ForgeKind;
+  /** The repository path, whole. How many segments name a project is the host's rule, not git's. */
+  path: string;
+  /** The repository's web page, or null when the kind is not one we know how to address. */
+  webUrl: string | null;
+}
+
+export const GITHUB_HOST = "github.com";
+const GITLAB_HOST = "gitlab.com";
+
+// Only the hosts we can name from the URL alone. A self-hosted GitLab at `git.example.com` is
+// indistinguishable from anything else here and comes out `unknown` — declaring those needs config,
+// which belongs with the GitLab implementation that would read it rather than ahead of it.
+const KNOWN_HOSTS: Readonly<Record<string, ForgeKind>> = { [GITHUB_HOST]: "github", [GITLAB_HOST]: "gitlab" };
+
+// GitHub: a project is exactly `owner/repo`, so a deeper path is truncated to it.
+const GITHUB_PATH_SEGMENTS = 2;
+
+// GitLab nests groups (`group/subgroup/project`), so the whole path names the project and there is
+// no segment count to apply.
+function webUrlFor(kind: ForgeKind, host: string, path: string): string | null {
+  if (kind === "github") {
+    const repo = topSegments(path, GITHUB_PATH_SEGMENTS);
+    return repo ? `https://${host}/${repo}` : null;
+  }
+  if (kind === "gitlab") return `https://${host}/${path}`;
+  return null;
+}
+
+/** What forge a remote URL points at, or null when it is not a remote URL we can read at all. */
+export function forgeOf(remoteUrl: string): RemoteForge | null {
+  const ref = parseRemoteRef(remoteUrl);
+  if (!ref) return null;
+  const kind = KNOWN_HOSTS[ref.host] ?? "unknown";
+  return { host: ref.host, kind, path: ref.path, webUrl: webUrlFor(kind, ref.host, ref.path) };
+}

@@ -158,4 +158,23 @@ describe("mountGitRemoteRoute (POST /api/git-remote)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // The pair `githubUrl` cannot express (#981 step 1): a repo on a forge we do not support and a
+  // directory with no remote both answer null there, and only `forge` tells them apart.
+  it("reports the forge alongside the GitHub URL", async () => {
+    const res = makeRes();
+    await captureHandler(allow)({ headers: {}, body: { path: process.cwd() } }, res);
+    expect(res.payload).toMatchObject({ forge: { host: "github.com", kind: "github" } });
+  });
+
+  it("reports forge: null for a directory with no remote", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "gitremote-"));
+    try {
+      const res = makeRes();
+      await captureHandler(allow)({ headers: {}, body: { path: dir } }, res);
+      expect(res.payload).toMatchObject({ githubUrl: null, forge: null });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
