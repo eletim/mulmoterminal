@@ -15,6 +15,7 @@ import { listIssuesAcrossRepos } from "../../../git/issues.js";
 import { startIssueWork } from "../../../git/issue-work.js";
 import { repoDirsFromPresets } from "../../../git/repo-dirs.js";
 import { issueStartPlan, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
+import { canonicalRepo } from "../../../../common/repoEntry.js";
 import { isIssueNumber } from "../../../../common/prPhase.js";
 import type { RepoDirs } from "../../../../common/repoDirs.js";
 import type { RemoteHostHandlerDeps } from "./deps.js";
@@ -24,8 +25,12 @@ import type { RemoteHostHandlerDeps } from "./deps.js";
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 // GitHub treats `Owner/Repo` and `owner/repo` as one repository, and the two spellings arrive from
-// different places: `prRepos` is typed by hand, an entry's own name comes from the remote URL.
-const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => repos.find((r) => r.repo.toLowerCase() === repo.toLowerCase());
+// different places: `prRepos` is typed by hand, an entry's own name comes from the remote URL —
+// which is also why the host a hand-typed entry may declare is stripped before comparing (#981).
+const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => {
+  const wanted = canonicalRepo(repo).toLowerCase();
+  return repos.find((r) => canonicalRepo(r.repo).toLowerCase() === wanted);
+};
 
 /** Why the phone cannot start work on this repo. Written for a person, and it names the DESKTOP
  *  because that is where the missing answer is given — a sentence that only says "no" would leave

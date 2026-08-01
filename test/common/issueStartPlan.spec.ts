@@ -78,3 +78,18 @@ describe("a repo on a forge that can be listed but not started from", () => {
     expect(issueStartPlan(undefined, repo)).toEqual({ kind: "no-clone" });
   });
 });
+
+// `github.com/owner/repo` became storable in #981 step 2a, and `/api/repo-dirs` keys by the name
+// it reads off a clone's remote — `owner/repo`, with no host. Comparing the raw entry against
+// those keys found nothing and disabled Start on a repo that HAS a clone (Codex review).
+describe("a GitHub entry that spells its host out", () => {
+  const clones: RepoDirs = { repo: "acme/web", dirs: [{ path: "/w/web", label: "web", orderPriority: null }], primary: null };
+
+  it("finds the clone recorded under the hostless name", () => {
+    expect(issueStartPlan(clones, "github.com/acme/web")).toEqual({ kind: "ready", dir: "/w/web" });
+  });
+
+  it("is still a GitHub entry, not an unsupported forge", () => {
+    expect(issueStartPlan(undefined, "github.com/acme/web")).toEqual({ kind: "no-clone" });
+  });
+});

@@ -32,3 +32,13 @@ export function parseRepoEntry(entry: string): RepoEntry | null {
   const declared = segments.length > 1 && HOST_SEGMENT.test(segments[0]);
   return declared ? { host: segments[0].toLowerCase(), path: segments.slice(1), declared } : { host: GITHUB_HOST, path: segments, declared };
 }
+
+/** The identity a repository is known by ON ITS OWN HOST — `owner/repo` for GitHub, the group path
+ *  for GitLab — with any declared host stripped.
+ *
+ *  `/api/repo-dirs` keys by this, because it derives the name from a clone's remote URL where the
+ *  host is not part of the path. A configured entry may spell the host out (`github.com/owner/repo`
+ *  became storable in #981 step 2a), so comparing the raw entry against those keys finds nothing
+ *  and reports "no local clone" for a repo that has one (Codex review).
+ */
+export const canonicalRepo = (entry: string): string => parseRepoEntry(entry)?.path.join("/") ?? entry.trim();
