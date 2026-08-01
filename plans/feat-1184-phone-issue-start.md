@@ -58,6 +58,19 @@ spawnBackgroundChat, a scheduled task, **or the phone**"* とスマホを名指�
 
 `launchTerminal` の「タブが開いていないと失敗する」制約には当たらない。spawn 自体はブラウザ無しでできる。
 
+### 5. ただし「スマホ自身の一覧」には出ていなかった — 同じ PR で直す（レビュー中に判明）
+
+上のデスクトップ側だけでは、issue の2点目に半分しか答えられていなかった。`listTerminalSessions` は
+`devTerminalSessions` で絞っており、その印を書くのは `markDevTerminalSession`
+（`server/routes/ws-routes.ts` の4箇所 ＝ **ブラウザの attach だけ**）。よって Mac にタブが無い間、
+**スマホは自分で始めた作業を自分の一覧に見つけられない**（返ってきた `sessionId` を握っていれば
+画面は見られる）。`startChat` も最初から同じ穴を持っていた。
+
+unplaced の印は「visible に spawn した・セルはまだ無い」そのものなので、一覧の条件を
+**`devTerminalSessions` ∨ unplaced** にする。attach が unplaced を消すのと同じ瞬間に相手側へ入るため、
+両方に入る瞬間も、どちらにも無い瞬間も無い。判定は両方の集合がある `registry.ts` に
+`isPhoneListableSession` として置く（＝テストできる場所）。
+
 ## 変更するファイル
 
 1. `common/issueStartPlan.ts` — `src/composables/` から移動（importer 2つとテストのパスを追従）
@@ -66,7 +79,8 @@ spawnBackgroundChat, a scheduled task, **or the phone**"* とスマホを名指�
 4. `server/backends/remoteHost/handlers/index.ts` — テーブルに登録
 5. `server/index.ts` — `spawnIssueDraft` を配線（spawn ＋ `markUnplacedSession`）
 6. `docs/remote-host-protocol.md` — コマンド表 ＋ 「dir を受け取らない」理由 ＋ 現れ方
-7. spec — `server/backends/remoteHost/issueWork.spec.ts`、`handlers.spec.ts` の deps 追従
+7. `server/session/registry.ts` — `isPhoneListableSession`、`server/index.ts` の一覧の絞り込み（決定5）
+8. spec — `server/backends/remoteHost/issueWork.spec.ts`、`unplaced-sessions.spec.ts`、`handlers.spec.ts` の deps 追従
 
 ## テストで固定すること
 
@@ -74,6 +88,7 @@ spawnBackgroundChat, a scheduled task, **or the phone**"* とスマホを名指�
 - 複数クローン ＋ 未記録 → **spawn せずに** 拒否。文にデスクトップで選ぶことが書いてある
 - クローン無し → 拒否
 - クローン1つ ＋ 未記録 → 始まる
+- **スマホが始めたセッションは、セルが付く前も付いた後も一覧に出る**（決定5。付け替えの瞬間に消えない）
 - `listIssues` の `canStart` / `startBlocked` が上の3状態と一致する
 - 不正な `repo` / `issue` は spawn せずに拒否
 
