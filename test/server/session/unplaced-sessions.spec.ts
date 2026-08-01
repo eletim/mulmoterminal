@@ -10,12 +10,14 @@
 // worker (tool-group-reset.spec's pattern).
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+import { mockedFileName } from "../../support/mockFsPath.js";
+
 const appended: { file: string; data: string }[] = [];
 let readBack: Record<string, string> = {};
 
 vi.mock("node:fs", () => {
   const promises = {
-    readFile: vi.fn(async (file: unknown) => readBack[String(file).split("/").pop() ?? ""] ?? ""),
+    readFile: vi.fn(async (file: unknown) => readBack[mockedFileName(file)] ?? ""),
     appendFile: vi.fn(async (file: string, data: string) => {
       appended.push({ file: String(file), data });
     }),
@@ -39,7 +41,7 @@ async function freshRegistry() {
 // placed log silently counts the unplaced one too.
 const loggedTo = (name: string) =>
   appended
-    .filter((a) => a.file.split("/").pop() === name)
+    .filter((a) => mockedFileName(a.file) === name)
     .map((a) => a.data)
     .join("");
 
