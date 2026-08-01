@@ -131,6 +131,19 @@ const cards = computed(() => collapseByIdentity(results.value, cardIdentity));
 // "remounts the view … so it refetches" in GuiPanelCollapse.spec.ts.
 const cardKey = (result: ToolResult) => result.uuid;
 
+// Each card paired with the plugin that draws it, resolved ONCE here rather than in the template.
+// A template cannot carry `v-if="getPlugin(...)"` narrowing across to the sibling attributes, so
+// expressing this inline meant looking the plugin up four times per card and asserting away the
+// undefined three times — and a non-null assertion inside a template is invisible to
+// @typescript-eslint/no-non-null-assertion, which is on and catches the same thing in .ts (#1231).
+// Resolving here puts it where the compiler proves it instead.
+const drawableCards = computed(() =>
+  cards.value.flatMap((result) => {
+    const plugin = getPlugin(result.toolName);
+    return plugin ? [{ result, plugin }] : [];
+  }),
+);
+
 // Auto-follow. The pane never scrolled itself, so each new card landed below the fold and the
 // user had to go find it; collapsing above removes most of that, but a card can still arrive
 // under an earlier one that is still on screen. State is declared above useSessionFeed.
@@ -290,18 +303,13 @@ const hasTools = computed(() => toolSections.value.some((section) => section.too
       </div>
       <!-- Guarded as well as cleared on session change: a stale view rendered under an
            "unavailable" heading would contradict it. -->
-      <template v-for="r in unavailable ? [] : cards" :key="cardKey(r)">
-        <PluginFrame
-          v-if="getPlugin(r.toolName)"
-          class="[&+&]:mt-4 [&+&]:border-t [&+&]:border-border [&+&]:pt-4"
-          :css="getPlugin(r.toolName)!.css"
-          :height="getPlugin(r.toolName)!.height"
-        >
+      <template v-for="{ result, plugin } in unavailable ? [] : drawableCards" :key="cardKey(result)">
+        <PluginFrame class="[&+&]:mt-4 [&+&]:border-t [&+&]:border-border [&+&]:pt-4" :css="plugin.css" :height="plugin.height">
           <component
-            :is="getPlugin(r.toolName)!.viewComponent"
-            :selected-result="r"
+            :is="plugin.viewComponent"
+            :selected-result="result"
             :send-text-message="sendTextMessage"
-            @update-result="(update: Partial<ToolResult>) => onUpdateResult(r, update)"
+            @update-result="(update: Partial<ToolResult>) => onUpdateResult(result, update)"
           />
         </PluginFrame>
       </template>

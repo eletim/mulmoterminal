@@ -102,6 +102,19 @@ describe("GuiPanel — collapsing repeated cards", () => {
     expect(rendered(wrapper)).toEqual(["c2"]);
   });
 
+  // A result whose tool has no registered renderer is skipped rather than drawn as an empty frame,
+  // and must not take the cards around it down with it. This is the branch that used to be the
+  // template's `v-if="getPlugin(...)"` (#1231).
+  it("skips a result whose tool has no plugin, and still draws the rest", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+    await push(plain("p1"));
+    await push({ uuid: "unknown1", toolName: "notRegistered", data: {} });
+    await push(plain("p2"));
+    expect(rendered(wrapper)).toEqual(["p1", "p2"]);
+    expect(wrapper.findAll(".frame")).toHaveLength(2);
+  });
+
   it("keeps distinct subjects as separate cards", async () => {
     const wrapper = mountPanel();
     await flushPromises();

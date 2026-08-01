@@ -10,6 +10,8 @@
 //   "keymap": { "zoom-next": "PageDown", "zoom-prev": "Shift+PageUp" }
 
 // Actions a key can be bound to. Adding one here is all it takes for the config to accept it.
+import { isRecord } from "./isRecord.js";
+
 export const KEYMAP_ACTIONS = [
   "zoom-toggle",
   "zoom-next",
@@ -23,7 +25,7 @@ export const KEYMAP_ACTIONS = [
 ] as const;
 export type KeymapAction = (typeof KEYMAP_ACTIONS)[number];
 
-export const isKeymapAction = (value: unknown): value is KeymapAction => typeof value === "string" && (KEYMAP_ACTIONS as readonly string[]).includes(value);
+export const isKeymapAction = (value: unknown): value is KeymapAction => typeof value === "string" && KEYMAP_ACTIONS.some((action) => action === value);
 
 // action -> binding string. Absent action = unbound = that shortcut does nothing.
 // Actions the GRID's key handler must never claim, because they are decided inside the terminal
@@ -122,8 +124,7 @@ export function actionForKey(keymap: Keymap, e: KeymapKeyEvent): KeymapAction | 
   return null;
 }
 
-const isSendBinding = (value: unknown): value is SendBinding =>
-  typeof value === "object" && value !== null && typeof (value as SendBinding).key === "string" && typeof (value as SendBinding).bytes === "string";
+const isSendBinding = (value: unknown): value is SendBinding => isRecord(value) && typeof value.key === "string" && typeof value.bytes === "string";
 
 // The bytes this keydown should put into the terminal, or null when it is not a send binding.
 //
@@ -160,7 +161,7 @@ export function validateKeymap(input: unknown): KeymapProblem[] {
   if (typeof input !== "object" || Array.isArray(input)) {
     return [{ action: "keymap", binding: input, reason: "`keymap` must be an object of action -> key binding", fatal: true }];
   }
-  const entries = Object.entries(input as Record<string, unknown>);
+  const entries = Object.entries(input);
   // A claim on one keystroke. `rank` is DISPATCH order, so the winner can be named: every action
   // outranks every send binding, because the grid's handler runs in the capture phase and stops
   // the event before the terminal — see sendBytesFor.
@@ -241,12 +242,11 @@ const canonicalBinding = (b: KeyBinding): string => `${b.shift ? "S" : ""}${b.al
 // malformed bindings are dropped rather than rejecting the whole map, matching how the
 // rest of the config treats one bad entry.
 export function sanitizeKeymap(input: unknown): Keymap {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) return {};
-  const raw = input as Record<string, unknown>;
-  const entries = Object.entries(raw).filter(
+  if (!isRecord(input)) return {};
+  const entries = Object.entries(input).filter(
     (entry): entry is [KeymapAction, string] => isKeymapAction(entry[0]) && typeof entry[1] === "string" && parseKeyBinding(entry[1]) !== null,
   );
-  const send = sanitizeSendBindings(raw.send);
+  const send = sanitizeSendBindings(input.send);
   return { ...Object.fromEntries(entries), ...(send.length ? { send } : {}) };
 }
 
