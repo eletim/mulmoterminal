@@ -10,7 +10,7 @@ export type PrPhase = "none" | "draft" | "ci-failing" | "changes-requested" | "c
 
 export const PR_PHASES: readonly PrPhase[] = ["none", "draft", "ci-failing", "changes-requested", "ci-running", "ready", "merged", "closed"];
 
-export const isPrPhase = (v: unknown): v is PrPhase => typeof v === "string" && (PR_PHASES as readonly string[]).includes(v);
+export const isPrPhase = (v: unknown): v is PrPhase => typeof v === "string" && PR_PHASES.some((phase) => phase === v);
 
 // The /api/pr-phase response. `phase` and `prUrl` predate the rest and the roster reads them;
 // the numbers are what lets a cell say WHICH work it is on rather than just how far along it is.
