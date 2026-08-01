@@ -22,7 +22,7 @@ const isWindows = process.platform === "win32";
 const plainText = (data: string): string =>
   data
     // eslint-disable-next-line no-control-regex -- reading a terminal's own output back
-    .replace(/\[[0-9;?]*[a-zA-Z]/g, "")
+    .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "")
     .replace(/[\r\n]/g, "");
 
 function runShell(command: string, cwd: string, replaceShell = false): Promise<{ output: string; exitCode: number }> {
