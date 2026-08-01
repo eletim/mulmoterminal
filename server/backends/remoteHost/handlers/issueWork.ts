@@ -15,7 +15,7 @@ import { listIssuesAcrossRepos } from "../../../git/issues.js";
 import { startIssueWork } from "../../../git/issue-work.js";
 import { repoDirsFromPresets } from "../../../git/repo-dirs.js";
 import { issueStartPlan, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
-import { canonicalRepo, isRepoEntry } from "../../../../common/repoEntry.js";
+import { isRepoEntry, repoIdentity } from "../../../../common/repoEntry.js";
 import { isIssueNumber } from "../../../../common/prPhase.js";
 import type { RepoDirs } from "../../../../common/repoDirs.js";
 import type { RemoteHostHandlerDeps } from "./deps.js";
@@ -27,8 +27,8 @@ import type { RemoteHostHandlerDeps } from "./deps.js";
 // different places: `prRepos` is typed by hand, an entry's own name comes from the remote URL —
 // which is also why the host a hand-typed entry may declare is stripped before comparing (#981).
 const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => {
-  const wanted = canonicalRepo(repo).toLowerCase();
-  return repos.find((r) => canonicalRepo(r.repo).toLowerCase() === wanted);
+  const wanted = repoIdentity(repo);
+  return repos.find((r) => repoIdentity(r.repo) === wanted);
 };
 
 /** Why the phone cannot start work on this repo. Written for a person, and it names the DESKTOP
@@ -70,9 +70,9 @@ const startIssueWorkHandler =
     const plan = issueStartPlan(entryFor(await repoDirsNow(), repo), repo);
     if (plan.kind !== "ready") throw new Error(issueStartRefusal(plan, repo));
 
-    // Named the way its own host does, like the desktop route — an entry may declare a host that
-    // the repo's own identity does not carry.
-    const result = await startIssueWork(canonicalRepo(repo), issue, plan.dir, { spawnDraft: spawnIssueDraft });
+    // Carried on as configured, host and all: the layer below reads the host to decide which forge
+    // to ask, and strips it only when building the CLI argument.
+    const result = await startIssueWork(repo, issue, plan.dir, { spawnDraft: spawnIssueDraft });
     // A failed step stops here with the reason it failed — the same detail the desktop route turns
     // into a status code, which on this channel is simply the sentence the phone shows.
     if (!result.ok || !result.sessionId) throw new Error(result.detail ?? `could not start work on ${repo}#${issue}`);

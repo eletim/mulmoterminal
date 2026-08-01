@@ -62,3 +62,12 @@ export function normalizeGlabMr(raw: unknown): PrItem | null {
     ci: ciFromMergeStatus(mergeStatus),
   };
 }
+
+/** One issue's detail, from `glab issue view`. GitLab calls the body `description` and numbers the
+ *  issue `iid`; `id` is unique across the whole instance and matches nothing a user can look up. */
+export function normalizeGlabIssueDetail(raw: unknown): { number: number; title: string; body: string } | null {
+  if (!isRecord(raw)) return null;
+  const number = itemNumber(raw);
+  // An issue with no description is normal — the title is then the whole brief, same as GitHub.
+  return number === null ? null : { number, title: text(raw.title), body: text(raw.description) };
+}
