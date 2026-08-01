@@ -9,14 +9,17 @@ import { randomUUID } from "node:crypto";
 import { getCwdPresets, getRepoDirs } from "../config/config-routes.js";
 import { repoDirsFromPresets } from "../git/repo-dirs.js";
 import { startIssueWork } from "../git/issue-work.js";
+import { issueSpawnOptions } from "../session/issue-spawn-options.js";
+import type { SpawnClaudeOptions } from "../session/spawn-claude.js";
 import { isIssueNumber } from "../../common/prPhase.js";
 import { isRepoEntry, repoIdentity } from "../../common/repoEntry.js";
 import { requestOriginAllowed } from "./same-origin-guard.js";
 
 export interface IssueWorkRouteDeps {
-  /** Narrower than the spawner's own type on purpose: this route ignores the PtyEntry it returns,
-   *  and asking for the whole shape would make every caller — including a test — construct one. */
-  spawnClaudePty: (sessionId: string, resume: null, ws: null, options: { cwd: string; draft: string; attachGuiMcp: boolean }) => unknown;
+  /** Returns `unknown` on purpose: this route ignores the PtyEntry the spawner hands back, and
+   *  asking for the whole shape would make every caller — including a test — construct one. The
+   *  options are the spawner's own type, because they are built by issueSpawnOptions. */
+  spawnClaudePty: (sessionId: string, resume: null, ws: null, options: SpawnClaudeOptions) => unknown;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 }
 
@@ -48,10 +51,10 @@ export function mountIssueWorkRoutes(app: Express, deps: IssueWorkRouteDeps): vo
     const result = await startIssueWork(repo, issue, dir, {
       spawnDraft: (cwd, draft) => {
         const sessionId = randomUUID();
-        // attachGuiMcp:false — this is a working session in a repository, the same shape as a grid
-        // dev terminal, so the project's own MCP servers load instead of being replaced by the GUI
-        // one under --strict-mcp-config.
-        deps.spawnClaudePty(sessionId, null, null, { cwd, draft, attachGuiMcp: false });
+        // run:false — the desktop leaves the seed in the input box. The issue text was written by
+        // whoever opened it, who is often not the person about to run it, so the Enter is theirs.
+        // The phone passes true (#1253): it has no Enter key.
+        deps.spawnClaudePty(sessionId, null, null, issueSpawnOptions(cwd, draft, false));
         return sessionId;
       },
     });
