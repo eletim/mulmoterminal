@@ -22,7 +22,10 @@ export const asTerminalAgent = (value: unknown): TerminalAgent => (TERMINAL_AGEN
 // at all": a shell is a session kind but not something a cell can be relaunched AS, and reading
 // one as Claude (which asTerminalAgent does, correctly, for a remembered value) would offer to
 // resume a shell as a conversation.
-export const isTerminalAgent = (agent: SessionAgent): agent is TerminalAgent => TERMINAL_AGENTS.some((known) => known === agent);
+//
+// Takes a plain string so the same question can be asked of a PROGRAM NAME — a launcher runs the
+// user's own command line, and whether that command line is an agent is the same list.
+export const isTerminalAgent = (agent: string): agent is TerminalAgent => TERMINAL_AGENTS.some((known) => known === agent);
 
 export interface AgentBadge {
   /** Where there is room for it — a sidebar row, a header bar. */

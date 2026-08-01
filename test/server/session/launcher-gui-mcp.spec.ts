@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { launcherProgram, launcherCommandWithGuiMcp } from "../../../server/session/launcher-gui-mcp.js";
+import { launcherProgram, launcherCommandWithGuiMcp, launcherRunsAgent } from "../../../server/session/launcher-gui-mcp.js";
 
 // The "Codex" launcher chip and the Claude|Codex agent toggle land in the same grid cell and look
 // the same, but the chip runs a COMMAND STRING through the login shell — there is no argv to add
@@ -24,6 +24,25 @@ describe("launcherProgram", () => {
   it("does not try to see through a wrapper", () => {
     expect(launcherProgram("FOO=1 codex")).not.toBe("codex");
     expect(launcherProgram("$SHELL")).toBe("$SHELL");
+  });
+});
+
+// Codex, reviewing #1208: OR LAUNCH was the one route the one-session-per-worktree limit did not
+// cover, so a launcher configured as `codex` started a second agent in an occupied worktree.
+describe("launcherRunsAgent", () => {
+  it.each([["codex"], ["claude"], ["antigravity"], ["/opt/homebrew/bin/codex --model gpt-5"], ["claude.cmd"]])("holds %s to the agent limit", (command) => {
+    expect(launcherRunsAgent(command)).toBe(true);
+  });
+
+  // The other half of the rule: a worktree an agent is working in is exactly where someone wants a
+  // dev server or a git UI, and refusing those would take away the point of having it open.
+  it.each([["zsh"], ["/bin/bash -l"], ["yarn dev"], ["lazygit"], ["htop"], [""], ["   "]])("leaves %s alone", (command) => {
+    expect(launcherRunsAgent(command)).toBe(false);
+  });
+
+  // Same recogniser as the MCP injection, so a command line reads as codex to both or to neither.
+  it("does not see through a wrapper, and lets it run", () => {
+    expect(launcherRunsAgent("FOO=1 codex")).toBe(false);
   });
 });
 

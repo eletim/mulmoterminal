@@ -919,9 +919,13 @@ twice: a listed row **resumes** that worktree's session when it has one, and **s
 only when it has none. A row whose session is open in another terminal reads `in use` and
 cannot be clicked — close it there first. The refusal follows the *directory*, not the row:
 the same worktree reached by pasting its path into **WORKING DIRECTORY**, or by a recent-dir
-chip, will not launch either — and the **server** refuses the spawn regardless of which
-client asked, so a path spelled another way (a trailing slash, a symlink) does not slip
-past. A plain **Shell** is exempt: the limit is on agents sharing one working tree.
+chip, will not launch either — and the **server** refuses the spawn whichever client asks,
+so a path spelled another way (a trailing slash, a symlink) does not slip past.
+
+What the limit covers is an **agent**: Claude, Codex or Antigravity, including an **OR
+LAUNCH** command that runs one of them. A **Shell**, and a launcher that runs anything else
+(`yarn dev`, `lazygit`, `htop`), stays free — a worktree an agent is working in is exactly
+where you want those.
 
 The same holds for **OR RESUME HERE**: a session someone is holding is listed with `● open`
 and refused, where before it could be confirmed away — which detached whoever had it.

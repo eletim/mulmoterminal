@@ -76,6 +76,14 @@ The client keeps a lexical `dirPathKey` comparison so the control greys out *bef
 A plain shell is exempt on both sides: the limit is on agents sharing one working tree, and
 `dir-session.ts` leaves shells out of the answer for the same reason.
 
+**`OR LAUNCH` is a command line, so the limit follows what it runs.** Codex found the fourth
+endpoint on the second pass: a launcher configured as `codex` reached a spawn without the guard.
+Refusing every launcher would have been worse — a worktree an agent is working in is exactly where
+`yarn dev` or `lazygit` belongs — so `launcherRunsAgent()` reuses the program recogniser this file
+already trusts for the codex MCP injection. A command line therefore reads as an agent to both or
+to neither, and an unrecognised shape (`FOO=1 codex`, a wrapper script) is allowed through, which
+is the direction that never stands between someone and their own tools.
+
 ### 3. The resume list stops offering what it cannot give
 
 `/api/sessions` rows gain the same `attached` field, and an attached row is disabled with the

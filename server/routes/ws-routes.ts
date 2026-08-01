@@ -31,7 +31,7 @@ import {
 } from "../session/registry.js";
 import { SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
-import { launcherCommandWithGuiMcp } from "../session/launcher-gui-mcp.js";
+import { launcherCommandWithGuiMcp, launcherRunsAgent } from "../session/launcher-gui-mcp.js";
 import { codexGuiMcpServers } from "../session/mcp-config.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
 import { TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups.js";
@@ -467,6 +467,10 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   const resolved = resolveLaunchSession(deps, requested, index, shell);
   if (!resolved) return closeWithError(ws, "Launcher not found — check Settings → Launch commands.");
   const { sessionId, live, command } = resolved;
+  // A launcher is a command line, so the limit follows what it RUNS: a launcher configured as
+  // `codex` is the agent toggle by another name and is held to the same rule, while `yarn dev` or
+  // a shell is not an agent editing the tree and stays free (see launcherRunsAgent).
+  if (launcherRunsAgent(command) && (await refuseSecondWorktreeSession(ws, "launch", cwd, !!live))) return;
   markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);

@@ -62,8 +62,11 @@ worktree row says `resume` and continues the session it already has, or nothing 
 first one. A row marked `in use` has its session open in another terminal and cannot be clicked —
 close it there first. The refusal follows the directory rather than the row, so the same worktree
 pasted into **WORKING DIRECTORY** or picked from a recent-dir chip will not launch either — the
-server refuses it whichever client asks, so a path spelled another way does not slip past. A plain
-**Shell** is exempt: the limit is on agents sharing one working tree.
+server refuses it whichever client asks, so a path spelled another way does not slip past.
+
+The limit is on **agents**: Claude, Codex or Antigravity, including an **OR LAUNCH** command that
+runs one of them. A **Shell**, and a launcher that runs anything else (`yarn dev`, `lazygit`),
+stays free — a worktree an agent is working in is exactly where you want those.
 
 **OR RESUME HERE** works the same way: a session marked `● open` is being viewed somewhere and is
 refused, because opening it here would detach whoever has it. "Somewhere" includes another browser
