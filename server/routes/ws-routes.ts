@@ -46,6 +46,8 @@ import type { SpawnClaudePty, SpawnCodexPty, SpawnAntigravityPty, SpawnCommandPt
 import { terminalWsKind, type TerminalWsKind } from "./terminal-ws-path.js";
 import { normalizeAgent, parseIndexParam } from "./routeParams.js";
 import { agentResumeId } from "../agents/agent-resume.js";
+import { occupiedWorktreeSession } from "../session/worktree-session-limit.js";
+import { worktreeLimitReason } from "../../common/worktreeSession.js";
 
 export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
@@ -161,6 +163,22 @@ export function refuseUnusableWorkspace(ws: WebSocket, kind: TerminalWsKind, unu
   }
   console.warn(`[ws/${kind}] refusing to start — ${unusable}`);
   closeWithError(ws, unusable);
+  return true;
+}
+
+/**
+ * Refuse a FRESH agent session in a worktree that already has one (#1207).
+ *
+ * Only a fresh one: reattaching or resuming the session the worktree already has is the whole
+ * point of the rule, not a violation of it. The refusal has to happen before the browser is told a
+ * session id, or a cell adopts an id for a terminal that is about to be closed under it.
+ */
+async function refuseSecondWorktreeSession(ws: WebSocket, kind: TerminalWsKind, cwd: string, continuing: boolean): Promise<boolean> {
+  if (continuing) return false;
+  const occupied = await occupiedWorktreeSession(cwd);
+  if (!occupied) return false;
+  console.warn(`[ws/${kind}] refusing a second session in ${cwd} — ${occupied.id} already holds it`);
+  closeWithError(ws, worktreeLimitReason(occupied));
   return true;
 }
 
@@ -324,6 +342,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // re-persists, so the reload just reopens a working terminal seamlessly.
   const { reattachId, resume, sessionId } = resolveClaudeSession(requested, cwd);
   const live = reattachId ? ptys.get(reattachId) : undefined;
+  if (await refuseSecondWorktreeSession(ws, "claude", cwd, !!reattachId || !!resume)) return;
 
   // A dev terminal (gui=0) is a multi-terminal GRID cell: remember its session id so
   // it's excluded from the chat sidebar (see devTerminalSessions). This is the single
@@ -477,6 +496,7 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
+  if (await refuseSecondWorktreeSession(ws, "codex", cwd, !!live || !!resumeRolloutId)) return;
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
@@ -547,6 +567,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   // conversation that is right there — which is the restart case this exists for.
   await antigravityConversationsHydrated;
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
+  if (await refuseSecondWorktreeSession(ws, "antigravity", cwd, !!live || !!resumeConversationId)) return;
   if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
   const early = announceSession(ws, sessionId, live?.cwd ?? cwd);

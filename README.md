@@ -919,7 +919,9 @@ twice: a listed row **resumes** that worktree's session when it has one, and **s
 only when it has none. A row whose session is open in another terminal reads `in use` and
 cannot be clicked — close it there first. The refusal follows the *directory*, not the row:
 the same worktree reached by pasting its path into **WORKING DIRECTORY**, or by a recent-dir
-chip, will not launch either.
+chip, will not launch either — and the **server** refuses the spawn regardless of which
+client asked, so a path spelled another way (a trailing slash, a symlink) does not slip
+past. A plain **Shell** is exempt: the limit is on agents sharing one working tree.
 
 The same holds for **OR RESUME HERE**: a session someone is holding is listed with `● open`
 and refused, where before it could be confirmed away — which detached whoever had it.

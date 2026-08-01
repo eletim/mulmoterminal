@@ -7,7 +7,8 @@ import { orderByDirPriority } from "../../common/dirPriorityOrder";
 import { CHIP_IDLE, CHIP_RUNNING, CHIP_DOT_RUNNING } from "./dirChipColor";
 import { relativeTime as relativeTimeFrom } from "./cellDisplay";
 import { LAUNCH_TARGETS } from "./launchTargets";
-import { worktreeAction } from "./worktreeAction";
+import { worktreeAction, worktreeLimitReason } from "../../common/worktreeSession";
+import { isSameDirPath } from "../../common/dirPathKey";
 import { TOOL_GROUPS, TOOL_GROUP_HEADINGS, toolGroupServerId, toolsInGroup, type ToolGroup } from "../../common/toolGroups";
 import type { LaunchAgent } from "../../common/launchAgent";
 import type { TerminalAgent } from "../../common/sessionAgent";
@@ -101,21 +102,30 @@ const { value: resumable, load: loadResumable } = useResumableSessions();
 const { value: scriptList, load: loadScripts } = useDirScripts();
 const { value: worktreeList, load: loadWorktrees } = useDirWorktrees();
 
-const BUSY_WORKTREE_HINT = "This worktree's session is open in another terminal — a worktree runs one session, so it cannot be started again.";
-
 // A worktree can be launched into without touching its row: pasted into the field, or reached by a
 // preset chip (launching in one records it as a recent directory, so worktree paths DO become
 // chips). The one-session rule has to hold on every way in, not just the nearest one.
 //
-// Matched against the list the server returned for the CURRENT field directory. That list is the
-// repo's — `git worktree list` reports the main tree first, so it is the same set whether the field
-// holds the repo or one of its worktrees. A chip into a DIFFERENT repo is not in it and launches as
-// before; filling the field with it brings its own row, which refuses.
-const busyWorktreeAt = (dir: string | null): boolean => worktreeAction(worktreeList.value.worktrees.find((w) => w.path === dir)?.session) === "busy";
+// This is the EXPLANATION, not the guarantee — the server refuses the spawn whatever the client
+// believes (session/worktree-session-limit.ts), which is what covers a symlinked path and a chip
+// pointing into a repo whose worktree list was never fetched. Here the job is only to grey the
+// control out before the click, so the comparison folds the spellings a person types.
+//
+// The list is the repo's: `git worktree list` reports the main tree first, so it is the same set
+// whether the field holds the repo or one of its worktrees.
+const worktreeAt = (dir: string | null) => worktreeList.value.worktrees.find((w) => isSameDirPath(w.path, dir))?.session;
+
+// A shell is not an agent session — the limit is on agents editing one working tree, and
+// dir-session.ts leaves shells out of the answer for the same reason.
+const takenWorktreeAt = (dir: string | null): string | null => {
+  const session = launchesAgent.value ? worktreeAt(dir) : null;
+  return session ? worktreeLimitReason(session) : null;
+};
 
 const startHere = (): void => {
-  if (!busyWorktreeAt(targetDir.value)) emit("start", targetDir.value);
+  if (!takenWorktreeAt(targetDir.value)) emit("start", targetDir.value);
 };
+
 const {
   dir: mcpGroupDir,
   enabled: mcpGroupEnabled,
@@ -193,10 +203,16 @@ async function pickDir(): Promise<void> {
 // fresh session in that dir. A chip on a worktree somebody is in fills the field without
 // launching, so the reason lands under it rather than nothing happening.
 function selectPreset(p: CwdPreset): void {
-  if (busyWorktreeAt(p.path)) return fillDir(p.path);
+  if (takenWorktreeAt(p.path)) return fillDir(p.path);
   emit("update:dir", p.path);
   emit("start", p.path);
 }
+
+const chipLaunchTitle = (p: CwdPreset): string => {
+  const taken = takenWorktreeAt(p.path);
+  if (taken) return taken;
+  return isCwdRunning(p.path) ? `${p.path} — a session is already running here in another terminal` : `Launch a new terminal in ${p.path} now`;
+};
 
 // Launch a configured program (shell/codex/…) in this cell's chosen dir. The parent turns the
 // empty cell into a persistent launcher cell (index is the server allowlist position).
@@ -265,7 +281,7 @@ async function createWorktreeAndLaunch(): Promise<void> {
 }
 
 // One branch, one session: the row continues the worktree's session when it has one and nobody is
-// holding it, and starts a fresh one only when it has none. See worktreeAction.ts.
+// holding it, and starts a fresh one only when it has none. See common/worktreeSession.ts.
 const openWorktree = async (w: Worktree): Promise<void> => {
   const action = worktreeAction(w.session);
   if (action === "busy") return;
@@ -352,13 +368,7 @@ async function removeWorktree(w: Worktree): Promise<void> {
           type="button"
           data-testid="cell-chip-launch"
           class="inline-flex cursor-pointer items-center border-0 border-l border-l-border bg-transparent px-[5px] text-secondary hover:bg-hover hover:text-fg"
-          :title="
-            busyWorktreeAt(p.path)
-              ? BUSY_WORKTREE_HINT
-              : isCwdRunning(p.path)
-                ? `${p.path} — a session is already running here in another terminal`
-                : `Launch a new terminal in ${p.path} now`
-          "
+          :title="chipLaunchTitle(p)"
           :aria-label="isCwdRunning(p.path) ? `${p.label} — a session is already running here in another terminal` : `Launch a new terminal in ${p.label} now`"
           @click="selectPreset(p)"
         >
@@ -423,8 +433,8 @@ async function removeWorktree(w: Worktree): Promise<void> {
           type="button"
           data-testid="cell-dir-go"
           class="inline-flex flex-none cursor-pointer items-center justify-center rounded-md border border-border bg-elevated px-2 text-secondary enabled:hover:border-accent enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-default disabled:opacity-40"
-          :disabled="!dir.trim() || busyWorktreeAt(targetDir)"
-          :title="busyWorktreeAt(targetDir) ? BUSY_WORKTREE_HINT : 'Start a new terminal here (or press Enter)'"
+          :disabled="!dir.trim() || !!takenWorktreeAt(targetDir)"
+          :title="takenWorktreeAt(targetDir) ?? 'Start a new terminal here (or press Enter)'"
           aria-label="Start a new terminal here"
           @click="startHere"
         >
@@ -433,7 +443,9 @@ async function removeWorktree(w: Worktree): Promise<void> {
       </span>
       <!-- The field can be pointed AT a worktree — pasted, or filled by a chip — which is the same
            launch the worktree row refuses. Saying why beats a play button that just does nothing. -->
-      <span v-if="busyWorktreeAt(targetDir)" data-testid="cell-dir-busy" class="font-sans text-[11px] leading-snug text-amber">{{ BUSY_WORKTREE_HINT }}</span>
+      <span v-if="takenWorktreeAt(targetDir)" data-testid="cell-dir-busy" class="font-sans text-[11px] leading-snug text-amber">{{
+        takenWorktreeAt(targetDir)
+      }}</span>
     </label>
     <!-- Codex has its own model configuration and doesn't read this one. Keyed on the SELECTOR,
          not on the agent the cell will run: that reads "claude" while Shell is picked (a shell has
@@ -483,7 +495,7 @@ async function removeWorktree(w: Worktree): Promise<void> {
            the one-session rule is why a row resumes instead of launching, and why one of them
            cannot be clicked at all. -->
       <span data-testid="wt-note" class="font-sans text-[11px] leading-snug text-dim"
-        >A worktree is tied to a branch, so it runs one session and is never started twice: a row resumes the session it already has, and a row marked
+        >A worktree is tied to a branch, so it runs one agent session and is never started twice: a row resumes the session it already has, and a row marked
         <span class="text-amber">in use</span> is open in another terminal.</span
       >
       <div class="flex gap-1.5">

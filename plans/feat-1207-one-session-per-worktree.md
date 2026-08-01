@@ -64,6 +64,18 @@ become as soon as one is launched in — so the field's play button, its Enter k
 launch button consult the same answer. (`＋ New worktree` needs no guard: a repeated task name gets
 a fresh unique branch, never an existing worktree.)
 
+**The client's answer is the explanation; the server's is the guarantee.** Codex, reviewing the
+first version, found the launcher comparing `w.path === dir` — so `/wt/x/` or `/repo/../wt/x` typed
+into the field walked straight past a row marked `in use`. Normalizing the comparison fixes those
+spellings and nothing else: a symlinked path, a chip into a repo whose worktree list was never
+fetched, the phone, and the remote-host bridge all still reach a spawn. So the rule is enforced
+where the session is actually created (`session/worktree-session-limit.ts`, wired into the three
+agent WebSocket handlers), using the realpath containment check `isManagedWorktree` already does.
+The client keeps a lexical `dirPathKey` comparison so the control greys out *before* the click.
+
+A plain shell is exempt on both sides: the limit is on agents sharing one working tree, and
+`dir-session.ts` leaves shells out of the answer for the same reason.
+
 ### 3. The resume list stops offering what it cannot give
 
 `/api/sessions` rows gain the same `attached` field, and an attached row is disabled with the

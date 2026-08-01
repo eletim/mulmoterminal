@@ -61,7 +61,9 @@ Empty cells in the grid show a **launcher form**. This is where you choose **wha
 worktree row says `resume` and continues the session it already has, or nothing and starts its
 first one. A row marked `in use` has its session open in another terminal and cannot be clicked —
 close it there first. The refusal follows the directory rather than the row, so the same worktree
-pasted into **WORKING DIRECTORY** or picked from a recent-dir chip will not launch either.
+pasted into **WORKING DIRECTORY** or picked from a recent-dir chip will not launch either — the
+server refuses it whichever client asks, so a path spelled another way does not slip past. A plain
+**Shell** is exempt: the limit is on agents sharing one working tree.
 
 **OR RESUME HERE** works the same way: a session marked `● open` is being viewed somewhere and is
 refused, because opening it here would detach whoever has it. "Somewhere" includes another browser

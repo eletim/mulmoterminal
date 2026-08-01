@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import CellLaunchForm from "../../../src/components/CellLaunchForm.vue";
+import type { LaunchAgent } from "../../../common/launchAgent";
 
 // The launcher's two "there is already a session here" surfaces, mounted directly: a worktree row
 // (one branch, one session) and a resume row. Both used to hand a running agent's terminal to a
@@ -20,9 +21,9 @@ function mockFetch(worktrees: WorktreeRow[] = [], sessions: SessionRow[] = []) {
   }) as unknown as typeof fetch;
 }
 
-const mountForm = (openSessionIds: string[] = [], over: { dir?: string; presets?: { label: string; path: string }[] } = {}) =>
+const mountForm = (openSessionIds: string[] = [], over: { dir?: string; presets?: { label: string; path: string }[]; target?: LaunchAgent } = {}) =>
   mount(CellLaunchForm, {
-    props: { dir: "/repo", target: "claude" as const, choice: null, defaultCwd: "/repo", presets: [], openSessionIds, ...over },
+    props: { dir: "/repo", target: "claude" as LaunchAgent, choice: null, defaultCwd: "/repo", presets: [], openSessionIds, ...over },
     global: { stubs: { ModelPicker: true } },
   });
 
@@ -87,7 +88,7 @@ describe("a worktree row", () => {
     mockFetch([worktree()]);
     const w = mountForm();
     await flushPromises();
-    expect(w.find('[data-testid="wt-note"]').text()).toContain("one session");
+    expect(w.find('[data-testid="wt-note"]').text()).toContain("one agent session");
   });
 });
 
@@ -95,20 +96,47 @@ describe("a worktree row", () => {
 // records it as a recent directory, so its chip appears too. Refusing only the row would leave the
 // one-session rule holding on whichever way in the user did not take.
 describe("a worktree reached without its row", () => {
-  const busy = () => worktree({ session: { id: "s-1", attached: true, agent: "claude" } });
+  const taken = (attached = true) => worktree({ session: { id: "s-1", attached, agent: "claude" } });
 
   it("refuses the play button when the directory field IS a running worktree", async () => {
-    mockFetch([busy()]);
+    mockFetch([taken()]);
     const w = mountForm([], { dir: "/wt/fix-login" });
     await flushPromises();
     expect(w.find('[data-testid="cell-dir-go"]').attributes("disabled")).toBeDefined();
-    expect(w.find('[data-testid="cell-dir-busy"]').text()).toContain("one session");
+    expect(w.find('[data-testid="cell-dir-busy"]').text()).toContain("open in another terminal");
     await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
     expect(w.emitted("start")).toBeUndefined();
   });
 
-  it("still launches from the field for a worktree nobody is in", async () => {
-    mockFetch([worktree({ session: { id: "s-1", attached: false, agent: "claude" } })]);
+  // One session, not one RUNNING session: a worktree whose agent nobody is watching still has its
+  // conversation, and the row is how it is continued. Starting beside it is the second session the
+  // rule exists to prevent.
+  it("refuses the field for a worktree whose session is merely there", async () => {
+    mockFetch([taken(false)]);
+    const w = mountForm([], { dir: "/wt/fix-login" });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-dir-go"]').attributes("disabled")).toBeDefined();
+    expect(w.find('[data-testid="cell-dir-busy"]').text()).toContain("resume it from its row");
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    expect(w.emitted("start")).toBeUndefined();
+  });
+
+  // Codex, reviewing #1208: the comparison was `===`, so a path spelled another way walked past the
+  // guard and started a second session in a worktree marked `in use`.
+  it.each([["/wt/fix-login/"], ["/wt/./fix-login"], ["/repo/../wt/fix-login"], ["/wt//fix-login"]])(
+    "refuses the same worktree spelled %s",
+    async (spelling) => {
+      mockFetch([taken()]);
+      const w = mountForm([], { dir: spelling });
+      await flushPromises();
+      expect(w.find('[data-testid="cell-dir-go"]').attributes("disabled")).toBeDefined();
+      await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+      expect(w.emitted("start")).toBeUndefined();
+    },
+  );
+
+  it("still launches from the field for a worktree with no session", async () => {
+    mockFetch([worktree({ session: null })]);
     const w = mountForm([], { dir: "/wt/fix-login" });
     await flushPromises();
     expect(w.find('[data-testid="cell-dir-go"]').attributes("disabled")).toBeUndefined();
@@ -117,10 +145,21 @@ describe("a worktree reached without its row", () => {
     expect(w.emitted("start")?.[0]).toEqual(["/wt/fix-login"]);
   });
 
+  // The limit is on AGENTS sharing one working tree. A shell is not one — dir-session.ts leaves
+  // shells out of the answer for the same reason — so it can still be opened there.
+  it("lets a shell open in a worktree an agent is in", async () => {
+    mockFetch([taken()]);
+    const w = mountForm([], { dir: "/wt/fix-login", target: "shell" });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-dir-go"]').attributes("disabled")).toBeUndefined();
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    expect(w.emitted("start")?.[0]).toEqual(["/wt/fix-login"]);
+  });
+
   // The chip fills the field instead of launching, which is what puts the reason on screen — a
   // play button that silently does nothing reads as a broken app.
-  it("fills the field rather than launching when a chip points at a running worktree", async () => {
-    mockFetch([busy()]);
+  it("fills the field rather than launching when a chip points at a taken worktree", async () => {
+    mockFetch([taken()]);
     const w = mountForm([], { presets: [{ label: "fix-login", path: "/wt/fix-login" }] });
     await flushPromises();
     await w.find('[data-testid="cell-chip-launch"]').trigger("click");
@@ -129,7 +168,7 @@ describe("a worktree reached without its row", () => {
   });
 
   it("launches from a chip on an ordinary directory", async () => {
-    mockFetch([busy()]);
+    mockFetch([taken()]);
     const w = mountForm([], { presets: [{ label: "repo", path: "/repo" }] });
     await flushPromises();
     await w.find('[data-testid="cell-chip-launch"]').trigger("click");
