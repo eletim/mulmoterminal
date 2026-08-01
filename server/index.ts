@@ -59,14 +59,16 @@ import {
   activity,
   aiTitles,
   backgroundMarkers,
-  devTerminalSessions,
+  isPhoneListableSession,
   knownSessions,
   lastPrompts,
+  placedSessionsHydrated,
   ptys,
   sessionCwd,
   sessionMemos,
   sessionMemosHydrated,
   markUnplacedSession,
+  unplacedSessionsHydrated,
 } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
@@ -574,6 +576,16 @@ const remoteHostSpawnChat = (message: string) => {
   markUnplacedSession(sessionId);
   return { chatId: sessionId };
 };
+// Starting work on an issue from the phone (#1184). The same spawn the desktop's POST
+// /api/issues/start makes — a working session in a repository, so the project's own MCP servers
+// load instead of being replaced by the GUI one — plus the unplaced mark for the same reason as
+// above: the phone has no grid, so nothing else would give this session a cell.
+const remoteHostSpawnIssueDraft = (cwd: string, draft: string): string => {
+  const sessionId = randomUUID();
+  spawnClaudePty(sessionId, null, null, { cwd, draft, attachGuiMcp: false });
+  markUnplacedSession(sessionId);
+  return sessionId;
+};
 // The phone's remote terminal view (#435). Both accessors live here because the PTY table
 // and the title/activity side-tables do; the backend only sees the two functions.
 // A live session knows what it spawned. One that outlived us has no PtyEntry left, so ask
@@ -611,14 +623,19 @@ const remoteHostListTerminalSessions = async () => {
   const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
   const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
   await sessionMemosHydrated; // the memo IS the phone's row title when there is one
+  // Both unplaced logs, because a session waiting for a cell is one the phone may list — and the
+  // case that mark exists for is a server that restarted before any tab opened, where the answer
+  // lives only on disk.
+  await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated]);
   return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
     isResumable: await resumableSessionPredicate(),
-    // The phone lists the multi-terminal grid's cells only — not the single-view chat
-    // session or a tmux shell that was never a grid cell. resumableSessionPredicate()
-    // above already awaited devTerminalSessionsHydrated, so this set is fully seeded.
-    isGridSession: (id) => devTerminalSessions.has(id),
+    // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
+    // one — never a tmux shell that was never a cell. resumableSessionPredicate() below already
+    // awaited devTerminalSessionsHydrated, and the unplaced logs are awaited just above; a
+    // session that has only just been spawned passes `isResumable` on its live pty.
+    isGridSession: isPhoneListableSession,
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {
@@ -716,6 +733,7 @@ const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
 initRemoteHostBackend({
   workspace: CLAUDE_CWD,
   spawnChat: remoteHostSpawnChat,
+  spawnIssueDraft: remoteHostSpawnIssueDraft,
   launchTerminal: remoteHostLaunchTerminal,
   listTerminalSessions: remoteHostListTerminalSessions,
   captureTerminalScreen: remoteHostCaptureTerminalScreen,

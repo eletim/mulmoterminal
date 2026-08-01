@@ -1,8 +1,12 @@
-// What the "start work on this issue" control can do for one repo, decided from the repo -> clone
-// answer alone (#1173). Pure, because the three outcomes are the whole behaviour of the control
-// and each one is a different thing for a user to see: a button, a menu, or a disabled button
-// that says why.
-import type { RepoDirs } from "../../common/repoDirs";
+// Whether work on one repo can start here, decided from the repo -> clone answer alone (#1173).
+// Pure, because the three outcomes are the whole behaviour: on the desktop they are a button, a
+// menu, or a disabled button that says why (IssueStartButton.vue).
+//
+// In `common/` because BOTH hosts decide from it: the phone asks the same question over the remote
+// command channel (#1184) and must reach the same answer — with one difference it makes itself,
+// not one encoded here. It cannot offer the menu (the phone never picks a directory, see
+// docs/remote-host-protocol.md), so it refuses `choose` where the desktop opens it.
+import type { RepoDirs } from "./repoDirs";
 
 export type IssueStartPlan =
   /** No clone of this repo on this machine, so there is nowhere for the work to happen. */
@@ -11,6 +15,10 @@ export type IssueStartPlan =
   | { kind: "ready"; dir: string }
   /** Several clones and nothing recorded yet: the user picks, and the pick is remembered. */
   | { kind: "choose"; dirs: RepoDirs["dirs"] };
+
+/** A plan that cannot start work as it stands. Named so a caller that has already narrowed to it
+ *  can be given a sentence rather than a nullable one — see the phone's refusal (#1184). */
+export type BlockedIssueStartPlan = Exclude<IssueStartPlan, { kind: "ready" }>;
 
 export function issueStartPlan(entry: RepoDirs | undefined): IssueStartPlan {
   const dirs = entry?.dirs ?? [];
