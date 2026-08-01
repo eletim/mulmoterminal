@@ -83,9 +83,20 @@ describe("sanitizePrWorkdirFooter", () => {
 
 describe("sanitizeRepos", () => {
   it("keeps trimmed owner/repo slugs, drops junk, de-dupes", () => {
-    expect(sanitizeRepos(["  a/b ", "c/d", "a/b", "no-slash", "x/y/z", 5, "bad name/repo"])).toEqual(["a/b", "c/d"]);
+    expect(sanitizeRepos(["  a/b ", "c/d", "a/b", "no-slash", 5, "bad name/repo"])).toEqual(["a/b", "c/d"]);
     expect(sanitizeRepos("nope")).toEqual([]);
     expect(sanitizeRepos(undefined)).toEqual([]);
+  });
+
+  // Deliberate widening (#981): a third segment used to be rejected here, which meant a
+  // `host/owner/repo` entry could not be SAVED at all. What an entry means — which forge, and
+  // whether that forge is implemented — is `forgeFromRepoEntry` / `repoSupport`, not this.
+  it("keeps a host-qualified entry, and a GitLab group path of any depth", () => {
+    expect(sanitizeRepos(["gitlab.com/group/project", "gitlab.com/group/sub/project"])).toEqual(["gitlab.com/group/project", "gitlab.com/group/sub/project"]);
+  });
+
+  it("still rejects anything that is not a slug path", () => {
+    expect(sanitizeRepos(["one", "has space/repo", "a//b", "/leading", "trailing/"])).toEqual([]);
   });
 });
 
@@ -100,10 +111,16 @@ describe("sanitizeRepoDirs", () => {
     ["a relative path", { "a/b": "w/ab" }],
     ["a non-string value", { "a/b": 5 }],
     ["a key that is not owner/repo", { "no-slash": "/w/x" }],
-    ["a key with a path in it", { "a/b/c": "/w/x" }],
     ["a key with a space", { "bad name/repo": "/w/x" }],
   ])("drops %s", (_case, input) => {
     expect(sanitizeRepoDirs(input)).toEqual({});
+  });
+
+  // Widened with `prRepos` (#981), and for the same reason: the repo a recorded clone belongs to
+  // can now be written `host/owner/repo`, so a key with a longer path is a real entry rather than
+  // a malformed one.
+  it("keeps a host-qualified key", () => {
+    expect(sanitizeRepoDirs({ "gitlab.com/group/project": "/w/p" })).toEqual({ "gitlab.com/group/project": "/w/p" });
   });
 
   // The deletion-by-malformed-body trap this field shares with `sounds`: an array sanitizes to

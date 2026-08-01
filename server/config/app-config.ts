@@ -217,9 +217,13 @@ export function sanitizeQuickCommands(input: unknown): QuickCommand[] {
   return out;
 }
 
-// "owner/repo" only — the value is passed to `gh pr list --repo`, so reject anything
-// that isn't a plain slug (no spaces, flags, or paths). Trimmed, de-duplicated.
-const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+// `owner/repo`, or `host/owner/repo` for a repository that is not on GitHub — GitLab nests groups,
+// so the tail can be longer than two segments (#981). Still a plain slug path: the value reaches a
+// CLI's `--repo`, so no spaces, flags, or anything that could be read as one. Trimmed, de-duplicated.
+//
+// Which of the two forms an entry is, and therefore which forge it names, is decided by
+// `forgeFromRepoEntry` — this only says what may be stored.
+const REPO_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)+$/;
 export function sanitizeRepos(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();

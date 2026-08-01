@@ -49,6 +49,27 @@ function webUrlFor(kind: ForgeKind, host: string, path: string): string | null {
 export function forgeOf(remoteUrl: string): RemoteForge | null {
   const ref = parseRemoteRef(remoteUrl);
   if (!ref) return null;
-  const kind = KNOWN_HOSTS[ref.host] ?? "unknown";
-  return { host: ref.host, kind, path: ref.path, webUrl: webUrlFor(kind, ref.host, ref.path) };
+  return forgeAt(ref.host, ref.path);
+}
+
+const forgeAt = (host: string, path: string): RemoteForge => {
+  const kind = KNOWN_HOSTS[host] ?? "unknown";
+  return { host, kind, path, webUrl: webUrlFor(kind, host, path) };
+};
+
+// A `prRepos` entry names a repository directly rather than as a URL, and the host is optional:
+// `owner/repo` is GitHub (which is what every existing config holds) and `gitlab.com/group/project`
+// says otherwise. A leading segment containing a DOT is the host — GitHub user and organisation
+// names may only hold alphanumerics and hyphens, so the two forms cannot be confused.
+const HOST_SEGMENT = /\./;
+
+/** A configured repository entry as a forge, or null when it does not name a repository. */
+export function forgeFromRepoEntry(entry: string): RemoteForge | null {
+  const segments = entry.trim().split("/").filter(Boolean);
+  const hosted = segments.length > 1 && HOST_SEGMENT.test(segments[0]);
+  const [host, path] = hosted ? [segments[0].toLowerCase(), segments.slice(1)] : [GITHUB_HOST, segments];
+  // Every forge here names a project as namespace + name, so one segment is never a repository —
+  // it is a bare owner, or a host with nothing after it.
+  const NAMESPACED = 2;
+  return path.length >= NAMESPACED ? forgeAt(host, path.join("/")) : null;
 }

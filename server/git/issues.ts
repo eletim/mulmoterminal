@@ -4,6 +4,7 @@
 import type { IssueItem, RepoIssues } from "../../common/ghItems.js";
 import { runGh } from "./gh";
 import { normalizeGhItemBase } from "./ghItem";
+import { isSupported, repoSupport } from "./forge-support.js";
 
 // Per-repo cap. Small on purpose: this is a glanceable digest, and overflow is one
 // click away on GitHub (unlike the PR view, which is the primary place PRs are read).
@@ -17,7 +18,9 @@ const GH_FIELDS = "number,title,author,updatedAt,url";
 export async function listIssuesAcrossRepos(repos: string[]): Promise<RepoIssues[]> {
   return Promise.all(
     repos.map(async (repo): Promise<RepoIssues> => {
-      const issuesUrl = `https://github.com/${repo}/issues`;
+      const support = repoSupport(repo);
+      if (!isSupported(support)) return { repo, error: support.error };
+      const issuesUrl = `${support.forge.webUrl}/issues`;
       // Fetch one MORE than we display so `truncated` is a real observation
       // (rows > ISSUE_LIMIT), never a false positive at exactly ISSUE_LIMIT.
       const res = await runGh(["issue", "list", "--repo", repo, "--state", "open", "--limit", String(ISSUE_LIMIT + 1), "--json", GH_FIELDS]);
