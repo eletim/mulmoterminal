@@ -6,6 +6,9 @@
 // and the browser is the wrong place to unwind that. Here a failed step simply stops, and the
 // caller learns which one.
 import { runGh } from "./gh.js";
+import { runGlab, glabIssueViewArgs } from "./glab.js";
+import { normalizeGlabIssueDetail } from "./glab-items.js";
+import { forgeFromRepoEntry, projectPath } from "./forge-host.js";
 import { createWorktree, issueWorktree } from "./worktrees.js";
 import { claimLaunch, worktreeOccupancy, type WorktreeClaim, type WorktreeOccupancy } from "../session/worktree-session-limit.js";
 import { isRecord } from "../../common/isRecord.js";
@@ -46,10 +49,16 @@ const DETAIL_LIMIT = 300;
 // configured repo, on a view that only shows titles. The body is wanted exactly once, when
 // somebody decides to work on that issue, so it is read here instead.
 export async function fetchIssueDetail(repo: string, issue: number): Promise<IssueDetail | null> {
-  const res = await runGh(["issue", "view", String(issue), "--repo", repo, "--json", "number,title,body"]);
+  const forge = forgeFromRepoEntry(repo);
+  const gitlab = forge?.kind === "gitlab";
+  const project = forge ? (projectPath(forge) ?? forge.path) : repo;
+  const res = gitlab
+    ? await runGlab(glabIssueViewArgs(project, issue))
+    : await runGh(["issue", "view", String(issue), "--repo", project, "--json", "number,title,body"]);
   if (!res.ok) return null;
   try {
     const parsed: unknown = JSON.parse(res.stdout);
+    if (gitlab) return normalizeGlabIssueDetail(parsed);
     if (!isRecord(parsed) || typeof parsed.number !== "number") return null;
     return {
       number: parsed.number,
@@ -69,8 +78,21 @@ export async function fetchIssueDetail(repo: string, issue: number): Promise<Iss
 // NOT submitted — the seed is a draft (see draft-injection.ts), so the user reads it and presses
 // Enter. That matters here more than anywhere else in the app: this text was written by whoever
 // opened the issue, which is often not the person about to run it.
+// What to call the thing and where it lives. Both were hardcoded to GitHub, which for a GitLab
+// entry produced `https://github.com/gitlab.com/group/project/issues/N` — a link to nothing, in the
+// text the agent is about to read (Codex review). `forge.webUrl` already knows the right answer.
+//
+// GitLab puts a project's own pages under `/-/`, and serves issues from `/-/issues/<iid>`.
+const issueLabel = (repo: string): string => (forgeFromRepoEntry(repo)?.kind === "gitlab" ? "GitLab issue" : "GitHub issue");
+
+function issueUrl(repo: string, number: number): string {
+  const forge = forgeFromRepoEntry(repo);
+  if (!forge?.webUrl) return `https://github.com/${repo}/issues/${number}`;
+  return forge.kind === "gitlab" ? `${forge.webUrl}/-/issues/${number}` : `${forge.webUrl}/issues/${number}`;
+}
+
 export function issueSeedPrompt(repo: string, issue: IssueDetail): string {
-  const lines = [`GitHub issue #${issue.number}: ${issue.title}`, `https://github.com/${repo}/issues/${issue.number}`, ""];
+  const lines = [`${issueLabel(repo)} #${issue.number}: ${issue.title}`, issueUrl(repo, issue.number), ""];
   if (issue.body.trim()) lines.push(issue.body.trim(), "");
   lines.push(`Let's work on this issue. Read it through first and confirm the approach with me before implementing.`);
   return lines.join("\n");

@@ -14,8 +14,8 @@ import { getCwdPresets, getPrRepos, getRepoDirs } from "../../../config/config-r
 import { listIssuesAcrossRepos } from "../../../git/issues.js";
 import { startIssueWork } from "../../../git/issue-work.js";
 import { repoDirsFromPresets } from "../../../git/repo-dirs.js";
-import { issueStartPlan, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
-import { canonicalRepo, isRepoEntry } from "../../../../common/repoEntry.js";
+import { issueStartPlan, startableHosts, type BlockedIssueStartPlan } from "../../../../common/issueStartPlan.js";
+import { isRepoEntry, repoIdentity } from "../../../../common/repoEntry.js";
 import { isIssueNumber } from "../../../../common/prPhase.js";
 import type { RepoDirs } from "../../../../common/repoDirs.js";
 import type { RemoteHostHandlerDeps } from "./deps.js";
@@ -27,8 +27,8 @@ import type { RemoteHostHandlerDeps } from "./deps.js";
 // different places: `prRepos` is typed by hand, an entry's own name comes from the remote URL —
 // which is also why the host a hand-typed entry may declare is stripped before comparing (#981).
 const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => {
-  const wanted = canonicalRepo(repo).toLowerCase();
-  return repos.find((r) => canonicalRepo(r.repo).toLowerCase() === wanted);
+  const wanted = repoIdentity(repo);
+  return repos.find((r) => repoIdentity(r.repo) === wanted);
 };
 
 /** Why the phone cannot start work on this repo. Written for a person, and it names the DESKTOP
@@ -37,7 +37,8 @@ const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => {
 export function issueStartRefusal(plan: BlockedIssueStartPlan, repo: string): string {
   // Named separately from "no clone" on purpose: adding a clone would not help, so a reader told
   // the wrong reason would go and do something useless (#981).
-  if (plan.kind === "unsupported-forge") return `${repo} is on ${plan.host}. Its issues are listed here, but starting work on them is github.com only for now.`;
+  if (plan.kind === "unsupported-forge")
+    return `${repo} is on ${plan.host}. Its issues are listed here, but work can only be started on ${startableHosts()} for now.`;
   return plan.kind === "no-clone"
     ? `No local clone of ${repo} on this machine. Add one to your directory presets on the desktop to start work here.`
     : `${repo} has several clones on this machine and none is chosen yet. Start one issue from the desktop to choose which clone the work happens in, and this will use it from then on.`;
@@ -78,9 +79,9 @@ const startIssueWorkHandler =
     // skips it for `resumed`, and that rule lives there. Reading it off the outcome here would be
     // a second copy of it, right up until a fourth outcome is added.
     let seeded = false;
-    // Named the way its own host does, like the desktop route — an entry may declare a host that
-    // the repo's own identity does not carry.
-    const result = await startIssueWork(canonicalRepo(repo), issue, plan.dir, {
+    // Carried on as configured, host and all: the layer below reads the host to decide which forge
+    // to ask, and strips it only when building the CLI argument (#1257).
+    const result = await startIssueWork(repo, issue, plan.dir, {
       spawnDraft: (cwd, seed) => {
         seeded = true;
         return spawnIssueSeed(cwd, seed, run);

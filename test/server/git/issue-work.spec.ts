@@ -11,6 +11,30 @@ const issue = (over: Partial<IssueDetail> = {}): IssueDetail => ({
 });
 
 describe("issueSeedPrompt", () => {
+  // The seed is TEXT THE AGENT READS, so a wrong link is not cosmetic — it sends the session to a
+  // page that does not exist. Both halves were hardcoded to GitHub, which for a GitLab entry built
+  // `https://github.com/gitlab.com/group/project/issues/N` (Codex review, #1257).
+  it("links a GitLab issue to GitLab, under its /-/ path", () => {
+    const seed = issueSeedPrompt("gitlab.com/group/project", issue());
+    expect(seed).toContain("https://gitlab.com/group/project/-/issues/1173");
+    expect(seed).not.toContain("github.com");
+  });
+
+  it("calls a GitLab issue a GitLab issue", () => {
+    expect(issueSeedPrompt("gitlab.com/group/project", issue())).toContain("GitLab issue #1173");
+  });
+
+  it("keeps a nested GitLab group in the link", () => {
+    expect(issueSeedPrompt("gitlab.com/group/sub/project", issue())).toContain("https://gitlab.com/group/sub/project/-/issues/1173");
+  });
+
+  // A GitHub entry is unchanged whichever way it is spelled.
+  it.each([["acme/web"], ["github.com/acme/web"]])("links %s to github.com", (repo) => {
+    const seed = issueSeedPrompt(repo, issue());
+    expect(seed).toContain("https://github.com/acme/web/issues/1173");
+    expect(seed).toContain("GitHub issue #1173");
+  });
+
   it("names the issue and links it before quoting the body", () => {
     const seed = issueSeedPrompt("acme/web", issue());
     expect(seed).toContain("GitHub issue #1173: Start from the issue row");

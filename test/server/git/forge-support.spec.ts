@@ -98,16 +98,14 @@ describe("repoForRemote", () => {
     expect(repoForRemote("git@github.com:receptron/mulmoterminal.git")).toMatchObject({ repo: "receptron/mulmoterminal", forge: { kind: "github" } });
   });
 
-  // The distinction the whole step exists for: the repository is SEEN (there is a forge) but not
-  // one this app can act on, so `repo` is null while the answer itself is not.
-  it.each([
-    ["a GitLab remote", "git@gitlab.com:group/project.git", "gitlab"],
-    ["a self-hosted remote", "git@git.example.com:team/project.git", "unknown"],
-  ])("reports %s as seen but not actionable", (_case, url, kind) => {
-    const found = repoForRemote(url);
+  // The distinction the step exists for: the repository is SEEN (there is a forge) but not one this
+  // app can act on, so `repo` is null while the answer itself is not. GitLab left this group in
+  // #1257 — work can start there now — so only a host with no implementation is left.
+  it("reports a self-hosted remote as seen but not actionable", () => {
+    const found = repoForRemote("git@git.example.com:team/project.git");
     expect(found).not.toBeNull();
     expect(found?.repo).toBeNull();
-    expect(found?.forge.kind).toBe(kind);
+    expect(found?.forge.kind).toBe("unknown");
   });
 
   // Null stays reserved for "there is nothing here to read", which is what the callers turn into
@@ -155,5 +153,28 @@ describe("missingRepoReason", () => {
 
   it("says no-repo when there is no remote at all", () => {
     expect(missingRepoReason(null)).toBe("no-repo");
+  });
+});
+
+// A clone is reported for every forge work can happen on, and the name it is reported UNDER has to
+// be the one a `prRepos` entry would use — otherwise the entry and the clone never match (#1257).
+describe("which clones repoForRemote reports", () => {
+  it("reports a GitHub clone under the bare owner/repo", () => {
+    expect(repoForRemote("git@github.com:acme/web.git")?.repo).toBe("acme/web");
+  });
+
+  it("reports a GitLab clone under its host-qualified name", () => {
+    expect(repoForRemote("git@gitlab.com:group/project.git")?.repo).toBe("gitlab.com/group/project");
+  });
+
+  it("keeps a nested GitLab group in the name", () => {
+    expect(repoForRemote("git@gitlab.com:group/sub/project.git")?.repo).toBe("gitlab.com/group/sub/project");
+  });
+
+  // Still null for a forge nothing can be done with — seen, but not actionable.
+  it("reports no repo for a host that is neither", () => {
+    const found = repoForRemote("git@git.example.com:team/project.git");
+    expect(found).not.toBeNull();
+    expect(found?.repo).toBeNull();
   });
 });

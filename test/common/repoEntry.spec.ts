@@ -2,7 +2,7 @@
 // (why a control is off), so the two cannot disagree — writing the rule twice is what this file
 // exists to prevent (#981).
 import { describe, it, expect } from "vitest";
-import { canonicalRepo, parseRepoEntry, GITHUB_HOST } from "../../common/repoEntry";
+import { canonicalRepo, parseRepoEntry, repoIdentity, GITHUB_HOST } from "../../common/repoEntry";
 
 describe("parseRepoEntry", () => {
   it("implies github.com for a bare owner/repo", () => {
@@ -44,5 +44,26 @@ describe("canonicalRepo", () => {
 
   it("leaves something it cannot parse alone rather than inventing a name", () => {
     expect(canonicalRepo("owner//repo")).toBe("owner//repo");
+  });
+});
+
+// Two different questions about one entry, and using the wrong one for the wrong job is how a
+// GitHub clone came to answer for a GitLab repo (#981 step 4c-1).
+describe("repoIdentity vs canonicalRepo", () => {
+  // MATCHING keeps the host: a configured entry is compared against a resolved clone, and without
+  // the host two projects of the same path on different forges collapse into one.
+  it("keeps a GitHub and a GitLab project of the same path apart", () => {
+    expect(repoIdentity("gitlab.com/a/b")).not.toBe(repoIdentity("github.com/a/b"));
+  });
+
+  it("treats a bare entry and its host-qualified spelling as the same repo", () => {
+    expect(repoIdentity("acme/web")).toBe(repoIdentity("github.com/acme/web"));
+    expect(repoIdentity("acme/web")).toBe(repoIdentity("GitHub.com/Acme/Web"));
+  });
+
+  // The CLI question is the opposite one: `--repo` wants the project as its own host names it.
+  it("strips the host for the CLI while matching keeps it", () => {
+    expect(canonicalRepo("gitlab.com/group/project")).toBe("group/project");
+    expect(repoIdentity("gitlab.com/group/project")).toBe("gitlab.com/group/project");
   });
 });

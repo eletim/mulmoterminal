@@ -22,3 +22,8 @@ export function runGlab(args: string[]): Promise<GhResult> {
 export const glabMrListArgs = (project: string, limit: number): string[] => ["mr", "list", "--repo", project, "--per-page", String(limit), "-F", "json"];
 
 export const glabIssueListArgs = (project: string, limit: number): string[] => ["issue", "list", "--repo", project, "--per-page", String(limit), "-O", "json"];
+
+// `issue view` takes `-F` for the output format — like `mr list`, and UNLIKE `issue list`, which
+// takes `-O` and gives `-F` a different meaning entirely. Three subcommands, three answers;
+// verified against glab 1.111.0 rather than pattern-matched from its sibling.
+export const glabIssueViewArgs = (project: string, issue: number): string[] => ["issue", "view", String(issue), "--repo", project, "-F", "json"];

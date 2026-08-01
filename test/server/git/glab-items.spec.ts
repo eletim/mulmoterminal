@@ -2,8 +2,8 @@
 // CAPTURED from gitlab.com (gitlab-org/cli, 2026-08-01) rather than written by hand, so a field
 // GitLab renames breaks this instead of quietly emptying a row.
 import { describe, it, expect } from "vitest";
-import { normalizeGlabIssue, normalizeGlabMr } from "../../../server/git/glab-items.js";
-import { glabIssueListArgs, glabMrListArgs } from "../../../server/git/glab.js";
+import { normalizeGlabIssue, normalizeGlabIssueDetail, normalizeGlabMr } from "../../../server/git/glab-items.js";
+import { glabIssueListArgs, glabIssueViewArgs, glabMrListArgs } from "../../../server/git/glab.js";
 
 const REAL_MR = {
   iid: 3675,
@@ -128,5 +128,50 @@ describe("glab list arguments", () => {
   // open list is the default. Passing it would add noise now and break later.
   it("asks issue list for json with -O, and passes no state flag", () => {
     expect(glabIssueListArgs("group/project", 21)).toEqual(["issue", "list", "--repo", "group/project", "--per-page", "21", "-O", "json"]);
+  });
+});
+
+// One issue's detail, which is what the seeded session shows. Captured from gitlab.com.
+describe("normalizeGlabIssueDetail", () => {
+  const REAL_DETAIL = {
+    id: 196437163,
+    iid: 1,
+    title: "mulmoterminal からの表示確認用",
+    description: "#981 段階4a の実機確認。消して構いません。",
+    state: "opened",
+    web_url: "https://gitlab.com/isamu1/node-test/-/work_items/1",
+  };
+
+  it("maps a real issue, taking the body from `description`", () => {
+    expect(normalizeGlabIssueDetail(REAL_DETAIL)).toEqual({
+      number: 1,
+      title: "mulmoterminal からの表示確認用",
+      body: "#981 段階4a の実機確認。消して構いません。",
+    });
+  });
+
+  // `id` is unique across the instance; `iid` is what the URL and the UI show.
+  it("numbers from iid, not id", () => {
+    expect(normalizeGlabIssueDetail(REAL_DETAIL)?.number).toBe(1);
+  });
+
+  // An issue with no description is ordinary — the title is then the whole brief, as on GitHub.
+  it("gives an empty body rather than dropping an issue with no description", () => {
+    expect(normalizeGlabIssueDetail({ ...REAL_DETAIL, description: null })).toMatchObject({ number: 1, body: "" });
+  });
+
+  it.each([
+    ["a non-object", "nope"],
+    ["no iid", { title: "x" }],
+  ])("returns null for %s", (_case, raw) => {
+    expect(normalizeGlabIssueDetail(raw)).toBeNull();
+  });
+});
+
+describe("glabIssueViewArgs", () => {
+  // `-F`, like `mr list` — and UNLIKE `issue list`, which takes `-O` and gives `-F` another
+  // meaning. Three subcommands, three answers; `-O` here is rejected outright by glab.
+  it("asks for json with -F", () => {
+    expect(glabIssueViewArgs("group/project", 7)).toEqual(["issue", "view", "7", "--repo", "group/project", "-F", "json"]);
   });
 });

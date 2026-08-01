@@ -11,7 +11,7 @@ import { placeSpawnedChat } from "./useSpawnedChat";
 import { issueStartPlan, type IssueStartPlan } from "../../common/issueStartPlan";
 import { isRecord } from "../../common/isRecord";
 import { parseRepoDirsResponse, type RepoDirs } from "../../common/repoDirs";
-import { canonicalRepo } from "../../common/repoEntry";
+import { repoIdentity } from "../../common/repoEntry";
 
 // Loaded once per view open, like the PR and issue lists beside it: resolving a directory's remote
 // is a `git` call per saved directory, and the answer only changes when the user edits Settings.
@@ -36,10 +36,11 @@ export async function loadRepoDirs(): Promise<void> {
 // GitHub treats `Owner/Repo` and `owner/repo` as one repository, and the two spellings arrive from
 // different places: `prRepos` is typed by hand, the server's side comes from a remote URL.
 export function clonesFor(repo: string): RepoDirs | undefined {
-  // Compared on the canonical identity, not the raw entry: `/api/repo-dirs` keys by the name it
-  // reads off a clone's remote, which never carries the host a configured entry may spell out.
-  const wanted = canonicalRepo(repo).toLowerCase();
-  return repoDirs.value.find((r) => canonicalRepo(r.repo).toLowerCase() === wanted);
+  // Matched on the HOST-QUALIFIED identity: without the host, a GitHub and a GitLab project of the
+  // same path would answer for each other. `canonicalRepo` is the other question — what to pass a
+  // CLI's `--repo` — and is deliberately not used here.
+  const wanted = repoIdentity(repo);
+  return repoDirs.value.find((r) => repoIdentity(r.repo) === wanted);
 }
 
 export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo), repo);

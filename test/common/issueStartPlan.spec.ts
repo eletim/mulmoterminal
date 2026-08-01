@@ -61,17 +61,22 @@ describe("issueStartBlockedReason", () => {
 // GitHub-only whatever clones exist (Codex review, #981).
 describe("a repo on a forge that can be listed but not started from", () => {
   it("names the forge instead of blaming a missing clone", () => {
-    const plan = issueStartPlan(undefined, "gitlab.com/group/project");
-    expect(plan).toEqual({ kind: "unsupported-forge", host: "gitlab.com" });
-    expect(issueStartBlockedReason(plan, "gitlab.com/group/project")).toContain("gitlab.com");
-    expect(issueStartBlockedReason(plan, "gitlab.com/group/project")).not.toContain("No local clone");
+    const plan = issueStartPlan(undefined, "codeberg.org/owner/repo");
+    expect(plan).toEqual({ kind: "unsupported-forge", host: "codeberg.org" });
+    expect(issueStartBlockedReason(plan, "codeberg.org/owner/repo")).toContain("codeberg.org");
+    expect(issueStartBlockedReason(plan, "codeberg.org/owner/repo")).not.toContain("No local clone");
   });
 
-  // Checked before the clone list: a GitLab repo that somehow HAS a clone still cannot be started
-  // from, so the answer must not depend on whether one is present.
+  // Checked before the clone list, so the answer does not depend on whether a clone is present.
   it("holds even when a clone exists", () => {
-    const entry = { repo: "gitlab.com/group/project", dirs: [{ path: "/w/p", label: "p", orderPriority: null }], primary: "/w/p" };
-    expect(issueStartPlan(entry, "gitlab.com/group/project").kind).toBe("unsupported-forge");
+    const entry = { repo: "codeberg.org/owner/repo", dirs: [{ path: "/w/p", label: "p", orderPriority: null }], primary: "/w/p" };
+    expect(issueStartPlan(entry, "codeberg.org/owner/repo").kind).toBe("unsupported-forge");
+  });
+
+  // GitLab moved from listable to startable in #1257: its issue is read with `glab` and the
+  // worktree is cut from its clone like any other, so it goes on to the clone question.
+  it("lets a GitLab repo through to the clone question", () => {
+    expect(issueStartPlan(undefined, "gitlab.com/group/project")).toEqual({ kind: "no-clone" });
   });
 
   it.each([["acme/web"], ["github.com/acme/web"]])("leaves a GitHub entry (%s) alone", (repo) => {
@@ -91,5 +96,20 @@ describe("a GitHub entry that spells its host out", () => {
 
   it("is still a GitHub entry, not an unsupported forge", () => {
     expect(issueStartPlan(undefined, "github.com/acme/web")).toEqual({ kind: "no-clone" });
+  });
+});
+
+// The refusal names the hosts it reads off `STARTABLE_HOSTS`, not a sentence written beside it: a
+// hardcoded "github.com only" survived GitLab becoming startable and told users the opposite of
+// what the code did (Codex review, #1257).
+describe("what the refusal says work is supported on", () => {
+  it("names every startable host, so the sentence cannot go stale", () => {
+    const reason = issueStartBlockedReason(issueStartPlan(undefined, "codeberg.org/owner/repo"), "codeberg.org/owner/repo");
+    expect(reason).toContain("github.com");
+    expect(reason).toContain("gitlab.com");
+  });
+
+  it("does not claim only one host is supported", () => {
+    expect(issueStartBlockedReason(issueStartPlan(undefined, "codeberg.org/owner/repo"), "codeberg.org/owner/repo")).not.toContain("only");
   });
 });

@@ -41,7 +41,16 @@ export interface DirRepo {
   repo: string | null;
 }
 
-const dirRepo = (forge: RemoteForge | null): DirRepo | null => (forge ? { forge, repo: forge.kind === "github" ? projectPath(forge) : null } : null);
+// `repo` is set for every forge this app can ACT on, and carries the host unless it is GitHub —
+// the same spelling a `prRepos` entry uses, so the two match without either side guessing. A bare
+// `owner/repo` would make a GitHub and a GitLab project of the same path indistinguishable.
+const actionableRepo = (forge: RemoteForge): string | null => {
+  const project = LISTABLE.has(forge.kind) ? projectPath(forge) : null;
+  if (!project) return null;
+  return forge.kind === "github" ? project : `${forge.host}/${project}`;
+};
+
+const dirRepo = (forge: RemoteForge | null): DirRepo | null => (forge ? { forge, repo: actionableRepo(forge) } : null);
 
 /** The repository a remote URL names, or null when the string is not a remote at all. */
 export const repoForRemote = (remoteUrl: string): DirRepo | null => dirRepo(forgeOf(remoteUrl));

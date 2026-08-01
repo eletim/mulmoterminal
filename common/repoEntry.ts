@@ -7,6 +7,7 @@
 // is undoing.
 
 export const GITHUB_HOST = "github.com";
+export const GITLAB_HOST = "gitlab.com";
 
 // A leading segment containing a DOT is the host. GitHub user and organisation names may hold only
 // alphanumerics and hyphens, so `owner/repo` and `host/owner/repo` cannot be confused.
@@ -42,6 +43,17 @@ export function parseRepoEntry(entry: string): RepoEntry | null {
  *  and reports "no local clone" for a repo that has one (Codex review).
  */
 export const canonicalRepo = (entry: string): string => parseRepoEntry(entry)?.path.join("/") ?? entry.trim();
+
+/** The identity used to MATCH a configured entry against a resolved clone: always host-qualified.
+ *
+ *  Distinct from `canonicalRepo`, which strips the host because that is what a CLI's `--repo`
+ *  wants. Matching needs the opposite: without the host, `github.com/a/b` and `gitlab.com/a/b`
+ *  collapse to the same key, and a clone of one would answer for the other (#981).
+ */
+export const repoIdentity = (entry: string): string => {
+  const parsed = parseRepoEntry(entry);
+  return parsed ? `${parsed.host}/${parsed.path.join("/")}`.toLowerCase() : entry.trim().toLowerCase();
+};
 
 // The value reaches a CLI's `--repo`, so no spaces and nothing readable as a flag.
 const REPO_CHARS_RE = /^[A-Za-z0-9._/-]+$/;
