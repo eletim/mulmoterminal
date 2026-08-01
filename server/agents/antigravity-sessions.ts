@@ -8,14 +8,12 @@
 // id, and `conversation_summaries.db` has the columns but the CLI never writes a row. So the cwd
 // is read from OUR log (session/antigravity-conversations.ts) and agy's transcript is opened only
 // for a title and an mtime.
-import { open } from "node:fs/promises";
 import path from "node:path";
-import { isRecord } from "../../common/isRecord.js";
 import type { AntigravityConversation } from "../session/antigravity-conversations.js";
 import { antigravityConversationExists } from "./antigravity-session.js";
+import { cleanTitle, parseJsonRecord, readTranscriptHead } from "./transcript-head.js";
 
 const HEAD_BYTES = 64 * 1024; // the first user turn is step 0, so the head is all a title needs
-const TITLE_MAX = 60;
 const DEFAULT_TITLE = "Antigravity session";
 
 // agy wraps the prompt and appends its own blocks, so the raw `content` is not a title:
@@ -34,16 +32,6 @@ export function antigravityTranscriptPath(root: string, id: string): string {
   return path.join(root, id, ".system_generated", "logs", "transcript.jsonl");
 }
 
-function parseJsonRecord(line: string): Record<string, unknown> | null {
-  if (!line) return null;
-  try {
-    const doc: unknown = JSON.parse(line);
-    return isRecord(doc) ? doc : null;
-  } catch {
-    return null; // a truncated final line, or a non-JSON row
-  }
-}
-
 // The user's first prompt. Steps that are not user input carry no `content` at all
 // (`CONVERSATION_HISTORY`), so the type check alone is not enough.
 const isUserInput = (d: Record<string, unknown>): boolean => d.type === "USER_INPUT" && typeof d.content === "string";
@@ -55,33 +43,18 @@ function promptText(content: string): string {
   return wrapped ? wrapped[1] : content.replace(APPENDED_BLOCK_RE, "");
 }
 
-function cleanTitle(raw: string | null): string {
-  const title = (raw ?? "").replace(/\s+/g, " ").trim().slice(0, TITLE_MAX);
-  return title || DEFAULT_TITLE;
-}
-
 /** The conversation's title, from the head of its transcript. */
 export function antigravityTitleFromTranscriptHead(head: string): string {
   const first = head
     .split("\n")
     .map(parseJsonRecord)
     .find((d): d is Record<string, unknown> => d !== null && isUserInput(d));
-  return cleanTitle(typeof first?.content === "string" ? promptText(first.content) : null);
+  return cleanTitle(typeof first?.content === "string" ? promptText(first.content) : null, DEFAULT_TITLE);
 }
 
 async function readTranscriptSummary(file: string): Promise<{ title: string; mtime: number } | null> {
-  let fh;
-  try {
-    fh = await open(file, "r");
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await fh.read(buf, 0, HEAD_BYTES, 0);
-    const { mtimeMs } = await fh.stat();
-    return { title: antigravityTitleFromTranscriptHead(buf.subarray(0, bytesRead).toString("utf8")), mtime: mtimeMs };
-  } catch {
-    return null;
-  } finally {
-    await fh?.close();
-  }
+  const read = await readTranscriptHead(file, HEAD_BYTES);
+  return read && { title: antigravityTitleFromTranscriptHead(read.head), mtime: read.mtime };
 }
 
 // The newest record per conversation. The log only grows, so one conversation can appear under
