@@ -81,7 +81,7 @@ id `getTerminalScreen` takes, so the phone can watch what it just started.
 **An issue has ONE worktree, so a second call for it does not start a second thing** (#1219).
 `outcome` says which of three happened:
 
-| `outcome` | what happened | is the issue in the input box? |
+| `outcome` | what happened | was the issue typed into it? |
 |---|---|---|
 | `created` | the worktree was cut and a session seeded in it | yes |
 | `reused` | the worktree was already there and empty; the session is new | yes |
@@ -107,7 +107,7 @@ before-paste Ctrl-C. So this is a parameter here rather than a sequence the phon
 through first and confirm the approach with me before implementing"*, so the session stops for a
 decision before it writes anything.
 
-`ran` reports what actually happened, not what was asked for:
+`ran` is not an echo of `run` — it is false whenever nothing was seeded, whatever was asked:
 
 | | `run: true` | `run` absent / `false` |
 |---|---|---|
@@ -118,6 +118,11 @@ decision before it writes anything.
 into it**, so submitting would send whatever the user left in its box, or an empty line. Anything
 other than `true` is read as `false`, which leaves the behaviour every caller had before this
 option existed.
+
+**`ran: true` means the session was started to run its seed, not that a keystroke has landed.** The
+reply is sent as soon as the session exists; the seed is typed — and submitted — afterwards, once
+the TUI's input box has painted. So the phone should word it as *started*, not as *the agent has
+answered*, and read the session itself (`getTerminalScreen`) for the latter.
 
 **The desktop keeps the draft.** `POST /api/issues/start` takes no `run` — there, the person who
 opened the issue and the person about to run it are often not the same, and the reviewing Enter is

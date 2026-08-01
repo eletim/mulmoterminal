@@ -97,8 +97,10 @@ const startIssueWorkHandler =
       // describe as a fresh start: that session was already working on this issue, and the issue
       // text is NOT waiting in its box.
       outcome: result.outcome ?? "created",
-      // Whether the seed was SUBMITTED (#1253), so the phone says "started" rather than "it's in
-      // the input box, press Enter yourself" — which on a phone is not something the reader can do.
+      // Whether this session was started to SUBMIT its seed (#1253), so the phone says "started"
+      // rather than "it's in the input box, press Enter yourself" — which on a phone is not
+      // something the reader can do. Not a landed keystroke: the typing happens after this reply,
+      // once the TUI's input box has painted.
       ran: run && seeded,
       // The title, so the phone can confirm WHICH issue it just started without a second call. The
       // body is deliberately not echoed: it is already in the session's input box, and it is the
