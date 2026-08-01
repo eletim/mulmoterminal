@@ -76,6 +76,15 @@ The client keeps a lexical `dirPathKey` comparison so the control greys out *bef
 A plain shell is exempt on both sides: the limit is on agents sharing one working tree, and
 `dir-session.ts` leaves shells out of the answer for the same reason.
 
+**The check and the spawn have to be one step.** Reading the occupancy is asynchronous (git, then
+the filesystem), so two launches aimed at one worktree could both find it free and both spawn —
+Codex's third finding. `claimLaunch()` stakes a claim keyed by canonical path, and everything up to
+and including the increment is synchronous, so nothing can await between reading the count and
+raising it. It is a counter rather than a flag: the refused second launch releases on its way out,
+and that must not cancel the first one's claim. The claim rides the socket's `close`, which covers
+every early return and a client that leaves mid-check; holding it past the spawn costs nothing,
+since the pty then occupies the worktree on its own account.
+
 **`OR LAUNCH` is a command line, so the limit follows what it runs.** Codex found the fourth
 endpoint on the second pass: a launcher configured as `codex` reached a spawn without the guard.
 Refusing every launcher would have been worse — a worktree an agent is working in is exactly where

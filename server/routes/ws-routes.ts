@@ -46,8 +46,8 @@ import type { SpawnClaudePty, SpawnCodexPty, SpawnAntigravityPty, SpawnCommandPt
 import { terminalWsKind, type TerminalWsKind } from "./terminal-ws-path.js";
 import { normalizeAgent, parseIndexParam } from "./routeParams.js";
 import { agentResumeId } from "../agents/agent-resume.js";
-import { occupiedWorktreeSession } from "../session/worktree-session-limit.js";
-import { worktreeLimitReason } from "../../common/worktreeSession.js";
+import { claimLaunch, worktreeOccupancy } from "../session/worktree-session-limit.js";
+import { worktreeRefusal } from "../../common/worktreeSession.js";
 
 export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
@@ -186,10 +186,19 @@ async function refuseSecondWorktreeSession(
   session: { requested: string | null; sessionId: string },
 ): Promise<boolean> {
   if (isContinuingSession(session.requested, session.sessionId)) return false;
-  const occupied = await occupiedWorktreeSession(cwd);
-  if (!occupied) return false;
-  console.warn(`[ws/${kind}] refusing a second session in ${cwd} — ${occupied.id} already holds it`);
-  closeWithError(ws, worktreeLimitReason(occupied));
+  // Claimed BEFORE the occupancy read, which is asynchronous: two launches aimed at one worktree
+  // would otherwise both read it as free and both spawn (#1208, found by Codex). The claim is
+  // dropped with the socket, which covers every early return below as well as a client that leaves
+  // mid-check; a claim held past the spawn costs nothing, since the pty then occupies the worktree
+  // on its own account.
+  const claim = claimLaunch(cwd);
+  ws.once("close", claim.release);
+  const { isWorktree, session: occupied } = await worktreeOccupancy(cwd);
+  if (!isWorktree) return false;
+  const reason = worktreeRefusal(occupied, claim.contended);
+  if (!reason) return false;
+  console.warn(`[ws/${kind}] refusing a second session in ${cwd} — ${reason}`);
+  closeWithError(ws, reason);
   return true;
 }
 

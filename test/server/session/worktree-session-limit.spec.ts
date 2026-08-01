@@ -16,7 +16,7 @@ vi.mock("../../../server/infra/tmux.js", async (importOriginal) => ({
   tmuxAttachedCounts: () => new Map<string, number>(),
 }));
 
-const { occupiedWorktreeSession } = await import("../../../server/session/worktree-session-limit.js");
+const { claimLaunch, worktreeOccupancy } = await import("../../../server/session/worktree-session-limit.js");
 const { createWorktree, gitTopLevel } = await import("../../../server/git/worktrees.js");
 const { ptys } = await import("../../../server/session/registry.js");
 
@@ -65,11 +65,11 @@ afterEach(() => {
 // An agent this process is running, with its browser socket still open.
 const occupyWorktree = () => ptys.set(SESSION, { cwd: worktree, agent: "claude", ws: OPEN_SOCKET, tmux: true } as never);
 
-describe.skipIf(!hasGit)("occupiedWorktreeSession", () => {
+describe.skipIf(!hasGit)("worktreeOccupancy", () => {
   it(
     "reports no session for a worktree nobody has started in",
     async () => {
-      expect(await occupiedWorktreeSession(worktree)).toBeNull();
+      expect((await worktreeOccupancy(worktree)).session).toBeNull();
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -78,7 +78,7 @@ describe.skipIf(!hasGit)("occupiedWorktreeSession", () => {
     "reports the session occupying the worktree",
     async () => {
       occupyWorktree();
-      expect(await occupiedWorktreeSession(worktree)).toEqual({ id: SESSION, attached: true, agent: "claude" });
+      expect((await worktreeOccupancy(worktree)).session).toEqual({ id: SESSION, attached: true, agent: "claude" });
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -96,7 +96,7 @@ describe.skipIf(!hasGit)("occupiedWorktreeSession", () => {
         path.join(worktree, "..", path.basename(worktree)),
       ];
       for (const alias of aliases) {
-        expect(await occupiedWorktreeSession(alias), alias).not.toBeNull();
+        expect((await worktreeOccupancy(alias)).session, alias).not.toBeNull();
       }
     },
     GIT_TEST_TIMEOUT_MS,
@@ -108,7 +108,7 @@ describe.skipIf(!hasGit)("occupiedWorktreeSession", () => {
     "does not limit the repository itself",
     async () => {
       ptys.set(SESSION, { cwd: repo, agent: "claude", ws: OPEN_SOCKET, tmux: true } as never);
-      expect(await occupiedWorktreeSession(repo)).toBeNull();
+      expect((await worktreeOccupancy(repo)).isWorktree).toBe(false);
     },
     GIT_TEST_TIMEOUT_MS,
   );
@@ -118,7 +118,7 @@ describe.skipIf(!hasGit)("occupiedWorktreeSession", () => {
     async () => {
       const plain = makeTempDir("wt-limit-plain-");
       try {
-        expect(await occupiedWorktreeSession(plain)).toBeNull();
+        expect(await worktreeOccupancy(plain)).toEqual({ isWorktree: false, session: null });
       } finally {
         rmDirRetrying(plain);
       }
@@ -132,8 +132,66 @@ describe.skipIf(!hasGit)("occupiedWorktreeSession", () => {
     "does not count a plain shell as the worktree's session",
     async () => {
       ptys.set(SESSION, { cwd: worktree, agent: "shell", ws: OPEN_SOCKET, tmux: true } as never);
-      expect(await occupiedWorktreeSession(worktree)).toBeNull();
+      expect((await worktreeOccupancy(worktree)).session).toBeNull();
     },
     GIT_TEST_TIMEOUT_MS,
   );
+});
+
+// Codex, third pass on #1208: the occupancy read is asynchronous, so two launches aimed at one
+// worktree could both find it free and both spawn. The claim is what makes the check-and-start
+// sequence atomic, and it has to be decided BEFORE anything awaits.
+describe("claimLaunch", () => {
+  // Every claim is released, because the count is module state — a leak here would show up as a
+  // phantom contention in the next test rather than as a failure in this one.
+  const claims: { release: () => void }[] = [];
+  const claim = (dir: string) => {
+    const held = claimLaunch(dir);
+    claims.push(held);
+    return held;
+  };
+  afterEach(() => {
+    claims.splice(0).forEach((held) => held.release());
+  });
+
+  it("reports no contention for the first launch, and contention for one that overlaps it", () => {
+    expect(claim("/wt/a").contended).toBe(false);
+    expect(claim("/wt/a").contended).toBe(true);
+  });
+
+  it("is free again once the overlapping launches have finished", () => {
+    claim("/wt/a").release();
+    claim("/wt/a").release();
+    expect(claim("/wt/a").contended).toBe(false);
+  });
+
+  it("keeps directories apart", () => {
+    claim("/wt/a");
+    expect(claim("/wt/b").contended).toBe(false);
+  });
+
+  // A counter, not a flag: the refused second launch releases on its way out, and that must not
+  // cancel the first one's claim — which would let a THIRD launch through.
+  it("does not let a released overlapping claim clear the one still running", () => {
+    claim("/wt/a");
+    claim("/wt/a").release();
+    expect(claim("/wt/a").contended).toBe(true);
+  });
+
+  // Both the socket's close handler and an explicit release can call it.
+  it("is idempotent", () => {
+    const held = claim("/wt/a");
+    held.release();
+    held.release();
+    expect(claim("/wt/a").contended).toBe(false);
+  });
+
+  // Same directory, different spelling — the race would otherwise be reopened by exactly the alias
+  // problem the rest of this file exists for. `home` is a real directory, which is what canonical
+  // resolution needs; it does not have to be a worktree for the key to be computed.
+  it("sees two spellings of one directory as the same launch", () => {
+    claim(home);
+    expect(claim(`${home}${path.sep}`).contended).toBe(true);
+    expect(claim(path.join(home, "..", path.basename(home))).contended).toBe(true);
+  });
 });

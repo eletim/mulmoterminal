@@ -24,3 +24,14 @@ export function worktreeLimitReason(session: SessionOccupancy): string {
     ? "this worktree's session is open in another terminal — a worktree runs one session, so close it there first"
     : "this worktree already has a session — resume it from its row instead of starting a second one";
 }
+
+/** The same refusal for a session that does not exist YET: two launches aimed at one worktree, the
+ *  second arriving while the first is still starting. Server-side only — a client cannot see it. */
+export const WORKTREE_LAUNCH_IN_FLIGHT = "a session is already starting in this worktree — a worktree runs one agent session";
+
+/** Why a worktree refuses a fresh session, or null when it does not. The two grounds in one place:
+ *  a session that is already there, and one that is still on its way. */
+export function worktreeRefusal(session: SessionOccupancy | null, launchInFlight: boolean): string | null {
+  if (session) return worktreeLimitReason(session);
+  return launchInFlight ? WORKTREE_LAUNCH_IN_FLIGHT : null;
+}

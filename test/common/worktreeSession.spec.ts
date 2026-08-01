@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { worktreeAction, worktreeLimitReason } from "../../common/worktreeSession";
+import { WORKTREE_LAUNCH_IN_FLIGHT, worktreeAction, worktreeLimitReason, worktreeRefusal } from "../../common/worktreeSession";
 
 describe("worktreeAction", () => {
   it("starts a session in a worktree that has none", () => {
@@ -36,5 +36,24 @@ describe("worktreeLimitReason", () => {
 
   it("says one session either way", () => {
     for (const attached of [true, false]) expect(worktreeLimitReason({ attached })).toMatch(/one session|a second one/);
+  });
+});
+
+// Two grounds for one refusal: a session that is already there, and one still on its way (two
+// launches aimed at the same worktree, the second arriving mid-spawn — the race Codex found).
+describe("worktreeRefusal", () => {
+  it("does not refuse a free worktree", () => {
+    expect(worktreeRefusal(null, false)).toBeNull();
+  });
+
+  it("refuses while another launch is still starting", () => {
+    expect(worktreeRefusal(null, true)).toBe(WORKTREE_LAUNCH_IN_FLIGHT);
+  });
+
+  // An existing session is the more specific answer, and the one that tells the reader what to do
+  // about it, so it wins over the in-flight wording when both are true.
+  it("names the session that is already there, even mid-launch", () => {
+    expect(worktreeRefusal({ attached: true }, true)).toBe(worktreeLimitReason({ attached: true }));
+    expect(worktreeRefusal({ attached: false }, false)).toBe(worktreeLimitReason({ attached: false }));
   });
 });
