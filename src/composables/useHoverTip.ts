@@ -12,7 +12,7 @@
 //
 // No delay. That is the request, and it is also why `title` could not be kept: its delay belongs to
 // the browser and is not settable from CSS or script.
-import { ref, type Ref } from "vue";
+import { computed, ref, type ComputedRef, type Ref } from "vue";
 import type { TipContent } from "../components/tipContent";
 import type { TipRect } from "./hoverTipPlacement";
 
@@ -23,6 +23,9 @@ export const HOVER_TIP_ID = "hover-tip";
 export interface OpenTip {
   content: TipContent;
   anchor: TipRect;
+  /** Which anchor this tip belongs to, so an anchor can tell whether it is the one being
+   *  described. See `useHoverTipAnchor` — it is why that is derived rather than remembered. */
+  owner: number;
 }
 
 const tip = ref<OpenTip | null>(null);
@@ -37,10 +40,10 @@ const rectOf = (el: Element): TipRect => {
  *  Empty content CLOSES rather than opening an empty box: every builder in tipContent.ts answers
  *  `[]` for a state it cannot describe (a directory that is not a repo, a work item still being
  *  fetched), so this is the ordinary case for a chip whose data has not arrived yet. */
-export function showHoverTip(event: Event, content: TipContent): boolean {
+export function showHoverTip(event: Event, content: TipContent, owner = 0): boolean {
   const el = event.currentTarget;
   const open = el instanceof Element && content.length > 0;
-  tip.value = open && el instanceof Element ? { content, anchor: rectOf(el) } : null;
+  tip.value = open && el instanceof Element ? { content, anchor: rectOf(el), owner } : null;
   return open;
 }
 
@@ -48,21 +51,23 @@ export function hideHoverTip(): void {
   tip.value = null;
 }
 
+let nextAnchorId = 0;
+
 /** Bind a chip to the shared tip. `content` is read at hover time rather than watched, because a
  *  header polls (git status, work item, context) and the value wanted is the one on screen now.
  *
- *  `described` is per-anchor so the chip can carry `aria-describedby` only while ITS tip is up —
- *  pointing at the tip while it describes a different chip would misread it to a screen reader. */
-export function useHoverTipAnchor(content: () => TipContent) {
-  const described = ref(false);
+ *  `described` is DERIVED from the shared state, not remembered locally. A local mirror goes stale
+ *  the moment anything closes the tip without telling this anchor — a scroll, a resize, a
+ *  pointerdown, all of which HoverTip.vue listens for — and the chip is then left pointing
+ *  `aria-describedby` at an element that no longer exists (Codex, this PR). Derived, one anchor at
+ *  a time is true by construction and closing needs to tell nobody. */
+export function useHoverTipAnchor(content: () => TipContent): { described: ComputedRef<boolean>; show: (event: Event) => void; hide: () => void } {
+  const id = ++nextAnchorId;
+  const described = computed(() => tip.value?.owner === id);
   const show = (event: Event): void => {
-    described.value = showHoverTip(event, content());
+    showHoverTip(event, content(), id);
   };
-  const hide = (): void => {
-    described.value = false;
-    hideHoverTip();
-  };
-  return { described, show, hide };
+  return { described, show, hide: hideHoverTip };
 }
 
 export function useHoverTipState(): { tip: Ref<OpenTip | null> } {

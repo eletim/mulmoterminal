@@ -59,6 +59,23 @@ describe("hovering a work chip", () => {
     expect(tipText()).toContain("a pull request");
   });
 
+  // Codex, on this PR. HoverTip closes on scroll / resize / pointerdown — events the chip never
+  // hears — so an anchor that REMEMBERED being described would keep pointing `aria-describedby` at
+  // an element that has been removed from the document. A screen reader then looks up nothing.
+  it.each(["scroll", "resize", "pointerdown"])("drops aria-describedby when a %s closes the tip", async (event) => {
+    mount(HoverTip);
+    const chip = mount(WorkItemChip, { props: { item: work({ phase: "ready", pr: 977 }) } });
+    const el = chip.get('[data-testid="work-chip"]');
+    await el.trigger("pointerenter");
+    expect(el.attributes("aria-describedby")).toBe(HOVER_TIP_ID);
+
+    window.dispatchEvent(new Event(event));
+    await nextTick();
+
+    expect(tipEl()).toBeNull();
+    expect(el.attributes("aria-describedby")).toBeUndefined();
+  });
+
   // Removing `title` takes the text away from assistive tech unless something replaces it.
   it("points at the tip with aria-describedby, and only while its own tip is up", async () => {
     mount(HoverTip);
