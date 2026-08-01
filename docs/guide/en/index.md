@@ -13,6 +13,8 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 > **Follow us on X** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci). That is where everything ships first, so [**follow @SingularitySoci**](https://x.com/SingularitySoci) to hear about it as it lands.
 >
 > **Something looks wrong?** Type `/mulmoterminal-bug-report` in any session. The bundled skill hears the symptom out, checks your **real** config and version to see whether it is configuration or by design, searches the existing issues — and only helps you file one if none of that explains it, with the environment collected and secrets masked.
+>
+> **Want to change something?** **Open an issue, not a pull request** — outside PRs are closed automatically, whatever their size. That is not a brush-off: the bug we cannot reach from our machines and the idea we have not had are exactly what we are short of. See [CONTRIBUTING.md](https://github.com/receptron/mulmoterminal/blob/main/CONTRIBUTING.md).
 
 **Run a whole team of AI coding agents (Claude Code / Codex) in parallel, on one board** —
 MulmoTerminal is the cockpit for that — a browser terminal, so it doesn't care which editor you use.

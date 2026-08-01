@@ -319,6 +319,7 @@ The launcher detects it and prints the exact, OS-appropriate removal command; ru
 - [Session discovery & titles](#session-discovery--titles)
 - [Project structure](#project-structure)
 - [Testing](#testing)
+- [Contributing](#contributing)
 
 ---
 
@@ -1688,3 +1689,19 @@ yarn test
 session list, the working dot, the `waiting` bold state, refetching on a pub/sub
 push, and emitting `select` on click. The pub/sub composable and `fetch` are
 mocked so the tests run without a server.
+
+---
+
+## Contributing
+
+**Please open an issue rather than a pull request.** Bug reports and feature requests are very
+welcome and are the way a change gets in; outside pull requests are closed automatically,
+whatever their size.
+
+Writing code stopped being the bottleneck — reading it did not, and a large generated diff is
+hard to audit for a reviewer who did not help shape the design. This app runs coding agents
+against your real machine and repositories, so we do not merge what we cannot fully review.
+What is scarce instead is the bug we cannot reach from here and the idea we have not had.
+
+The full policy, the issue-writing rules and the automated triage: **[CONTRIBUTING.md](CONTRIBUTING.md)**
+(bilingual).
