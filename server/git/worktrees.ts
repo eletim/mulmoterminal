@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { isStrictlyWithin } from "../infra/path-within.js";
 import { splitLines } from "../infra/split-lines.js";
-import { ISSUE_BRANCH_PREFIX } from "../../common/prPhase.js";
+import { ISSUE_BRANCH_PREFIX, issueFromAnchoredBranch } from "../../common/prPhase.js";
 
 // realpathSync.native, not the JS one: on Windows only the native call expands an
 // 8.3 short component (C:\Users\RUNNER~1 → …\runneradmin) to the long form that
@@ -213,6 +213,22 @@ export async function listWorktrees(repoDir: string): Promise<WorktreeInfo[]> {
       // a listed worktree's path matches what createWorktree (path.join) returned for it.
       .map((w) => ({ path: path.normalize(w.path), branch: w.branch, head: w.head, task: path.basename(w.path) }))
   );
+}
+
+/** The managed worktree this repo already has for `issue`, or null.
+ *
+ *  Read through `issueFromAnchoredBranch` — the same reader the PR body's `Fixes #N` and the work
+ *  chip use — so "which issue is this branch for" has ONE answer in the app rather than a second
+ *  regex that can drift from it. A uniqueness suffix does not change the number, so an
+ *  `issue/12-x-2` created before this existed is still found and reopened.
+ *
+ *  A worktree whose DIRECTORY is gone does not count. `git worktree list` keeps reporting one that
+ *  was deleted by hand until somebody prunes, and the caller starts a session in what this returns
+ *  — so trusting the list alone would spawn an agent in a directory that no longer exists, where
+ *  before it would simply have cut a new tree. */
+export async function issueWorktree(repoDir: string, issue: number): Promise<WorktreeInfo | null> {
+  const found = (await listWorktrees(repoDir)).find((w) => issueFromAnchoredBranch(w.branch) === issue && existsSync(w.path));
+  return found ?? null;
 }
 
 // Whether a worktree has uncommitted changes (so we don't delete it silently).

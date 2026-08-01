@@ -19,6 +19,7 @@ import {
   branchStem,
   worktreeDirName,
   baseStartPoint,
+  issueWorktree,
 } from "../../../server/git/worktrees";
 import { issueFromAnchoredBranch } from "../../../common/prPhase";
 
@@ -276,6 +277,44 @@ describe("git worktree lifecycle", () => {
       expect(anchored.branch).toBe("issue/1171-x-2"); // suffixed because the directory was taken
       expect(anchored.path).not.toBe(unanchored.path);
       expect(existsSync(anchored.path)).toBe(true);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // #1219: whether this issue already has a tree here. The suffix case is the one that matters —
+  // those are exactly the second worktrees this bug produced, and they must be found and reopened
+  // rather than joined by a third.
+  it.skipIf(!hasGit)(
+    "finds the worktree an issue already has, suffix and all",
+    async () => {
+      expect(await issueWorktree(repo, 1171)).toBeNull();
+
+      await createWorktree(repo, "1171 x"); // agent/1171-x — takes the directory name
+      const anchored = await createWorktree(repo, "x", 1171); // issue/1171-x-2
+      if (!anchored) throw new Error("expected a worktree");
+
+      const found = await issueWorktree(repo, 1171);
+      expect(found?.branch).toBe("issue/1171-x-2");
+      expect(found?.path).toBe(anchored.path);
+      // The unanchored `agent/1171-x` sitting beside it names no issue, so it is not an answer
+      // here — its number came from a task the user typed, not from this app anchoring anything.
+      expect(await issueWorktree(repo, 1172)).toBeNull();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // git keeps reporting a worktree whose directory was deleted by hand until somebody prunes.
+  // The caller STARTS A SESSION in what this returns, so a stale entry would put an agent in a
+  // directory that is not there — where cutting a fresh tree is what should happen.
+  it.skipIf(!hasGit)(
+    "does not answer with a worktree whose directory has been deleted",
+    async () => {
+      const wt = await createWorktree(repo, "gone", 1171);
+      if (!wt) throw new Error("expected a worktree");
+      expect(await issueWorktree(repo, 1171)).not.toBeNull();
+
+      rmDirRetrying(wt.path);
+      expect(await issueWorktree(repo, 1171)).toBeNull();
     },
     GIT_TEST_TIMEOUT_MS,
   );

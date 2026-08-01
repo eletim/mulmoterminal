@@ -76,8 +76,21 @@ Settings' `prRepos`, capped per repo, no bodies. Each repo row carries what
 `startIssueWork` then reads the issue, cuts its `issue/<N>-<slug>` worktree off the fetched
 mainline, and spawns a session there with the issue **waiting in the input box, not submitted** —
 the text was written by whoever opened the issue, so the Enter is the user's. It answers
-`{ started: true, sessionId, branch, issue: { number, title } }`; `sessionId` is the id
+`{ started: true, sessionId, branch, issue: { number, title }, outcome }`; `sessionId` is the id
 `getTerminalScreen` takes, so the phone can watch what it just started.
+
+**An issue has ONE worktree, so a second call for it does not start a second thing** (#1219).
+`outcome` says which of three happened:
+
+| `outcome` | what happened | is the issue in the input box? |
+|---|---|---|
+| `created` | the worktree was cut and a session seeded in it | yes |
+| `reused` | the worktree was already there and empty; the session is new | yes |
+| `resumed` | the worktree's own session opened — nothing was spawned | **no** — it has its own history |
+
+A fourth case is a refusal rather than an answer: the worktree's session is **open in another
+terminal**, and the sentence says to close it there first. One working tree runs one agent
+(#1207), and that rule is not suspended because the request came from the phone.
 
 **It takes no `dir`, by rule** (see "The phone never sends a path" below). The work starts in the
 clone recorded for that repo — or in the only one, when the repo has exactly one here. When

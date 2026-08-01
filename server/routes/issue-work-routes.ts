@@ -23,9 +23,9 @@ export interface IssueWorkRouteDeps {
 // a `gh --repo` argument and an issue URL.
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
-// A failure the caller can act on (pick another clone, check the issue number) is a 409; a repo
-// or directory that is not theirs to name is a 403.
-const STATUS_FOR_REASON: Record<string, number> = { "issue-not-found": 409, "worktree-failed": 500 };
+// A failure the caller can act on (pick another clone, check the issue number, close the terminal
+// holding the worktree) is a 409; a repo or directory that is not theirs to name is a 403.
+const STATUS_FOR_REASON: Record<string, number> = { "issue-not-found": 409, "worktree-busy": 409, "worktree-failed": 500 };
 
 export function mountIssueWorkRoutes(app: Express, deps: IssueWorkRouteDeps): void {
   app.post("/api/issues/start", async (req, res) => {

@@ -94,8 +94,14 @@ your answer (`repoDirs` in the config); after that it is one click. **If you hav
 repo**, the button is disabled and says so — register the directory in Settings → directory presets
 to enable it.
 
+**Pressing it again for the same issue does not make a second worktree.** One issue has one
+worktree: the existing one opens, along with the session left in it if there is one. If that
+session is still open in another terminal, nothing happens and the button says so — the same
+one-session-per-worktree rule as everywhere else.
+
 > The issue body is text written by whoever opened the issue, which is often not you. That is why it
-> is left in the input box rather than sent: the Enter is yours.
+> is left in the input box rather than sent: the Enter is yours. A **resumed** session gets nothing
+> typed into it — it already has a conversation of its own.
 
 ## Prerequisite: sign in to the GitHub CLI
 

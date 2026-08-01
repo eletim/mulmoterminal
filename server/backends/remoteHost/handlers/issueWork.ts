@@ -71,6 +71,10 @@ const startIssueWorkHandler =
       started: true,
       sessionId: result.sessionId,
       branch: result.branch ?? "",
+      // Which of the three things happened (#1219). `resumed` is the one the phone must not
+      // describe as a fresh start: that session was already working on this issue, and the issue
+      // text is NOT waiting in its box.
+      outcome: result.outcome ?? "created",
       // The title, so the phone can confirm WHICH issue it just started without a second call. The
       // body is deliberately not echoed: it is already in the session's input box, and it is the
       // one field here with no upper bound.

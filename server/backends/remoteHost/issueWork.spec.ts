@@ -105,6 +105,30 @@ describe("startIssueWork (phone)", () => {
     await expect(start({ repo: "acme/web", issue: 7 })).rejects.toThrow("could not read acme/web#7");
   });
 
+  // #1219. The phone has no launcher row to resume from, so the sentence about the worktree being
+  // held is the whole of what it can show — it has to arrive intact rather than as a generic fail.
+  it("passes on the refusal when the issue's worktree is held by another terminal", async () => {
+    issueWork.start.mockResolvedValue({
+      ok: false,
+      reason: "worktree-busy",
+      detail: "this worktree's session is open in another terminal — close it there first",
+    });
+    await expect(start({ repo: "acme/web", issue: 7 })).rejects.toThrow(/open in another terminal/);
+  });
+
+  // A second tap on an issue already being worked on opens THAT session; the phone must be able to
+  // tell, because nothing is waiting in its input box.
+  it("tells the phone which of the three things happened", async () => {
+    issueWork.start.mockResolvedValue({ ok: true, outcome: "resumed", sessionId: "s-old", branch: "issue/7-thing" });
+    await expect(start({ repo: "acme/web", issue: 7 })).resolves.toMatchObject({ outcome: "resumed", sessionId: "s-old" });
+  });
+
+  // An older result with no outcome reads as the ordinary case rather than as a missing key the
+  // phone has to special-case.
+  it("defaults the outcome to created", async () => {
+    await expect(start({ repo: "acme/web", issue: 7 })).resolves.toMatchObject({ outcome: "created" });
+  });
+
   it("passes the spawner through, so the session is the one the host started", async () => {
     issueWork.start.mockImplementation(async (_repo: string, _issue: number, _dir: string, deps: { spawnDraft: (cwd: string, draft: string) => string }) => ({
       ok: true,
