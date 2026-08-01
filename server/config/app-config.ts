@@ -31,6 +31,7 @@ import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "
 import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
+import { forgeFromRepoEntry } from "../git/forge-host.js";
 
 export interface AppConfig {
   cwdPresets: CwdPreset[];
@@ -218,19 +219,22 @@ export function sanitizeQuickCommands(input: unknown): QuickCommand[] {
 }
 
 // `owner/repo`, or `host/owner/repo` for a repository that is not on GitHub — GitLab nests groups,
-// so the tail can be longer than two segments (#981). Still a plain slug path: the value reaches a
-// CLI's `--repo`, so no spaces, flags, or anything that could be read as one. Trimmed, de-duplicated.
+// so the tail can be longer than two segments (#981).
 //
-// Which of the two forms an entry is, and therefore which forge it names, is decided by
-// `forgeFromRepoEntry` — this only says what may be stored.
-const REPO_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)+$/;
+// What may be STORED is exactly what `forgeFromRepoEntry` can READ, by calling it: two rules that
+// merely agreed today would drift, and the gap between them is a value the config accepts and the
+// CLI then aims at the wrong server (`gh --repo a/b/c` reads host `a`). The pattern is only the
+// character check the parser does not do — the value reaches a CLI's `--repo`, so no spaces, no
+// flags, nothing that could be read as one.
+const REPO_CHARS_RE = /^[A-Za-z0-9._/-]+$/;
+const isRepoEntry = (entry: string): boolean => REPO_CHARS_RE.test(entry) && forgeFromRepoEntry(entry) !== null;
 export function sanitizeRepos(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();
   for (const v of input) {
     if (typeof v !== "string") continue;
     const r = v.trim();
-    if (REPO_RE.test(r)) seen.add(r);
+    if (isRepoEntry(r)) seen.add(r);
   }
   return [...seen];
 }
@@ -244,7 +248,7 @@ export function sanitizeRepoDirs(input: unknown): Record<string, string> {
   if (!isRecord(input)) return {};
   const out: Record<string, string> = {};
   for (const [repo, dir] of Object.entries(input)) {
-    if (!REPO_RE.test(repo.trim()) || typeof dir !== "string") continue;
+    if (!isRepoEntry(repo.trim()) || typeof dir !== "string") continue;
     const resolved = dir.trim();
     if (path.isAbsolute(resolved)) out[repo.trim()] = resolved;
   }

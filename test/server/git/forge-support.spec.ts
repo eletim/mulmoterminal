@@ -28,6 +28,19 @@ describe("forgeFromRepoEntry", () => {
   it.each([["owner"], ["gitlab.com"], [""], ["   "], ["/"]])("returns null for %s", (entry) => {
     expect(forgeFromRepoEntry(entry)).toBeNull();
   });
+
+  // The regression Codex caught. `gh --repo` takes `[HOST/]OWNER/REPO`, so it reads `a/b/c` as
+  // host `a` — if this parser called the same string a GitHub path, the config and the CLI it
+  // feeds would be aiming at different servers. Ambiguous means rejected, not guessed.
+  it.each([["a/b/c"], ["owner/repo/extra"], ["a/b/c/d"]])("rejects the hostless multi-segment %s", (entry) => {
+    expect(forgeFromRepoEntry(entry)).toBeNull();
+  });
+
+  // The mirror of it: a dotted first segment is a host, so it needs a namespace AND a name after
+  // it. `foo.bar/baz` names a host with one segment, which is not a project anywhere.
+  it("rejects a host with only one segment after it", () => {
+    expect(forgeFromRepoEntry("foo.bar/baz")).toBeNull();
+  });
 });
 
 describe("repoSupport", () => {

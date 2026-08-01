@@ -96,7 +96,14 @@ describe("sanitizeRepos", () => {
   });
 
   it("still rejects anything that is not a slug path", () => {
-    expect(sanitizeRepos(["one", "has space/repo", "a//b", "/leading", "trailing/"])).toEqual([]);
+    expect(sanitizeRepos(["one", "has space/repo", "/leading", "trailing/"])).toEqual([]);
+  });
+
+  // What may be stored is exactly what the parser can read, so an ambiguous entry never reaches a
+  // CLI: `gh --repo a/b/c` would target host `a` while this side called it a GitHub path
+  // (Codex review).
+  it("rejects a hostless entry with more than two segments", () => {
+    expect(sanitizeRepos(["a/b/c", "owner/repo/extra"])).toEqual([]);
   });
 });
 

@@ -63,13 +63,22 @@ const forgeAt = (host: string, path: string): RemoteForge => {
 // names may only hold alphanumerics and hyphens, so the two forms cannot be confused.
 const HOST_SEGMENT = /\./;
 
-/** A configured repository entry as a forge, or null when it does not name a repository. */
+// Every forge here names a project as namespace + name, so one segment is never a repository — it
+// is a bare owner, or a host with nothing after it.
+const NAMESPACED = 2;
+
+/** A configured repository entry as a forge, or null when it does not UNAMBIGUOUSLY name one.
+ *
+ *  Only the two forms are accepted, and a hostless entry must be exactly `owner/repo`. `a/b/c` is
+ *  rejected rather than read as a GitHub path, because `gh --repo` takes `[HOST/]OWNER/REPO` and
+ *  would treat the same string as host `a` — so accepting it would mean this parser and the CLI it
+ *  feeds disagreeing about which server to talk to (Codex review).
+ */
 export function forgeFromRepoEntry(entry: string): RemoteForge | null {
   const segments = entry.trim().split("/").filter(Boolean);
-  const hosted = segments.length > 1 && HOST_SEGMENT.test(segments[0]);
-  const [host, path] = hosted ? [segments[0].toLowerCase(), segments.slice(1)] : [GITHUB_HOST, segments];
-  // Every forge here names a project as namespace + name, so one segment is never a repository —
-  // it is a bare owner, or a host with nothing after it.
-  const NAMESPACED = 2;
-  return path.length >= NAMESPACED ? forgeAt(host, path.join("/")) : null;
+  if (!HOST_SEGMENT.test(segments[0] ?? "")) {
+    return segments.length === NAMESPACED ? forgeAt(GITHUB_HOST, segments.join("/")) : null;
+  }
+  const path = segments.slice(1);
+  return path.length >= NAMESPACED ? forgeAt(segments[0].toLowerCase(), path.join("/")) : null;
 }
