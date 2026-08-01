@@ -4,6 +4,7 @@
 // the whole view. The pure normalize/rollup helpers are unit-tested without gh.
 import type { CiState, PrItem, RepoPrs } from "../../common/ghItems.js";
 import { runGh } from "./gh";
+import { isSupported, repoSupport } from "./forge-support.js";
 import { normalizeGhItemBase } from "./ghItem";
 import { isRecord } from "../../common/isRecord.js";
 
@@ -49,6 +50,8 @@ const GH_FIELDS = "number,title,author,updatedAt,isDraft,url,reviewDecision,stat
 export async function listPrsAcrossRepos(repos: string[]): Promise<RepoPrs[]> {
   return Promise.all(
     repos.map(async (repo): Promise<RepoPrs> => {
+      const support = repoSupport(repo);
+      if (!isSupported(support)) return { repo, error: support.error };
       // Fetch one MORE than we display so "there are more" is a real observation
       // (rows > PR_LIMIT), never a false positive at exactly PR_LIMIT.
       const res = await runGh(["pr", "list", "--repo", repo, "--state", "open", "--limit", String(PR_LIMIT + 1), "--json", GH_FIELDS]);

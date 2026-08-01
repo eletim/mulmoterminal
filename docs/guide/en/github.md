@@ -46,6 +46,11 @@ Add to **`prRepos`** (an array of `"owner/repo"` strings) in `~/.mulmoterminal/c
 }
 ```
 
+An entry may also name its host — `"gitlab.com/group/project"` — which is only useful for saying
+what a repository is: **github.com is the only forge this reads today**, and an entry on any other
+host now shows a row saying so instead of silently contributing nothing. A bare `owner/repo` means
+github.com, so nothing you already have changes.
+
 → See [Configuration](config.html) for the full key list.
 
 ## 2. Open the view and read it

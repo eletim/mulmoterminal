@@ -49,6 +49,40 @@ function webUrlFor(kind: ForgeKind, host: string, path: string): string | null {
 export function forgeOf(remoteUrl: string): RemoteForge | null {
   const ref = parseRemoteRef(remoteUrl);
   if (!ref) return null;
-  const kind = KNOWN_HOSTS[ref.host] ?? "unknown";
-  return { host: ref.host, kind, path: ref.path, webUrl: webUrlFor(kind, ref.host, ref.path) };
+  return forgeAt(ref.host, ref.path);
+}
+
+const forgeAt = (host: string, path: string): RemoteForge => {
+  const kind = KNOWN_HOSTS[host] ?? "unknown";
+  return { host, kind, path, webUrl: webUrlFor(kind, host, path) };
+};
+
+// A `prRepos` entry names a repository directly rather than as a URL, and the host is optional:
+// `owner/repo` is GitHub (which is what every existing config holds) and `gitlab.com/group/project`
+// says otherwise. A leading segment containing a DOT is the host — GitHub user and organisation
+// names may only hold alphanumerics and hyphens, so the two forms cannot be confused.
+const HOST_SEGMENT = /\./;
+
+// Every forge here names a project as namespace + name, so one segment is never a repository — it
+// is a bare owner, or a host with nothing after it.
+const NAMESPACED = 2;
+
+/** A configured repository entry as a forge, or null when it does not UNAMBIGUOUSLY name one.
+ *
+ *  Only the two forms are accepted, and a hostless entry must be exactly `owner/repo`. `a/b/c` is
+ *  rejected rather than read as a GitHub path, because `gh --repo` takes `[HOST/]OWNER/REPO` and
+ *  would treat the same string as host `a` — so accepting it would mean this parser and the CLI it
+ *  feeds disagreeing about which server to talk to (Codex review).
+ */
+export function forgeFromRepoEntry(entry: string): RemoteForge | null {
+  const segments = entry.trim().split("/");
+  // An empty segment is a doubled, leading or trailing slash. Dropping them here would let
+  // `owner//repo` parse as `owner/repo` while the entry is STORED verbatim and handed to
+  // `gh --repo` with the extra slash still in it, which is a parse error there (Codex review).
+  if (segments.some((segment) => segment === "")) return null;
+  if (!HOST_SEGMENT.test(segments[0])) {
+    return segments.length === NAMESPACED ? forgeAt(GITHUB_HOST, segments.join("/")) : null;
+  }
+  const path = segments.slice(1);
+  return path.length >= NAMESPACED ? forgeAt(segments[0].toLowerCase(), path.join("/")) : null;
 }
