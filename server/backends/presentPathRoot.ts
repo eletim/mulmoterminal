@@ -112,7 +112,7 @@ export function mountPresentPathRoot(app: Express, deps: { cwdForSession: (id: s
 
     const rewritten = absolutizePresentPath(req.body, cwd, extensions);
     if (rewritten !== req.body && toolName === "presentHtml") {
-      const absPath = (rewritten as { path: string }).path;
+      const absPath = isRecord(rewritten) && typeof rewritten.path === "string" ? rewritten.path : "";
       // The plugin's own gate, asked here rather than re-implemented — a path it will
       // refuse deserves the reason, not `invalid path`.
       if (!isPresentableHtmlPath(absPath)) return res.status(400).json({ error: undisplayableHtmlPath(absPath) });

@@ -40,7 +40,8 @@ export function loadScripts(workspaceDir: string): ScriptDef[] {
   try {
     const file = path.join(workspaceDir, SCRIPTS_FILE);
     if (!existsSync(file)) return [];
-    return sanitizeScripts((readJsonFile(file) as { scripts?: unknown } | null)?.scripts);
+    const parsed: unknown = readJsonFile(file);
+    return sanitizeScripts(isRecord(parsed) ? parsed.scripts : undefined);
   } catch {
     return [];
   }

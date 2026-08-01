@@ -28,6 +28,7 @@ import {
 } from "@mulmoclaude/mulmoscript-plugin/server";
 import type { SaveMulmoScriptArgs } from "@mulmoclaude/mulmoscript-plugin";
 import { artifactsFileOps } from "./artifacts.js";
+import { isRecord } from "../../common/isRecord.js";
 
 /** Pubsub channel the extracted View subscribes to for generation progress —
  *  `plugin:<scope>:<event>`, matching the client runtime's channel formula
@@ -162,7 +163,7 @@ export function mountMulmoScriptDispatchRoute(app: Express): void {
       res.status(503).json({ error: "mulmoScript backend not initialised" });
       return;
     }
-    const body = (req.body ?? {}) as Record<string, unknown>;
+    const body: Record<string, unknown> = isRecord(req.body) ? req.body : {};
     try {
       if (typeof body.kind === "string") {
         res.json(await dispatchHandler(body));

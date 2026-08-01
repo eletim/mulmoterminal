@@ -113,6 +113,6 @@ async function restoreMark(dir: string, file: string): Promise<void> {
  *  marks it finds stale, an import-time run would reach into the real home from every spec that
  *  loads this module. */
 export async function hydrateClearedTranscripts(dir: string = CLEARED_DIR): Promise<void> {
-  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  const files = await fs.readdir(dir).catch((): string[] => []);
   await Promise.all(files.map((file) => restoreMark(dir, file)));
 }

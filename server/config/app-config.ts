@@ -398,7 +398,7 @@ export function sanitizeProviders(input: unknown): Provider[] {
 // Sanitize a parsed config object into an AppConfig. Pure; `raw` is whatever JSON.parse
 // produced (any shape), so every field is defended by its own sanitizer.
 function sanitizeAppConfig(raw: unknown): AppConfig {
-  const o = (raw ?? {}) as Record<string, unknown>;
+  const o: Record<string, unknown> = isRecord(raw) ? raw : {};
   return {
     cwdPresets: sanitizePresets(o.cwdPresets),
     soundFile: sanitizeSoundFile(o.soundFile),
