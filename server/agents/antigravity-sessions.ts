@@ -14,6 +14,7 @@ import { antigravityConversationExists } from "./antigravity-session.js";
 import { cleanTitle, parseJsonRecord, readTranscriptHead } from "./transcript-head.js";
 
 const HEAD_BYTES = 64 * 1024; // the first user turn is step 0, so the head is all a title needs
+const SCAN_LIMIT = 200; // newest conversations to touch the filesystem for per request
 const DEFAULT_TITLE = "Antigravity session";
 
 // agy wraps the prompt and appends its own blocks, so the raw `content` is not a title:
@@ -76,6 +77,12 @@ function newestPerConversation(records: Iterable<AntigravityConversation>, cwd: 
  * still there: agy creates the directory and the transcript together on the first user input, so an
  * unreadable transcript means the format moved — and a listing that silently returns nothing is worse
  * than one showing a resumable row under a default name.
+ *
+ * `startedAt` picks the candidates and the transcript's mtime then orders them, so a conversation
+ * started long ago but resumed yesterday can fall outside the window once a single directory holds
+ * more than `SCAN_LIMIT` of them. That is the trade codex makes too (it bounds by the timestamp in
+ * the rollout filename): nothing here can order by recency without reading, and the log grows
+ * forever, so an unbounded listing would do unbounded filesystem work on every session-list refresh.
  */
 export async function listAntigravitySessions(
   root: string,
@@ -83,7 +90,10 @@ export async function listAntigravitySessions(
   cwd: string,
   limit: number,
 ): Promise<AntigravitySessionSummary[]> {
-  const live = newestPerConversation(records, cwd).filter((r) => antigravityConversationExists(root, r.conversationId));
+  const live = newestPerConversation(records, cwd)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, SCAN_LIMIT)
+    .filter((r) => antigravityConversationExists(root, r.conversationId));
   const summaries = await Promise.all(
     live.map(async (record) => {
       const summary = await readTranscriptSummary(antigravityTranscriptPath(root, record.conversationId));
