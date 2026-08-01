@@ -7,13 +7,6 @@ import { forgeOf, type RemoteForge } from "./forge-host.js";
 // on any other host has no GitHub URL, which is exactly what they treat as "not a GitHub repo".
 const githubUrlOf = (forge: RemoteForge | null): string | null => (forge?.kind === "github" ? forge.webUrl : null);
 
-// Which host a remote points at — and that a GitHub project is exactly `owner/repo` while a GitLab
-// one nests — lives in forge-host.ts (#981 step 1). This stays as the GitHub-shaped answer its six
-// callers already read, so none of them change.
-export function parseGithubWebUrl(remoteUrl: string): string | null {
-  return githubUrlOf(forgeOf(remoteUrl));
-}
-
 // Read the dir's `origin` remote. Null when the dir isn't a git repo, has no origin, or git is
 // missing — the three ways there is no remote to speak of, which are not the same as a remote we
 // do not support.

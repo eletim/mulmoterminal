@@ -11,11 +11,11 @@ import { getHeaderConfig, getIssueWorkComments } from "../config/config-routes.j
 import { publicDirConfig, dirSoundFor, loadDirConfig, dirConfigDetail, MISSING_DIR_CONFIG_DETAIL } from "../config/dir-config.js";
 import { readSoundPreset } from "../config/sound-presets.js";
 import { isNotifyKind } from "../../common/notifyKinds.js";
-import { buildHeaderContext, loadHeaderConfig, repoFromWebUrl } from "../config/header-context.js";
+import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.js";
 import { headerHasPrButton, resolveHeader } from "../config/header-resolve.js";
 import { loadScripts } from "../files/scripts.js";
 import { gitStatus } from "../git/git-status.js";
-import { resolveGithubUrl } from "../git/gitRemote.js";
+import { missingRepoReason, repoForDir } from "../git/forge-support.js";
 import { phaseForRepoBranch } from "../git/prPhase.js";
 import { EMPTY_WORK_ITEM, isIssueNumber } from "../../common/prPhase.js";
 import { ensureWorkComment } from "../git/work-comment.js";
@@ -55,11 +55,14 @@ async function workCommentHandler(req: Request, res: Response): Promise<void> {
     res.json({ posted: false, reason: "no-cwd" });
     return;
   }
-  const repo = repoFromWebUrl(await resolveGithubUrl(cwd));
-  if (!repo) {
-    res.json({ posted: false, reason: "no-repo" });
+  const found = await repoForDir(cwd);
+  // The reason is split so the answer is not a lie: a repository on a forge this app cannot act on
+  // is not the same as a directory with no remote, and both used to report `no-repo` (#981).
+  if (!found?.repo) {
+    res.json({ posted: false, reason: missingRepoReason(found) });
     return;
   }
+  const repo = found.repo;
   const result = await ensureWorkComment(repo, issue, kind, workCommentDirLabel(cwd), positiveInt(body.pr), { closeIssue: kind === "merged" });
   res.json(result);
 }
@@ -68,7 +71,7 @@ async function prPhaseHandler(req: Request, res: Response): Promise<void> {
   const cwd = workspaceForRoute(req.query.cwd, res);
   if (cwd === null) return;
   const status = await gitStatus(cwd);
-  const repo = status.repo && status.branch ? repoFromWebUrl(await resolveGithubUrl(cwd)) : null;
+  const repo = status.repo && status.branch ? ((await repoForDir(cwd))?.repo ?? null) : null;
   // The same shape as the resolved path, not a two-field subset: a dir with no GitHub remote
   // is a normal answer, and a route that changes its response shape by branch is a trap for
   // the next reader of the contract (Codex review).
