@@ -1,7 +1,7 @@
 // Whether a configured repo can be listed, and what the row says when it cannot. The message is
 // the feature: an unsupported forge used to produce an empty section with no explanation (#981).
 import { describe, it, expect } from "vitest";
-import { repoSupport, isSupported, repoForRemote, repoForDir } from "../../../server/git/forge-support.js";
+import { repoSupport, isSupported, repoForRemote, repoForDir, missingRepoReason } from "../../../server/git/forge-support.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -128,5 +128,25 @@ describe("repoForDir", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// Why a directory yielded nothing to act on. `repo` being null has two causes, and calling both
+// "unsupported forge" was the same collapsing this module exists to undo (Codex review).
+describe("missingRepoReason", () => {
+  it("blames the forge only when the forge is the problem", () => {
+    expect(missingRepoReason(repoForRemote("git@gitlab.com:group/project.git"))).toBe("unsupported-forge");
+  });
+
+  // Supported forge, unusable path: the host is fine, the remote just does not name a project.
+  it("does not blame the forge for a GitHub remote that names no project", () => {
+    const found = repoForRemote("https://github.com/onlyone");
+    expect(found?.forge.kind).toBe("github");
+    expect(found?.repo).toBeNull();
+    expect(missingRepoReason(found)).toBe("no-repo");
+  });
+
+  it("says no-repo when there is no remote at all", () => {
+    expect(missingRepoReason(null)).toBe("no-repo");
   });
 });

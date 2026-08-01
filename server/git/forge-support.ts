@@ -52,3 +52,12 @@ export const repoForRemote = (remoteUrl: string): DirRepo | null => dirRepo(forg
  *  "a remote we do not support" — and the callers then report the second as the first.
  */
 export const repoForDir = async (dir: string): Promise<DirRepo | null> => dirRepo(await resolveRemoteForge(dir));
+
+/** Why a directory named no repository this app can act on.
+ *
+ *  Two answers, not one: `repo` is null both for a forge we cannot act on and for a remote on a
+ *  forge we CAN that does not name a project (`github.com/onlyone`). Collapsing them is the exact
+ *  mistake this module exists to undo, and the second is not the host's fault (Codex review).
+ */
+export const missingRepoReason = (found: DirRepo | null): "no-repo" | "unsupported-forge" =>
+  found && found.forge.kind !== "github" ? "unsupported-forge" : "no-repo";

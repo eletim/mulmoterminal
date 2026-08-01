@@ -15,7 +15,7 @@ import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.j
 import { headerHasPrButton, resolveHeader } from "../config/header-resolve.js";
 import { loadScripts } from "../files/scripts.js";
 import { gitStatus } from "../git/git-status.js";
-import { repoForDir } from "../git/forge-support.js";
+import { missingRepoReason, repoForDir } from "../git/forge-support.js";
 import { phaseForRepoBranch } from "../git/prPhase.js";
 import { EMPTY_WORK_ITEM, isIssueNumber } from "../../common/prPhase.js";
 import { ensureWorkComment } from "../git/work-comment.js";
@@ -56,14 +56,10 @@ async function workCommentHandler(req: Request, res: Response): Promise<void> {
     return;
   }
   const found = await repoForDir(cwd);
-  // Separated so the answer is not a lie: a repository on a forge this app cannot act on is not
-  // the same as a directory with no remote, and both used to report `no-repo` (#981).
-  if (!found) {
-    res.json({ posted: false, reason: "no-repo" });
-    return;
-  }
-  if (!found.repo) {
-    res.json({ posted: false, reason: "unsupported-forge" });
+  // The reason is split so the answer is not a lie: a repository on a forge this app cannot act on
+  // is not the same as a directory with no remote, and both used to report `no-repo` (#981).
+  if (!found?.repo) {
+    res.json({ posted: false, reason: missingRepoReason(found) });
     return;
   }
   const repo = found.repo;
