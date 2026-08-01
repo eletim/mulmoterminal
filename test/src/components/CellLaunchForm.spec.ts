@@ -167,6 +167,17 @@ describe("a worktree reached without its row", () => {
     expect(w.emitted("update:dir")?.at(-1)).toEqual(["/wt/fix-login"]);
   });
 
+  // The refused chip is the one case a screen-reader user cannot fall back on the greyed-out field
+  // below to explain itself, so the reason has to be on the control (CodeRabbit).
+  it("tells a screen reader why the chip will not launch", async () => {
+    mockFetch([taken()]);
+    const w = mountForm([], { presets: [{ label: "fix-login", path: "/wt/fix-login" }] });
+    await flushPromises();
+    const label = w.find('[data-testid="cell-chip-launch"]').attributes("aria-label") ?? "";
+    expect(label).toContain("fix-login");
+    expect(label).toContain("open in another terminal");
+  });
+
   it("launches from a chip on an ordinary directory", async () => {
     mockFetch([taken()]);
     const w = mountForm([], { presets: [{ label: "repo", path: "/repo" }] });

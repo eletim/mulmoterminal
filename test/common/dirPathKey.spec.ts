@@ -26,6 +26,20 @@ describe("dirPathKey", () => {
     expect(isSameDirPath("C:\\wt\\foo", "C:/wt/foo")).toBe(true);
   });
 
+  // Raised by CodeRabbit: `C:foo` is relative to the current directory ON drive C, not `C:\foo`,
+  // and `\server\share` is drive-relative rather than the UNC `\\server\share`. Folding either
+  // pair together would let one directory grey out a control belonging to another.
+  it("keeps a drive-relative path apart from a rooted one", () => {
+    expect(isSameDirPath("C:foo", "C:/foo")).toBe(false);
+    expect(dirPathKey("C:foo")).toBe("C:foo");
+  });
+
+  it("keeps a UNC share apart from a drive-relative path of the same name", () => {
+    expect(isSameDirPath("\\\\server\\share", "\\server\\share")).toBe(false);
+    expect(dirPathKey("\\\\server\\share\\")).toBe("//server/share");
+    expect(isSameDirPath("\\\\server\\share\\wt\\.", "//server/share/wt")).toBe(true);
+  });
+
   // `..` past the root has nowhere to go. Letting it eat the root would turn an absolute path into
   // a relative one, which could then match a different directory entirely.
   it("cannot climb above a root", () => {

@@ -214,6 +214,16 @@ const chipLaunchTitle = (p: CwdPreset): string => {
   return isCwdRunning(p.path) ? `${p.path} — a session is already running here in another terminal` : `Launch a new terminal in ${p.path} now`;
 };
 
+// The same three states as the hover, said with the LABEL rather than the path — the hover can
+// afford a full path and a screen reader cannot. It has to carry the refusal too, or the one user
+// who cannot see the greyed-out field below is told the click launches a terminal when it does not
+// (raised by CodeRabbit on #1208).
+const chipLaunchLabel = (p: CwdPreset): string => {
+  const taken = takenWorktreeAt(p.path);
+  if (taken) return `${p.label} — ${taken}`;
+  return isCwdRunning(p.path) ? `${p.label} — a session is already running here in another terminal` : `Launch a new terminal in ${p.label} now`;
+};
+
 // Launch a configured program (shell/codex/…) in this cell's chosen dir. The parent turns the
 // empty cell into a persistent launcher cell (index is the server allowlist position).
 function launchProgram(index: number): void {
@@ -369,7 +379,7 @@ async function removeWorktree(w: Worktree): Promise<void> {
           data-testid="cell-chip-launch"
           class="inline-flex cursor-pointer items-center border-0 border-l border-l-border bg-transparent px-[5px] text-secondary hover:bg-hover hover:text-fg"
           :title="chipLaunchTitle(p)"
-          :aria-label="isCwdRunning(p.path) ? `${p.label} — a session is already running here in another terminal` : `Launch a new terminal in ${p.label} now`"
+          :aria-label="chipLaunchLabel(p)"
           @click="selectPreset(p)"
         >
           <span class="material-symbols-outlined text-[14px]" aria-hidden="true">play_arrow</span>

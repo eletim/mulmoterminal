@@ -10,10 +10,19 @@
 
 const SEPARATORS = /[/\\]+/;
 
-/** Windows drive/UNC prefixes and the POSIX root, which the segment walk below must not eat. */
+/**
+ * The prefix the segment walk below must not eat: a Windows drive root, a UNC share root, or the
+ * POSIX root. Anything else is relative and has no root at all.
+ *
+ * Each of the three is only matched in its ROOTED spelling, so a form that means something else
+ * cannot borrow its key (raised by CodeRabbit on #1208): `C:foo` is relative to the current
+ * directory ON drive C rather than `C:\foo`, and `\server\share` is a drive-relative path rather
+ * than the UNC `\\server\share`. Folding either pair together would let one directory grey out a
+ * control belonging to another.
+ */
 const rootOf = (path: string): string => {
-  const drive = /^[a-zA-Z]:[/\\]?/.exec(path);
-  if (drive) return drive[0].replace(/[/\\]$/, "") + "/";
+  if (/^[a-zA-Z]:[/\\]/.test(path)) return `${path.slice(0, 2)}/`;
+  if (/^[/\\]{2}/.test(path)) return "//";
   return SEPARATORS.test(path.charAt(0)) ? "/" : "";
 };
 
