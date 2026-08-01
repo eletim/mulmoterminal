@@ -40,6 +40,8 @@ describe("startIssueWork", () => {
       // No worktree for this issue yet, and nothing occupying one — the ordinary first start.
       findWorktree: () => Promise.resolve(null),
       occupancyOf: () => Promise.resolve({ isWorktree: true, session: null }),
+      // Nobody else on their way into the directory. The real one is shared with every launch path.
+      claim: () => ({ contended: false, release: () => {} }),
       spawnDraft,
       ...over,
     };
@@ -104,12 +106,80 @@ describe("startIssueWork", () => {
       expect(spawnDraft).not.toHaveBeenCalled();
     });
 
+    // Codex, on this PR. The occupancy read is asynchronous, so a launch already on its way into
+    // this worktree — a grid cell, a launcher row — is not visible to it yet: both would find the
+    // tree free and both would spawn. The claim is the shared mechanism those paths already stake.
+    it("refuses while another launch is already on its way into that worktree", async () => {
+      const release = vi.fn();
+      const occupancyOf = vi.fn(() => Promise.resolve({ isWorktree: true, session: null }));
+      const result = await startIssueWork(
+        "acme/web",
+        1173,
+        "/w/repo",
+        deps({ findWorktree: () => Promise.resolve(existing), occupancyOf, claim: () => ({ contended: true, release }) }),
+      );
+      expect(result).toMatchObject({ ok: false, reason: "worktree-busy" });
+      expect(spawnDraft).not.toHaveBeenCalled();
+      // Claimed BEFORE the read, or the race it exists for is still open.
+      expect(occupancyOf).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalled();
+    });
+
+    it("releases the claim whichever way it goes", async () => {
+      const release = vi.fn();
+      await startIssueWork("acme/web", 1173, "/w/repo", deps({ findWorktree: () => Promise.resolve(existing), claim: () => ({ contended: false, release }) }));
+      expect(release).toHaveBeenCalled();
+    });
+
     // A worktree git reports without a branch (detached) must not put `branch: undefined` on the
     // result: it crosses the phone's channel, which rejects the whole reply over one such key.
     it("leaves the branch out rather than sending an empty one", async () => {
       const result = await startIssueWork("acme/web", 1173, "/w/repo", deps({ findWorktree: () => Promise.resolve({ path: "/wt/x", branch: null }) }));
       expect(result.ok).toBe(true);
       expect(Object.keys(result)).not.toContain("branch");
+    });
+  });
+
+  // The directory claim cannot cover this one: there is no directory yet. Two starts for one issue
+  // — a second tab, the phone while the desktop is mid-start — would each look, each find nothing,
+  // and each cut a tree, arriving at the very thing this change prevents by another road.
+  describe("two starts for one issue at the same time", () => {
+    it("cuts one worktree, and the second start finds it", async () => {
+      const trees: { path: string; branch: string }[] = [];
+      const makeWorktree = vi.fn(async () => {
+        // A real `worktree add` takes long enough for the other start to get all the way here.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const tree = { path: "/wt/1173-start", branch: "issue/1173-start" };
+        trees.push(tree);
+        return tree;
+      });
+      const findWorktree = vi.fn(async () => trees[0] ?? null);
+
+      const [first, second] = await Promise.all([
+        startIssueWork("acme/web", 1173, "/w/repo", deps({ makeWorktree, findWorktree })),
+        startIssueWork("acme/web", 1173, "/w/repo", deps({ makeWorktree, findWorktree })),
+      ]);
+
+      expect(makeWorktree).toHaveBeenCalledTimes(1);
+      expect(trees).toHaveLength(1);
+      expect([first.outcome, second.outcome]).toEqual(["created", "reused"]);
+    });
+
+    it("does not serialize starts for different issues", async () => {
+      let running = 0;
+      let both = false;
+      const makeWorktree = vi.fn(async () => {
+        running += 1;
+        both ||= running > 1;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running -= 1;
+        return { path: "/wt/x", branch: "issue/x" };
+      });
+      await Promise.all([
+        startIssueWork("acme/web", 1173, "/w/repo", deps({ makeWorktree })),
+        startIssueWork("acme/web", 1174, "/w/repo", deps({ makeWorktree })),
+      ]);
+      expect(both).toBe(true);
     });
   });
 });
