@@ -7,10 +7,14 @@
 // not one encoded here. It cannot offer the menu (the phone never picks a directory, see
 // docs/remote-host-protocol.md), so it refuses `choose` where the desktop opens it.
 import type { RepoDirs } from "./repoDirs";
+import { GITHUB_HOST, parseRepoEntry } from "./repoEntry";
 
 export type IssueStartPlan =
   /** No clone of this repo on this machine, so there is nowhere for the work to happen. */
   | { kind: "no-clone" }
+  /** The repo is on a forge whose issues can be LISTED but not started from (#981). Distinct from
+   *  `no-clone`, which would send the reader off to add a clone that would not help. */
+  | { kind: "unsupported-forge"; host: string }
   /** Exactly one answer — either recorded, or the only candidate. One click starts. */
   | { kind: "ready"; dir: string }
   /** Several clones and nothing recorded yet: the user picks, and the pick is remembered. */
@@ -20,7 +24,14 @@ export type IssueStartPlan =
  *  can be given a sentence rather than a nullable one — see the phone's refusal (#1184). */
 export type BlockedIssueStartPlan = Exclude<IssueStartPlan, { kind: "ready" }>;
 
-export function issueStartPlan(entry: RepoDirs | undefined): IssueStartPlan {
+// `repo` is REQUIRED, not optional, even though only one branch reads it: a caller that omitted it
+// would get `no-clone` for a GitLab repo, which is the exact wrong answer this parameter was added
+// to fix. Making the compiler ask for it is what stops that coming back.
+export function issueStartPlan(entry: RepoDirs | undefined, repo: string): IssueStartPlan {
+  // Checked before the clone list, because a GitLab repo has no entry there and would otherwise
+  // read as "no clone" — a reason that is not true and points at the wrong fix.
+  const parsed = parseRepoEntry(repo);
+  if (parsed && parsed.host !== GITHUB_HOST) return { kind: "unsupported-forge", host: parsed.host };
   const dirs = entry?.dirs ?? [];
   if (dirs.length === 0) return { kind: "no-clone" };
   // A recording wins even when the repo has one clone: it is still the same answer, and treating
@@ -33,5 +44,6 @@ export function issueStartPlan(entry: RepoDirs | undefined): IssueStartPlan {
 
 /** Why the control is disabled, for the row's title text. Null when it is not disabled. */
 export function issueStartBlockedReason(plan: IssueStartPlan, repo: string): string | null {
+  if (plan.kind === "unsupported-forge") return `Starting work is github.com only — ${plan.host} issues are listed here, not started from`;
   return plan.kind === "no-clone" ? `No local clone of ${repo} — add one to your directory presets to start work here` : null;
 }

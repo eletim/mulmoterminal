@@ -11,6 +11,7 @@ import { placeSpawnedChat } from "./useSpawnedChat";
 import { issueStartPlan, type IssueStartPlan } from "../../common/issueStartPlan";
 import { isRecord } from "../../common/isRecord";
 import { parseRepoDirsResponse, type RepoDirs } from "../../common/repoDirs";
+import { canonicalRepo } from "../../common/repoEntry";
 
 // Loaded once per view open, like the PR and issue lists beside it: resolving a directory's remote
 // is a `git` call per saved directory, and the answer only changes when the user edits Settings.
@@ -35,11 +36,13 @@ export async function loadRepoDirs(): Promise<void> {
 // GitHub treats `Owner/Repo` and `owner/repo` as one repository, and the two spellings arrive from
 // different places: `prRepos` is typed by hand, the server's side comes from a remote URL.
 export function clonesFor(repo: string): RepoDirs | undefined {
-  const wanted = repo.toLowerCase();
-  return repoDirs.value.find((r) => r.repo.toLowerCase() === wanted);
+  // Compared on the canonical identity, not the raw entry: `/api/repo-dirs` keys by the name it
+  // reads off a clone's remote, which never carries the host a configured entry may spell out.
+  const wanted = canonicalRepo(repo).toLowerCase();
+  return repoDirs.value.find((r) => canonicalRepo(r.repo).toLowerCase() === wanted);
 }
 
-export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo));
+export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo), repo);
 
 /** Adopt a chosen clone into the loaded answer, and return the name to record it under.
  *
