@@ -68,14 +68,21 @@ export interface SessionMetaView {
 
 export const EMPTY_SESSION_META: SessionMetaView = { lastPrompt: null, aiTitle: null, lastResponse: null, memo: null, workPhase: null };
 
-// `workPhase` is typed unknown because it arrives as untrusted JSON — isWorkPhase is the
-// only thing that may decide it is a phase.
-export function mergeSessionMeta(previous: SessionMetaView, fetched: Omit<Partial<SessionMetaView>, "workPhase"> & { workPhase?: unknown }): SessionMetaView {
+// `string | null` as it arrives in untrusted JSON. Anything else reads as ABSENT, so a field the
+// server sent as a number leaves the previous value standing rather than replacing it with junk.
+const stringOrNull = (value: unknown): string | null | undefined => (typeof value === "string" || value === null ? value : undefined);
+
+// EVERY field arrives as untrusted JSON, so every one is decided by a check here. `workPhase` was
+// already typed `unknown` for exactly that reason (isWorkPhase is the only thing that may call it
+// a phase); the other four said `string | null` and were taken on trust from the same response.
+export function mergeSessionMeta(previous: SessionMetaView, fetched: Record<string, unknown>): SessionMetaView {
+  const aiTitle = stringOrNull(fetched.aiTitle);
+  const memo = stringOrNull(fetched.memo);
   return {
-    lastPrompt: fetched.lastPrompt ?? previous.lastPrompt,
-    aiTitle: fetched.aiTitle !== undefined ? fetched.aiTitle : previous.aiTitle,
-    lastResponse: fetched.lastResponse ?? previous.lastResponse,
-    memo: fetched.memo !== undefined ? fetched.memo : previous.memo,
+    lastPrompt: stringOrNull(fetched.lastPrompt) ?? previous.lastPrompt,
+    aiTitle: aiTitle !== undefined ? aiTitle : previous.aiTitle,
+    lastResponse: stringOrNull(fetched.lastResponse) ?? previous.lastResponse,
+    memo: memo !== undefined ? memo : previous.memo,
     workPhase: isWorkPhase(fetched.workPhase) ? fetched.workPhase : null,
   };
 }

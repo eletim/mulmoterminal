@@ -66,6 +66,7 @@ import { router } from "../router";
 import { usePubSub } from "../composables/usePubSub";
 import type { LaunchAgent } from "../../common/launchAgent";
 import type { LaunchPick } from "./launchers";
+import { isRecord } from "../../common/isRecord";
 
 // The multi-terminal grid view, shown at /terminals. Leaving the grid is just a
 // route push from the shared toolbar (Chat / Collections / a favorite), so there's
@@ -164,9 +165,9 @@ async function seedMeta(id: string, cwd: string | null) {
     const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
     const res = await fetch(`/api/session/${id}${query}`);
     if (!res.ok || latestMetaSeed.get(id) !== seed) return;
-    const d = (await res.json()) as Partial<SessionMetaView>;
+    const d: unknown = await res.json();
     if (latestMetaSeed.get(id) !== seed) return;
-    sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, d));
+    sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, isRecord(d) ? d : {}));
   } catch {
     // best-effort — the next poll retries
   }
@@ -183,12 +184,13 @@ async function seedPhase(cwd: string) {
   try {
     const res = await fetch(`/api/pr-phase?cwd=${encodeURIComponent(cwd)}`);
     if (!res.ok || latestPhaseSeed.get(cwd) !== seed) return;
-    const d = (await res.json()) as { phase?: unknown };
+    const d: unknown = await res.json();
     if (latestPhaseSeed.get(cwd) !== seed) return;
-    if (isPrPhase(d.phase)) {
+    const phase = isRecord(d) ? d.phase : undefined;
+    if (isPrPhase(phase)) {
       // Before the set, so the previous value is still the one to compare against.
-      if (becameCiFailing(phaseByCwd.get(cwd), d.phase)) notifySound("pr-ci-failed", cwd);
-      phaseByCwd.set(cwd, d.phase);
+      if (becameCiFailing(phaseByCwd.get(cwd), phase)) notifySound("pr-ci-failed", cwd);
+      phaseByCwd.set(cwd, phase);
     }
   } catch {
     // best-effort — the next poll retries
@@ -219,8 +221,11 @@ const refreshAllChrome = () => {
 // A user editing .mulmoterminal.json is announced on the dir-config channel; re-fetch that
 // directory's chrome so an open roster recolours without a reload. The unsubscribe is kept
 // and called on unmount so a remounted grid doesn't stack duplicate handlers.
-const cwdOf = (data: unknown): string | null =>
-  typeof data === "object" && data !== null && typeof (data as { cwd?: unknown }).cwd === "string" ? (data as { cwd: string }).cwd : null;
+// A cell with no PR yet. A named constant rather than a literal assertion at the call site:
+// the annotation is checked, `"none" as PrPhase` was not.
+const NO_PR_PHASE: PrPhase = "none";
+
+const cwdOf = (data: unknown): string | null => (isRecord(data) && typeof data.cwd === "string" ? data.cwd : null);
 const unsubscribeDirConfig = usePubSub().subscribe("dir-config", (data) => {
   const cwd = cwdOf(data);
   if (cwd) {
@@ -324,7 +329,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     prompt: meta.lastPrompt,
     response: meta.lastResponse,
     fallback: fallbackLabel(c),
-    phase: (c.cwd ? phaseByCwd.get(c.cwd) : undefined) ?? ("none" as PrPhase),
+    phase: (c.cwd ? phaseByCwd.get(c.cwd) : undefined) ?? NO_PR_PHASE,
     workPhase: meta.workPhase,
     headerColor: chrome.headerColor,
     headerTextColor: chrome.headerTextColor,
@@ -589,9 +594,10 @@ async function adoptUnplacedSessions(): Promise<void> {
   try {
     const res = await fetch("/api/sessions/unplaced");
     if (!res.ok) return;
-    const body = (await res.json()) as { sessions?: { id?: unknown; agent?: unknown; cwd?: unknown }[] };
-    for (const row of body.sessions ?? []) {
-      if (typeof row?.id !== "string" || !row.id) continue;
+    const body: unknown = await res.json();
+    const rows = isRecord(body) && Array.isArray(body.sessions) ? body.sessions : [];
+    for (const row of rows) {
+      if (!isRecord(row) || typeof row.id !== "string" || !row.id) continue;
       // Already here: the server clears the mark when a cell attaches, but this tab may still be
       // holding a cell whose attach has not landed yet — and adopting twice would give one session
       // two cells fighting over the same socket.
@@ -639,7 +645,7 @@ watch(
 // of them would refetch many times a turn to learn nothing; the spawn is the one moment a session
 // can become unplaced. A create that arrives while the user is elsewhere in the app needs nothing
 // extra — the watcher adopts it on the way back.
-const isSessionCreated = (data: unknown): boolean => typeof data === "object" && data !== null && (data as { event?: unknown }).event === "created";
+const isSessionCreated = (data: unknown): boolean => isRecord(data) && data.event === "created";
 const { subscribe: subscribeSessions, onReconnect } = usePubSub();
 const unsubscribeSessions = subscribeSessions("sessions", (data) => {
   if (isSessionCreated(data) && onTerminalsRoute()) void adoptUnplacedSessions();

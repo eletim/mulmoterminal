@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TOOL_GROUPS, toolGroupServerId, type ToolGroup } from "../../common/toolGroups.js";
+import { isRecord } from "../../common/isRecord.js";
 
 /** agy's workspace customization dir. `.agent`/`_agents`/`_agent` are also accepted by agy; we write one. */
 const CUSTOMIZATION_DIR = ".agents";
@@ -67,9 +68,9 @@ function readMcpServers(file: string): Record<string, unknown> | null {
   if (!existsSync(file)) return {};
   try {
     const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const servers = Object.prototype.hasOwnProperty.call(parsed, "mcpServers") ? (parsed as Record<string, unknown>).mcpServers : {};
-    return servers && typeof servers === "object" && !Array.isArray(servers) ? { ...(servers as Record<string, unknown>) } : {};
+    if (!isRecord(parsed)) return null;
+    const servers = Object.prototype.hasOwnProperty.call(parsed, "mcpServers") ? parsed.mcpServers : {};
+    return isRecord(servers) ? { ...servers } : {};
   } catch {
     return null; // present but not JSON — someone else's file, and rewriting it would lose it
   }

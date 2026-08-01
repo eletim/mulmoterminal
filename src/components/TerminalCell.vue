@@ -53,6 +53,7 @@ import { handoffTargets, pullLastTurn, type HandoffTarget } from "../composables
 import { runOneExchange, liveCrossTalkDeps } from "../composables/useCrossTalk";
 import { outcomeMessage } from "../composables/exchangeRules";
 import { worktreeFailureMessage } from "./cellChromeRules";
+import { isRecord } from "../../common/isRecord";
 
 // How long a handoff failure stays on the cell before it clears itself.
 const ASK_MSG_MS = 4000;
@@ -499,7 +500,7 @@ function openGithub(suffix: string) {
 }
 
 function onGhOutside(e: MouseEvent) {
-  if (ghWrap.value && !ghWrap.value.contains(e.target as Node)) ghMenuOpen.value = false;
+  if (ghWrap.value && !(e.target instanceof Node && ghWrap.value.contains(e.target))) ghMenuOpen.value = false;
 }
 watch(ghMenuOpen, (open) => {
   if (open) document.addEventListener("mousedown", onGhOutside);
@@ -562,7 +563,7 @@ async function exchangeWith(target: HandoffTarget) {
 }
 
 function onAskOutside(e: MouseEvent) {
-  if (askWrap.value && !askWrap.value.contains(e.target as Node)) askMenuOpen.value = false;
+  if (askWrap.value && !(e.target instanceof Node && askWrap.value.contains(e.target))) askMenuOpen.value = false;
 }
 watch(askMenuOpen, (open) => {
   if (open) document.addEventListener("mousedown", onAskOutside);
@@ -795,7 +796,7 @@ async function saveMemo() {
     });
     if (!res.ok) throw new Error(`memo save failed: ${res.status}`);
     const data: unknown = await res.json();
-    const saved = typeof data === "object" && data !== null && "memo" in data ? (data as { memo: unknown }).memo : null;
+    const saved = isRecord(data) ? data.memo : null;
     if (sessionId.value === id && typeof saved === "string") memo.value = saved || null;
   } catch {
     // Put back what the server still has, rather than leaving a note on screen that no other
@@ -871,6 +872,10 @@ function commitViaClaude() {
   prMsg.value = delivered ? "Asked Claude to commit…" : "Couldn't reach the session";
 }
 
+// The refusal reason as the message table can use it. The response is untrusted JSON, so a
+// non-string `reason` reads as absent and the caller shows the generic "Failed".
+const reasonOf = (data: Record<string, unknown>): string | null => (typeof data.reason === "string" ? data.reason : null);
+
 async function worktreeAction(endpoint: "push" | "pr"): Promise<Record<string, unknown> | null> {
   if (!cwd.value || prBusy.value) return null;
   prBusy.value = true;
@@ -896,7 +901,7 @@ async function worktreeAction(endpoint: "push" | "pr"): Promise<Record<string, u
 
 async function pushBranch() {
   const data = await worktreeAction("push");
-  if (data) prMsg.value = data.ok ? `Pushed ${data.branch}` : worktreeFailureMessage(data.reason as string);
+  if (data) prMsg.value = data.ok ? `Pushed ${data.branch}` : worktreeFailureMessage(reasonOf(data));
 }
 
 async function openPR() {
@@ -906,7 +911,7 @@ async function openPR() {
     window.open(data.url, "_blank", "noopener,noreferrer");
     prMsg.value = data.via === "gh" ? "PR created" : "Opened PR page";
   } else {
-    prMsg.value = worktreeFailureMessage(data.reason as string);
+    prMsg.value = worktreeFailureMessage(reasonOf(data));
   }
 }
 
