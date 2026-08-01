@@ -1,5 +1,5 @@
-// agy's own conversations for a workspace — what the single view's sidebar lists so a past
-// Antigravity conversation is switchable and resumable.
+// agy's own conversations for a workspace, newest first — the per-project listing that makes a
+// past Antigravity conversation findable and resumable, mirroring `/api/codex/sessions`.
 //
 // The cwd does NOT come from agy. `codex-sessions.ts` next door filters rollouts by the cwd codex
 // records in its own session_meta; agy records a conversation's workspace in three places and none
@@ -39,7 +39,7 @@ const isUserInput = (d: Record<string, unknown>): boolean => d.type === "USER_IN
 function promptText(content: string): string {
   const wrapped = USER_REQUEST_RE.exec(content);
   // No wrapper means a shape we have not seen. Dropping the blocks we DO know keeps a usable
-  // title instead of pasting agy's metadata into the sidebar.
+  // title instead of pasting agy's metadata into the row.
   return wrapped ? wrapped[1] : content.replace(APPENDED_BLOCK_RE, "");
 }
 
@@ -74,7 +74,7 @@ function newestPerConversation(records: Iterable<AntigravityConversation>, cwd: 
  *
  * A conversation whose transcript cannot be read is kept, not dropped, as long as its directory is
  * still there: agy creates the directory and the transcript together on the first user input, so an
- * unreadable transcript means the format moved — and a sidebar that silently lists nothing is worse
+ * unreadable transcript means the format moved — and a listing that silently returns nothing is worse
  * than one showing a resumable row under a default name.
  */
 export async function listAntigravitySessions(
