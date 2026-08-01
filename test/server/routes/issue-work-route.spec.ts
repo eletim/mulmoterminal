@@ -9,6 +9,7 @@ import type { Express } from "express";
 import { makeTempDir } from "../../support/tempDir.js";
 import { rmDirRetrying, GIT_TEST_TIMEOUT_MS } from "../git/wtTestUtil.js";
 import type { CwdPreset } from "../../../server/config/config-schema.js";
+import type { SpawnClaudeOptions } from "../../../server/session/spawn-claude.js";
 
 const configState: { presets: CwdPreset[]; recorded: Record<string, string> } = { presets: [], recorded: {} };
 
@@ -50,7 +51,7 @@ const makeRes = (): FakeRes => ({
 
 type Handler = (req: { headers: { origin?: string }; body?: unknown; method: string; path: string }, res: FakeRes) => unknown;
 
-const spawnClaudePty = vi.fn<(sessionId: string, resume: null, ws: null, options: { cwd: string; draft: string; attachGuiMcp: boolean }) => unknown>();
+const spawnClaudePty = vi.fn<(sessionId: string, resume: null, ws: null, options: SpawnClaudeOptions) => unknown>();
 
 function startHandler(allowOrigin = true): Handler {
   const map: Record<string, Handler> = {};
@@ -163,6 +164,30 @@ describe("POST /api/issues/start", () => {
       expect(res.statusCode).toBe(200);
       expect(res.payload).toMatchObject({ ok: true, sessionId: "s-1", branch: "issue/7-x" });
       expect(issueWork.start).toHaveBeenCalledWith("acme/web", 7, clone, expect.anything());
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // The desktop leaves the seed for review — the issue text was written by whoever opened it, and
+  // the Enter is the reader's (#1253 gave the PHONE a `run`, and deliberately not this route).
+  //
+  // Asserted on the spawn options rather than on the reply, because that is where it would go
+  // wrong silently: planDraftInjection resolves `draft ?? initialPrompt`, so a route that grew an
+  // initialPrompt would still type the draft and still answer 200 — the auto-run simply would not
+  // happen, with nothing raised anywhere.
+  it.skipIf(!hasGit)(
+    "spawns with the seed as a draft, never as an initialPrompt",
+    async () => {
+      issueWork.start.mockImplementation(async (_repo: string, _issue: number, _dir: string, deps: { spawnDraft: (cwd: string, seed: string) => string }) => ({
+        ok: true,
+        sessionId: deps.spawnDraft("/wt/7-x", "GitHub issue #7"),
+      }));
+      await post({ repo: "acme/web", issue: 7, dir: clone });
+      expect(spawnClaudePty).toHaveBeenCalledTimes(1);
+      // The seed goes into the WORKTREE, not the clone it was cut from.
+      const options = spawnClaudePty.mock.calls[0][3];
+      expect(options).toEqual({ cwd: "/wt/7-x", draft: "GitHub issue #7", attachGuiMcp: false });
+      expect(options.initialPrompt).toBeUndefined();
     },
     GIT_TEST_TIMEOUT_MS,
   );
