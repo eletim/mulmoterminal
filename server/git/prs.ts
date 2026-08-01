@@ -5,6 +5,9 @@
 import type { CiState, PrItem, RepoPrs } from "../../common/ghItems.js";
 import { runGh } from "./gh";
 import { isSupported, repoSupport } from "./forge-support.js";
+import { projectPath } from "./forge-host.js";
+import { glabMrListArgs, runGlab } from "./glab.js";
+import { normalizeGlabMr } from "./glab-items.js";
 import { normalizeGhItemBase } from "./ghItem";
 import { isRecord } from "../../common/isRecord.js";
 
@@ -52,21 +55,26 @@ export async function listPrsAcrossRepos(repos: string[]): Promise<RepoPrs[]> {
     repos.map(async (repo): Promise<RepoPrs> => {
       const support = repoSupport(repo);
       if (!isSupported(support)) return { repo, error: support.error };
+      const { forge } = support;
+      const gitlab = forge.kind === "gitlab";
+      const project = projectPath(forge) ?? forge.path;
       // Fetch one MORE than we display so "there are more" is a real observation
       // (rows > PR_LIMIT), never a false positive at exactly PR_LIMIT.
-      const res = await runGh(["pr", "list", "--repo", repo, "--state", "open", "--limit", String(PR_LIMIT + 1), "--json", GH_FIELDS]);
-      if (!res.ok) return { repo, error: (res.stderr.trim() || "gh pr list failed").slice(0, 300) };
+      const res = gitlab
+        ? await runGlab(glabMrListArgs(project, PR_LIMIT + 1))
+        : await runGh(["pr", "list", "--repo", project, "--state", "open", "--limit", String(PR_LIMIT + 1), "--json", GH_FIELDS]);
+      if (!res.ok) return { repo, error: (res.stderr.trim() || `${gitlab ? "glab mr" : "gh pr"} list failed`).slice(0, 300) };
       try {
         const parsed: unknown = JSON.parse(res.stdout);
         const rows = Array.isArray(parsed) ? parsed : [];
         const truncated = rows.length > PR_LIMIT;
         const prs = rows
           .slice(0, PR_LIMIT)
-          .map(normalizePr)
+          .map(gitlab ? normalizeGlabMr : normalizePr)
           .filter((p): p is PrItem => p !== null);
         return { repo, prs, truncated };
       } catch {
-        return { repo, error: "could not parse gh output" };
+        return { repo, error: `could not parse ${gitlab ? "glab" : "gh"} output` };
       }
     }),
   );

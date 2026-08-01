@@ -63,12 +63,19 @@ describe("repoSupport", () => {
     expect(isSupported(support) && support.forge.webUrl).toBe("https://github.com/receptron/mulmoterminal");
   });
 
-  // The point of the change: the row says which HOST is unhandled, so the reader does not go and
-  // check their repository name or their credentials — the two things a bare failure implies.
-  it("names the host of a forge that is not implemented", () => {
+  // GitLab became listable in #981 step 4; this used to assert the opposite.
+  it("supports a GitLab repo", () => {
     const support = repoSupport("gitlab.com/group/project");
+    expect(isSupported(support)).toBe(true);
+    expect(isSupported(support) && support.forge.webUrl).toBe("https://gitlab.com/group/project");
+  });
+
+  // The point of the original change, still true for every other host: the row says which HOST is
+  // unhandled, so the reader does not go and check their repository name or their credentials.
+  it("names the host of a forge that is not implemented", () => {
+    const support = repoSupport("codeberg.org/owner/repo");
     expect(isSupported(support)).toBe(false);
-    expect(!isSupported(support) && support.error).toContain("gitlab.com");
+    expect(!isSupported(support) && support.error).toContain("codeberg.org");
     expect(!isSupported(support) && support.error).toContain("not supported yet");
   });
 
