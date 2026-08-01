@@ -12,7 +12,7 @@
 //   - locale    → a fixed "en" ref (MulmoTerminal has no locale picker; the
 //                 package's bundled i18n falls back to English).
 //   - openUrl   → scheme-allowlisted window.open.
-import { computed, defineComponent, h, markRaw, provide, ref, type Component, type Ref } from "vue";
+import { defineComponent, h, markRaw, provide, ref, type Component, type Ref } from "vue";
 import { PLUGIN_RUNTIME_KEY, type BrowserPluginRuntime } from "gui-chat-protocol/vue";
 import { usePubSub } from "./usePubSub";
 import { isOpenablePluginUrl } from "./pluginUrlPolicy";
@@ -68,7 +68,7 @@ export function makeBrowserPluginRuntime(deps: MakeRuntimeDeps): BrowserPluginRu
         return subscribe(pluginChannelName(scope, eventName), handler as (data: unknown) => void);
       },
     },
-    locale: computed(() => sharedLocale.value) as Ref<string>,
+    locale: sharedLocale,
     log: {
       debug: (msg, data) => console.debug(tag, msg, data),
       info: (msg, data) => console.info(tag, msg, data),

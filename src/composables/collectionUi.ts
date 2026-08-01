@@ -49,6 +49,7 @@ import {
 import PinToggle from "../components/PinToggle.vue";
 import { startCollectionChat } from "./useChatLauncher";
 import { browserLocale } from "../utils/browserLocale";
+import { isRecord } from "../../common/isRecord";
 
 // ── Modal teleport target (Shadow DOM) ──
 // PluginFrame mounts each card inside a per-instance shadow root, but
@@ -103,7 +104,11 @@ async function postTranslation(req: TranslateRequest): Promise<TranslateResponse
       body: JSON.stringify(req),
     });
     if (!res.ok) return null;
-    return (await res.json()) as TranslateResponse;
+    const body: unknown = await res.json();
+    // `null` is the transport's documented miss — the caller falls back to the English source —
+    // so a malformed body takes that path rather than handing the cache a bad shape.
+    if (!isRecord(body) || !Array.isArray(body.translations) || !body.translations.every((line) => typeof line === "string")) return null;
+    return { translations: body.translations };
   } catch {
     return null;
   }

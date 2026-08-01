@@ -25,6 +25,7 @@ import { publishFileChange } from "./fileChange.js";
 import { statFileOr404 } from "./statFileOr404.js";
 import { streamFileToResponse } from "./streamFile.js";
 import { isWithin } from "../infra/path-within.js";
+import { isRecord } from "../../common/isRecord.js";
 
 // Curated CDN allowlist for an LLM-authored page that may pull a charting/util lib or font
 // from a CDN. Core owns the list so this policy and the remote-view CSP can't drift — widen
@@ -73,7 +74,7 @@ function sendHtmlDocument(res: Response, abs: string): void {
  *  registered BEFORE mountAllRoutes. */
 export function mountHtmlDispatchRoute(app: Express): void {
   app.post("/api/plugin/presentHtml", async (req: Request, res: Response, next: NextFunction) => {
-    const args = (req.body ?? {}) as { kind?: unknown; path?: unknown };
+    const args: Record<string, unknown> = isRecord(req.body) ? req.body : {};
     // A tool-call (no `kind`) is left to the package execute via the catch-all.
     if (args.kind !== "loadHtml" && args.kind !== "saveHtml") return next();
     try {

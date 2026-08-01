@@ -25,8 +25,8 @@ export function rollupCiState(checks: unknown): CiState {
   if (!Array.isArray(checks) || checks.length === 0) return "none";
   let anyPending = false;
   for (const c of checks) {
-    if (!c || typeof c !== "object") continue;
-    const o = c as Record<string, unknown>;
+    if (!isRecord(c)) continue;
+    const o = c;
     const conclusion = String(o.conclusion ?? "").toUpperCase();
     const state = String(o.state ?? "").toUpperCase();
     if (FAIL.has(conclusion) || state === "FAILURE" || state === "ERROR") return "failing";
