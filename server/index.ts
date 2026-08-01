@@ -107,7 +107,7 @@ import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend } from "./backends/rem
 import { createSessionActivityPublisher, firestoreSessionActivityStore } from "./backends/remoteHost/sessionActivity.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
 import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
-import { feedRefreshTaskDef, type AgentWorkerRunner } from "@mulmoclaude/core/feeds/server";
+import { type AgentWorkerRunner } from "@mulmoclaude/core/feeds/server";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
 import { installBundledSkills } from "./infra/install-bundled-skills.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
@@ -115,8 +115,7 @@ import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
 import { startCollectionCompletionWatchers } from "./backends/collectionWatchers.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
-import { worklogSystemTask } from "./backends/worklog.js";
-import type { TaskDefinition } from "@mulmoclaude/core/scheduler";
+import { buildSystemTasks } from "./backends/system-tasks.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
@@ -796,17 +795,13 @@ function spawnScheduledChat(message: string): void {
   }
 }
 try {
-  // Register the shared hourly feed-refresh system task so a STANDALONE MulmoTerminal
-  // (no MulmoClaude running) still refreshes due feed/agent-ingest collections. The feeds
-  // host is already configured above (initFeedsBackend), so refreshDue can run. When both
-  // apps run on the shared workspace, the engine's shared `lastFetchedAt` soft-dedups —
-  // whoever refreshes first stamps it, the other's isFeedDue skips (plan: soft-dedup v1).
-  // Built-in system tasks: the shared feed-refresh, plus the opt-in dev worklog
-  // (registered only when worklog.enabled). null (worklog off) is filtered out.
-  const systemTasks: TaskDefinition[] = [
-    feedRefreshTaskDef({ workspaceRoot: CLAUDE_CWD }),
-    worklogSystemTask({ ...getWorklogConfig(), spawnChat: spawnScheduledChat }),
-  ].filter((task): task is TaskDefinition => task !== null);
+  // Which tasks and why: system-tasks.ts. Both hosts are already configured above
+  // (initFeedsBackend, initGoogleBackend, initCollectionsBackend), so both engines can run.
+  const systemTasks = buildSystemTasks({
+    workspaceRoot: CLAUDE_CWD,
+    worklog: getWorklogConfig(),
+    spawnChat: spawnScheduledChat,
+  });
   initUserTaskScheduler({
     workspace: CLAUDE_CWD,
     spawnChat: spawnScheduledChat,
