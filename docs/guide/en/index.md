@@ -8,6 +8,8 @@ description: A browser-terminal cockpit for running several AI coding agents (Cl
 
 # MulmoTerminal Guide (English)
 
+> **[What's new in 4.1.0](v4.1.0.html)** — the **PRs & Issues** view reads **gitlab.com** as well as github.com, and a GitLab issue starts work the same way a GitHub one does: put `gitlab.com/group/project` in `prRepos`. Plus one worktree per issue, and header tooltips that appear instantly and carry the PR and issue titles (as of 2026-08-02)
+>
 > **[What's new in 4.0.0](v4.0.0.html)** — the **single terminal view is removed**: the grid is the app, focusing on one agent is zooming its cell, and the content surfaces get a **Collections** door in the toolbar. A **worktree now runs one agent session** and refuses a second. The Docker sandbox is gone (as of 2026-08-01)
 >
 > **Follow us on X** — new releases and features are announced **in Japanese** on X: [Singularity Society (@SingularitySoci)](https://x.com/SingularitySoci). That is where everything ships first, so [**follow @SingularitySoci**](https://x.com/SingularitySoci) to hear about it as it lands.

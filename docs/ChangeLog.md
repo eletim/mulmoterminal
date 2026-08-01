@@ -4,6 +4,116 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@4.1.0 — 2026-08-02
+
+> **Setup guide:** [GitLab in the PRs & Issues view](https://receptron.github.io/mulmoterminal/guide/en/v4.1.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.1.0.html))
+
+The **PRs & Issues** view reads gitlab.com as well as github.com, and a GitLab issue starts work
+the same way a GitHub one does. Nothing about an existing setup changes: a bare `owner/repo` still
+means github.com, and no new configuration is required.
+
+### GitLab in the cross-repo lists (#981 steps 1, 2a, 2b, 4a, 4c-1)
+
+Five PRs, built in the order the pieces have to exist. Each one is a layer the next depends on.
+
+**Tell an unsupported forge from no remote at all (#1217, step 1).** `parseGithubWebUrl` answered
+`string | null`, and that null travelled to six call sites meaning two different things — "this is
+a GitLab repo" and "this directory has no origin". Every feature downstream read it as "no GitHub
+here" and removed itself, so a user on another forge got silence rather than an explanation. A new
+layer answers `{ host, kind, path, webUrl }`; the 45 existing specs pass untouched, which is the
+evidence the behaviour did not move.
+
+**Let `prRepos` name its host (#1221, step 2a).** `gitlab.com/group/project` can now be stored —
+`REPO_RE` allowed exactly two segments before, so the information could not even be saved. A first
+segment containing a dot is the host; GitHub owner names may hold only alphanumerics and hyphens,
+so the two forms cannot be confused. The "unsupported" message needed no new UI: `RepoPrs` and
+`RepoIssues` already carry a per-repo `error`, the channel a failing CLI call uses.
+
+**One place decides what repository a directory names (#1230, step 2b).** Five call sites each
+wrote `repoFromWebUrl(await resolveGithubUrl(dir))`, with the same two-meanings-of-null problem.
+Behaviour unchanged; what is new is that the forge sits beside the answer.
+
+**Read GitLab merge requests and issues (#1246, step 4a).** Four things the real API taught, none
+of which a type would have caught: `iid` and not `id` (which is unique across the instance and
+appears in neither the UI nor the URL); `web_url` as given, since GitLab is moving issues to
+`/-/work_items/`; `-F` means the output format on `mr list` and something else entirely on `issue
+list`; and `issue list --opened` is deprecated, which running it says and the help does not.
+
+**Start work on a GitLab issue (#1260, step 4c-1).** Two holes only running it end to end could
+show: a GitLab clone was absent from `/api/repo-dirs` (correct when written, wrong the moment work
+could start on GitLab), and the route stripped the host before calling down, so `group/project` read
+as a GitHub repo. Both were one string carrying two jobs, now split — `repoIdentity` keeps the host
+for matching a configured entry to a clone, `canonicalRepo` strips it for a CLI's `--repo`.
+
+**The known limit:** a GitLab row's CI dot is usually blank. The merge-request list carries no
+pipeline, and reading it costs one call per merge request — more than a cross-repo view can spend.
+Widening `CiState` would express it but would change how GitHub rows render, which this release
+deliberately does not do.
+
+### One worktree per issue (#1219, #1222)
+
+Starting work on the same issue twice created `issue/<N>-<slug>-2` silently. The second attempt now
+opens what exists: reuses the worktree when no session is in it, opens the existing session when
+there is one, and declines with a sentence naming the next action when somebody else holds it. The
+`-2` suffix itself was correct code and is kept — it is what prevents two DIFFERENT tasks colliding.
+
+### Header tooltips are immediate, and say more (#1235, #1247)
+
+The cell header used the browser's own `title`. Both of its limits are unfixable: the delay before
+it appears is browser behaviour that neither CSS nor JavaScript can change, and it holds one line of
+plain text with nowhere to put what a chip had to truncate. Replaced with the app's own tooltip.
+
+The work chip now shows the PR and issue TITLES — `prTitle` and `issueTitle` have arrived from the
+server since #1014 and had been parsed and then never displayed, so a row reading `#2689 → #2688`
+could not tell you what either was about.
+
+### Fixes
+
+**The header's git and work chips rendered in serif (#1251, #1252).** This app declares no font on
+`<body>` and applies utilities per element, so an element that forgets falls back to the browser's
+serif. Measured in a real browser rather than eyeballed: six elements were falling back, and these
+two were the only ones in the header with no declaration.
+
+**A Windows path read by POSIX rules in the session registry (#1213).** The registry's filesystem
+doubles split paths the POSIX way, so a session could be recorded against the wrong directory.
+
+**A NUL byte made a module invisible to grep (#1254).** `startIssueWork` built its lock key as
+`${dir}<NUL>${issue}` with the byte written literally rather than escaped. The code was correct;
+what it broke was reading the repository — a file holding a NUL is binary to `grep`, which skips it
+SILENTLY, so three separate "every file that calls X" sweeps read every module except that one and
+reported totals that were wrong without saying so. Three more files turned out to hold literal ESC,
+all of them specs holding pasted terminal output. A test now checks the bytes.
+
+### Phone
+
+**Start work from an issue on the phone (#1184, #1216).** The host-side commands for listing issues
+and starting work on one, with the constraint the protocol already documents: the phone never sends
+a path, so the clone comes from what the server resolved rather than from the request.
+
+**Run the seed, rather than leaving it in the box (#1255).** A phone has no Enter key to press, so a
+seeded prompt sat there. `startIssueWork` takes `run`, which spawns with the prompt as an
+`initialPrompt` — the existing injection path waits for the input box and submits it. The reply's
+`ran` says the session was started to submit, not that a keystroke has landed; the typing happens
+after the reply, once the TUI has painted.
+
+**Desktop and phone share one options object (#1261).** The two had drifted into separate spawn
+paths for the same operation.
+
+### Antigravity
+
+**List a workspace's conversations (#1096, #1218).** `GET /api/antigravity/sessions?cwd=`, written
+against agy 1.1.9 installed and inspected rather than a guessed format. The cwd does not come from
+agy — it records a conversation's workspace in three places and none of them answers "every
+conversation in this directory" — so it is read from this app's own log and agy's transcript is
+opened only for a title and an mtime.
+
+### Internal
+
+**Over 100 `as` type assertions removed (#1231), across 15 PRs.** Every one replaced by a real type
+guard, and the lint rule that forbids them is now on as a warning. Nothing changes on screen; what
+changes is where a wrong shape fails — at the boundary it enters, rather than several layers later
+with a confusing message.
+
 ## mulmoterminal@4.0.0 — 2026-08-01
 
 > **Setup guide:** [The grid is the app](https://receptron.github.io/mulmoterminal/guide/en/v4.0.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.0.0.html))
