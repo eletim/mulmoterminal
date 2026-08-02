@@ -55,7 +55,7 @@ you ran it from.
 **MulmoTerminal is not an AI.** It is a cockpit that runs many copies of *your* `claude` and
 shows you which one is waiting on you.
 
-Four things to install, in order:
+What to install, in order, and what you lose without each:
 
 | | Without it | Step |
 |---|---|---|
@@ -287,8 +287,8 @@ One command reports what is missing. It is idempotent — run it as often as you
 npx mulmoterminal@latest init
 ```
 
-- Reports your Node version and `claude` / `git` / `gh` / `tmux` / `codex` / `ffmpeg` /
-  `ollama` as **`✓` (found), `✗` (required, missing), `○` (optional)**
+- Reports your Node version and `claude` / `git` / `gh` / `glab` / `tmux` / `codex` /
+  `ffmpeg` / `ollama` as **`✓` (found), `✗` (required, missing), `○` (optional)**
 - Seeds the launcher's **directory presets** from your Claude Code history
 - Writes `~/.mulmoterminal/config.json`, keeping your other settings
 - With `claude` installed, offers to hand off to the `/mulmoterminal-config` skill
@@ -362,8 +362,12 @@ If you only want to watch and reply from a phone, there is a dedicated path for 
 
 MulmoTerminal is a cockpit over the tools you already develop with, so what you have on your
 `PATH` decides how much of it lights up. `claude`, `git` and `gh` carry the core grid; each
-remaining row unlocks one feature. **The server starts without the non-required ones** — you
-only lose that row's feature.
+remaining row unlocks one feature.
+
+**"Required" here means losing it costs whole views rather than one button.** The only thing
+that stops the server from starting is a missing `claude` — it comes up without `git` and
+`gh`, you just lose worktrees, diffs and the entire PR surface. A recommended or optional row
+costs you that one feature.
 
 | | Tool | What it gives you | Install |
 | --- | --- | --- | --- |
