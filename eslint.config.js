@@ -18,6 +18,9 @@ export default [
     languageOptions: {
       parserOptions: {
         parser: tseslint.parser,
+        project: ["./tsconfig.app.json"],
+        tsconfigRootDir: import.meta.dirname,
+        extraFileExtensions: [".vue"],
       },
       globals: {
         ...globals.browser,
@@ -170,6 +173,23 @@ export default [
       "sonarjs/reduce-initial-value": "warn",
       "sonarjs/no-selector-parameter": "warn",
       "sonarjs/no-misleading-array-reverse": "warn",
+    },
+  },
+  {
+    // The same two rules for .vue. RULES ONLY — no `languageOptions` here on purpose: setting
+    // `parser` would replace vue-eslint-parser and every SFC would fail to parse ("'>' expected").
+    // The type program for these comes from the `**/*.vue` block above, which passes
+    // `project` + `extraFileExtensions` THROUGH vue-eslint-parser to tseslint.parser.
+    files: ["src/**/*.vue"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": "warn",
+      "@typescript-eslint/no-misused-promises": "warn",
+      // Another rule that only became reachable with a type program, and it is wrong here: it
+      // calls an interface holding nothing but CALL signatures "a type without members", so
+      // `SoundEmits & { (e: "…"): void }` reads as a useless intersection. That composition is
+      // how Vue's type-based `defineEmits<>` reuses a child's contract — dropping it would drop
+      // the child's events. At warn pending #1300, like the others it woke.
+      "sonarjs/no-useless-intersection": "warn",
     },
   },
   {
