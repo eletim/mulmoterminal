@@ -39,28 +39,44 @@ async function getJson<T>(url: string, read: (raw: unknown) => T): Promise<T> {
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 const rows = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
-// Missing/!string fields read as "" rather than throwing: every one of these renders as text, so a
-// partial response should show what arrived, not blank the page.
-const readEntry = (raw: unknown): WikiPageEntry => {
+// An identifier the UI keys and navigates by, or null. Deliberately NOT defaulted to "": a slug is
+// not display text — several rows missing one would collide on the same key, and a link built from
+// it goes nowhere. Rows without a usable id are dropped instead (Codex review on #1282).
+const id = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+
+// DISPLAY fields do default to "": they only ever render as text, so a partial response should
+// show what arrived rather than blank the page.
+const readEntry = (raw: unknown): WikiPageEntry[] => {
   const o = isRecord(raw) ? raw : {};
-  return {
-    title: str(o.title),
-    slug: str(o.slug),
-    description: str(o.description),
-    tags: rows(o.tags).filter((tag): tag is string => typeof tag === "string"),
-  };
+  const slug = id(o.slug);
+  if (!slug) return [];
+  return [
+    {
+      title: str(o.title),
+      slug,
+      description: str(o.description),
+      tags: rows(o.tags).filter((tag): tag is string => typeof tag === "string"),
+    },
+  ];
 };
 
 const readIndex = (raw: unknown): WikiIndex => {
   const o = isRecord(raw) ? raw : {};
-  return { content: str(o.content), entries: rows(o.entries).map(readEntry) };
+  return { content: str(o.content), entries: rows(o.entries).flatMap(readEntry) };
 };
 
 const readGraph = (raw: unknown): WikiGraph => {
   const o = isRecord(raw) ? raw : {};
-  const node = (n: unknown) => ({ slug: str(isRecord(n) ? n.slug : undefined), title: str(isRecord(n) ? n.title : undefined) });
-  const edge = (e: unknown) => ({ from: str(isRecord(e) ? e.from : undefined), to: str(isRecord(e) ? e.to : undefined) });
-  return { nodes: rows(o.nodes).map(node), edges: rows(o.edges).map(edge) };
+  const nodes = rows(o.nodes).flatMap((n) => {
+    const slug = id(isRecord(n) ? n.slug : undefined);
+    return slug ? [{ slug, title: str(isRecord(n) ? n.title : undefined) }] : [];
+  });
+  const edges = rows(o.edges).flatMap((e) => {
+    const from = id(isRecord(e) ? e.from : undefined);
+    const to = id(isRecord(e) ? e.to : undefined);
+    return from && to ? [{ from, to }] : [];
+  });
+  return { nodes, edges };
 };
 
 const readLint = (raw: unknown): WikiLint => {
