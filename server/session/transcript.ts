@@ -12,7 +12,9 @@ import { readString } from "../../common/readString.js";
 // channel when a background task finishes, and it is no more a typed prompt than a
 // slash command is.
 export function userPromptText(content: unknown): string | null {
-  const text = Array.isArray(content) ? content.map((x) => (isRecord(x) ? readString(x.text) : String(x ?? ""))).join(" ") : content;
+  // `x: unknown` is load-bearing: Array.isArray narrows `unknown` to `any[]`, and an `any`
+  // element puts every read below back outside the type checker's reach.
+  const text = Array.isArray(content) ? content.map((x: unknown) => (isRecord(x) ? readString(x.text) : readString(x))).join(" ") : content;
   if (typeof text === "string" && text.trim() && !/^\s*<(local-command|command-|bash-|task-notification)/.test(text)) {
     return text.trim();
   }
