@@ -6,7 +6,7 @@
 import { ref, type Ref } from "vue";
 import { useAutoRefresh } from "./useAutoRefresh";
 import type { TerminalAgent } from "../../common/sessionAgent";
-import { isRecord } from "../../common/isRecord";
+import { isRecord, optionalBoolean, optionalString } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
 
@@ -38,7 +38,21 @@ const isHeaderButton = (value: unknown): value is HeaderButton =>
   isRecord(value) &&
   typeof value.id === "string" &&
   typeof value.label === "string" &&
-  (value.run === "shell" || value.run === "input" || value.run === "open");
+  (value.run === "shell" || value.run === "input" || value.run === "open") &&
+  optionalString(value.emoji) &&
+  optionalString(value.icon) &&
+  optionalString(value.text) &&
+  // `open` is nested and IS read — hasPickFileButton reaches into `open.pickFile`.
+  (value.open === undefined || isOpenTarget(value.open));
+
+const isOpenTarget = (value: unknown): value is OpenTarget =>
+  isRecord(value) &&
+  optionalString(value.url) &&
+  optionalString(value.reveal) &&
+  optionalString(value.files) &&
+  optionalString(value.view) &&
+  optionalString(value.terminal) &&
+  optionalBoolean(value.pickFile);
 
 const isResolvedChip = (value: unknown): value is ResolvedChip =>
   isRecord(value) &&

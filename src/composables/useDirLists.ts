@@ -1,8 +1,8 @@
 import { shallowRef } from "vue";
 import type { PartialWorkerStatus } from "../../common/workerStatus";
 import type { PartialSessionOccupancy, SessionOccupancy } from "../../common/sessionOccupancy";
-import type { TerminalAgent } from "../../common/sessionAgent";
-import { isRecord } from "../../common/isRecord";
+import { isTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
+import { isRecord, optionalBoolean } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
 
@@ -74,17 +74,32 @@ const rowsOf = <T>(value: unknown, isRow: (row: unknown) => row is T): T[] => (i
 
 // Each list's rows are checked on the fields it cannot render or act without.
 const isResumableSession = (row: unknown): row is ResumableSession =>
-  isRecord(row) && typeof row.id === "string" && typeof row.title === "string" && typeof row.mtime === "number";
+  isRecord(row) &&
+  typeof row.id === "string" &&
+  typeof row.title === "string" &&
+  typeof row.mtime === "number" &&
+  // PartialWorkerStatus / PartialSessionOccupancy: absent is meaningful (an older server never
+  // said), but a PRESENT one of the wrong type would be asserted as a boolean and read as truthy.
+  optionalBoolean(row.hidden) &&
+  optionalBoolean(row.failed) &&
+  optionalBoolean(row.attached);
 
 const isRunnableScript = (row: unknown): row is RunnableScript =>
   isRecord(row) && typeof row.index === "number" && typeof row.label === "string" && typeof row.command === "string";
+
+// The nested `session` too, when present: the row's resume decision reads `id` / `agent` /
+// `attached` off it (worktreeAction in CellLaunchForm), so a half-formed one would be asserted
+// into the Worktree type and then produce an invalid resume request.
+const isWorktreeSession = (value: unknown): value is SessionOccupancy & { id: string; agent: TerminalAgent } =>
+  isRecord(value) && typeof value.id === "string" && typeof value.agent === "string" && isTerminalAgent(value.agent) && typeof value.attached === "boolean";
 
 const isWorktree = (row: unknown): row is Worktree =>
   isRecord(row) &&
   typeof row.path === "string" &&
   (row.branch === null || typeof row.branch === "string") &&
   typeof row.task === "string" &&
-  typeof row.dirty === "boolean";
+  typeof row.dirty === "boolean" &&
+  (row.session === undefined || row.session === null || isWorktreeSession(row.session));
 const dirOf = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
 
 function useDirList<T>(url: (dir: string) => string, parse: (body: ListBody, dir: string) => T, empty: () => T) {

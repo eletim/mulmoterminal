@@ -2,7 +2,7 @@
 import { ref, watch, onUnmounted } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
 import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
-import { isRecord } from "../../common/isRecord";
+import { isRecord, optionalString } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
 
@@ -18,6 +18,12 @@ interface AvailableTool {
   title?: string;
   description?: string;
 }
+// `toolName` is the field the pane cannot do without: it keys the row and is what a click sends.
+// The other two are display text and may legitimately be absent — but a PRESENT one of the wrong
+// type would be asserted as a string and rendered.
+const isAvailableTool = (value: unknown): value is AvailableTool =>
+  isRecord(value) && typeof value.toolName === "string" && optionalString(value.title) && optionalString(value.description);
+
 interface ToolCall {
   toolUseId?: string;
   toolName: string;
@@ -88,11 +94,7 @@ async function loadAvailableTools(sessionId: string | null) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await jsonBody(res);
     if (overtaken()) return;
-    // `toolName` is the only field the pane cannot do without: it keys the row and is what a
-    // click sends. The two optional ones are display text and may legitimately be absent.
-    availableTools.value = isUnknownArray(body.tools)
-      ? body.tools.filter((tool): tool is AvailableTool => isRecord(tool) && typeof tool.toolName === "string")
-      : [];
+    availableTools.value = isUnknownArray(body.tools) ? body.tools.filter(isAvailableTool) : [];
     guiOnlyHistory.value = body.guiOnlyHistory === true;
   } catch {
     if (overtaken()) return;
