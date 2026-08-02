@@ -374,3 +374,126 @@ describe("setFont — a font change must reach the PTY, not just the canvas", ()
     expect(() => conn.setFont("cell-not-here", { size: 20, family: "monospace" })).not.toThrow();
   });
 });
+
+// The #846 recovery only runs when something calls it, and until now that was a fit or an incoming
+// output frame. A cell that is idle gets neither — nothing writes to it, nothing resizes it — so a
+// terminal whose write queue is stuck stayed stuck, and the user in front of it read "I type and
+// nothing happens" as broken input. The keystroke itself is the missing trigger.
+describe("a keystroke into a dead terminal triggers the #846 recovery", () => {
+  const KEY = "cell-dead";
+
+  beforeEach(() => {
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+  });
+  afterEach(() => {
+    conn.release(KEY);
+    // Shared double state: leave the buffer healthy for whatever runs next.
+    mockTermState.bufferLength = 24;
+  });
+
+  // One task, because guardBufferHealth deliberately re-reads the shape after one: mid-parse a
+  // healthy terminal can look short, and a rebuild costs the client-side scrollback.
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("rebuilds the terminal and reconnects when the user types into a short buffer", async () => {
+    conn.attach(KEY, target(null), {}, document.createElement("div"));
+    FakeWebSocket.instances.at(-1)?.onopen?.();
+    const built = mockTermState.constructed;
+    const sockets = FakeWebSocket.instances.length;
+
+    mockTermState.bufferLength = 10; // fewer lines than the 24 rows the viewport addresses
+    mockTermState.emitData("a");
+    await settle();
+
+    expect(mockTermState.constructed).toBe(built + 1);
+    expect(FakeWebSocket.instances).toHaveLength(sockets + 1); // the rebuild re-attaches the session
+  });
+
+  it("leaves a healthy terminal alone — a rebuild costs the scrollback, so typing must not cause one", async () => {
+    conn.attach(KEY, target(null), {}, document.createElement("div"));
+    FakeWebSocket.instances.at(-1)?.onopen?.();
+    const built = mockTermState.constructed;
+
+    mockTermState.emitData("a");
+    await settle();
+
+    expect(mockTermState.constructed).toBe(built);
+  });
+
+  // A pointer report is the app talking to itself, not someone typing — and a click on a parked
+  // cell must stay as free of side effects as it is of waking it (#992).
+  it("does not run the probe for a pointer report", async () => {
+    conn.attach(KEY, target(null), {}, document.createElement("div"));
+    FakeWebSocket.instances.at(-1)?.onopen?.();
+    const built = mockTermState.constructed;
+
+    mockTermState.bufferLength = 10;
+    mockTermState.emitData(clickReportSequences(1, 1)[0]);
+    await settle();
+
+    expect(mockTermState.constructed).toBe(built);
+  });
+});
+
+// A keystroke that reaches a closed socket is dropped, and nothing about the terminal changes when
+// it is — the same silence a working terminal produces for a key it chose not to echo. The view
+// gets told so it can say so; the rate limit is what keeps a held-down key from becoming a stream
+// of notices.
+describe("a keystroke with nowhere to go tells the view", () => {
+  const KEY = "cell-dropped";
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    conn.release(KEY);
+  });
+
+  function attachClosedSlot(onInputDropped: () => void) {
+    conn.attach(KEY, target(null), { onInputDropped }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+    ws.close(); // the drop / reconnect state the reconnect backoff leaves a cell in
+    return ws;
+  }
+
+  it("reports once per disconnected stretch, however much the user types", () => {
+    const onInputDropped = vi.fn();
+    attachClosedSlot(onInputDropped);
+
+    mockTermState.emitData("h");
+    mockTermState.emitData("i");
+
+    expect(onInputDropped).toHaveBeenCalledOnce();
+  });
+
+  it("reports again after a reconnect, because that is a new stretch", () => {
+    const onInputDropped = vi.fn();
+    const ws = attachClosedSlot(onInputDropped);
+    mockTermState.emitData("h");
+
+    ws.readyState = FakeWebSocket.OPEN;
+    ws.onopen?.(); // reconnected: whatever is typed now lands
+    ws.close(); // …and dropped again
+    mockTermState.emitData("h");
+
+    expect(onInputDropped).toHaveBeenCalledTimes(2);
+  });
+
+  // Same reason the probe skips them: a click on a parked cell is the app talking, not a person
+  // typing, and it must not raise a notice about input nobody gave (#992).
+  it("says nothing for a pointer report", () => {
+    const onInputDropped = vi.fn();
+    attachClosedSlot(onInputDropped);
+
+    mockTermState.emitData(clickReportSequences(1, 1)[0]);
+
+    expect(onInputDropped).not.toHaveBeenCalled();
+  });
+});
