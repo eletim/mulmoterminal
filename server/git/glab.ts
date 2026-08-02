@@ -36,4 +36,14 @@ export const glabIssueCloseArgs = (project: string, issue: number): string[] => 
 // Existing comments do NOT come back from `issue view -F json`, and `--comments` only affects the
 // human-readable output. The REST notes endpoint is where they are, so this is one extra call that
 // the GitHub path does not make.
-export const glabIssueNotesArgs = (project: string, issue: number): string[] => ["api", `projects/${encodeURIComponent(project)}/issues/${issue}/notes`];
+//
+// `--paginate` is not optional here. A page holds 20 notes and they arrive NEWEST FIRST, so a
+// single page drops the OLDEST — and a work comment is written when work starts, which is exactly
+// the end that falls off. Missing it means writing the comment again on an issue that has one
+// (Codex review). Measured on a real 23-note issue: one page returned 20, `--paginate` returned all
+// 23 as a single JSON array, not concatenated pages.
+export const glabIssueNotesArgs = (project: string, issue: number): string[] => [
+  "api",
+  `projects/${encodeURIComponent(project)}/issues/${issue}/notes`,
+  "--paginate",
+];

@@ -235,6 +235,13 @@ describe("glab issue write arguments", () => {
   // percent-encoded: GitLab's REST API takes it as ONE path segment, so a group's slashes must not
   // read as segment separators.
   it("reads notes from the REST endpoint, with the project encoded", () => {
-    expect(glabIssueNotesArgs("group/sub/project", 7)).toEqual(["api", "projects/group%2Fsub%2Fproject/issues/7/notes"]);
+    expect(glabIssueNotesArgs("group/sub/project", 7)).toEqual(["api", "projects/group%2Fsub%2Fproject/issues/7/notes", "--paginate"]);
+  });
+
+  // Not a nicety. A page holds 20 notes, newest first, so one page drops the OLDEST — and the
+  // work comment is written when work STARTS, which is the end that falls off. Without this the
+  // duplicate check misses it and comments again (Codex review).
+  it("always paginates, so an old comment on a long thread is still found", () => {
+    expect(glabIssueNotesArgs("group/project", 1)).toContain("--paginate");
   });
 });
