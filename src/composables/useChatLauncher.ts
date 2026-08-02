@@ -22,6 +22,7 @@ import { ref, watch } from "vue";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { placeSpawnedChat } from "./useSpawnedChat";
 import { seedCollectionCanvas } from "./seedCollectionCanvas";
+import { isRecord } from "../../common/isRecord";
 
 export type Agent = TerminalAgent;
 
@@ -62,8 +63,10 @@ export async function startCollectionChat(prompt: string, opts: { hidden?: boole
       console.error(`[startChat] spawn failed: HTTP ${res.status}`);
       return null;
     }
-    const data = (await res.json()) as { jsonData?: { chatId?: unknown } };
-    chatId = typeof data?.jsonData?.chatId === "string" ? data.jsonData.chatId : undefined;
+    const data: unknown = await res.json();
+    const jsonData = isRecord(data) ? data.jsonData : undefined;
+    const id = isRecord(jsonData) ? jsonData.chatId : undefined;
+    chatId = typeof id === "string" ? id : undefined;
   } catch (err) {
     console.error("[startChat] spawn failed", err);
     return null;
