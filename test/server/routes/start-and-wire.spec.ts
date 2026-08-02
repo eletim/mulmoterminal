@@ -65,7 +65,7 @@ function harness() {
     },
     handleClientClose,
   };
-  const early = bufferEarlyFrames<{ toString(): string }>(asWebSocket(socket));
+  const early = bufferEarlyFrames(asWebSocket(socket));
   return { socket, delivered, handleClientClose, deps, early };
 }
 
