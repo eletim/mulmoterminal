@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { appendProbeScreen, classifyProbeStall, probeScreenFile, readableScreen, writeProbeScreen, PROBE_SCREEN_TAIL_CHARS } from "./probe-stall";
@@ -87,7 +87,17 @@ describe("writeProbeScreen", () => {
 
   // Diagnostics must never be the thing that breaks a probe: a state directory that cannot be
   // written costs nothing.
+  //
+  // Made unwritable by putting a FILE where the directory would have to go, which fails on every
+  // platform. `/dev/null/…` reads as the same test and is not one — on Windows that path means
+  // nothing in particular and the write can succeed (CodeRabbit review).
   it("answers null rather than throwing when the directory cannot be made", () => {
-    expect(writeProbeScreen(path.join("/dev/null", "nope"), "screen")).toBeNull();
+    const dir = mkdtempSync(path.join(tmpdir(), "mt-probe-stall-"));
+    try {
+      writeFileSync(path.join(dir, "occupied"), "");
+      expect(writeProbeScreen(path.join(dir, "occupied", "state"), "screen")).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
