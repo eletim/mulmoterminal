@@ -155,8 +155,13 @@ all confirmed against `@xterm/headless@6.0.0` by reproducing the upstream flight
 
 - **The throw is out of reach.** It happens inside the WriteBuffer's own `setTimeout`, not under
   our `term.write()` call, so no try/catch of ours can see it. The state has to be found by
-  looking, not by catching — hence the probe in `terminalBufferHealth.ts`, run on `fit()` and on
-  each output message.
+  looking, not by catching — hence the probe in `terminalBufferHealth.ts`, run on `fit()`, on
+  each output message, **and on a typed keystroke**. The third one exists because the first two
+  can both stop happening: an idle cell is not being written to and is not being resized, so a
+  terminal that died there stayed dead until a reload — while the person in front of it typed and
+  read the frozen screen as "input is broken". The keystroke is the only signal such a cell gets,
+  so it is the one that has to trigger the repair. Pointer reports are excluded (`isTypedInput`),
+  like everywhere else input means "a person did this".
 - **The write queue stays stuck forever.** `WriteBuffer.write()` only starts the drain when the
   queue *was* empty, so the entries a throw left behind are never parsed. This is why the cell
   freezes until a page reload.
@@ -168,6 +173,20 @@ all confirmed against `@xterm/headless@6.0.0` by reproducing the upstream flight
 
 Rendering itself survives: `RenderDebouncer._innerRefresh` clears its animation frame *before*
 calling the render callback, so a renderer that throws still repaints on the next refresh.
+
+### The other silence: a keystroke the socket never took
+
+A slot only writes to the socket when it is `OPEN` — during the reconnect backoff, or after a
+`superseded`, a keystroke is dropped and **nothing changes on screen**, which is indistinguishable
+from a terminal that received it and printed nothing. The status pill says `disconnected`, but it
+lives in a header the filmstrip hides and nobody watches a pill while typing.
+
+So the manager tells the view (`ConnHandlers.onInputDropped`) and `Terminal.vue` shows the same
+transient banner the drop/paste hints use. **Once per disconnected stretch** — cleared in
+`sock.onopen` — because a held-down key would otherwise be a stream of notices. There is a
+`console.warn` on the same path, which is what makes "I typed and nothing happened" diagnosable
+after the fact: it distinguishes a socket that was down from a terminal that had stopped drawing
+(the #846 case above, which logs its own line when it rebuilds).
 
 ### Renderer (canvas vs DOM)
 

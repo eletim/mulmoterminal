@@ -39,7 +39,7 @@ import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
-import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
+import { connectionWillReturn, reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { exitCodeOf, messageEffect } from "./serverMessage";
@@ -157,6 +157,12 @@ export interface ConnHandlers {
   // and pastes all funnel through on their way to the socket, so it cannot be reached by output
   // the server writes back or by anything the app renders — only by someone using the session.
   onInput?: () => void;
+  // …and that keystroke went nowhere, because the socket is not open. Once per disconnected
+  // stretch, so holding a key down doesn't turn into a stream of notices. The view exists to say
+  // so: a dropped keystroke is otherwise indistinguishable from a terminal that received it and
+  // chose to print nothing. `willReconnect` is false for a session that ended and for a Run cell,
+  // neither of which comes back — telling those to wait would be a promise nothing will keep.
+  onInputDropped?: (willReconnect: boolean) => void;
 }
 
 // The two xterm options that decide the CELL METRICS, so they travel together: both change how
@@ -194,6 +200,20 @@ interface Conn {
   theme: ITheme | undefined; // last applied, so a rebuilt terminal keeps the cell's colours
   font: TerminalFont; // same reason as `theme` — a rebuilt terminal must not snap back to the default
   lastRebuildMs: number; // rate-limits the #846 recovery so a stuck reading can't spin
+  // A dropped keystroke has already been reported for THIS disconnected stretch. Held so a user
+  // typing into a dead cell logs one line rather than one per key; cleared when the socket opens.
+  warnedDroppedInput: boolean;
+}
+
+// Typing into a slot whose socket is down. One line per stretch — see the caller for why it is
+// worth saying at all.
+function reportDroppedInput(c: Conn): void {
+  if (c.warnedDroppedInput) return;
+  c.warnedDroppedInput = true;
+  const willReconnect = connectionWillReturn({ released: c.released, sawExit: c.sawExit, isCommand: !!c.target.command });
+  const fate = willReconnect ? "reconnecting" : "not reconnecting";
+  console.warn(`[terminal] slot ${c.key}: dropped a keystroke — the socket is not open (status ${connView.get(c.key)?.status ?? "unknown"}, ${fate})`);
+  c.handlers.onInputDropped?.(willReconnect);
 }
 
 // A rebuild costs a re-attach and the client-side scrollback, so a slot gets at most one per
@@ -374,8 +394,25 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
     // Pointer and focus reports ride this same function — the app feeds its own clicks and wheel
     // through `term.input()` — so they have to be excluded here or clicking a parked cell to READ
     // it would wake it, which is the one thing parking is for.
-    if (isTypedInput(data)) c.handlers.onInput?.();
-    if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
+    if (isTypedInput(data)) {
+      c.handlers.onInput?.();
+      // Someone typing is the ONLY sign of life an idle cell gets, so it is also the only chance to
+      // notice that its terminal is dead. guardBufferHealth's other two callers are a fit and an
+      // incoming output frame, and #846 strands a cell where neither ever runs again: the keystroke
+      // reaches the pty, the reply lands in a write queue xterm will never drain, and the screen
+      // stays frozen. Nothing resizes it, nothing renders, so the cell sits dead until a reload —
+      // while the person in front of it types and reads it as "input is broken".
+      guardBufferHealth(c);
+    }
+    if (c.ws && c.ws.readyState === WebSocket.OPEN) {
+      c.ws.send(JSON.stringify({ type: "input", data }));
+    } else if (isTypedInput(data)) {
+      // A keystroke with nowhere to go is dropped in silence — the status pill is the only sign,
+      // and a filmstrip cell doesn't render one. Say so once per disconnected stretch, so "I typed
+      // and nothing happened" leaves evidence of WHICH of the two silences it was: a socket that is
+      // down, or a terminal that has stopped drawing.
+      reportDroppedInput(c);
+    }
   };
   term.onData(send);
   const onEnter = makeEnterHandler(() => effectiveSubmitMode(c), send);
@@ -521,6 +558,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     theme: undefined,
     font,
     lastRebuildMs: 0,
+    warnedDroppedInput: false,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
@@ -611,6 +649,7 @@ function connect(c: Conn) {
   sock.onopen = () => {
     if (sock !== c.ws) return;
     c.reconnectAttempts = 0;
+    c.warnedDroppedInput = false; // a new stretch: the next dropped keystroke is worth a line again
     setStatus(c, "connected");
     sock.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
   };

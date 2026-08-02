@@ -254,6 +254,7 @@ onMounted(() => {
       onCwd: (c) => emit("cwd", c),
       onExit: (exitCode) => emit("exit", exitCode),
       onInput: () => emit("input"),
+      onInputDropped: (willReconnect) => void showHint(willReconnect ? INPUT_DROPPED_EN : INPUT_DROPPED_ENDED_EN, "cloud_off"),
     },
     container,
     effectiveTermTheme(),
@@ -460,16 +461,31 @@ function onDragOver(e: DragEvent) {
 // otherwise fall back to advice that always holds.
 const DROP_HINT_PICKER_EN = "This browser doesn't share a dropped file's path. Use the paperclip button in the header (Insert a file path) instead.";
 const DROP_HINT_TYPE_EN = "This browser doesn't share a dropped file's path — type or paste the path instead.";
+// Typing into a terminal whose socket is down. The status pill says "disconnected", but it is in a
+// header a grid cell hides (filmstrip) and nobody watches a pill while typing — so a keystroke that
+// went nowhere looks exactly like a terminal that received it and printed nothing. Said once per
+// disconnected stretch (useTerminalConnections rate-limits it), and it names the recovery, because
+// the reconnect is automatic and waiting IS the right move.
+const INPUT_DROPPED_EN = "Not connected — what you typed didn't reach the terminal. Reconnecting…";
+// The same silence, but nothing is coming to end it: an exited session, a superseded tab, a Run
+// cell whose command finished. Telling those to wait for a reconnect would replace one misleading
+// message with another, which is the very thing this banner exists to stop.
+const INPUT_DROPPED_ENDED_EN = "This session has ended — what you typed didn't reach the terminal.";
 const dropHint = ref(false);
 const dropHintText = ref("");
+// The banner started as the file-drop hint and is now shared, so the icon travels with the
+// sentence: a connection notice under a paperclip reads as a failed attachment.
+const DROP_HINT_ICON = "attach_file";
+const dropHintIcon = ref(DROP_HINT_ICON);
 const DROP_HINT_MS = 6000;
 let dropHintTimer: ReturnType<typeof setTimeout> | undefined;
 // Two hints can now overlap (a failed drop, a failed paste), and a translation that resolves
 // after the next hint has replaced the text would otherwise put the OLD sentence back.
 let hintRequest = 0;
-async function showHint(english: string) {
+async function showHint(english: string, icon: string = DROP_HINT_ICON) {
   const request = ++hintRequest;
   dropHintText.value = english; // show immediately; the translation (server-cached) swaps in
+  dropHintIcon.value = icon;
   dropHint.value = true;
   clearTimeout(dropHintTimer);
   dropHintTimer = setTimeout(() => (dropHint.value = false), DROP_HINT_MS);
@@ -574,7 +590,7 @@ onUnmounted(() => {
         class="pointer-events-none absolute bottom-3 left-1/2 z-20 flex max-w-[min(90%,560px)] -translate-x-1/2 items-center gap-2 rounded-lg border-2 border-[#c98a00] bg-[#ffd54a] px-4 py-2.5 font-sans text-[13px] font-semibold leading-[1.4] text-[#1a1a2e] shadow-[0_4px_16px_rgba(0,0,0,0.45)]"
         role="status"
       >
-        <span class="material-symbols-outlined shrink-0 text-[18px]" aria-hidden="true">attach_file</span>
+        <span class="material-symbols-outlined shrink-0 text-[18px]" aria-hidden="true">{{ dropHintIcon }}</span>
         <span>{{ dropHintText }}</span>
       </div>
     </Transition>
