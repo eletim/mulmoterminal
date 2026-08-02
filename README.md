@@ -88,9 +88,9 @@ question — an amber dot; nothing proceeds until you answer) and which are **fi
 you haven't seen** (a green dot) — driven by Claude/Codex activity hooks the server injects per
 spawn. The horizontal tab bar carries the same two dots.
 
-![One agent enlarged, with the cockpit roster beside it](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/cockpit-roster.png)
+![One agent zoomed, with the GUI panel beside it](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/zoom-canvas.png)
 
-*To focus on one agent, **zoom its cell**: it takes the window, and a pane opens beside it — the **cockpit roster** above, or the **GUI panel** ("Canvas"), where that agent's tool calls render as documents, forms, charts, images, and HTML rather than printed text. **The app opens on the grid** (`/`, settling on `/terminals`), which is the only view; 3.x had a separate single view at `/chat` and 4.0.0 removed it, so that URL now lands on the grid like any other.*
+*To focus on one agent, **zoom its cell**: it takes the window, and the **GUI panel** ("Canvas") opens beside it, where that agent's tool calls render as documents, forms, charts, images, and HTML rather than printed text. **The app opens on the grid** (`/`, settling on `/terminals`), which is the only view; 3.x had a separate single view at `/chat` and 4.0.0 removed it, so that URL now lands on the grid like any other.*
 
 **Inserting a file path** — like a native terminal, you can put a file's absolute path into
 the prompt: **drag a file** onto the terminal, or click the **file button** in the terminal

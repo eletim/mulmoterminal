@@ -28,6 +28,8 @@ there is no second screen to switch to: focusing on one agent is **zooming its c
 it the window and opens the **GUI panel (Canvas)** beside it — where that agent's tool calls render
 as diagrams, forms, images, documents and slides rather than printed text.
 
+![One agent zoomed, with the GUI panel beside it](../images/zoom-canvas.png)
+
 {: .note }
 > **Changed in 4.0.0.** Until 3.x there was a separate *single view* at `/chat` with its own
 > toolbar. It is gone; everything it had is in the grid, and `/chat` now lands on the grid like any
