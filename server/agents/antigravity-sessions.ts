@@ -100,5 +100,7 @@ export async function listAntigravitySessions(
       return { id: record.conversationId, title: summary?.title ?? DEFAULT_TITLE, mtime: summary?.mtime ?? record.startedAt };
     }),
   );
-  return summaries.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
+  // toSorted, not sort: sort mutates and returns the SAME array, so reading the return value
+  // reads like a copy when it is not (sonarjs/no-misleading-array-reverse).
+  return summaries.toSorted((a, b) => b.mtime - a.mtime).slice(0, limit);
 }
