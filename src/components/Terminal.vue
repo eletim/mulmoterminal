@@ -461,16 +461,19 @@ function onDragOver(e: DragEvent) {
 // otherwise fall back to advice that always holds.
 const DROP_HINT_PICKER_EN = "This browser doesn't share a dropped file's path. Use the paperclip button in the header (Insert a file path) instead.";
 const DROP_HINT_TYPE_EN = "This browser doesn't share a dropped file's path — type or paste the path instead.";
-// Typing into a terminal whose socket is down. The status pill says "disconnected", but it is in a
-// header a grid cell hides (filmstrip) and nobody watches a pill while typing — so a keystroke that
-// went nowhere looks exactly like a terminal that received it and printed nothing. Said once per
-// disconnected stretch (useTerminalConnections rate-limits it), and it names the recovery, because
-// the reconnect is automatic and waiting IS the right move.
-const INPUT_DROPPED_EN = "Not connected — what you typed didn't reach the terminal. Reconnecting…";
+// Input into a terminal whose socket is down. The status pill says "disconnected", but it is in a
+// header a grid cell hides (filmstrip) and nobody watches a pill while typing — so input that went
+// nowhere looks exactly like a terminal that received it and printed nothing. Rate-limited by
+// useTerminalConnections, and it names the recovery, because the reconnect is automatic and
+// waiting IS the right move.
+//
+// "sent" rather than "typed": the same banner now answers for a header button and a picked skill
+// (#1315), and someone who pressed a button did not type anything.
+const INPUT_DROPPED_EN = "Not connected — what you sent didn't reach the terminal. Reconnecting…";
 // The same silence, but nothing is coming to end it: an exited session, a superseded tab, a Run
 // cell whose command finished. Telling those to wait for a reconnect would replace one misleading
 // message with another, which is the very thing this banner exists to stop.
-const INPUT_DROPPED_ENDED_EN = "This session has ended — what you typed didn't reach the terminal.";
+const INPUT_DROPPED_ENDED_EN = "This session has ended — what you sent didn't reach the terminal.";
 const dropHint = ref(false);
 const dropHintText = ref("");
 // The banner started as the file-drop hint and is now shared, so the icon travels with the
