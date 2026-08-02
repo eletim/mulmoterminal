@@ -30,6 +30,7 @@ import { getUpdateStatus } from "./update-status.js";
 import { readSoundPreset } from "./sound-presets.js";
 import { isNotifyKind } from "../../common/notifyKinds.js";
 import { parsePresetRef, soundPresetById } from "../../common/notifySounds.js";
+import { requestBody } from "../routes/requestBody.js";
 
 export const APP_CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config.json");
 const CONFIG_FILE = APP_CONFIG_FILE;
@@ -162,7 +163,7 @@ export function mountConfigRoutes(app: Express, claudeCwd: string): void {
   });
 
   app.post("/api/config", (req, res) => {
-    const body = req.body ?? {};
+    const body = requestBody(req.body);
     // Partial update: keep the field the request omits so saving the sound doesn't
     // wipe the presets (and vice-versa). cwdPresets, when present, must be an array.
     const badField = badArrayField(body);

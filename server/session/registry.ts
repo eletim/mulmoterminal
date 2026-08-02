@@ -641,7 +641,7 @@ export function resetSessionToolGroups(sessionId: string): void {
 const ACTIVITY_STATE_FILE = path.join(MULMOTERMINAL_HOME, "activity-state.json");
 export const activityStateHydrated: Promise<void> = (async () => {
   try {
-    const parsed = JSON.parse(await fs.readFile(ACTIVITY_STATE_FILE, "utf8"));
+    const parsed: unknown = JSON.parse(await fs.readFile(ACTIVITY_STATE_FILE, "utf8"));
     for (const { id, working, waiting, event } of parseActivityState(parsed, (x) => SESSION_ID_RE.test(x))) {
       // Don't clobber a live update that already landed while hydration was in flight.
       if (!activity.has(id)) activity.set(id, { working, waiting, event, at: Date.now() });

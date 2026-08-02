@@ -93,7 +93,7 @@ export function forgetClearedTranscript(id: string, dir: string = CLEARED_DIR): 
 const readMark = (dir: string, id: string): Promise<unknown> =>
   fs
     .readFile(markerFile(dir, id), "utf8")
-    .then((text) => JSON.parse(text))
+    .then((text): unknown => JSON.parse(text))
     .catch(() => null);
 
 async function restoreMark(dir: string, file: string): Promise<void> {
