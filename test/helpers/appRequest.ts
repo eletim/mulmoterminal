@@ -26,7 +26,11 @@ export type AppRequestInit = {
 
 // A response with a body where the spec says there is none is a TypeError from the Response
 // constructor, not a failed assertion — so the statuses that forbid one are answered with null.
-const BODYLESS_STATUSES = new Set([101, 103, 204, 205, 304]);
+//
+// Only these three: `Response` refuses a status outside 200-599 outright, so an informational
+// 1xx cannot be carried here at all and listing one would just move the throw. Nothing reachable
+// through `app` answers 1xx — an upgrade never goes through the express handler chain.
+const BODYLESS_STATUSES = new Set([204, 205, 304]);
 
 // `inject` reports headers the way Node does: one string, a number, or a LIST for the names a
 // response may repeat (`set-cookie`). `append` keeps every value; `set` would keep the last.

@@ -12,6 +12,7 @@ describe("appRequest", () => {
   app.get("/echo", (req, res) => res.json({ method: req.method, query: req.query, agent: req.get("user-agent") ?? null }));
   app.post("/echo", (req, res) => res.status(201).json(req.body));
   app.get("/empty", (req, res) => res.status(204).end());
+  app.get("/unchanged", (req, res) => res.status(304).end());
   app.get("/bytes", (req, res) => res.type("image/png").send(Buffer.from([0x89, 0x50, 0x4e, 0x47])));
   app.get("/two-cookies", (req, res) => {
     res.append("set-cookie", "a=1");
@@ -33,11 +34,14 @@ describe("appRequest", () => {
     expect(await res.json()).toEqual({ hi: true });
   });
 
-  // A 204 forbids a body, and `new Response(<anything>, { status: 204 })` THROWS rather than
-  // failing an assertion — which would read as a broken helper, not a route answering 204.
-  it("answers a no-body status without constructing a body", async () => {
-    const res = await request("/empty");
-    expect(res.status).toBe(204);
+  // These statuses forbid a body, and `new Response(<anything>, { status: 204 })` THROWS rather
+  // than failing an assertion — which would read as a broken helper, not a route answering 204.
+  it.each([
+    ["/empty", 204],
+    ["/unchanged", 304],
+  ])("answers %s, a no-body status, without constructing a body", async (url, status) => {
+    const res = await request(url);
+    expect(res.status).toBe(status);
     expect(await res.text()).toBe("");
   });
 
