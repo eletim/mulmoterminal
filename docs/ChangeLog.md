@@ -109,7 +109,7 @@ opened only for a title and an mtime.
 
 ### Internal
 
-**Over 100 `as` type assertions removed (#1231), across 15 PRs.** Every one replaced by a real type
+**Over 130 `as` type assertions removed (#1231), across 18 PRs.** Every one replaced by a real type
 guard, and the lint rule that forbids them is now on as a warning. Nothing changes on screen; what
 changes is where a wrong shape fails — at the boundary it enters, rather than several layers later
 with a confusing message.
