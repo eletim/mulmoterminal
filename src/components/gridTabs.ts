@@ -2,6 +2,7 @@ import type { RunCommand } from "./runCommand";
 import { dirPriority } from "../../common/dirPriorityOrder";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
 import type { AttentionStatus } from "./attentionStatus";
 
 // The grid is ONE flat, ordered list of terminal cells, split into pages of 9
@@ -478,8 +479,9 @@ const isCell = (c: unknown): c is Cell => {
 
 export function parseGridState(raw: string | null): GridState | null {
   try {
-    const parsed = JSON.parse(raw ?? "");
-    if (!Array.isArray(parsed?.cells)) return null;
+    const parsed: unknown = JSON.parse(raw ?? "");
+    if (!isRecord(parsed) || !isUnknownArray(parsed.cells)) return null;
+    const { expanded: storedExpanded, page: storedPage } = parsed;
     // Keep only running cells (the trailing launch cell is ephemeral) and renumber
     // uids from position. Persisted uids are untrusted: duplicates would collide
     // v-for keys, and a near-MAX_SAFE_INTEGER value would overflow the nextUid
@@ -487,21 +489,26 @@ export function parseGridState(raw: string | null): GridState | null {
     // count) is always safe and in range.
     const running = parsed.cells
       .filter(isCell)
-      .filter((c: Cell) => c.session !== null)
+      .filter((c) => c.session !== null)
       .slice(0, MAX_TERMINALS);
     // Every field a cell keeps across a reload is named HERE — a persisted key this literal does
     // not rebuild is dropped silently, with nothing to typecheck against.
-    const cells: Cell[] = running.map((c: Cell, i: number) => ({
-      uid: i,
-      session: c.session,
-      cwd: c.cwd,
-      launcher: asLauncher(c.launcher),
-      agent: storedCellAgent(asTerminalAgent(c.agent)),
-      ...(c.parked === true ? { parked: true as const } : {}),
-    }));
-    const expandedIdx = running.findIndex((c: Cell) => c.uid === parsed.expanded);
-    const expanded = typeof parsed.expanded === "number" && expandedIdx >= 0 ? expandedIdx : null;
-    const page = Number.isSafeInteger(parsed.page) && parsed.page >= 0 ? parsed.page : 0;
+    const cells: Cell[] = running.map((c, i) => {
+      // Spread, not assigned: `agent` is absent for a Claude cell, and under
+      // exactOptionalPropertyTypes a key holding undefined is not the same as no key.
+      const agent = storedCellAgent(asTerminalAgent(c.agent));
+      return {
+        uid: i,
+        session: c.session,
+        cwd: c.cwd,
+        launcher: asLauncher(c.launcher),
+        ...(agent === undefined ? {} : { agent }),
+        ...(c.parked === true ? { parked: true as const } : {}),
+      };
+    });
+    const expandedIdx = running.findIndex((c) => c.uid === storedExpanded);
+    const expanded = typeof storedExpanded === "number" && expandedIdx >= 0 ? expandedIdx : null;
+    const page = typeof storedPage === "number" && Number.isSafeInteger(storedPage) && storedPage >= 0 ? storedPage : 0;
     return clampPage(ensureEntry({ cells, expanded, page, nextUid: cells.length, sortMode: asSortMode(parsed.sortMode) }));
   } catch {
     return null;
@@ -511,14 +518,15 @@ export function parseGridState(raw: string | null): GridState | null {
 // Migrate the legacy single-grid shape ({ sessions, cwds, expanded:position }).
 export function migrateLegacy(raw: string | null): GridState | null {
   try {
-    const parsed = JSON.parse(raw ?? "");
-    if (!Array.isArray(parsed?.sessions)) return null;
+    const parsed: unknown = JSON.parse(raw ?? "");
+    if (!isRecord(parsed) || !isUnknownArray(parsed.sessions)) return null;
+    const cwds = isUnknownArray(parsed.cwds) ? parsed.cwds : [];
     const cells: Cell[] = [];
-    parsed.sessions.forEach((s: unknown, i: number) => {
-      if (isUuid(s)) cells.push({ uid: cells.length, session: s, cwd: typeof parsed.cwds?.[i] === "string" ? parsed.cwds[i] : null });
+    parsed.sessions.forEach((s, i) => {
+      if (isUuid(s)) cells.push({ uid: cells.length, session: s, cwd: typeof cwds[i] === "string" ? cwds[i] : null });
     });
-    const expanded =
-      typeof parsed.expanded === "number" && parsed.expanded >= 0 && parsed.expanded < cells.length ? (cells[parsed.expanded]?.uid ?? null) : null;
+    const { expanded: storedExpanded } = parsed;
+    const expanded = typeof storedExpanded === "number" && storedExpanded >= 0 && storedExpanded < cells.length ? (cells[storedExpanded]?.uid ?? null) : null;
     return clampPage(ensureEntry({ cells, expanded, page: 0, nextUid: cells.length, sortMode: "manual" }));
   } catch {
     return null;

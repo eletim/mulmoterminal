@@ -13,6 +13,9 @@ import { expandedPaths, restoreOrder } from "./filesTreeState";
 import { isWriteToOpenFile } from "../composables/fileWriteMatch";
 import { usePubSub } from "../composables/usePubSub";
 import { FILE_WRITE_CHANNEL, isFileWriteEvent } from "../../common/fileWriteChannel";
+import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 interface Node {
   name: string;
@@ -28,6 +31,12 @@ interface Entry {
   dir: boolean;
   size: number;
 }
+
+// The listing arrives off the wire, so an entry is checked before it becomes one — the tree
+// renders `name` and branches on `dir`, and a malformed entry would render as blank rather than
+// as absent.
+const isEntry = (value: unknown): value is Entry =>
+  isRecord(value) && typeof value.name === "string" && typeof value.dir === "boolean" && typeof value.size === "number";
 
 /** What a host hands back so a revisited directory looks the way it was left. */
 export interface FilesPaneState {
@@ -82,8 +91,8 @@ function makeNode(e: Entry, parentPath: string): Node {
 async function fetchEntries(pathRel: string): Promise<Entry[]> {
   const res = await fetch(`/api/files/browse/list?${qs(pathRel)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  return Array.isArray(data.entries) ? data.entries : [];
+  const data = await jsonBody(res);
+  return isUnknownArray(data.entries) ? data.entries.filter(isEntry) : [];
 }
 
 async function loadRoot(): Promise<void> {
@@ -136,10 +145,10 @@ async function writeBuffer(pathRel: string, text: string, base: string | null, k
       body: JSON.stringify({ text, baseVersion: base }),
       keepalive,
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await jsonBody(res);
     const version = typeof data.version === "string" ? data.version : null;
     if (res.status === 409) return { status: "conflict", version };
-    if (!res.ok) return { status: "error", message: data.error || `HTTP ${res.status}` };
+    if (!res.ok) return { status: "error", message: typeof data.error === "string" ? data.error : `HTTP ${res.status}` };
     return { status: "saved", version };
   } catch (e) {
     return { status: "error", message: e instanceof Error ? e.message : String(e) };
@@ -193,6 +202,11 @@ async function openFile(node: Node): Promise<void> {
 
 // Open a project-relative path in the editor. Split out from openFile because the other way
 // in has no tree node to hand over: a clicked source path in terminal output arrives as
+// Every /api route answers a failure as `res.status(4xx).json({ error })`, so the reason a read
+// was refused is in the body — reporting only the status turns a fixable problem into a mystery.
+const failureReason = (body: Record<string, unknown>, status: number): string =>
+  typeof body.error === "string" && body.error !== "" ? body.error : `HTTP ${status}`;
+
 // ?path= and opens the same file (#808).
 // `force` re-reads the file already open and skips the unsaved-edits prompt — the
 // conflict banner's "Reload", where discarding is the button the user just pressed.
@@ -209,8 +223,8 @@ async function loadFile(pathRel: string, force = false): Promise<void> {
   showPreview.value = false;
   try {
     const res = await fetch(`/api/files/browse/text?${qs(pathRel)}`);
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await jsonBody(res);
+    if (!res.ok) throw new Error(failureReason(data, res.status));
     if (id !== fileReqId) return;
     openPath.value = pathRel;
     baseVersion.value = typeof data.version === "string" ? data.version : null;
@@ -294,7 +308,7 @@ async function checkForExternalChange(): Promise<void> {
   try {
     const res = await fetch(`/api/files/browse/version?${qs(pathRel)}`);
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await jsonBody(res);
     const onDisk = typeof data.version === "string" ? data.version : null;
     // Still the version we loaded, or the answer arrived after the user moved on.
     if (onDisk === baseVersion.value || pathRel !== openPath.value) return;

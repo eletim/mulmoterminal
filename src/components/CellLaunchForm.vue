@@ -18,6 +18,8 @@ import type { LaunchChoice } from "./wsUrl";
 import type { RunCommand } from "./runCommand";
 import LaunchChipList from "./LaunchChipList.vue";
 import ModelPicker from "./ModelPicker.vue";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // What an EMPTY grid cell shows: pick a directory, pick what to run in it, and start — or resume
 // a session that already exists there, run one of its scripts, or isolate the work in a worktree.
@@ -191,8 +193,8 @@ async function pickDir(): Promise<void> {
   try {
     const res = await fetch("/api/pick-file", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ directory: true }) });
     if (!res.ok) return;
-    const data = await res.json();
-    const dir = Array.isArray(data?.paths) ? data.paths.find((p: unknown): p is string => typeof p === "string") : undefined;
+    const data = await jsonBody(res);
+    const dir = isUnknownArray(data.paths) ? data.paths.find((p): p is string => typeof p === "string") : undefined;
     if (dir) fillDir(dir);
   } catch {
     // best-effort — the native dialog is unavailable or the user canceled
@@ -279,7 +281,7 @@ async function createWorktreeAndLaunch(): Promise<void> {
       body: JSON.stringify({ repoDir, task }),
     });
     if (!res.ok) return;
-    const wt = await res.json();
+    const wt = await jsonBody(res);
     if (typeof wt.path === "string") {
       worktreeTask.value = "";
       await syncMcpGroupsInto(wt.path);

@@ -31,9 +31,8 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
-import { swallowsMouseTracking } from "./mouseTrackingModes";
-import { clearResetModes, recordSwallowedModes } from "./mouseReports";
-import { guardMouseClicks, guardMouseWheel } from "./terminalMouseInput";
+import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
+import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -42,7 +41,7 @@ import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
 import { connectionWillReturn, reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
-import { exitCodeOf, messageEffect } from "./serverMessage";
+import { exitCodeOf, messageEffect, parseServerFrame } from "./serverMessage";
 import {
   enterKeyOverride,
   submitSequence,
@@ -54,7 +53,6 @@ import {
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
-import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
 import { sendBytesFor, type Keymap, type KeymapKeyEvent } from "../../common/keymap";
 import { getActiveKeymap } from "./activeKeymap";
@@ -384,18 +382,6 @@ export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.
 //
 // The record is owned by the connection, not this closure, because it is per SESSION: connect()
 // clears it alongside term.reset() so a crashed app's modes can't outlive it.
-function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): void {
-  term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
-    const swallowed = swallowsMouseTracking(params);
-    if (swallowed) recordSwallowedModes(swallowedMouseModes, params);
-    return swallowed;
-  });
-  term.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
-    clearResetModes(swallowedMouseModes, params);
-    return false;
-  });
-  guardMouseWheel(term, swallowedMouseModes, getTerminalScrollSpeed);
-}
 
 // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
 // each keystroke, so input always targets the live socket). The Enter-family key handler
@@ -687,34 +673,44 @@ function connect(c: Conn) {
   };
 }
 
+// The live session id, so a later reconnect resumes THIS session (esp. a brand-new one that had
+// no id yet), plus the effective cwd.
+function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
+  if (typeof msg.id === "string") {
+    c.knownSessionId = msg.id;
+    c.handlers.onSession?.(msg.id);
+  }
+  if (typeof msg.cwd === "string") {
+    c.knownCwd = msg.cwd;
+    const v = connView.get(c.key);
+    if (v) v.serverCwd = msg.cwd;
+    c.handlers.onCwd?.(msg.cwd);
+  }
+}
+
+// exit / superseded / error — a terminal message. messageEffect decides which retries, which
+// fires onExit (NOT superseded — the session is alive in another tab), and the wording.
+function applyTerminalFrame(c: Conn, msg: Record<string, unknown>): void {
+  const effect = messageEffect(typeof msg.type === "string" ? msg.type : undefined, !!c.target.command, msg.message, exitCodeOf(msg));
+  if (!effect.terminal) return;
+  c.sawExit = true;
+  if (effect.banner) c.term.write(effect.banner);
+  setStatus(c, "disconnected");
+  if (effect.callsOnExit) c.handlers.onExit?.(exitCodeOf(msg));
+}
+
 function handleMessage(c: Conn, event: MessageEvent) {
-  const msg = JSON.parse(event.data);
+  const msg = parseServerFrame(event.data);
+  if (!msg) return;
   if (msg.type === "output") {
     // Checked here as well as on fit() because a slot that is only receiving output would
     // otherwise sit frozen until something happened to resize it (#846).
     guardBufferHealth(c);
-    c.term.write(msg.data);
+    if (typeof msg.data === "string") c.term.write(msg.data);
   } else if (msg.type === "session") {
-    // Server reports the live session id — remember it so a later reconnect resumes
-    // THIS session (esp. brand-new sessions that had no id yet) and the effective cwd.
-    c.knownSessionId = msg.id;
-    c.handlers.onSession?.(msg.id);
-    if (typeof msg.cwd === "string") {
-      c.knownCwd = msg.cwd;
-      const v = connView.get(c.key);
-      if (v) v.serverCwd = msg.cwd;
-      c.handlers.onCwd?.(msg.cwd);
-    }
+    applySessionFrame(c, msg);
   } else {
-    // exit / superseded / error — a terminal message. messageEffect decides which retries,
-    // which fires onExit (NOT superseded — the session is alive in another tab), and the
-    // wording; this applies it.
-    const effect = messageEffect(msg.type, !!c.target.command, msg.message, exitCodeOf(msg));
-    if (!effect.terminal) return;
-    c.sawExit = true;
-    if (effect.banner) c.term.write(effect.banner);
-    setStatus(c, "disconnected");
-    if (effect.callsOnExit) c.handlers.onExit?.(exitCodeOf(msg));
+    applyTerminalFrame(c, msg);
   }
 }
 

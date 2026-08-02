@@ -1,6 +1,8 @@
 import { ref, type Ref } from "vue";
 import { TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups";
 import { queueMcpWrite } from "../components/mcpWriteQueue";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // Which GUI tool groups a directory hands its agents, one switch per group in TOOL_GROUPS
 // (render, data, media, external). NOT MulmoTerminal state: each is an MCP server registered in
@@ -46,12 +48,12 @@ async function load(switches: Switches, target: string | null): Promise<void> {
   try {
     const res = await fetch(`/api/gui-mcp-groups?cwd=${encodeURIComponent(target)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await jsonBody(res);
     // A slower reply for a directory the user has since moved off would show its answer under the
     // new directory's name.
     if (reqId !== switches.req) return;
     switches.dir.value = target;
-    const registered: unknown[] = Array.isArray(data.groups) ? data.groups : [];
+    const registered: unknown[] = isUnknownArray(data.groups) ? data.groups : [];
     switches.enabled.value = byToolGroup(false);
     for (const group of TOOL_GROUPS) switches.enabled.value[group] = registered.includes(group);
     switches.failed.value = byToolGroup(null);
@@ -91,8 +93,8 @@ async function write(switches: Switches, group: ToolGroup, target: string, wante
       body: JSON.stringify({ cwd: target, group, enabled: wanted }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.message || "claude mcp failed");
+    const data = await jsonBody(res);
+    if (data.ok !== true) throw new Error(typeof data.message === "string" && data.message ? data.message : "claude mcp failed");
   } catch (e) {
     // Only if the switches still belong to the directory this write was for. Moved on, they are
     // showing what the NEW directory has registered, and putting one back would report another
@@ -158,8 +160,8 @@ async function registeredIn(dir: string): Promise<unknown[] | null> {
   try {
     const res = await fetch(`/api/gui-mcp-groups?cwd=${encodeURIComponent(dir)}`);
     if (!res.ok) return null;
-    const data = await res.json();
-    return Array.isArray(data.groups) ? data.groups : null;
+    const data = await jsonBody(res);
+    return isUnknownArray(data.groups) ? data.groups : null;
   } catch {
     return null;
   }

@@ -6,6 +6,7 @@ import type { QuickCommand } from "../../common/quickCommands";
 import { isPushKind, type PushKind } from "../../common/pushKinds";
 import { DEFAULT_SOUND_KINDS, isNotifyKind, type NotifyKind } from "../../common/notifyKinds";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
 import { readSoundMap, type SoundMap } from "./soundSettings";
 import type { SoundConfig } from "./useAttentionSound";
 import { DEFAULT_TERMINAL_SUBMIT_MODE, isTerminalSubmitMode } from "../../common/terminalSubmit";
@@ -112,7 +113,12 @@ async function postConfigField(field: string, value: unknown): Promise<{ ok: tru
   }
 }
 
+// The elements of a config list that pass their own guard. Anything else is dropped rather than
+// loaded: the list is a set of independent entries, so one bad entry costs only itself.
+const listOf = <T>(value: unknown, isEntry: (entry: unknown) => entry is T): T[] => (isUnknownArray(value) ? value.filter(isEntry) : []);
+
 const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
+const isCwdPreset = (value: unknown): value is CwdPreset => isRecord(value) && typeof value.label === "string" && typeof value.path === "string";
 const isQuickCommand = (value: unknown): value is QuickCommand => isRecord(value) && typeof value.label === "string" && typeof value.text === "string";
 const isUserMcpServer = (value: unknown): value is UserMcpServer => isRecord(value) && typeof value.id === "string" && typeof value.url === "string";
 const isLauncher = (value: unknown): value is Launcher => isRecord(value) && typeof value.label === "string" && typeof value.command === "string";
@@ -200,7 +206,8 @@ function createPresetManager(presets: Ref<CwdPreset[]>, saving: Ref<boolean>, er
     try {
       const res = await fetch("/api/config", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwdPresets: next }) });
       if (!res.ok) throw new Error(`save failed (${res.status})`);
-      presets.value = (await res.json()).cwdPresets ?? [];
+      const saved: unknown = await res.json();
+      presets.value = isRecord(saved) && isUnknownArray(saved.cwdPresets) ? saved.cwdPresets.filter(isCwdPreset) : [];
       version++;
       return true;
     } catch {
@@ -213,7 +220,7 @@ function createPresetManager(presets: Ref<CwdPreset[]>, saving: Ref<boolean>, er
 
   const snapshotVersion = (): number => version;
   const adoptServerPresets = (list: unknown, capturedVersion: number): void => {
-    if (version === capturedVersion) presets.value = Array.isArray(list) ? list : [];
+    if (version === capturedVersion) presets.value = isUnknownArray(list) ? list.filter(isCwdPreset) : [];
   };
 
   return { savePresets, ...createPresetMutations(presets, savePresets), snapshotVersion, adoptServerPresets };
@@ -270,7 +277,7 @@ function applyGlobalSettings(c: Record<string, unknown>): void {
 // The two GitHub-repo fields, adopted together — like adoptSoundConfig, so loadConfig keeps
 // reading as a list of facts rather than growing a ternary per field.
 function adoptRepoConfig(c: Record<string, unknown>): void {
-  prRepos.value = Array.isArray(c.prRepos) ? c.prRepos : [];
+  prRepos.value = stringsOf(c.prRepos);
   repoDirs.value = isRecord(c.repoDirs) ? readRepoDirs(c.repoDirs) : {};
 }
 
@@ -357,17 +364,21 @@ export function useAppConfig() {
     try {
       const res = await fetch("/api/config");
       if (!res.ok) return;
-      const c = await res.json();
-      defaultCwd.value = c.cwd ?? null;
-      home.value = c.home ?? null;
+      const body: unknown = await res.json();
+      if (!isRecord(body)) return;
+      const c = body;
+      defaultCwd.value = typeof c.cwd === "string" ? c.cwd : null;
+      home.value = typeof c.home === "string" ? c.home : null;
       adoptServerPresets(c.cwdPresets, version);
       adoptSoundConfig(c);
       pushEnabled.value = c.pushEnabled === true;
-      pushKinds.value = Array.isArray(c.pushKinds) ? c.pushKinds : [];
+      // Each list is filtered by the SAME guard its own save path uses (postConfigField below).
+      // They used to differ: a save validated, the load on every page open did not.
+      pushKinds.value = listOf(c.pushKinds, isPushKind);
       adoptRepoConfig(c);
-      launchers.value = Array.isArray(c.launchers) ? c.launchers : [];
-      quickCommands.value = Array.isArray(c.quickCommands) ? c.quickCommands : [];
-      userMcpServers.value = Array.isArray(c.userMcpServers) ? c.userMcpServers : [];
+      launchers.value = listOf(c.launchers, isLauncher);
+      quickCommands.value = listOf(c.quickCommands, isQuickCommand);
+      userMcpServers.value = listOf(c.userMcpServers, isUserMcpServer);
       applyGlobalSettings(c);
       await migrateLegacyRecents();
     } catch {

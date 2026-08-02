@@ -3,7 +3,19 @@
 // (what the app wants, where the pointer is, click vs drag, the byte sequences) are pure and
 // live in ./mouseReports; what is here is the wiring onto a live Terminal.
 import type { Terminal } from "@xterm/xterm";
-import { cellFromPoint, clickReportSequences, createWheelTicker, isClickGesture, wantsMouseReports, wheelNotches, wheelReportSequence } from "./mouseReports";
+import {
+  cellFromPoint,
+  clearResetModes,
+  clickReportSequences,
+  createWheelTicker,
+  isClickGesture,
+  recordSwallowedModes,
+  wantsMouseReports,
+  wheelNotches,
+  wheelReportSequence,
+} from "./mouseReports";
+import { swallowsMouseTracking } from "./mouseTrackingModes";
+import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import type { GridCell, PointerPosition } from "./mouseReports";
 
 // xterm's Linkifier marks the screen element while a link is under the pointer. That click
@@ -105,4 +117,17 @@ export function guardMouseClicks(term: Terminal, swallowedMouseModes: ReadonlySe
     const cell = cellUnderPointer(term, ev);
     clickReportSequences(cell.col, cell.row).forEach((seq) => term.input(seq, false));
   });
+}
+
+export function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): void {
+  term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
+    const swallowed = swallowsMouseTracking(params);
+    if (swallowed) recordSwallowedModes(swallowedMouseModes, params);
+    return swallowed;
+  });
+  term.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
+    clearResetModes(swallowedMouseModes, params);
+    return false;
+  });
+  guardMouseWheel(term, swallowedMouseModes, getTerminalScrollSpeed);
 }
