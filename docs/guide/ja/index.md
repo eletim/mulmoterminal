@@ -8,6 +8,8 @@ description: 複数の AI コーディングエージェント（Claude Code / C
 
 # MulmoTerminal ガイド（日本語）
 
+> **[4.1.0 で変わったこと](v4.1.0.html)** — **PRs & Issues** が github.com に加えて **gitlab.com** を読み、GitLab の issue からも GitHub と同じように着手できる（`prRepos` に `gitlab.com/group/project` と書くだけ）。あわせて 1 つの issue に worktree は 1 つ、ヘッダーの hover が即座に出て PR / issue のタイトルまで載る（2026-08-02 時点）
+>
 > **[4.0.0 で変わったこと](v4.0.0.html)** — **単一ターミナルビューを廃止**。グリッドがアプリそのものになり、1 体に集中するのは「セルを拡大する」こと。コンテンツ系の画面にはツールバーの **Collections** という入口ができた。**worktree は 1 セッションだけ**を持ち、2 つ目の起動を断る。Docker サンドボックスも削除（2026-08-01 時点）
 >
 > **X で最新情報を発信しています** — 新バージョンや新機能のお知らせは X の [Singularity Society（@SingularitySoci）](https://x.com/SingularitySoci) で流していきます。ここが一番早いので、[**@SingularitySoci をフォローしてください！**](https://x.com/SingularitySoci)
