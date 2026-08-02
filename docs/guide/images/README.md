@@ -4,6 +4,12 @@ Captured from a **throwaway demo instance** (a fresh `HOME`, empty config seeded
 — `acme-web` / `acme-api`, `Shell` / `Node REPL` launchers), so no personal session data appears. Retina
 (`deviceScaleFactor: 2`), 1440×900 viewport.
 
+**Except when a terminal is in frame.** xterm draws to a canvas it scales by the device pixel ratio
+itself, so at `deviceScaleFactor: 2` the terminal text bakes in at double size while the rest of the
+UI stays correct — the shot comes out with a giant terminal beside normal chrome. Capture those at
+`deviceScaleFactor: 1` and accept 1× resolution. The two `worktree-close-*.png` are 1280×540 at 1×
+for this reason.
+
 | File | Shows |
 |---|---|
 | `single-view.png` | The single view (chat + GUI panel) |
