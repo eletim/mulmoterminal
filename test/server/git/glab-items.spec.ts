@@ -358,10 +358,12 @@ describe("glabMrPhase", () => {
   // `ready` ONLY when GitLab says `mergeable`. A status we have no phrase for is still a status
   // GitLab is reporting INSTEAD of mergeable, so calling it ready is a green pill on a merge
   // request that cannot merge — the one direction of error that matters (Codex review).
-  it("does not call an unrecognised status ready", () => {
-    const out = glabMrPhase(mr({ detailed_merge_status: "some_new_status" }));
-    expect(out.phase).toBe("changes-requested");
-    expect(out.blockedReason).toContain("some_new_status");
+  // Two things at once, and an earlier revision of this PR got each of them wrong in turn.
+  // NOT ready: GitLab named something other than `mergeable`, so a green pill would be false.
+  // NOT explained either: `detailed_merge_status` is GitLab's internal vocabulary, and putting an
+  // unrecognised one in a tooltip shows a reader a raw backend identifier (Codex review, twice).
+  it("neither calls an unrecognised status ready nor prints it", () => {
+    expect(glabMrPhase(mr({ detailed_merge_status: "some_new_status" }))).toEqual({ phase: "changes-requested", blockedReason: null });
   });
 
   // The case Codex named. `ci_must_pass` means CI is what is holding the merge — and a LIST row

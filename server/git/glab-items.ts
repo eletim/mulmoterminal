@@ -169,5 +169,9 @@ export function glabMrPhase(raw: unknown): GlabMrPhase {
   // `ready` ONLY when GitLab itself says it could merge. Anything else it names is a blocker we may
   // or may not have words for, and guessing "ready" for the ones we do not is the same false green.
   if (mergeStatus === "mergeable") return { phase: "ready", blockedReason: null };
-  return { phase: "changes-requested", blockedReason: blockedReason ?? `not mergeable yet (${mergeStatus || "reason unknown"})` };
+  // Not `ready`, because GitLab named something other than `mergeable` — but no reason either: a
+  // status we have no phrase for would put a raw backend identifier in a tooltip, and
+  // `detailed_merge_status` is GitLab's internal vocabulary, not words for a reader. The phase
+  // alone still says "someone has to act", which is the part that is true (Codex review).
+  return { phase: "changes-requested", blockedReason };
 }
