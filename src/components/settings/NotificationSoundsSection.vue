@@ -10,15 +10,11 @@ import { SECTION_HEADING } from "./sectionClasses";
 import { NOTIFY_KINDS, type NotifyKind } from "../../../common/notifyKinds";
 import { presetRef, SOUND_PRESETS } from "../../../common/notifySounds";
 import type { BundledSkillName } from "../../../common/bundledSkills";
+import type { SoundEmits } from "./soundEmits";
 import { isRecord } from "../../../common/isRecord";
 
 const props = defineProps<{ soundFile?: string | null | undefined; soundKinds?: NotifyKind[] | undefined; sounds?: SoundMap | undefined }>();
-const emit = defineEmits<{
-  (e: "update-sound", file: string | null): void;
-  (e: "update-sound-kinds", kinds: NotifyKind[]): void;
-  (e: "update-sounds", sounds: SoundMap): void;
-  (e: "launch-skill", skill: BundledSkillName): void;
-}>();
+const emit = defineEmits<SoundEmits & { (e: "launch-skill", skill: BundledSkillName): void }>();
 
 // Which moments beep, and what each one plays (#873). The toolbar's speaker icon says whether to
 // beep at all, this says which moments qualify.
