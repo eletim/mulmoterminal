@@ -56,6 +56,7 @@ description: グリッドで複数の AI コーディングエージェント（
 | **Claude / Codex / Antigravity / Shell** トグル | このセルで動かすものを選ぶ。**エージェント**か、**Shell**（OS 標準シェル `$SHELL`。インストールも設定も不要） |
 | **WORKING DIRECTORY** | 作業ディレクトリを入力（再生ボタンで起動）。よく使うディレクトリは *cwd presets* の**チップ**をクリックして入力（チップの再生ボタンで即起動） |
 | **モデル選択**（Claude 選択時） | このセッションだけのバックエンド／モデルを選ぶ（→ [プロバイダ](providers.html)） |
+| **Canvas / Workspace data / External accounts** のトグル（エージェント選択時） | GUI ツール群（`render` / `data` / `media` / `external`）の MCP サーバを、**このセッションではなくディレクトリに**登録（→ [どのディレクトリで起動するか](#launch-dir)） |
 | **OR ISOLATE IN A WORKTREE** | git リポなら、タスク名を入れて **New worktree**。作業を隔離した worktree を作って起動。既存の worktree はその下に一覧表示 |
 | **OR RESUME HERE** | そのディレクトリに既にあるセッション。クリックすると続きから再開 |
 | **OR LAUNCH** | 設定済みの**起動コマンド**（`codex` / `htop` / 任意）を永続端末として起動 |
@@ -80,6 +81,36 @@ MCP 登録・worktree がないので、選んでいる間はその 3 つの欄�
 セッションではなく、永続端末（実行中／終了）です。
 
 ![Shell を選んだ同じフォーム — 残るのは作業ディレクトリだけ](../images/grid-launch-form-shell.png)
+
+### どのディレクトリで起動するか — ワークスペースとプロジェクト {#launch-dir}
+
+**WORKING DIRECTORY に何を入れるかで、そのセルが持つ GUI ツールが変わります。** 基準になるのは
+**ワークスペース** — サーバの既定の作業ディレクトリ（`CLAUDE_CWD`）です。`npx mulmoterminal` を
+実行したディレクトリがそれで（`--cwd` で上書き）、起動時に `Workspace: …` と表示されます。
+Collections・Wiki・Accounting・Files が読み書きするのは、どのセルにいても常にここです。
+
+| セルの作業ディレクトリ | Claude | Codex / Antigravity |
+|---|---|---|
+| **ワークスペースと同じ** | GUI MCP を**フルで**持ちます。設定の [MCP servers](config.html#settings-modal)（`userMcpServers`）もここに合流します。そのぶん**そのディレクトリ自身の MCP 設定は読みません** | 特例はありません。**MCP トグルで登録したツールグループだけ**です |
+| **プロジェクトのディレクトリ** | GUI MCP は付かず、そのディレクトリ自身の MCP 設定（`.mcp.json` / `claude mcp add -s local`）が普通に読まれます。GUI ツールが要るなら MCP トグルで登録します | 同じ |
+
+**3.x の単一ビューでしていたことを続けるなら、Claude をワークスペースで起動します。** 単一ビューは
+このディレクトリで動いていたので、ここに起動した Claude のセルは同じものを持ちます — Canvas に
+描かせる、コレクションを触らせる、といった操作がトグルなしで通ります。
+
+{: .note }
+> **MulmoClaude と併用しているなら、ワークスペースは MulmoClaude と同じディレクトリ**（既定
+> `~/mulmoclaude`）**にします。MulmoClaude を clone したディレクトリではありません** — 両者が
+> データを共有している置き場のほうです。そこを既定にするには、そのディレクトリで
+> `npx mulmoterminal` を実行するか、`--cwd ~/mulmoclaude` を渡します。プリセットスキルと help
+> の配置も、既定の作業ディレクトリがこのワークスペースのときだけ行われます。
+> → [環境変数](config.html#env)（`CLAUDE_CWD` / `MULMOCLAUDE_WORKSPACE_PATH`）
+
+**Codex / Antigravity にこの特例はありません。** ワークスペースで起動しても、GUI ツールは
+そのディレクトリに登録したぶんだけです。Canvas に描かせたい・コレクションを触らせたいときは、
+ランチャの MCP トグルを必要な分だけ入れてください。トグルは**セッションではなくディレクトリ**への
+登録なので、次にそこで起動するセッションにも効きます（Antigravity は
+`.agents/mcp_config.json` 経由。→ [2.8.0 セットアップガイド](v2.8.0.html)）。
 
 ## セルの読み方 — 「どこで何をしているか」
 
