@@ -42,7 +42,7 @@ command-doc 上限に対して paging 不要」という前提が、履歴を含
 
 **Claude セッションには効かない。** このマシンの実セッション41本を調べた結果:
 
-```
+```text
 15本  alt=1 hist=0  cmd=2.1.220 (Claude Code)
  3本  alt=0 hist=0  cmd=2.1.220
 13本  alt=0 hist=0  cmd=zsh
@@ -55,7 +55,7 @@ Claude Code は alternate screen で動く。tmux の alt screen にはスクロ
 さらに、PTY のバイト列を再生しても出てこない。自分のセッションを 0.4 秒間隔で40フレーム
 キャプチャし、フレーム N+1 が N を上へずらしたものかを判定した結果:
 
-```
+```text
 framesChanged: 39 / scrollTransitions: 0 / repaintTransitions: 39 / rowsScrolledOffTotal: 0
 ```
 
