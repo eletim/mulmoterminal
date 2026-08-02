@@ -82,7 +82,7 @@ MulmoTerminal はこのやり方を**ターミナルで**やるための画面�
 Collections・Wiki・Accounting が読み書きするのはここで、MulmoClaude と併用するなら**両者で同じディレクトリ**（既定 `~/mulmoclaude`）にします。
 MulmoClaude を clone したディレクトリのことではありません。
 
-プロジェクトのディレクトリとは扱いが違い、**ワークスペースで起動した Claude のセルだけ**が GUI MCP をフルで持ちます（3.x の単一ビューと同じ状態）。
+プロジェクトのディレクトリとは扱いが違い、**ワークスペースで起動した Claude のセルだけ**が GUI MCP をフルで持ちます（3.x までの単一ビューと同じ状態）。
 
 → [どのディレクトリで起動するか](basics.html#launch-dir)
 

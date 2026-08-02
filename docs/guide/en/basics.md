@@ -98,7 +98,7 @@ Collections, Wiki and Accounting read and write there whichever cell you are in 
 | **The workspace itself** | Carries the **whole** GUI MCP. Your [MCP servers](config.html#settings-modal) (`userMcpServers`) are merged into it too — and in exchange **that directory's own MCP config is not read** | No such rule. It gets **only the tool groups registered for that directory** |
 | **A project directory** | **No whole GUI MCP.** The directory's own MCP config (`.mcp.json`, `claude mcp add -s local`) loads normally, so register a tool group with the MCP toggles when you want GUI tools | Same |
 
-**To keep doing what you did in the 3.x single view, launch Claude in the workspace.**
+**To keep doing what you did in the single view in 3.x, launch Claude in the workspace.**
 That is the directory the single view ran in, so a Claude cell started there carries the same thing — drawing into the Canvas, working with collections, with no toggle to turn on.
 
 {: .note }
