@@ -2,7 +2,7 @@
 title: よくある質問（FAQ）
 layout: default
 parent: 日本語
-nav_order: 1
+nav_order: 3
 description: VS Code や Cursor との違い、既存の Claude Code セッション（resume）は引き継げるのか、Windows で動くのか、トークン代は増えるのか、tmux 分割と何が違うのか。MulmoTerminal を試す前に聞かれることをまとめました。
 ---
 

@@ -8,6 +8,14 @@ description: 複数の AI コーディングエージェント（Claude Code / C
 
 # MulmoTerminal ガイド（日本語）
 
+**はじめての方へ。** ターミナルの開き方から、Node.js・Claude Code・git / gh の入れ方
+（mac / Windows）、起動コマンド、つまずいたときの対処まで、**インストールと起動は 1 ページ**に
+まとめてあります。プログラミングが専門でなくても、そこだけ読めば起動までたどり着けます。
+環境がすでに揃っている方は `npx mulmoterminal@latest` だけです。
+
+[はじめに — 起動するまで](getting-started.html){: .btn .btn-purple .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[基本編 — 画面の読み方](basics.html){: .btn .fs-5 .mb-4 .mb-md-0 }
+
 > **[4.1.0 で変わったこと](v4.1.0.html)** — **PRs & Issues** が github.com に加えて **gitlab.com** を読み、GitLab の issue からも GitHub と同じように着手できる（`prRepos` に `gitlab.com/group/project` と書くだけ）。あわせて 1 つの issue に worktree は 1 つ、ヘッダーの hover が即座に出て PR / issue のタイトルまで載る（2026-08-02 時点）
 >
 > **[4.0.0 で変わったこと](v4.0.0.html)** — **単一ターミナルビューを廃止**。グリッドがアプリそのものになり、1 体に集中するのは「セルを拡大する」こと。コンテンツ系の画面にはツールバーの **Collections** という入口ができた。**worktree は 1 セッションだけ**を持ち、2 つ目の起動を断る。Docker サンドボックスも削除（2026-08-01 時点）
@@ -144,7 +152,7 @@ AI エージェントは 1 タスクに数分かかります。1 体を見張る
 3. **自動化 & エラー調査** — スクリプトをワンクリックで走らせ（稼働中セルの**隣の空きセル**で）、失敗したら**大量のログを AI が短く診断**。
 4. **拡張（DSL）** — ヘッダーのボタン／チップ、ランチャ、プロジェクト設定を**小さな DSL で拡張**。どんな開発者にも合う。
 
-## まずは起動
+## まずは起動 {#cli-tools}
 
 [`claude`](https://claude.com/claude-code)（Claude Code）が動く環境 + **Node ≥ 22.9** があれば、コマンド 1 つで始められます。
 
@@ -152,37 +160,25 @@ AI エージェントは 1 タスクに数分かかります。1 体を見張る
 npx mulmoterminal@latest    # → http://localhost:34567 が開く
 ```
 
-### 一緒に入れておくコマンド {#cli-tools}
-
-MulmoTerminal は普段の開発ツールを操縦するコックピットなので、`PATH` に何があるかで
-使える範囲が決まります。`claude` / `git` / `gh` がグリッドの土台で、残りは 1 行につき
-1 機能ぶんです。
-
-| | コマンド | 効いてくる機能 | インストール |
-| --- | --- | --- | --- |
-| **必須** | `claude` | Claude セッションそのもの | `npm i -g @anthropic-ai/claude-code` のあと `claude` を 1 回起動してログイン |
-| **必須** | `git` | [worktree 分離](features.html)、セルのブランチ / 未保存ドット / 差分表示、PR フッター | `brew install git` · `sudo apt install git` · Windows は [git-scm.com](https://git-scm.com/download/win) |
-| **必須** | `gh` | [PR / Issue 横断ビュー](github.html)とワンクリック PR 作成 | [cli.github.com](https://cli.github.com) のあと `gh auth login` |
-| 任意 | `glab` | 同じことを **gitlab.com** のプロジェクトでも — 一覧・issue から着手・MR 作成 | `brew install glab` のあと `glab auth login` |
-| 推奨 | `tmux` | [セッション永続化](features.html) — サーバ再起動でもターミナルが生き残る | `brew install tmux` · `sudo apt install tmux` · Windows ネイティブ版は無し（通常ターミナルにフォールバック） |
-| 任意 | `codex` | セルで [Codex セッション](basics.html#claude-and-codex)を Claude と並べて動かす | `npm i -g @openai/codex` |
-| 任意 | `ffmpeg` | [GUI パネル](features.html)の mulmo-script プラグインからの動画生成 | `brew install ffmpeg` · `sudo apt install ffmpeg` |
-| 任意 | `ollama` | [claude-ollama](claude-ollama.html) — 完全ローカルのモデルで Claude Code を動かす | [ollama.com/download](https://ollama.com/download) |
-
-必須以外が無くてもサーバは起動します（その行の機能が使えないだけ）。今のマシンに何が
-足りないかは **`npx mulmoterminal@latest init`** で確認できます。上の全コマンドをチェックしたうえで、
-Claude Code の履歴からランチャのディレクトリプリセットを作ってくれます。
+これで動かなかった方・そもそも何を入れればいいのか分からない方は、
+**[はじめに — 起動するまで](getting-started.html)** に全部書いてあります。
+ターミナルの開き方、Node.js / Claude Code / git / gh の入れ方（mac・Windows 別）、
+[一緒に入れておくコマンドの一覧](getting-started.html#cli-tools)、
+[つまずいたときの対処](getting-started.html#troubleshooting)まで 1 ページです。
 
 ## このガイドの読み方
 
-1. [基本編 — グリッドで今できること](basics.html)
-2. [応用編 — シナリオ別の使い方](scenarios.html)
-3. [機能一覧](features.html)（4 本柱で整理）
-4. [設定方法](config.html)（設定モーダル・`config.json`・`.mulmoterminal.json`・**DSL 拡張**）
-5. [スマホ通知（Web Push）](notifications.html)（iPhone / Android の設定）
-6. [スマホから使う](phone.html)（閲覧・自分のチップで返信・ターミナル起動）
-7. [GitHub — PR / Issue 横断ビュー](github.html)（登録リポの未マージ PR と Issue を 1 画面で）
-8. [OpenRouter で別のモデルを使う](providers.html)（Kimi / DeepSeek / Gemini などを実測データつきで選ぶ）
-9. [claude-ollama でローカルモデルを動かす](claude-ollama.html)（Ollama で完全ローカル・オフライン）
+1. [はじめに — 起動するまで](getting-started.html)（**インストールと起動はここだけで完結**）
+2. [基本編 — グリッドで今できること](basics.html)
+3. [よくある質問（FAQ）](faq.html)（既存セッション・Windows・トークン代・他ツールとの違い）
+4. [応用編 — シナリオ別の使い方](scenarios.html)
+5. [機能一覧](features.html)（4 本柱で整理）
+6. [設定方法](config.html)（設定モーダル・`config.json`・`.mulmoterminal.json`・**DSL 拡張**）
+7. [スマホ通知（Web Push）](notifications.html)（iPhone / Android の設定）
+8. [スマホから使う](phone.html)（閲覧・自分のチップで返信・ターミナル起動）
+9. [GitHub — PR / Issue 横断ビュー](github.html)（登録リポの未マージ PR と Issue を 1 画面で）
+10. [OpenRouter で別のモデルを使う](providers.html)（Kimi / DeepSeek / Gemini などを実測データつきで選ぶ）
+11. [claude-ollama でローカルモデルを動かす](claude-ollama.html)（Ollama で完全ローカル・オフライン）
+12. [用語集](glossary.html)
 
 > 英語版は [English guide](../en/) にあります。

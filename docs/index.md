@@ -28,6 +28,13 @@ lose a session**, and open git/dirs in **one click** — a **terminal-first mode
 
 ![A board of parallel AI-agent terminals](guide/images/grid-2x2.png)
 
+**インストールと起動は 1 ページにまとまっています / Install and launch, on one page** —
+ターミナルの開き方から Node.js・Claude Code・git / gh の入れ方（mac / Windows）まで。
+Opening a terminal through installing Node.js, Claude Code and git / gh on macOS and Windows.
+
+[はじめに — 起動するまで](guide/ja/getting-started.html){: .btn .btn-purple .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Getting started (English)](guide/en/getting-started.html){: .btn .fs-5 .mb-4 .mb-md-0 }
+
 > **最新情報は X で発信しています / Follow us on X**
 >
 > 新バージョンや新機能のお知らせは、X の
@@ -77,9 +84,16 @@ Several agents on one repo without collisions — diff, commit, push, and **⧉ 
 
 ## 🚀 起動 / Quick start
 
+> **はじめての方は [はじめに — 起動するまで](guide/ja/getting-started.html) へ。**
+> ターミナルの開き方から Node.js・Claude Code・git / gh の入れ方（mac / Windows）、
+> つまずいたときの対処まで 1 ページにまとめてあります。
+>
+> **New here? → [Getting started — from zero to running](guide/en/getting-started.html)** —
+> terminal, Node.js, Claude Code, git / gh on macOS and Windows, and troubleshooting, on one page.
+
 **必要なもの:** [`claude`](https://claude.com/claude-code) CLI（Claude Code）· `git` · `gh` が PATH にあること + **Node ≥ 22.9**。
 **あると便利:** `tmux`（セッション永続化）· `codex`（Codex セッション）· `ffmpeg`（動画生成）· `ollama`（ローカルモデル）。
-→ 各コマンドが何に効くかは [一緒に入れておくコマンド](guide/ja/#cli-tools)。
+→ 各コマンドが何に効くかは [一緒に入れておくコマンド](guide/ja/getting-started.html#cli-tools)。
 
 ```bash
 npx mulmoterminal@latest                       # → http://localhost:34567 が開く
@@ -88,7 +102,7 @@ npx mulmoterminal@latest --cwd ./my-project    # 作業ディレクトリを指�
 
 **Prerequisites:** the [`claude`](https://claude.com/claude-code) CLI · `git` · `gh` on your PATH + **Node ≥ 22.9**.
 **Also useful:** `tmux` (session persistence) · `codex` (Codex sessions) · `ffmpeg` (video rendering) ·
-`ollama` (local models). → what each one unlocks: [The CLIs it drives](guide/en/#cli-tools).
+`ollama` (local models). → what each one unlocks: [The CLIs it drives](guide/en/getting-started.html#cli-tools).
 
 ```bash
 npx mulmoterminal@latest                        # opens http://localhost:34567
@@ -104,8 +118,10 @@ The launcher detects it and prints the exact removal command; run that, then `np
 
 ## 日本語
 
-- [はじめに（あるある & コンセプト）](guide/ja/)
+- **[はじめに — 起動するまで](guide/ja/getting-started.html)（インストールと起動はここだけで完結）**
+- [ガイドのトップ（あるある & コンセプト）](guide/ja/)
 - [基本編 — グリッドで今できること](guide/ja/basics.html)
+- [よくある質問（FAQ）](guide/ja/faq.html)
 - [応用編 — シナリオ別の使い方](guide/ja/scenarios.html)
 - [機能一覧](guide/ja/features.html)
 - [設定方法](guide/ja/config.html)
@@ -115,8 +131,10 @@ The launcher detects it and prints the exact removal command; run that, then `np
 
 ## English
 
-- [Introduction (sound familiar? & the concept)](guide/en/)
+- **[Getting started — from zero to running](guide/en/getting-started.html) (install and launch, start to finish)**
+- [Guide home (sound familiar? & the concept)](guide/en/)
 - [Basics — what you can do in the grid](guide/en/basics.html)
+- [FAQ](guide/en/faq.html)
 - [Scenarios — workflows by example](guide/en/scenarios.html)
 - [Feature reference](guide/en/features.html)
 - [Configuration](guide/en/config.html)

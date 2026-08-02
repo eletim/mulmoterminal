@@ -2,7 +2,7 @@
 title: FAQ
 layout: default
 parent: English
-nav_order: 1
+nav_order: 3
 description: How it differs from VS Code, Cursor, tmux panes, Claude Squad and Conductor; whether your existing Claude Code sessions (resume) carry over; Windows support; token cost; and what to do when something breaks.
 ---
 

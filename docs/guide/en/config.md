@@ -2,7 +2,7 @@
 title: Configuration
 layout: default
 parent: English
-nav_order: 5
+nav_order: 6
 description: Configuring MulmoTerminal — the settings modal, per-project colours and names, Enter behaviour, notification sounds, fonts, keyboard shortcuts and environment variables, findable by symptom.
 ---
 
