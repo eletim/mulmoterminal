@@ -87,34 +87,32 @@ cell it opens is a persistent terminal (running / exited), not an agent session.
 
 ### Which directory to launch in — the workspace or a project {#launch-dir}
 
-**What you put in WORKING DIRECTORY decides which GUI tools that cell gets.** The reference point
-is the **workspace** — the server's default working directory (`CLAUDE_CWD`). It is the directory
-you ran `npx mulmoterminal` in (`--cwd` overrides it), and it is printed as `Workspace: …` at
-startup. Collections, Wiki, Accounting and Files always read and write there, whichever cell you
-are in.
+**What you put in WORKING DIRECTORY decides which GUI tools that cell gets.**
+The reference point is the **workspace** — the server's default working directory (`CLAUDE_CWD`).
+By default it is the directory you ran `npx mulmoterminal` in; `--cwd` and the `CLAUDE_CWD` environment variable take precedence over that.
+When you lose track of which one it is, the `Workspace: …` line printed at startup is the answer.
+Collections, Wiki and Accounting read and write there whichever cell you are in (only the Files pane beside an enlarged cell follows that cell's directory).
 
 | The cell's working directory | Claude | Codex / Antigravity |
 |---|---|---|
 | **The workspace itself** | Carries the **whole** GUI MCP. Your [MCP servers](config.html#settings-modal) (`userMcpServers`) are merged into it too — and in exchange **that directory's own MCP config is not read** | No such rule. It gets **only the tool groups registered for that directory** |
-| **A project directory** | No GUI MCP; the directory's own MCP config (`.mcp.json`, `claude mcp add -s local`) loads normally. Register a tool group with the MCP toggles when you want GUI tools | Same |
+| **A project directory** | **No whole GUI MCP.** The directory's own MCP config (`.mcp.json`, `claude mcp add -s local`) loads normally, so register a tool group with the MCP toggles when you want GUI tools | Same |
 
-**To keep doing what you did in the 3.x single view, launch Claude in the workspace.** That is the
-directory the single view ran in, so a Claude cell started there carries the same thing — drawing
-into the Canvas, working with collections, with no toggle to turn on.
+**To keep doing what you did in the 3.x single view, launch Claude in the workspace.**
+That is the directory the single view ran in, so a Claude cell started there carries the same thing — drawing into the Canvas, working with collections, with no toggle to turn on.
 
 {: .note }
-> **If you also run MulmoClaude, make the workspace the directory MulmoClaude uses** (`~/mulmoclaude`
-> by default). **It is not the directory you cloned MulmoClaude into** — it is the shared place both
-> apps keep their data. To make it the default, run `npx mulmoterminal` from there or pass
-> `--cwd ~/mulmoclaude`. The preset skills and help docs are seeded only when the default working
-> directory is that workspace.
+> **If you also run MulmoClaude, make the workspace the directory MulmoClaude uses** (`~/mulmoclaude` by default).
+> **It is not the directory you cloned MulmoClaude into** — it is the shared place both apps keep their data.
+> To make it the default, run `npx mulmoterminal` from there or pass `--cwd ~/mulmoclaude` — it is settled when the server starts, so changing it means restarting it.
+> The preset skills and help docs are seeded only when the default working directory is that workspace.
 > → [Environment variables](config.html#env) (`CLAUDE_CWD` / `MULMOCLAUDE_WORKSPACE_PATH`)
 
-**Codex and Antigravity have no such rule.** Even in the workspace, their GUI tools are whatever
-that directory has registered. When you want one of them drawing into the Canvas or touching
-collections, turn on the MCP toggles you need. A toggle registers **the directory, not the
-session**, so it also applies to the next session started there. Antigravity reads them from
-`.agents/mcp_config.json` (→ [2.8.0 setup guide](v2.8.0.html)).
+**Codex and Antigravity have no such rule.**
+Even in the workspace, their GUI tools are whatever that directory has registered.
+When you want one of them drawing into the Canvas or touching collections, turn on the MCP toggles you need: **Canvas** (`render` / `media`) is the panel beside an enlarged cell, **Workspace data** (`data`) is collections and the books, and **External accounts** (`external`) is Google, X and the like.
+A toggle registers **the directory, not the session**, so it takes effect on the next session started there — it never reaches a session already running.
+Antigravity reads them from `.agents/mcp_config.json` (→ [2.8.0 setup guide](v2.8.0.html)).
 
 ## Reading a cell — "what each agent is doing and where"
 

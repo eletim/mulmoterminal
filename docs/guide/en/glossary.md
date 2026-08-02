@@ -76,13 +76,11 @@ panel moved to the zoomed cell, which is the same thing — one agent with the w
 
 ## Workspace {#workspace}
 
-The server's **default working directory** (`CLAUDE_CWD`) — the directory you ran `npx mulmoterminal`
-in, printed as `Workspace: …` at startup. Collections, Wiki, Accounting and Files read and write
-there, and if you also run MulmoClaude it should be **the same directory for both** (`~/mulmoclaude`
-by default) — not the directory you cloned MulmoClaude into.
+The server's **default working directory** (`CLAUDE_CWD`) — by default the directory you ran `npx mulmoterminal` in, with `--cwd` and the `CLAUDE_CWD` environment variable taking precedence.
+It is printed as `Workspace: …` at startup.
+Collections, Wiki and Accounting read and write there, and if you also run MulmoClaude it should be **the same directory for both** (`~/mulmoclaude` by default) — not the directory you cloned MulmoClaude into.
 
-It is treated differently from a project directory: **only a Claude cell launched in the workspace**
-carries the whole GUI MCP, the way the 3.x single view did.
+It is treated differently from a project directory: **only a Claude cell launched in the workspace** carries the whole GUI MCP, the way the 3.x single view did.
 
 → [Which directory to launch in](basics.html#launch-dir)
 
