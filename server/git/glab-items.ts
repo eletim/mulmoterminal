@@ -88,3 +88,14 @@ export function glabNoteBodies(raw: unknown): string[] {
 
 /** Whether an issue read from `glab issue view` is still open. GitLab spells it lowercase. */
 export const glabIssueIsOpen = (raw: unknown): boolean => isRecord(raw) && raw.state === "opened";
+
+/** The merge request's description, from `glab mr view -F json`. GitLab calls the body
+ *  `description`; an empty one is normal and is not a read failure. */
+export const glabMrBody = (raw: unknown): string => (isRecord(raw) ? text(raw.description) : "");
+
+/** The web URL of the first merge request in a `glab mr list` answer, or null when there is none. */
+export function glabFirstMrUrl(raw: unknown): string | null {
+  const first = Array.isArray(raw) ? raw.find(isRecord) : null;
+  const url = first ? text(first.web_url) : "";
+  return url || null;
+}

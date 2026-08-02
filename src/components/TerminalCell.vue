@@ -909,7 +909,7 @@ async function openPR() {
   if (!data) return;
   if (data.ok && typeof data.url === "string") {
     window.open(data.url, "_blank", "noopener,noreferrer");
-    prMsg.value = data.via === "gh" ? "PR created" : "Opened PR page";
+    prMsg.value = data.via === "cli" ? "PR created" : "Opened PR page";
   } else {
     prMsg.value = worktreeFailureMessage(reasonOf(data));
   }

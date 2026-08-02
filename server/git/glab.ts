@@ -47,3 +47,28 @@ export const glabIssueNotesArgs = (project: string, issue: number): string[] => 
   `projects/${encodeURIComponent(project)}/issues/${issue}/notes`,
   "--paginate",
 ];
+
+// The merge-request half. Like `gh`, glab infers the project from the working directory, so none of
+// these pass `--repo` — verified by running `glab mr list` in a directory holding nothing but a
+// remote. A URL is accepted wherever an iid is, which is what lets the body helpers keep taking the
+// URL they were given.
+//
+// `--fill` differs from `gh pr create --fill` in one way that matters: it PUSHES the branch too
+// (observed — an unpushed branch produced a merge request). Harmless after `pushWorktree` has
+// already pushed, and it is what makes the command work at all when the push was skipped.
+export const glabMrCreateArgs = (base: string, branch: string): string[] => [
+  "mr",
+  "create",
+  "--fill",
+  "--source-branch",
+  branch,
+  "--target-branch",
+  base,
+  "--yes",
+];
+
+export const glabMrForBranchArgs = (branch: string): string[] => ["mr", "list", "--source-branch", branch, "-F", "json"];
+
+export const glabMrViewArgs = (mr: string): string[] => ["mr", "view", mr, "-F", "json"];
+
+export const glabMrUpdateBodyArgs = (mr: string, body: string): string[] => ["mr", "update", mr, "--description", body];
