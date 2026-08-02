@@ -76,6 +76,20 @@ describe("jsonPayload", () => {
     expect(jsonPayload(value)).toEqual(stringified(value));
   });
 
+  // stringify passes the property key to `toJSON`, so a key-aware serializer must see it — calling
+  // it with nothing silently changes the answer (Codex review on #1288).
+  it("passes the property key to a key-aware toJSON, as stringify does", () => {
+    const value = { a: { toJSON: (k: string) => k }, b: { toJSON: (k: string) => `${k}!` } };
+    expect(jsonPayload(value)).toEqual({ a: "a", b: "b!" });
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
+  it("passes the array index as the key inside an array", () => {
+    const value = { list: [{ toJSON: (k: string) => k }, { toJSON: (k: string) => k }] };
+    expect(jsonPayload(value)).toEqual({ list: ["0", "1"] });
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
   it("is empty for an empty record", () => {
     expect(jsonPayload({})).toEqual({});
   });
