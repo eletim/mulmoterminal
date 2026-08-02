@@ -434,7 +434,7 @@ export function startAndWire(
   session: {
     id: string;
     tag: string;
-    early: EarlyFrames<{ toString(): string }>;
+    early: EarlyFrames;
     startFailureMessage: (err: unknown) => string;
     /** The browser's own geometry, off the connect URL. */
     size?: TerminalSize | null;
@@ -459,15 +459,15 @@ export function startAndWire(
 // Tell the browser which session this is, and from that moment collect what it sends: its first
 // frame is the terminal's real geometry, and it arrives while the caller is still reading config
 // files, so without this it lands on the floor (see early-frames.ts).
-function announceSession(ws: WebSocket, sessionId: string, cwd: string): EarlyFrames<{ toString(): string }> {
+function announceSession(ws: WebSocket, sessionId: string, cwd: string): EarlyFrames {
   ws.send(JSON.stringify({ type: "session", id: sessionId, cwd }));
-  return bufferEarlyFrames<{ toString(): string }>(ws);
+  return bufferEarlyFrames(ws);
 }
 
 // False when the client left during those reads — the caller must return WITHOUT spawning. A spawn
 // for a socket that has already closed leaks a pty nobody reaps, because the close handlers are not
 // installed until startAndWire.
-function clientStillConnected(ws: WebSocket, tag: string, sessionId: string, early: EarlyFrames<{ toString(): string }>): boolean {
+function clientStillConnected(ws: WebSocket, tag: string, sessionId: string, early: EarlyFrames): boolean {
   if (ws.readyState === ws.OPEN) return true;
   console.log(`[ws/${tag}] client left before spawn — abandoning ${sessionId}`);
   early.discard();
