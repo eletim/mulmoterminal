@@ -113,8 +113,8 @@ async function postConfigField(field: string, value: unknown): Promise<{ ok: tru
 }
 
 const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
-const isQuickCommand = (value: unknown): value is QuickCommand => isRecord(value) && typeof value.label === "string" && typeof value.command === "string";
-const isUserMcpServer = (value: unknown): value is UserMcpServer => isRecord(value) && typeof value.name === "string";
+const isQuickCommand = (value: unknown): value is QuickCommand => isRecord(value) && typeof value.label === "string" && typeof value.text === "string";
+const isUserMcpServer = (value: unknown): value is UserMcpServer => isRecord(value) && typeof value.id === "string" && typeof value.url === "string";
 const isLauncher = (value: unknown): value is Launcher => isRecord(value) && typeof value.label === "string" && typeof value.command === "string";
 
 // The record/remove/migrate preset mutations. Each preset write POSTs the whole array, so
