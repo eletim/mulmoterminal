@@ -247,7 +247,10 @@ export interface SessionUsage {
   cacheCreationTokens: number;
 }
 
-const usageNum = (u: Record<string, unknown>, key: string): number => (typeof u[key] === "number" ? (u[key] as number) : 0);
+const usageNum = (u: Record<string, unknown>, key: string): number => {
+  const value = u[key];
+  return typeof value === "number" ? value : 0;
+};
 
 export function sessionUsageFromParsed(records: Record<string, unknown>[]): SessionUsage {
   const total: SessionUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };

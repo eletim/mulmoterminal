@@ -465,8 +465,9 @@ const asLauncher = (v: unknown): CellLauncher | null => {
 // A cell entry is kept if its session/cwd are well-formed; uid is validated only to
 // match the persisted `expanded` (it is renumbered below regardless).
 const isCell = (c: unknown): c is Cell => {
-  const o = c as Cell | null;
-  return !!o && (o.session === null || isUuid(o.session)) && (o.cwd === null || typeof o.cwd === "string");
+  if (!isRecord(c)) return false;
+  const sessionOk = c.session === null || (typeof c.session === "string" && isUuid(c.session));
+  return sessionOk && (c.cwd === null || typeof c.cwd === "string");
 };
 
 export function parseGridState(raw: string | null): GridState | null {
