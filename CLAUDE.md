@@ -20,6 +20,23 @@ anything not covered here.
 - `yarn test` — **Vitest** (`test/**/*.spec.ts`). Mock external APIs; tests must run without API keys.
 - `yarn dev` — server + Vite together (local development).
 
+### Import a component at module scope, never inside a test
+
+`await import("…/Foo.vue")` inside an `it` (or a helper an `it` awaits) pulls the component's
+whole module graph through the transform, and **the first test to reach it is billed that time
+against `testTimeout`**. On this repo that was 2132ms of loading against an 18ms mount — so the
+file's first test looked 100x slower than its siblings, and on a loaded runner it was the one
+that crossed 15s and went red (#1314). The test was never the slow part.
+
+Load it once at module scope instead — `const Foo = (await import("…/Foo.vue")).default;`, a
+top-level await, or a plain static import. Collection has no per-test budget, so the same work
+costs nothing there.
+
+The exception is a module that must be evaluated AFTER a non-hoisted mock: `vi.doMock` and
+`vi.resetModules` only take effect on a later import, so those specs (`codeBlockCopy.spec.ts`,
+several under `test/server/`) keep the import inside the test on purpose. `vi.mock` is hoisted
+and needs no such thing.
+
 ## No emojis
 **Never use emojis anywhere in this project** — UI, source comments, docs, changelog, commit
 messages, skills, CLI output. Icons are **Material Symbols (outlined)**, self-hosted via the
