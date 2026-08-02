@@ -107,8 +107,8 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
     // the same thing to the runtime but not to the type — the option is exact-optional.
     const transport = new StreamableHTTPServerTransport({});
     res.on("close", () => {
-      transport.close();
-      server.close();
+      void transport.close();
+      void server.close();
     });
     try {
       // A cast, which this codebase otherwise refuses — and it asserts only what the SDK itself declares.

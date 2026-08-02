@@ -189,7 +189,7 @@ const latestCardKey = computed(() => {
 // After the pending layout — the new/resized card's height is what we are scrolling past.
 function followToEnd() {
   if (!stickToBottom.value) return;
-  nextTick(() => {
+  void nextTick(() => {
     const element = scrollRef.value;
     if (element) element.scrollTop = element.scrollHeight;
   });
@@ -254,7 +254,7 @@ watch(() => props.sessionId, loadAvailableTools, { immediate: true });
 // while claude is still being spawned, so its MCP client has not connected to the group URLs yet
 // and the server has not learned which tools this cell got.
 onToolGroupsAnnounced((announcement) => {
-  if (announcement.sessionId === props.sessionId) loadAvailableTools(props.sessionId);
+  if (announcement.sessionId === props.sessionId) void loadAvailableTools(props.sessionId);
 });
 
 // What this session can be asked for, grouped. Ordered by TOOL_GROUPS (blast radius, least

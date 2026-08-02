@@ -128,7 +128,7 @@ export function useSessionFeed<T>(items: Ref<T[]>, options: SessionFeedOptions<T
     sessionId,
     (id) => {
       onSessionChange?.();
-      if (id) loadHistory(id);
+      if (id) void loadHistory(id);
       else items.value = [];
       subscribeTo(id);
     },

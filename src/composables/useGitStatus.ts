@@ -34,12 +34,12 @@ export function useGitStatus(cwd: Ref<string | null>) {
   }
 
   const refreshIfVisible = () => {
-    if (document.visibilityState === "visible") refresh();
+    if (document.visibilityState === "visible") void refresh();
   };
 
   let timer: ReturnType<typeof setInterval> | undefined;
   onMounted(() => {
-    refresh();
+    void refresh();
     window.addEventListener("focus", refreshIfVisible);
     timer = setInterval(refreshIfVisible, POLL_MS);
   });

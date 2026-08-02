@@ -40,7 +40,7 @@ export function useModalKeyboard(options: ModalKeyboardOptions & { focusSelector
   const onKeydown = modalKeydownHandler(options);
   onMounted(() => {
     document.addEventListener("keydown", onKeydown);
-    nextTick(() => options.modalEl.value?.querySelector<HTMLElement>(options.focusSelector)?.focus());
+    void nextTick(() => options.modalEl.value?.querySelector<HTMLElement>(options.focusSelector)?.focus());
   });
   onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 }

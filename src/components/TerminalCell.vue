@@ -370,11 +370,11 @@ onMounted(() => {
   // on reconnect re-seed from the authoritative snapshot (guarded by activityGen), or a turn
   // that started during the outage stays showing idle until it ends.
   offReconnect = onReconnect(() => {
-    if (sessionId.value) loadInitial(sessionId.value);
+    if (sessionId.value) void loadInitial(sessionId.value);
   });
   if (sessionId.value) {
-    loadInitial(sessionId.value);
-    loadDiff(); // a resumed worktree cell shows its diff on restore
+    void loadInitial(sessionId.value);
+    void loadDiff(); // a resumed worktree cell shows its diff on restore
   }
 });
 onUnmounted(() => {
@@ -398,7 +398,7 @@ function launchIn(dir: string | null) {
   launched.value = true;
   emit("agent", agent.value); // let the grid persist which agent this cell launched
   recordNextCwd = true;
-  loadDiff(); // no-op for a non-worktree dir
+  void loadDiff(); // no-op for a non-worktree dir
 }
 // The provider/model picked in the launch form, for the session this cell is about to
 // start. Null — the usual case — means the directory's own default decides. Kept for the
@@ -429,7 +429,7 @@ function resumeSession({ id, cwd: dir, agent: resumeAgent }: { id: string; cwd: 
   connectKey.value++;
   launched.value = true;
   recordNextCwd = false; // resuming isn't a fresh launch — don't record its cwd
-  loadDiff(); // an already-idle worktree session shows its badge right away
+  void loadDiff(); // an already-idle worktree session shows its badge right away
 }
 
 // Reveal this cell's working directory in the OS file manager. The browser can't
@@ -683,7 +683,7 @@ onUnmounted(() => document.removeEventListener("keydown", onCloseKey));
 function onSession(id: string) {
   sessionId.value = id;
   emit("session", id);
-  loadInitial(id);
+  void loadInitial(id);
 }
 
 // ~-anchored, front-truncated path for the header (keeps the tail). For a managed
@@ -855,7 +855,7 @@ async function loadDiff() {
 function openDiff() {
   diffOpen.value = true;
   prMsg.value = null;
-  loadDiff(); // refresh on open
+  void loadDiff(); // refresh on open
 }
 
 // Outward-facing actions (push / open PR) for the worktree's branch. `prBusy`
@@ -920,9 +920,9 @@ async function openPR() {
 // turn's token usage is final.
 watch(working, (now, prev) => {
   if (prev && !now) {
-    loadDiff();
-    refreshUsage();
-    refreshGit(); // branch/dirty may have changed (commit, checkout, edits)
+    void loadDiff();
+    void refreshUsage();
+    void refreshGit(); // branch/dirty may have changed (commit, checkout, edits)
     void refreshWorkItem(); // a turn that pushed or opened a PR changes what this cell is on
   }
 });

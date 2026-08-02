@@ -168,7 +168,10 @@ export default [
       "sonarjs/different-types-comparison": "warn",
       "sonarjs/deprecation": "warn",
       "sonarjs/no-alphabetical-sort": "warn",
-      "sonarjs/void-use": "warn",
+      // OFF, not warn: it forbids the `void` operator, which is exactly what
+      // `no-floating-promises` asks for to mark a promise as deliberately not awaited. The two
+      // rules contradict each other and we chose the one that catches a forgotten `await`.
+      "sonarjs/void-use": "off",
       "sonarjs/function-return-type": "warn",
       "sonarjs/reduce-initial-value": "warn",
       "sonarjs/no-selector-parameter": "warn",
