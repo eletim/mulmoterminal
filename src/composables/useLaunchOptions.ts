@@ -5,7 +5,14 @@
 // restarts the server with a different environment, so `reloadLaunchOptions` is there for
 // the settings screen rather than a poll.
 import { ref } from "vue";
-import type { LaunchOptions } from "../../common/launchOptions";
+import type { LaunchOptions, LaunchProviderOption } from "../../common/launchOptions";
+import { isRecord } from "../../common/isRecord";
+
+// The picker renders a provider by id/label and launches by id, so a row missing either is
+// dropped rather than shown as an unlabelled button that does nothing.
+const isLaunchProviderOption = (row: unknown): row is LaunchProviderOption => isRecord(row) && typeof row.id === "string" && typeof row.label === "string";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 const EMPTY: LaunchOptions = { providers: [], anyReady: false };
 const FETCH_TIMEOUT_MS = 8000;
@@ -25,7 +32,13 @@ async function fetchOptions(): Promise<void> {
   try {
     const res = await fetch("/api/launch-options", { signal: abort.signal });
     if (!res.ok) throw new Error(`GET /api/launch-options → ${res.status}`);
-    options.value = await res.json();
+    const body = await jsonBody(res);
+    // The picker branches on `anyReady` and lists `providers`; a body missing either shows an
+    // empty picker rather than a broken one.
+    options.value =
+      isUnknownArray(body.providers) && typeof body.anyReady === "boolean"
+        ? { providers: body.providers.filter(isLaunchProviderOption), anyReady: body.anyReady }
+        : EMPTY;
     loaded = true;
   } catch (err) {
     // A picker that cannot load its list is not an error the user can act on — the launch

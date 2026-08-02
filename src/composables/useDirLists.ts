@@ -2,6 +2,9 @@ import { shallowRef } from "vue";
 import type { PartialWorkerStatus } from "../../common/workerStatus";
 import type { PartialSessionOccupancy, SessionOccupancy } from "../../common/sessionOccupancy";
 import type { TerminalAgent } from "../../common/sessionAgent";
+import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // What the launch form can offer for the directory currently in its field: the sessions that can
 // be resumed there, the script.json entries that can be run there, and the worktrees the
@@ -65,7 +68,23 @@ type ListBody = Record<string, unknown>;
 // The server answers 200 with an empty list for a directory that simply has none, so a refused
 // read parses as an empty body: the two show the same thing, and the fallbacks below then fill in
 // per field exactly as each list's own error path used to.
-const rowsOf = <T>(value: unknown): T[] => (Array.isArray(value) ? value : []);
+// Takes the row guard rather than a type argument. It used to be `rowsOf<T>(value)`, which named
+// a shape the server had not been asked about — the same thing #1231 removed from the assertions.
+const rowsOf = <T>(value: unknown, isRow: (row: unknown) => row is T): T[] => (isUnknownArray(value) ? value.filter(isRow) : []);
+
+// Each list's rows are checked on the fields it cannot render or act without.
+const isResumableSession = (row: unknown): row is ResumableSession =>
+  isRecord(row) && typeof row.id === "string" && typeof row.title === "string" && typeof row.mtime === "number";
+
+const isRunnableScript = (row: unknown): row is RunnableScript =>
+  isRecord(row) && typeof row.index === "number" && typeof row.label === "string" && typeof row.command === "string";
+
+const isWorktree = (row: unknown): row is Worktree =>
+  isRecord(row) &&
+  typeof row.path === "string" &&
+  (row.branch === null || typeof row.branch === "string") &&
+  typeof row.task === "string" &&
+  typeof row.dirty === "boolean";
 const dirOf = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
 
 function useDirList<T>(url: (dir: string) => string, parse: (body: ListBody, dir: string) => T, empty: () => T) {
@@ -83,7 +102,7 @@ function useDirList<T>(url: (dir: string) => string, parse: (body: ListBody, dir
     try {
       const res = await fetch(url(dir));
       if (reqId !== req) return; // a newer request superseded this one
-      const body: ListBody = res.ok ? await res.json() : {};
+      const body: ListBody = res.ok ? await jsonBody(res) : {};
       if (reqId !== req) return; // re-check after awaiting the body
       value.value = parse(body, dir);
     } catch {
@@ -98,7 +117,7 @@ function useDirList<T>(url: (dir: string) => string, parse: (body: ListBody, dir
 export const useResumableSessions = () =>
   useDirList<ResumableList>(
     (dir) => `/api/sessions?cwd=${encodeURIComponent(dir)}`,
-    (body, dir) => ({ sessions: rowsOf<ResumableSession>(body.sessions), cwd: dirOf(body.cwd, dir) }),
+    (body, dir) => ({ sessions: rowsOf(body.sessions, isResumableSession), cwd: dirOf(body.cwd, dir) }),
     () => ({ sessions: [], cwd: null }),
   );
 
@@ -107,7 +126,7 @@ export const useResumableSessions = () =>
 export const useDirScripts = () =>
   useDirList<ScriptList>(
     (dir) => `/api/scripts?cwd=${encodeURIComponent(dir)}`,
-    (body, dir) => ({ scripts: rowsOf<RunnableScript>(body.scripts), cwd: dirOf(body.cwd, dir) }),
+    (body, dir) => ({ scripts: rowsOf(body.scripts, isRunnableScript), cwd: dirOf(body.cwd, dir) }),
     () => ({ scripts: [], cwd: null }),
   );
 
@@ -117,6 +136,6 @@ export const useDirScripts = () =>
 export const useDirWorktrees = () =>
   useDirList<WorktreeList>(
     (dir) => `/api/worktrees?cwd=${encodeURIComponent(dir)}`,
-    (body) => ({ isGit: !!body.isGit, worktrees: rowsOf<Worktree>(body.worktrees) }),
+    (body) => ({ isGit: !!body.isGit, worktrees: rowsOf(body.worktrees, isWorktree) }),
     () => ({ isGit: false, worktrees: [] }),
   );

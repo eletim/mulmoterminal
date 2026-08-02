@@ -11,6 +11,8 @@ import { useIssueStart } from "../composables/useIssueStart";
 import { relativeTimeFromIso } from "./cellDisplay";
 import IssueStartButton from "./IssueStartButton.vue";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 const { isOpen, close } = usePrsView();
 const { loadRepoDirs, startError } = useIssueStart();
@@ -33,8 +35,8 @@ async function loadSection(path: string): Promise<{ rows: unknown[]; error: stri
   try {
     const res = await fetch(path);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return { rows: Array.isArray(data.repos) ? data.repos : [], error: null };
+    const data = await jsonBody(res);
+    return { rows: isUnknownArray(data.repos) ? data.repos : [], error: null };
   } catch (e) {
     return { rows: [], error: e instanceof Error ? e.message : String(e) };
   }

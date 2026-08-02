@@ -3,6 +3,8 @@ import { ref, watch, onUnmounted } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
 import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // The tools pane mirrors MulmoClaude's right sidebar: an "Available Tools" list
 // (the GUI plugin tools, with collapsible descriptions) and a "Tool Call History"
@@ -84,9 +86,13 @@ async function loadAvailableTools(sessionId: string | null) {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
+    const body = await jsonBody(res);
     if (overtaken()) return;
-    availableTools.value = body.tools ?? [];
+    // `toolName` is the only field the pane cannot do without: it keys the row and is what a
+    // click sends. The two optional ones are display text and may legitimately be absent.
+    availableTools.value = isUnknownArray(body.tools)
+      ? body.tools.filter((tool): tool is AvailableTool => isRecord(tool) && typeof tool.toolName === "string")
+      : [];
     guiOnlyHistory.value = body.guiOnlyHistory === true;
   } catch {
     if (overtaken()) return;

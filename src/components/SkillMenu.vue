@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, useTemplateRef } from "vue";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
+import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // A header dropdown that lists the open project's discoverable skills (user +
 // project `.claude/skills`) and emits the slug picked, so the parent can invoke it
@@ -37,9 +40,12 @@ async function loadSkills() {
   }
   try {
     const res = await fetch(`/api/skills?cwd=${encodeURIComponent(dir)}`);
-    const data = res.ok ? await res.json() : { skills: [] };
+    const data = res.ok ? await jsonBody(res) : {};
     if (reqId !== req) return;
-    skills.value = Array.isArray(data.skills) ? data.skills : [];
+    // A skill with no slug cannot be launched, and one with no description renders a blank row.
+    skills.value = isUnknownArray(data.skills)
+      ? data.skills.filter((skill): skill is DiscoveredSkill => isRecord(skill) && typeof skill.slug === "string" && typeof skill.description === "string")
+      : [];
   } catch {
     if (reqId === req) skills.value = [];
   }

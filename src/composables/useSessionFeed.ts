@@ -4,6 +4,8 @@
 import { onUnmounted, watch, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import { mergeLiveIntoSnapshot } from "./liveMerge";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 interface SessionFeedOptions<T> {
   sessionId: () => string | null;
@@ -42,6 +44,16 @@ type Reconcile<T> = (items: T[], incoming: T) => "store" | "skip";
  * the one it replaces. Replaying the rule over the merged list, in arrival order, is the same fold
  * the live path does one item at a time, so both directions settle to the same answer.
  */
+// The stored rows, through the SAME reader the live channel uses. The history path used to take
+// them as-is, so a shape the channel would have dropped still reached the list on first load.
+function readHistory<T>(rows: unknown, parse: (raw: unknown) => T | null): T[] {
+  if (!isUnknownArray(rows)) return [];
+  return rows.flatMap((raw) => {
+    const item = parse(raw);
+    return item === null ? [] : [item];
+  });
+}
+
 function mergeSettled<T>(snapshot: readonly T[], buffered: readonly T[], identify: (item: T) => string | undefined, reconcile?: Reconcile<T>): T[] {
   const merged = mergeLiveIntoSnapshot(snapshot, buffered, identify);
   if (!reconcile) return merged;
@@ -98,9 +110,9 @@ export function useSessionFeed<T>(items: Ref<T[]>, options: SessionFeedOptions<T
       const res = await fetch(historyUrl(id));
       if (overtaken()) return;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await jsonBody(res);
       if (overtaken()) return;
-      items.value = mergeSettled(data[historyKey] ?? [], arrivedDuringLoad, identify, reconcile);
+      items.value = mergeSettled(readHistory(data[historyKey], parse), arrivedDuringLoad, identify, reconcile);
     } catch {
       // A failed history read must not take the live events with it.
       if (!overtaken()) items.value = mergeSettled([], arrivedDuringLoad, identify, reconcile);

@@ -166,6 +166,15 @@ export default [
       // literal text "[object Object]" — a wrong value that travels instead of throwing.
       "@typescript-eslint/await-thenable": "error",
       "@typescript-eslint/no-base-to-string": "error",
+      // The `any` family (#1300). All five are at ZERO, and they are the rules that catch what
+      // `no-explicit-any` cannot: an `any` that arrives from outside — JSON.parse, a dynamic
+      // import, express's req.body, Response.json() — and then type-checks against every use it
+      // reaches. See the exclusion block below for the ONE place they cannot be trusted.
+      "@typescript-eslint/no-unsafe-argument": "error",
+      "@typescript-eslint/no-unsafe-assignment": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-member-access": "error",
+      "@typescript-eslint/no-unsafe-return": "error",
       // Type-aware sonarjs rules that were ALREADY configured as errors and never ran, because
       // nothing built a type program until this block did. Turning them on is not what this change
       // is for, and 30 findings would hide the promise ones — so they are visible at warn and get
@@ -202,6 +211,34 @@ export default [
     },
   },
   {
+    // The `any` family is OFF wherever a `.vue` component type is in play, and that is a LIMIT OF
+    // THE LINTER rather than a hole in the code.
+    //
+    // ESLint's type program does not generate SFC component types, so `InstanceType<typeof
+    // SomeComponent>` — and any type imported from a `.vue` — resolves to the error type. Every
+    // read through such a value is then reported as unsafe. `vue-tsc` resolves them fully: calling
+    // a made-up method through one of these refs is rejected with the whole instance type, so this
+    // code IS type-checked, just not by this pass (measured on #1300: 58 reports, 0 fixable).
+    //
+    // The `.ts` files listed here are the ones that import a type or component FROM a `.vue`; they
+    // inherit the same blind spot. A new file that does the same belongs on this list — with the
+    // import named, so the entry can be deleted if the type program ever learns SFCs.
+    files: [
+      "**/*.vue",
+      "src/main.ts", // App.vue
+      "src/plugins-registry.ts", // CollectionCardView.vue
+      "src/composables/collectionUi.ts", // PinToggle.vue
+      "src/components/filesPaneStore.ts", // FilesPaneState from FilesPane.vue
+    ],
+    rules: {
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+    },
+  },
+  {
     // Type-assertion allowlist. Every entry is a place where NO amount of local typing can
     // express the truth, because the type that is wrong belongs to someone else. Each says which
     // upstream and what would remove it — delete the entry when that lands.
@@ -225,6 +262,16 @@ export default [
       // annotates its handler.) Moving the assertion onto the payload (`handler(data as T)`)
       // relocates it rather than removing it, so it stays where the unprovable claim is made.
       "src/composables/pluginRuntime.ts",
+      // The same shape one layer out: @mulmoclaude/accounting-plugin declares
+      // `AccountingApiCall = <T = unknown>(path, opts) => Promise<ApiResult<T>>`, and the
+      // collection package's CollectionApiResult<T> seam matches it. The PLUGIN picks T; the host
+      // can only hand it a body nothing has checked. `fetchJson` itself now REQUIRES a reader
+      // (#1300), so every caller that can check does — these two cannot, and say so at the seam
+      // with a one-line `asDeclared` rather than pushing the hole back into fetchJson for all of
+      // them. Removing these needs the packages to take a reader, as gui-chat-protocol's own
+      // `fetchJson<T>` already does: receptron/gui-chat-protocol#30.
+      "src/composables/accountingUi.ts",
+      "src/composables/collectionUi.ts",
     ],
     rules: {
       "@typescript-eslint/consistent-type-assertions": "off",
