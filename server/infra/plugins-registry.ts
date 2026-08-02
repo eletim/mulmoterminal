@@ -35,6 +35,7 @@ import { resolvePluginTools } from "./tool-precedence.js";
 import { HOST_TOOL_DEFINITIONS } from "./host-tools.js";
 import { groupOfTool, toolGroupServerId, AUTO_ALLOWED_TOOLS, type ToolGroup } from "../../common/toolGroups.js";
 import { missingRequiredEnv, soleExecutor } from "./server-tool-load.js";
+import { isRecord } from "../../common/isRecord.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ../.. climbs server/infra/ → server/ → package root, where plugins/ lives.
@@ -125,9 +126,9 @@ interface ServerTool {
 }
 
 function isServerTool(value: unknown): value is ServerTool {
-  if (typeof value !== "object" || value === null) return false;
-  const tool = value as Partial<ServerTool>;
-  return typeof tool.definition?.name === "string" && typeof tool.handler === "function";
+  if (!isRecord(value)) return false;
+  const definition = value.definition;
+  return isRecord(definition) && typeof definition.name === "string" && typeof value.handler === "function";
 }
 
 // A server-only tool package. Import it, pick every XTool-shaped export, and adapt
@@ -161,7 +162,7 @@ async function loadServerToolPackage(name: string) {
         prompt: tool.prompt,
         parameters: tool.definition.inputSchema,
       },
-      execute: async (args?: unknown) => ({ message: await tool.handler((args as Record<string, unknown>) ?? {}) }),
+      execute: async (args?: unknown) => ({ message: await tool.handler(isRecord(args) ? args : {}) }),
     }));
 }
 

@@ -8,6 +8,7 @@ import { normalizeMutate } from "@mulmoclaude/core/remote-view";
 import { toJsonObject, type CommandHandlers, type JsonObject } from "@mulmoclaude/core/remote-host";
 import { mutateRemoteView, mutateRemoteViewFailureMessage } from "../../remoteView.js";
 import { mutateWriteApplied } from "../../mutateStatus.js";
+import { jsonPayload } from "../jsonPayload.js";
 
 export const mutateRemoteViewItem: CommandHandlers["mutateRemoteViewItem"] = async (params: JsonObject) => {
   const slug = String(params.slug ?? "");
@@ -24,6 +25,6 @@ export const mutateRemoteViewItem: CommandHandlers["mutateRemoteViewItem"] = asy
   }
   if (result.kind !== "ok") throw new Error(mutateRemoteViewFailureMessage(result, slug));
   // Same reason as getRemoteViewItems: `CollectionItem`'s `unknown`-valued index signature is not
-  // provably JSON, though the loader only ever writes JSON into it.
-  return (result.op === "delete" ? { op: "delete", id: result.id } : { op: "update", item: result.item }) as JsonObject;
+  // provably JSON, though the loader only ever writes JSON into it. Converted, not asserted.
+  return jsonPayload(result.op === "delete" ? { op: "delete", id: result.id } : { op: "update", item: result.item });
 };
