@@ -157,11 +157,13 @@ export interface ConnHandlers {
   // and pastes all funnel through on their way to the socket, so it cannot be reached by output
   // the server writes back or by anything the app renders — only by someone using the session.
   onInput?: () => void;
-  // …and that keystroke went nowhere, because the socket is not open. Once per disconnected
-  // stretch, so holding a key down doesn't turn into a stream of notices. The view exists to say
-  // so: a dropped keystroke is otherwise indistinguishable from a terminal that received it and
-  // chose to print nothing. `willReconnect` is false for a session that ended and for a Run cell,
-  // neither of which comes back — telling those to wait would be a promise nothing will keep.
+  // …and it went nowhere, because the socket is not open. Fired for a keystroke and for anything
+  // the GUI sends into the PTY (a header button, a picked skill, a pasted block), because the
+  // silence is the same either way and a button press is the worse of the two: whoever pressed it
+  // has no sense of having typed, so nothing points at the connection (#1315). Rate-limited, so a
+  // held-down key doesn't turn into a stream of notices. `willReconnect` is false for a session
+  // that ended and for a Run cell, neither of which comes back — telling those to wait would be a
+  // promise nothing will keep.
   onInputDropped?: (willReconnect: boolean) => void;
 }
 
@@ -200,19 +202,32 @@ interface Conn {
   theme: ITheme | undefined; // last applied, so a rebuilt terminal keeps the cell's colours
   font: TerminalFont; // same reason as `theme` — a rebuilt terminal must not snap back to the default
   lastRebuildMs: number; // rate-limits the #846 recovery so a stuck reading can't spin
-  // A dropped keystroke has already been reported for THIS disconnected stretch. Held so a user
-  // typing into a dead cell logs one line rather than one per key; cleared when the socket opens.
+  // A drop has already been LOGGED for this disconnected stretch. One line is all a post-mortem
+  // needs; fifty say nothing more. The banner is timed separately below. Both clear on open.
   warnedDroppedInput: boolean;
+  // -Infinity rather than 0 so "never notified" outlasts any cooldown: a spec that stubs Date.now
+  // to a small number would otherwise lose the FIRST banner and still read as passing.
+  lastDroppedInputNoticeMs: number;
 }
 
-// Typing into a slot whose socket is down. One line per stretch — see the caller for why it is
-// worth saying at all.
+// The banner is re-armed on a timer rather than shown once per stretch, because a stretch has no
+// upper bound: the backoff retries forever at a 5s cap, so a server that stays down outlives the
+// notice by hours, and whoever comes back and types again meets the silence this exists to break
+// (#1316). One notice per banner-lifetime still cannot become a stream — the next one can only
+// land once the previous has left the screen. Matches DROP_HINT_MS in Terminal.vue.
+const DROPPED_INPUT_NOTICE_MS = 6_000;
+
+// Input that reached a socket which is not open — a keystroke, or anything the GUI sends.
 function reportDroppedInput(c: Conn): void {
-  if (c.warnedDroppedInput) return;
-  c.warnedDroppedInput = true;
   const willReconnect = connectionWillReturn({ released: c.released, sawExit: c.sawExit, isCommand: !!c.target.command });
-  const fate = willReconnect ? "reconnecting" : "not reconnecting";
-  console.warn(`[terminal] slot ${c.key}: dropped a keystroke — the socket is not open (status ${connView.get(c.key)?.status ?? "unknown"}, ${fate})`);
+  if (!c.warnedDroppedInput) {
+    c.warnedDroppedInput = true;
+    const fate = willReconnect ? "reconnecting" : "not reconnecting";
+    console.warn(`[terminal] slot ${c.key}: dropped input — the socket is not open (status ${connView.get(c.key)?.status ?? "unknown"}, ${fate})`);
+  }
+  const now = Date.now();
+  if (now - c.lastDroppedInputNoticeMs < DROPPED_INPUT_NOTICE_MS) return;
+  c.lastDroppedInputNoticeMs = now;
   c.handlers.onInputDropped?.(willReconnect);
 }
 
@@ -559,6 +574,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     font,
     lastRebuildMs: 0,
     warnedDroppedInput: false,
+    lastDroppedInputNoticeMs: Number.NEGATIVE_INFINITY,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
@@ -649,7 +665,10 @@ function connect(c: Conn) {
   sock.onopen = () => {
     if (sock !== c.ws) return;
     c.reconnectAttempts = 0;
-    c.warnedDroppedInput = false; // a new stretch: the next dropped keystroke is worth a line again
+    // A new stretch: worth a line again, and worth saying at once rather than after whatever was
+    // left of the previous stretch's cooldown.
+    c.warnedDroppedInput = false;
+    c.lastDroppedInputNoticeMs = Number.NEGATIVE_INFINITY;
     setStatus(c, "connected");
     sock.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
   };
@@ -817,7 +836,13 @@ export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
   if (!c) return false;
   const sock = c.ws;
-  if (!sock || sock.readyState !== WebSocket.OPEN) return false;
+  // The `false` used to be the whole answer, and only one caller ever read it — the rest pressed
+  // a button into a closed socket and showed nothing (#1315). Saying so here reaches every host,
+  // including the ones written after this line.
+  if (!sock || sock.readyState !== WebSocket.OPEN) {
+    reportDroppedInput(c);
+    return false;
+  }
   const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
   setTimeout(() => {
@@ -837,7 +862,12 @@ const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 export function pasteText(key: string, text: string): boolean {
   const c = conns.get(key);
-  if (!text || c?.ws?.readyState !== WebSocket.OPEN) return false;
+  // Empty text is not a dropped paste — there was nothing to deliver, so it stays silent (#1315).
+  if (!text || !c) return false;
+  if (c.ws?.readyState !== WebSocket.OPEN) {
+    reportDroppedInput(c);
+    return false;
+  }
   c.ws.send(JSON.stringify({ type: "input", data: `${PASTE_START}${text}${PASTE_END}` }));
   c.term.focus();
   return true;
@@ -852,7 +882,11 @@ const PASTE_SUBMIT_MS = 200;
 export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
-  if (!text || !c || !sock || sock.readyState !== WebSocket.OPEN) return false;
+  if (!text || !c) return false; // nothing to deliver — not a drop (#1315)
+  if (!sock || sock.readyState !== WebSocket.OPEN) {
+    reportDroppedInput(c);
+    return false;
+  }
   const submit = submitBytesFor(c);
   // The guard's space rides INSIDE the paste, where the TUI takes it as text — after the
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
@@ -883,10 +917,16 @@ export function listSlots(): SlotInfo[] {
 // Insert text (a path, or space-joined paths) at the cursor via the normal input
 // channel — no trailing CR, so the user reviews and submits.
 export function insertText(key: string, text: string) {
-  if (!text) return;
+  if (!text) return; // nothing to deliver — not a drop
   const c = conns.get(key);
   if (!c) return;
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data: text }));
+  // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
+  // is watching for text to appear in the input box rather than for a reply (#1315).
+  if (c.ws?.readyState === WebSocket.OPEN) {
+    c.ws.send(JSON.stringify({ type: "input", data: text }));
+  } else {
+    reportDroppedInput(c);
+  }
   c.term.focus();
 }
 
