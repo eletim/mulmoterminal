@@ -6,6 +6,10 @@ import { jsonPayload, toJsonValue } from "../../../../server/backends/remoteHost
 // payload was asserted to be JSON and stringified. So the yardstick is JSON.stringify itself.
 const stringified = (value: Record<string, unknown>): unknown => JSON.parse(JSON.stringify(value));
 
+// A boxed primitive, built without the wrapper constructors the lint rule bans (rightly — they are
+// only ever wanted here, as adversarial input).
+const boxed = (value: unknown): unknown => Object(value);
+
 describe("jsonPayload", () => {
   it("passes scalars, arrays and nested records through unchanged", () => {
     const value = { s: "a", n: 1, b: true, nul: null, arr: [1, "two", false], deep: { inner: { k: [1, 2] } } };
@@ -87,6 +91,20 @@ describe("jsonPayload", () => {
   it("passes the array index as the key inside an array", () => {
     const value = { list: [{ toJSON: (k: string) => k }, { toJSON: (k: string) => k }] };
     expect(jsonPayload(value)).toEqual({ list: ["0", "1"] });
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
+  // Boxed primitives serialize as their primitive. Walking them as objects gave
+  // `{"0":"a","1":"b"}` / `{}` / `{}` instead (Codex review on #1288).
+  it("unwraps boxed primitives, as stringify does", () => {
+    const value = { s: boxed("ab"), n: boxed(3), b: boxed(false) };
+    expect(jsonPayload(value)).toEqual({ s: "ab", n: 3, b: false });
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
+  it("writes null for a boxed non-finite number, as stringify does", () => {
+    const value = { n: boxed(NaN) };
+    expect(jsonPayload(value)).toEqual({ n: null });
     expect(jsonPayload(value)).toEqual(stringified(value));
   });
 

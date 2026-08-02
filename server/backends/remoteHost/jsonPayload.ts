@@ -34,6 +34,12 @@ function convert(value: unknown): JsonValue | undefined {
   // every later index, which is what JSON.stringify avoids by writing null. The index is the key
   // stringify hands an element's toJSON.
   if (Array.isArray(value)) return value.map((entry, index) => toJsonValue(entry, String(index)) ?? null);
+  // Boxed primitives serialize as their PRIMITIVE, not as the object they are. Without this the
+  // walk below would turn `new String("ab")` into `{"0":"a","1":"b"}` and the other two into `{}`
+  // (Codex review on #1288). `valueOf` is what stringify unwraps them with.
+  if (value instanceof String) return value.valueOf();
+  if (value instanceof Number) return Number.isFinite(value.valueOf()) ? value.valueOf() : null;
+  if (value instanceof Boolean) return value.valueOf();
   if (isRecord(value)) return jsonPayload(value);
   return undefined;
 }
