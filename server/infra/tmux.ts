@@ -269,16 +269,20 @@ export function tmuxKillSession(id: string): void {
   tmux(["kill-session", "-t", tmuxSessionName(id)]);
 }
 
-// The rendered contents of a session's visible pane — what the user would see right now,
-// available even while the session is DETACHED and across a server restart (tmux outlives
-// the node process). Null when tmux has no such session, which is also how a tmux-less
-// host reports "ask someone else".
+// The rendered contents of a session's pane — the visible screen plus `historyLines` of
+// scrollback above it — available even while the session is DETACHED and across a server
+// restart (tmux outlives the node process). Null when tmux has no such session, which is
+// also how a tmux-less host reports "ask someone else".
 //
 // `-e` keeps the escape sequences, which the caller strips back out (session/screen-rows).
 // Only one attribute is actually wanted — dim, the thing that marks an agent's ghost
 // suggestion apart from text the user typed — but tmux has no way to emit that alone.
-export function tmuxCaptureStyledPane(id: string): string | null {
-  const r = tmux(["capture-pane", "-p", "-e", "-t", tmuxSessionName(id)]);
+//
+// `-S -n` starts n lines into the history, clamped to whatever the session actually has,
+// so a young session simply yields less. How much is worth asking for is the caller's
+// call — this only knows how to ask.
+export function tmuxCaptureStyledPane(id: string, historyLines: number): string | null {
+  const r = tmux(["capture-pane", "-p", "-e", "-S", `-${historyLines}`, "-t", tmuxSessionName(id)]);
   return r.status === 0 ? r.stdout : null;
 }
 
