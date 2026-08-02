@@ -113,8 +113,8 @@ into the Canvas, working with collections, with no toggle to turn on.
 **Codex and Antigravity have no such rule.** Even in the workspace, their GUI tools are whatever
 that directory has registered. When you want one of them drawing into the Canvas or touching
 collections, turn on the MCP toggles you need. A toggle registers **the directory, not the
-session**, so it also applies to the next session started there (Antigravity reads
-`.agents/mcp_config.json`. → [2.8.0 setup guide](v2.8.0.html)).
+session**, so it also applies to the next session started there. Antigravity reads them from
+`.agents/mcp_config.json` (→ [2.8.0 setup guide](v2.8.0.html)).
 
 ## Reading a cell — "what each agent is doing and where"
 
