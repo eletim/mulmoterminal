@@ -127,6 +127,52 @@ export default [
     },
   },
   {
+    // Type-aware lint, on the APP ONLY — the two promise rules from #1301's sibling (#1300).
+    //
+    // Scoped to server/src/common rather than everything: the type program is the whole cost of
+    // this pass, so keeping tests out of it keeps that program smaller. WARN, not error, for the
+    // same reason #1231 started at warn — the count stays visible without CI going red while the
+    // real ones are read one at a time.
+    //
+    // Only these two: they catch things NO syntactic rule can. A missing `await` makes a rejection
+    // vanish and the call look like it succeeded; an async callback handed to an API that ignores
+    // the returned promise does the same. The `no-unsafe-*` family is the rest of #1300 and is a
+    // separate piece of work — 139 findings that mostly say "this is untyped", not "this is wrong".
+    //
+    // .ts only. A .vue file needs vue-eslint-parser as the PARSER (with tseslint.parser underneath
+    // for the script block), and pointing tseslint.parser straight at one fails to parse the SFC.
+    // Wiring type info through the Vue block is its own change; the promise mistakes this catches
+    // live in the composables and the server either way.
+    files: ["server/**/*.ts", "src/**/*.ts", "common/**/*.ts"],
+    // Specs are out, as #1300 asks: they are not in either project, so the parser cannot place
+    // them — and keeping them out is what keeps the type program small.
+    ignores: ["**/*.spec.ts", "**/*.test.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+      // Explicit projects, not `projectService: true`: the root tsconfig.json references only
+      // app and node, so the service could not place any server/** file and reported 321 parse
+      // errors. Naming both projects is what actually covers the code these rules are for.
+      parserOptions: { project: ["./tsconfig.app.json", "./tsconfig.server.json"], tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "warn",
+      "@typescript-eslint/no-misused-promises": "warn",
+      // Type-aware sonarjs rules that were ALREADY configured as errors and never ran, because
+      // nothing built a type program until this block did. Turning them on is not what this change
+      // is for, and 30 findings would hide the promise ones — so they are visible at warn and get
+      // read in #1300 with the rest of the type-aware pass. They were never enforced, so this
+      // takes nothing away.
+      "sonarjs/different-types-comparison": "warn",
+      "sonarjs/deprecation": "warn",
+      "sonarjs/no-alphabetical-sort": "warn",
+      "sonarjs/void-use": "warn",
+      "sonarjs/function-return-type": "warn",
+      "sonarjs/reduce-initial-value": "warn",
+      "sonarjs/no-selector-parameter": "warn",
+      "sonarjs/no-misleading-array-reverse": "warn",
+    },
+  },
+  {
     // Type-assertion allowlist. Every entry is a place where NO amount of local typing can
     // express the truth, because the type that is wrong belongs to someone else. Each says which
     // upstream and what would remove it — delete the entry when that lands.

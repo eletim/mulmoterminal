@@ -9,6 +9,11 @@
     /* See tsconfig.server.json for why: `field?: T` must mean "key absent", not
        "key present holding undefined". */
     "exactOptionalPropertyTypes": true,
+    /* Added in #1301. Both measured at 0 errors across app / server / test before going in.
+       The other three the issue listed are NOT free — see plans/fix-1301-strict-flags.md for the
+       measured counts and why they are their own piece of work. */
+    "useUnknownInCatchVariables": true,
+    "noImplicitOverride": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,

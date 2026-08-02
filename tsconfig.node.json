@@ -14,7 +14,13 @@
     "moduleDetection": "force",
     "noEmit": true,
 
+    /* `strict` was absent here while every other project had it. Only vite.config.ts is in scope,
+       so nothing was riding on it — but there is no reason for one project to be the loose one. */
+    "strict": true,
+
     /* Linting */
+    "useUnknownInCatchVariables": true,
+    "noImplicitOverride": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
