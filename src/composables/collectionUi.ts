@@ -249,7 +249,8 @@ configureCollectionUi({
   //    new-collection starter modal's localized cards; omitted ⇒ English fallback. ──
   translate: postTranslation,
 
-  // ── Shadow-DOM modal target ── ShadowRoot is a valid Teleport target at runtime
-  //    though the declared type is string | HTMLElement.
-  modalTeleportTarget: () => (teleportStack[teleportStack.length - 1] ?? "body") as unknown as string | HTMLElement,
+  // ── Shadow-DOM modal target ── the innermost open Shadow root, or the body when none is open.
+  //    The package types this `string | HTMLElement | ShadowRoot` as of 1.2.3, so the value this
+  //    host has always passed no longer needs a cast to be expressible (mulmoclaude#2721).
+  modalTeleportTarget: () => teleportStack[teleportStack.length - 1] ?? "body",
 });
