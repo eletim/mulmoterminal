@@ -2,6 +2,7 @@
 import { ref, watch, onUnmounted } from "vue";
 import { useSessionFeed } from "../composables/useSessionFeed";
 import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
+import { isRecord } from "../../common/isRecord";
 
 // The tools pane mirrors MulmoClaude's right sidebar: an "Available Tools" list
 // (the GUI plugin tools, with collapsible descriptions) and a "Tool Call History"
@@ -39,6 +40,24 @@ const guiOnlyHistory = ref(false);
 
 const availableTools = ref<AvailableTool[]>([]);
 const toolCalls = ref<ToolCall[]>([]);
+
+// One call off the live channel. `toolName`, `status` and `at` are what every row renders from;
+// without them there is no row to draw.
+const CALL_STATUSES: readonly ToolCall["status"][] = ["running", "completed", "failed"];
+function readToolCall(raw: unknown): ToolCall | null {
+  if (!isRecord(raw) || typeof raw.toolName !== "string" || typeof raw.at !== "number") return null;
+  const status = CALL_STATUSES.find((known) => known === raw.status);
+  if (!status) return null;
+  return {
+    toolName: raw.toolName,
+    status,
+    at: raw.at,
+    ...(typeof raw.toolUseId === "string" ? { toolUseId: raw.toolUseId } : {}),
+    ...(raw.toolInput !== undefined ? { toolInput: raw.toolInput } : {}),
+    ...(raw.toolOutput !== undefined ? { toolOutput: raw.toolOutput } : {}),
+    ...(typeof raw.durationMs === "number" ? { durationMs: raw.durationMs } : {}),
+  };
+}
 const expandedTools = ref<Set<string>>(new Set());
 const expandedCalls = ref<Set<string>>(new Set());
 
@@ -105,6 +124,7 @@ useSessionFeed(toolCalls, {
   historyKey: "toolCalls",
   channel: (id) => `toolcalls:${id}`,
   identify: (call) => call.toolUseId,
+  parse: readToolCall,
   onSessionChange: () => {
     expandedCalls.value = new Set();
   },

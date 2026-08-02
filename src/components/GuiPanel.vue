@@ -8,6 +8,7 @@ import { TOOL_GROUPS, groupOfTool, toolsInGroup } from "../../common/toolGroups"
 import { reconcileCollectionCard } from "../../common/collectionSeed";
 import { collapseByIdentity } from "../utils/canvasCollapse";
 import { useCanvasCardHeight } from "../composables/useCanvasCardHeight";
+import { isRecord } from "../../common/isRecord";
 
 // The GUI panel renders the toolResults produced by GUI-protocol plugins. It
 // mirrors the terminal's active session: live results arrive on that session's
@@ -39,6 +40,22 @@ const emit = defineEmits<{ toggleTools: [] }>();
 
 const results = ref<ToolResult[]>([]);
 
+// One card off the live channel. The channel carries untrusted JSON, and this panel keys and
+// dedupes by uuid — a card without one is not something it can render. The optional fields are
+// carried through as they arrive (each is `unknown` or a string the views check themselves).
+function readToolResult(raw: unknown): ToolResult | null {
+  if (!isRecord(raw) || typeof raw.uuid !== "string" || typeof raw.toolName !== "string") return null;
+  return {
+    uuid: raw.uuid,
+    toolName: raw.toolName,
+    ...(typeof raw.title === "string" ? { title: raw.title } : {}),
+    ...(typeof raw.message === "string" ? { message: raw.message } : {}),
+    ...(raw.data !== undefined ? { data: raw.data } : {}),
+    ...(raw.jsonData !== undefined ? { jsonData: raw.jsonData } : {}),
+    ...(raw.viewState !== undefined ? { viewState: raw.viewState } : {}),
+  };
+}
+
 // Auto-follow state. Declared HERE, above useSessionFeed: its session watcher is `immediate`, so
 // the onSessionChange below runs during that call — a declaration further down would still be in
 // its temporal dead zone when it fires.
@@ -55,6 +72,9 @@ const { upsert } = useSessionFeed(results, {
   historyKey: "toolResults",
   channel: (id) => `session:${id}`,
   identify: (result) => result.uuid,
+  // The channel carries untrusted JSON; a card with no uuid cannot be deduped or keyed, so it is
+  // not a result this panel can render.
+  parse: readToolResult,
   // The one pair uuid dedupe cannot relate: a collection placeholder seeded by the browser at
   // spawn, and the agent's own presentCollection card for the same collection. Different writers,
   // different uuids, one thing on screen — the real card wins. The server applies the same rule to

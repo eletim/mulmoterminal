@@ -2,7 +2,7 @@
 title: Scenarios
 layout: default
 parent: English
-nav_order: 3
+nav_order: 4
 description: Practical parallel-agent workflows: isolating work in a git worktree, working across repositories, having AI summarise a failed script, and running Claude and Codex side by side.
 ---
 

@@ -139,3 +139,40 @@ describe("useAppConfig — auto preset recording", () => {
     expect(presets.value.map((p) => p.path).sort()).toEqual(["/a", "/b"]);
   });
 });
+
+// A saver reads the server's ECHO back into its ref. When the reader that validates that echo
+// disagrees with the real interface, every entry is filtered out and the list silently EMPTIES on
+// save — which is what a wrong field name did here (Codex review on #1294).
+describe("useAppConfig — a save keeps what the server echoed", () => {
+  // Echo whatever was posted, as the real /api/config does for a partial update.
+  function echoPosted() {
+    globalThis.fetch = vi.fn(async (_url: string, init?: { body?: string }) => {
+      const body: Record<string, unknown> = init?.body ? JSON.parse(init.body) : {};
+      return { ok: true, json: async () => body };
+    }) as unknown as typeof fetch;
+  }
+
+  beforeEach(echoPosted);
+
+  it("keeps quick commands after saving them", async () => {
+    const { quickCommands, saveQuickCommands } = useAppConfig();
+    const next = [{ label: "Deploy", text: "/deploy" }];
+    expect(await saveQuickCommands(next)).toBe(true);
+    expect(quickCommands.value).toEqual(next);
+  });
+
+  it("keeps user MCP servers after saving them", async () => {
+    const { userMcpServers, saveUserMcpServers } = useAppConfig();
+    const next = [{ id: "docs", url: "https://example.test/mcp" }];
+    expect(await saveUserMcpServers(next)).toBe(true);
+    expect(userMcpServers.value).toEqual(next);
+  });
+
+  it("keeps launchers and pr repos after saving them", async () => {
+    const { launchers, saveLaunchers, prRepos, savePrRepos } = useAppConfig();
+    expect(await saveLaunchers([{ label: "zsh", command: "/bin/zsh" }])).toBe(true);
+    expect(launchers.value).toEqual([{ label: "zsh", command: "/bin/zsh" }]);
+    expect(await savePrRepos(["receptron/mulmoterminal"])).toBe(true);
+    expect(prRepos.value).toEqual(["receptron/mulmoterminal"]);
+  });
+});
