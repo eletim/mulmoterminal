@@ -18,6 +18,8 @@ Captured from a **throwaway demo instance** (a fresh `HOME`, empty config seeded
 | `config-launcher-chips.png` | An empty cell's launcher showing three settings at once: `cwdPresets` chips (with their directory-colour stripe), `script.json` under OR RUN A SCRIPT, `launchers` under OR LAUNCH |
 | `config-custom-themes.png` | The Settings theme picker with four user-defined schemes (Mondrian / Van Gogh (Arles) / Picasso Blue / Matisse) beside the built-in four, with Van Gogh applied |
 | `grid-colors.png` | Four projects color-coded via per-dir `.mulmoterminal.json` (Mondrian / Van Gogh / Picasso / Matisse). Real Claude cells in throwaway `/tmp` demo repos on untrusted dirs (so the trust prompt shows, no account/email leaks). |
+| `worktree-close-keep.png` | Closing a worktree cell with nothing unsaved — Keep worktree / Remove worktree / Cancel |
+| `worktree-close-discard.png` | The same dialog when the worktree has unpushed commits + uncommitted changes — the button becomes `Discard & remove` |
 
 ## Not yet captured (need a live Claude/Codex session)
 
@@ -26,6 +28,6 @@ Capture from the demo instance while a Claude session runs, then add them:
 
 - Working / needs-attention status colors on a cell.
 - The model / context badge (`Opus · ctx 35%`).
-- A worktree cell's diff badge + diff panel.
+- A worktree cell's diff PANEL (the badge itself is in `worktree-close-discard.png` as `+2 ●5`).
 - The activity timeline (🕘) modal.
 - The estimated-cost block in Settings.
