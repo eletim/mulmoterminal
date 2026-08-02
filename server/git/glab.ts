@@ -67,8 +67,22 @@ export const glabMrCreateArgs = (base: string, branch: string): string[] => [
   "--yes",
 ];
 
-export const glabMrForBranchArgs = (branch: string): string[] => ["mr", "list", "--source-branch", branch, "-F", "json"];
+// `project` is optional because the two callers differ: ⧉ Open PR runs INSIDE the worktree and
+// lets glab infer the project from the remote, while the roster's phase lookup has only a repo
+// name and no directory to run in. Omitting `--repo` in the second case would ask glab about
+// whatever directory the server happens to be in.
+const repoArgs = (project?: string): string[] => (project ? ["--repo", project] : []);
 
-export const glabMrViewArgs = (mr: string): string[] => ["mr", "view", mr, "-F", "json"];
+export const glabMrForBranchArgs = (branch: string, project?: string): string[] => [
+  "mr",
+  "list",
+  "--source-branch",
+  branch,
+  ...repoArgs(project),
+  "-F",
+  "json",
+];
+
+export const glabMrViewArgs = (mr: string, project?: string): string[] => ["mr", "view", mr, ...repoArgs(project), "-F", "json"];
 
 export const glabMrUpdateBodyArgs = (mr: string, body: string): string[] => ["mr", "update", mr, "--description", body];

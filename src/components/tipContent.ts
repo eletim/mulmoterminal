@@ -28,6 +28,10 @@ export function workTip(item: WorkItem): TipContent {
   // wording says it again — which is the `PR #2689 — PR — CI running` in the report.
   if (item.pr !== null) out.push(section(phase ? `PR #${item.pr} · ${phase.state}` : `PR #${item.pr}`, item.prTitle));
   if (item.issue !== null) out.push(section(`issue #${item.issue}`, item.issueTitle));
+  // What the phase had no word for. GitLab knows more about why a request cannot merge than
+  // `PrPhase` can express — approvals outstanding, unresolved discussions — and this tip is the
+  // one surface with room for the sentence (#981).
+  if (item.blockedReason) out.push({ head: item.blockedReason });
   return out;
 }
 
