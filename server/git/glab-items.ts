@@ -128,6 +128,7 @@ export function glabFirstMrUrl(raw: unknown): string | null {
 // What GitLab says is standing in the way, in words a reader can act on. A status absent here
 // leaves the reason null: an unknown status must not be printed raw into the UI.
 const BLOCKED_REASON: Readonly<Record<string, string>> = {
+  ci_must_pass: "waiting on CI",
   not_approved: "waiting on approvals",
   discussions_not_resolved: "unresolved discussions",
   merge_request_blocked: "blocked by another merge request",
@@ -160,9 +161,13 @@ export function glabMrPhase(raw: unknown): GlabMrPhase {
   if (PIPELINE_FAILED.has(pipeline)) return { phase: "ci-failing", blockedReason };
   if (PIPELINE_RUNNING.has(pipeline)) return { phase: "ci-running", blockedReason };
 
-  // Open, nothing failing, nothing running. `ready` only when GitLab agrees it could merge —
-  // otherwise the reason is what the reader needs, and `changes-requested` is the honest phase for
-  // "someone has to act before this moves".
+  // Open, and no pipeline field said otherwise — but that is not the same as green. `ci_must_pass`
+  // means CI is what is holding the merge, and a LIST row never carries `head_pipeline` at all, so
+  // the fallback path would have called it ready: a green pill on a merge request that cannot
+  // merge, which is the one direction of error that matters (Codex review).
+  if (mergeStatus === "ci_must_pass") return { phase: "ci-running", blockedReason };
+  // `ready` ONLY when GitLab itself says it could merge. Anything else it names is a blocker we may
+  // or may not have words for, and guessing "ready" for the ones we do not is the same false green.
   if (mergeStatus === "mergeable") return { phase: "ready", blockedReason: null };
-  return blockedReason ? { phase: "changes-requested", blockedReason } : { phase: "ready", blockedReason: null };
+  return { phase: "changes-requested", blockedReason: blockedReason ?? `not mergeable yet (${mergeStatus || "reason unknown"})` };
 }

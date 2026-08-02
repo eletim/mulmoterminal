@@ -355,10 +355,22 @@ describe("glabMrPhase", () => {
     expect(glabMrPhase(mr({ detailed_merge_status: status }))).toEqual({ phase: "changes-requested", blockedReason: reason });
   });
 
-  // A status we have no words for must not be printed raw into the UI, and must not be guessed at
-  // either — `ready` is what GitLab said, minus an explanation we cannot give.
-  it("falls back to ready with no reason for a status it does not recognise", () => {
-    expect(glabMrPhase(mr({ detailed_merge_status: "some_new_status" }))).toEqual({ phase: "ready", blockedReason: null });
+  // `ready` ONLY when GitLab says `mergeable`. A status we have no phrase for is still a status
+  // GitLab is reporting INSTEAD of mergeable, so calling it ready is a green pill on a merge
+  // request that cannot merge — the one direction of error that matters (Codex review).
+  it("does not call an unrecognised status ready", () => {
+    const out = glabMrPhase(mr({ detailed_merge_status: "some_new_status" }));
+    expect(out.phase).toBe("changes-requested");
+    expect(out.blockedReason).toContain("some_new_status");
+  });
+
+  // The case Codex named. `ci_must_pass` means CI is what is holding the merge — and a LIST row
+  // never carries `head_pipeline`, which is exactly the fallback path taken when `mr view` fails.
+  it("reads ci_must_pass as CI running even with no pipeline field at all", () => {
+    expect(glabMrPhase({ state: "opened", draft: false, detailed_merge_status: "ci_must_pass" })).toEqual({
+      phase: "ci-running",
+      blockedReason: "waiting on CI",
+    });
   });
 
   // Draft is the author's own "not yet", which outranks whatever the project is waiting on — the
