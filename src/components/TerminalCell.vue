@@ -13,7 +13,7 @@ import type { LaunchAgent } from "../../common/launchAgent";
 import { unsavedWork } from "./unsavedWork";
 import { shouldPromptTidy } from "./mergedTidy";
 import { usageBadge } from "./cellDisplay";
-import { applyActivityPush, cellHeaderText } from "./cellActivity";
+import { applyActivityPush, cellHeaderText, type ActivityPush } from "./cellActivity";
 import { MEMO_MAX_LENGTH, normalizeMemo } from "../../common/sessionMemo";
 import { preferredLaunchDir, shouldSyncLaunchDir } from "./launchDir";
 import CellLaunchForm from "./CellLaunchForm.vue";
@@ -54,6 +54,8 @@ import { runOneExchange, liveCrossTalkDeps } from "../composables/useCrossTalk";
 import { outcomeMessage } from "../composables/exchangeRules";
 import { worktreeFailureMessage } from "./cellChromeRules";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // How long a handoff failure stays on the cell before it clears itself.
 const ASK_MSG_MS = 4000;
@@ -248,7 +250,7 @@ let latestSeed = 0;
 // flight at once. Neither path bumps latestSeed for badges, so a stale read resolving last
 // would clobber the newer numbers. This token makes the newest badge fetch win. (#620.)
 let latestBadgeReq = 0;
-function applyActivity(d: ActivityMsg) {
+function applyActivity(d: ActivityPush) {
   activityGen++;
   const next = applyActivityPush(
     {
@@ -277,15 +279,29 @@ function applyActivity(d: ActivityMsg) {
 // the answer would leak the old session's state into the new one.
 //
 // The cell's dir goes along so the server can read the transcript and report the session's
-// most recent prompt rather than the bare id after a resume.
-type SessionDetail = ActivityMsg & { usage?: unknown; context?: unknown };
+// most recent prompt rather than the bare id after a resume. It is read as a plain record: the
+// endpoint answers the session's own fields and sends no `id`, so it is not an ActivityMsg.
 
-async function fetchSessionDetail(id: string): Promise<SessionDetail | null> {
+// Reads the activity fields off an untrusted body while KEEPING the absent/null distinction
+// applyActivityPush is built on: a key the server did not send must stay absent ("keep what is
+// shown"), which is a different instruction from an explicit null ("there is none now").
+function activityPushOf(d: Record<string, unknown>): ActivityPush {
+  const push: ActivityPush = {};
+  if (typeof d.working === "boolean") push.working = d.working;
+  if (typeof d.waiting === "boolean") push.waiting = d.waiting;
+  for (const key of ["event", "lastPrompt", "aiTitle", "memo"] as const) {
+    const value = d[key];
+    if (value === null || typeof value === "string") push[key] = value;
+  }
+  return push;
+}
+
+async function fetchSessionDetail(id: string): Promise<Record<string, unknown> | null> {
   try {
     const q = cwd.value ? `?cwd=${encodeURIComponent(cwd.value)}` : "";
     const res = await fetch(`/api/session/${id}${q}`);
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = await jsonBody(res);
     return id === sessionId.value ? data : null;
   } catch {
     return null;
@@ -296,7 +312,7 @@ async function fetchSessionDetail(id: string): Promise<SessionDetail | null> {
 // (EMPTY_USAGE / EMPTY_CONTEXT when it has nothing to report), so an unrenderable one means
 // something is actually broken — and a badge showing the previous turn's numbers as if they
 // were current is the failure the guards exist to stop.
-function applyBadges(data: SessionDetail) {
+function applyBadges(data: Record<string, unknown>) {
   usage.value = isCellUsage(data.usage) ? data.usage : null;
   context.value = isCellContext(data.context) ? data.context : null;
 }
@@ -312,7 +328,7 @@ async function loadInitial(id: string) {
   // A live push landed while we were fetching: it is newer than this snapshot, so keep it
   // and don't let a stale seed put the cell back to idle. Badges have no such push, so they
   // always refresh — unless a newer badge fetch has since superseded this one.
-  if (activityGen === genBeforeFetch) applyActivity(data);
+  if (activityGen === genBeforeFetch) applyActivity(activityPushOf(data));
   if (badgeReq === latestBadgeReq) applyBadges(data);
 }
 
@@ -483,9 +499,9 @@ async function refreshGithubUrl() {
       body: JSON.stringify({ path: cwd.value }),
     });
     if (reqId !== githubReq) return; // a newer cwd superseded this lookup
-    const data = res.ok ? await res.json() : null;
+    const data = res.ok ? await jsonBody(res) : {};
     if (reqId !== githubReq) return; // re-check after awaiting the body
-    githubUrl.value = data && typeof data.githubUrl === "string" ? data.githubUrl : null;
+    githubUrl.value = typeof data.githubUrl === "string" ? data.githubUrl : null;
   } catch {
     if (reqId === githubReq) githubUrl.value = null; // best-effort — the link just won't appear
   }
@@ -827,6 +843,18 @@ interface WorktreeDiffData {
   patch: string;
   truncated: boolean;
 }
+// The diff arrives off /api/worktrees/diff; the badge and the overlay read every field, so a
+// response that is missing one is treated as "no diff" rather than rendered with holes.
+const isWorktreeDiffData = (value: unknown): value is WorktreeDiffData =>
+  isRecord(value) &&
+  typeof value.isWorktree === "boolean" &&
+  (value.base === null || typeof value.base === "string") &&
+  typeof value.ahead === "number" &&
+  typeof value.dirty === "number" &&
+  isUnknownArray(value.files) &&
+  typeof value.patch === "string" &&
+  typeof value.truncated === "boolean";
+
 const diff = ref<WorktreeDiffData | null>(null);
 const diffOpen = ref(false);
 const isWorktreeCell = computed(() => worktreeLabel(cwd.value) !== null);
@@ -844,9 +872,9 @@ async function loadDiff() {
   try {
     const res = await fetch(`/api/worktrees/diff?cwd=${encodeURIComponent(cwd.value)}`);
     if (reqId !== diffReq) return;
-    const data = res.ok ? await res.json() : null;
+    const data = res.ok ? await jsonBody(res) : {};
     if (reqId !== diffReq) return;
-    diff.value = data && data.isWorktree ? data : null;
+    diff.value = isWorktreeDiffData(data) && data.isWorktree ? data : null;
   } catch {
     if (reqId === diffReq) diff.value = null;
   }
@@ -886,11 +914,12 @@ async function worktreeAction(endpoint: "push" | "pr"): Promise<Record<string, u
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ cwd: cwd.value }),
     });
-    const data = await res.json().catch(() => null);
-    // A non-JSON / empty-body response (e.g. a 403 from the origin guard) must not
-    // leave the UI stuck on the optimistic "Pushing…" text.
-    if (!data) prMsg.value = res.status === 403 ? "Not allowed (origin)" : "Request failed";
-    return data;
+    // jsonBody answers {} for a non-JSON / empty body (e.g. a 403 from the origin guard); an
+    // empty answer must not leave the UI stuck on the optimistic "Pushing…" text.
+    const data = await jsonBody(res);
+    const empty = Object.keys(data).length === 0;
+    if (empty) prMsg.value = res.status === 403 ? "Not allowed (origin)" : "Request failed";
+    return empty ? null : data;
   } catch {
     prMsg.value = endpoint === "push" ? "Push failed" : "PR failed";
     return null;

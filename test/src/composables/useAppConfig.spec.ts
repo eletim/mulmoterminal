@@ -176,3 +176,49 @@ describe("useAppConfig — a save keeps what the server echoed", () => {
     expect(prRepos.value).toEqual(["receptron/mulmoterminal"]);
   });
 });
+
+// loadConfig runs on every page open, and it used to take the server's arrays at face value while
+// the SAVE paths filtered them through isLauncher/isQuickCommand/isUserMcpServer. A config file
+// that was hand-edited (or written by an older version) therefore loaded entries the rest of the
+// app assumes are well-formed — a launcher with no `command`, a quick command with no `text`.
+describe("useAppConfig — loadConfig validates what the server sends", () => {
+  function mockConfigGet(payload: Record<string, unknown>) {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => payload })) as unknown as typeof fetch;
+  }
+
+  it("keeps well-formed entries and drops malformed ones, per list", async () => {
+    mockConfigGet({
+      launchers: [{ label: "shell", command: "zsh" }, { label: "broken" }, "not an object"],
+      quickCommands: [{ label: "hi", text: "hello" }, { label: "no text" }],
+      userMcpServers: [{ id: "a", url: "https://x" }, { id: "b" }],
+      pushKinds: ["finished", "not-a-kind"],
+      prRepos: ["owner/repo", 42],
+      cwdPresets: [{ label: "proj", path: "/p" }, { label: "no path" }],
+    });
+    const { loadConfig, launchers, quickCommands, userMcpServers, pushKinds, prRepos, presets } = useAppConfig();
+
+    await loadConfig();
+
+    expect(launchers.value).toEqual([{ label: "shell", command: "zsh" }]);
+    expect(quickCommands.value).toEqual([{ label: "hi", text: "hello" }]);
+    expect(userMcpServers.value).toEqual([{ id: "a", url: "https://x" }]);
+    expect(pushKinds.value).toEqual(["finished"]);
+    expect(prRepos.value).toEqual(["owner/repo"]);
+    expect(presets.value).toEqual([{ label: "proj", path: "/p" }]);
+  });
+
+  // A body that is not a JSON object at all must leave what is already shown alone rather than
+  // throw past the caller — loadConfig is fire-and-forget on mount. The refs are module-level
+  // singletons, so "unchanged" is the observable behaviour, not "empty".
+  it("survives a non-object body and leaves the current lists alone", async () => {
+    mockConfigGet({ launchers: [{ label: "shell", command: "zsh" }] });
+    const { loadConfig, launchers } = useAppConfig();
+    await loadConfig();
+    const before = [...launchers.value];
+
+    mockConfigGet([] as unknown as Record<string, unknown>);
+    await expect(loadConfig()).resolves.toBeUndefined();
+
+    expect(launchers.value).toEqual(before);
+  });
+});
