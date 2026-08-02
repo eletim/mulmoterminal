@@ -14,7 +14,7 @@
 同じファイルの中で **最初のテストだけ 2453ms、残り30本は 2〜10ms**。
 その1本を計測器で割ると：
 
-```
+```text
 import=2132ms  mount=18ms  flush=2ms
 ```
 
@@ -65,4 +65,4 @@ const GridView = (await import("../../../src/components/GridView.vue")).default;
 ## 検証
 
 - `format` / `lint`（0 error）/ `typecheck` / `build` — green
-- フルスイート **3回連続で 7621 passed / 45 skipped / 0 failed**
+- フルスイート **4回連続で 7621 passed / 45 skipped / 0 failed**（うち1回はコメント整理後）
