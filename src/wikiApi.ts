@@ -4,6 +4,7 @@
 // shapes it returns. Types mirror @mulmoclaude/core/wiki(/server) so the views stay
 // in lockstep with the engine.
 import type { WikiPageEntry, WikiGraph } from "@mulmoclaude/core/wiki";
+import { isRecord } from "../common/isRecord";
 
 /** index.md raw content + its parsed page entries (GET /api/wiki). */
 export interface WikiIndex {
@@ -26,14 +27,59 @@ export interface WikiLint {
   report: string;
 }
 
-async function getJson<T>(url: string): Promise<T> {
+// Each endpoint hands `getJson` the reader for its own shape, so the response is CHECKED rather
+// than named: the generic used to be satisfied by an assertion, which made `getJson<WikiIndex>`
+// a claim about the server rather than a question asked of it.
+async function getJson<T>(url: string, read: (raw: unknown) => T): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url} → ${res.status}`);
-  return (await res.json()) as T;
+  return read(await res.json());
 }
 
+const str = (value: unknown): string => (typeof value === "string" ? value : "");
+const rows = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+// Missing/!string fields read as "" rather than throwing: every one of these renders as text, so a
+// partial response should show what arrived, not blank the page.
+const readEntry = (raw: unknown): WikiPageEntry => {
+  const o = isRecord(raw) ? raw : {};
+  return {
+    title: str(o.title),
+    slug: str(o.slug),
+    description: str(o.description),
+    tags: rows(o.tags).filter((tag): tag is string => typeof tag === "string"),
+  };
+};
+
+const readIndex = (raw: unknown): WikiIndex => {
+  const o = isRecord(raw) ? raw : {};
+  return { content: str(o.content), entries: rows(o.entries).map(readEntry) };
+};
+
+const readGraph = (raw: unknown): WikiGraph => {
+  const o = isRecord(raw) ? raw : {};
+  const node = (n: unknown) => ({ slug: str(isRecord(n) ? n.slug : undefined), title: str(isRecord(n) ? n.title : undefined) });
+  const edge = (e: unknown) => ({ from: str(isRecord(e) ? e.from : undefined), to: str(isRecord(e) ? e.to : undefined) });
+  return { nodes: rows(o.nodes).map(node), edges: rows(o.edges).map(edge) };
+};
+
+const readLint = (raw: unknown): WikiLint => {
+  const o = isRecord(raw) ? raw : {};
+  return { issues: rows(o.issues).filter((issue): issue is string => typeof issue === "string"), report: str(o.report) };
+};
+
+const readPage = (raw: unknown, slug: string): WikiPage => {
+  const o = isRecord(raw) ? raw : {};
+  return {
+    filePath: typeof o.filePath === "string" ? o.filePath : null,
+    content: str(o.content),
+    exists: o.exists === true,
+    resolvedTitle: typeof o.resolvedTitle === "string" ? o.resolvedTitle : slug,
+  };
+};
+
 export function fetchWikiIndex(): Promise<WikiIndex> {
-  return getJson<WikiIndex>("/api/wiki");
+  return getJson("/api/wiki", readIndex);
 }
 
 /** Fetch one page. A 404 resolves to an `exists: false` page rather than throwing,
@@ -42,13 +88,13 @@ export async function fetchWikiPage(slug: string): Promise<WikiPage> {
   const res = await fetch(`/api/wiki?slug=${encodeURIComponent(slug)}`);
   if (res.status === 404) return { filePath: null, content: "", exists: false, resolvedTitle: slug };
   if (!res.ok) throw new Error(`/api/wiki?slug=${slug} → ${res.status}`);
-  return (await res.json()) as WikiPage;
+  return readPage(await res.json(), slug);
 }
 
 export function fetchWikiGraph(): Promise<WikiGraph> {
-  return getJson<WikiGraph>("/api/wiki/graph");
+  return getJson("/api/wiki/graph", readGraph);
 }
 
 export function fetchWikiLint(): Promise<WikiLint> {
-  return getJson<WikiLint>("/api/wiki/lint");
+  return getJson("/api/wiki/lint", readLint);
 }
