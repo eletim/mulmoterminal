@@ -12,9 +12,6 @@
 /** The value when it is a string, else `""`. For a field the caller then validates or defaults. */
 export const readString = (value: unknown): string => (typeof value === "string" ? value : "");
 
-/** The value when it is a non-blank string, else null. */
-export const readTrimmed = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
-
 /**
  * A value rendered for a HUMAN — an error message naming what was rejected.
  *

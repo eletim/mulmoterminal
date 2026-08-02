@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { readString, readTrimmed, describeValue } from "../../common/readString.js";
+import { readString, describeValue } from "../../common/readString.js";
 
 describe("readString", () => {
   it("answers the string itself", () => {
@@ -15,15 +15,6 @@ describe("readString", () => {
       expect(readString(value)).toBe("");
     }
     expect(String({})).toBe("[object Object]"); // what it replaces
-  });
-});
-
-describe("readTrimmed", () => {
-  it("trims, and answers null for blank or non-string", () => {
-    expect(readTrimmed("  hi  ")).toBe("hi");
-    expect(readTrimmed("   ")).toBeNull();
-    expect(readTrimmed({})).toBeNull();
-    expect(readTrimmed(undefined)).toBeNull();
   });
 });
 

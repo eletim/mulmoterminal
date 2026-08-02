@@ -31,7 +31,6 @@
 - `readString(unknown): string` — 文字列ならそれ、でなければ `""`。
   呼び出し元はもともと `String(x ?? "")` で書かれていたので、**「無い場合は空文字」という
   既存の挙動はそのまま**。変わるのは「オブジェクトが来たとき」だけ。
-- `readTrimmed(unknown): string | null` — trim して空なら null。
 - `describeValue(unknown): string` — **人間向けのエラーメッセージ**用。ここは入力が壊れて
   いること自体が主題なので、形を残す必要がある。`JSON.stringify` を使い、循環参照は
   `"[unserializable]"` に落とす。
