@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { fetchJson, errorMessage } from "../../../src/utils/fetchJson";
 import { isRecord } from "../../../common/isRecord";
+import { jsonBody } from "../../../src/jsonBody";
 
 // These cases are about transport and status handling, not about reading a shape, so the reader
 // passes the body through untouched.
@@ -112,5 +113,19 @@ describe("errorMessage", () => {
     ["the body is an array", ["nope"], 500],
   ])("falls back to HTTP <status> when %s", (_case, body, status) => {
     expect(errorMessage(body, status)).toBe(`HTTP ${status}`);
+  });
+});
+
+// jsonBody absorbs a parse failure into {}, which is right for a caller that only reads fields —
+// and a trap for one that records having succeeded. These pin the callers that must not.
+describe("a body that cannot be read stays on the failure path", () => {
+  it("jsonBody answers {} for a truncated body rather than throwing", async () => {
+    const res = { json: async () => JSON.parse("{oops") } as unknown as Response;
+    await expect(jsonBody(res)).resolves.toEqual({});
+  });
+
+  it("jsonBody answers {} for a JSON body that is not an object", async () => {
+    const res = { json: async () => [1, 2, 3] } as unknown as Response;
+    await expect(jsonBody(res)).resolves.toEqual({});
   });
 });

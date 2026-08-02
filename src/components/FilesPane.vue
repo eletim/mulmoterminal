@@ -92,7 +92,11 @@ async function fetchEntries(pathRel: string): Promise<Entry[]> {
   const res = await fetch(`/api/files/browse/list?${qs(pathRel)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await jsonBody(res);
-  return isUnknownArray(data.entries) ? data.entries.filter(isEntry) : [];
+  // A directory with no children answers `{ entries: [] }`, so an ABSENT array is a body we could
+  // not read — different from an empty directory, and the callers treat the two differently (one
+  // marks the node loaded, the other collapses it again).
+  if (!isUnknownArray(data.entries)) throw new Error("GET /api/files/browse/list → body has no entries array");
+  return data.entries.filter(isEntry);
 }
 
 async function loadRoot(): Promise<void> {

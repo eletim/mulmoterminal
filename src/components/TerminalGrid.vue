@@ -45,6 +45,7 @@ import type { RightPane } from "./gridCell";
 import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
 import type { TerminalAgent } from "../../common/sessionAgent";
 import { jsonBody } from "../jsonBody";
+import { isUnknownArray } from "../../common/isUnknownArray";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -343,6 +344,10 @@ watch(
       const res = await fetch(`/api/tools?sessionId=${encodeURIComponent(sessionId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = await jsonBody(res);
+      // THROWN rather than read as "no groups": jsonBody answers {} for a body that is truncated
+      // or not JSON, and the catch below deliberately leaves `canvasChecked` false so a failure to
+      // ASK is not recorded as an answer. Defaulting here would record one.
+      if (!isUnknownArray(body.groups)) throw new Error("GET /api/tools → body has no groups array");
       // Late reply for a cell we have since walked away from would show the wrong button.
       if (sessionId !== expandedSessionId.value) return;
       // The GROUPS, not the tool names. Every cell here is a grid cell, so "has a canvas group"

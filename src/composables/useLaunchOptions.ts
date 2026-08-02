@@ -69,12 +69,14 @@ async function fetchOptions(): Promise<void> {
     const res = await fetch("/api/launch-options", { signal: abort.signal });
     if (!res.ok) throw new Error(`GET /api/launch-options → ${res.status}`);
     const body = await jsonBody(res);
-    // The picker branches on `anyReady` and lists `providers`; a body missing either shows an
-    // empty picker rather than a broken one.
-    options.value =
-      isUnknownArray(body.providers) && typeof body.anyReady === "boolean"
-        ? { providers: body.providers.filter(isLaunchProviderOption), anyReady: body.anyReady }
-        : EMPTY;
+    // THROWN, not defaulted to EMPTY: `jsonBody` answers `{}` for a body that is truncated or not
+    // JSON at all, and treating that as a successful empty list would set `loaded` below and stop
+    // every later mount from retrying — the exact failure the `loaded` flag exists to prevent.
+    // A 200 we cannot read is a failed read, so it goes down the catch with the rest.
+    if (!isUnknownArray(body.providers) || typeof body.anyReady !== "boolean") {
+      throw new Error("GET /api/launch-options → body is not { providers, anyReady }");
+    }
+    options.value = { providers: body.providers.filter(isLaunchProviderOption), anyReady: body.anyReady };
     loaded = true;
   } catch (err) {
     // A picker that cannot load its list is not an error the user can act on — the launch

@@ -16,6 +16,12 @@ import { isRecord } from "../common/isRecord";
  * JSON at all. Absorbing the parse failure matches what the callers did by hand
  * (`res.json().catch(() => ({}))`) and keeps a truncated body from throwing past an error path
  * that was already handling the HTTP status.
+ *
+ * **That absorption is the thing to be careful about.** A caller that RECORDS having succeeded —
+ * `loaded = true`, `checked = true`, a cache entry — must not treat `{}` as an answer, or an
+ * unreadable 200 is remembered as a real one and nothing retries. Throw on a body whose required
+ * field is missing, so the failure stays on the failure path. (Caught in review on #1300: three
+ * call sites had exactly this.)
  */
 export const jsonBody = async (res: Response): Promise<Record<string, unknown>> => {
   try {
