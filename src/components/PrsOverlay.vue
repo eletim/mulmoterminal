@@ -10,6 +10,7 @@ import { useEscapeToClose } from "../composables/useEscapeToClose";
 import { useIssueStart } from "../composables/useIssueStart";
 import { relativeTimeFromIso } from "./cellDisplay";
 import IssueStartButton from "./IssueStartButton.vue";
+import { isRecord } from "../../common/isRecord";
 
 const { isOpen, close } = usePrsView();
 const { loadRepoDirs, startError } = useIssueStart();
@@ -23,6 +24,11 @@ let reqId = 0;
 
 // Each section loads independently so one endpoint failing (e.g. a transient
 // /api/issues error) never blanks the other — the PR dashboard keeps rendering.
+// The two row shapes as they arrive from /api/prs and /api/issues. Only `repo` is required to
+// place a row; everything else the templates read is optional there too.
+const isRepoPrs = (row: unknown): row is RepoPrs => isRecord(row) && typeof row.repo === "string";
+const isRepoIssues = (row: unknown): row is RepoIssues => isRecord(row) && typeof row.repo === "string";
+
 async function loadSection(path: string): Promise<{ rows: unknown[]; error: string | null }> {
   try {
     const res = await fetch(path);
@@ -43,9 +49,9 @@ async function load(): Promise<void> {
   // their start control can say anything, and it is the same one-shot read on view open.
   const [prs, issues] = await Promise.all([loadSection("/api/prs"), loadSection("/api/issues"), loadRepoDirs()]);
   if (id !== reqId) return;
-  repos.value = prs.rows as RepoPrs[];
+  repos.value = prs.rows.filter(isRepoPrs);
   prsError.value = prs.error;
-  issueRepos.value = issues.rows as RepoIssues[];
+  issueRepos.value = issues.rows.filter(isRepoIssues);
   issuesError.value = issues.error;
   loading.value = false;
 }
