@@ -4,10 +4,10 @@
 // rewrite (which values move and which are left for core to judge) and the route
 // middleware that applies it, including the no-header case that every non-session
 // caller — the scheduler, feeds, a direct POST — still takes.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import express from "express";
-import type { Server } from "node:http";
 import path from "node:path";
+import { appRequest } from "../../helpers/appRequest.js";
 import { absolutizePresentPath, mountPresentPathRoot, SESSION_HEADER } from "../../../server/backends/presentPathRoot.js";
 
 const MD = [".md"] as const;
@@ -59,34 +59,24 @@ describe("absolutizePresentPath", () => {
 });
 
 describe("the /api/plugin middleware", () => {
-  let server: Server;
-  let base: string;
   const SESSION = "11111111-2222-3333-4444-555555555555";
 
   const DOT_SESSION = "99999999-8888-7777-6666-555555555555";
   const DOT_CWD = path.resolve("/home/u/.mulmoterminal/worktrees/repo-ab12/task");
 
-  beforeAll(async () => {
-    const app = express();
-    app.use(express.json());
-    const cwds = new Map([
-      [SESSION, CWD],
-      [DOT_SESSION, DOT_CWD],
-    ]);
-    mountPresentPathRoot(app, { workspace: WORKSPACE, cwdForSession: (id) => cwds.get(id ?? "") ?? WORKSPACE });
-    // Stand-in for the real dispatch route: echo whatever body the middleware left.
-    app.post("/api/plugin/:toolName", (req, res) => res.json(req.body));
-    await new Promise<void>((resolve) => {
-      server = app.listen(0, () => resolve());
-    });
-    const addr = server.address();
-    base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
-  });
-
-  afterAll(() => server?.close());
+  const app = express();
+  app.use(express.json());
+  const cwds = new Map([
+    [SESSION, CWD],
+    [DOT_SESSION, DOT_CWD],
+  ]);
+  mountPresentPathRoot(app, { workspace: WORKSPACE, cwdForSession: (id) => cwds.get(id ?? "") ?? WORKSPACE });
+  // Stand-in for the real dispatch route: echo whatever body the middleware left.
+  app.post("/api/plugin/:toolName", (req, res) => res.json(req.body));
+  const request = appRequest(app);
 
   const post = (tool: string, body: unknown, sessionId?: string) =>
-    fetch(`${base}/api/plugin/${tool}`, {
+    request(`/api/plugin/${tool}`, {
       method: "POST",
       headers: { "content-type": "application/json", ...(sessionId ? { [SESSION_HEADER]: sessionId } : {}) },
       body: JSON.stringify(body),
