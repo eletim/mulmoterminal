@@ -252,7 +252,7 @@ async function discardAndReload(): Promise<void> {
     fileError.value = "could not back up your version — nothing was discarded";
     return;
   }
-  loadFile(openPath.value, true);
+  void loadFile(openPath.value, true);
 }
 
 /** Conflict banner — keep the buffer, adopting the disk's version as the new baseline so the
@@ -261,7 +261,7 @@ function overwrite(): void {
   if (!conflict.value) return;
   baseVersion.value = conflict.value.version;
   conflict.value = null;
-  save();
+  void save();
 }
 
 async function requestClose(): Promise<void> {
@@ -273,7 +273,7 @@ async function requestClose(): Promise<void> {
 function onKeydown(e: KeyboardEvent): void {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
     e.preventDefault();
-    save();
+    void save();
   }
 }
 
@@ -299,7 +299,7 @@ async function checkForExternalChange(): Promise<void> {
     // Still the version we loaded, or the answer arrived after the user moved on.
     if (onDisk === baseVersion.value || pathRel !== openPath.value) return;
     if (dirty.value) conflict.value = { version: onDisk };
-    else loadFile(pathRel, true);
+    else void loadFile(pathRel, true);
   } catch {
     // Offline or the server restarted: the next tick asks again, and the save still can't clobber.
   }
@@ -308,7 +308,7 @@ async function checkForExternalChange(): Promise<void> {
 function watchExternalChanges(): () => void {
   externalTimer = setInterval(checkForExternalChange, EXTERNAL_CHECK_MS);
   const unsubscribe = usePubSub().subscribe(FILE_WRITE_CHANNEL, (data) => {
-    if (isFileWriteEvent(data) && isWriteToOpenFile(data.file, props.cwd, openPath.value)) checkForExternalChange();
+    if (isFileWriteEvent(data) && isWriteToOpenFile(data.file, props.cwd, openPath.value)) void checkForExternalChange();
   });
   return () => {
     if (externalTimer !== null) clearInterval(externalTimer);
@@ -335,7 +335,7 @@ async function start(): Promise<void> {
   await restore(props.initialState ?? null);
   // An explicitly requested path wins over whatever was remembered — it is the more recent
   // intent (a clicked path in terminal output).
-  if (props.requestedPath) loadFile(props.requestedPath);
+  if (props.requestedPath) void loadFile(props.requestedPath);
 }
 
 /** Put a remembered tree back: open its directories parents-first (each fetches its children),
@@ -363,7 +363,7 @@ function findNode(nodes: Node[], target: string): Node | null {
 watch(
   () => props.requestedPath,
   (pathRel) => {
-    if (pathRel) loadFile(pathRel);
+    if (pathRel) void loadFile(pathRel);
   },
 );
 
@@ -377,15 +377,15 @@ function onPageHide(): void {
   // Both, unconditionally: there is no awaiting an answer here, so the only way to honour
   // "your version is kept either way" is to bank it whether or not the write wins the race.
   // The cost is one redundant generation per tab-close with unsaved edits.
-  bankText(pathRel, text, true);
-  writeBuffer(pathRel, text, baseVersion.value, true);
+  void bankText(pathRel, text, true);
+  void writeBuffer(pathRel, text, baseVersion.value, true);
 }
 
 let stopWatchingExternal: (() => void) | null = null;
 onMounted(() => {
   window.addEventListener("pagehide", onPageHide);
   stopWatchingExternal = watchExternalChanges();
-  start();
+  void start();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("pagehide", onPageHide);

@@ -57,7 +57,7 @@ async function copyLastBlock(): Promise<void> {
     } catch {
       // Permission or focus refused it. The text is already in hand, so offer it rather than
       // reporting a failure the user cannot act on.
-      showForManualCopy(outcome.text);
+      void showForManualCopy(outcome.text);
     }
   } catch {
     flash("Could not read this session's last turn");

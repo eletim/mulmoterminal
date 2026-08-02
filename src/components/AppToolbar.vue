@@ -101,7 +101,7 @@ const accountingActive = computed(() => accountingOpen.value);
 const wikiActive = computed(() => wikiOpen.value);
 const prsActive = computed(() => prsOpen.value);
 function showGrid(): void {
-  router.push("/terminals");
+  void router.push("/terminals");
 }
 function showCollections(): void {
   browseGotoIndex("collection");

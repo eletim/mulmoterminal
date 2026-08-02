@@ -127,7 +127,7 @@ function onFocusIn(e: FocusEvent) {
 // zoomed slot). Grid cells' durable connections are keyed `cell-<uid>`.
 onActivated(() => {
   const uid = focusedUid.value;
-  if (uid !== null) nextTick(() => conn.focus(`cell-${uid}`));
+  if (uid !== null) void nextTick(() => conn.focus(`cell-${uid}`));
 });
 // Per-cell class: `flipping` drives the zoom FLIP, `focused` the in-place lift of the active cell —
 // suppressed while expanded or mid-flip so it never fights those animations.
@@ -741,7 +741,7 @@ function flipCells(before: Map<number, DOMRect>) {
     flippingUids.value = new Set();
   };
   // The batch shares one duration + easing, so the last to finish settles them all.
-  Promise.allSettled(batch.map((a) => a.finished)).then(settle);
+  void Promise.allSettled(batch.map((a) => a.finished)).then(settle);
 }
 
 // Pre-flush, so the cells are still in the slots they are leaving when we measure them.
@@ -752,7 +752,7 @@ watch(
   (to, from) => {
     if (!shouldFlipZoom(to, from, window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
     const before = measureCells(props.cells.map((c) => c.uid));
-    nextTick(() => flipCells(before));
+    void nextTick(() => flipCells(before));
   },
 );
 
@@ -764,7 +764,7 @@ watch(
   () => props.expandedUid,
   (uid) => {
     if (uid === null) return;
-    nextTick(() => {
+    void nextTick(() => {
       const row = rosterRoot.value?.querySelector(`[data-uid="${uid}"]`);
       // `nearest` so a row already in view is left alone — re-centring on every step would
       // make the list jump under a user who can already see what they picked.

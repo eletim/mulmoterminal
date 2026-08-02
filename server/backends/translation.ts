@@ -233,7 +233,7 @@ export function mountTranslationRoutes(app: Express, deps: TranslationDeps): voi
     const next = prev.catch(() => undefined).then(runner);
     const tracked = next.catch(() => undefined);
     chains.set(namespace, tracked);
-    tracked.then(() => {
+    void tracked.then(() => {
       if (chains.get(namespace) === tracked) chains.delete(namespace);
     });
     return next;
