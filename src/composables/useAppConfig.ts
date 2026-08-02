@@ -3,7 +3,7 @@ import { presetLabel, type CwdPreset } from "../components/presets";
 import type { Launcher } from "../components/launchers";
 import type { UserMcpServer } from "../components/userMcp";
 import type { QuickCommand } from "../../common/quickCommands";
-import type { PushKind } from "../../common/pushKinds";
+import { isPushKind, type PushKind } from "../../common/pushKinds";
 import { DEFAULT_SOUND_KINDS, isNotifyKind, type NotifyKind } from "../../common/notifyKinds";
 import { isRecord } from "../../common/isRecord";
 import { readSoundMap, type SoundMap } from "./soundSettings";
@@ -99,16 +99,23 @@ function readLegacyRecents(): string[] {
 // POST a single config field as a partial update; the server keeps the other fields, so
 // this never clobbers them. Returns the server's echoed value for that field (or
 // `{ ok: false }` on failure) so each caller can update just its own singleton ref.
-async function postConfigField<T>(field: string, value: unknown): Promise<{ ok: true; value: T } | { ok: false }> {
+async function postConfigField(field: string, value: unknown): Promise<{ ok: true; value: unknown } | { ok: false }> {
   try {
     const res = await fetch("/api/config", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ [field]: value }) });
     if (!res.ok) return { ok: false };
-    const body: Record<string, unknown> = await res.json();
-    return { ok: true, value: body[field] as T };
+    const body: unknown = await res.json();
+    // `unknown`, not a caller-named `T`: this is the server's echo, and the type argument used to
+    // let each caller DECLARE the shape it wanted. Several already narrowed it anyway; now all do.
+    return { ok: true, value: isRecord(body) ? body[field] : undefined };
   } catch {
     return { ok: false };
   }
 }
+
+const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
+const isQuickCommand = (value: unknown): value is QuickCommand => isRecord(value) && typeof value.label === "string" && typeof value.command === "string";
+const isUserMcpServer = (value: unknown): value is UserMcpServer => isRecord(value) && typeof value.name === "string";
+const isLauncher = (value: unknown): value is Launcher => isRecord(value) && typeof value.label === "string" && typeof value.command === "string";
 
 // The record/remove/migrate preset mutations. Each preset write POSTs the whole array, so
 // concurrent record/remove calls (two grid cells launching at once) must not each derive
@@ -216,20 +223,20 @@ function createPresetManager(presets: Ref<CwdPreset[]>, saving: Ref<boolean>, er
 // they're module-level (no per-composable state) — useAppConfig just re-exports them.
 // Persist just the custom attention sound (a file path, or null to use the chime).
 async function saveSound(file: string | null): Promise<boolean> {
-  const r = await postConfigField<unknown>("soundFile", file);
+  const r = await postConfigField("soundFile", file);
   if (r.ok) soundFile.value = typeof r.value === "string" ? r.value : null;
   return r.ok;
 }
 // Persist the "send a Web Push on task finish" toggle (partial update).
 async function savePushEnabled(on: boolean): Promise<boolean> {
-  const r = await postConfigField<unknown>("pushEnabled", on);
+  const r = await postConfigField("pushEnabled", on);
   if (r.ok) pushEnabled.value = r.value === true;
   return r.ok;
 }
 // Persist the cross-repo PR list's repos (partial update, other fields untouched).
 async function savePrRepos(next: string[]): Promise<boolean> {
-  const r = await postConfigField<string[]>("prRepos", next);
-  if (r.ok) prRepos.value = r.value ?? [];
+  const r = await postConfigField("prRepos", next);
+  if (r.ok) prRepos.value = stringsOf(r.value);
   return r.ok;
 }
 
@@ -280,45 +287,45 @@ const readRepoDirs = (raw: Record<string, unknown>): Record<string, string> => {
 // replacing it: this is called with one repo's answer, and a whole-map write would drop every
 // other repo's choice.
 async function saveRepoDir(repo: string, dir: string): Promise<boolean> {
-  const r = await postConfigField<Record<string, unknown>>("repoDirs", { ...repoDirs.value, [repo]: dir });
+  const r = await postConfigField("repoDirs", { ...repoDirs.value, [repo]: dir });
   if (r.ok) repoDirs.value = isRecord(r.value) ? readRepoDirs(r.value) : repoDirs.value;
   return r.ok;
 }
 // Persist the cell-launcher commands (partial update).
 async function saveLaunchers(next: Launcher[]): Promise<boolean> {
-  const r = await postConfigField<Launcher[]>("launchers", next);
-  if (r.ok) launchers.value = r.value ?? [];
+  const r = await postConfigField("launchers", next);
+  if (r.ok) launchers.value = Array.isArray(r.value) ? r.value.filter(isLauncher) : [];
   return r.ok;
 }
 // Persist which kinds of push to send (partial update).
 async function savePushKinds(next: PushKind[]): Promise<boolean> {
-  const r = await postConfigField<PushKind[]>("pushKinds", next);
-  if (r.ok) pushKinds.value = r.value ?? [];
+  const r = await postConfigField("pushKinds", next);
+  if (r.ok) pushKinds.value = Array.isArray(r.value) ? r.value.filter(isPushKind) : [];
   return r.ok;
 }
 // Persist which moments beep (partial update).
 async function saveSoundKinds(next: NotifyKind[]): Promise<boolean> {
-  const r = await postConfigField<NotifyKind[]>("soundKinds", next);
-  if (r.ok) soundKinds.value = r.value ?? [];
+  const r = await postConfigField("soundKinds", next);
+  if (r.ok) soundKinds.value = Array.isArray(r.value) ? r.value.filter(isNotifyKind) : [];
   return r.ok;
 }
 // Persist the per-kind sounds (partial update). The whole map goes each time — the server
 // merges by FIELD, not by key, so sending one kind would drop the others.
 async function saveSounds(next: SoundMap): Promise<boolean> {
-  const r = await postConfigField<SoundMap>("sounds", next);
-  if (r.ok) sounds.value = r.value ?? {};
+  const r = await postConfigField("sounds", next);
+  if (r.ok) sounds.value = isRecord(r.value) ? readSoundMap(r.value) : {};
   return r.ok;
 }
 // Persist the phone quick commands (partial update).
 async function saveQuickCommands(next: QuickCommand[]): Promise<boolean> {
-  const r = await postConfigField<QuickCommand[]>("quickCommands", next);
-  if (r.ok) quickCommands.value = r.value ?? [];
+  const r = await postConfigField("quickCommands", next);
+  if (r.ok) quickCommands.value = Array.isArray(r.value) ? r.value.filter(isQuickCommand) : [];
   return r.ok;
 }
 // Persist the user MCP servers (partial update).
 async function saveUserMcpServers(next: UserMcpServer[]): Promise<boolean> {
-  const r = await postConfigField<UserMcpServer[]>("userMcpServers", next);
-  if (r.ok) userMcpServers.value = r.value ?? [];
+  const r = await postConfigField("userMcpServers", next);
+  if (r.ok) userMcpServers.value = Array.isArray(r.value) ? r.value.filter(isUserMcpServer) : [];
   return r.ok;
 }
 
