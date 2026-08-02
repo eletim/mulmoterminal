@@ -16,7 +16,7 @@ description: 複数の AI コーディングエージェント（Claude Code / C
 [はじめに — 起動するまで](getting-started.html){: .btn .btn-purple .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [基本編 — 画面の読み方](basics.html){: .btn .fs-5 .mb-4 .mb-md-0 }
 
-> **[4.1.0 で変わったこと](v4.1.0.html)** — **PRs & Issues** が github.com に加えて **gitlab.com** を読み、GitLab の issue からも GitHub と同じように着手できる（`prRepos` に `gitlab.com/group/project` と書くだけ）。あわせて 1 つの issue に worktree は 1 つ、ヘッダーの hover が即座に出て PR / issue のタイトルまで載る（2026-08-02 時点）
+> **[4.1.1 で変わったこと](v4.1.1.html)** — ヘッダーの **usage** が TUI の起動が遅いマシンで `n/a` に張り付かなくなり、スマホのターミナルが1画面ぶんではなく**スクロールバック300行**を返し、GitLab の worktree でも **PR フェーズ pill** と **⧉ Open PR** が GitHub と同じように動く。設定は不要（2026-08-02 時点）
 >
 > **[4.0.0 で変わったこと](v4.0.0.html)** — **単一ターミナルビューを廃止**。グリッドがアプリそのものになり、1 体に集中するのは「セルを拡大する」こと。コンテンツ系の画面にはツールバーの **Collections** という入口ができた。**worktree は 1 セッションだけ**を持ち、2 つ目の起動を断る。Docker サンドボックスも削除（2026-08-01 時点）
 >
