@@ -71,3 +71,20 @@ export function normalizeGlabIssueDetail(raw: unknown): { number: number; title:
   // An issue with no description is normal — the title is then the whole brief, same as GitHub.
   return number === null ? null : { number, title: text(raw.title), body: text(raw.description) };
 }
+
+/** Comment bodies from `GET /projects/:id/issues/:iid/notes`.
+ *
+ *  `system: true` marks a note GitLab wrote itself — "closed", "changed the description", a label
+ *  edit. They are not comments anyone left, and a duplicate check that counted them would decide a
+ *  comment already exists because the issue had been closed once (verified against real notes).
+ */
+export function glabNoteBodies(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(isRecord)
+    .filter((note) => note.system !== true)
+    .map((note) => text(note.body));
+}
+
+/** Whether an issue read from `glab issue view` is still open. GitLab spells it lowercase. */
+export const glabIssueIsOpen = (raw: unknown): boolean => isRecord(raw) && raw.state === "opened";
