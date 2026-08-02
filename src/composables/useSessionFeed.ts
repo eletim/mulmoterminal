@@ -11,6 +11,13 @@ interface SessionFeedOptions<T> {
   historyKey: string;
   channel: (id: string) => string;
   identify: (item: T) => string | undefined;
+  /**
+   * Read one item off the live channel, or null to drop it.
+   *
+   * The channel carries `unknown`, and this used to be `data as T` — the composable naming a shape
+   * only the CALLER knows (#1231). Each caller supplies the reader for its own item instead.
+   */
+  parse: (raw: unknown) => T | null;
   onSessionChange?: () => void;
   /**
    * Fold an arriving item into the list by something OTHER than its identity, before the dedupe
@@ -43,8 +50,17 @@ function mergeSettled<T>(snapshot: readonly T[], buffered: readonly T[], identif
   return settled;
 }
 
+// The channel listener: read the frame with the CALLER's reader, and drop what it rejects. At
+// module scope so the composable stays inside its line budget.
+const receiver =
+  <T>(parse: (raw: unknown) => T | null, upsert: (item: T) => void) =>
+  (data: unknown): void => {
+    const item = parse(data);
+    if (item) upsert(item);
+  };
+
 export function useSessionFeed<T>(items: Ref<T[]>, options: SessionFeedOptions<T>) {
-  const { sessionId, historyUrl, historyKey, channel, identify, onSessionChange, reconcile } = options;
+  const { sessionId, historyUrl, historyKey, channel, identify, parse, onSessionChange, reconcile } = options;
 
   // What the live channel delivered while a history request was in flight. The response is
   // authoritative as of when it was SENT, so these have to survive it (#620 F1).
@@ -105,7 +121,7 @@ export function useSessionFeed<T>(items: Ref<T[]>, options: SessionFeedOptions<T
     unsubscribe?.();
     unsubscribe = undefined;
     if (!id) return;
-    unsubscribe = subscribe(channel(id), (data) => upsert(data as T));
+    unsubscribe = subscribe(channel(id), receiver(parse, upsert));
   }
 
   watch(
