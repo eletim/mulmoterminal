@@ -232,7 +232,7 @@ auto（注目度順）と manual（移動ボタンで手動）と並びます。
 ### worktree はこのファイルを引き継ぐ {#worktree-inherit}
 
 `.mulmoterminal.json` は通常 gitignore されているので、プロジェクトから切った
-[worktree](github.md) には何も入っていませんでした。色も名前もモデルも順位も無く、
+[worktree](glossary.html#git-worktree) には何も入っていませんでした。色も名前もモデルも順位も無く、
 グリッドの末尾に灰色のセルが1つ増えるだけ — 無関係なプロジェクトに見えていました。
 
 いまは新しい worktree に、プロジェクトの設定から作った専用のコピーが置かれます。

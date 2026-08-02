@@ -238,7 +238,7 @@ ranked ones, in that launch order.
 
 ### Worktrees inherit this file {#worktree-inherit}
 
-`.mulmoterminal.json` is normally gitignored, so a [worktree](github.md) cut from the project used
+`.mulmoterminal.json` is normally gitignored, so a [worktree](glossary.html#git-worktree) cut from the project used
 to start with nothing in it: no colours, no name, no model, no rank — one more grey cell at the end
 of the grid, looking like an unrelated project.
 

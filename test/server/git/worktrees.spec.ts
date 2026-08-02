@@ -174,6 +174,12 @@ describe("git worktree lifecycle", () => {
       const second = await createWorktree(repo, "second");
       if (!second) throw new Error("expected a second worktree");
       expect(config(second.path)).toMatchObject({ headerColor: "#3e2da9" });
+
+      // The failure the check-ignore guard exists to prevent, pinned end to end: a worktree
+      // holding a config we wrote is still removable WITHOUT force. Asserting isDirty alone
+      // would miss it — `git worktree remove` has its own idea of clean.
+      expect(await removeWorktree(repo, second.path, { deleteBranch: true })).toEqual({ ok: true });
+      expect(existsSync(second.path)).toBe(false);
     },
     GIT_TEST_TIMEOUT_MS,
   );
