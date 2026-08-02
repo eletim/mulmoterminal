@@ -4,6 +4,32 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## Unreleased
+
+Entries here are folded into the next release's heading when it ships.
+
+### Added
+
+- **A new worktree inherits the project's settings, one hue step off** (#1317). `.mulmoterminal.json`
+  is normally gitignored, so `git worktree add` produced a directory with no config in it at all:
+  the cell lost the project's colours, name badge, model and grid rank, and — being unranked — fell
+  to the end of the priority sort. Three cells of one project looked like three unrelated ones. A
+  worktree is now given its own config derived from the project's: `name` / `theme` / `colors` /
+  `fontSize` / `fontFamily` / `provider` / `model` copied as written, the seven chrome colours
+  rotated **12 degrees further around the hue wheel per worktree** so a project's trees read as a
+  gradient, and `orderPriority` at the project's rank **+ 1** so each sits directly after the
+  project it was cut from. Hue only, because saturation and lightness carry the contrast a colour
+  was chosen for — which also means a grey like `headerTextColor: "#ffffff"` has no hue to move and
+  survives untouched, with no special case. `sound` / `sounds` / `addDirs` are deliberately not
+  carried: they name paths inside the project directory that the worktree has no copy of, and
+  `addDirs` resolves against whichever directory holds the file, so copying it would quietly grant
+  a different set of folders. Written only where git would **ignore** the file — an untracked file
+  in a worktree's `git status` is not merely untidy, since `isDirty` reads that same status and
+  MulmoTerminal refuses to remove a dirty worktree, so the app would have blocked cleanup over a
+  file it wrote itself. An existing config in the worktree is never overwritten. The write happens
+  inside `createWorktree`, so the launcher's **＋ New worktree** and the issue-started path both get
+  it rather than one of the two.
+
 ## mulmoterminal@4.1.1 — 2026-08-02
 
 > **Setup guide:** [Usage that stops saying n/a, and 300 lines of scrollback on the phone](https://receptron.github.io/mulmoterminal/guide/en/v4.1.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.1.1.html))

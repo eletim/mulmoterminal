@@ -919,6 +919,17 @@ separate working tree that shares the repo's `.git`, so several agents can work 
 repo without colliding. Worktrees live under `~/.mulmoterminal/worktrees/` (override with
 `MULMOTERMINAL_HOME`), and existing ones are listed below the field.
 
+**A worktree inherits the project's settings.** `.mulmoterminal.json` is normally gitignored,
+so a fresh worktree used to have none — no colours, no name, no model, no grid rank. It is now
+given its own copy derived from the project's: `name` / `theme` / `colors` / `fontSize` /
+`fontFamily` / `provider` / `model` as written, the seven chrome colours **rotated 12 degrees
+further around the hue wheel per worktree** (so a project's trees read as a gradient; a grey like
+`#ffffff` has no hue to move and stays put), and `orderPriority` at the project's rank **+ 1**, so
+the worktree sorts directly after it. `sound` / `sounds` / `addDirs` are not carried — they name
+paths inside the project directory. Written only where git would **ignore** it: an untracked file
+in a worktree's `git status` would make it count as dirty, and a dirty worktree is one
+MulmoTerminal refuses to remove. An existing config in the worktree is never overwritten.
+
 **One worktree, one session.** A worktree is tied to a branch, so it is never started
 twice: a listed row **resumes** that worktree's session when it has one, and **starts** one
 only when it has none. A row whose session is open in another terminal reads `in use` and
