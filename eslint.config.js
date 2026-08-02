@@ -118,13 +118,41 @@ export default [
     // A cast asserts a type the compiler could not prove; a type guard PROVES it, and the
     // difference shows up at runtime, on the data you least control.
     //
-    // WARN while the existing ones are worked off file by file (#1231), so CI keeps passing and
-    // the remaining count stays visible. It goes to ERROR once the last one is resolved — the
-    // allowlist below is the only way to keep one, with a reason, since inline eslint-disable
-    // is forbidden and hides the debt at the scene.
+    // ERROR since #1231 finished: the 149 assertions the app started with are gone, and the
+    // allowlist below is the only way to keep one — with a reason, since inline eslint-disable is
+    // forbidden and hides the debt at the scene.
     files: ["**/*.{ts,tsx,mts,cts}", "**/*.vue"],
     rules: {
-      "@typescript-eslint/consistent-type-assertions": ["warn", { assertionStyle: "never" }],
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
+    },
+  },
+  {
+    // Type-assertion allowlist. Every entry is a place where NO amount of local typing can
+    // express the truth, because the type that is wrong belongs to someone else. Each says which
+    // upstream and what would remove it — delete the entry when that lands.
+    //
+    // Nothing here is "we could not be bothered": a host-side fix was written and merged for the
+    // one case that had one (mulmoclaude#2721 widened `modalTeleportTarget`, and the assertion it
+    // forced is gone from this repo as of collection-plugin 1.2.3).
+    files: [
+      // @modelcontextprotocol/sdk declares `class StreamableHTTPServerTransport implements
+      // Transport` while typing that class's onclose/onerror/onmessage accessors `T | undefined`
+      // where Transport spells them `?: T`. Under exactOptionalPropertyTypes the class therefore
+      // fails the interface it claims to implement. Upstream issue (open, and it names this exact
+      // workaround): https://github.com/modelcontextprotocol/typescript-sdk/issues/2083
+      "server/routes/mcp-routes.ts",
+      // gui-chat-protocol declares `dispatch<T = unknown>(args): Promise<T>` and
+      // `subscribe<T>(name, handler: (payload: T) => void)`. The PLUGIN chooses T and the HOST has
+      // to produce it from an untyped response / channel frame — unverifiable by construction, so
+      // any implementation asserts. (The same shape in OUR OWN generics — wikiApi's getJson,
+      // useSessionFeed, postConfigField — was fixed by taking a reader from the caller; that is
+      // not open here, because changing the protocol's signatures breaks every plugin that
+      // annotates its handler.) Moving the assertion onto the payload (`handler(data as T)`)
+      // relocates it rather than removing it, so it stays where the unprovable claim is made.
+      "src/composables/pluginRuntime.ts",
+    ],
+    rules: {
+      "@typescript-eslint/consistent-type-assertions": "off",
     },
   },
   {
