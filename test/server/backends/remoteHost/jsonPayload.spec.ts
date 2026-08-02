@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { jsonPayload, toJsonValue } from "../../../../server/backends/remoteHost/jsonPayload.js";
+import { jsonPayload } from "../../../../server/backends/remoteHost/jsonPayload.js";
 
 // The point of this module is that the RESULT equals what the client would have received when the
 // payload was asserted to be JSON and stringified. So the yardstick is JSON.stringify itself.
@@ -108,19 +108,22 @@ describe("jsonPayload", () => {
     expect(jsonPayload(value)).toEqual(stringified(value));
   });
 
+  // A boxed BigInt reached the object walk and became `{}` — silent data loss where stringify
+  // throws. Going through stringify itself makes that impossible (Codex review on #1288).
+  it("throws on a boxed bigint too, as stringify does", () => {
+    const value = { n: boxed(1n) };
+    expect(() => jsonPayload(value)).toThrow(TypeError);
+    expect(() => JSON.stringify(value)).toThrow(TypeError);
+  });
+
+  it("throws on a circular reference, as stringify does", () => {
+    const value: Record<string, unknown> = { name: "loop" };
+    value.self = value;
+    expect(() => jsonPayload(value)).toThrow(TypeError);
+    expect(() => JSON.stringify(value)).toThrow(TypeError);
+  });
+
   it("is empty for an empty record", () => {
     expect(jsonPayload({})).toEqual({});
-  });
-});
-
-describe("toJsonValue", () => {
-  it("answers undefined for values JSON cannot represent", () => {
-    expect(toJsonValue(undefined)).toBeUndefined();
-    expect(toJsonValue(() => 1)).toBeUndefined();
-    expect(toJsonValue(Symbol("x"))).toBeUndefined();
-  });
-
-  it("keeps null distinct from absent", () => {
-    expect(toJsonValue(null)).toBeNull();
   });
 });
