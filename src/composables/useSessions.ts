@@ -143,10 +143,10 @@ export function useSessions() {
 
   onMounted(() => {
     void load();
-    unsubscribe = subscribe("sessions", () => load());
+    unsubscribe = subscribe("sessions", () => void load());
     // pub-sub replays room membership but not events missed while disconnected, so a
     // dropped socket can leave the list stale until the next push — refetch on reconnect.
-    offReconnect = onReconnect(() => load());
+    offReconnect = onReconnect(() => void load());
   });
   onUnmounted(() => {
     unsubscribe?.();

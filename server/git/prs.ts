@@ -10,6 +10,7 @@ import { glabMrListArgs, runGlab } from "./glab.js";
 import { normalizeGlabMr } from "./glab-items.js";
 import { normalizeGhItemBase } from "./ghItem";
 import { isRecord } from "../../common/isRecord.js";
+import { readString } from "../../common/readString.js";
 
 // Per-repo cap. High enough for a review dashboard; a repo that hits it is flagged
 // `truncated` rather than silently cut.
@@ -27,8 +28,8 @@ export function rollupCiState(checks: unknown): CiState {
   for (const c of checks) {
     if (!isRecord(c)) continue;
     const o = c;
-    const conclusion = String(o.conclusion ?? "").toUpperCase();
-    const state = String(o.state ?? "").toUpperCase();
+    const conclusion = readString(o.conclusion).toUpperCase();
+    const state = readString(o.state).toUpperCase();
     if (FAIL.has(conclusion) || state === "FAILURE" || state === "ERROR") return "failing";
     if (!(OK.has(conclusion) || state === "SUCCESS")) anyPending = true;
   }
