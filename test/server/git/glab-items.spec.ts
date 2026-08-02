@@ -2,8 +2,27 @@
 // CAPTURED from gitlab.com (gitlab-org/cli, 2026-08-01) rather than written by hand, so a field
 // GitLab renames breaks this instead of quietly emptying a row.
 import { describe, it, expect } from "vitest";
-import { glabIssueIsOpen, glabNoteBodies, normalizeGlabIssue, normalizeGlabIssueDetail, normalizeGlabMr } from "../../../server/git/glab-items.js";
-import { glabIssueCloseArgs, glabIssueListArgs, glabIssueNoteArgs, glabIssueNotesArgs, glabIssueViewArgs, glabMrListArgs } from "../../../server/git/glab.js";
+import {
+  glabFirstMrUrl,
+  glabIssueIsOpen,
+  glabMrBody,
+  glabNoteBodies,
+  normalizeGlabIssue,
+  normalizeGlabIssueDetail,
+  normalizeGlabMr,
+} from "../../../server/git/glab-items.js";
+import {
+  glabIssueCloseArgs,
+  glabIssueListArgs,
+  glabMrCreateArgs,
+  glabMrForBranchArgs,
+  glabMrUpdateBodyArgs,
+  glabMrViewArgs,
+  glabIssueNoteArgs,
+  glabIssueNotesArgs,
+  glabIssueViewArgs,
+  glabMrListArgs,
+} from "../../../server/git/glab.js";
 
 const REAL_MR = {
   iid: 3675,
@@ -243,5 +262,63 @@ describe("glab issue write arguments", () => {
   // duplicate check misses it and comments again (Codex review).
   it("always paginates, so an old comment on a long thread is still found", () => {
     expect(glabIssueNotesArgs("group/project", 1)).toContain("--paginate");
+  });
+});
+
+// The merge-request half of the ⧉ Open PR path. Shapes read back from a real MR on gitlab.com.
+describe("glabMrBody", () => {
+  it("takes the body from `description`", () => {
+    expect(glabMrBody({ iid: 2, description: "Fixes #1\n\nwork in glreal" })).toBe("Fixes #1\n\nwork in glreal");
+  });
+
+  // A merge request with no description is ordinary — `--fill` leaves it empty when the commit has
+  // no body. Reading it as a failure would skip appending the footer.
+  it.each([
+    ["an empty description", { iid: 2, description: "" }],
+    ["no description at all", { iid: 2 }],
+    ["something that is not an MR", "nope"],
+  ])("is the empty string for %s", (_case, raw) => {
+    expect(glabMrBody(raw)).toBe("");
+  });
+});
+
+describe("glabFirstMrUrl", () => {
+  it("takes the web_url of the first merge request", () => {
+    expect(glabFirstMrUrl([{ iid: 2, web_url: "https://gitlab.com/o/p/-/merge_requests/2" }])).toBe("https://gitlab.com/o/p/-/merge_requests/2");
+  });
+
+  // An empty list is the ordinary "no merge request for this branch yet" answer, which is what
+  // sends the caller on to the compare-page fallback rather than to an error.
+  it.each([
+    ["an empty list", []],
+    ["not a list", { merge_requests: [] }],
+    ["a row with no web_url", [{ iid: 2 }]],
+  ])("is null for %s", (_case, raw) => {
+    expect(glabFirstMrUrl(raw)).toBeNull();
+  });
+});
+
+describe("glab merge-request arguments", () => {
+  // No `--repo` anywhere: glab infers the project from the working directory, the same way `gh`
+  // does — verified by running `glab mr list` in a directory holding nothing but a remote.
+  it.each([
+    ["create", glabMrCreateArgs("master", "issue/1-x")],
+    ["forBranch", glabMrForBranchArgs("issue/1-x")],
+    ["view", glabMrViewArgs("https://gitlab.com/o/p/-/merge_requests/2")],
+    ["update", glabMrUpdateBodyArgs("https://gitlab.com/o/p/-/merge_requests/2", "body")],
+  ])("%s passes no --repo", (_name, args) => {
+    expect(args).not.toContain("--repo");
+  });
+
+  it("creates with the source and target branches named", () => {
+    expect(glabMrCreateArgs("master", "issue/1-x")).toEqual(["mr", "create", "--fill", "--source-branch", "issue/1-x", "--target-branch", "master", "--yes"]);
+  });
+
+  // A URL is accepted wherever an iid is, which is what lets the body helpers keep taking the URL
+  // they were handed rather than parsing an iid out of it.
+  it("views and updates by whatever identifier it was given", () => {
+    const url = "https://gitlab.com/o/p/-/merge_requests/2";
+    expect(glabMrViewArgs(url)).toEqual(["mr", "view", url, "-F", "json"]);
+    expect(glabMrUpdateBodyArgs(url, "b")).toEqual(["mr", "update", url, "--description", "b"]);
   });
 });

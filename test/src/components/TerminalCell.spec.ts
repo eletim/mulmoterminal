@@ -1350,7 +1350,7 @@ describe("TerminalCell", () => {
   });
 
   it("Open PR opens the returned url in a new tab", async () => {
-    mockFetchWithPr(aheadDiff(2), { body: { ok: true, url: "https://github.com/owner/repo/pull/9", via: "gh" } });
+    mockFetchWithPr(aheadDiff(2), { body: { ok: true, url: "https://github.com/owner/repo/pull/9", via: "cli" } });
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
     const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: WT_CWD });
     await flushPromises();
