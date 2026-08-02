@@ -3,7 +3,6 @@
 // unauthed it falls back to opening the GitHub compare URL in the browser. Guarded
 // upstream by origin checks; here every command is argv-only (no shell).
 import { repoRoot, defaultBaseBranch, isManagedWorktree, git } from "./worktrees.js";
-import { resolveGithubUrl } from "./gitRemote.js";
 import { repoForDir } from "./forge-support.js";
 import { glabMrCreateArgs, glabMrForBranchArgs, glabMrUpdateBodyArgs, glabMrViewArgs } from "./glab.js";
 import { glabFirstMrUrl, glabMrBody } from "./glab-items.js";
@@ -22,7 +21,10 @@ import { getPrWorkdirFooter } from "../config/config-routes.js";
 import { withFooter, withIssueRef, workdirFooter } from "./pr-footer.js";
 import { issueFromAnchoredBranch } from "../../common/prPhase.js";
 
-type Reason = "not-worktree" | "no-branch" | "no-remote" | "no-github" | "push-failed" | "failed";
+// `no-forge` was `no-github` until #981: the message it drove said "Not a GitHub repo" about a
+// GitLab one, which is both wrong and unhelpful — the push HAD succeeded and the user needed to
+// know where to go, not what their repo is not.
+type Reason = "not-worktree" | "no-branch" | "no-remote" | "no-forge" | "push-failed" | "failed";
 
 export interface PushResult {
   ok: boolean;
@@ -78,6 +80,13 @@ async function hasOrigin(cwd: string): Promise<boolean> {
 // (agent/<task>) — GitHub's compare path takes them raw, not percent-encoded.
 export function compareUrl(githubUrl: string, base: string, branch: string): string {
   return `${githubUrl}/compare/${base}...${branch}?expand=1`;
+}
+
+// GitLab's equivalent, and it is NOT a compare page: the project's "New merge request" form,
+// pre-filled with the source branch. This is the URL GitLab itself prints on `git push` — copied
+// from a real push rather than composed from the docs, including the bracket encoding.
+export function newMergeRequestUrl(projectUrl: string, branch: string): string {
+  return `${projectUrl}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`;
 }
 
 // Push the worktree's branch to origin (so it can be turned into a PR).
@@ -203,7 +212,14 @@ export async function createOrOpenPR(cwd: string): Promise<PrResult> {
   const existingUrl = existing.ok ? ops.readUrl(existing.stdout) : null;
   if (existingUrl) return { ok: true, url: existingUrl, via: "cli" };
 
-  const githubUrl = await resolveGithubUrl(cwd);
-  if (!githubUrl) return { ok: false, reason: "no-github", detail: gh.stderr.trim().slice(0, DETAIL_LIMIT) };
-  return { ok: true, url: compareUrl(githubUrl, base, branch), via: "compare" };
+  // The CLI could not make or find the request, so fall back to the page where a person can. Which
+  // page that is comes from the forge — `resolveGithubUrl` answers null for GitLab, so reusing it
+  // here reported "Not a GitHub repo" about a GitLab repo and buried glab's real error, whatever it
+  // was (Codex review).
+  const detail = gh.stderr.trim().slice(0, DETAIL_LIMIT);
+  const found = await repoForDir(cwd);
+  const webUrl = found?.forge.webUrl;
+  if (!webUrl) return { ok: false, reason: "no-forge", detail };
+  const url = found.forge.kind === "gitlab" ? newMergeRequestUrl(webUrl, branch) : compareUrl(webUrl, base, branch);
+  return { ok: true, url, via: "compare" };
 }
