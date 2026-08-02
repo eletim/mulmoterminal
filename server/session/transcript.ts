@@ -3,6 +3,7 @@
 // startup side effects.
 
 import { isRecord } from "../../common/isRecord.js";
+import { readString } from "../../common/readString.js";
 
 // A real user prompt from a JSONL "user" line's content, or null if it's a
 // slash-/local-command wrapper rather than a typed prompt. Content may be a plain
@@ -11,7 +12,9 @@ import { isRecord } from "../../common/isRecord.js";
 // channel when a background task finishes, and it is no more a typed prompt than a
 // slash command is.
 export function userPromptText(content: unknown): string | null {
-  const text = Array.isArray(content) ? content.map((x) => (isRecord(x) ? String(x.text ?? "") : String(x ?? ""))).join(" ") : content;
+  // `x: unknown` is load-bearing: Array.isArray narrows `unknown` to `any[]`, and an `any`
+  // element puts every read below back outside the type checker's reach.
+  const text = Array.isArray(content) ? content.map((x: unknown) => (isRecord(x) ? readString(x.text) : readString(x))).join(" ") : content;
   if (typeof text === "string" && text.trim() && !/^\s*<(local-command|command-|bash-|task-notification)/.test(text)) {
     return text.trim();
   }
@@ -46,7 +49,7 @@ function collectPrompts(records: Record<string, unknown>[]): { prompts: string[]
       const prompt = userPromptText(isRecord(o.message) ? o.message.content : undefined);
       if (prompt) prompts.push(prompt);
     } else if (o.type === "last-prompt" && o.lastPrompt) {
-      lastPromptRecord = String(o.lastPrompt);
+      lastPromptRecord = readString(o.lastPrompt);
     }
   }
   return { prompts, lastPromptRecord };
@@ -65,7 +68,7 @@ export const latestUserPromptFromJsonl = (raw: string): string | null => latestU
 export function aiTitleFromParsed(records: Record<string, unknown>[]): string | null {
   let title: string | null = null;
   for (const o of records) {
-    if (o.type === "ai-title" && o.aiTitle) title = String(o.aiTitle);
+    if (o.type === "ai-title" && o.aiTitle) title = readString(o.aiTitle);
   }
   return title;
 }

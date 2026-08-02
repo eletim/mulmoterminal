@@ -160,6 +160,12 @@ export default [
     rules: {
       "@typescript-eslint/no-floating-promises": "warn",
       "@typescript-eslint/no-misused-promises": "warn",
+      // Two more from the type-aware family, at ERROR because both are now at zero and each
+      // catches something no syntactic rule can: an `await` on a value that is not a promise
+      // (which reads as async and is not), and a template/String() that turns an object into the
+      // literal text "[object Object]" — a wrong value that travels instead of throwing.
+      "@typescript-eslint/await-thenable": "error",
+      "@typescript-eslint/no-base-to-string": "error",
       // Type-aware sonarjs rules that were ALREADY configured as errors and never ran, because
       // nothing built a type program until this block did. Turning them on is not what this change
       // is for, and 30 findings would hide the promise ones — so they are visible at warn and get

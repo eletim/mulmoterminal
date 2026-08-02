@@ -34,6 +34,7 @@ import { partitionPending } from "./partitionPending.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
 import type { DiskStat, PendingSession, SessionMeta } from "./types.js";
+import { readString } from "../../common/readString.js";
 
 // Bytes of an assistant reply kept for the roster; the same cap the push body uses.
 export const LAST_RESPONSE_MAX = 400;
@@ -228,8 +229,8 @@ export async function readSessionMeta(dir: string, file: string): Promise<Sessio
   // then shows a title of "(no title)".
   const [, stat] = await Promise.all([
     forEachJsonlRecord(full, (o) => {
-      if (o.type === "ai-title" && o.aiTitle) aiTitle = String(o.aiTitle);
-      else if (o.type === "last-prompt" && o.lastPrompt) lastPrompt = String(o.lastPrompt);
+      if (o.type === "ai-title" && o.aiTitle) aiTitle = readString(o.aiTitle);
+      else if (o.type === "last-prompt" && o.lastPrompt) lastPrompt = readString(o.lastPrompt);
       else if (o.type === "user" && firstUserMsg === null) {
         firstUserMsg = userPromptText(isRecord(o.message) ? o.message.content : undefined);
       }

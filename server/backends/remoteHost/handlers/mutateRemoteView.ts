@@ -9,10 +9,11 @@ import { toJsonObject, type CommandHandlers, type JsonObject } from "@mulmoclaud
 import { mutateRemoteView, mutateRemoteViewFailureMessage } from "../../remoteView.js";
 import { mutateWriteApplied } from "../../mutateStatus.js";
 import { jsonPayload } from "../jsonPayload.js";
+import { readString } from "../../../../common/readString.js";
 
 export const mutateRemoteViewItem: CommandHandlers["mutateRemoteViewItem"] = async (params: JsonObject) => {
-  const slug = String(params.slug ?? "");
-  const viewId = String(params.viewId ?? "");
+  const slug = readString(params.slug);
+  const viewId = readString(params.viewId);
   const request = normalizeMutate({ op: params.op, id: params.id, patch: params.patch });
   if (!request) throw new Error("invalid mutate request — expected { op: 'update'|'delete', id, patch? }");
   const collection = await loadCollection(slug);
