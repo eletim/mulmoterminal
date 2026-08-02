@@ -9,10 +9,7 @@
 // the open record on any path change — so route-derived state is already gone by the time a spawn
 // resolves. The prompt travels with the chat.
 import { parseCollectionSlashSeed, makeSyntheticCollectionResult } from "../../common/collectionSeed";
-
-interface CollectionsListResponse {
-  collections?: { slug?: unknown }[];
-}
+import { isRecord } from "../../common/isRecord";
 
 /** Does `slug` name a real collection? Asked before seeding so a NON-collection slash command
  *  (`/deep-research`, a typo) does not flash a "collection not found" card. A failed request
@@ -22,8 +19,9 @@ async function isKnownCollection(slug: string): Promise<boolean> {
   try {
     const res = await fetch("/api/collections/list");
     if (!res.ok) return false;
-    const body = (await res.json()) as CollectionsListResponse;
-    return Array.isArray(body.collections) && body.collections.some((entry) => entry?.slug === slug);
+    const body: unknown = await res.json();
+    const collections = isRecord(body) && Array.isArray(body.collections) ? body.collections : [];
+    return collections.some((entry) => isRecord(entry) && entry.slug === slug);
   } catch {
     return false;
   }

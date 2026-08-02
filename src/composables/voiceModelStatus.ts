@@ -1,4 +1,4 @@
-import type { VoiceInputStatus } from "../../common/voiceInputStatus";
+import { isVoiceInputStatus, type VoiceInputStatus } from "../../common/voiceInputStatus";
 
 // One reader for `GET /api/transcribe/model`. Two callers want it for different reasons —
 // the mic polls it for readiness, the settings modal asks once whether to show the voice
@@ -19,7 +19,8 @@ export async function fetchVoiceInputStatus(): Promise<VoiceInputStatus | null> 
   try {
     const res = await fetch("/api/transcribe/model", { signal: controller.signal });
     if (!res.ok) return null;
-    return (await res.json()) as VoiceInputStatus;
+    const body: unknown = await res.json();
+    return isVoiceInputStatus(body) ? body : null;
   } catch {
     return null;
   } finally {

@@ -15,6 +15,7 @@ import { browserLocale } from "../utils/browserLocale";
 import { modelReadiness, voiceAction } from "./voiceAction";
 import { browserVoiceLanguage, resolveVoiceLanguage, voiceLanguage } from "./voiceLanguage";
 import { fetchVoiceInputStatus } from "./voiceModelStatus";
+import { isRecord } from "../../common/isRecord";
 
 export interface UseVoiceInput {
   /** Platform + binaries present — gate the mic button's visibility on this. */
@@ -48,7 +49,11 @@ function createVoiceTransport(capable: Ref<boolean>, downloading: Ref<boolean>):
         body: JSON.stringify({ dataUrl, language }),
       });
       if (!res.ok) throw new Error(`transcription failed (HTTP ${res.status})`);
-      return (await res.json()) as { text: string };
+      const body: unknown = await res.json();
+      // The one field the caller inserts into the terminal — checked, so a malformed reply is a
+      // thrown error here rather than `undefined` typed into someone's prompt.
+      if (!isRecord(body) || typeof body.text !== "string") throw new Error("transcription returned no text");
+      return { text: body.text };
     },
     // `status` is null on a transient fetch/non-OK; `model` may be absent on a partial
     // response. Optional-chain throughout so a status blip degrades to "not ready" instead
