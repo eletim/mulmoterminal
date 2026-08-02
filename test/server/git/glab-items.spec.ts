@@ -3,9 +3,11 @@
 // GitLab renames breaks this instead of quietly emptying a row.
 import { describe, it, expect } from "vitest";
 import {
+  firstGlabMr,
   glabFirstMrUrl,
   glabIssueIsOpen,
   glabMrBody,
+  glabMrPhase,
   glabNoteBodies,
   normalizeGlabIssue,
   normalizeGlabIssueDetail,
@@ -320,5 +322,91 @@ describe("glab merge-request arguments", () => {
     const url = "https://gitlab.com/o/p/-/merge_requests/2";
     expect(glabMrViewArgs(url)).toEqual(["mr", "view", url, "-F", "json"]);
     expect(glabMrUpdateBodyArgs(url, "b")).toEqual(["mr", "update", url, "--description", "b"]);
+  });
+});
+
+// A merge request's phase. GitLab collapses into `detailed_merge_status` what GitHub splits three
+// ways, and it is INDEPENDENT of the pipeline — observed on real merge requests, `success` with
+// `not_approved` and `failed` with `not_approved` both occur.
+describe("glabMrPhase", () => {
+  const mr = (over: Record<string, unknown> = {}) => ({ state: "opened", draft: false, detailed_merge_status: "mergeable", ...over });
+
+  it("is ready only when GitLab agrees it could merge", () => {
+    expect(glabMrPhase(mr())).toEqual({ phase: "ready", blockedReason: null });
+  });
+
+  it.each([
+    ["merged", "merged"],
+    ["closed", "closed"],
+  ])("reads the %s state before anything else", (state, phase) => {
+    // Even with a blocker recorded: a merged request is not "waiting on approvals".
+    expect(glabMrPhase(mr({ state, detailed_merge_status: "not_approved" }))).toEqual({ phase, blockedReason: null });
+  });
+
+  // The reason the field exists: three GitLab statuses have no home in `PrPhase`. Calling them
+  // `ready` would name something unmergeable ready; the phase says "someone must act" and the
+  // reason says what.
+  it.each([
+    ["not_approved", "waiting on approvals"],
+    ["discussions_not_resolved", "unresolved discussions"],
+    ["merge_request_blocked", "blocked by another merge request"],
+    ["conflict", "conflicts with the target branch"],
+  ])("keeps %s out of `ready` and explains it", (status, reason) => {
+    expect(glabMrPhase(mr({ detailed_merge_status: status }))).toEqual({ phase: "changes-requested", blockedReason: reason });
+  });
+
+  // A status we have no words for must not be printed raw into the UI, and must not be guessed at
+  // either — `ready` is what GitLab said, minus an explanation we cannot give.
+  it("falls back to ready with no reason for a status it does not recognise", () => {
+    expect(glabMrPhase(mr({ detailed_merge_status: "some_new_status" }))).toEqual({ phase: "ready", blockedReason: null });
+  });
+
+  // Draft is the author's own "not yet", which outranks whatever the project is waiting on — the
+  // same order `derivePrPhase` uses for GitHub.
+  it("reports a draft as draft, while still carrying the reason", () => {
+    expect(glabMrPhase(mr({ draft: true, detailed_merge_status: "not_approved" }))).toEqual({ phase: "draft", blockedReason: "waiting on approvals" });
+  });
+
+  it.each([
+    ["failed", "ci-failing"],
+    ["canceled", "ci-failing"],
+    ["running", "ci-running"],
+    ["pending", "ci-running"],
+  ])("reads a %s pipeline as %s", (status, phase) => {
+    expect(glabMrPhase(mr({ head_pipeline: { status } })).phase).toBe(phase);
+  });
+
+  // The pipeline is independent of the merge status, so a green pipeline does NOT make an
+  // unapproved request ready.
+  it("does not let a green pipeline override an outstanding approval", () => {
+    expect(glabMrPhase(mr({ head_pipeline: { status: "success" }, detailed_merge_status: "not_approved" }))).toEqual({
+      phase: "changes-requested",
+      blockedReason: "waiting on approvals",
+    });
+  });
+
+  it("is `none` for something that is not a merge request", () => {
+    expect(glabMrPhase("nope")).toEqual({ phase: "none", blockedReason: null });
+  });
+});
+
+describe("firstGlabMr", () => {
+  it("takes the iid, url and title of the first row", () => {
+    const row = { iid: 3, web_url: "https://gitlab.com/o/p/-/merge_requests/3", title: "a change" };
+    expect(firstGlabMr([row])).toMatchObject({ iid: 3, url: "https://gitlab.com/o/p/-/merge_requests/3", title: "a change" });
+  });
+
+  // The row itself rides along so a failed detail read can still answer from what the list knew.
+  it("carries the row so a failed detail read can fall back to it", () => {
+    const row = { iid: 3, web_url: "u", title: "t", detailed_merge_status: "not_approved" };
+    expect(glabMrPhase(firstGlabMr([row])?.raw).blockedReason).toBe("waiting on approvals");
+  });
+
+  it.each([
+    ["an empty list", []],
+    ["not a list", {}],
+    ["a row with no iid", [{ web_url: "u" }]],
+  ])("is null for %s", (_case, raw) => {
+    expect(firstGlabMr(raw)).toBeNull();
   });
 });

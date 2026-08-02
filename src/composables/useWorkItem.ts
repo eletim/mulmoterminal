@@ -46,6 +46,9 @@ export function parseWorkItem(data: unknown): WorkItem {
     // parsed here so the wire type has one reader rather than two disagreeing ones.
     prTitle: textOrNull(data.prTitle),
     issueTitle: textOrNull(data.issueTitle),
+    // Words the UI prints, so they go through the same check as the titles rather than straight
+    // from the wire. Null on GitHub, and on any server too old to send it (#981).
+    blockedReason: textOrNull(data.blockedReason),
   };
 }
 

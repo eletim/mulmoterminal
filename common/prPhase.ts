@@ -24,9 +24,26 @@ export interface WorkItem {
   // list above all, where "#987" alone says nothing about which request is running (#1014).
   prTitle: string | null;
   issueTitle: string | null;
+  // WHY a request that is open and not obviously failing still cannot merge. GitLab collapses into
+  // one `detailed_merge_status` what GitHub splits across `isDraft`, `reviewDecision` and the check
+  // rollup, and three of its values — approvals outstanding, unresolved discussions, blocked by
+  // another request — have no home in `PrPhase`. Forcing them into `ready` would call something
+  // unmergeable ready, and into `changes-requested` would invent a review nobody left.
+  //
+  // Always null on GitHub, whose phases say everything there is to say (#981).
+  blockedReason: string | null;
 }
 
-export const EMPTY_WORK_ITEM: Readonly<WorkItem> = { phase: "none", pr: null, prUrl: null, issue: null, issueUrl: null, prTitle: null, issueTitle: null };
+export const EMPTY_WORK_ITEM: Readonly<WorkItem> = {
+  phase: "none",
+  pr: null,
+  prUrl: null,
+  issue: null,
+  issueUrl: null,
+  prTitle: null,
+  issueTitle: null,
+  blockedReason: null,
+};
 
 // One line for a surface with room for one: what the work is FOR beats what was done about it, so
 // the issue's title wins when there is one. Null when neither side has a title to show.

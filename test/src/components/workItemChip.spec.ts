@@ -44,6 +44,8 @@ describe("parseWorkItem", () => {
       issueUrl: "https://x/issues/966",
       prTitle: "the change",
       issueTitle: "the report",
+
+      blockedReason: null,
     });
     expect(parsed).toEqual({
       phase: "ready",
@@ -53,6 +55,8 @@ describe("parseWorkItem", () => {
       issueUrl: "https://x/issues/966",
       prTitle: "the change",
       issueTitle: "the report",
+
+      blockedReason: null,
     });
   });
 
