@@ -79,7 +79,11 @@ export function findCustomTheme(id: string): CustomThemeInput | null {
 /** Paint a custom theme: its variables onto the root element, and the light/dark flag the
  *  status-pill rules key on. Returns false when the theme cannot be completed — the caller
  *  falls back to a built-in rather than leaving a half-painted element. */
-export function applyCustomTheme(theme: CustomThemeInput, builtins: Record<ThemeId, ThemeVars>, root: HTMLElement = document.documentElement): boolean {
+export function applyCustomTheme(
+  theme: CustomThemeInput,
+  builtins: Partial<Record<ThemeId, ThemeVars>>,
+  root: HTMLElement = document.documentElement,
+): boolean {
   const vars = resolveThemeVars(theme, builtins);
   if (!vars) return false;
   THEME_VAR_KEYS.forEach((key) => root.style.setProperty(key, vars[key]));
@@ -94,7 +98,7 @@ export function clearCustomTheme(root: HTMLElement = document.documentElement): 
 }
 
 /** The xterm palette for a custom theme, or null when it can't be resolved. */
-export function customTermTheme(theme: CustomThemeInput, builtins: Record<ThemeId, ThemeVars>) {
+export function customTermTheme(theme: CustomThemeInput, builtins: Partial<Record<ThemeId, ThemeVars>>) {
   const vars = resolveThemeVars(theme, builtins);
   return vars ? termThemeFromVars(vars) : null;
 }
