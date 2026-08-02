@@ -32,7 +32,11 @@ export function jsonPayload(value: Record<string, unknown>): JsonObject {
   const out: JsonObject = {};
   for (const [key, entry] of Object.entries(value)) {
     const json = toJsonValue(entry);
-    if (json !== undefined) out[key] = json;
+    if (json === undefined) continue;
+    // defineProperty, not `out[key] =`: a payload carrying a literal `"__proto__"` key would
+    // otherwise assign the object's PROTOTYPE and the key would vanish from the output — a silent
+    // divergence from JSON.stringify, which keeps it as an ordinary key (Codex review on #1288).
+    Object.defineProperty(out, key, { value: json, writable: true, enumerable: true, configurable: true });
   }
   return out;
 }

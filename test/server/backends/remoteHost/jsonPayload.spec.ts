@@ -38,6 +38,18 @@ describe("jsonPayload", () => {
     expect(jsonPayload({ op: "update", item })).toEqual({ op: "update", item });
   });
 
+  // A payload carrying a literal "__proto__" key: `out[key] =` would assign the PROTOTYPE and the
+  // key would disappear from the output, while JSON.stringify keeps it (Codex review on #1288).
+  it("keeps a literal __proto__ key instead of touching the prototype", () => {
+    const value: Record<string, unknown> = JSON.parse('{"__proto__": {"polluted": true}, "keep": 1}');
+    const out = jsonPayload(value);
+    expect(Object.prototype.hasOwnProperty.call(out, "__proto__")).toBe(true);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(stringified(value)));
+    // The prototype itself is untouched — nothing leaked onto Object.prototype.
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect("polluted" in {}).toBe(false);
+  });
+
   it("is empty for an empty record", () => {
     expect(jsonPayload({})).toEqual({});
   });
