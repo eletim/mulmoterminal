@@ -27,3 +27,13 @@ export const glabIssueListArgs = (project: string, limit: number): string[] => [
 // takes `-O` and gives `-F` a different meaning entirely. Three subcommands, three answers;
 // verified against glab 1.111.0 rather than pattern-matched from its sibling.
 export const glabIssueViewArgs = (project: string, issue: number): string[] => ["issue", "view", String(issue), "--repo", project, "-F", "json"];
+
+// `note`, not `comment` — and the message flag is `-m`. Checked against glab 1.111.0.
+export const glabIssueNoteArgs = (project: string, issue: number, body: string): string[] => ["issue", "note", String(issue), "--repo", project, "-m", body];
+
+export const glabIssueCloseArgs = (project: string, issue: number): string[] => ["issue", "close", String(issue), "--repo", project];
+
+// Existing comments do NOT come back from `issue view -F json`, and `--comments` only affects the
+// human-readable output. The REST notes endpoint is where they are, so this is one extra call that
+// the GitHub path does not make.
+export const glabIssueNotesArgs = (project: string, issue: number): string[] => ["api", `projects/${encodeURIComponent(project)}/issues/${issue}/notes`];

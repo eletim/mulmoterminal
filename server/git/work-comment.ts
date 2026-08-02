@@ -8,6 +8,9 @@
 // comments are the source of truth for a fresh process — the marker is in the thread, so a
 // restarted server, a second instance, or a second browser cannot double-post.
 import { runGh } from "./gh.js";
+import { runGlab, glabIssueCloseArgs, glabIssueNoteArgs, glabIssueNotesArgs, glabIssueViewArgs } from "./glab.js";
+import { glabIssueIsOpen, glabNoteBodies } from "./glab-items.js";
+import { forgeFromRepoEntry, projectPath } from "./forge-host.js";
 import { isRecord } from "../../common/isRecord.js";
 import { alreadyCommented, workCommentBody, type WorkCommentKind } from "../../common/workComment.js";
 
@@ -46,19 +49,60 @@ interface IssueView {
   open: boolean;
 }
 
-// The issue's comment bodies and whether it is still open, or null when gh could not answer.
-async function viewIssue(run: typeof runGh, repo: string, issue: number): Promise<IssueView | null> {
-  try {
-    const res = await run(["issue", "view", String(issue), "--repo", repo, "--json", "comments,state"]);
-    if (!res.ok) return null;
-    const parsed: unknown = JSON.parse(res.stdout);
-    if (!isRecord(parsed)) return null;
-    const comments = Array.isArray(parsed.comments) ? parsed.comments : [];
-    const bodies = comments.filter(isRecord).map((c) => (typeof c.body === "string" ? c.body : ""));
-    return { bodies, open: parsed.state === "OPEN" };
-  } catch {
-    return null;
-  }
+// Reading and writing one forge's issue. Grouped rather than branched at each of the three call
+// sites: they always belong to the same host, and a mix would read one issue and write another.
+interface IssueOps {
+  view: () => Promise<IssueView | null>;
+  comment: (body: string) => Promise<boolean>;
+  close: () => Promise<boolean>;
+}
+
+const ranOk = async (call: Promise<{ ok: boolean }>): Promise<boolean> => (await call.catch(() => null))?.ok === true;
+
+function githubIssueOps(run: typeof runGh, repo: string, issue: number): IssueOps {
+  return {
+    view: async () => {
+      try {
+        const res = await run(["issue", "view", String(issue), "--repo", repo, "--json", "comments,state"]);
+        if (!res.ok) return null;
+        const parsed: unknown = JSON.parse(res.stdout);
+        if (!isRecord(parsed)) return null;
+        const comments = Array.isArray(parsed.comments) ? parsed.comments : [];
+        return { bodies: comments.filter(isRecord).map((c) => (typeof c.body === "string" ? c.body : "")), open: parsed.state === "OPEN" };
+      } catch {
+        return null;
+      }
+    },
+    comment: (body) => ranOk(run(["issue", "comment", String(issue), "--repo", repo, "--body", body])),
+    close: () => ranOk(run(["issue", "close", String(issue), "--repo", repo])),
+  };
+}
+
+// TWO calls where GitHub needs one: `glab issue view -F json` carries no comments at all (and
+// `--comments` only changes the human-readable output), so the notes come from the REST endpoint
+// while the state comes from the view. Measured, not assumed.
+function gitlabIssueOps(project: string, issue: number): IssueOps {
+  return {
+    view: async () => {
+      try {
+        const [notes, view] = await Promise.all([runGlab(glabIssueNotesArgs(project, issue)), runGlab(glabIssueViewArgs(project, issue))]);
+        if (!notes.ok || !view.ok) return null;
+        return { bodies: glabNoteBodies(JSON.parse(notes.stdout)), open: glabIssueIsOpen(JSON.parse(view.stdout)) };
+      } catch {
+        return null;
+      }
+    },
+    comment: (body) => ranOk(runGlab(glabIssueNoteArgs(project, issue, body))),
+    close: () => ranOk(runGlab(glabIssueCloseArgs(project, issue))),
+  };
+}
+
+// `runGh` is injected by the specs, so the GitHub path keeps taking it; the GitLab path has no such
+// seam yet and its pure parts are tested directly instead.
+function issueOpsFor(run: typeof runGh, repo: string, issue: number): IssueOps {
+  const forge = forgeFromRepoEntry(repo);
+  if (forge?.kind !== "gitlab") return githubIssueOps(run, repo, issue);
+  return gitlabIssueOps(projectPath(forge) ?? forge.path, issue);
 }
 
 /**
@@ -104,7 +148,8 @@ async function writeWorkComment(
   const run = options.runGh ?? runGh;
   const key = memoKey(repo, issue, kind, dir);
 
-  const view = await viewIssue(run, repo, issue);
+  const ops = issueOpsFor(run, repo, issue);
+  const view = await ops.view();
   if (!view) return { posted: false, reason: "gh-failed" };
   if (alreadyCommented(view.bodies, kind, dir)) {
     posted.add(key); // found in the thread — stop asking gh about it
@@ -112,15 +157,13 @@ async function writeWorkComment(
   }
 
   const body = workCommentBody(kind, dir, pr);
-  const wrote = await run(["issue", "comment", String(issue), "--repo", repo, "--body", body]).catch(() => null);
-  if (!wrote?.ok) return { posted: false, reason: "gh-failed" };
+  if (!(await ops.comment(body))) return { posted: false, reason: "gh-failed" };
   posted.add(key);
 
   // Closing is best-effort and reported separately: the comment landing is the part that matters,
   // and a repo where the user cannot close issues must not turn into a failed request.
   if (options.closeIssue && view.open) {
-    const closed = await run(["issue", "close", String(issue), "--repo", repo]).catch(() => null);
-    return { posted: true, closed: closed?.ok === true };
+    return { posted: true, closed: await ops.close() };
   }
   return { posted: true, closed: false };
 }

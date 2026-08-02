@@ -2,8 +2,8 @@
 // CAPTURED from gitlab.com (gitlab-org/cli, 2026-08-01) rather than written by hand, so a field
 // GitLab renames breaks this instead of quietly emptying a row.
 import { describe, it, expect } from "vitest";
-import { normalizeGlabIssue, normalizeGlabIssueDetail, normalizeGlabMr } from "../../../server/git/glab-items.js";
-import { glabIssueListArgs, glabIssueViewArgs, glabMrListArgs } from "../../../server/git/glab.js";
+import { glabIssueIsOpen, glabNoteBodies, normalizeGlabIssue, normalizeGlabIssueDetail, normalizeGlabMr } from "../../../server/git/glab-items.js";
+import { glabIssueCloseArgs, glabIssueListArgs, glabIssueNoteArgs, glabIssueNotesArgs, glabIssueViewArgs, glabMrListArgs } from "../../../server/git/glab.js";
 
 const REAL_MR = {
   iid: 3675,
@@ -173,5 +173,68 @@ describe("glabIssueViewArgs", () => {
   // meaning. Three subcommands, three answers; `-O` here is rejected outright by glab.
   it("asks for json with -F", () => {
     expect(glabIssueViewArgs("group/project", 7)).toEqual(["issue", "view", "7", "--repo", "group/project", "-F", "json"]);
+  });
+});
+
+// Existing comments, for the duplicate check that keeps a work comment from being written twice.
+// These shapes were read back from gitlab.com after posting a real note.
+describe("glabNoteBodies", () => {
+  const userNote = { id: 1, body: "started work in mulmoterminal4", system: false };
+  // GitLab writes its own notes for closing, labelling, editing the description. They are not
+  // comments anyone left — counting them would let a closed-once issue read as already commented.
+  const systemNote = { id: 2, body: "closed", system: true };
+
+  it("keeps what a person wrote and drops what GitLab wrote", () => {
+    expect(glabNoteBodies([userNote, systemNote])).toEqual(["started work in mulmoterminal4"]);
+  });
+
+  it("treats a note with no system flag as a person's", () => {
+    expect(glabNoteBodies([{ id: 3, body: "no flag here" }])).toEqual(["no flag here"]);
+  });
+
+  it.each([
+    ["not an array", { notes: [] }],
+    ["null", null],
+  ])("is empty for %s", (_case, raw) => {
+    expect(glabNoteBodies(raw)).toEqual([]);
+  });
+
+  it("survives a note with no body", () => {
+    expect(glabNoteBodies([{ id: 4, system: false }])).toEqual([""]);
+  });
+});
+
+describe("glabIssueIsOpen", () => {
+  // GitLab spells it `opened`, lowercase — GitHub answers `OPEN`. Reading the wrong one would make
+  // every issue look closed, and the merged comment would never close anything.
+  it.each([
+    ["opened", true],
+    ["closed", false],
+    ["OPEN", false],
+  ])("reads state %s as open=%s", (state, open) => {
+    expect(glabIssueIsOpen({ state })).toBe(open);
+  });
+
+  it("is false for something that is not an issue", () => {
+    expect(glabIssueIsOpen("nope")).toBe(false);
+  });
+});
+
+describe("glab issue write arguments", () => {
+  // `note`, not `comment`. A reader who pattern-matched from `gh` would write the wrong verb, and
+  // glab would reject it outright rather than doing something subtly different.
+  it("comments with `note` and -m", () => {
+    expect(glabIssueNoteArgs("group/project", 7, "hello")).toEqual(["issue", "note", "7", "--repo", "group/project", "-m", "hello"]);
+  });
+
+  it("closes with the issue id", () => {
+    expect(glabIssueCloseArgs("group/project", 7)).toEqual(["issue", "close", "7", "--repo", "group/project"]);
+  });
+
+  // The notes endpoint, because `issue view -F json` carries no comments. The project path is
+  // percent-encoded: GitLab's REST API takes it as ONE path segment, so a group's slashes must not
+  // read as segment separators.
+  it("reads notes from the REST endpoint, with the project encoded", () => {
+    expect(glabIssueNotesArgs("group/sub/project", 7)).toEqual(["api", "projects/group%2Fsub%2Fproject/issues/7/notes"]);
   });
 });
