@@ -163,6 +163,7 @@ MulmoTerminal は普段の開発ツールを操縦するコックピットなの
 | **必須** | `claude` | Claude セッションそのもの | `npm i -g @anthropic-ai/claude-code` のあと `claude` を 1 回起動してログイン |
 | **必須** | `git` | [worktree 分離](features.html)、セルのブランチ / 未保存ドット / 差分表示、PR フッター | `brew install git` · `sudo apt install git` · Windows は [git-scm.com](https://git-scm.com/download/win) |
 | **必須** | `gh` | [PR / Issue 横断ビュー](github.html)とワンクリック PR 作成 | [cli.github.com](https://cli.github.com) のあと `gh auth login` |
+| 任意 | `glab` | 同じことを **gitlab.com** のプロジェクトでも — 一覧・issue から着手・MR 作成 | `brew install glab` のあと `glab auth login` |
 | 推奨 | `tmux` | [セッション永続化](features.html) — サーバ再起動でもターミナルが生き残る | `brew install tmux` · `sudo apt install tmux` · Windows ネイティブ版は無し（通常ターミナルにフォールバック） |
 | 任意 | `codex` | セルで [Codex セッション](basics.html#claude-and-codex)を Claude と並べて動かす | `npm i -g @openai/codex` |
 | 任意 | `ffmpeg` | [GUI パネル](features.html)の mulmo-script プラグインからの動画生成 | `brew install ffmpeg` · `sudo apt install ffmpeg` |
