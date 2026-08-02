@@ -454,8 +454,8 @@ describe("a keystroke with nowhere to go tells the view", () => {
     conn.release(KEY);
   });
 
-  function attachClosedSlot(onInputDropped: () => void) {
-    conn.attach(KEY, target(null), { onInputDropped }, document.createElement("div"));
+  function attachClosedSlot(onInputDropped: (willReconnect: boolean) => void, over: Partial<conn.ConnTarget> = {}) {
+    conn.attach(KEY, { ...target(null), ...over }, { onInputDropped }, document.createElement("div"));
     const ws = FakeWebSocket.instances.at(-1);
     if (!ws) throw new Error("no socket created");
     ws.onopen?.();
@@ -484,6 +484,38 @@ describe("a keystroke with nowhere to go tells the view", () => {
     mockTermState.emitData("h");
 
     expect(onInputDropped).toHaveBeenCalledTimes(2);
+  });
+
+  it("says a reconnect is coming for an ordinary drop", () => {
+    const onInputDropped = vi.fn();
+    attachClosedSlot(onInputDropped);
+
+    mockTermState.emitData("h");
+
+    expect(onInputDropped).toHaveBeenCalledWith(true);
+  });
+
+  // The banner promises "Reconnecting…" off this flag, and an exited session gets no reconnect —
+  // shouldReconnect refuses one for sawExit. Telling the user to wait for something that is never
+  // coming swaps one misleading silence for another, which is what this notice exists to prevent.
+  it("says no reconnect is coming once the session has exited", () => {
+    const onInputDropped = vi.fn();
+    const ws = attachClosedSlot(onInputDropped);
+    ws.onmessage?.({ data: JSON.stringify({ type: "exit", exitCode: 0 }) } as MessageEvent);
+
+    mockTermState.emitData("h");
+
+    expect(onInputDropped).toHaveBeenCalledWith(false);
+  });
+
+  // A Run cell's process is unresumable, so the same promise would be just as empty.
+  it("says no reconnect is coming for a Run cell", () => {
+    const onInputDropped = vi.fn();
+    attachClosedSlot(onInputDropped, { command: { source: "script", index: 0, label: "echo", cwd: null } });
+
+    mockTermState.emitData("h");
+
+    expect(onInputDropped).toHaveBeenCalledWith(false);
   });
 
   // Same reason the probe skips them: a click on a parked cell is the app talking, not a person

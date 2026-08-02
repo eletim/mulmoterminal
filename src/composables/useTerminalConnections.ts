@@ -39,7 +39,7 @@ import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
-import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
+import { connectionWillReturn, reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
 import { exitCodeOf, messageEffect } from "./serverMessage";
@@ -160,8 +160,9 @@ export interface ConnHandlers {
   // …and that keystroke went nowhere, because the socket is not open. Once per disconnected
   // stretch, so holding a key down doesn't turn into a stream of notices. The view exists to say
   // so: a dropped keystroke is otherwise indistinguishable from a terminal that received it and
-  // chose to print nothing.
-  onInputDropped?: () => void;
+  // chose to print nothing. `willReconnect` is false for a session that ended and for a Run cell,
+  // neither of which comes back — telling those to wait would be a promise nothing will keep.
+  onInputDropped?: (willReconnect: boolean) => void;
 }
 
 // The two xterm options that decide the CELL METRICS, so they travel together: both change how
@@ -209,8 +210,10 @@ interface Conn {
 function reportDroppedInput(c: Conn): void {
   if (c.warnedDroppedInput) return;
   c.warnedDroppedInput = true;
-  console.warn(`[terminal] slot ${c.key}: dropped a keystroke — the socket is not open (status ${connView.get(c.key)?.status ?? "unknown"})`);
-  c.handlers.onInputDropped?.();
+  const willReconnect = connectionWillReturn({ released: c.released, sawExit: c.sawExit, isCommand: !!c.target.command });
+  const fate = willReconnect ? "reconnecting" : "not reconnecting";
+  console.warn(`[terminal] slot ${c.key}: dropped a keystroke — the socket is not open (status ${connView.get(c.key)?.status ?? "unknown"}, ${fate})`);
+  c.handlers.onInputDropped?.(willReconnect);
 }
 
 // A rebuild costs a re-attach and the client-side scrollback, so a slot gets at most one per

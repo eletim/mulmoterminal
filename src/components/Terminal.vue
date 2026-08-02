@@ -254,7 +254,7 @@ onMounted(() => {
       onCwd: (c) => emit("cwd", c),
       onExit: (exitCode) => emit("exit", exitCode),
       onInput: () => emit("input"),
-      onInputDropped: () => void showHint(INPUT_DROPPED_EN, "cloud_off"),
+      onInputDropped: (willReconnect) => void showHint(willReconnect ? INPUT_DROPPED_EN : INPUT_DROPPED_ENDED_EN, "cloud_off"),
     },
     container,
     effectiveTermTheme(),
@@ -467,6 +467,10 @@ const DROP_HINT_TYPE_EN = "This browser doesn't share a dropped file's path — 
 // disconnected stretch (useTerminalConnections rate-limits it), and it names the recovery, because
 // the reconnect is automatic and waiting IS the right move.
 const INPUT_DROPPED_EN = "Not connected — what you typed didn't reach the terminal. Reconnecting…";
+// The same silence, but nothing is coming to end it: an exited session, a superseded tab, a Run
+// cell whose command finished. Telling those to wait for a reconnect would replace one misleading
+// message with another, which is the very thing this banner exists to stop.
+const INPUT_DROPPED_ENDED_EN = "This session has ended — what you typed didn't reach the terminal.";
 const dropHint = ref(false);
 const dropHintText = ref("");
 // The banner started as the file-drop hint and is now shared, so the icon travels with the
