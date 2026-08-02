@@ -9,6 +9,7 @@ import { clampLimit, clampOffset } from "@mulmoclaude/core/remote-view";
 import { deriveAll, type DerivableFieldSpec, type DerivableRecord } from "@mulmoclaude/core/collection";
 import type { JsonObject } from "@mulmoclaude/core/remote-host";
 import { jsonPayload } from "./jsonPayload.js";
+import { isRecord } from "../../../common/isRecord.js";
 
 export { clampLimit, clampOffset };
 
@@ -17,7 +18,7 @@ export { clampLimit, clampOffset };
  *  the channel, so formulas that dereference `ref` fields stay absent (parity
  *  with MulmoClaude's channel path). */
 export const deriveItems = (schema: { fields?: Record<string, DerivableFieldSpec> }, items: unknown[]): DerivableRecord[] =>
-  items.map((item) => deriveAll({ fields: schema.fields ?? {} }, item as DerivableRecord, {}));
+  items.flatMap((item) => (isRecord(item) ? [deriveAll({ fields: schema.fields ?? {} }, item, {})] : []));
 
 /** Build the paginated result.
  *
