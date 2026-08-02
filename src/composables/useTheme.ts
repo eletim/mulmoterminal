@@ -111,11 +111,18 @@ export function isThemeId(value: unknown): value is ThemeId {
 export const missingThemeId = ref<string | null>(null);
 
 // Built-in palettes, read once from the stylesheet the first time a custom theme needs a base.
-let builtinVars: Record<ThemeId, ThemeVars> | null = null;
-function builtins(): Record<ThemeId, ThemeVars> {
+// PARTIAL, honestly: `readBuiltinVars` returns null when the stylesheet has no block for an id,
+// so a key can be absent — which the assertion this replaces claimed could not happen. Every
+// consumer looks up ONE key and already handles a miss, so nothing needed the stronger promise.
+let builtinVars: Partial<Record<ThemeId, ThemeVars>> | null = null;
+function builtins(): Partial<Record<ThemeId, ThemeVars>> {
   if (!builtinVars) {
-    const entries = THEME_IDS.map((id) => [id, readBuiltinVars(id)] as const).filter(([, vars]) => vars !== null);
-    builtinVars = Object.fromEntries(entries) as Record<ThemeId, ThemeVars>;
+    const vars: Partial<Record<ThemeId, ThemeVars>> = {};
+    for (const id of THEME_IDS) {
+      const read = readBuiltinVars(id);
+      if (read) vars[id] = read;
+    }
+    builtinVars = vars;
   }
   return builtinVars;
 }
