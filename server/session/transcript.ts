@@ -118,7 +118,8 @@ export const countUserTurnsFromJsonl = (raw: string): number => countUserTurnsFr
 export function latestAssistantTextFromParsed(records: Record<string, unknown>[]): string | null {
   const turns = conversationTurnsFromParsed(records);
   for (let i = turns.length - 1; i >= 0; i--) {
-    if (turns[i].role === "assistant") return turns[i].text;
+    const turn = turns[i];
+    if (turn?.role === "assistant") return turn.text;
   }
   return null;
 }
@@ -202,8 +203,8 @@ function normalizeForAck(text: string): string {
   const chars = [...text.trim().toLowerCase()];
   let start = 0;
   let end = chars.length;
-  while (start < end && EDGE_PUNCT.has(chars[start])) start++;
-  while (end > start && EDGE_PUNCT.has(chars[end - 1])) end--;
+  while (start < end && EDGE_PUNCT.has(chars[start] ?? "")) start++;
+  while (end > start && EDGE_PUNCT.has(chars[end - 1] ?? "")) end--;
   return chars.slice(start, end).join("").trim();
 }
 
@@ -230,7 +231,8 @@ export function preferredHeaderPrompt(current: string | null, incoming: string):
 export function latestMeaningfulUserPromptFromParsed(records: Record<string, unknown>[]): string | null {
   const { prompts, lastPromptRecord } = collectPrompts(records);
   for (let i = prompts.length - 1; i >= 0; i--) {
-    if (!isTrivialPrompt(prompts[i])) return prompts[i];
+    const prompt = prompts[i];
+    if (prompt !== undefined && !isTrivialPrompt(prompt)) return prompt;
   }
   return prompts[prompts.length - 1] ?? lastPromptRecord;
 }

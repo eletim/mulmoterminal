@@ -176,7 +176,9 @@ export function termThemeFor(id: string): Theme["term"] {
   // colours come from the base it extends — hence the spread over that base's palette.
   const derived = custom ? customTermTheme(custom, builtins()) : null;
   const base = THEMES.find((t) => t.id === custom?.extends) ?? THEMES[0];
-  return derived ? { ...base.term, ...derived } : THEMES[0].term;
+  const fallback = THEMES[0];
+  if (!fallback) return {};
+  return derived ? { ...(base?.term ?? fallback.term), ...derived } : fallback.term;
 }
 
 // Called from main.ts before mount so the persisted theme is on <html> before
@@ -196,7 +198,8 @@ export function refreshTheme() {
 function swatchFor(id: string): Theme["swatch"] {
   const custom = findCustomTheme(id);
   const vars = custom ? resolveThemeVars(custom, builtins()) : null;
-  if (!vars) return THEMES[0].swatch;
+  const fallbackSwatch = THEMES[0]?.swatch ?? { base: "", panel: "", accent: "" };
+  if (!vars) return fallbackSwatch;
   return { base: vars["--bg-base"], panel: vars["--bg-panel"], accent: vars["--accent"] };
 }
 

@@ -87,6 +87,7 @@ export function parseKeyBinding(input: string): KeyBinding | null {
   const parts = input.split("+").map((part) => part.trim());
   if (parts.length === 0 || parts.some((part) => part === "")) return null;
   const key = parts[parts.length - 1];
+  if (key === undefined) return null; // unreachable: parts.length was checked above
   const binding: KeyBinding = { key, shift: false, alt: false, ctrl: false, meta: false };
   for (const part of parts.slice(0, -1)) {
     const flag = MODIFIERS[part.toLowerCase()];
@@ -226,6 +227,7 @@ function duplicateWarnings(bound: Map<string, Claim[]>): KeymapProblem[] {
   return [...bound.values()].flatMap((claims) => {
     if (claims.length < 2) return [];
     const [winner, ...losers] = [...claims].sort((a, b) => a.rank - b.rank);
+    if (!winner) return []; // unreachable: claims.length >= 2 was checked above
     return losers.map(({ label, binding }) => ({
       action: label,
       binding,

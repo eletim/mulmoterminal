@@ -102,7 +102,7 @@ export function addCell(state: GridState): GridState {
 // cancelable, so it's excluded.
 export function cancelableLaunchUid(state: GridState): number | null {
   const last = state.cells[state.cells.length - 1];
-  return state.cells.length > 1 && isLaunchCell(last) ? last.uid : null;
+  return state.cells.length > 1 && last !== undefined && isLaunchCell(last) ? last.uid : null;
 }
 
 export function setSession(state: GridState, uid: number, id: string | null): GridState {
@@ -300,7 +300,7 @@ export function nextAttention(
   // NEVER enlarges or collapses — that is toggleZoom's job alone. Zoomed, this moves which
   // terminal is enlarged; un-zoomed, it brings the candidate's page on screen and leaves the
   // grid a grid. A key that sometimes changed the whole layout would be unpredictable.
-  return zoomedUid(state) !== null ? { ...state, expanded: order[at] } : { ...state, page: Math.floor(at / PAGE_SIZE) };
+  return zoomedUid(state) !== null ? { ...state, expanded: order[at] ?? null } : { ...state, page: Math.floor(at / PAGE_SIZE) };
 }
 
 /** The uid of the terminal `nextAttention` would move to, or null. Exported so the caller can
@@ -312,7 +312,7 @@ export function nextAttentionUid(
   fromUid: number | null = null,
 ): number | null {
   const at = nextCandidate(state, order, statusByUid, zoomedUid(state) ?? fromUid);
-  return at === undefined ? null : order[at];
+  return at === undefined ? null : (order[at] ?? null);
 }
 
 // The index in `order` of the next terminal worth going to, starting after `from`, or undefined
@@ -333,7 +333,10 @@ function nextCandidate(state: GridState, order: readonly number[], statusByUid: 
   for (const status of ATTENTION_ORDER) {
     // Absent = idle, the convention AttentionStatus documents: a cell whose status has not been
     // reported yet must not fall out of the search entirely.
-    const at = rotated.find((i) => occupied.has(order[i]) && (statusByUid[order[i]] ?? "idle") === status);
+    const at = rotated.find((i) => {
+      const uid = order[i];
+      return uid !== undefined && occupied.has(uid) && (statusByUid[uid] ?? "idle") === status;
+    });
     if (at !== undefined) return at;
   }
   return undefined;
@@ -371,7 +374,10 @@ export function moveCell(state: GridState, uid: number, dir: -1 | 1): GridState 
   if (!canMoveCell(state.cells, uid, dir)) return state;
   const i = state.cells.findIndex((c) => c.uid === uid);
   const cells = state.cells.slice();
-  [cells[i], cells[i + dir]] = [cells[i + dir], cells[i]];
+  const here = cells[i];
+  const there = cells[i + dir];
+  if (!here || !there) return state; // out of range — nothing to swap
+  [cells[i], cells[i + dir]] = [there, here];
   return { ...state, cells };
 }
 
@@ -511,7 +517,8 @@ export function migrateLegacy(raw: string | null): GridState | null {
     parsed.sessions.forEach((s: unknown, i: number) => {
       if (isUuid(s)) cells.push({ uid: cells.length, session: s, cwd: typeof parsed.cwds?.[i] === "string" ? parsed.cwds[i] : null });
     });
-    const expanded = typeof parsed.expanded === "number" && parsed.expanded >= 0 && parsed.expanded < cells.length ? cells[parsed.expanded].uid : null;
+    const expanded =
+      typeof parsed.expanded === "number" && parsed.expanded >= 0 && parsed.expanded < cells.length ? (cells[parsed.expanded]?.uid ?? null) : null;
     return clampPage(ensureEntry({ cells, expanded, page: 0, nextUid: cells.length, sortMode: "manual" }));
   } catch {
     return null;

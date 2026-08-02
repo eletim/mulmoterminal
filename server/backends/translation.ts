@@ -116,7 +116,7 @@ export function mergeTranslations(dict: DictionaryFile, lang: string, fresh: Rea
     safeAssign(next, source, { ...langs });
   }
   for (const [source, translated] of fresh) {
-    const existing = Object.hasOwn(next, source) ? next[source] : {};
+    const existing = (Object.hasOwn(next, source) ? next[source] : undefined) ?? {};
     // `lang` is regex-validated upstream so it can't be a dangerous key; the only
     // unsafe site is the user-supplied `source`, handled by safeAssign.
     existing[lang] = translated;
@@ -250,7 +250,11 @@ export function mountTranslationRoutes(app: Express, deps: TranslationDeps): voi
       throw new Error(`[translation] LLM returned ${translated.length} translations for ${misses.length} sentences`);
     }
     const fresh = new Map<string, string>();
-    misses.forEach((sentence, index) => fresh.set(sentence, translated[index]));
+    // Length equality was checked immediately above, so every index is present.
+    misses.forEach((sentence, index) => {
+      const line = translated[index];
+      if (line !== undefined) fresh.set(sentence, line);
+    });
     await saveDictionary(deps.workspace, req.namespace, mergeTranslations(dict, req.targetLanguage, fresh));
     return assembleResult(req.sentences, cached, fresh);
   }

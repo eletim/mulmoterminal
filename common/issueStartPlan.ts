@@ -47,7 +47,8 @@ export function issueStartPlan(entry: RepoDirs | undefined, repo: string): Issue
   // the two cases the same keeps "recorded" from being a state the UI has to distinguish.
   const recorded = entry?.primary;
   if (recorded) return { kind: "ready", dir: recorded };
-  if (dirs.length === 1) return { kind: "ready", dir: dirs[0].path };
+  const only = dirs.length === 1 ? dirs[0] : undefined;
+  if (only) return { kind: "ready", dir: only.path };
   return { kind: "choose", dirs };
 }
 

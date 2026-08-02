@@ -66,7 +66,7 @@ export function launcherCommandWithGuiMcp(command: string, servers: readonly Gui
   //
   // Two index walks rather than one anchored regex: `^(\s*)(\S+)([\s\S]*)$` backtracks
   // super-linearly on a long command (sonarjs flags it), and this says the same thing.
-  const isSpace = (index: number): boolean => /\s/.test(command[index]);
+  const isSpace = (index: number): boolean => /\s/.test(command[index] ?? "");
   let start = 0;
   while (start < command.length && isSpace(start)) start++;
   if (start === command.length) return command; // whitespace only — nothing to run
