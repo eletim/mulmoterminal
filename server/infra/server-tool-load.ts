@@ -20,10 +20,15 @@ export function serverToolEnabled(requiredEnv: readonly string[] | undefined, en
   return missingRequiredEnv(requiredEnv, env).length === 0;
 }
 
+// Callable is all JavaScript lets anyone check; the signature is the caller's contract with the
+// package, which nothing here can verify. A guard rather than an assertion so the check and the
+// type it grants are the same statement.
+const isExecutor = (value: unknown): value is (...args: unknown[]) => unknown => typeof value === "function";
+
 // The sole `execute*` function export, or undefined when there is not exactly one — the
 // fallback executor for packages that name their entry point descriptively and ship no
 // `execute`. Undefined for zero (nothing to pick) and for two or more (ambiguous).
 export function soleExecutor(mod: Record<string, unknown>): ((...args: unknown[]) => unknown) | undefined {
-  const fns = Object.entries(mod).filter(([key, val]) => key.startsWith("execute") && typeof val === "function");
-  return fns.length === 1 ? (fns[0][1] as (...args: unknown[]) => unknown) : undefined;
+  const fns = Object.entries(mod).flatMap(([key, value]) => (key.startsWith("execute") && isExecutor(value) ? [value] : []));
+  return fns.length === 1 ? fns[0] : undefined;
 }

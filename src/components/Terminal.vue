@@ -341,7 +341,7 @@ watch(
     // here means a surviving timer only ever reflects the cell's current, unchanged state.
     clearTimeout(refocusTimer);
     if (!shouldRefocusOnZoomChange(!!expanded, props.zoomed)) return;
-    nextTick(() => conn.focus(slotKey));
+    void nextTick(() => conn.focus(slotKey));
     refocusTimer = setTimeout(() => conn.focus(slotKey), FLIP_MS + 30);
   },
 );
@@ -357,7 +357,7 @@ watch(
   () => props.expanded,
   () => {
     clearTimeout(refitTimer);
-    nextTick(() => conn.fit(slotKey));
+    void nextTick(() => conn.fit(slotKey));
     refitTimer = setTimeout(() => conn.fit(slotKey), FLIP_MS + 30);
   },
 );

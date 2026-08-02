@@ -42,11 +42,37 @@ issue の段階的導入に従う。
 - **`as unknown as T` は原則として直す**。二段にしないと通らない = 型が重なっていない、
   つまり「コンパイラが強く反対している」という意味。
 
-## 進捗
+## 結果: 149 → 4（allowlist 2 ファイル）、ルールは `error`
+
+```
+149 → 137 → 125 → 112 → 91 → 73 → 52 → 36 → 34 → 31 → 29 → 24 → 20 → 13 → 10 → 8 → 6 → 4
+```
+
+残った 4 箇所（3 サイト）は**いずれも他人の型が間違っている**もので、ローカルな型付けでは
+表現できない。`eslint.config.js` の allowlist に理由と「何が入れば消えるか」を書いた。
+
+| ファイル | 理由 |
+|---|---|
+| `server/routes/mcp-routes.ts` | `@modelcontextprotocol/sdk` の宣言バグ（upstream issue #2083） |
+| `src/composables/pluginRuntime.ts` | gui-chat-protocol の不健全なジェネリック。署名変更は全プラグインを壊す |
+
+**upstream に直せるものは直した**: `modalTeleportTarget` の型が狭すぎた件は
+mulmoclaude#2721 を出してマージされ、1.2.3 で publish されたので、ホスト側の
+二段キャストは消えている（#1278）。
+
+### 完了条件の確認
+
+- [x] `consistent-type-assertions` が `error` で入っている
+- [x] テストは対象外（`*.spec.*` / `*.test.*` / `test/**`）
+- [x] 残る例外は `eslint.config.js` に理由付きで 2 ファイルのみ
+- [x] インラインの `eslint-disable` は 0 件
+- [x] `CLAUDE.md` の規約と、実際に止まるものが一致
+
+## 進捗（着手順）
 
 | # | ファイル | 箇所 | 対応 | PR |
 |---|---|---|---|---|
-| 1 | `src/plugins-registry.ts` | 12 | 型ガード + 注釈 + 不要キャスト削除 | this |
+| 1 | `src/plugins-registry.ts` | 12 | 型ガード + 注釈 + 不要キャスト削除 | #1234 |
 
 ## 直しながら見つかった問題（#1231 に記録する）
 

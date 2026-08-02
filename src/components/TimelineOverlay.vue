@@ -3,7 +3,7 @@
 // first), fetched from GET /api/transcript/timeline. Opened from the cell header's
 // history button so you can see "what did it do?" without scrolling the raw transcript.
 import { ref, watch, onUnmounted, nextTick } from "vue";
-import { trapTabKey } from "../utils/focusTrap";
+import { modalKeydownHandler } from "../composables/useModalKeyboard";
 import { isRecord } from "../../common/isRecord";
 
 interface TimelineEvent {
@@ -59,17 +59,10 @@ const formatTime = (iso: string): string => {
 
 const modalEl = ref<HTMLElement | null>(null);
 
-// Modal keyboard behavior (mirrors SettingsModal): Escape closes; Tab is trapped in
-// the dialog so focus can't reach background controls. Document-level so it works
-// regardless of where focus lands. Attached only while open; removed on close/unmount.
-const onKeydown = (e: KeyboardEvent) => {
-  if (e.key === "Escape") {
-    emit("close");
-    return;
-  }
-  if (e.key !== "Tab" || !modalEl.value) return;
-  trapTabKey(e, modalEl.value);
-};
+// The shared modal keyboard contract, attached only while open (this overlay stays mounted while
+// closed) and removed on close/unmount. The default trap selector is right here: everything the
+// timeline offers is a button.
+const onKeydown = modalKeydownHandler({ modalEl, onClose: () => emit("close") });
 
 // One watch over open + identity: (re)load whenever the overlay is open — covering
 // both the open transition and a session/cwd change while it stays open (so it never
@@ -83,10 +76,10 @@ watch(
       document.removeEventListener("keydown", onKeydown);
       return;
     }
-    load();
+    void load();
     if (!oldVals?.[0]) {
       document.addEventListener("keydown", onKeydown);
-      nextTick(() => modalEl.value?.focus());
+      void nextTick(() => modalEl.value?.focus());
     }
   },
   { immediate: true },

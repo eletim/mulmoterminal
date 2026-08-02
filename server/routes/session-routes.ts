@@ -215,7 +215,18 @@ async function sessionList(req: Request, res: Response) {
       await Promise.all(
         top.map((s) =>
           s.kind === "pending"
-            ? { id: s.id, title: s.title, mtime: s.mtime, working: s.working, waiting: s.waiting, event: s.event, hidden: s.hidden, failed: s.failed }
+            ? // Wrapped rather than handed to Promise.all bare: a pending row is already the whole
+              // answer, and spelling it as a promise says the two branches meet at the same type.
+              Promise.resolve({
+                id: s.id,
+                title: s.title,
+                mtime: s.mtime,
+                working: s.working,
+                waiting: s.waiting,
+                event: s.event,
+                hidden: s.hidden,
+                failed: s.failed,
+              })
             : readSessionMeta(dir, s.file).catch(() => null),
         ),
       )

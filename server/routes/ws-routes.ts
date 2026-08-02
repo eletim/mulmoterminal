@@ -202,6 +202,41 @@ async function refuseSecondWorktreeSession(
   return true;
 }
 
+/**
+ * Everything an agent endpoint does between resolving its session and spawning it, in the order
+ * the four of them (claude, launch, codex, antigravity) already ran it in.
+ *
+ * The order is the fragile part: the worktree refusal has to happen BEFORE the browser is told a
+ * session id (#1207), and the dev-terminal mark has to be recorded on every attach — new, resumed
+ * or reattached — which is what makes this the single choke point for the chat sidebar's exclusion
+ * list (see devTerminalSessions).
+ *
+ * Returns null when the socket was refused and closed: the caller must return without spawning.
+ */
+async function admitAgentSession(
+  ws: WebSocket,
+  kind: TerminalWsKind,
+  session: {
+    requested: string | null;
+    sessionId: string;
+    live: PtyEntry | undefined;
+    cwd: string;
+    /** A grid cell rather than the single view: keep it out of the chat sidebar. */
+    devTerminal: boolean;
+    /** False only for a launcher that runs no agent — `yarn dev` is not an agent editing the tree
+     *  and stays free of the one-session-per-worktree rule (see launcherRunsAgent). */
+    worktreeLimited?: boolean;
+  },
+): Promise<EarlyFrames | null> {
+  const { requested, sessionId, live, cwd, devTerminal, worktreeLimited = true } = session;
+  if (worktreeLimited && (await refuseSecondWorktreeSession(ws, kind, cwd, { requested, sessionId }))) return null;
+  if (devTerminal) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
+  markAttachedSessionPlaced(sessionId, requested);
+  // The EFFECTIVE cwd, not this request's: on a reattach the live PTY's own directory is where the
+  // agent really runs, and the request's `?cwd=` is ignored by everything downstream.
+  return announceSession(ws, sessionId, live?.cwd ?? cwd);
+}
+
 async function resolveButtonRun(url: URL, cwd: string): Promise<{ command: string; cwd: string } | null> {
   const buttonId = url.searchParams.get("buttonId");
   if (!buttonId) return null;
@@ -362,24 +397,11 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // re-persists, so the reload just reopens a working terminal seamlessly.
   const { reattachId, resume, sessionId } = resolveClaudeSession(requested, cwd);
   const live = reattachId ? ptys.get(reattachId) : undefined;
-  if (await refuseSecondWorktreeSession(ws, "claude", cwd, { requested, sessionId })) return;
-
-  // A dev terminal (gui=0) is a multi-terminal GRID cell: remember its session id so
-  // it's excluded from the chat sidebar (see devTerminalSessions). This is the single
-  // choke point for every grid attach — new, resumed, or reattached — so the mark is
-  // recorded (and re-recorded after a reboot when the cell reconnects) exactly once.
-  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  markAttachedSessionPlaced(sessionId, requested);
-
-  // Tell the browser which session this is (it learns the id of new sessions) and
-  // the EFFECTIVE cwd — where claude really runs. On reattach that's the live
-  // PTY's own cwd (NOT this request's ?cwd=, which it ignores); otherwise it's the
-  // resolved cwd the new PTY will spawn in.
-  const reportedCwd = live?.cwd ?? cwd;
-  // Buffered from here, like every other terminal endpoint: the browser's first frame is the
-  // terminal's geometry and it arrives while this handler may still be awaiting the Keychain — /ws
-  // was the one route that let it fall on the floor (#1178, see early-frames.ts).
-  const early = announceSession(ws, sessionId, reportedCwd);
+  // Buffered from the announcement on, like every other terminal endpoint: the browser's first
+  // frame is the terminal's geometry and it arrives while this handler may still be awaiting the
+  // Keychain — /ws was the one route that let it fall on the floor (#1178, see early-frames.ts).
+  const early = await admitAgentSession(ws, "claude", { requested, sessionId, live, cwd, devTerminal: !attachGuiMcp });
+  if (!early) return;
 
   // A provider refusal already says exactly what is wrong with the directory's config (#579), and a
   // refused spawn already names the binary and the PATH it searched, or the directory that is gone
@@ -490,10 +512,15 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // A launcher is a command line, so the limit follows what it RUNS: a launcher configured as
   // `codex` is the agent toggle by another name and is held to the same rule, while `yarn dev` or
   // a shell is not an agent editing the tree and stays free (see launcherRunsAgent).
-  if (launcherRunsAgent(command) && (await refuseSecondWorktreeSession(ws, "launch", cwd, { requested, sessionId }))) return;
-  markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  markAttachedSessionPlaced(sessionId, requested);
-  const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
+  const early = await admitAgentSession(ws, "launch", {
+    requested,
+    sessionId,
+    live,
+    cwd,
+    devTerminal: true,
+    worktreeLimited: launcherRunsAgent(command),
+  });
+  if (!early) return;
 
   // A launcher that runs codex gets the directory's registered tool groups too. The chip and the
   // agent toggle land in the same cell and look the same, so a Canvas that lights up for one and
@@ -520,10 +547,8 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
-  if (await refuseSecondWorktreeSession(ws, "codex", cwd, { requested, sessionId })) return;
-  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  markAttachedSessionPlaced(sessionId, requested);
-  const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
+  const early = await admitAgentSession(ws, "codex", { requested, sessionId, live, cwd, devTerminal: !attachGuiMcp });
+  if (!early) return;
 
   // A grid cell's GUI tools are whatever its DIRECTORY registered — the same switches claude's
   // cells read, in the same file. claude picks them up itself; codex is handed resolved URLs at
@@ -591,10 +616,8 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   // conversation that is right there — which is the restart case this exists for.
   await antigravityConversationsHydrated;
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
-  if (await refuseSecondWorktreeSession(ws, "antigravity", cwd, { requested, sessionId })) return;
-  if (!attachGuiMcp) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  markAttachedSessionPlaced(sessionId, requested);
-  const early = announceSession(ws, sessionId, live?.cwd ?? cwd);
+  const early = await admitAgentSession(ws, "antigravity", { requested, sessionId, live, cwd, devTerminal: !attachGuiMcp });
+  if (!early) return;
 
   // The directory's registered groups, read here because the lookup reads Claude Code's config
   // files and the spawner is sync. Only for a SPAWN: a reattach keeps the tools its running

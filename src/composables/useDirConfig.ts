@@ -1,4 +1,4 @@
-import { ref, watch, onScopeDispose, type Ref } from "vue";
+import { ref, shallowRef, watch, onScopeDispose, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import type { ITheme } from "@xterm/xterm";
 import { isThemeIdLike } from "../../common/themeVars";
@@ -111,7 +111,7 @@ export function invalidateDirConfig(cwd: string): void {
   if (!targets?.size) return;
   const seq = generationOf(cwd) + 1;
   generation.set(cwd, seq);
-  fetchDirConfig(cwd).then((config) => {
+  void fetchDirConfig(cwd).then((config) => {
     if (generationOf(cwd) !== seq) return; // a newer invalidation superseded this response
     targets.forEach((apply) => apply(config));
   });
@@ -145,7 +145,11 @@ function releaseDir(cwd: string, listener: (config: DirConfig) => void): void {
 // Directories where `pick` returns null are ABSENT from the map rather than present-as-null, so
 // "unset" is a plain lookup miss for the caller.
 export function useDirField<T>(cwds: Ref<string[]>, pick: (config: DirConfig) => T | null) {
-  const values = ref<Record<string, T>>({}) as Ref<Record<string, T>>;
+  // shallowRef, not ref: `ref<Record<string, T>>` returns `Ref<UnwrapRef<Record<string, T>>>`,
+  // and for a generic T that unwrap is not provably the same type — which is what the assertion
+  // here used to undo. The map is always REPLACED wholesale below, never mutated in place, so the
+  // deep reactivity `ref` adds is unused anyway.
+  const values = shallowRef<Record<string, T>>({});
   subscribeToDirConfigChanges();
   const listeners = new Map<string, (config: DirConfig) => void>();
 

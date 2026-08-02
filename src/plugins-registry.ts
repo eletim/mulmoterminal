@@ -223,7 +223,7 @@ for (const name of cfg.packages ?? []) {
 const localEnabled = new Set(cfg.local ?? []);
 for (const [modulePath, mod] of Object.entries(localModules)) {
   // ".../plugins/<name>/index.ts" -> "<name>"
-  const name = modulePath.split("/").slice(-2)[0];
+  const name = modulePath.split("/").slice(-2)[0] ?? "";
   if (!localEnabled.has(name)) continue;
   registry[mod.REGISTRATION.toolName] = mod.REGISTRATION;
 }

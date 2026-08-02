@@ -41,7 +41,7 @@ function promptText(content: string): string {
   const wrapped = USER_REQUEST_RE.exec(content);
   // No wrapper means a shape we have not seen. Dropping the blocks we DO know keeps a usable
   // title instead of pasting agy's metadata into the row.
-  return wrapped ? wrapped[1] : content.replace(APPENDED_BLOCK_RE, "");
+  return wrapped?.[1] ?? content.replace(APPENDED_BLOCK_RE, "");
 }
 
 /** The conversation's title, from the head of its transcript. */
@@ -100,5 +100,7 @@ export async function listAntigravitySessions(
       return { id: record.conversationId, title: summary?.title ?? DEFAULT_TITLE, mtime: summary?.mtime ?? record.startedAt };
     }),
   );
-  return summaries.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
+  // toSorted, not sort: sort mutates and returns the SAME array, so reading the return value
+  // reads like a copy when it is not (sonarjs/no-misleading-array-reverse).
+  return summaries.toSorted((a, b) => b.mtime - a.mtime).slice(0, limit);
 }

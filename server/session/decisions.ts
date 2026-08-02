@@ -155,7 +155,7 @@ function questionsOf(input: unknown, text: string | null): DecisionQuestion[] {
     const question = str(q.question);
     const options = optionsOf(q.options);
     const later = starts.slice(i + 1).filter((at) => at >= 0);
-    const parsed = text === null ? { answer: null, fromOptions: false } : answerFor(question, text, starts[i], later, options);
+    const parsed = text === null ? { answer: null, fromOptions: false } : answerFor(question, text, starts[i] ?? 0, later, options);
     return {
       question,
       header: str(q.header),

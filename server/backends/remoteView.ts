@@ -207,7 +207,8 @@ async function updateViaView(
   // Shape the returned item like a getItems item — same host-computed fields
   // (derived, toggle, embed) — then inline the view's declared image fields.
   const [enriched] = await deps.enrichItems(collection, [result.item]);
-  const item = enriched;
+  // enrichItems answers one item per input, so the single element is there — read it as such.
+  const item = enriched ?? result.item;
   const baseBytes = Buffer.byteLength(JSON.stringify(item), "utf8");
   if (baseBytes > REMOTE_VIEW_ITEMS_MAX_BYTES) return { kind: "too-large", bytes: baseBytes };
   const imageFields = inlineFields(view, collection.schema, undefined);

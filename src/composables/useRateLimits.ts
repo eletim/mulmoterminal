@@ -10,7 +10,7 @@
 import { ref } from "vue";
 import { parseRateLimits } from "../../common/rateLimits";
 import { isRecord } from "../../common/isRecord";
-import type { ClaudeProbeState, RateLimitSnapshot } from "./rateLimitGauge";
+import type { ClaudeProbeStall, ClaudeProbeState, RateLimitSnapshot } from "./rateLimitGauge";
 
 const FETCH_TIMEOUT_MS = 8000;
 // The server refuses to probe more often than its own staleness window, so a tighter poll here
@@ -29,6 +29,9 @@ let watchers = 0;
 const PROBE_STATES: readonly ClaudeProbeState[] = ["ok", "no-claude", "no-windows", "no-report"];
 const isProbeState = (v: unknown): v is ClaudeProbeState => typeof v === "string" && PROBE_STATES.some((state) => state === v);
 
+const PROBE_STALLS: readonly ClaudeProbeStall[] = ["trust-prompt", "unknown"];
+const isProbeStall = (v: unknown): v is ClaudeProbeStall => typeof v === "string" && PROBE_STALLS.some((stall) => stall === v);
+
 // A failure leaves the last known windows in place. Blanking them would read as "0% used", which
 // is the opposite of the truth we just failed to fetch.
 async function load(): Promise<boolean> {
@@ -45,6 +48,7 @@ async function load(): Promise<boolean> {
       // Carried verbatim rather than inferred here: the server is the only place that knows
       // whether a probe was refused, timed out, or answered with no windows (#1011).
       claudeProbe: isProbeState(data.claudeProbe) ? data.claudeProbe : undefined,
+      claudeStall: isProbeStall(data.claudeProbeStall) ? data.claudeProbeStall : undefined,
     };
     return data.probing === true;
   } catch {

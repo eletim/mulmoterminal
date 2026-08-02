@@ -167,7 +167,7 @@ export function createToolStores({ publish, root = MULMOTERMINAL_HOME }: ToolSto
     const list = await toolResultsStore.get(sessionId);
     if (reconcileCollectionCard(list, result) === "skip") {
       // The list may still have changed above; save so a supersede is not lost on restart.
-      toolResultsStore.save(sessionId);
+      void toolResultsStore.save(sessionId);
       return false;
     }
     const idx = list.findIndex((r) => r.uuid === result.uuid);
@@ -177,7 +177,7 @@ export function createToolStores({ publish, root = MULMOTERMINAL_HOME }: ToolSto
       list.push(result);
       if (list.length > GUI_HISTORY_LIMIT) list.splice(0, list.length - GUI_HISTORY_LIMIT);
     }
-    toolResultsStore.save(sessionId);
+    void toolResultsStore.save(sessionId);
     return true;
   }
 
@@ -205,7 +205,7 @@ export function createToolStores({ publish, root = MULMOTERMINAL_HOME }: ToolSto
     list.push(call);
     if (list.length > TOOLCALLS_LIMIT) list.splice(0, list.length - TOOLCALLS_LIMIT);
     publish(toolCallsChannel(sessionId), call);
-    toolCallsStore.save(sessionId);
+    void toolCallsStore.save(sessionId);
   }
 
   // PostToolUse (status "completed") or PostToolUseFailure (status "failed"):
@@ -226,7 +226,7 @@ export function createToolStores({ publish, root = MULMOTERMINAL_HOME }: ToolSto
       if (list.length > TOOLCALLS_LIMIT) list.splice(0, list.length - TOOLCALLS_LIMIT);
     }
     publish(toolCallsChannel(sessionId), call);
-    toolCallsStore.save(sessionId);
+    void toolCallsStore.save(sessionId);
   }
 
   return { toolResultsStore, toolCallsStore, storeToolResult, recordToolCallStart, recordToolCallEnd };

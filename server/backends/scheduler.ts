@@ -54,6 +54,7 @@ function isValidDailyTime(value: string): boolean {
   const parts = value.split(":");
   if (parts.length !== 2) return false;
   const [hourStr, minStr] = parts;
+  if (hourStr === undefined || minStr === undefined) return false; // unreachable: length checked above
   if (hourStr.length !== 2 || minStr.length !== 2 || !allDigits(hourStr) || !allDigits(minStr)) return false;
   return Number(hourStr) <= 23 && Number(minStr) <= 59;
 }

@@ -4,6 +4,89 @@ Release notes for MulmoTerminal, mirrored from the [GitHub Releases](https://git
 
 This file records **what changed and why**. For **how to actually use** a new feature, a release may also ship a dated setup guide — linked at the top of its entry, and written as a snapshot of that moment. The living reference is always the [guide](https://receptron.github.io/mulmoterminal/).
 
+## mulmoterminal@4.1.1 — 2026-08-02
+
+> **Setup guide:** [Usage that stops saying n/a, and 300 lines of scrollback on the phone](https://receptron.github.io/mulmoterminal/guide/en/v4.1.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.1.1.html))
+
+A maintenance release. The visible parts are a usage figure that no longer sticks at `n/a`, a phone
+terminal you can actually scroll back in, and GitLab worktrees reaching parity with GitHub ones.
+The bulk of it is invisible: 149 type assertions removed from the app, and the rule that forbids
+them promoted to an error.
+
+### Fixed
+
+- **The header's usage figure could stick at `n/a` forever** (#1298). The rate-limit probe typed its
+  question into the TUI blind — open it, wait a fixed moment, send keystrokes. On a machine where
+  the TUI needed longer than that moment (slow disk, large MCP config, cold cache) the keystrokes
+  landed before anything was listening, so the question was never asked and no answer came back.
+  Every later probe repeated it, which is why the state was permanent rather than intermittent. The
+  question is now a positional argument to `claude`, and the probe runs with `--strict-mcp-config`
+  so a user's own MCP servers are not loaded just to answer it. Diagnosed by measuring on real
+  hardware rather than from the rendering side, where the symptom appeared.
+- **Windows CI had been red on every run since #1226** (#1269). One assertion in
+  `presentPathRoot.spec.ts` spelled a session cwd in a way the platform does not.
+
+### Added
+
+- **The phone's terminal returns 300 lines of scrollback** instead of the visible pane (#1274).
+  Both the tmux path and the headless fallback ask for the same history, and the window is decided
+  in one place, so a host with tmux and a host without it answer identically for the same session.
+  A 256 KiB ceiling accompanies the line count: the reply travels in a Firestore command document,
+  and "bounded by rows × cols" stopped holding once history was included.
+- **GitLab worktrees reach parity with GitHub ones**, completing #981:
+  - The **PR phase pill** appears for a GitLab merge request, and its hover tip explains *why* a
+    merge request cannot be merged — something the phase alone cannot express (#1283).
+  - **⧉ Open PR** creates the merge request, opens the existing one on a second press, and writes
+    `Fixes #N` plus the clone footer into the body (#1279).
+  - **Work comments** (`issueWorkComments`, off by default) post on start and on merge, and close
+    the issue on merge — previously a no-op on GitLab repos (#1271).
+  - `doctor` now checks for `glab`, and the docs that still claimed GitHub-only were corrected
+    (#1287). `gh` remains required; `glab` is optional.
+
+### Changed — type safety
+
+Eleven pull requests finished [#1231](https://github.com/receptron/mulmoterminal/issues/1231):
+every `as` type assertion is gone from the app, and
+`@typescript-eslint/consistent-type-assertions` is now an **error** with a two-file allowlist, each
+entry naming the upstream defect that would remove it.
+
+Removing them surfaced real defects, not only untyped code:
+
+- A config save whose validator named fields the interface does not have, so **saving quick
+  commands or MCP servers emptied the list** (#1294). Caught in review; a round-trip test now pins it.
+- `marked.parse(…) as string` could put the string `"[object Promise]"` through DOMPurify and into
+  a rendered page (#1276).
+- The presentHtml dispatch asserted its arguments past the package's own guard — the one whose
+  contract says a non-string `html` **blanks the artifact** (#1296).
+- `isUuid()` could be handed a non-string from persisted grid state (#1280).
+- A remote-host payload asserted to be JSON is now converted through `JSON.stringify` itself, so
+  the claim holds by construction rather than by imitation — after four rounds of review found
+  divergences (`__proto__` keys, `Date`, the key passed to `toJSON`, boxed primitives) (#1288).
+- `mergeSessionMeta` validated one field of a response and trusted the other four (#1282).
+
+Other entries: #1273, #1278 (took the upstream fix from
+[mulmoclaude#2721](https://github.com/receptron/mulmoclaude/pull/2721), which widened
+`modalTeleportTarget` so a Shadow-DOM host no longer needs a cast), #1291, #1297, #1299.
+
+### Changed — tooling
+
+- **Two strictness flags** (`useUnknownInCatchVariables`, `noImplicitOverride`) and the `strict`
+  that `tsconfig.node.json` was missing (#1302, part of #1301). The other three flags #1301 listed
+  are **not** free — measured the way CI runs them, `noUncheckedIndexedAccess` costs 445 findings
+  and `noPropertyAccessFromIndexSignature` 1,785 — so they stay open with the numbers recorded.
+- **`no-floating-promises` and `no-misused-promises`** now run with type information, at `warn`
+  (#1302, part of #1300). Enabling the type program also woke eight sonarjs rules that were already
+  configured as errors but had never run; they are at `warn` pending #1300.
+- **Duplicate code removed** — the four jscpd alerts are now zero, with unit tests on the extracted
+  helpers (#1290, #1289).
+
+### Docs
+
+- **[Getting started](https://receptron.github.io/mulmoterminal/guide/en/getting-started.html)** is
+  a new first page for the guide, taking a reader from an empty machine to a running
+  `npx mulmoterminal@latest`. The sidebar now puts the beginner path first (#1295).
+- The zoom-plus-Canvas screenshot the single-view removal had left missing (#1232).
+
 ## mulmoterminal@4.1.0 — 2026-08-02
 
 > **Setup guide:** [GitLab in the PRs & Issues view](https://receptron.github.io/mulmoterminal/guide/en/v4.1.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.1.0.html))
