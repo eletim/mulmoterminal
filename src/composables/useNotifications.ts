@@ -41,10 +41,14 @@ const LIFECYCLES: readonly NotifierLifecycle[] = ["fyi", "action"];
  *  the same shape from the same server, so one guard answers for both. */
 export function isNotifierEntry(value: unknown): value is NotifierEntry {
   if (!isRecord(value)) return false;
-  const { id, pluginPkg, severity, lifecycle, title, body } = value;
+  const { id, pluginPkg, severity, lifecycle, title, body, navigateTarget, createdAt } = value;
   if (typeof id !== "string" || typeof pluginPkg !== "string" || typeof title !== "string") return false;
+  // Required, and not merely cosmetic: the list sorts on `createdAt.localeCompare`, which throws
+  // when it is absent (Codex review on #1282).
+  if (typeof createdAt !== "string") return false;
   if (!SEVERITIES.some((known) => known === severity)) return false;
   if (lifecycle !== undefined && !LIFECYCLES.some((known) => known === lifecycle)) return false;
+  if (navigateTarget !== undefined && typeof navigateTarget !== "string") return false;
   return body === undefined || typeof body === "string";
 }
 
