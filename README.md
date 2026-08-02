@@ -537,7 +537,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `soundFile`  | Absolute path to a custom **attention sound**, the fallback for every kind. Empty/unset uses the built-in synthesized chime. |
 | `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
 | `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
-| `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates, via your `gh` login. An entry may name its host — `gitlab.com/group/project` is read with `glab`, and work can be started on it, commented on and turned into a merge request. A host that is neither shows a row saying so. |
+| `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates, using whichever CLI the host needs — your own `gh` or `glab` login, so no token is stored here. An entry may name its host — `gitlab.com/group/project` is read with `glab`, and work can be started on it, commented on and turned into a merge request. A host that is neither shows a row saying so. |
 | `repoDirs`   | `{ "owner/repo": "/abs/path" }` — which local clone work on a repo starts in, when you keep several side by side. Only the *choice* is stored; which clones exist is re-derived from `cwdPresets` on every read, and an entry that no longer names a clone of that repo is ignored. |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides the agents — any interactive command. A plain shell needs no entry: the launch form's **Shell** toggle opens `$SHELL` unconfigured. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
@@ -1304,7 +1304,7 @@ same-origin-guarded.
 | `POST /api/git-remote` | The dir's GitHub repo URL (for the header GitHub menu). |
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>` — or, with `issue: <N>`, on `issue/<N>-<slug>` forked from a freshly fetched `origin/<base>`; remove (managed root only), push, open a PR (`gh`, else compare URL). |
-| `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` (via `gh`). |
+| `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` — `gh` for github.com entries, `glab` for `gitlab.com/...` ones. |
 | `GET /api/repo-dirs` | Which saved directories clone which GitHub repo, ordered, with the recorded choice per repo. |
 | `POST /api/issues/start` | Cut an issue's worktree in one of that repo's known clones and spawn a session there, seeded with the issue as a draft. |
 | `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |
@@ -1653,7 +1653,7 @@ server/
   session/        per-session transcript/activity/cost: transcript.ts,
                   session-resolve.ts, activity-*.ts, cost.ts,
                   command-summary.ts, terminal-replay.ts, file-cache.ts
-  git/            git & GitHub (via gh) + worktrees: git-status.ts, gitRemote.ts,
+  git/            git, GitHub (gh) and GitLab (glab) + worktrees: git-status.ts, gitRemote.ts,
                   gh.ts, prs.ts, issues.ts, pr-for-branch.ts, worktrees.ts, worktree-*.ts
   files/          files-browse.ts (contained tree read/write), pick-file.ts,
                   open-dir.ts, scripts.ts (Run-menu script.json loader)
