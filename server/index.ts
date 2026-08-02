@@ -85,6 +85,7 @@ import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
 import { renderScreen } from "./session/headlessScreen.js";
 import {
   agentFromPaneCommand,
+  SCREEN_HISTORY_ROWS,
   buildScreenMeta,
   buildSessionList,
   captureSessionScreen,
@@ -699,12 +700,14 @@ const remoteHostSessionScreenMeta = (sessionId: string): Promise<SessionScreenMe
 
 const remoteHostCaptureTerminalScreen = (sessionId: string) =>
   captureSessionScreen(sessionId, {
-    captureStyledPane: tmuxCaptureStyledPane,
+    // Both capture paths are asked for the same history; how much of it the phone actually
+    // gets is captureSessionScreen's call, so the two agree (mulmoserver#139).
+    captureStyledPane: (id) => tmuxCaptureStyledPane(id, SCREEN_HISTORY_ROWS),
     sourceOf: (id) => {
       const entry = ptys.get(id);
       return entry ? { buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows } : undefined;
     },
-    render: renderScreen,
+    render: (source) => renderScreen({ ...source, historyLines: SCREEN_HISTORY_ROWS }),
     metaOf: remoteHostSessionScreenMeta,
     // Read from config on every screen so an edit in Settings reaches the phone without a
     // restart; scoped here rather than on the phone, which then needs no notion of session
