@@ -167,6 +167,7 @@ remaining row unlocks one feature.
 | **Required** | `claude` | every Claude session | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in |
 | **Required** | `git` | [worktree isolation](features.html), each cell's branch / unsaved-dot / diff readout, the PR footer | `brew install git` · `sudo apt install git` · Windows: [git-scm.com](https://git-scm.com/download/win) |
 | **Required** | `gh` | the [cross-repo PRs & Issues view](github.html) and one-click PR creation | [cli.github.com](https://cli.github.com), then `gh auth login` |
+| Optional | `glab` | the same for **gitlab.com** projects — list, start work on an issue, open a merge request | `brew install glab`, then `glab auth login` |
 | Recommended | `tmux` | [session persistence](features.html) — terminals survive a server restart | `brew install tmux` · `sudo apt install tmux` · no native Windows build (plain terminals instead) |
 | Optional | `codex` | [Codex sessions](basics.html#claude-and-codex) in a cell, alongside Claude | `npm i -g @openai/codex` |
 | Optional | `ffmpeg` | video rendering from the [GUI panel](features.html)'s mulmo-script plugin | `brew install ffmpeg` · `sudo apt install ffmpeg` |

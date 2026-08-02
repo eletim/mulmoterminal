@@ -46,10 +46,17 @@ Add to **`prRepos`** (an array of `"owner/repo"` strings) in `~/.mulmoterminal/c
 }
 ```
 
-An entry may also name its host — `"gitlab.com/group/project"` — which is only useful for saying
-what a repository is: **github.com is the only forge this reads today**, and an entry on any other
-host now shows a row saying so instead of silently contributing nothing. A bare `owner/repo` means
-github.com, so nothing you already have changes.
+An entry may also name its host — `"gitlab.com/group/project"`. **GitLab projects are read too**,
+with `glab` in the same role `gh` plays for GitHub: the list, starting work from an issue, work
+comments, and opening a merge request all work. GitLab groups nest, so
+`gitlab.com/group/sub/project` is fine. A bare `owner/repo` still means github.com, so nothing you
+already have changes.
+
+An entry on any OTHER host shows a row naming that host, rather than silently contributing nothing.
+
+One difference worth knowing: a GitLab row's CI dot is usually blank, because GitLab's
+merge-request list carries no pipeline status and reading it costs one call per merge request. A
+cell watching a single branch does read it, so the phase pill in the cockpit is accurate.
 
 → See [Configuration](config.html) for the full key list.
 
