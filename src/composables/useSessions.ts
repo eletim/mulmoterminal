@@ -58,7 +58,12 @@ export function mergeStable(prev: Session[], incoming: Session[], resort: boolea
   if (resort || prev.length === 0) return incoming;
   const incomingById = new Map(incoming.map((s) => [s.id, s]));
   const prevIds = new Set(prev.map((s) => s.id));
-  const kept = prev.filter((s) => incomingById.has(s.id)).map((s) => incomingById.get(s.id) as Session);
+  // flatMap over the lookup: `filter` then `get` made the compiler re-derive that the key is
+  // present, which is what the assertion was papering over.
+  const kept = prev.flatMap((s) => {
+    const fresh = incomingById.get(s.id);
+    return fresh ? [fresh] : [];
+  });
   const added = incoming.filter((s) => !prevIds.has(s.id));
   return [...added, ...kept];
 }
