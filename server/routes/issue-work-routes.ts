@@ -14,6 +14,7 @@ import type { SpawnClaudeOptions } from "../session/spawn-claude.js";
 import { isIssueNumber } from "../../common/prPhase.js";
 import { isRepoEntry, repoIdentity } from "../../common/repoEntry.js";
 import { requestOriginAllowed } from "./same-origin-guard.js";
+import { requestBody } from "./requestBody.js";
 
 export interface IssueWorkRouteDeps {
   /** Returns `unknown` on purpose: this route ignores the PtyEntry the spawner hands back, and
@@ -30,7 +31,7 @@ const STATUS_FOR_REASON: Record<string, number> = { "issue-not-found": 409, "wor
 export function mountIssueWorkRoutes(app: Express, deps: IssueWorkRouteDeps): void {
   app.post("/api/issues/start", async (req, res) => {
     if (!requestOriginAllowed(req, deps.isAllowedOrigin)) return res.status(403).end();
-    const { repo, issue, dir } = req.body ?? {};
+    const { repo, issue, dir } = requestBody(req.body);
     if (typeof repo !== "string" || !isRepoEntry(repo) || !isIssueNumber(issue) || typeof dir !== "string") {
       return res.status(400).json({ error: "repo ([host/]owner/repo), a positive issue number and dir are required" });
     }

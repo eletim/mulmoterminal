@@ -52,6 +52,7 @@ import type { SessionMeta } from "../session/types.js";
 import { parseActivityIds, selectSessionRows } from "../session/session-list.js";
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
+import { requestBody } from "./requestBody.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -100,7 +101,7 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, freshe
 async function setMemo(req: Request<{ id: string }>, res: Response, publishActivity: SessionRouteDeps["publishActivity"]) {
   const { id } = req.params;
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-  const { text } = req.body ?? {};
+  const { text } = requestBody(req.body);
   if (typeof text !== "string") return res.status(400).json({ error: "text must be a string" });
   await sessionMemosHydrated; // or a write during startup is undone by the file it raced
   try {

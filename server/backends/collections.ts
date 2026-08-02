@@ -67,6 +67,7 @@ import { manageCollectionHandler } from "../infra/collection-tool.js";
 import { hostLogger } from "./hostLogger.js";
 import { mutateStatus, mutateWriteApplied } from "./mutateStatus.js";
 import { isRecord } from "../../common/isRecord.js";
+import { requestBody } from "../routes/requestBody.js";
 
 // Console-backed logger matching the engine's CollectionLogger shape
 // (prefix, message, optional structured data) — shared with the other engines'
@@ -282,9 +283,10 @@ const registryImportHandler: RequestHandler = async (req, res) => {
     res.status(503).json({ error: "collections backend not initialized" });
     return;
   }
-  const author = typeof req.body?.author === "string" ? req.body.author : "";
-  const slug = typeof req.body?.slug === "string" ? req.body.slug : "";
-  const registry = typeof req.body?.registry === "string" && req.body.registry ? req.body.registry : null;
+  const body = requestBody(req.body);
+  const author = typeof body.author === "string" ? body.author : "";
+  const slug = typeof body.slug === "string" ? body.slug : "";
+  const registry = typeof body.registry === "string" && body.registry ? body.registry : null;
   if (!author || !slug) {
     res.status(400).json({ error: "author and slug are required" });
     return;

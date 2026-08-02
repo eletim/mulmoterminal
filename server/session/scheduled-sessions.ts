@@ -130,7 +130,7 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
   const readEntry = async (name: string): Promise<ScheduledSessionRecord | null> => {
     if (!name.endsWith(".json")) return null;
     try {
-      const raw = JSON.parse(await fs.readFile(path.join(deps.dir, name), "utf8"));
+      const raw: unknown = JSON.parse(await fs.readFile(path.join(deps.dir, name), "utf8"));
       return parseScheduledSessionRecord(name.slice(0, -".json".length), raw, deps.isValidId);
     } catch {
       return null; // unreadable / not JSON — not something we can act on
