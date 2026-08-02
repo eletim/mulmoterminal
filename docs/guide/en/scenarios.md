@@ -51,6 +51,23 @@ worktree is still created.
 
 ![Worktrees start from the launcher form](../images/grid-launch-form.png)
 
+### When you're done, clean up as you close
+
+Closing a worktree cell asks first whether to **keep or remove** it. **Remove worktree** deletes the
+worktree **and its branch**, so you aren't left running `git branch -D` afterwards.
+
+![Closing a worktree cell](../images/worktree-close-keep.png)
+
+**When uncommitted or unpushed work is left, the dialog names the counts** and the button becomes
+**Discard & remove** — what you're about to lose is written on the button itself. The diff is
+re-read the moment the dialog opens (the button reads `Checking…` until it lands), so a change made
+seconds ago can't be discarded unseen.
+
+![Closing a worktree that has uncommitted work](../images/worktree-close-discard.png)
+
+Only worktrees **this app created** can be removed; the server refuses a delete aimed outside the
+directory it manages.
+
 ## 3. Work across multiple repositories
 
 You can point each cell at a **different working directory**. Open your frontend repo and your API repo in adjacent
