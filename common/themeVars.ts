@@ -69,7 +69,9 @@ export interface CustomThemeInput {
 
 /** The full variable set for a theme: the base it extends, with its own colours on top.
  *  `builtins` supplies the base sets so this stays pure — the client reads them from the
- *  stylesheet's source of truth, the specs from a fixture. */
+ *  stylesheet's source of truth, the specs from a fixture. PARTIAL because a base can genuinely be
+ *  missing (a stylesheet read that found no block for that id), and the `?? {}` below has always
+ *  handled that — the map only ever needed one key, never all of them. */
 // Every variable present, which is what separates a set we can paint with from one we cannot.
 // A guard rather than a length check on the missing keys: both ask the same question, but only
 // this one hands the answer to the compiler.
@@ -77,7 +79,7 @@ function isCompleteThemeVars(vars: Partial<ThemeVars>): vars is ThemeVars {
   return THEME_VAR_KEYS.every((key) => !!vars[key]);
 }
 
-export function resolveThemeVars(theme: CustomThemeInput, builtins: Record<ThemeId, ThemeVars>): ThemeVars | null {
+export function resolveThemeVars(theme: CustomThemeInput, builtins: Partial<Record<ThemeId, ThemeVars>>): ThemeVars | null {
   const base = theme.extends ? builtins[theme.extends] : null;
   const merged: Partial<ThemeVars> = { ...(base ?? {}), ...theme.colors };
   // No base and an incomplete list is the one case we cannot paint: report it rather than
