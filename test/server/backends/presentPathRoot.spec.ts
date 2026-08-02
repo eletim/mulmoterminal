@@ -12,14 +12,16 @@ import { absolutizePresentPath, mountPresentPathRoot, SESSION_HEADER } from "../
 
 const MD = [".md"] as const;
 const HTML = [".html", ".htm"] as const;
-const CWD = "/repos/mulmoterminal";
-const WORKSPACE = "/home/u/mulmoclaude";
+// A session cwd is a native absolute path, so the fixtures are resolved rather than spelled
+// POSIX-only: on Windows `/repos/…` is drive-relative and the separator is `\`.
+const CWD = path.resolve("/repos/mulmoterminal");
+const WORKSPACE = path.resolve("/home/u/mulmoclaude");
 
 describe("absolutizePresentPath", () => {
   it("resolves a relative path against the session cwd", () => {
-    expect(absolutizePresentPath({ title: "T", path: "README.md" }, CWD, MD)).toEqual({ title: "T", path: `${CWD}/README.md` });
-    expect(absolutizePresentPath({ path: "docs/design.md" }, CWD, MD)).toEqual({ path: `${CWD}/docs/design.md` });
-    expect(absolutizePresentPath({ path: "docs/report.html" }, CWD, HTML)).toEqual({ path: `${CWD}/docs/report.html` });
+    expect(absolutizePresentPath({ title: "T", path: "README.md" }, CWD, MD)).toEqual({ title: "T", path: path.join(CWD, "README.md") });
+    expect(absolutizePresentPath({ path: "docs/design.md" }, CWD, MD)).toEqual({ path: path.join(CWD, "docs", "design.md") });
+    expect(absolutizePresentPath({ path: "docs/report.html" }, CWD, HTML)).toEqual({ path: path.join(CWD, "docs", "report.html") });
   });
 
   it("leaves an absolute path alone", () => {
@@ -62,7 +64,7 @@ describe("the /api/plugin middleware", () => {
   const SESSION = "11111111-2222-3333-4444-555555555555";
 
   const DOT_SESSION = "99999999-8888-7777-6666-555555555555";
-  const DOT_CWD = "/home/u/.mulmoterminal/worktrees/repo-ab12/task";
+  const DOT_CWD = path.resolve("/home/u/.mulmoterminal/worktrees/repo-ab12/task");
 
   beforeAll(async () => {
     const app = express();
