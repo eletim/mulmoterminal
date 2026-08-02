@@ -2,7 +2,7 @@
 title: GitHub — cross-repo PRs & Issues
 layout: default
 parent: English
-nav_order: 10
+nav_order: 9
 description: See every registered repository's open PRs and issues in one cross-repo view.
 ---
 

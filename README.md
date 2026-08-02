@@ -204,6 +204,11 @@ more.
 
 Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
 
+> **Never installed any of this before?** The guide walks it end to end, macOS and Windows,
+> assuming no command-line experience:
+> [Getting started](https://receptron.github.io/mulmoterminal/guide/en/getting-started.html) ·
+> [はじめに — 起動するまで](https://receptron.github.io/mulmoterminal/guide/ja/getting-started.html)
+
 | | Tool | What it gives you | Install |
 | --- | --- | --- | --- |
 | **Required** | [`claude`](https://claude.com/claude-code) | every Claude session — this app is a cockpit for it | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in |

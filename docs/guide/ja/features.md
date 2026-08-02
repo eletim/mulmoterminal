@@ -2,7 +2,7 @@
 title: 機能一覧
 layout: default
 parent: 日本語
-nav_order: 4
+nav_order: 5
 description: MulmoTerminal の機能一覧。並列ターミナル、コックピットロスター、git worktree、GUI パネル、スマホ通知、Claude Code / Codex 対応をまとめて。
 ---
 
