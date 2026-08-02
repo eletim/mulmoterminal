@@ -50,6 +50,32 @@ describe("jsonPayload", () => {
     expect("polluted" in {}).toBe(false);
   });
 
+  // stringify calls `toJSON` before looking at own keys, so a Date must become its ISO string.
+  // Walking its (empty) key list instead produced `{}` — silent data loss (Codex review on #1288).
+  it("serializes a Date through toJSON, as stringify does", () => {
+    const value = { when: new Date("2026-08-02T00:00:00Z"), nested: { at: new Date(0) } };
+    expect(jsonPayload(value)).toEqual({ when: "2026-08-02T00:00:00.000Z", nested: { at: "1970-01-01T00:00:00.000Z" } });
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
+  it("serializes a Date inside an array too", () => {
+    const value = { list: [new Date(0), 1] };
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
+  // stringify throws rather than skipping, and so must this: dropping the key would ship a
+  // payload silently missing a field.
+  it("throws on a bigint, as stringify does", () => {
+    expect(() => jsonPayload({ n: 1n })).toThrow(TypeError);
+    expect(() => JSON.stringify({ n: 1n })).toThrow(TypeError);
+  });
+
+  // An object with no toJSON keeps the walk — Map has no own enumerable keys, so `{}` is right.
+  it("gives an empty object for a Map, as stringify does", () => {
+    const value = { m: new Map([["a", 1]]) };
+    expect(jsonPayload(value)).toEqual(stringified(value));
+  });
+
   it("is empty for an empty record", () => {
     expect(jsonPayload({})).toEqual({});
   });

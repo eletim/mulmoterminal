@@ -13,16 +13,26 @@
 import { isRecord } from "../../../common/isRecord.js";
 import type { JsonObject, JsonValue } from "@mulmoclaude/core/remote-host";
 
+// `toJSON` is how a Date (and anything else defining it) becomes JSON — stringify calls it before
+// looking at the object's own keys, so this must too or a Date would serialize as `{}`.
+const isToJson = (value: unknown): value is (this: unknown) => unknown => typeof value === "function";
+
 /** A value as JSON, or undefined for something JSON has no representation for. */
 export function toJsonValue(value: unknown): JsonValue | undefined {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
   // NaN and ±Infinity have no JSON form — JSON.stringify writes them as null, so this does too
   // rather than dropping the key and changing the shape the client sees.
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  // stringify THROWS on a bigint rather than skipping it. Matching that matters: dropping it
+  // instead would ship a payload silently missing a field (Codex review on #1288).
+  if (typeof value === "bigint") throw new TypeError("Do not know how to serialize a BigInt");
   // An element JSON cannot represent becomes null rather than vanishing: dropping it would shift
   // every later index, which is what JSON.stringify avoids by writing null.
   if (Array.isArray(value)) return value.map((entry) => toJsonValue(entry) ?? null);
-  if (isRecord(value)) return jsonPayload(value);
+  if (isRecord(value)) {
+    const toJson = value.toJSON;
+    return isToJson(toJson) ? toJsonValue(toJson.call(value)) : jsonPayload(value);
+  }
   return undefined;
 }
 
