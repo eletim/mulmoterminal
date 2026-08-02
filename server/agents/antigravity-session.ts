@@ -46,7 +46,7 @@ export function snapshotAntigravitySessions(root: string = antigravityBrainRoot(
 // The one conversation this session created, or null while that is still ambiguous.
 export function pickFreshAntigravitySession(root: string, before: ReadonlySet<string>, claimed?: ReadonlySet<string>): string | null {
   const found = listAntigravityConversationIds(root).filter((id) => !before.has(id) && !claimed?.has(id));
-  return found.length === 1 ? found[0] : null;
+  return found.length === 1 ? (found[0] ?? null) : null;
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

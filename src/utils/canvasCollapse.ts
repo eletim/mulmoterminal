@@ -36,6 +36,7 @@ export function collapseByIdentity<T>(results: readonly T[], identityOf: (result
   const kept: T[] = [];
   for (let i = results.length - 1; i >= 0; i--) {
     const result = results[i];
+    if (result === undefined) continue;
     const identity = identityOf(result);
     if (identity !== null) {
       if (seen.has(identity)) continue;

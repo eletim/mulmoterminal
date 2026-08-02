@@ -61,7 +61,8 @@ function newestBackup(dir: string): string | null {
       .readdirSync(dir)
       .filter((n) => n.endsWith(BACKUP_SUFFIX))
       .sort(byCodeUnit);
-    return names.length ? path.join(dir, names[names.length - 1]) : null;
+    const newest = names[names.length - 1];
+    return newest === undefined ? null : path.join(dir, newest);
   } catch {
     return null;
   }

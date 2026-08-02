@@ -25,7 +25,7 @@ const HAS_LETTER = /[A-Za-z]/;
 // / `a.tar.gz` qualify but a fraction like `1/2.5` does not.
 function endsInFileExtension(text: string): boolean {
   const ext = TRAILING_EXTENSION.exec(text);
-  return ext !== null && HAS_LETTER.test(ext[1]);
+  return ext?.[1] !== undefined && HAS_LETTER.test(ext[1]);
 }
 
 export function findFilePathLinks(line: string): FilePathLink[] {
