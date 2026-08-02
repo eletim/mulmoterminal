@@ -208,6 +208,12 @@ describe("currentClaudeLimits", () => {
     expect(currentClaudeLimits(heldAt(NOW - CLAUDE_READING_MAX_AGE_MS + 1000), NOW)).toEqual(limits);
   });
 
+  // The boundary itself is not "too old" — the rule is OLDER than the age, and the two disagreed by
+  // a millisecond until Codex review pointed at it.
+  it("still draws one exactly at the age", () => {
+    expect(currentClaudeLimits(heldAt(NOW - CLAUDE_READING_MAX_AGE_MS), NOW)).toEqual(limits);
+  });
+
   it("drops one older than that, so the gauge explains itself instead", () => {
     expect(currentClaudeLimits(heldAt(NOW - CLAUDE_READING_MAX_AGE_MS - 1), NOW)).toBeNull();
   });

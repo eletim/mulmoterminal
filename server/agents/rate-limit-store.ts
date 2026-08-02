@@ -152,7 +152,9 @@ const afterAvailability = (state: ProbeState, available: boolean): ProbeState =>
 export function currentClaudeLimits(snapshot: RateLimitSnapshot, now_ms: number): RateLimits | null {
   const held = snapshot.claude;
   if (!held) return null;
-  return now_ms - held.reportedAt_ms < CLAUDE_READING_MAX_AGE_MS ? held.limits : null;
+  // Inclusive, so the rule is exactly the one written above it: a reading is dropped when it is
+  // OLDER than the age, not when it reaches it (Codex review).
+  return now_ms - held.reportedAt_ms <= CLAUDE_READING_MAX_AGE_MS ? held.limits : null;
 }
 
 /** Told after a report that carried windows. The agent is part of it because the two callers want
