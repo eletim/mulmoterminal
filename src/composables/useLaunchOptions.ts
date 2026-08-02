@@ -6,14 +6,49 @@
 // the settings screen rather than a poll.
 import { ref } from "vue";
 import type { LaunchOptions, LaunchProviderOption } from "../../common/launchOptions";
+import type { ModelPreset, ModelTrials } from "../../common/modelPresets";
 import { isRecord } from "../../common/isRecord";
-
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
 
-// The picker renders a provider by id/label and launches by id, so a row missing either is
-// dropped rather than shown as an unlabelled button that does nothing.
-const isLaunchProviderOption = (row: unknown): row is LaunchProviderOption => isRecord(row) && typeof row.id === "string" && typeof row.label === "string";
+// EVERY required field, not just the two the list renders. The guard asserts the whole
+// LaunchProviderOption, and the picker goes on to read the rest of it — `sortedModels(provider.
+// models)` iterates `models`, and `ready` / `tokenEnv` drive the disabled state and the setup
+// hint. Checking only id/label would let a malformed row through under a type that promises them.
+// `trials` is a discriminated union, and the picker's label branches on its `status` — an
+// unrecognised one would render neither a measurement nor an honest "unmeasured".
+const isModelTrials = (value: unknown): value is ModelTrials =>
+  isRecord(value) &&
+  ((value.status === "measured" &&
+    typeof value.passed === "number" &&
+    typeof value.of === "number" &&
+    (value.medianSeconds === null || typeof value.medianSeconds === "number") &&
+    typeof value.measuredAt === "string") ||
+    (value.status === "unreachable" && typeof value.reason === "string" && typeof value.measuredAt === "string") ||
+    value.status === "unmeasured");
+
+// Every required field: the option label reads `contextLength` and `trials`, and the badge reads
+// the price. A guard that stopped at id/label would assert a ModelPreset it had not seen.
+const isModelPreset = (row: unknown): row is ModelPreset =>
+  isRecord(row) &&
+  typeof row.provider === "string" &&
+  typeof row.id === "string" &&
+  typeof row.label === "string" &&
+  typeof row.contextLength === "number" &&
+  isRecord(row.pricePerMTok) &&
+  typeof row.pricePerMTok.input === "number" &&
+  typeof row.pricePerMTok.output === "number" &&
+  isModelTrials(row.trials);
+
+const isLaunchProviderOption = (row: unknown): row is LaunchProviderOption =>
+  isRecord(row) &&
+  typeof row.id === "string" &&
+  typeof row.label === "string" &&
+  typeof row.ready === "boolean" &&
+  typeof row.tokenEnv === "string" &&
+  isUnknownArray(row.models) &&
+  row.models.every(isModelPreset) &&
+  (row.reason === undefined || typeof row.reason === "string");
 
 const EMPTY: LaunchOptions = { providers: [], anyReady: false };
 const FETCH_TIMEOUT_MS = 8000;
