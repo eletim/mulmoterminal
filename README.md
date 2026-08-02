@@ -740,22 +740,21 @@ yarn dev                # backend (:34567) + Vite UI (:6856), concurrently — o
 yarn dev:server         # backend only  (node --import tsx --env-file-if-exists=.env server/index.ts)
 yarn dev:client         # Vite dev server only
 
-yarn build              # type-check (vue-tsc) + vite build -> dist/
-yarn typecheck:server   # type-check the server (tsconfig.server.json)
-yarn typecheck:test     # type-check the specs (tsconfig.test*.json)
+yarn typecheck          # type-check everything (vue-tsc -b)
+yarn build              # type-check + vite build -> dist/
 yarn server             # run backend; serves dist/ + the APIs on :34567
 yarn test               # vitest run
 ```
 
-The backend is TypeScript run directly via `tsx` (no build step); `server/` is
-type-checked separately through `tsconfig.server.json` (`strict`), kept out of
-the main `build` so the two type-check independently.
-
-Specs sit outside both of those projects, and vitest strips types rather than
-checking them — so `yarn typecheck:test` is what keeps them honest. It mirrors
-the same split: `tsconfig.test.json` (client specs, DOM + `.vue`) and
-`tsconfig.test-server.json` (server specs, node). CI runs it alongside the
-other two.
+`yarn typecheck` covers the whole repo. The root `tsconfig.json` is a solution
+file that references all five projects, so one `vue-tsc -b` builds them:
+`tsconfig.app.json` (client), `tsconfig.node.json` (vite config),
+`tsconfig.server.json` (backend, run directly via `tsx` with no build step),
+plus `tsconfig.test.json` and `tsconfig.test-server.json` for the specs — which
+need checking of their own because vitest strips types rather than checking
+them. They exist as separate projects because each has its own compiler options
+(the client ones DOM + `.vue`, the server ones node, the specs with
+`noUncheckedIndexedAccess` off).
 
 In dev, open the Vite URL; its proxy forwards `/ws`, `/ws/pubsub`, and `/api` to
 `:34567`. In production, run `yarn build` then `yarn server` and open
