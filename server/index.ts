@@ -13,7 +13,7 @@ import { initOpenPathBackend } from "./backends/openPath.js";
 import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
-import { submitSequence, submitSequenceForAgent } from "../common/terminalSubmit.js";
+import { submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
@@ -42,6 +42,7 @@ import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
 import { hasBinary } from "./infra/has-binary.js";
 import { newProbeSessionId } from "./agents/probe-session.js";
+import { writeProbeScreen } from "./agents/probe-stall.js";
 import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
 import { removeLegacySandboxCredentials, removeLegacySandboxContainers } from "./infra/fs-cleanup.js";
 import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/codex-rollout.js";
@@ -391,6 +392,14 @@ const claudeIsRunnable = (): boolean => {
 // like the bug this fixes (#1010).
 const TRANSCRIPT_FLUSH_MS = 5_000;
 
+// A probe that stopped for a reason nothing here can name. The screen is the only evidence there
+// is, and without it the next report of "usage says n/a" starts from nothing (#1293).
+const reportProbeScreen = (screen: string): void => {
+  if (!screen) return;
+  const file = writeProbeScreen(MULMOTERMINAL_HOME, screen);
+  if (file) console.warn(`[rate-limit] the usage probe reported nothing; what its terminal showed is in ${file}`);
+};
+
 const startClaudeRateLimitProbe = (): void => {
   // Belt and braces: the route has already refused to want a probe when claude is missing, but
   // this is the last point before a spawn and the flag it would strand is set by the caller.
@@ -407,17 +416,16 @@ const startClaudeRateLimitProbe = (): void => {
     port: PORT,
     cwd: CLAUDE_CWD,
     sessionId,
-    // The probe IS a claude TUI, so it submits by the user's Claude binding like every other
-    // claude session — read per probe so a config edit needs no restart.
-    submitSequence: () => submitSequence(getTerminalSubmit()),
     // A probe that settles WITHOUT the status line having reported is the "asked, heard nothing"
     // case. report() has already moved the state on if anything arrived, so this only widens the
     // gap when nothing did.
-    onSettled: () => {
+    onSettled: ({ stall, screen }) => {
       // Cleared here rather than by whoever called stop(): `stop()` is idempotent, but a stale
       // reference would let the NEXT probe be killed by a late report belonging to this one.
       stopClaudeRateLimitProbe = null;
-      rateLimitStore.noteProbeFailedIfNoReport(Date.now());
+      // Only a probe that failed for a reason we cannot name leaves its screen behind — a named one
+      // is already on the gauge, and a successful one has nothing to explain (#1293).
+      if (rateLimitStore.noteProbeFailedIfNoReport(Date.now(), stall) && stall === "unknown") reportProbeScreen(screen);
       rateLimitStore.setProbeInFlight(false);
       // Hiding it from /api/sessions is not enough: `claude --resume` reads the transcript
       // directory itself, so the probe has to take its own file with it (#1010).
