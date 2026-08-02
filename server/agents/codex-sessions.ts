@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { isRecord } from "../../common/isRecord.js";
 import { cleanTitle, parseJsonRecord, readTranscriptHead } from "./transcript-head.js";
+import { byCodeUnit } from "../../common/byCodeUnit.js";
 
 const ROLLOUT_RE = /^rollout-.*\.jsonl$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -52,7 +53,7 @@ function subdirsDesc(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true })
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
-      .sort()
+      .sort(byCodeUnit)
       .reverse();
   } catch {
     return [];
@@ -69,7 +70,7 @@ function dayDirsDesc(root: string): string[] {
 function rolloutsInDay(dayDir: string): string[] {
   return readdirSync(dayDir)
     .filter((n) => ROLLOUT_RE.test(n))
-    .sort()
+    .sort(byCodeUnit)
     .reverse()
     .map((f) => path.join(dayDir, f));
 }
