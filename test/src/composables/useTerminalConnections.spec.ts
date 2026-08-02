@@ -585,6 +585,17 @@ describe("a keystroke with nowhere to go tells the view", () => {
       expect(onInputDropped).toHaveBeenCalledWith(true);
     });
 
+    // The quietest one: a dictated sentence, a dropped path, a pasted screenshot's path. The user
+    // is watching the input box for text to appear, so nothing about the terminal changes at all.
+    it("tells the view when inserted text hits a closed socket", () => {
+      const onInputDropped = vi.fn();
+      attachClosedSlot(onInputDropped);
+
+      conn.insertText(KEY, "~/shots/pasted.png ");
+
+      expect(onInputDropped).toHaveBeenCalledWith(true);
+    });
+
     // Empty text never had anything to deliver, so its `false` is not a drop — reporting it would
     // put a "not connected" banner on a paste of nothing.
     it("says nothing for empty text", () => {
@@ -593,6 +604,7 @@ describe("a keystroke with nowhere to go tells the view", () => {
 
       expect(conn.pasteText(KEY, "")).toBe(false);
       expect(conn.pasteAndSubmit(KEY, "")).toBe(false);
+      conn.insertText(KEY, "");
 
       expect(onInputDropped).not.toHaveBeenCalled();
     });

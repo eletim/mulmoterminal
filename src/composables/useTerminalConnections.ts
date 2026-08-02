@@ -205,6 +205,8 @@ interface Conn {
   // A drop has already been LOGGED for this disconnected stretch. One line is all a post-mortem
   // needs; fifty say nothing more. The banner is timed separately below. Both clear on open.
   warnedDroppedInput: boolean;
+  // -Infinity rather than 0 so "never notified" outlasts any cooldown: a spec that stubs Date.now
+  // to a small number would otherwise lose the FIRST banner and still read as passing.
   lastDroppedInputNoticeMs: number;
 }
 
@@ -572,7 +574,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     font,
     lastRebuildMs: 0,
     warnedDroppedInput: false,
-    lastDroppedInputNoticeMs: 0,
+    lastDroppedInputNoticeMs: Number.NEGATIVE_INFINITY,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
@@ -666,7 +668,7 @@ function connect(c: Conn) {
     // A new stretch: worth a line again, and worth saying at once rather than after whatever was
     // left of the previous stretch's cooldown.
     c.warnedDroppedInput = false;
-    c.lastDroppedInputNoticeMs = 0;
+    c.lastDroppedInputNoticeMs = Number.NEGATIVE_INFINITY;
     setStatus(c, "connected");
     sock.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
   };
@@ -915,10 +917,16 @@ export function listSlots(): SlotInfo[] {
 // Insert text (a path, or space-joined paths) at the cursor via the normal input
 // channel — no trailing CR, so the user reviews and submits.
 export function insertText(key: string, text: string) {
-  if (!text) return;
+  if (!text) return; // nothing to deliver — not a drop
   const c = conns.get(key);
   if (!c) return;
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data: text }));
+  // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
+  // is watching for text to appear in the input box rather than for a reply (#1315).
+  if (c.ws?.readyState === WebSocket.OPEN) {
+    c.ws.send(JSON.stringify({ type: "input", data: text }));
+  } else {
+    reportDroppedInput(c);
+  }
   c.term.focus();
 }
 

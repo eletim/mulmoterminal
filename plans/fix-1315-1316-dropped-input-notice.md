@@ -13,9 +13,13 @@ it, so pressing either while disconnected does nothing and explains nothing.
 Worse than the keystroke case it was fixed alongside: someone who pressed a button has no sense
 of having typed, so the natural reading is "this button is broken", not "I am disconnected".
 
-**Fix.** The three send functions call `reportDroppedInput(c)` on the closed-socket branch. Every
-host then gets the banner without touching a call site — including hosts written later, which is
-the point: the silence came from each caller having to remember.
+**Fix.** Every send function calls `reportDroppedInput(c)` on the closed-socket branch. Every host
+then gets the banner without touching a call site — including hosts written later, which is the
+point: the silence came from each caller having to remember.
+
+`insertText` belongs in that set too (Codex caught it missing): voice transcription, a dropped
+path and a pasted screenshot's path all arrive through it, and there the user is watching the
+input box rather than waiting for a reply — so nothing on screen moves at all.
 
 Empty text is NOT a drop (`pasteText("")` never had anything to deliver), so it must not notify.
 

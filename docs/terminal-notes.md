@@ -177,7 +177,7 @@ calling the render callback, so a renderer that throws still repaints on the nex
 ### The other silence: input the socket never took
 
 A slot only writes to the socket when it is `OPEN` — during the reconnect backoff, or after a
-`superseded`, input is dropped and **nothing changes on screen**, which is indistinguishable
+`superseded` message, input is dropped and **nothing changes on screen**, which is indistinguishable
 from a terminal that received it and printed nothing. The status pill says `disconnected`, but it
 lives in a header the filmstrip hides and nobody watches a pill while typing.
 
@@ -192,8 +192,10 @@ Three details, each of which was wrong once:
 - **Every path into the PTY reports, not just the keyboard.** `submitText` / `pasteText` /
   `pasteAndSubmit` used to answer a closed socket with `false` and nothing else, and only one
   caller ever read it — so a header button or a picked skill did nothing and explained nothing
-  (#1315). A button press is the worse case: whoever pressed it never typed, so the natural reading
-  is "this button is broken". Empty text is not a drop and stays silent.
+  (#1315). `insertText` is the quietest of them: a dictated sentence, a dropped path, a pasted
+  screenshot's path, all of which the user waits to see appear in the input box. A GUI press is
+  the worse case in general: whoever made it never typed, so the natural reading is "this button
+  is broken". Empty text is not a drop and stays silent.
 - **The banner is on a cooldown, not once per stretch.** A stretch has no upper bound (the backoff
   retries forever at a 5s cap) while the banner lives six seconds, so "once per stretch" meant the
   person who came back and typed again got the silence back (#1316). The **log** line stays one per
