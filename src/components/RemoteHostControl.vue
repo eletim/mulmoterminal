@@ -29,6 +29,7 @@ import { remoteHostAlarm, remoteHostView } from "./remoteHostView";
 import { usePubSub } from "../composables/usePubSub";
 import type { RunnerHealth } from "../../common/remoteHostHealth";
 import { isRecord } from "../../common/isRecord";
+import { jsonBody } from "../jsonBody";
 
 // Mobile companion PWA — shown in the dropdown as help text (not fetched here).
 const MOBILE_URL = "https://mulmoserver.web.app";
@@ -76,8 +77,8 @@ async function fetchStatus(url: string, method: "GET" | "POST", body?: unknown):
       ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
     });
     if (!res.ok) {
-      const detail = await res.json().catch(() => null);
-      return { ok: false, error: (detail && typeof detail.error === "string" && detail.error) || `HTTP ${res.status}`, httpStatus: res.status };
+      const detail = await jsonBody(res);
+      return { ok: false, error: typeof detail.error === "string" && detail.error ? detail.error : `HTTP ${res.status}`, httpStatus: res.status };
     }
     const data: unknown = await res.json();
     const status = isRecord(data) ? data.status : undefined;

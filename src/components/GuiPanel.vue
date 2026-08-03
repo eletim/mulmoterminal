@@ -9,6 +9,8 @@ import { reconcileCollectionCard } from "../../common/collectionSeed";
 import { collapseByIdentity } from "../utils/canvasCollapse";
 import { useCanvasCardHeight } from "../composables/useCanvasCardHeight";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // The GUI panel renders the toolResults produced by GUI-protocol plugins. It
 // mirrors the terminal's active session: live results arrive on that session's
@@ -238,11 +240,11 @@ async function loadAvailableTools(sessionId: string | null) {
   try {
     const res = await fetch(sessionId ? `/api/tools?sessionId=${encodeURIComponent(sessionId)}` : "/api/tools");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
+    const body = await jsonBody(res);
     // Late reply for a session we have since walked away from would list another cell's tools.
     if (sessionId !== props.sessionId) return;
-    if (!Array.isArray(body.tools)) return;
-    availableTools.value = body.tools.map((tool: { toolName?: unknown }) => tool?.toolName).filter((name: unknown): name is string => typeof name === "string");
+    if (!isUnknownArray(body.tools)) return;
+    availableTools.value = body.tools.map((tool) => (isRecord(tool) ? tool.toolName : undefined)).filter((name): name is string => typeof name === "string");
   } catch {
     // Leave it unknown rather than empty — the hint falls back to the full list, which is a
     // better answer than telling a working session it has nothing.

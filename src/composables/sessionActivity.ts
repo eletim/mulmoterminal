@@ -10,6 +10,14 @@ export interface CellActivity {
   event: string | null;
 }
 
+/** One session's attention state, read off an untrusted body. The seed endpoint answers a MAP of
+ *  id -> this, with no `id` inside each value, so parseSessionActivityPayload (which keys on `id`)
+ *  is the wrong reader for it. */
+export function readCellActivity(value: unknown): CellActivity | null {
+  if (!isRecord(value)) return null;
+  return { working: !!value.working, waiting: !!value.waiting, event: typeof value.event === "string" ? value.event : null };
+}
+
 export type SessionActivityUpdate = { id: string; closed: true } | { id: string; activity: CellActivity };
 
 export function parseSessionActivityPayload(data: unknown): SessionActivityUpdate | null {

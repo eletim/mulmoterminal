@@ -68,12 +68,18 @@ export function popCollectionTeleportTarget(target: HTMLElement | ShadowRoot): v
   if (i >= 0) teleportStack.splice(i, 1);
 }
 
+// The plugin package declares the generic — the collection package's `CollectionApiResult<T>` seam — so the PLUGIN chooses T and the host has to produce it from a body
+// nothing has checked. Unprovable by construction, exactly like gui-chat-protocol's `dispatch<T>`
+// (see the type-assertion allowlist in eslint.config.js). The claim is made HERE, at the seam,
+// rather than hidden inside fetchJson where it would apply to every caller.
+const asDeclared = <T>(raw: unknown): T => raw as T;
+
 // Read helper: normalise fetch into the package's CollectionApiResult (the view
 // treats `ok:false` with `status` 404 as not-found, any other failure as a skip).
-const apiGet = <T>(url: string): Promise<CollectionApiResult<T>> => fetchJson<T>(url);
+const apiGet = <T>(url: string): Promise<CollectionApiResult<T>> => fetchJson<T>(url, asDeclared);
 
 const apiSend = <T>(method: "POST" | "PUT", url: string, body: unknown): Promise<CollectionApiResult<T>> =>
-  fetchJson<T>(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  fetchJson<T>(url, asDeclared, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 const apiPost = <T>(url: string, body: unknown) => apiSend<T>("POST", url, body);
 const apiPut = <T>(url: string, body: unknown) => apiSend<T>("PUT", url, body);
 

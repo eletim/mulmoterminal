@@ -1,5 +1,6 @@
 import { browserLocale } from "./browserLocale";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
 
 const REQUEST_TIMEOUT_MS = 8000;
 
@@ -22,7 +23,7 @@ export async function translateUiSentence(english: string, namespace: string): P
     });
     if (!res.ok) return english;
     const data: unknown = await res.json();
-    const first = isRecord(data) && Array.isArray(data.translations) ? data.translations[0] : undefined;
+    const first = isRecord(data) && isUnknownArray(data.translations) ? data.translations[0] : undefined;
     return typeof first === "string" ? first : english;
   } catch {
     return english;
