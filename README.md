@@ -1730,6 +1730,19 @@ and `fetch` are mocked so the tests run without a server.
 
 ---
 
+## Who builds this
+
+MulmoTerminal is built by the **[Singularity Society](https://singularitysociety.org)** team,
+including **[Satoshi Nakajima](https://x.com/snakajima)** — software architect for **Windows 95**,
+**Windows 98** and **Internet Explorer 3.0 / 4.0** at Microsoft, later founder of UIEvolution /
+Xevo, and still building from Seattle.
+
+It exists because we run several coding agents every day and kept losing track of which one was
+waiting on us. Everything here was built for that, then kept because it worked. MIT licensed.
+
+- **Updates** are announced in Japanese on X: [@SingularitySoci](https://x.com/SingularitySoci)
+- **Sister project:** [MulmoClaude](https://github.com/receptron/mulmoclaude)
+
 ## Contributing
 
 **Please open an issue rather than a pull request.** Bug reports and feature requests are very
