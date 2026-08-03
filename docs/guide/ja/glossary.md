@@ -77,7 +77,7 @@ MulmoTerminal はこのやり方を**ターミナルで**やるための画面�
 ## ワークスペース（workspace） {#workspace}
 
 サーバの**既定の作業ディレクトリ**（`CLAUDE_CWD`）。
-既定では `npx mulmoterminal` を実行したディレクトリで、`--cwd` と環境変数 `CLAUDE_CWD` が優先されます。
+決まり方は `--cwd` > 環境変数 `CLAUDE_CWD` > `npx mulmoterminal` を実行したディレクトリ の順で、サーバを直接起動したときは `~/mulmoclaude` です。
 起動時に `Workspace: …` と表示されるのがその答えです。
 Collections・Wiki・Accounting が読み書きするのはここで、MulmoClaude と併用するなら**両者で同じディレクトリ**（既定 `~/mulmoclaude`）にします。
 MulmoClaude を clone したディレクトリのことではありません。

@@ -86,7 +86,7 @@ MCP 登録・worktree がないので、選んでいる間はその 3 つの欄�
 
 **WORKING DIRECTORY に何を入れるかで、そのセルが持つ GUI ツールが変わります。**
 基準になるのは**ワークスペース** — サーバの既定の作業ディレクトリ（`CLAUDE_CWD`）です。
-既定では `npx mulmoterminal` を実行したディレクトリで、`--cwd` と環境変数 `CLAUDE_CWD` が優先されます。
+決まり方は `--cwd` > 環境変数 `CLAUDE_CWD` > `npx mulmoterminal` を実行したディレクトリ の順です。
 今どこなのか分からなくなったら、起動時に出る `Workspace: …` が答えです。
 Collections・Wiki・Accounting が読み書きするのは、どのセルにいても常にここです（拡大したセルの横に開く Files ペインだけは、そのセルのディレクトリを見ます）。
 
