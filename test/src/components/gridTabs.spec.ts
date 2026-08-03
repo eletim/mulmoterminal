@@ -19,6 +19,7 @@ import {
   shellCell,
   sessionCell,
   launchInCell,
+  adoptSharedSessions,
   canMoveCell,
   setSortMode,
   moveCell,
@@ -40,6 +41,7 @@ import {
   gridStatusSummary,
 } from "../../../src/components/gridTabs.js";
 import type { AttentionStatus } from "../../../src/components/attentionStatus.js";
+import type { TerminalSessionSummary } from "../../../common/terminalView.js";
 
 const U = (n: number) => `${String(n % 10).repeat(8)}-aaaa-aaaa-aaaa-aaaaaaaaaaaa`;
 const cell = (uid: number, session: string | null = null, cwd: string | null = null): Cell => ({ uid, session, cwd });
@@ -51,6 +53,15 @@ const make = (cells: Cell[], extra: Partial<GridState> = {}): GridState => ({
   nextUid: cells.length,
   sortMode: "manual",
   ...extra,
+});
+const shared = (id: string, over: Partial<TerminalSessionSummary> = {}): TerminalSessionSummary => ({
+  id,
+  title: id,
+  cwd: "/shared",
+  live: true,
+  agent: "shell",
+  resume: { kind: "launcher", shell: true },
+  ...over,
 });
 
 describe("pagination helpers", () => {
@@ -115,6 +126,37 @@ describe("cancelableLaunchUid", () => {
   it("is null when the last cell is occupied (running session or command)", () => {
     expect(cancelableLaunchUid(make(running(2)))).toBeNull();
     expect(cancelableLaunchUid(make([...running(1), { uid: 1, session: null, cwd: null, command: CMD }]))).toBeNull();
+  });
+});
+
+describe("adoptSharedSessions", () => {
+  it("adds each server session once without overwriting existing cells or order", () => {
+    const existing = make([cell(0, U(0), "/local")], { nextUid: 1 });
+    const adopted = adoptSharedSessions(existing, [shared(U(1)), shared(U(0), { cwd: "/server" })]);
+
+    expect(adopted.cells).toEqual([
+      { uid: 0, session: U(0), cwd: "/local" },
+      { uid: 1, session: U(1), cwd: "/shared", launcher: { shell: true, label: "shell" } },
+    ]);
+    expect(adoptSharedSessions(adopted, [shared(U(1))])).toBe(adopted);
+  });
+
+  it("uses the server resume target instead of guessing an endpoint from the client", () => {
+    const adopted = adoptSharedSessions(make([], { nextUid: 0 }), [
+      shared(U(2), { agent: "codex", resume: { kind: "agent", agent: "codex" } }),
+      shared(U(3), { agent: null, resume: { kind: "launcher", shell: true } }),
+    ]);
+
+    expect(adopted.cells[0]).toMatchObject({ session: U(2), cwd: "/shared", agent: "codex" });
+    expect(adopted.cells[1]).toMatchObject({ session: U(3), cwd: "/shared", launcher: { shell: true, label: "shell" } });
+  });
+
+  it("skips hidden sessions and stops at the terminal cap", () => {
+    const full = make(running(81), { nextUid: 81 });
+    expect(adoptSharedSessions(full, [shared(U(9))])).toBe(full);
+
+    const hidden = adoptSharedSessions(make([], { nextUid: 0 }), [shared(U(4)), shared(U(5))], new Set([U(4)]));
+    expect(hidden.cells.map((c) => c.session)).toEqual([U(5)]);
   });
 });
 

@@ -44,6 +44,37 @@ vi.mock("../../../src/composables/usePubSub", () => ({
   }),
 }));
 
+const control = vi.hoisted(() => ({ ready: true, owner: true }));
+vi.mock("../../../src/composables/useTerminalControl", () => ({
+  useTerminalControl: () => ({
+    ready: {
+      get value() {
+        return control.ready;
+      },
+    },
+    isOwner: {
+      get value() {
+        return control.owner;
+      },
+    },
+    state: { value: {} },
+    connectionStatus: { value: "connected" },
+  }),
+}));
+vi.mock("../../../src/composables/useSharedTerminalSessions", () => ({
+  useSharedTerminalSessions: () => ({
+    sessions: new Map(),
+    list: { value: [] },
+    loading: { value: false },
+    error: { value: null },
+    refresh: vi.fn(async () => undefined),
+    requestRefresh: vi.fn(),
+  }),
+}));
+vi.mock("../../../src/composables/useTerminalSnapshots", () => ({
+  useTerminalSnapshots: () => ({ snapshots: new Map(), request: vi.fn(), pollMs: 1500, maxConcurrent: 3 }),
+}));
+
 // Session ids for the roster-ordering test (must be valid UUIDs or parseGridState drops them).
 const IDS = vi.hoisted(() => ({
   blocked: "11111111-1111-1111-1111-111111111111",
@@ -69,6 +100,8 @@ beforeEach(async () => {
 const posts: Array<{ url: string; body: unknown }> = [];
 beforeEach(() => {
   posts.length = 0;
+  control.ready = true;
+  control.owner = true;
   pubsub.reset();
   localStorage.clear();
   globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
@@ -118,6 +151,16 @@ const mountGrid = async () => {
   await flushPromises(); // onMounted loadConfig
   return w;
 };
+
+describe("GridView terminal control gate", () => {
+  it("does not mount TerminalGrid while owner state is unknown", async () => {
+    control.ready = false;
+    const w = await mountGrid();
+
+    expect(w.findComponent({ name: "TerminalGrid" }).exists()).toBe(false);
+    expect(w.get("[data-testid='terminal-control-syncing']").text()).toContain("Syncing terminal control");
+  });
+});
 
 // A TerminalGrid stub that exposes the ordering props the roster/grid receive.
 const OrderStub = {

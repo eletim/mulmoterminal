@@ -4,6 +4,7 @@ import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import type { AttentionStatus } from "./attentionStatus";
+import type { TerminalSessionSummary } from "../../common/terminalView";
 
 // The grid is ONE flat, ordered list of terminal cells, split into pages of 9
 // (the tabs). Closing a cell reflows the whole list so later pages pack forward
@@ -32,6 +33,11 @@ export const shellCell = (cwd: string): Omit<Cell, "uid"> => ({ session: null, c
 // thing from an absent one, and only the absent one survives the JSON a persisted cell round-trips.
 export const sessionCell = (session: string, cwd: string | null, agent: TerminalAgent): Omit<Cell, "uid"> =>
   agent === "claude" ? { session, cwd } : { session, cwd, agent };
+
+export const sharedSessionCell = (session: TerminalSessionSummary): Omit<Cell, "uid"> => {
+  if (session.resume.kind === "launcher") return { session: session.id, cwd: session.cwd, launcher: shellLauncher() };
+  return sessionCell(session.id, session.cwd, session.resume.agent);
+};
 
 export interface Cell {
   uid: number;
@@ -161,6 +167,19 @@ export function insertCellAfter(state: GridState, afterUid: number, cell: Omit<C
   const cells = [...state.cells.slice(0, at), { ...cell, uid }, ...state.cells.slice(at)];
   const expanded = zoomedUid(state) !== null ? uid : state.expanded;
   return { ...state, cells, nextUid: state.nextUid + 1, page: Math.floor(at / PAGE_SIZE), expanded };
+}
+
+export function adoptSharedSessions(state: GridState, sessions: readonly TerminalSessionSummary[], hiddenIds: ReadonlySet<string> = new Set()): GridState {
+  let next = state;
+  const open = new Set(next.cells.map((cell) => cell.session).filter((id): id is string => id !== null));
+  for (const session of sessions) {
+    if (hiddenIds.has(session.id) || open.has(session.id)) continue;
+    const placed = insertCellAfter(next, -1, sharedSessionCell(session));
+    if (placed === next) break;
+    next = placed;
+    open.add(session.id);
+  }
+  return next;
 }
 
 // The Run button opened a script in a spare cell next to the cell that triggered it.

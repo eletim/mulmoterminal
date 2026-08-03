@@ -77,6 +77,22 @@ describe("AppToolbar per-view buttons", () => {
     expect(labels.some((label) => label.startsWith("Grid cell ordering:"))).toBe(true);
   });
 
+  it("disables New terminal accessibly while the grid is view-only", async () => {
+    await router.push("/terminals");
+    await settle();
+    const wrapper = mount(AppToolbar, {
+      props: { addTerminalDisabled: true, addTerminalDisabledTitle: "View-only terminal control" },
+      global: { plugins: [router], stubs: toolbarStubs },
+    });
+    const button = wrapper.get("button[aria-label='New terminal']");
+
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("aria-disabled")).toBe("true");
+    expect(button.attributes("title")).toBe("View-only terminal control");
+    await button.trigger("click");
+    expect(wrapper.emitted("add-terminal")).toBeUndefined();
+  });
+
   it("keeps the priority controls visible together", async () => {
     const wrapper = await mountAt("/terminals");
     const primary = wrapper.get('[data-testid="toolbar-primary-actions"]');

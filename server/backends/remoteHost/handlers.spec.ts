@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createRemoteHostHandlers } from "./handlers/index.js";
-import type { SessionScreen } from "./terminalScreen.js";
+import type { TerminalSessionScreen as SessionScreen } from "../../../common/terminalView.js";
 import { initCollectionsBackend } from "../collections.js";
 
 const unusedTerminalDeps = {

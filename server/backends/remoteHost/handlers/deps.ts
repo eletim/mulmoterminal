@@ -6,8 +6,8 @@
 // host keeps a FACTORY (see ./index.ts) and passes deps down — a deliberate divergence from the
 // reference host, forced by where the state lives rather than by taste.
 import type { SessionAgent } from "../../../../common/sessionAgent.js";
+import type { TerminalSessionScreen as SessionScreen, TerminalSessionSummary } from "../../../../common/terminalView.js";
 import type { IngestResult } from "../ingestAttachments.js";
-import type { SessionScreen, TerminalSessionSummary } from "../terminalScreen.js";
 
 export interface RemoteHostHandlerDeps {
   workspace: string;

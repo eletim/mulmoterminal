@@ -2,13 +2,7 @@
 // Pure (no I/O) so the scoping rule is exhaustively unit-tested.
 import type { SessionAgent } from "../../../common/sessionAgent.js";
 import type { QuickCommand } from "../../../common/quickCommands.js";
-
-// What reaches the phone: the chip's face and the text it inserts. `agents` is a host-side
-// filter and is dropped here, so the phone never has to know what a session kind is.
-export interface QuickCommandChip {
-  label: string;
-  text: string;
-}
+import type { QuickCommandChip } from "../../../common/terminalView.js";
 
 // An entry with no `agents` is offered everywhere, including a session whose kind the host
 // cannot tell. A SCOPED entry needs a known kind to match, so it is withheld from an unknown

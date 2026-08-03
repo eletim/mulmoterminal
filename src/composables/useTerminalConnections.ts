@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- durable xterm/socket manager is intentionally centralized; splitting it would make slot lifecycle bugs easier. */
 // ── CHANGING THE TERMINAL? UPDATE THE DOCS IN THE SAME COMMIT ─────────────────────────
 // Terminal behaviour is documented in three places, and a spec that changes in code but
 // not in prose leaves a reader believing something that is no longer true — which is
@@ -235,6 +236,7 @@ const REBUILD_COOLDOWN_MS = 10_000;
 
 // The heavy per-slot runtime (non-reactive — Vue never needs to track these).
 const conns = new Map<string, Conn>();
+let suspended = false;
 
 // Fit the terminal to its host, push the new size to the PTY, and stick to the
 // bottom. The fit() can throw when the host isn't laid out yet — the caller's
@@ -245,7 +247,7 @@ function fitAndSyncSize(c: Conn): void {
   } catch {
     // host not laid out yet
   }
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
+  if (!suspended && c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
   c.term.scrollToBottom();
 }
 
@@ -389,6 +391,7 @@ export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
+    if (suspended) return;
     // Announced even when the socket is down: the user typed either way, and what a parked cell
     // reads it for (#992) is "someone is using this", not "the PTY received it".
     //
@@ -607,6 +610,7 @@ function guardBufferHealth(c: Conn): void {
 }
 
 function scheduleReconnect(c: Conn) {
+  if (suspended) return;
   if (!shouldReconnect({ released: c.released, sawExit: c.sawExit, reconnectPending: c.reconnectTimer !== null, isCommand: !!c.target.command })) return;
   const delay = reconnectDelayMs(c.reconnectAttempts);
   c.reconnectAttempts++;
@@ -617,7 +621,10 @@ function scheduleReconnect(c: Conn) {
 }
 
 function connect(c: Conn) {
-  if (c.released) return;
+  if (c.released || suspended) {
+    if (suspended) setStatus(c, "disconnected");
+    return;
+  }
   if (c.reconnectTimer) {
     clearTimeout(c.reconnectTimer);
     c.reconnectTimer = null;
@@ -745,7 +752,7 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   // an already-live slot this is the same sync it always was — the send is a no-op until OPEN.
   fitAndSyncSize(c);
   if (created) connect(c);
-  c.term.focus();
+  if (!suspended) c.term.focus();
   // The persisted xterm was just re-parented into a new host. The sync fit() above can no-op (same size)
   // or run before layout, leaving the canvas renderer blank until a scroll. Re-fit + force a repaint next
   // frame, once the host is laid out. Guarded so a slot that detached/re-attached meanwhile is left alone.
@@ -778,6 +785,40 @@ export function retarget(key: string, target: ConnTarget) {
   c.sawExit = false;
   c.released = false;
   connect(c);
+}
+
+export function terminalConnectionsSuspended(): boolean {
+  return suspended;
+}
+
+function closeSocketForSuspend(c: Conn): void {
+  if (c.reconnectTimer) {
+    clearTimeout(c.reconnectTimer);
+    c.reconnectTimer = null;
+  }
+  const sock = c.ws;
+  c.ws = null;
+  try {
+    sock?.close();
+  } catch {
+    // already closing
+  }
+  setStatus(c, "disconnected");
+}
+
+export function suspendAll(): void {
+  if (suspended) return;
+  suspended = true;
+  conns.forEach(closeSocketForSuspend);
+}
+
+export function resumeAll(): void {
+  if (!suspended) return;
+  suspended = false;
+  conns.forEach((c) => {
+    if (c.released || c.sawExit || c.ws || c.reconnectTimer) return;
+    connect(c);
+  });
 }
 
 // Permanently tear the slot down (close socket, dispose xterm). Used for ephemeral
@@ -816,7 +857,7 @@ export function terminate(key: string) {
   const c = conns.get(key);
   if (!c) return;
   c.sawExit = true;
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "terminate" }));
+  if (!suspended && c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "terminate" }));
   release(key);
 }
 
@@ -831,6 +872,7 @@ export function terminate(key: string) {
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
   if (!c) return false;
+  if (suspended) return false;
   const sock = c.ws;
   // The `false` used to be the whole answer, and only one caller ever read it — the rest pressed
   // a button into a closed socket and showed nothing (#1315). Saying so here reaches every host,
@@ -860,6 +902,7 @@ export function pasteText(key: string, text: string): boolean {
   const c = conns.get(key);
   // Empty text is not a dropped paste — there was nothing to deliver, so it stays silent (#1315).
   if (!text || !c) return false;
+  if (suspended) return false;
   if (c.ws?.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
@@ -879,6 +922,7 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
   if (!text || !c) return false; // nothing to deliver — not a drop (#1315)
+  if (suspended) return false;
   if (!sock || sock.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
@@ -916,6 +960,7 @@ export function insertText(key: string, text: string) {
   if (!text) return; // nothing to deliver — not a drop
   const c = conns.get(key);
   if (!c) return;
+  if (suspended) return;
   // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
   // is watching for text to appear in the input box rather than for a reply (#1315).
   if (c.ws?.readyState === WebSocket.OPEN) {
@@ -927,6 +972,7 @@ export function insertText(key: string, text: string) {
 }
 
 export function focus(key: string) {
+  if (suspended) return;
   conns.get(key)?.term.focus();
 }
 
@@ -936,7 +982,7 @@ export function focus(key: string) {
 // unfocused. No-op if the socket isn't open — Terminal.vue re-sends on (re)connect.
 export function sendView(key: string, active: boolean) {
   const c = conns.get(key);
-  if (c?.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "view", active }));
+  if (!suspended && c?.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "view", active }));
 }
 
 // Read a slot's xterm buffer (scrollback + viewport) as plain text — used to hand a

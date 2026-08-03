@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick
 import TerminalCell from "./TerminalCell.vue";
 import CommandCell from "./CommandCell.vue";
 import LauncherCell from "./LauncherCell.vue";
+import TerminalSnapshotCell from "./TerminalSnapshotCell.vue";
 import CockpitRowMenu from "./CockpitRowMenu.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import * as conn from "../composables/useTerminalConnections";
@@ -44,6 +45,8 @@ import { hasCanvasGroup } from "../../common/toolGroups";
 import type { RightPane } from "./gridCell";
 import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
 import type { TerminalAgent } from "../../common/sessionAgent";
+import type { TerminalSessionSummary } from "../../common/terminalView";
+import type { TerminalSnapshotState } from "../composables/useTerminalSnapshots";
 import { jsonBody } from "../jsonBody";
 import { isUnknownArray } from "../../common/isUnknownArray";
 
@@ -85,12 +88,15 @@ const props = defineProps<{
   reorderable?: boolean;
   openSessionIds: string[];
   openCwds: string[];
+  viewerMode?: boolean;
+  sharedSessions?: Map<string, TerminalSessionSummary>;
+  snapshots?: Map<string, TerminalSnapshotState>;
   // While a cell is zoomed: cockpit roster (true) vs thumbnail strip (false). Owned by GridView
   // so the toggle can live in the global toolbar rather than float over the stage.
   listMode: boolean;
 }>();
 const emit = defineEmits<{
-  (e: "session" | "cwd", uid: number, value: string): void;
+  (e: "session" | "cwd" | "hide-snapshot", uid: number, value: string): void;
   (e: "close" | "toggle-expand" | "focus-cell", uid: number): void;
   (e: "run" | "runSpare", uid: number, command: RunCommand): void;
   (e: "launch", uid: number, pick: LaunchPick): void;
@@ -103,6 +109,19 @@ const emit = defineEmits<{
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
+const snapshotSummary = (cell: Cell): TerminalSessionSummary | undefined => (cell.session ? props.sharedSessions?.get(cell.session) : undefined);
+const snapshotSummaryOrFallback = (cell: Cell): TerminalSessionSummary => {
+  const summary = snapshotSummary(cell);
+  if (summary) return summary;
+  return {
+    id: cell.session ?? "",
+    title: cell.session ?? "terminal",
+    cwd: cell.cwd ?? "",
+    live: false,
+    agent: null,
+    resume: { kind: "launcher", shell: true },
+  };
+};
 
 // Whether a roster row that is waiting on the user blinks (#1131). The row's amber stays either
 // way; this is only the motion.
@@ -428,6 +447,14 @@ const gridCellEvents = (cell: Cell) => ({
   move: (dir: -1 | 1) => emit("move", cell.uid, dir),
   status: (value: AttentionStatus) => emit("status", cell.uid, value),
 });
+
+watch(
+  () => props.viewerMode,
+  (viewer) => {
+    if (viewer) setRightPane(null);
+  },
+  { immediate: true },
+);
 
 // What the Canvas pane should say instead of its "ask Claude to draw something" hint. The pane
 // outlives the cell it was opened on, so walking the zoom lands it on cells that can never fill
@@ -1019,42 +1046,58 @@ watch(
          bound only in that mode so it cannot reach the tiled grid or list mode's off-screen one. -->
     <div class="grid" :style="[gridStyle, zoomed && !listMode ? { flexBasis: `${stripHeight}px` } : {}]">
       <Teleport v-for="cell in cells" :key="cell.uid" :to="zoomMain" :disabled="!(zoomed && cell.uid === expandedUid)">
-        <CommandCell v-if="cell.command" v-bind="gridCellProps(cell)" :command="cell.command" v-on="gridCellEvents(cell)" />
-        <LauncherCell
-          v-else-if="cell.launcher"
-          :uid="cell.uid"
-          v-bind="gridCellProps(cell)"
-          :launcher="cell.launcher"
-          :session="cell.session"
-          :cwd="cell.cwd"
-          v-on="gridCellEvents(cell)"
-          @session="(id) => emit('session', cell.uid, id)"
-        />
-        <TerminalCell
-          v-else
-          :uid="cell.uid"
-          v-bind="gridCellProps(cell)"
-          :initial-session-id="cell.session"
-          :initial-cwd="cell.cwd"
-          :initial-agent="cell.agent"
-          :default-cwd="defaultCwd"
-          :presets="presets"
-          :launchers="launchers"
-          :open-session-ids="openSessionIds"
-          :open-cwds="openCwds"
-          :cancellable="cell.uid === cancelUid"
-          :parked="cell.parked === true"
-          v-on="gridCellEvents(cell)"
-          @park="(on) => emit('park', cell.uid, on)"
-          @session="(id) => emit('session', cell.uid, id)"
-          @agent="(a) => emit('agent', cell.uid, a)"
-          @cwd="(c) => emit('cwd', cell.uid, c)"
-          @record-cwd="(c) => emit('record-cwd', c)"
-          @remove-preset="(path) => emit('remove-preset', path)"
-          @run="(cmd) => emit('run', cell.uid, cmd)"
-          @run-spare="(cmd) => emit('runSpare', cell.uid, cmd)"
-          @launch="(pick) => emit('launch', cell.uid, pick)"
-        />
+        <template v-if="viewerMode">
+          <TerminalSnapshotCell
+            v-if="cell.session && snapshotSummary(cell)"
+            :data-uid="cell.uid"
+            :class="cellClass(cell.uid)"
+            :summary="snapshotSummaryOrFallback(cell)"
+            :snapshot="snapshots?.get(cell.session)"
+            :expanded="cell.uid === expandedUid"
+            :zoomed="zoomed"
+            :home="home"
+            @toggle-expand="emit('toggle-expand', cell.uid)"
+            @hide="(sessionId) => emit('hide-snapshot', cell.uid, sessionId)"
+          />
+        </template>
+        <template v-else>
+          <CommandCell v-if="cell.command" v-bind="gridCellProps(cell)" :command="cell.command" v-on="gridCellEvents(cell)" />
+          <LauncherCell
+            v-else-if="cell.launcher"
+            :uid="cell.uid"
+            v-bind="gridCellProps(cell)"
+            :launcher="cell.launcher"
+            :session="cell.session"
+            :cwd="cell.cwd"
+            v-on="gridCellEvents(cell)"
+            @session="(id) => emit('session', cell.uid, id)"
+          />
+          <TerminalCell
+            v-else
+            :uid="cell.uid"
+            v-bind="gridCellProps(cell)"
+            :initial-session-id="cell.session"
+            :initial-cwd="cell.cwd"
+            :initial-agent="cell.agent"
+            :default-cwd="defaultCwd"
+            :presets="presets"
+            :launchers="launchers"
+            :open-session-ids="openSessionIds"
+            :open-cwds="openCwds"
+            :cancellable="cell.uid === cancelUid"
+            :parked="cell.parked === true"
+            v-on="gridCellEvents(cell)"
+            @park="(on) => emit('park', cell.uid, on)"
+            @session="(id) => emit('session', cell.uid, id)"
+            @agent="(a) => emit('agent', cell.uid, a)"
+            @cwd="(c) => emit('cwd', cell.uid, c)"
+            @record-cwd="(c) => emit('record-cwd', c)"
+            @remove-preset="(path) => emit('remove-preset', path)"
+            @run="(cmd) => emit('run', cell.uid, cmd)"
+            @run-spare="(cmd) => emit('runSpare', cell.uid, cmd)"
+            @launch="(pick) => emit('launch', cell.uid, pick)"
+          />
+        </template>
       </Teleport>
     </div>
   </div>

@@ -92,12 +92,9 @@ import {
   captureSessionScreen,
   sessionWorkSummary,
   type CaptureScreenDeps,
-  type SessionScreen,
-  type SessionScreenMeta,
-  type TerminalSessionSummary,
-  type SessionWorkSummary,
 } from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
+import type { SessionScreenMeta, SessionWorkSummary, TerminalSessionScreen as SessionScreen, TerminalSessionSummary } from "../common/terminalView.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
 import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";

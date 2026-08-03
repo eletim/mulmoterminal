@@ -4,8 +4,15 @@
 // join rules and the capture fallback are unit-testable without a live PTY or tmux.
 import { parseStyledRows, rowsToScreen, suggestionFromRows, type ScreenRow } from "../../session/screen-rows.js";
 import { TERMINAL_AGENTS, type SessionAgent } from "../../../common/sessionAgent.js";
-import { workItemHeadline, type PrPhase, type WorkItem } from "../../../common/prPhase.js";
-import type { QuickCommandChip } from "./quickCommands.js";
+import { workItemHeadline, type WorkItem } from "../../../common/prPhase.js";
+import {
+  resumeTargetForSessionAgent,
+  type QuickCommandChip,
+  type SessionScreenMeta,
+  type SessionWorkSummary,
+  type TerminalSessionScreen as SessionScreen,
+  type TerminalSessionSummary,
+} from "../../../common/terminalView.js";
 import { basename } from "node:path";
 import { getAgentAdapter } from "../../agents/registry.js";
 import type { AgentKind } from "../../agents/types.js";
@@ -40,30 +47,6 @@ export const agentFromPaneCommand = (command: string | null): SessionAgent | nul
   // (adapter.bin()), and this runs once per session row, not per frame.
   return agentCommands()[command] ?? "shell";
 };
-
-// What a session is working on, as the phone needs it: numbers to identify it, a phase for the
-// colour, and ONE line of words. The phone has no room for both titles, and what the work is FOR
-// beats what was done about it — see workItemHeadline (#1014).
-export interface SessionWorkSummary {
-  pr: number | null;
-  issue: number | null;
-  phase: PrPhase;
-  headline: string | null;
-}
-
-export interface TerminalSessionSummary {
-  id: string;
-  title: string;
-  cwd: string;
-  // Absent when the directory is not a GitHub checkout, or has no PR and no issue to name.
-  work?: SessionWorkSummary;
-  // A PTY is attached in THIS server process. False means the session exists only in tmux
-  // (it outlived a restart) — still viewable, since capture-pane doesn't need our process.
-  live: boolean;
-  // What is running in it, or null when unknown (see SessionAgent). A tmux-only
-  // session is always null: the process that knew is gone.
-  agent: SessionAgent | null;
-}
 
 export interface SessionDetail {
   // Empty when the host has no name for this session — neither an AI-generated title
@@ -125,7 +108,10 @@ export function buildSessionList({
   const ids = [...new Set([...liveIds, ...tmuxIds])].filter(isResumable).filter(isGridSession);
   return (
     ids
-      .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
+      .map((id) => {
+        const detail = detailOf(id);
+        return { id, ...detail, live: live.has(id), resume: resumeTargetForSessionAgent(detail.agent) };
+      })
       .filter((session) => includeNameless || session.title !== "" || session.live)
       .map((session) => ({ ...session, title: session.title || session.id }))
       // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding
@@ -169,41 +155,6 @@ export interface CaptureScreenDeps {
   // The user's saved phrases that apply to THIS session, already scoped to its kind (#830).
   // Optional, and an unconfigured host simply offers none.
   quickCommandsOf?: (id: string) => QuickCommandChip[];
-}
-
-// The session's identity around the screen — the dir it runs in, that dir's git branch, the
-// AI summary of the session, and the prompt that started the latest turn (mulmoserver#107).
-// Every field is optional: a session that outlived a restart has no PTY left, so the host
-// knows none of them.
-export interface SessionScreenMeta {
-  cwd?: string;
-  branch?: string;
-  // The user's own one-line note on the session (#1084), which the phone shows ABOVE the summary:
-  // the line the user wrote outranks what the agent said (sessionDisplayName). Its own field
-  // rather than riding in `summary` the way the picker's row rides in `title` — `summary` is drawn
-  // as a row labelled as the AI's summary, so a handwritten note put there would be mislabelled.
-  memo?: string;
-  summary?: string;
-  prompt?: string;
-  // The dir's REPOSITORY ROOT on GitHub, so the phone can link out to it (#832). Absent for
-  // every dir the host can't place there — not a repo, no origin, or an origin that isn't
-  // github.com — which is why the phone only ever has to decide "link or no link".
-  // Not a /tree/<branch>: see the note where this is filled in (server/index.ts).
-  githubUrl?: string;
-}
-
-export interface SessionScreen extends SessionScreenMeta {
-  screen: string;
-  // The follow-up prompt the agent is offering as dim ghost text, "" when it offers none.
-  // The phone cannot press Tab to accept it, so it is handed over as its own value for
-  // the phone to offer as a chip (#563).
-  suggestion: string;
-  // The user's own saved phrases for this session (#830), already filtered to its kind.
-  // Always present, `[]` when none apply — unlike the meta fields it is an array, so an
-  // empty one is a fine thing to send and the phone needs no "is it there" check.
-  // Kept OUT of SessionScreenMeta on purpose: definedScreenMeta trims its values, which
-  // only makes sense for strings.
-  quickCommands: QuickCommandChip[];
 }
 
 // A field the host can't answer is dropped entirely rather than sent as "": the response is

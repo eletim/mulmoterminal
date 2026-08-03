@@ -2,8 +2,9 @@
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/backends/remoteHost/terminalScreen.js";
+import { TerminalSessionNotFoundError } from "../../../server/backends/remoteHost/terminalScreen.js";
 import { mountTerminalViewRoutes, type TerminalViewRouteDeps } from "../../../server/routes/terminal-view-routes.js";
+import type { TerminalSessionScreen as SessionScreen, TerminalSessionSummary } from "../../../common/terminalView.js";
 import { appRequest } from "../../helpers/appRequest.js";
 
 const SESSION_ID = "123e4567-e89b-12d3-a456-426614174000";
@@ -14,6 +15,7 @@ const summary: TerminalSessionSummary = {
   cwd: "/repo",
   live: true,
   agent: "shell",
+  resume: { kind: "launcher", shell: true },
 };
 
 const screen: SessionScreen = {

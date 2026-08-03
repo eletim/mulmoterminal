@@ -313,6 +313,72 @@ describe("useTerminalConnections — detached-slot state replay", () => {
   });
 });
 
+describe("useTerminalConnections — suspend/resume", () => {
+  const KEY = "cell-suspend";
+  const ID = "123e4567-e89b-12d3-a456-426614174000";
+  const NEXT = "123e4567-e89b-12d3-a456-426614174001";
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances.length = 0;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    conn.resumeAll();
+    conn.release(KEY);
+  });
+
+  afterEach(() => {
+    conn.resumeAll();
+    conn.release(KEY);
+    vi.useRealTimers();
+  });
+
+  it("closes sockets, suppresses reconnect/input while suspended, then resumes without rebuilding xterm", () => {
+    const onSession = vi.fn();
+    const onCwd = vi.fn();
+    const beforeConstructed = mockTermState.constructed;
+    const el = document.createElement("div");
+    conn.attach(KEY, target(ID), { onSession, onCwd }, el);
+    const first = FakeWebSocket.instances.at(-1);
+    if (!first) throw new Error("no socket created");
+    first.onopen?.();
+    first.onmessage?.({ data: JSON.stringify({ type: "session", id: ID, cwd: "/known" }) });
+
+    conn.suspendAll();
+
+    expect(conn.terminalConnectionsSuspended()).toBe(true);
+    expect(first.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(conn.connView.get(KEY)?.status).toBe("disconnected");
+
+    first.onclose?.();
+    vi.runOnlyPendingTimers();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    const sentBeforeInput = first.sent.length;
+    mockTermState.emitData("x");
+    expect(conn.submitText(KEY, "/commit")).toBe(false);
+    expect(conn.pasteText(KEY, "paste")).toBe(false);
+    conn.insertText(KEY, "insert");
+    conn.fit(KEY);
+    expect(first.sent).toHaveLength(sentBeforeInput);
+
+    conn.retarget(KEY, target(NEXT));
+    conn.attach(KEY, target(NEXT), { onSession, onCwd }, document.createElement("div"));
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(onSession).toHaveBeenCalledWith(NEXT);
+
+    conn.suspendAll();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    conn.resumeAll();
+    conn.resumeAll();
+
+    expect(conn.terminalConnectionsSuspended()).toBe(false);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[1].url).toContain(`session=${NEXT}`);
+    expect(mockTermState.constructed).toBe(beforeConstructed + 1);
+  });
+});
+
 // The load-bearing half of #860/#864, and the half nothing asserted until now: changing the font
 // changes the CELL METRICS, so cols/rows change and the PTY has to be told. Delete the re-fit from
 // setFont and every other test in this repo still passes, while the bug #860 was filed for — a

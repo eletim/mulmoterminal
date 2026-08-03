@@ -94,11 +94,35 @@ describe("buildSessionList", () => {
     ]);
   });
 
+  it("carries the server-chosen resume target for agents and tmux-only shell/unknown sessions", () => {
+    const agents: Record<string, "claude" | "codex" | "antigravity" | "shell" | null> = {
+      claude: "claude",
+      codex: "codex",
+      agy: "antigravity",
+      shell: "shell",
+      unknown: null,
+    };
+    const sessions = buildSessionList(
+      listInput({
+        liveIds: ["claude", "codex", "agy", "shell", "unknown"],
+        detailOf: (id) => ({ title: id, cwd: "/w", agent: agents[id] }),
+      }),
+    );
+
+    expect(Object.fromEntries(sessions.map((session) => [session.id, session.resume]))).toEqual({
+      agy: { kind: "agent", agent: "antigravity" },
+      claude: { kind: "agent", agent: "claude" },
+      codex: { kind: "agent", agent: "codex" },
+      shell: { kind: "launcher", shell: true },
+      unknown: { kind: "launcher", shell: true },
+    });
+  });
+
   it("marks live sessions and unions in the tmux-only ones", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["a"], tmuxIds: ["b"] }));
     expect(sessions).toEqual([
-      { id: "a", title: "a", cwd: "/w", live: true, agent: "shell" },
-      { id: "b", title: "b", cwd: "/w", live: false, agent: "shell" },
+      { id: "a", title: "a", cwd: "/w", live: true, agent: "shell", resume: { kind: "launcher", shell: true } },
+      { id: "b", title: "b", cwd: "/w", live: false, agent: "shell", resume: { kind: "launcher", shell: true } },
     ]);
   });
 
@@ -146,13 +170,13 @@ describe("buildSessionList", () => {
 
   it("keeps a nameless stopped session when includeNameless is true, labelled by its id", () => {
     const sessions = buildSessionList(listInput({ tmuxIds: ["nameless"], includeNameless: true, detailOf: () => ({ title: "", cwd: "", agent: null }) }));
-    expect(sessions).toEqual([{ id: "nameless", title: "nameless", cwd: "", live: false, agent: null }]);
+    expect(sessions).toEqual([{ id: "nameless", title: "nameless", cwd: "", live: false, agent: null, resume: { kind: "launcher", shell: true } }]);
   });
 
   // Live earns a row regardless: the id at least points at something running now.
   it("keeps a nameless session while it is live, labelled by its id", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["abc"], detailOf: () => ({ title: "", cwd: "/w", agent: "shell" }) }));
-    expect(sessions).toEqual([{ id: "abc", title: "abc", cwd: "/w", live: true, agent: "shell" }]);
+    expect(sessions).toEqual([{ id: "abc", title: "abc", cwd: "/w", live: true, agent: "shell", resume: { kind: "launcher", shell: true } }]);
   });
 
   // A session that outlived a host restart keeps its recorded title, so it stays offerable.

@@ -5,6 +5,7 @@ import TerminalGrid, { type CockpitRow } from "../../../src/components/TerminalG
 import type { Cell } from "../../../src/components/gridTabs.js";
 import type { RunCommand } from "../../../src/components/runCommand.js";
 import { setCockpitLines } from "../../../src/composables/cockpitLines";
+import type { TerminalSessionSummary } from "../../../common/terminalView.js";
 
 // Stub the cells so the page renderer can be tested without Terminal/xterm/pub-sub.
 // The host drives the pane through reload()/confirmDiscard(); spies here are what let the
@@ -52,6 +53,15 @@ vi.mock("../../../src/components/LauncherCell.vue", () => ({
 
 const cell = (uid: number, session: string | null = null, cwd: string | null = null): Cell => ({ uid, session, cwd });
 const cmdCell = (uid: number, command: NonNullable<Cell["command"]>): Cell => ({ uid, session: null, cwd: null, command });
+const ID = "123e4567-e89b-12d3-a456-426614174000";
+const summary = (id = ID): TerminalSessionSummary => ({
+  id,
+  title: "Shared",
+  cwd: "/work",
+  live: true,
+  agent: "shell",
+  resume: { kind: "launcher", shell: true },
+});
 const mountGrid = (cells: Cell[], expandedUid: number | null = null, cancelUid: number | null = null, reorderable = false) =>
   mount(TerminalGrid, {
     props: {
@@ -110,6 +120,41 @@ const mountCockpit = (cells: Cell[], expandedUid: number, listRows: CockpitRow[]
 describe("TerminalGrid (page renderer)", () => {
   it("renders one TerminalCell per cell", () => {
     expect(cellsOf(mountGrid([cell(0), cell(1), cell(2)]))).toHaveLength(3);
+  });
+
+  it("renders read-only snapshots instead of live terminal cells in viewer mode", () => {
+    const sharedSessions = new Map([[ID, summary()]]);
+    const w = mount(TerminalGrid, {
+      props: {
+        cells: [
+          cell(1, ID, "/work"),
+          cmdCell(2, { source: "script", index: 0, label: "test", cwd: "/work" }),
+          { ...cell(3, ID, "/work"), launcher: { shell: true, label: "shell" } },
+        ],
+        expandedUid: null,
+        listRows: [],
+        cancelUid: null,
+        defaultCwd: "/work",
+        presets: [],
+        launchers: [],
+        home: "/work",
+        openSessionIds: [],
+        openCwds: [],
+        reorderable: false,
+        listMode: true,
+        viewerMode: true,
+        sharedSessions,
+        snapshots: new Map([
+          [ID, { screen: "hello", meta: {}, loading: false, error: null, notFound: false, stale: false, updatedAt: 1, inFlight: false, generation: 1 }],
+        ]),
+      },
+    });
+
+    expect(cellsOf(w)).toHaveLength(0);
+    expect(commandCellsOf(w)).toHaveLength(0);
+    expect(w.findAllComponents({ name: "LauncherCell" })).toHaveLength(0);
+    expect(w.findAll("[data-testid='terminal-snapshot-cell']")).toHaveLength(2);
+    expect(w.text()).toContain("hello");
   });
 
   it("passes session / cwd / expanded through to the cells", () => {

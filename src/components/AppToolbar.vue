@@ -38,6 +38,8 @@ const props = defineProps<{
   // Grid zoom state, so the header can host the roster / strip toggle (shown only while zoomed).
   showViewToggle?: boolean;
   listMode?: boolean;
+  addTerminalDisabled?: boolean;
+  addTerminalDisabledTitle?: string;
 }>();
 const emit = defineEmits<{ (e: "add-terminal" | "toggle-sort" | "toggle-view" | "settings"): void }>();
 const sortButton = computed(() => sortModeButton(props.sortMode ?? "manual"));
@@ -175,9 +177,16 @@ function showPrs(): void {
         />
         <LauncherButton
           icon="add"
-          :title="addTerminalActive ? 'Cancel adding a terminal' : 'New terminal (overflows to a new tab when full)'"
+          :title="
+            addTerminalDisabled
+              ? (addTerminalDisabledTitle ?? 'New terminal unavailable')
+              : addTerminalActive
+                ? 'Cancel adding a terminal'
+                : 'New terminal (overflows to a new tab when full)'
+          "
           label="New terminal"
           :active="addTerminalActive"
+          :disabled="addTerminalDisabled"
           @click="emit('add-terminal')"
         />
         <LauncherButton :icon="sortButton.icon" :title="sortButton.title" :label="sortButton.label" :active="sortButton.active" @click="emit('toggle-sort')" />

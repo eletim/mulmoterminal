@@ -1,14 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
-import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../backends/remoteHost/terminalScreen.js";
+import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScreen.js";
+import type { TerminalSessionScreen, TerminalSessionSummary, TerminalSessionsResponse } from "../../common/terminalView.js";
 
 export interface TerminalViewRouteDeps {
   listTerminalSessions: () => Promise<TerminalSessionSummary[]>;
-  captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
-}
-
-interface TerminalSessionsResponse {
-  sessions: TerminalSessionSummary[];
+  captureTerminalScreen: (sessionId: string) => Promise<TerminalSessionScreen>;
 }
 
 interface ErrorResponse {

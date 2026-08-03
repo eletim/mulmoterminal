@@ -42,6 +42,7 @@ import {
   type Cell,
   resolveCellStatus,
   MAX_TERMINALS,
+  adoptSharedSessions,
 } from "./gridTabs";
 import { activityStatus, type AttentionStatus } from "./attentionStatus";
 import { gridShortcutFor, isEditableTarget, type GridShortcut } from "../composables/gridShortcut";
@@ -64,6 +65,9 @@ import { nextSortMode } from "./sortModeButton";
 import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
 import { router } from "../router";
 import { usePubSub } from "../composables/usePubSub";
+import { useTerminalControl } from "../composables/useTerminalControl";
+import { useSharedTerminalSessions } from "../composables/useSharedTerminalSessions";
+import { useTerminalSnapshots } from "../composables/useTerminalSnapshots";
 import type { LaunchAgent } from "../../common/launchAgent";
 import type { LaunchPick } from "./launchers";
 import { isRecord } from "../../common/isRecord";
@@ -94,6 +98,21 @@ if (init.migrated) {
   localStorage.removeItem(LEGACY_KEY);
 }
 watch(state, persist, { deep: true });
+
+const control = useTerminalControl();
+conn.suspendAll();
+const controlReady = computed(() => control.ready.value);
+const isOwner = computed(() => control.isOwner.value);
+const viewerMode = computed(() => controlReady.value && !isOwner.value);
+const controlUnknown = computed(() => !controlReady.value);
+watch(
+  [controlReady, isOwner],
+  ([ready, owner]) => {
+    if (ready && owner) conn.resumeAll();
+    else conn.suspendAll();
+  },
+  { immediate: true },
+);
 
 // Feed the tab-close guard: warn on close/reload while any cell runs a session or
 // command (counts every page, not just the mounted one).
@@ -139,10 +158,70 @@ const { priorities: priorityByCwd } = useDirPriorities(cellCwds);
 // declared rank; "manual" keeps the hand-arranged order.
 // The ONE ordering both the grid and the cockpit roster read, so the two can't drift (#720).
 const orderedCells = computed(() => orderCells(state.value.cells, statusForSort.value, state.value.sortMode, priorityByCwd.value));
+const sharedSessions = useSharedTerminalSessions();
 // The grid: while a cell is zoomed, render EVERY cell (the filmstrip lines up all tabs' terminals,
 // live); otherwise just the active page's slice. A waiting cell from any page floats to the front.
-const displayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
+const baseDisplayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
+const displayCells = computed(() =>
+  viewerMode.value ? baseDisplayCells.value.filter((cell) => cell.session !== null && sharedSessions.sessions.has(cell.session)) : baseDisplayCells.value,
+);
 const expandedUid = computed(() => zoomedUid(state.value));
+
+const HIDDEN_SHARED_TERMINALS_KEY = "mulmoterminal_hidden_shared_terminal_sessions_v1";
+const loadHiddenSharedIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(HIDDEN_SHARED_TERMINALS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? new Set(parsed.filter((id): id is string => typeof id === "string")) : new Set();
+  } catch {
+    return new Set();
+  }
+};
+const hiddenSharedIds = ref(loadHiddenSharedIds());
+const saveHiddenSharedIds = (): void => localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([...hiddenSharedIds.value]));
+const adoptShared = (): void => {
+  const next = adoptSharedSessions(state.value, sharedSessions.list.value, hiddenSharedIds.value);
+  if (next !== state.value) state.value = next;
+};
+watch(
+  () => sharedSessions.list.value,
+  (rows) => {
+    const liveIds = new Set(rows.map((row) => row.id));
+    const pruned = new Set([...hiddenSharedIds.value].filter((id) => liveIds.has(id)));
+    if (pruned.size !== hiddenSharedIds.value.size) {
+      hiddenSharedIds.value = pruned;
+      saveHiddenSharedIds();
+    }
+    adoptShared();
+  },
+  { immediate: true },
+);
+const hiddenSharedCount = computed(() => hiddenSharedIds.value.size);
+const restoreHiddenShared = (): void => {
+  hiddenSharedIds.value = new Set();
+  saveHiddenSharedIds();
+  adoptShared();
+};
+const hideSharedSession = (uid: number, sessionId: string): void => {
+  hiddenSharedIds.value = new Set([...hiddenSharedIds.value, sessionId]);
+  saveHiddenSharedIds();
+  state.value = closeCell(
+    state.value,
+    uid,
+    displayCells.value.map((cell) => cell.uid),
+  );
+};
+const visibleSnapshotSessionIds = computed(() => {
+  if (!viewerMode.value) return [];
+  const expanded = expandedUid.value;
+  const cells = expanded === null ? displayCells.value : displayCells.value.filter((cell) => cell.uid === expanded);
+  return cells.map((cell) => cell.session).filter((id): id is string => id !== null);
+});
+const terminalSnapshots = useTerminalSnapshots({
+  viewer: viewerMode,
+  visibleSessionIds: visibleSnapshotSessionIds,
+  onMissingSession: () => sharedSessions.requestRefresh(),
+});
 
 // The zoomed grid's cockpit roster: a text row per cell — status + dir + the user's memo +
 // AI summary + current prompt + the agent's latest reply — so many parallel agents can be
@@ -355,6 +434,7 @@ const openCwds = computed(() =>
 );
 
 function onAddTerminal() {
+  if (!isOwner.value) return;
   if (runningCount(state.value.cells) >= MAX_TERMINALS && !launchOpen.value) return; // surfaced by the disabled button
   state.value = addCell(state.value);
 }
@@ -420,6 +500,7 @@ const CELL_FOR_AGENT: Record<LaunchAgent, (cwd: string) => Omit<Cell, "uid">> = 
 const cellForAgent = (cwd: string, agent: LaunchAgent | undefined): Omit<Cell, "uid"> => (agent ? CELL_FOR_AGENT[agent](cwd) : shellCell(cwd));
 
 const openNewTerminal = ({ cwd, afterSlotKey, agent }: NewTerminalRequest) => {
+  if (!isOwner.value) return;
   const match = afterSlotKey?.match(SLOT_UID_RE);
   const afterUid = match ? Number(match[1]) : NO_ORIGIN_UID;
   state.value = insertCellAfter(state.value, afterUid, cellForAgent(cwd, agent));
@@ -487,13 +568,16 @@ function runShortcut(shortcut: GridShortcut) {
     const target = nextAttentionUid(state.value, order, statusForSort.value, focusedCellUid.value);
     state.value = nextAttention(state.value, order, statusForSort.value, focusedCellUid.value);
     if (target !== null) void nextTick(() => conn.focus(`cell-${target}`));
-  } else if (shortcut === "terminal-new") {
-    onAddTerminal();
-  } else if (shortcut === "terminal-new-adjacent" && uid !== null) {
-    state.value = insertCellAfter(state.value, uid, shellCell(adjacentCwd(uid)));
-  } else if (shortcut === "terminal-close" && uid !== null) {
-    onClose(uid);
+  } else {
+    runOwnerShortcut(shortcut, uid);
   }
+}
+
+function runOwnerShortcut(shortcut: GridShortcut, uid: number | null) {
+  if (!isOwner.value) return;
+  if (shortcut === "terminal-new") onAddTerminal();
+  else if (shortcut === "terminal-new-adjacent" && uid !== null) state.value = insertCellAfter(state.value, uid, shellCell(adjacentCwd(uid)));
+  else if (shortcut === "terminal-close" && uid !== null) onClose(uid);
 }
 
 // The dir a new adjacent terminal opens in: the one the current terminal is running in, which
@@ -675,6 +759,8 @@ onBeforeUnmount(detachSpawnedChat);
   <div class="flex flex-col h-screen w-screen overflow-hidden">
     <AppToolbar
       :add-terminal-active="launchOpen"
+      :add-terminal-disabled="!isOwner"
+      :add-terminal-disabled-title="controlUnknown ? 'Waiting for terminal control state' : 'View-only terminal control'"
       :sort-mode="state.sortMode"
       :status-counts="statusCounts"
       :show-view-toggle="expandedUid !== null"
@@ -684,6 +770,15 @@ onBeforeUnmount(detachSpawnedChat);
       @toggle-view="toggleListMode"
       @settings="showSettings = true"
     />
+    <div
+      v-if="hiddenSharedCount > 0"
+      class="flex-none border-b border-border bg-panel px-4 py-1 text-right text-[12px] text-muted"
+      data-testid="hidden-shared-terminal-banner"
+    >
+      <button type="button" class="rounded border border-border px-2 py-1 hover:bg-hover hover:text-fg" @click="restoreHiddenShared">
+        Show hidden ({{ hiddenSharedCount }})
+      </button>
+    </div>
     <nav
       v-if="pages > 1 && expandedUid === null"
       class="flex-none flex items-center gap-1 h-[30px] px-4 bg-panel border-b border-border"
@@ -699,7 +794,11 @@ onBeforeUnmount(detachSpawnedChat);
         {{ p }}
       </button>
     </nav>
+    <div v-if="controlUnknown" class="flex flex-1 items-center justify-center bg-deep text-[13px] text-muted" data-testid="terminal-control-syncing">
+      Syncing terminal control…
+    </div>
     <TerminalGrid
+      v-else
       ref="gridRef"
       class="flex-1 min-h-0 min-w-0"
       :cells="displayCells"
@@ -714,6 +813,9 @@ onBeforeUnmount(detachSpawnedChat);
       :open-session-ids="openSessionIds"
       :open-cwds="openCwds"
       :list-mode="listModeOn"
+      :viewer-mode="viewerMode"
+      :shared-sessions="sharedSessions.sessions"
+      :snapshots="terminalSnapshots.snapshots"
       @session="onSession"
       @agent="onAgent"
       @park="onPark"
@@ -728,6 +830,7 @@ onBeforeUnmount(detachSpawnedChat);
       @launch="onLaunch"
       @move="onMove"
       @status="onStatus"
+      @hide-snapshot="hideSharedSession"
     />
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
       <GuideLinks />
