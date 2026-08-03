@@ -1,13 +1,13 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from "vitest";
 import express from "express";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { appRequest } from "../../helpers/appRequest.js";
 import { initArtifactsBackend } from "../../../server/backends/artifacts.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../../../server/backends/html.js";
 import { initOpenPathBackend, resetOpenPathBackend, resolveHtmlRequest } from "../../../server/backends/openPath.js";
+import { makeTempDir } from "../../support/tempDir";
 
 let request: ReturnType<typeof appRequest>;
 let ws: string;
@@ -16,7 +16,7 @@ const REL = "artifacts/html/2026/06/page.html";
 const REPO_REL = "docs/report.html";
 
 beforeAll(() => {
-  ws = mkdtempSync(path.join(tmpdir(), "mt-html-"));
+  ws = makeTempDir("mt-html-");
   mkdirSync(path.join(ws, "artifacts", "html", "2026", "06"), { recursive: true });
   writeFileSync(path.join(ws, REL), "<!doctype html><html><body>ORIGINAL</body></html>");
   mkdirSync(path.join(ws, "docs", ".hidden"), { recursive: true });

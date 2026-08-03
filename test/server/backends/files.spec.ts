@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from "vitest";
 import express from "express";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { appRequest } from "../../helpers/appRequest.js";
 import { mountFilesRoutes } from "../../../server/backends/files.js";
+import { makeTempDir } from "../../support/tempDir";
 
 let request: ReturnType<typeof appRequest>;
 // A session project dir OUTSIDE the workspace root (a sibling repo), reachable only via
@@ -13,13 +14,13 @@ let request: ReturnType<typeof appRequest>;
 let sessionDir: string;
 
 beforeAll(() => {
-  const ws = mkdtempSync(path.join(tmpdir(), "mt-files-"));
+  const ws = makeTempDir("mt-files-");
   mkdirSync(path.join(ws, "downloads", "images"), { recursive: true });
   // 4-byte PNG signature — enough to assert byte length + Range.
   writeFileSync(path.join(ws, "downloads", "images", "a.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   writeFileSync(path.join(ws, "secret.txt"), "top secret");
 
-  sessionDir = mkdtempSync(path.join(tmpdir(), "mt-session-"));
+  sessionDir = makeTempDir("mt-session-");
   mkdirSync(path.join(sessionDir, "assets", "media"), { recursive: true });
   writeFileSync(path.join(sessionDir, "assets", "media", "hero.gif"), Buffer.from([0x47, 0x49, 0x46, 0x38]));
 

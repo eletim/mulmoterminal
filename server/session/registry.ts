@@ -610,6 +610,15 @@ export function sessionToolGroups(sessionId: string): ToolGroup[] {
   return [...(toolGroupsBySession.get(sessionId) ?? [])];
 }
 
+/** Settles once every persist queued so far has hit the disk.
+ *
+ *  The appends above are deliberately fire-and-forget — a tool call must not wait on a log — but
+ *  that leaves no way to know they are done, and each one begins with `mkdir(…, recursive)`. A
+ *  caller that deletes the home directory before the queue drains has it RECREATED underneath it,
+ *  which is how a spec pointing HOME at a temp directory left one behind on every single run
+ *  (#1345). Awaiting this before cleaning up is what makes that deterministic. */
+export const whenToolGroupsPersisted = (): Promise<void> => toolGroupsPersist;
+
 // Forget what a session had, because it is being replaced. Called on every claude spawn for the
 // id: the new process gets whatever the user's MCP config says NOW, so carrying the old answer
 // forward would keep asserting a capability the user may have just switched off. The marker is

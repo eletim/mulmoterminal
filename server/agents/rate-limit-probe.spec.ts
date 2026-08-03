@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { startRateLimitProbe, probeArgs, PROBE_PROMPT } from "./rate-limit-probe";
 import { createRateLimitStore } from "./rate-limit-store";
 
@@ -168,6 +168,15 @@ describe("what a settled probe carries out", () => {
 describe("ending the probe when its answer lands", () => {
   const windows = { fiveHour: { usedPercentage: 12, resetsAt_sec: 999 }, sevenDay: null };
 
+  // Half these tests assert the probe is STILL RUNNING, so nothing in them can stop it. The probe
+  // holds a temp settings directory that only its own stop() removes, and it is created by the
+  // production code — the test helper's registry never sees it (#1345). Left alone, each such test
+  // leaves a `mt-ratelimit-` directory behind on every run.
+  const running: (() => void)[] = [];
+  afterEach(() => {
+    running.splice(0).forEach((stopProbe) => stopProbe());
+  });
+
   const wire = () => {
     const killed = vi.fn();
     const onSettled = vi.fn();
@@ -184,6 +193,7 @@ describe("ending the probe when its answer lands", () => {
         spawn: () => pty({ kill: killed }),
       }),
     );
+    running.push(stop);
     return { store, killed, onSettled };
   };
 

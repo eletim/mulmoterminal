@@ -2,8 +2,7 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 import express from "express";
 import sharp from "sharp";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { appRequest } from "../../helpers/appRequest.js";
 import { initCollectionsBackend, mountCollectionRoutes, visibilityGate } from "../../../server/backends/collections.js";
@@ -26,6 +25,7 @@ vi.mock("@mulmoclaude/core/collection/registry/server", () => ({
 // must still be covered.
 import { buildWorkspaceOntology, deleteCollection, deleteCustomView, loadCollection } from "@mulmoclaude/core/collection/server";
 import { isRecord } from "../../../common/isRecord.js";
+import { makeTempDir } from "../../support/tempDir";
 vi.mock("@mulmoclaude/core/collection/server", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@mulmoclaude/core/collection/server")>();
   return {
@@ -67,7 +67,7 @@ const SCHEMA = {
 let request: ReturnType<typeof appRequest>;
 
 beforeAll(async () => {
-  const ws = mkdtempSync(path.join(tmpdir(), "mt-col-"));
+  const ws = makeTempDir("mt-col-");
   mkdirSync(path.join(ws, ".claude", "skills", "testcol"), { recursive: true });
   writeFileSync(path.join(ws, ".claude", "skills", "testcol", "schema.json"), JSON.stringify(SCHEMA));
   // Action templates live under the skill dir's templates/ (readSkillTemplate).
