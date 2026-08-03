@@ -6,9 +6,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { RepoDirs } from "../../../common/repoDirs.js";
 import type { RepoIssues } from "../../../common/ghItems.js";
 
-const config = { prRepos: ["acme/web"] };
+const config = { prRepos: ["acme/web"], gitlabHosts: [] as string[] };
 vi.mock("../../config/config-routes.js", () => ({
   getPrRepos: () => config.prRepos,
+  getGitlabHosts: () => config.gitlabHosts,
   getCwdPresets: () => [],
   getRepoDirs: () => ({}),
 }));

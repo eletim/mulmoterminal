@@ -8,6 +8,7 @@
 // startCollectionChat does for the collection plugin.
 import { ref } from "vue";
 import { placeSpawnedChat } from "./useSpawnedChat";
+import { currentGitlabHosts } from "./useAppConfig";
 import { issueStartPlan, type IssueStartPlan } from "../../common/issueStartPlan";
 import { isRecord } from "../../common/isRecord";
 import { parseRepoDirsResponse, type RepoDirs } from "../../common/repoDirs";
@@ -43,7 +44,7 @@ export function clonesFor(repo: string): RepoDirs | undefined {
   return repoDirs.value.find((r) => repoIdentity(r.repo) === wanted);
 }
 
-export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo), repo);
+export const planFor = (repo: string): IssueStartPlan => issueStartPlan(clonesFor(repo), repo, currentGitlabHosts());
 
 /** Adopt a chosen clone into the loaded answer, and return the name to record it under.
  *

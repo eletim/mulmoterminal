@@ -6,7 +6,7 @@ import { runGh } from "./gh";
 import { normalizeGhItemBase } from "./ghItem";
 import { isSupported, repoSupport } from "./forge-support.js";
 import { projectPath } from "./forge-host.js";
-import { glabIssueListArgs, runGlab } from "./glab.js";
+import { glabIssueListArgs, glabTarget, runGlab } from "./glab.js";
 import { normalizeGlabIssue } from "./glab-items.js";
 
 // Per-repo cap. Small on purpose: this is a glanceable digest, and overflow is one
@@ -31,7 +31,7 @@ export async function listIssuesAcrossRepos(repos: string[]): Promise<RepoIssues
       // Fetch one MORE than we display so `truncated` is a real observation
       // (rows > ISSUE_LIMIT), never a false positive at exactly ISSUE_LIMIT.
       const res = gitlab
-        ? await runGlab(glabIssueListArgs(project, ISSUE_LIMIT + 1))
+        ? await runGlab(glabIssueListArgs(glabTarget(forge), ISSUE_LIMIT + 1))
         : await runGh(["issue", "list", "--repo", project, "--state", "open", "--limit", String(ISSUE_LIMIT + 1), "--json", GH_FIELDS]);
       if (!res.ok) return { repo, error: (res.stderr.trim() || `${gitlab ? "glab" : "gh"} issue list failed`).slice(0, 300) };
       try {

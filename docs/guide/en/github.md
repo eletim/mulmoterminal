@@ -58,6 +58,29 @@ One difference worth knowing: a GitLab row's CI dot is usually blank, because Gi
 merge-request list carries no pipeline status and reading it costs one call per merge request. A
 cell watching a single branch does read it, so the phase pill in the cockpit is accurate.
 
+### A GitLab of your own (self-hosted)
+
+`gitlab.example.com` cannot be recognised from its address — nothing in the name says whether that
+host runs GitLab, Gitea or a wiki. So you say so once, in the same file:
+
+```json
+{
+  "gitlabHosts": ["gitlab.example.com"],
+  "prRepos": ["gitlab.example.com/group/project"]
+}
+```
+
+A declared host then behaves **exactly like gitlab.com**: the list, starting work from an issue,
+work comments, and opening a merge request. Two things it needs:
+
+1. **`glab` logged in to that host** — `glab auth login --hostname gitlab.example.com`. This app
+   stores no token of its own; it runs your `glab`, the same arrangement as `gh`.
+2. **A server restart** after editing `config.json` by hand — the same as `prRepos` written by
+   hand, since the file is read at start-up.
+
+Until the host is declared, its row says so and names the key to add. Not covered yet: a port in
+the host name (`gitlab.example.com:8443`), an http-only instance, and GitHub Enterprise.
+
 → See [Configuration](config.html) for the full key list.
 
 ## 2. Open the view and read it
