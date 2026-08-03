@@ -30,6 +30,23 @@ Entries here are folded into the next release's heading when it ships.
   inside `createWorktree`, so the launcher's **＋ New worktree** and the issue-started path both get
   it rather than one of the two.
 
+### Changed
+
+- **A finished turn is green in the grid too, not just in the roster** (#1307). The four attention
+  states are painted in two places — the grid cell paints its own chrome, the cockpit roster row
+  paints its own (they are different components on purpose; see `docs/grid-view-modes.md`) — and
+  they disagreed about exactly one state. `blocked` was amber on both sides, `idle` neutral on
+  both, but `done` was the theme **accent** on a cell and **green** on a roster row. Two costs:
+  `working` is also the accent, so on a tile the two blues were hard to tell apart at the distance
+  you actually scan a grid from; and enlarging a session changed the colour of "this one finished"
+  under you, so the state colours never became something you knew without thinking. The cell's
+  `done` frame, ring, header wash and dot are now the same green, giving **working = blue, done =
+  green, waiting = amber** in every view. The green moved to one `--done` token that the cell, the
+  roster row, the roster/thumbnail dot and its pill all name, so the two sides cannot drift apart
+  again, and a spec holds them to it. The toolbar's `done` tally went green as well — via `--ok`
+  rather than `--done`, because that one is text and `--done` is a fill colour that reads at 2.3:1
+  on a white panel. The roster is unchanged: its green is what everything else moved to.
+
 ## mulmoterminal@4.1.1 — 2026-08-02
 
 > **Setup guide:** [Usage that stops saying n/a, and 300 lines of scrollback on the phone](https://receptron.github.io/mulmoterminal/guide/en/v4.1.1.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.1.1.html))

@@ -37,18 +37,8 @@ import { activityStatus, type AttentionStatus } from "./attentionStatus";
 import { useMissedAttention } from "../composables/useMissedAttention";
 import type { GridCellEmits, GridCellProps } from "./gridCell";
 import { shouldZoomOnHeaderClick } from "./cellHeaderZoom";
-import {
-  CELL_ACTIONS,
-  CELL_BTN,
-  CELL_DIR_PATH,
-  CELL_DOT,
-  CELL_DOT_IDLE,
-  CELL_DOT_WORKING,
-  CELL_HEADER_ZOOMABLE,
-  CELL_INNER,
-  CELL_TERM,
-  DIR_TRUNCATE_FRONT,
-} from "./cellChromeClasses";
+import { CELL_ACTIONS, CELL_BTN, CELL_DIR_PATH, CELL_DOT, CELL_HEADER_ZOOMABLE, CELL_INNER, CELL_TERM, DIR_TRUNCATE_FRONT } from "./cellChromeClasses";
+import { CELL_STATUS, DOT_STATUS, HEADER_STATUS } from "./cellStatusClasses";
 import { handoffTargets, pullLastTurn, type HandoffTarget } from "../composables/useHandoff";
 import { runOneExchange, liveCrossTalkDeps } from "../composables/useCrossTalk";
 import { outcomeMessage } from "../composables/exchangeRules";
@@ -716,27 +706,8 @@ const status = computed<AttentionStatus>(() => activityStatus(working.value, wai
 const STATUS_CLASS = { blocked: "is-blocked", done: "is-done", working: "is-working", idle: "is-idle" } as const;
 const STATUS_LABEL = { blocked: "Needs input", done: "Done — review", working: "Working…", idle: "Idle" } as const;
 const statusClass = computed(() => STATUS_CLASS[status.value]);
-// The is-* class stays on the element as a state marker (the specs assert it); these
-// carry the styling that used to live in the .cell.is-* / .cell-header.is-* rules.
-// The header colour rides along in the non-blocked branches so two text utilities
-// never race for the same element.
-const HEADER_FG = "text-[var(--cell-header-fg,inherit)]";
-const CELL_STATUS = {
-  // Idle keeps the per-dir --cell-border override; the active states deliberately replace it.
-  idle: "border-[var(--cell-border,var(--border))]",
-  working: "border-accent",
-  done: "border-accent shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_40%,transparent)]",
-  blocked: "border-amber shadow-[0_0_0_2px_color-mix(in_srgb,var(--amber)_55%,transparent)]",
-} as const;
-const HEADER_STATUS = {
-  idle: `bg-[var(--cell-header-bg,var(--bg-panel))] border-b-border ${HEADER_FG}`,
-  working: `bg-selected border-b-accent ${HEADER_FG}`,
-  done: `bg-selected border-b-accent ${HEADER_FG}`,
-  blocked: "bg-[var(--warn-bg-subtle)] border-b-amber text-warn",
-} as const;
-// Every state names its own colour: a base tint plus a status tint would be two `bg-*`
-// utilities on one element, and Tailwind's output order — not this map — would pick.
-const DOT_STATUS = { idle: CELL_DOT_IDLE, working: CELL_DOT_WORKING, done: "bg-accent", blocked: "bg-amber" } as const;
+// The is-* class stays on the element as a state marker (the specs assert it); the styling that
+// used to live in the .cell.is-* / .cell-header.is-* rules is in cellStatusClasses.ts.
 const cellStatusClass = computed(() => CELL_STATUS[status.value]);
 const headerStatusClass = computed(() => HEADER_STATUS[status.value]);
 // Set aside, and not stopped waiting for an answer (see cellParked.ts). Enlarging it does NOT

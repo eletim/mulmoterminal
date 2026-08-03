@@ -39,7 +39,7 @@ npx mulmoterminal@latest        # starts on http://localhost:34567 and opens you
 
 ![MulmoTerminal's grid view — four live Claude sessions running side by side, each in its own color-coded project](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-2x2-live.png)
 
-*The grid is a **cockpit for parallel agents** — here, four live Claude sessions, each in its own color-coded project. Every cell's header carries what you need to triage at a glance: **model · context %**, **token counts** (`⇡in ⇣out`), the **git branch / changes** chip, and an AI summary of what the agent is doing. A cell's **border color signals state** — working / done (blue), needs-you (amber — e.g. waiting on a permission), idle — with an attention chime so a stuck cell off-screen still pulls you back. Supervise many; only step in where you're called.*
+*The grid is a **cockpit for parallel agents** — here, four live Claude sessions, each in its own color-coded project. Every cell's header carries what you need to triage at a glance: **model · context %**, **token counts** (`⇡in ⇣out`), the **git branch / changes** chip, and an AI summary of what the agent is doing. A cell's **border color signals state** — working (blue), done (green), needs-you (amber — e.g. waiting on a permission), idle — with an attention chime so a stuck cell off-screen still pulls you back. Supervise many; only step in where you're called.*
 
 ## Why you'll want it
 

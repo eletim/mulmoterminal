@@ -269,7 +269,7 @@ What you're looking at is **the grid**. One cell is one agent. Empty cells show 
 3. Press the play button
 
 That's your first agent. Do the same in the next cell for a second one. The cell's colour
-tells you where it is: working = blue, waiting for your input = amber, finished = blue ring.
+tells you where it is: working = blue, waiting for your input = amber, finished = green ring.
 
 **If you already use Claude Code:** this is the same mechanism as `claude --resume`, reading
 **the transcripts already on your disk**. Point it at a directory you work in and your
