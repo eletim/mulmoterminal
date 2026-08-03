@@ -115,12 +115,29 @@ describe("WorkItemChip", () => {
     });
     expect(w.get('[data-testid="work-pr"]').text()).toBe("#977");
     expect(w.get('[data-testid="work-pr"]').attributes("href")).toBe("https://x/pull/977");
+    expect(w.get('[data-testid="work-pr"]').attributes("target")).toBe("_blank");
+    expect(w.get('[data-testid="work-pr"]').attributes("rel")).toBe("noopener");
     expect(w.get('[data-testid="work-issue"]').text()).toBe("#966");
     expect(w.get('[data-testid="work-issue"]').attributes("href")).toBe("https://x/issues/966");
+    expect(w.get('[data-testid="work-issue"]').attributes("target")).toBe("_blank");
+    expect(w.get('[data-testid="work-issue"]').attributes("rel")).toBe("noopener");
     expect(w.get('[data-testid="work-phase"]').text()).toBe("ready");
     // The detail moved to the shared hover tip (#1235) — see tipContent.spec.ts. The native
     // attribute must be gone, or the browser's own slow tooltip appears on top of the new one.
     expect(w.get('[data-testid="work-chip"]').attributes("title")).toBeUndefined();
+  });
+
+  it("uses the shared readable chip surface without currentColor background or whole-chip opacity", () => {
+    const w = mount(WorkItemChip, {
+      props: { item: item({ phase: "ready", pr: 977, prUrl: "https://x/pull/977", issue: 966, issueUrl: "https://x/issues/966" }) },
+    });
+    const classes = w.get('[data-testid="work-chip"]').classes();
+    expect(classes).toEqual(expect.arrayContaining(["bg-panel", "text-fg", "border", "border-border"]));
+    expect(classes).not.toContain("text-inherit");
+    expect(classes).not.toContain("opacity-85");
+    expect(classes.some((c) => c.includes("currentColor"))).toBe(false);
+    expect(w.get('[data-testid="work-pr"]').classes()).toContain("text-current");
+    expect(w.get('[data-testid="work-issue"]').classes()).toContain("text-current");
   });
 
   it("renders the issue alone before a PR exists, with no arrow", () => {

@@ -6,6 +6,7 @@ import type { GitStatus } from "../../../common/gitStatus";
 const base: GitStatus = { repo: true, branch: "main", detached: false, dirty: 0, ahead: 0, behind: 0, upstream: false };
 
 const render = (status: GitStatus | null, hideDirty = false) => mount(GitBranchChip, { props: { status, hideDirty } });
+const chipClasses = (status: GitStatus = base) => render(status).get('[data-testid="git-chip"]').classes();
 
 describe("GitBranchChip", () => {
   it("renders nothing when status is null", () => {
@@ -25,6 +26,14 @@ describe("GitBranchChip", () => {
     expect(w.find('[data-testid="git-chip"]').exists()).toBe(true);
     expect(w.find('[data-testid="git-branch"]').text()).toContain("main");
     expect(w.find('[data-testid="git-dirty"]').exists()).toBe(false);
+  });
+
+  it("uses a theme surface and foreground instead of deriving contrast from currentColor", () => {
+    const classes = chipClasses();
+    expect(classes).toEqual(expect.arrayContaining(["bg-panel", "text-fg", "border", "border-border"]));
+    expect(classes).not.toContain("text-inherit");
+    expect(classes).not.toContain("opacity-85");
+    expect(classes.some((c) => c.includes("currentColor"))).toBe(false);
   });
 
   it("shows the dirty count when there are uncommitted changes", () => {
@@ -49,6 +58,7 @@ describe("GitBranchChip", () => {
   it("labels a detached HEAD", () => {
     const w = render({ ...base, branch: null, detached: true });
     expect(w.find('[data-testid="git-branch"]').text()).toContain("detached");
+    expect(w.get('[data-testid="git-chip"]').classes()).toContain("text-[#d19a66]");
   });
 
   // #921: the chip sits in a `flex ... overflow-hidden` header row, where a flex item shrinks by

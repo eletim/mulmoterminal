@@ -28,7 +28,7 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => work
   <span
     v-if="show"
     data-testid="work-chip"
-    class="inline-flex h-[1.5em] max-w-[18ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] bg-[color-mix(in_srgb,currentColor_12%,transparent)] px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] opacity-85"
+    class="inline-flex h-[1.5em] max-w-[18ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] border border-border bg-panel px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] text-fg"
     :aria-describedby="described ? HOVER_TIP_ID : undefined"
     @pointerenter="showTip"
     @pointerleave="hideTip"
@@ -41,7 +41,7 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => work
       :href="item.prUrl ?? undefined"
       target="_blank"
       rel="noopener"
-      class="text-inherit no-underline hover:underline"
+      class="text-current no-underline hover:underline"
       >#{{ item.pr }}</a
     >
     <span v-if="item.pr !== null && item.issue !== null" data-testid="work-arrow" class="opacity-60">→</span>
@@ -51,7 +51,7 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => work
       :href="item.issueUrl ?? undefined"
       target="_blank"
       rel="noopener"
-      class="text-inherit no-underline hover:underline"
+      class="text-current no-underline hover:underline"
       >#{{ item.issue }}</a
     >
     <span v-if="phase" data-testid="work-phase" class="opacity-70">{{ phase.label }}</span>

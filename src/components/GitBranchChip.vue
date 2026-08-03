@@ -19,8 +19,8 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => gitT
   <span
     v-if="status?.repo && (status.branch || status.detached)"
     data-testid="git-chip"
-    class="inline-flex h-[1.5em] max-w-[16ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] bg-[color-mix(in_srgb,currentColor_12%,transparent)] px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] opacity-85"
-    :class="status.detached ? 'text-[#d19a66]' : 'text-inherit'"
+    class="inline-flex h-[1.5em] max-w-[16ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] border border-border bg-panel px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] text-fg"
+    :class="{ 'text-[#d19a66]': status.detached }"
     :aria-describedby="described ? HOVER_TIP_ID : undefined"
     @pointerenter="showTip"
     @pointerleave="hideTip"

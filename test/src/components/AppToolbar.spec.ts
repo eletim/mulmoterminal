@@ -15,7 +15,7 @@ const labelsOf = (wrapper: ReturnType<typeof mount>): string[] =>
     .filter(Boolean);
 
 const toolbarStubs = {
-  NotificationBell: true,
+  NotificationBell: { name: "NotificationBell", template: '<div data-testid="notification-bell" />' },
   RemoteHostControl: true,
   TerminalControl: { name: "TerminalControl", template: '<div data-testid="terminal-control" />' },
 };
@@ -77,8 +77,23 @@ describe("AppToolbar per-view buttons", () => {
     expect(labels.some((label) => label.startsWith("Grid cell ordering:"))).toBe(true);
   });
 
-  it("includes one terminal control widget", async () => {
-    expect((await mountAt("/terminals")).findAll("[data-testid='terminal-control']")).toHaveLength(1);
+  it("keeps the priority controls visible together", async () => {
+    const wrapper = await mountAt("/terminals");
+    const primary = wrapper.get('[data-testid="toolbar-primary-actions"]');
+    expect(wrapper.findAll("[data-testid='terminal-control']")).toHaveLength(1);
+    expect(wrapper.findAll("[data-testid='notification-bell']")).toHaveLength(1);
+    expect(primary.findAll("[data-testid='terminal-control']")).toHaveLength(1);
+    expect(primary.findAll("[data-testid='notification-bell']")).toHaveLength(1);
+    expect(primary.classes()).not.toContain("hidden");
+    expect(wrapper.get("[data-testid='terminal-control']").classes()).not.toContain("hidden");
+  });
+
+  it("keeps the remaining actions reachable in a scrollable group", async () => {
+    const wrapper = await mountAt("/terminals");
+    const secondary = wrapper.get('[data-testid="toolbar-secondary-actions"]');
+    expect(secondary.classes()).toEqual(expect.arrayContaining(["min-w-0", "overflow-x-auto"]));
+    expect(secondary.find("remote-host-control-stub").exists()).toBe(true);
+    expect(secondary.find("button[aria-label='Settings']").exists()).toBe(true);
   });
 
   // ...and NOT while a full-screen overlay covers it. They act on cells nobody can see — a new

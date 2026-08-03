@@ -134,9 +134,9 @@ function showPrs(): void {
 </script>
 
 <template>
-  <header class="flex h-10 flex-none items-center border-b border-border bg-panel px-4">
-    <span class="font-sans text-[14px] font-semibold tracking-[0.02em] text-fg">MulmoTerminal</span>
-    <nav class="ml-4 flex min-w-0 items-center gap-[3px] overflow-x-auto" aria-label="Views">
+  <header class="flex h-10 flex-none items-center gap-2 overflow-hidden border-b border-border bg-panel px-2 sm:gap-4 sm:px-4">
+    <span class="hidden flex-none font-sans text-[14px] font-semibold tracking-[0.02em] text-fg min-[360px]:inline">MulmoTerminal</span>
+    <nav class="flex min-w-0 flex-1 items-center gap-[3px] overflow-x-auto" aria-label="Views">
       <!-- Both views: the pair that switches between them. Fenced off with a rule because it is
            the only group here that changes WHICH VIEW you are in — everything to its right acts
            within the current one, and a flat row of equal buttons hid that (#941). Same rule
@@ -204,63 +204,74 @@ function showPrs(): void {
       </span>
       <RateLimitGauge v-if="onGridRoute" />
     </nav>
-    <NotificationBell class="ml-auto" />
-    <TerminalControl />
-    <RemoteHostControl />
-    <div v-if="updateBadge" ref="updateRoot" class="relative mr-1 flex-none">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 rounded-full border border-accent px-2 py-0.5 text-[12px] leading-none text-accent hover:bg-selected"
-        :class="{ 'bg-selected': updateOpen }"
-        :title="updateBadge.text"
-        :aria-label="updateBadge.text"
-        :aria-expanded="updateOpen"
-        aria-haspopup="true"
-        @click="toggleUpdate"
-      >
-        <span class="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">upgrade</span>
-        Update
-      </button>
+    <div class="ml-auto flex min-w-0 flex-[0_1_auto] items-center gap-[2px] sm:gap-[3px]">
+      <div data-testid="toolbar-primary-actions" class="flex flex-none items-center gap-[2px] sm:gap-[3px]">
+        <NotificationBell />
+        <TerminalControl />
+      </div>
       <div
-        v-if="updateOpen"
-        class="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-panel p-3 text-[13px] text-fg shadow-lg"
-        role="group"
-        aria-label="Update available"
+        data-testid="toolbar-secondary-actions"
+        class="flex min-w-0 shrink items-center gap-[2px] overflow-x-auto overscroll-x-contain [scrollbar-width:none] sm:gap-[3px] [&::-webkit-scrollbar]:hidden"
       >
-        <p class="mb-2 font-semibold">A newer version is available</p>
-        <template v-if="updateBadge.command">
-          <p class="mb-1 text-muted">Run this to update:</p>
-          <div class="flex items-center gap-2">
-            <code class="min-w-0 flex-1 overflow-x-auto rounded bg-selected px-2 py-1 font-mono text-[12px] whitespace-nowrap">{{ updateBadge.command }}</code>
-            <button type="button" class="flex-none rounded border border-border px-2 py-1 text-[12px] hover:bg-selected" @click="copyUpdateCommand">
-              {{ copied ? "Copied" : "Copy" }}
-            </button>
+        <RemoteHostControl />
+        <div v-if="updateBadge" ref="updateRoot" class="relative mr-1 flex-none">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full border border-accent px-1.5 py-0.5 text-[12px] leading-none text-accent hover:bg-selected sm:px-2"
+            :class="{ 'bg-selected': updateOpen }"
+            :title="updateBadge.text"
+            :aria-label="updateBadge.text"
+            :aria-expanded="updateOpen"
+            aria-haspopup="true"
+            @click="toggleUpdate"
+          >
+            <span class="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">upgrade</span>
+            <span class="hidden sm:inline">Update</span>
+          </button>
+          <div
+            v-if="updateOpen"
+            class="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-panel p-3 text-[13px] text-fg shadow-lg"
+            role="group"
+            aria-label="Update available"
+          >
+            <p class="mb-2 font-semibold">A newer version is available</p>
+            <template v-if="updateBadge.command">
+              <p class="mb-1 text-muted">Run this to update:</p>
+              <div class="flex items-center gap-2">
+                <code class="min-w-0 flex-1 overflow-x-auto rounded bg-selected px-2 py-1 font-mono text-[12px] whitespace-nowrap">
+                  {{ updateBadge.command }}
+                </code>
+                <button type="button" class="flex-none rounded border border-border px-2 py-1 text-[12px] hover:bg-selected" @click="copyUpdateCommand">
+                  {{ copied ? "Copied" : "Copy" }}
+                </button>
+              </div>
+            </template>
+            <p v-else class="text-muted">{{ updateBadge.text }}</p>
           </div>
-        </template>
-        <p v-else class="text-muted">{{ updateBadge.text }}</p>
+        </div>
+        <!-- Grid only: star this project on GitHub. It retires itself once starred (or once the
+             user has opened the repo page), so it is a one-time ask rather than a fixture. -->
+        <LauncherButton v-if="starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
+        <LauncherButton
+          :icon="soundButton.icon"
+          :title="soundButton.label"
+          :label="soundButton.label"
+          :active="soundButton.active"
+          :tone="soundButton.tone"
+          :aria-pressed="soundEnabled"
+          @click="toggleSound"
+        />
+        <!-- Zoomed-grid only: switch the expanded terminal's side panel between the cockpit roster and
+             the thumbnail strip. Sits at the right end (next to Settings) and hides when nothing is expanded. -->
+        <LauncherButton
+          v-if="showViewToggle"
+          :icon="listMode ? 'view_carousel' : 'view_agenda'"
+          :title="listMode ? 'Show thumbnail strip' : 'Show list roster'"
+          :label="listMode ? 'Show thumbnail strip' : 'Show list roster'"
+          @click="emit('toggle-view')"
+        />
+        <LauncherButton icon="settings" title="Settings" label="Settings" @click="emit('settings')" />
       </div>
     </div>
-    <!-- Grid only: star this project on GitHub. It retires itself once starred (or once the
-         user has opened the repo page), so it is a one-time ask rather than a fixture. -->
-    <LauncherButton v-if="starVisible" icon="star" :title="starTitle" :label="starTitle" :active="starConfirming" @click="activateStar" />
-    <LauncherButton
-      :icon="soundButton.icon"
-      :title="soundButton.label"
-      :label="soundButton.label"
-      :active="soundButton.active"
-      :tone="soundButton.tone"
-      :aria-pressed="soundEnabled"
-      @click="toggleSound"
-    />
-    <!-- Zoomed-grid only: switch the expanded terminal's side panel between the cockpit roster and
-         the thumbnail strip. Sits at the right end (next to Settings) and hides when nothing is expanded. -->
-    <LauncherButton
-      v-if="showViewToggle"
-      :icon="listMode ? 'view_carousel' : 'view_agenda'"
-      :title="listMode ? 'Show thumbnail strip' : 'Show list roster'"
-      :label="listMode ? 'Show thumbnail strip' : 'Show list roster'"
-      @click="emit('toggle-view')"
-    />
-    <LauncherButton icon="settings" title="Settings" label="Settings" @click="emit('settings')" />
   </header>
 </template>

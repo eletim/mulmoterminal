@@ -98,6 +98,14 @@ describe("TerminalControl", () => {
     expect(buttonWithText(wrapper, "Take control")?.exists()).toBe(true);
   });
 
+  it("limits the popover width to the viewport while keeping the desktop width cap", async () => {
+    const wrapper = await mountOpen(controlFixture());
+    const pane = wrapper.get('[role="group"][aria-label="Terminal control"]');
+    expect(pane.attributes("class")).toContain("w-[min(280px,calc(100vw-16px))]");
+    expect(pane.attributes("class")).toContain("max-[767px]:!fixed");
+    expect(pane.attributes("class")).toContain("max-[767px]:!right-2");
+  });
+
   it("confirms before taking control from another owner", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const control = controlFixture({
