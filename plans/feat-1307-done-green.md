@@ -57,7 +57,9 @@ running と done の区別が消えるので採らない。
 7. `src/components/CockpitHeader.vue` — `DOT_CLASS.done` / `BADGE_CLASS.done` の `#22c55e` を
    トークンに。`PHASE_CLASS.ready` の `#22c55e` は **触らない**（PR のライフサイクル色で、意味が別）。
 8. `src/components/AppToolbar.vue` — グリッド全体の集計チップの done が `text-accent`（青）なので
-   `text-done` に。ここだけ青のままだと、まさに直したい「done が青」が残る。
+   緑に。ここだけ青のままだと、まさに直したい「done が青」が残る。ただし **`--done` ではなく
+   `text-ok`**: ここは塗りではなく文字色で、`--done`（#22c55e）は白パネル上 2.3:1 で AA を満たさない。
+   `--ok` は light テーマ用に反転する既存トークンで、`blocked` 側の `--warn`/`--amber` と同じ対応。
 
 ## テスト
 
@@ -82,5 +84,6 @@ running と done の区別が消えるので採らない。
 **直さない** — 当時の挙動の記録なので）。
 
 - `README.md`（グリッド画像のキャプション）
-- `docs/guide/{en,ja}/basics.md` / `features.md` / `index.md` / `scenarios.md`
-- `docs/guide/ja/getting-started.md`
+- `docs/guide/{en,ja}/basics.md` / `features.md` / `index.md` / `scenarios.md` / `glossary.md` /
+  `getting-started.md`
+- `docs/index.md`
