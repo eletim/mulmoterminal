@@ -175,22 +175,44 @@ export default [
       "@typescript-eslint/no-unsafe-call": "error",
       "@typescript-eslint/no-unsafe-member-access": "error",
       "@typescript-eslint/no-unsafe-return": "error",
-      // Type-aware sonarjs rules that were ALREADY configured as errors and never ran, because
-      // nothing built a type program until this block did. Turning them on is not what this change
-      // is for, and 30 findings would hide the promise ones — so they are visible at warn and get
-      // read in #1300 with the rest of the type-aware pass. They were never enforced, so this
-      // takes nothing away.
-      "sonarjs/different-types-comparison": "warn",
+      // The type-aware sonarjs rules, read one finding at a time in #1300. They had been configured
+      // as errors for a long time and never ran, because nothing built a type program until this
+      // block did — so what looks like a demotion below is the first time any of them was judged.
+      //
+      // ERROR — at zero, and each catches something real:
+      "sonarjs/different-types-comparison": "error",
+      "sonarjs/no-alphabetical-sort": "error",
+      "sonarjs/no-misleading-array-reverse": "error",
+      // ERROR here, off for `.vue` below: Vue composes emit types by intersecting call-signature
+      // interfaces, which this rule reads as "a type without members".
+      "sonarjs/no-useless-intersection": "error",
+      //
+      // WARN — the findings are external APIs we use ON PURPOSE, so this cannot reach zero, but a
+      // NEW deprecation is worth seeing. The five standing ones: `Server` from the MCP SDK (x3),
+      // whose own notice says to keep using it for the low-level `setRequestHandler` API we are on;
+      // `document.execCommand("copy")`, the synchronous copy that works on an existing selection
+      // where the async Clipboard API does not; and `e.returnValue`, which legacy Chrome/Edge still
+      // require to raise the beforeunload prompt.
       "sonarjs/deprecation": "warn",
-      "sonarjs/no-alphabetical-sort": "warn",
-      // OFF, not warn: it forbids the `void` operator, which is exactly what
-      // `no-floating-promises` asks for to mark a promise as deliberately not awaited. The two
-      // rules contradict each other and we chose the one that catches a forgotten `await`.
+      //
+      // OFF — every finding was a false positive, and the reason is structural rather than
+      // incidental, so the rule will keep producing them:
+      //
+      // `void` is what no-floating-promises asks for to mark a deliberate fire-and-forget. The two
+      // rules contradict each other; we chose the one that catches a forgotten `await`.
       "sonarjs/void-use": "off",
-      "sonarjs/function-return-type": "warn",
-      "sonarjs/reduce-initial-value": "warn",
-      "sonarjs/no-selector-parameter": "warn",
-      "sonarjs/no-misleading-array-reverse": "warn",
+      // Flags a function whose returns differ in type — but all three findings DECLARED a union
+      // return type (`"tool" | { said } | null`, `JsonValue`, `HeaderChip | null`). The union is
+      // the contract; collapsing it would mean boxing every answer to satisfy the rule.
+      "sonarjs/function-return-type": "off",
+      // Wants an initial value on `reduce()`. Both findings are provably non-empty — one guards
+      // `length === 0` on the line above, the other reduces `[head, ...rest]` — and the rule cannot
+      // see either. An initial value there would be dead code that also changes the result type.
+      "sonarjs/reduce-initial-value": "off",
+      // Wants two functions instead of a boolean parameter. Its one finding takes `secret` from a
+      // caller that COMPUTES it (`Object.keys(env).length > 0`), so splitting the function just
+      // moves the same branch to the call site.
+      "sonarjs/no-selector-parameter": "off",
     },
   },
   {
@@ -202,12 +224,12 @@ export default [
     rules: {
       "@typescript-eslint/no-floating-promises": "warn",
       "@typescript-eslint/no-misused-promises": "warn",
-      // Another rule that only became reachable with a type program, and it is wrong here: it
-      // calls an interface holding nothing but CALL signatures "a type without members", so
-      // `SoundEmits & { (e: "…"): void }` reads as a useless intersection. That composition is
-      // how Vue's type-based `defineEmits<>` reuses a child's contract — dropping it would drop
-      // the child's events. At warn pending #1300, like the others it woke.
-      "sonarjs/no-useless-intersection": "warn",
+      // OFF here, error everywhere else (#1300). The rule calls an interface holding nothing but
+      // CALL signatures "a type without members", so `GridCellEmits & { (e: "session", id): void }`
+      // reads as a useless intersection. That composition is how Vue's type-based `defineEmits<>`
+      // reuses a child's contract, and dropping it would drop the child's events — all four
+      // findings were that, and every one of them was in a `.vue`.
+      "sonarjs/no-useless-intersection": "off",
     },
   },
   {
