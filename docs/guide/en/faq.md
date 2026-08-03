@@ -184,6 +184,14 @@ Diff, commit, push and Open PR are all reachable from inside the cell (→ [Adva
 
 **Yes.** Pick Shell in an empty cell and choose a directory. No launcher entry, no model, no configuration.
 
+### Which directory should I launch a cell in?
+
+**The repository, when you are working on that project — the workspace, when you want what the single view in 3.x gave you** (the server's default working directory, printed as `Workspace: …` at startup; if you also run MulmoClaude, the workspace you share with it, `~/mulmoclaude` by default).
+
+A Claude cell carries the whole GUI MCP **only when it is launched in the workspace** — drawing into the Canvas, working with collections, all of it available with nothing to register.
+A cell in a project directory reads that directory's own MCP config instead, so register a tool group with the launcher's MCP toggles when you want GUI tools there.
+Codex and Antigravity get no workspace exemption: wherever they run, they have whatever is registered for that directory (→ [which directory to launch in](basics.html#launch-dir)).
+
 ---
 
 ## Other
