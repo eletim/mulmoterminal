@@ -13,7 +13,7 @@
 //                 package's bundled i18n falls back to English).
 //   - openUrl   → scheme-allowlisted window.open.
 import { defineComponent, h, markRaw, provide, ref, type Component, type Ref } from "vue";
-import { PLUGIN_RUNTIME_KEY, type BrowserPluginRuntime } from "gui-chat-protocol/vue";
+import { PLUGIN_RUNTIME_KEY, type BrowserPluginRuntime, type SubscribeOptions } from "gui-chat-protocol/vue";
 import { usePubSub } from "./usePubSub";
 import { isOpenablePluginUrl } from "./pluginUrlPolicy";
 
@@ -34,7 +34,8 @@ function makeOpenUrl(scope: string): BrowserPluginRuntime["openUrl"] {
 
 function makeDispatch(toolName: string): BrowserPluginRuntime["dispatch"] {
   const url = `/api/plugin/${encodeURIComponent(toolName)}`;
-  return async <T = unknown>(args: object): Promise<T> => {
+
+  async function post(args: object): Promise<unknown> {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,8 +45,49 @@ function makeDispatch(toolName: string): BrowserPluginRuntime["dispatch"] {
       const text = await res.text().catch(() => "");
       throw new Error(`plugin/${toolName} dispatch failed (${res.status}): ${text || res.statusText}`);
     }
-    return (await res.json()) as T;
-  };
+    const raw: unknown = await res.json();
+    return raw;
+  }
+
+  async function dispatch(args: object): Promise<unknown>;
+  async function dispatch<T>(args: object, parse: (raw: unknown) => T): Promise<T>;
+  async function dispatch<T>(args: object, parse?: (raw: unknown) => T) {
+    const raw = await post(args);
+    return parse ? parse(raw) : raw;
+  }
+  return dispatch;
+}
+
+type PluginSubscribe = BrowserPluginRuntime["pubsub"]["subscribe"];
+
+// Both overloads land on one implementation that reads its trailing arguments off a
+// tuple UNION narrowed by `rest.length` — the shape gui-chat-protocol's reference host
+// uses, and the reason neither `opts` nor `handler` needs an assertion to be read.
+function makeSubscribe(scope: string, onChannel: (channel: string, handler: (data: unknown) => void) => () => void): PluginSubscribe {
+  function subscribe(eventName: string, handler: (payload: unknown) => void): () => void;
+  function subscribe<T>(eventName: string, opts: SubscribeOptions<T>, handler: (payload: T) => void): () => void;
+  function subscribe<T>(
+    eventName: string,
+    ...rest: [handler: (payload: unknown) => void] | [opts: SubscribeOptions<T>, handler: (payload: T) => void]
+  ): () => void {
+    const channel = pluginChannelName(scope, eventName);
+    if (rest.length === 1) return onChannel(channel, rest[0]);
+    const [opts, handler] = rest;
+    return onChannel(channel, (raw) => {
+      // A throwing `parse` drops the frame rather than the channel. The reader idiom the
+      // protocol documents is `Schema.parse(raw)` and Zod's `parse` throws, so without
+      // this one malformed frame would take down every other subscriber on it too.
+      let payload: T | null;
+      try {
+        payload = opts.parse(raw);
+      } catch (error) {
+        console.warn(`[plugin/${scope}] dropped an unparseable frame on ${eventName}`, error);
+        return;
+      }
+      if (payload !== null) handler(payload);
+    });
+  }
+  return subscribe;
 }
 
 // Shared "en" locale — MulmoTerminal has no locale switcher.
@@ -63,11 +105,7 @@ export function makeBrowserPluginRuntime(deps: MakeRuntimeDeps): BrowserPluginRu
   const { subscribe } = usePubSub();
   const tag = `[plugin/${scope}]`;
   return {
-    pubsub: {
-      subscribe(eventName, handler) {
-        return subscribe(pluginChannelName(scope, eventName), handler as (data: unknown) => void);
-      },
-    },
+    pubsub: { subscribe: makeSubscribe(scope, subscribe) },
     locale: sharedLocale,
     log: {
       debug: (msg, data) => console.debug(tag, msg, data),
