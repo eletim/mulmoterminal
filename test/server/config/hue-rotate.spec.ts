@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { rotateHue } from "../../../server/config/hue-rotate";
 

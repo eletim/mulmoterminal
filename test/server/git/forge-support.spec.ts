@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Whether a configured repo can be listed, and what the row says when it cannot. The message is
 // the feature: an unsupported forge used to produce an empty section with no explanation (#981).
 import { describe, it, expect } from "vitest";

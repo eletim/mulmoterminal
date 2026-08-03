@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Windows-only: the terminal paths that run a SHELL rather than an agent — the Run menu's
 // one-off command and a configured launcher. Both compose shellInvocation() with spawnPty(),
 // and on Windows that means `powershell.exe -NoLogo -Command <command>`.

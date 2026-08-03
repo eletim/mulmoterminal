@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { createFileCache } from "../../../server/session/file-cache.js";
 

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
 import type { WebSocket } from "ws";
 import { startAndWire } from "../../../server/routes/ws-routes.js";
