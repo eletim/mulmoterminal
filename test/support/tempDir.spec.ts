@@ -7,8 +7,8 @@
 // If those two ever resolve to separate module instances, the registry `afterAll` walks is empty:
 // nothing is removed, nothing throws, and every test still passes. The leak would come back
 // invisibly, which is exactly how it went unnoticed to 42,000 directories the first time.
-import { describe, it, expect } from "vitest";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { describe, it, expect, vi } from "vitest";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { makeTempDir, makeTempDirAsync, removeTrackedTempDirs, trackedTempDirCount } from "./tempDir";
@@ -50,6 +50,37 @@ describe("temp dir registry", () => {
     makeTempDir("mt-registry-vanishing-");
     removeTrackedTempDirs();
     expect(() => removeTrackedTempDirs()).not.toThrow();
+  });
+
+  // The point of swallowing the error is that cleanup cannot fail a run — but swallowing it and
+  // ALSO dropping the path is how a leak survives a sweep that looks like it worked. EBUSY/EPERM on
+  // a directory another process still holds is transient on Windows, so the path has to stay.
+  //
+  // The import is inside the test on purpose: `vi.doMock` is not hoisted, so it only takes effect
+  // on a later import (see CLAUDE.md).
+  it("keeps a directory it could not remove, so a later sweep tries again", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", async () => {
+      const real = await vi.importActual<typeof import("node:fs")>("node:fs");
+      return {
+        ...real,
+        rmSync: () => {
+          throw new Error("EBUSY: resource busy or locked");
+        },
+      };
+    });
+
+    const stuck = await import("./tempDir");
+    const dir = stuck.makeTempDir("mt-registry-stuck-");
+    expect(stuck.trackedTempDirCount()).toBe(1);
+
+    expect(() => stuck.removeTrackedTempDirs()).not.toThrow();
+    expect(stuck.trackedTempDirCount()).toBe(1);
+
+    vi.doUnmock("node:fs");
+    vi.resetModules();
+    // That module instance's registry is not the one the setup file sweeps, so this spec owns it.
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("forgets what it removed, so a second pass is a no-op rather than a re-delete", () => {

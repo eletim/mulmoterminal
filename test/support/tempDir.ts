@@ -34,18 +34,23 @@ export async function makeTempDirAsync(prefix: string): Promise<string> {
   return dir;
 }
 
-/** Remove every directory handed out so far and forget them. Registered once per test file by
- *  `test/setup-temp-dirs.ts`; nothing else should call it.
+/** Remove every directory handed out so far and forget the ones that went. Registered once per test
+ *  file by `setup-temp-dirs.ts`; nothing else should call it.
  *
- *  A removal that fails is swallowed on purpose. A spec that already deleted its own directory, and
- *  a Windows handle still open on one, are both fine — turning a passing run red during cleanup
- *  would trade a disk-space problem for a flaky suite. */
+ *  A removal that fails is swallowed rather than thrown — turning a passing run red during cleanup
+ *  would trade a disk-space problem for a flaky suite — but the path is put BACK on the list, so
+ *  the next file's sweep tries again. Dropping it on the first failure is how a leak survives a
+ *  cleanup that looks like it ran: `EBUSY` and `EPERM` on a directory another process still holds
+ *  are transient on Windows, and there would be nothing left to retry with.
+ *
+ *  `maxRetries` handles the same transience inside the one call, which is cheaper than waiting for
+ *  a later file to sweep — and there may not BE a later file. */
 export function removeTrackedTempDirs(): void {
   for (const dir of handedOut.splice(0)) {
     try {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     } catch {
-      // Already gone, or held by another process. Neither is this suite's problem.
+      handedOut.push(dir);
     }
   }
 }
