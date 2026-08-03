@@ -40,6 +40,27 @@ export default [
             "Use Tailwind utilities (see docs/styling.md). If this genuinely can't be a utility, add the file to the scoped-CSS allowlist in eslint.config.js with a reason.",
         },
       ],
+      // The assertion bans below reach `<script>` only: typescript-eslint's rules never visit
+      // the TEMPLATE body, which vue-eslint-parser exposes as a separate AST. So
+      // `@input="…($event.target as HTMLInputElement).value"` was invisible to
+      // consistent-type-assertions even at `error`, and `!` was invisible to
+      // no-non-null-assertion. `vue/no-restricted-syntax` is the one rule that walks that AST,
+      // so the same two bans are spelled here as selectors.
+      "vue/no-restricted-syntax": [
+        "error",
+        {
+          // `as const` is excluded, because consistent-type-assertions excludes it too and the
+          // two halves of one SFC must not disagree. It is also not what the ban is about: a
+          // const assertion narrows a literal the compiler can already see, rather than claiming
+          // a type the compiler could not prove.
+          selector: 'TSAsExpression:not([typeAnnotation.typeName.name="const"])',
+          message: "Do not use type assertions — narrow in <script> and pass the result to the template.",
+        },
+        {
+          selector: "TSNonNullExpression",
+          message: "Do not use non-null assertions — narrow in <script> and pass the result to the template.",
+        },
+      ],
     },
   },
   {
@@ -124,6 +145,10 @@ export default [
     // ERROR since #1231 finished: the 149 assertions the app started with are gone, and the
     // allowlist below is the only way to keep one — with a reason, since inline eslint-disable is
     // forbidden and hides the debt at the scene.
+    //
+    // `**/*.vue` here reaches the SCRIPT block only — typescript-eslint's rules never walk the
+    // template AST, so an `as` inside `@input="…"` passed this rule at `error` (#1339). The same
+    // ban for the template is the `vue/no-restricted-syntax` selectors in the `.vue` block above.
     files: ["**/*.{ts,tsx,mts,cts}", "**/*.vue"],
     rules: {
       "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
@@ -235,6 +260,10 @@ export default [
   {
     // The `any` family is OFF wherever a `.vue` component type is in play, and that is a LIMIT OF
     // THE LINTER rather than a hole in the code.
+    //
+    // This exclusion is the `any` family ONLY. It is not a general "linter cannot see `.vue`":
+    // the assertion bans DO cover SFCs, script side through consistent-type-assertions and
+    // template side through the `vue/no-restricted-syntax` selectors (#1339).
     //
     // ESLint's type program does not generate SFC component types, so `InstanceType<typeof
     // SomeComponent>` — and any type imported from a `.vue` — resolves to the error type. Every

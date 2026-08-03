@@ -64,6 +64,17 @@ const home = ref<string | null>(null);
 
 const prRepos = ref<string[]>([]);
 
+// The hosts declared as self-hosted GitLab (#1332). Read-only here — config.json is the only place
+// it can be set — but the browser needs it to know that a `gitlab.hogefuga.com/...` row can start
+// work, which is a decision this side makes on its own (common/issueStartPlan.ts).
+const gitlabHosts = ref<string[]>([]);
+
+/** The declared hosts, for a reader outside the composable — same shape as `currentSoundConfig`
+ *  above, and for the same reason: useAppConfig() builds per-call refs, so calling it from a
+ *  render path to read one singleton is waste. Reading `.value` here still tracks the dependency,
+ *  so a computed that calls this re-runs when the config lands. */
+export const currentGitlabHosts = (): string[] => gitlabHosts.value;
+
 // Which clone each repo's work starts in (#1172) — a SINGLETON for the same reason, and read from
 // the CONFIG rather than reconstructed from /api/repo-dirs: that view drops a recording whose
 // directory it cannot currently see, so merging a new choice into it would quietly delete the
@@ -274,10 +285,11 @@ function applyGlobalSettings(c: Record<string, unknown>): void {
   refreshTheme();
 }
 
-// The two GitHub-repo fields, adopted together — like adoptSoundConfig, so loadConfig keeps
-// reading as a list of facts rather than growing a ternary per field.
+// The repo fields, adopted together — like adoptSoundConfig, so loadConfig keeps reading as a list
+// of facts rather than growing a ternary per field.
 function adoptRepoConfig(c: Record<string, unknown>): void {
   prRepos.value = stringsOf(c.prRepos);
+  gitlabHosts.value = stringsOf(c.gitlabHosts);
   repoDirs.value = isRecord(c.repoDirs) ? readRepoDirs(c.repoDirs) : {};
 }
 

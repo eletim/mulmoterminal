@@ -223,3 +223,34 @@ describe("a resume row", () => {
     expect(w.emitted("resume")).toBeUndefined();
   });
 });
+
+// A write into the user's Claude Code config that fails has to SAY so — the checkbox goes back and
+// the row reads "failed", with the reason on the hover. The branch and the hover read the same
+// accessor since #1339 (the hover used to assert non-null what the branch had just tested), so
+// what is pinned here is that the message still arrives at the title.
+describe("an MCP group row whose write failed", () => {
+  it("puts the checkbox back and carries the reason on the hover", async () => {
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/api/gui-mcp-groups")) {
+        if (init?.method === "POST") return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: true, json: async () => ({ groups: [] }) };
+      }
+      if (u.includes("/api/worktrees")) return { ok: true, json: async () => ({ isGit: true, base: "main", worktrees: [] }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ cwd: "/repo", sessions: [] }) };
+      return { ok: true, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+
+    const w = mountForm();
+    await flushPromises();
+    const toggle = w.find<HTMLInputElement>('[data-testid="cell-mcp-toggle-render"]');
+    await toggle.setValue(true);
+    await flushPromises();
+
+    const failed = w.findAll("span.text-err-text");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].text()).toBe("failed");
+    expect(failed[0].attributes("title")).toBe("HTTP 500");
+    expect(toggle.element.checked).toBe(false);
+  });
+});

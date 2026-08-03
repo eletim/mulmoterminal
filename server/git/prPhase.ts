@@ -10,9 +10,9 @@
 import type { CiState } from "../../common/ghItems.js";
 import { EMPTY_WORK_ITEM, issueCandidateFromBranch, issueRefFromPrBody, type PrPhase, type WorkItem } from "../../common/prPhase.js";
 import { runGh } from "./gh.js";
-import { runGlab, glabMrForBranchArgs, glabMrViewArgs } from "./glab.js";
+import { runGlab, glabMrForBranchArgs, glabMrViewArgs, glabTarget, type GlabTarget } from "./glab.js";
 import { firstGlabMr, glabMrPhase } from "./glab-items.js";
-import { forgeFromRepoEntry, projectPath } from "./forge-host.js";
+import { forgeFromRepoEntry } from "./forge-host.js";
 
 const safeJson = (raw: string): unknown => {
   try {
@@ -142,12 +142,12 @@ const issueUrl = (repo: string, number: number): string => `https://github.com/$
 // A cell watches ONE branch, so it can afford the per-request call the cross-repo list cannot:
 // `mr list` carries no pipeline at all, and `mr view` is where `head_pipeline` lives (#981 step 4a
 // took the cheaper answer for the list, and said so). Two calls, once per cache window.
-async function gitlabPhase(project: string, branch: string): Promise<PrPhaseResult | null> {
-  const listed = await runGlab(glabMrForBranchArgs(branch, project));
+async function gitlabPhase(target: GlabTarget, branch: string): Promise<PrPhaseResult | null> {
+  const listed = await runGlab(glabMrForBranchArgs(branch, target));
   if (!listed.ok) return null;
   const first = firstGlabMr(safeJson(listed.stdout));
   if (!first) return { ...EMPTY_WORK_ITEM };
-  const viewed = await runGlab(glabMrViewArgs(String(first.iid), project));
+  const viewed = await runGlab(glabMrViewArgs(String(first.iid), target));
   // The list answer already has everything but the pipeline, so a failed view degrades to it
   // rather than losing the whole row.
   const detail = viewed.ok ? (safeJson(viewed.stdout) ?? first.raw) : first.raw;
@@ -178,7 +178,7 @@ export async function phaseForRepoBranch(repo: string, branch: string, deps: PrP
 
   const forge = forgeFromRepoEntry(repo);
   if (forge?.kind === "gitlab") {
-    const result = await gitlabPhase(projectPath(forge) ?? forge.path, branch);
+    const result = await gitlabPhase(glabTarget(forge), branch);
     if (result) cache.set(key, result, now);
     return result ?? NONE;
   }

@@ -6,6 +6,7 @@
 // the channel a failing CLI call uses, so saying so needed no new UI.
 import { forgeFromRepoEntry, forgeOf, projectPath, type RemoteForge } from "./forge-host.js";
 import { resolveRemoteForge } from "./gitRemote.js";
+import { unknownForgeReason } from "../../common/gitlabHosts.js";
 
 export interface SupportedRepo {
   /** The entry as configured, which is what the row is labelled with. */
@@ -17,18 +18,18 @@ export type RepoSupport = SupportedRepo | { entry: string; error: string };
 
 export const isSupported = (r: RepoSupport): r is SupportedRepo => "forge" in r;
 
-// Named rather than "unsupported": a reader of the row needs to know it is the HOST that is not
-// handled, not their repository or their credentials — those are the two things a bare "failed"
-// would send them off to check.
-const notImplemented = (host: string): string => `${host} is not supported yet — MulmoTerminal reads github.com and gitlab.com`;
-
 const LISTABLE: ReadonlySet<string> = new Set(["github", "gitlab"]);
 
-/** Whether a configured `prRepos` entry can be listed, and why not when it cannot. */
+/** Whether a configured `prRepos` entry can be listed, and why not when it cannot.
+ *
+ *  The refusal names the HOST, not the repository or the credentials — those are the two things a
+ *  bare "failed" would send the reader off to check — and says what to do about it, because a
+ *  self-hosted GitLab is now one config line away from working (#1332).
+ */
 export function repoSupport(entry: string): RepoSupport {
   const forge = forgeFromRepoEntry(entry);
   if (!forge) return { entry, error: `${entry} is not a repository — expected owner/repo, or host/owner/repo` };
-  if (!LISTABLE.has(forge.kind)) return { entry, error: notImplemented(forge.host) };
+  if (!LISTABLE.has(forge.kind)) return { entry, error: unknownForgeReason(forge.host) };
   return { entry, forge };
 }
 

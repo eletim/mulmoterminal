@@ -8,9 +8,9 @@
 // comments are the source of truth for a fresh process — the marker is in the thread, so a
 // restarted server, a second instance, or a second browser cannot double-post.
 import { runGh } from "./gh.js";
-import { runGlab, glabIssueCloseArgs, glabIssueNoteArgs, glabIssueNotesArgs, glabIssueViewArgs } from "./glab.js";
+import { runGlab, glabIssueCloseArgs, glabIssueNoteArgs, glabIssueNotesArgs, glabIssueViewArgs, glabTarget, type GlabTarget } from "./glab.js";
 import { glabIssueIsOpen, glabNoteBodies } from "./glab-items.js";
-import { forgeFromRepoEntry, projectPath } from "./forge-host.js";
+import { forgeFromRepoEntry } from "./forge-host.js";
 import { isRecord } from "../../common/isRecord.js";
 import { alreadyCommented, workCommentBody, type WorkCommentKind } from "../../common/workComment.js";
 
@@ -81,19 +81,19 @@ function githubIssueOps(run: typeof runGh, repo: string, issue: number): IssueOp
 // TWO calls where GitHub needs one: `glab issue view -F json` carries no comments at all (and
 // `--comments` only changes the human-readable output), so the notes come from the REST endpoint
 // while the state comes from the view. Measured, not assumed.
-function gitlabIssueOps(project: string, issue: number): IssueOps {
+function gitlabIssueOps(target: GlabTarget, issue: number): IssueOps {
   return {
     view: async () => {
       try {
-        const [notes, view] = await Promise.all([runGlab(glabIssueNotesArgs(project, issue)), runGlab(glabIssueViewArgs(project, issue))]);
+        const [notes, view] = await Promise.all([runGlab(glabIssueNotesArgs(target, issue)), runGlab(glabIssueViewArgs(target, issue))]);
         if (!notes.ok || !view.ok) return null;
         return { bodies: glabNoteBodies(JSON.parse(notes.stdout)), open: glabIssueIsOpen(JSON.parse(view.stdout)) };
       } catch {
         return null;
       }
     },
-    comment: (body) => ranOk(runGlab(glabIssueNoteArgs(project, issue, body))),
-    close: () => ranOk(runGlab(glabIssueCloseArgs(project, issue))),
+    comment: (body) => ranOk(runGlab(glabIssueNoteArgs(target, issue, body))),
+    close: () => ranOk(runGlab(glabIssueCloseArgs(target, issue))),
   };
 }
 
@@ -102,7 +102,7 @@ function gitlabIssueOps(project: string, issue: number): IssueOps {
 function issueOpsFor(run: typeof runGh, repo: string, issue: number): IssueOps {
   const forge = forgeFromRepoEntry(repo);
   if (forge?.kind !== "gitlab") return githubIssueOps(run, repo, issue);
-  return gitlabIssueOps(projectPath(forge) ?? forge.path, issue);
+  return gitlabIssueOps(glabTarget(forge), issue);
 }
 
 /**
