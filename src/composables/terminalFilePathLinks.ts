@@ -31,8 +31,9 @@ function endsInFileExtension(text: string): boolean {
 export function findFilePathLinks(line: string): FilePathLink[] {
   const links: FilePathLink[] = [];
   for (const match of line.matchAll(PATH_TOKEN)) {
+    // No `undefined` guard: matchAll requires a global regex and the spec sets `index` on every
+    // match it yields, which is why the type is `number` rather than `number | undefined`.
     const start = match.index;
-    if (start === undefined) continue;
     let text = match[0];
     let end = start + text.length;
     while (text.endsWith(".")) {
