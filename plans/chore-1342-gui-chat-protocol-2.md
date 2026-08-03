@@ -2,8 +2,10 @@
 
 ## ゴール
 
-`gui-chat-protocol` をツリー内 **2.0.0 の 1 コピーだけ**にする。それを使う
-`@mulmoclaude/*` / `@mulmochat-plugin/*` も同時に 2.0.0 へ上げる。
+`gui-chat-protocol` をツリー内 **2.0.0 の 1 コピーだけ**にする。それを peer に持つ
+`@mulmoclaude/*` / `@mulmochat-plugin/*` も同時に 2.0.0 へ上げる。`gui-chat-protocol` に
+依存しない `@mulmoclaude/x-plugin`（`^1.0.2`）と `@mulmochat-plugin/ui-image`（`^0.4.1`）は
+2.0.0 が存在しないので対象外。
 
 コピーが 1 本であること自体が要件になるのは、`PLUGIN_RUNTIME_KEY` が Vue の
 `InjectionKey`（Symbol）だから。2 コピーあると provide 側と inject 側で別の Symbol に
