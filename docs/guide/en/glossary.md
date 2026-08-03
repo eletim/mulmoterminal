@@ -44,7 +44,7 @@ you can put the same task to both and compare, or have one review the other.
 Running several agents at the same time. While one thinks you can move another forward — what runs
 out is **your attention**, not the machine's. The grid solves that with colour and sound.
 
-- **Awaiting input** is amber; a **finished turn** gets a blue ring
+- **Awaiting input** is amber; a **finished turn** gets a green ring
 - You only pick up the cells that called you
 - A sound and a phone push mean you notice without watching the screen
 
