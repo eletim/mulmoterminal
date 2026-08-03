@@ -128,6 +128,7 @@ import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
+import { createTerminalControlServer } from "./control/terminal-control-server.js";
 
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -499,6 +500,7 @@ mountAppRoutes(app, {
 
 const server = http.createServer(app);
 pubsub = createPubSub(server, isAllowedOrigin);
+createTerminalControlServer(server, { isAllowedOrigin });
 
 // Wire the shared file-change publisher (markdown + html live-refresh) against
 // pubsub + the workspace. Must run before any write route fires (publishFileChange
