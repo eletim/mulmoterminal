@@ -93,6 +93,7 @@ export function sessionWorkSummary(item: WorkItem): SessionWorkSummary | undefin
 export interface SessionListInput {
   liveIds: readonly string[];
   tmuxIds: readonly string[];
+  includeNameless?: boolean;
   // Excludes sessions an orphan cleanup would reap — without it the picker fills with
   // long-dead tmux shells (66 of them on the author's machine when this was written).
   isResumable: (id: string) => boolean;
@@ -112,13 +113,20 @@ const byLiveThenTitle = (a: TerminalSessionSummary, b: TerminalSessionSummary): 
 // dozens of long-finished ones the host can no longer name. A row showing nothing but
 // a UUID is not a choice the user can make, so a nameless session earns its place only
 // by being live — where the id at least identifies something currently running.
-export function buildSessionList({ liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
+export function buildSessionList({
+  liveIds,
+  tmuxIds,
+  includeNameless = false,
+  isResumable,
+  isGridSession,
+  detailOf,
+}: SessionListInput): TerminalSessionSummary[] {
   const live = new Set(liveIds);
   const ids = [...new Set([...liveIds, ...tmuxIds])].filter(isResumable).filter(isGridSession);
   return (
     ids
       .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
-      .filter((session) => session.title !== "" || session.live)
+      .filter((session) => includeNameless || session.title !== "" || session.live)
       .map((session) => ({ ...session, title: session.title || session.id }))
       // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding
       // `undefined`. A caller writing `work: map.get(cwd)` leaves the key behind, the spreads above
@@ -249,9 +257,16 @@ const screenRowsOf = async (id: string, { captureStyledPane, sourceOf, render }:
   const captured = captureStyledPane(id);
   if (captured !== null) return parseStyledRows(captured);
   const source = sourceOf(id);
-  if (!source) throw new Error(`terminal session '${id}' not found`);
+  if (!source) throw new TerminalSessionNotFoundError(id);
   return render(source);
 };
+
+export class TerminalSessionNotFoundError extends Error {
+  constructor(id: string) {
+    super(`terminal session '${id}' not found`);
+    this.name = "TerminalSessionNotFoundError";
+  }
+}
 
 // The metadata decorates the screen, so a failure reading it (a git call that blew up, a dir
 // that has since been deleted) costs those fields — never the terminal output itself.

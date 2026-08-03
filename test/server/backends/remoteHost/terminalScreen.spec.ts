@@ -9,6 +9,7 @@ import {
   captureSessionScreen,
   definedScreenMeta,
   screenWindow,
+  TerminalSessionNotFoundError,
   type CaptureScreenDeps,
   type ScreenMetaSources,
   type SessionListInput,
@@ -138,6 +139,16 @@ describe("buildSessionList", () => {
     expect(sessions.map((session) => session.id)).toEqual(["named"]);
   });
 
+  it("also drops a nameless stopped session when includeNameless is false", () => {
+    const sessions = buildSessionList(listInput({ tmuxIds: ["nameless"], includeNameless: false, detailOf: () => ({ title: "", cwd: "", agent: null }) }));
+    expect(sessions).toEqual([]);
+  });
+
+  it("keeps a nameless stopped session when includeNameless is true, labelled by its id", () => {
+    const sessions = buildSessionList(listInput({ tmuxIds: ["nameless"], includeNameless: true, detailOf: () => ({ title: "", cwd: "", agent: null }) }));
+    expect(sessions).toEqual([{ id: "nameless", title: "nameless", cwd: "", live: false, agent: null }]);
+  });
+
   // Live earns a row regardless: the id at least points at something running now.
   it("keeps a nameless session while it is live, labelled by its id", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["abc"], detailOf: () => ({ title: "", cwd: "/w", agent: "shell" }) }));
@@ -233,6 +244,7 @@ describe("captureSessionScreen", () => {
 
   // The session can end between the phone listing it and reading it.
   it("reports a session that exists in neither place", async () => {
+    await expect(captureSessionScreen("gone", captureDeps({ sourceOf: () => undefined }))).rejects.toThrow(TerminalSessionNotFoundError);
     await expect(captureSessionScreen("gone", captureDeps({ sourceOf: () => undefined }))).rejects.toThrow(/'gone' not found/);
   });
 

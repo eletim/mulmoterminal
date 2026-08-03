@@ -75,10 +75,12 @@ import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountSpaFallback } from "../infra/spa-fallback.js";
 import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
 import { workspaceForRoute } from "./routeParams.js";
+import { mountTerminalViewRoutes, type TerminalViewRouteDeps } from "./terminal-view-routes.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
   rateLimits: RateLimitRouteDeps;
+  terminalView: TerminalViewRouteDeps;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
@@ -237,6 +239,10 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     // its own PreToolUse/PostToolUse already writes.
     guiCallHistory: (sessionId) => guiCallRecorderFor(sessionId, sessionCallReporting(deps, sessionId), deps.toolStores),
   });
+
+  // Read-only local terminal view API for browser clients on this host. Mounted before the
+  // static build and SPA fallback so these /api routes always answer JSON.
+  mountTerminalViewRoutes(app, deps.terminalView);
 
   // Serve Vite build output
   app.use(express.static(path.join(clientDir, "../dist")));

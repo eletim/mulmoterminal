@@ -91,7 +91,10 @@ import {
   buildSessionList,
   captureSessionScreen,
   sessionWorkSummary,
+  type CaptureScreenDeps,
+  type SessionScreen,
   type SessionScreenMeta,
+  type TerminalSessionSummary,
   type SessionWorkSummary,
 } from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
@@ -467,6 +470,10 @@ mountAppRoutes(app, {
     claudeAvailable: claudeIsRunnable,
     now_ms: () => Date.now(),
   },
+  terminalView: {
+    listTerminalSessions: () => localListTerminalSessions(),
+    captureTerminalScreen: (sessionId) => localCaptureTerminalScreen(sessionId),
+  },
   isAllowedOrigin,
   publish: (channel, data) => pubsub?.publish(channel, data),
   sessionChannel,
@@ -627,7 +634,7 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
   return out;
 };
 
-const remoteHostListTerminalSessions = async () => {
+const listTerminalSessions = async (includeNameless: boolean): Promise<TerminalSessionSummary[]> => {
   // A live PTY knows where claude actually runs, so it wins. A session that outlived this process
   // has none — that is what the remembered cwd is for (#1021), and without it the phone shows the
   // row with no directory and no work item.
@@ -641,6 +648,7 @@ const remoteHostListTerminalSessions = async () => {
   return buildSessionList({
     liveIds: [...ptys.keys()],
     tmuxIds: tmuxListSessionIds(),
+    includeNameless,
     isResumable: await resumableSessionPredicate(),
     // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
     // one — never a tmux shell that was never a cell. resumableSessionPredicate() below already
@@ -666,6 +674,9 @@ const remoteHostListTerminalSessions = async () => {
     },
   });
 };
+
+const remoteHostListTerminalSessions = (): Promise<TerminalSessionSummary[]> => listTerminalSessions(false);
+const localListTerminalSessions = (): Promise<TerminalSessionSummary[]> => listTerminalSessions(true);
 
 // Write a chunk to a session's live PTY for the phone's terminal input (#445).
 // Only sessions attached in THIS process are writable: a tmux session that outlived
@@ -707,22 +718,28 @@ const remoteHostSessionScreenMeta = (sessionId: string): Promise<SessionScreenMe
     memosHydrated: sessionMemosHydrated,
   });
 
-const remoteHostCaptureTerminalScreen = (sessionId: string) =>
+const terminalScreenCaptureDeps = (): CaptureScreenDeps => ({
+  // Both capture paths are asked for the same history; how much of it the phone actually
+  // gets is captureSessionScreen's call, so the two agree (mulmoserver#139).
+  captureStyledPane: (id) => tmuxCaptureStyledPane(id, SCREEN_HISTORY_ROWS),
+  sourceOf: (id) => {
+    const entry = ptys.get(id);
+    return entry ? { buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows } : undefined;
+  },
+  render: (source) => renderScreen({ ...source, historyLines: SCREEN_HISTORY_ROWS }),
+});
+
+const remoteHostCaptureTerminalScreen = (sessionId: string): Promise<SessionScreen> =>
   captureSessionScreen(sessionId, {
-    // Both capture paths are asked for the same history; how much of it the phone actually
-    // gets is captureSessionScreen's call, so the two agree (mulmoserver#139).
-    captureStyledPane: (id) => tmuxCaptureStyledPane(id, SCREEN_HISTORY_ROWS),
-    sourceOf: (id) => {
-      const entry = ptys.get(id);
-      return entry ? { buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows } : undefined;
-    },
-    render: (source) => renderScreen({ ...source, historyLines: SCREEN_HISTORY_ROWS }),
+    ...terminalScreenCaptureDeps(),
     metaOf: remoteHostSessionScreenMeta,
     // Read from config on every screen so an edit in Settings reaches the phone without a
     // restart; scoped here rather than on the phone, which then needs no notion of session
     // kinds (#830).
     quickCommandsOf: (id) => quickCommandsForAgent(getQuickCommands(), agentOfSession(id)),
   });
+
+const localCaptureTerminalScreen = (sessionId: string): Promise<SessionScreen> => captureSessionScreen(sessionId, terminalScreenCaptureDeps());
 
 // The phone asked for a new terminal in the directory of the session it was viewing (#831).
 // The grid lives in the browser — markDevTerminalSession is only ever reached through the
