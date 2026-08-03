@@ -26,6 +26,11 @@ Straight to `error`, as the issue proposed: the whole repo had two findings, so 
 guarded nothing. Same severity as the script-side rules they extend, which is the point — a
 template is not a place where the house style is looser.
 
+`as const` is excluded from the `TSAsExpression` selector. `consistent-type-assertions` exempts it
+in the script half, so without the exclusion one SFC would disagree with itself: legal above the
+`<template>` line, an error below it. It is also outside what the ban is for — a const assertion
+narrows a literal the compiler can already see, rather than claiming a type it could not prove.
+
 ## The two findings
 
 Both fixed by narrowing in `<script>` rather than by asserting, which is what the ban is for.

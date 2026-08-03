@@ -49,7 +49,11 @@ export default [
       "vue/no-restricted-syntax": [
         "error",
         {
-          selector: "TSAsExpression",
+          // `as const` is excluded, because consistent-type-assertions excludes it too and the
+          // two halves of one SFC must not disagree. It is also not what the ban is about: a
+          // const assertion narrows a literal the compiler can already see, rather than claiming
+          // a type the compiler could not prove.
+          selector: 'TSAsExpression:not([typeAnnotation.typeName.name="const"])',
           message: "Do not use type assertions — narrow in <script> and pass the result to the template.",
         },
         {

@@ -51,4 +51,11 @@ describe("the template-side assertion ban", () => {
   it("leaves a template that narrows in <script> alone", () => {
     expect(lintTemplate(`<span :title="failure(group)">failed</span>`)).toEqual([]);
   });
+
+  // A const assertion is legal in the script half (consistent-type-assertions exempts it), so a
+  // template that rejected it would make one SFC disagree with itself — and it is not what the ban
+  // is about: it narrows a literal already in front of the compiler, it does not claim a type.
+  it("leaves `as const` alone, as the script-side rule does", () => {
+    expect(lintTemplate(`<span :title="pick(['a', 'b'] as const)">failed</span>`)).toEqual([]);
+  });
 });
