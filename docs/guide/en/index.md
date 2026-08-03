@@ -42,7 +42,7 @@ MulmoTerminal is the cockpit for that — a browser terminal, so it doesn't care
 ![A board of parallel AI-agent terminals](../images/grid-2x2.png)
 
 One independent agent per cell. **Status colors** (working = blue / awaiting input = amber /
-done-review = blue ring) and an **attention sound** mean you pick up only the cells that call
+done-review = green ring) and an **attention sound** mean you pick up only the cells that call
 you — no babysitting. → [Basics](basics.html)
 
 ### The cockpit roster — everyone's progress, one row each
@@ -140,10 +140,10 @@ The bottleneck isn't the CPU or the terminal — it's **your attention**.
 
 | The moment | In MulmoTerminal |
 |---|---|
-| Can't tell the **status** of many terminals | Lay them out in a grid; **status colors** (working = blue / awaiting input = amber / done-review = blue ring) + a sound, at a glance (→ [Basics](basics.html)) |
+| Can't tell the **status** of many terminals | Lay them out in a grid; **status colors** (working = blue / awaiting input = amber / done-review = green ring) + a sound, at a glance (→ [Basics](basics.html)) |
 | Don't know **which directory** | Each cell shows its dir, a **project name badge, and colors**. Color-code to tell them apart (→ [Config](config.html#per-dir)) |
 | **Forget the instruction** | The cell header always shows the **latest instruction / what it's doing**; **Activity timeline** shows the **tool-call history** (→ [Feature reference](features.html)) |
-| Want to **know it's done** | Input-waiting turns **amber**, a finished turn gets a **blue ring**, both **play a sound** — plus a **Web Push to your phone** (→ [Mobile notifications](notifications.html)) |
+| Want to **know it's done** | Input-waiting turns **amber**, a finished turn gets a **green ring**, both **play a sound** — plus a **Web Push to your phone** (→ [Mobile notifications](notifications.html)) |
 | Want the **session to survive** | **tmux persistence** keeps it alive across reload, reconnect, and server restart |
 | Open **git / a dir** quickly | A git status chip; open **the OS file manager (Finder/Explorer) / the in-app files / a PR** in one click |
 | Work with the **terminal as the hub** | All of the above on top of a terminal, and **extend it to your workflow with a DSL** (→ [Config](config.html#header)) |

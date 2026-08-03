@@ -23,7 +23,7 @@ The grid's core and headline use case. This is the center of the **command post*
 
 1. Add cells with **New terminal** and launch Claude / Codex on a different task in each.
 2. While one is thinking, move ahead with review or edits in another cell.
-3. Pick up only the cells that call you — **amber (awaiting input)** or the **blue-ringed "done, review it"** ones — you don't have to watch them all.
+3. Pick up only the cells that call you — **amber (awaiting input)** or the **green-ringed "done, review it"** ones — you don't have to watch them all.
 
 ![Terminals running in parallel](../images/grid-2x2.png)
 

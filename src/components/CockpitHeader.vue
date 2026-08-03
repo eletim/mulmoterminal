@@ -31,10 +31,12 @@ const props = withDefaults(
 
 const STATUS_WORD: Record<AttentionStatus, string> = { working: "running", blocked: "waiting", done: "done", idle: "idle" };
 // Hardcoded, token-less roster hues — come through as arbitrary utilities; fill + text paired.
-const DOT_CLASS: Record<AttentionStatus, string> = { working: "bg-[#4a9eff]", done: "bg-[#22c55e]", blocked: "bg-[#f59e0b]", idle: "bg-[#666]" };
+// `done` is the exception: it names --done, the one green every view paints a finished turn with
+// (#1307), so it cannot drift from the cell's ring or the row's edge.
+const DOT_CLASS: Record<AttentionStatus, string> = { working: "bg-[#4a9eff]", done: "bg-done", blocked: "bg-[#f59e0b]", idle: "bg-[#666]" };
 const BADGE_CLASS: Record<AttentionStatus, string> = {
   working: "bg-[#4a9eff] text-[#04121f]",
-  done: "bg-[#22c55e] text-[#04120a]",
+  done: "bg-done text-[#04120a]",
   blocked: "bg-[#f59e0b] text-[#1f1300]",
   idle: "bg-[#333] text-[#ddd]",
 };
@@ -69,7 +71,7 @@ const barStyle = computed(() => headerStyleFor(props.headerColor, props.headerTe
     class="flex min-w-0 items-center gap-1.5 bg-[var(--cell-header-bg,transparent)] px-2.5 py-1.5 text-[var(--cell-header-fg,inherit)]"
     :style="barStyle"
   >
-    <span class="h-2 w-2 flex-none rounded-full" :class="DOT_CLASS[status]" aria-hidden="true" />
+    <span data-testid="cockpit-dot" class="h-2 w-2 flex-none rounded-full" :class="DOT_CLASS[status]" aria-hidden="true" />
     <span data-testid="cockpit-badge" class="flex-none rounded-full px-1.5 py-px text-[10px] font-bold" :class="BADGE_CLASS[status]">{{ badgeWord }}</span>
     <span
       v-if="phaseInfo"

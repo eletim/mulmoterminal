@@ -301,7 +301,7 @@ describe("grid cockpit (list view)", () => {
     expect(rows[1].classes()).toContain("animate-roster-alert");
     expect(rows[1].classes()).toContain("border-l-[#f59e0b]");
     // The weak half of the split: finished is coloured, but it does not move.
-    expect(rows[2].classes()).toContain("border-l-[#22c55e]");
+    expect(rows[2].classes()).toContain("border-l-done");
     expect(rows[2].classes()).not.toContain("animate-roster-alert");
   });
 
