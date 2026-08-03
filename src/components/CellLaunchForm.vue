@@ -267,6 +267,11 @@ const relativeTime = (ms: number): string => relativeTimeFrom(ms, Date.now());
 const mcpGroupTitle = (group: ToolGroup): string =>
   `Registers the MCP server "${toolGroupServerId(group)}" for this directory — tools: ${toolsInGroup(group).join(", ")}`;
 
+// The last write's error for this group, if it failed. One accessor for both the branch that
+// shows "failed" and the hover that carries the message, so the two cannot disagree about
+// whether there is one — the alternative asserts in the hover what the branch already decided.
+const mcpGroupFailure = (group: ToolGroup): string | undefined => mcpGroupFailed.value[group] ?? undefined;
+
 const worktreeTask = ref("");
 
 // Create a fresh worktree for the typed task and start the selected agent in it.
@@ -487,7 +492,7 @@ async function removeWorktree(w: Worktree): Promise<void> {
         >
         <span class="flex items-center gap-2">
           <span v-if="mcpGroupBusy[group]" class="font-sans text-[11px] text-dim">saving…</span>
-          <span v-else-if="mcpGroupFailed[group]" class="font-sans text-[11px] text-err-text" :title="mcpGroupFailed[group]!">failed</span>
+          <span v-else-if="mcpGroupFailure(group)" class="font-sans text-[11px] text-err-text" :title="mcpGroupFailure(group)">failed</span>
           <input
             v-model="mcpGroupEnabled[group]"
             :data-testid="`cell-mcp-toggle-${group}`"
