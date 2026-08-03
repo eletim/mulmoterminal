@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { createSummaryScan } from "../../../server/session/summary-scan.js";
 import {

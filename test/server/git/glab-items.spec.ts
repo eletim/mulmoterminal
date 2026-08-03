@@ -1,3 +1,4 @@
+// @vitest-environment node
 // GitLab's JSON turned into the rows this app already renders. The two fixtures below were
 // CAPTURED from gitlab.com (gitlab-org/cli, 2026-08-01) rather than written by hand, so a field
 // GitLab renames breaks this instead of quietly emptying a row.

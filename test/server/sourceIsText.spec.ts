@@ -1,3 +1,4 @@
+// @vitest-environment node
 // No source file may hold a control character that makes it BINARY to the ordinary tools.
 //
 // `server/git/issue-work.ts` held a literal NUL — meant as a key separator, written as the byte

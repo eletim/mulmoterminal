@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 
 import { mcpConfigJson, guiMcpEnv, codexGuiMcpServers } from "../../../server/session/mcp-config.js";

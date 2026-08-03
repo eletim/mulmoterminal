@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Starting work on an issue: what the seed says, and that a failed step stops rather than
 // leaving half the work behind.
 import { describe, it, expect, vi } from "vitest";

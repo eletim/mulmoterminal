@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { canSymlink } from "../../support/canSymlink.js";
 import { makeTempDir } from "../../support/tempDir.js";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
