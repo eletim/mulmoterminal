@@ -183,6 +183,19 @@ function restoredPane(value: string | null): RightPane | null {
 }
 const rightPane = ref<RightPane | null>(restoredPane(stored(PANE_OPEN_KEY)));
 const filesOpen = computed(() => rightPane.value === "files");
+// A pane taken full-width: it covers the enlarged terminal, NOT the roster — a document the agent
+// drew is read, and 480px of a split row is not a reading width. Canvas and Tools can ask for it;
+// the files pane is edited beside the terminal and does not.
+//
+// Deliberately NOT remembered, unlike the pane's width and open-state (and unlike the first cut of
+// this, which was): a pane that opens on top of the terminal is a surprise every time but the one
+// where you asked for it, and the thing it hid is the thing you were working in. So it lasts as
+// long as the pane does — closing it, or switching to another one, is the end of the takeover.
+const paneExpanded = ref(false);
+const paneFull = computed(() => paneExpanded.value && (rightPane.value === "canvas" || rightPane.value === "tools"));
+function togglePaneExpanded(): void {
+  paneExpanded.value = !paneExpanded.value;
+}
 const paneWidth = ref(Number(stored(PANE_WIDTH_KEY)) || PANE_WIDTH_DEFAULT);
 const zoomRow = ref<HTMLElement | null>(null);
 // A separator is `flex-none` and belongs to NEITHER side, so counting its 5px as usable is how a
@@ -209,6 +222,9 @@ function setRightPane(pane: RightPane | null): void {
   const leavingFiles = filesOpen.value && pane !== "files";
   if (leavingFiles) rememberPaneState(paneUid.value);
   rightPane.value = pane;
+  // Every arrival at a pane is a split row. See paneExpanded: the takeover is asked for, never
+  // inherited — including by the same pane reopened later.
+  paneExpanded.value = false;
   // Leaving files drops the cell it was on, so coming back lands on whichever cell is enlarged
   // THEN rather than resuming a directory the user has since walked away from.
   if (leavingFiles) {
@@ -608,7 +624,12 @@ const stageHeight = () => Math.max(0, (stage.value?.clientHeight ?? 0) - SEPARAT
 // but its separator is real estate that exists whenever it is open, so the terminal's floor has
 // to be stated on top of it. Without this the roster happily takes the pane's separator too and
 // the terminal lands a few pixels under its minimum.
-const rosterFloors = computed(() => ({ primary: MIN_TERMINAL + (rightPane.value ? PANE_CHROME_PX : 0), secondary: MIN_ROSTER }));
+// While the canvas is full-width there is no terminal beside it and no separator between them, so
+// what has to survive to the right of the roster is the canvas's own floor and nothing else.
+const rosterFloors = computed(() => {
+  if (paneFull.value) return { primary: MIN_GUI, secondary: MIN_ROSTER };
+  return { primary: MIN_TERMINAL + (rightPane.value ? PANE_CHROME_PX : 0), secondary: MIN_ROSTER };
+});
 // Mirrored into refs for the same reason paneMax is: a plain call would not re-render the
 // separator's announced range when the stage resizes.
 const stageWidthNow = ref(0);
@@ -626,7 +647,9 @@ function setRosterWidth(width: number): void {
   // The row the terminal shares with the file pane is what the roster just took from, so the
   // pane is re-clamped against the width the row is ABOUT to have. Computed rather than measured
   // for the reason setPaneWidth's parameter exists.
-  if (rightPane.value) setPaneWidth(paneWidth.value, available - rosterWidth.value - PANE_CHROME_PX);
+  // Skipped while the canvas is full-width: it is not sharing the row with a terminal, so its
+  // remembered split width has nothing to be re-clamped against and must survive the drag intact.
+  if (rightPane.value && !paneFull.value) setPaneWidth(paneWidth.value, available - rosterWidth.value - PANE_CHROME_PX);
 }
 
 function setStripHeight(height: number): void {
@@ -877,10 +900,11 @@ watch(
          siblings of the stage: the stage is a ROW in list mode (roster | terminal) and a COLUMN
          in strip mode (terminal / filmstrip), so only nesting puts the pane beside the terminal
          in both. Hidden outright when nothing is zoomed, like .zoom-main itself. -->
-    <div ref="zoomRow" :class="zoomed ? 'flex min-h-0 min-w-0 flex-auto' : 'hidden'">
+    <div ref="zoomRow" :class="[zoomed ? 'zoom-row flex min-h-0 min-w-0 flex-auto' : 'hidden', paneFull ? 'pane-full' : '']">
       <div ref="zoomMain" class="zoom-main" />
       <template v-if="rightPane">
         <div
+          v-if="!paneFull"
           class="w-[5px] flex-none cursor-col-resize bg-border hover:bg-accent focus-visible:bg-accent"
           role="separator"
           aria-orientation="vertical"
@@ -917,14 +941,20 @@ watch(
           :session-id="expandedSessionId"
           :send-text-message="sendToExpandedCell"
           :unavailable="canvasUnavailable"
-          :style="{ flex: `0 0 ${paneWidth}px` }"
-          @toggle-tools="toggleRightPane('tools')"
+          :expanded="paneFull"
+          :style="{ flex: paneFull ? '1 1 0%' : `0 0 ${paneWidth}px` }"
+          @toggle-expand="togglePaneExpanded"
+          @close="setRightPane(null)"
         />
+        <!-- `width: auto` only while full: the pane sets its own w-[340px], and a fixed width
+             beside `flex: 1` is the one combination where the class outlives the layout. -->
         <ToolsPane
           v-else-if="rightPane === 'tools'"
           :session-id="expandedSessionId"
-          :style="{ flex: `0 0 ${paneWidth}px` }"
+          :expanded="paneFull"
+          :style="paneFull ? { flex: '1 1 0%', width: 'auto' } : { flex: `0 0 ${paneWidth}px` }"
           class="border-l border-border"
+          @toggle-expand="togglePaneExpanded"
           @close="setRightPane(null)"
         />
       </template>
@@ -1093,6 +1123,23 @@ watch(
 
 .stage.zoomed:not(.listmode) .zoom-main {
   padding: 6px 6px 0;
+}
+
+/* Canvas taken full-width: it covers the terminal, and only the terminal. The row it is in is
+   nested inside the stage, so BOTH zoomed modes reach this — in strip mode the filmstrip below
+   and in list mode the roster to the left are outside the row and stay exactly where they were.
+   The terminal is parked OFF-SCREEN at a real size rather than `display: none`, for the same
+   reason list mode parks the tiled grid there (#1125): a hidden xterm fits itself to zero and
+   comes back reflowed. Selector carries four classes so it outranks both modes' padding above,
+   whatever the source order. */
+.stage.zoomed .zoom-row.pane-full .zoom-main {
+  position: absolute;
+  left: -99999px;
+  top: 0;
+  width: 900px;
+  height: 600px;
+  flex: none;
+  padding: 0;
 }
 
 .stage.zoomed:not(.listmode) .grid {
