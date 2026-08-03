@@ -64,7 +64,16 @@ watch(
       <span class="flex-none font-mono text-[10px] text-muted" :title="updated">{{ stateText }}</span>
       <button
         type="button"
-        class="flex-none rounded border border-border px-2 py-1 text-[11px] text-muted hover:bg-hover hover:text-fg"
+        class="flex h-[30px] w-[30px] flex-none items-center justify-center rounded border border-border text-muted hover:bg-hover hover:text-fg"
+        :title="expanded ? 'Restore terminal' : 'Expand terminal'"
+        :aria-label="expanded ? 'Restore terminal' : 'Expand terminal'"
+        @click.stop="emit('toggle-expand')"
+      >
+        <span class="material-symbols-outlined text-[17px]" aria-hidden="true">{{ expanded ? "close_fullscreen" : "open_in_full" }}</span>
+      </button>
+      <button
+        type="button"
+        class="h-[30px] flex-none rounded border border-border px-2 text-[11px] text-muted hover:bg-hover hover:text-fg"
         title="Hide on this device"
         @click.stop="emit('hide', summary.id)"
       >

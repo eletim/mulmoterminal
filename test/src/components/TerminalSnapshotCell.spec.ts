@@ -48,10 +48,30 @@ describe("TerminalSnapshotCell", () => {
     expect(wrapper.text()).toContain("note");
     expect(wrapper.text()).toContain("stale");
     expect(wrapper.text()).toContain("HTTP 500");
-    await wrapper.get("button").trigger("click");
+    await wrapper.get("button[title='Hide on this device']").trigger("click");
     expect(wrapper.emitted("hide")?.[0]).toEqual([summary.id]);
 
     await wrapper.setProps({ snapshot: snapshot({ screen: null, loading: true }) });
     expect(wrapper.get("[data-testid='terminal-snapshot-empty']").text()).toBe("loading");
+  });
+
+  it("offers a touchable zoom button with the correct label and emit", async () => {
+    const wrapper = mount(TerminalSnapshotCell, {
+      props: { summary, snapshot: snapshot(), expanded: false },
+    });
+
+    const expand = wrapper.get("button[aria-label='Expand terminal']");
+    expect(expand.attributes("type")).toBe("button");
+    expect(expand.attributes("title")).toBe("Expand terminal");
+    await expand.trigger("click");
+    expect(wrapper.emitted("toggle-expand")).toHaveLength(1);
+
+    await wrapper.setProps({ expanded: true });
+    const restore = wrapper.get("button[aria-label='Restore terminal']");
+    expect(restore.attributes("title")).toBe("Restore terminal");
+    await restore.trigger("click");
+    expect(wrapper.emitted("toggle-expand")).toHaveLength(2);
+    expect(wrapper.find("input").exists()).toBe(false);
+    expect(wrapper.find("[contenteditable]").exists()).toBe(false);
   });
 });

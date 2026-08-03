@@ -18,7 +18,13 @@ const applySessions = (sessions: RosterMap, rows: readonly TerminalSessionSummar
   for (const row of rows) sessions.set(row.id, row);
 };
 
-const createRosterRefresh = (fetcher: Fetcher, sessions: RosterMap, loading: { value: boolean }, error: { value: string | null }) => {
+const createRosterRefresh = (
+  fetcher: Fetcher,
+  sessions: RosterMap,
+  loading: { value: boolean },
+  error: { value: string | null },
+  loaded: { value: boolean },
+) => {
   let generation = 0;
   let inFlight: Promise<void> | null = null;
 
@@ -35,6 +41,7 @@ const createRosterRefresh = (fetcher: Fetcher, sessions: RosterMap, loading: { v
         if (!isTerminalSessionsResponse(body)) throw new Error("Invalid terminal session response");
         applySessions(sessions, body.sessions);
         error.value = null;
+        loaded.value = true;
       } catch (err) {
         if (req === generation) error.value = err instanceof Error ? err.message : "Failed to load terminal sessions";
       } finally {
@@ -54,7 +61,8 @@ export function useSharedTerminalSessions(fetcher: Fetcher = fetch) {
   const sessions = reactive(new Map<string, TerminalSessionSummary>());
   const loading = ref(false);
   const error = ref<string | null>(null);
-  const refresh = createRosterRefresh(fetcher, sessions, loading, error);
+  const loaded = ref(false);
+  const refresh = createRosterRefresh(fetcher, sessions, loading, error, loaded);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let safetyTimer: ReturnType<typeof setInterval> | null = null;
   const requestRefresh = (): void => {
@@ -89,6 +97,8 @@ export function useSharedTerminalSessions(fetcher: Fetcher = fetch) {
     list: computed(() => [...sessions.values()]),
     loading,
     error,
+    loaded,
+    hasLoadedSuccessfully: loaded,
     refresh,
     requestRefresh,
   };

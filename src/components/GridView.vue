@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* eslint-disable max-lines -- The grid view owns legacy grid orchestration plus shared viewer switching; keep this follow-up scoped. */
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import TerminalGrid, { type CockpitRow } from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
@@ -159,13 +160,7 @@ const { priorities: priorityByCwd } = useDirPriorities(cellCwds);
 // The ONE ordering both the grid and the cockpit roster read, so the two can't drift (#720).
 const orderedCells = computed(() => orderCells(state.value.cells, statusForSort.value, state.value.sortMode, priorityByCwd.value));
 const sharedSessions = useSharedTerminalSessions();
-// The grid: while a cell is zoomed, render EVERY cell (the filmstrip lines up all tabs' terminals,
-// live); otherwise just the active page's slice. A waiting cell from any page floats to the front.
-const baseDisplayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
-const displayCells = computed(() =>
-  viewerMode.value ? baseDisplayCells.value.filter((cell) => cell.session !== null && sharedSessions.sessions.has(cell.session)) : baseDisplayCells.value,
-);
-const expandedUid = computed(() => zoomedUid(state.value));
+const sharedRosterLoaded = computed(() => sharedSessions.loaded.value);
 
 const HIDDEN_SHARED_TERMINALS_KEY = "mulmoterminal_hidden_shared_terminal_sessions_v1";
 const loadHiddenSharedIds = (): Set<string> => {
@@ -178,14 +173,21 @@ const loadHiddenSharedIds = (): Set<string> => {
   }
 };
 const hiddenSharedIds = ref(loadHiddenSharedIds());
-const saveHiddenSharedIds = (): void => localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([...hiddenSharedIds.value]));
+const saveHiddenSharedIds = (): void => {
+  try {
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([...hiddenSharedIds.value]));
+  } catch {
+    // Best effort: storage may be blocked, but the in-memory viewer state should keep working.
+  }
+};
 const adoptShared = (): void => {
   const next = adoptSharedSessions(state.value, sharedSessions.list.value, hiddenSharedIds.value);
   if (next !== state.value) state.value = next;
 };
 watch(
-  () => sharedSessions.list.value,
-  (rows) => {
+  () => [sharedRosterLoaded.value, sharedSessions.list.value] as const,
+  ([loaded, rows]) => {
+    if (!loaded) return;
     const liveIds = new Set(rows.map((row) => row.id));
     const pruned = new Set([...hiddenSharedIds.value].filter((id) => liveIds.has(id)));
     if (pruned.size !== hiddenSharedIds.value.size) {
@@ -196,11 +198,35 @@ watch(
   },
   { immediate: true },
 );
+watch(
+  () => state.value.cells.length,
+  () => {
+    if (sharedRosterLoaded.value) adoptShared();
+  },
+);
 const hiddenSharedCount = computed(() => hiddenSharedIds.value.size);
+// The grid: while a cell is zoomed, render EVERY cell (the filmstrip lines up all tabs' terminals,
+// live); otherwise just the active page's slice. A waiting cell from any page floats to the front.
+const baseDisplayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
+const displayCells = computed(() =>
+  viewerMode.value
+    ? baseDisplayCells.value.filter((cell) => cell.session !== null && sharedSessions.sessions.has(cell.session) && !hiddenSharedIds.value.has(cell.session))
+    : baseDisplayCells.value,
+);
+const expandedUid = computed(() => zoomedUid(state.value));
+const unadoptedSharedSessionCount = computed(() => {
+  if (!sharedRosterLoaded.value) return 0;
+  const gridSessionIds = new Set(state.value.cells.map((cell) => cell.session).filter((id): id is string => id !== null));
+  return sharedSessions.list.value.filter((row) => !hiddenSharedIds.value.has(row.id) && !gridSessionIds.has(row.id)).length;
+});
+const unadoptedSharedSessionMessage = computed(() => {
+  const count = unadoptedSharedSessionCount.value;
+  return `${count} shared terminal${count === 1 ? "" : "s"} could not be shown because the terminal limit was reached.`;
+});
 const restoreHiddenShared = (): void => {
   hiddenSharedIds.value = new Set();
   saveHiddenSharedIds();
-  adoptShared();
+  if (sharedRosterLoaded.value) adoptShared();
 };
 const hideSharedSession = (uid: number, sessionId: string): void => {
   hiddenSharedIds.value = new Set([...hiddenSharedIds.value, sessionId]);
@@ -771,11 +797,17 @@ onBeforeUnmount(detachSpawnedChat);
       @settings="showSettings = true"
     />
     <div
-      v-if="hiddenSharedCount > 0"
-      class="flex-none border-b border-border bg-panel px-4 py-1 text-right text-[12px] text-muted"
-      data-testid="hidden-shared-terminal-banner"
+      v-if="hiddenSharedCount > 0 || unadoptedSharedSessionCount > 0"
+      class="flex-none border-b border-border bg-panel px-4 py-1 text-[12px] text-muted"
+      data-testid="shared-terminal-banner"
     >
-      <button type="button" class="rounded border border-border px-2 py-1 hover:bg-hover hover:text-fg" @click="restoreHiddenShared">
+      <span v-if="unadoptedSharedSessionCount > 0" data-testid="shared-terminal-limit-banner">{{ unadoptedSharedSessionMessage }}</span>
+      <button
+        v-if="hiddenSharedCount > 0"
+        type="button"
+        class="rounded border border-border px-2 py-1 hover:bg-hover hover:text-fg"
+        @click="restoreHiddenShared"
+      >
         Show hidden ({{ hiddenSharedCount }})
       </button>
     </div>

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { router } from "../../../src/router";
 import { defineComponent, h, KeepAlive, type Component } from "vue";
+import type { TerminalSessionSummary } from "../../../common/terminalView";
 
 // App.vue renders GridView inside <KeepAlive>, and the grid registers its openers (new terminal,
 // spawned-chat placement) on ACTIVATE so a cached-but-hidden grid is never mutated behind the
@@ -61,16 +62,47 @@ vi.mock("../../../src/composables/useTerminalControl", () => ({
     connectionStatus: { value: "connected" },
   }),
 }));
-vi.mock("../../../src/composables/useSharedTerminalSessions", () => ({
-  useSharedTerminalSessions: () => ({
-    sessions: new Map(),
-    list: { value: [] },
-    loading: { value: false },
-    error: { value: null },
-    refresh: vi.fn(async () => undefined),
-    requestRefresh: vi.fn(),
-  }),
+const sharedRoster = vi.hoisted(() => ({
+  reset: (() => undefined) as () => void,
+  setRows: (() => undefined) as (rows: TerminalSessionSummary[]) => void,
+  setLoaded: (() => undefined) as (loaded: boolean) => void,
+  requestRefresh: vi.fn(),
 }));
+vi.mock("../../../src/composables/useSharedTerminalSessions", async () => {
+  const vue = await vi.importActual<typeof import("vue")>("vue");
+  const sessions = vue.reactive(new Map<string, TerminalSessionSummary>());
+  const loaded = vue.ref(false);
+  const loading = vue.ref(false);
+  const error = vue.ref<string | null>(null);
+  const setRows = (rows: TerminalSessionSummary[]) => {
+    sessions.clear();
+    rows.forEach((row) => sessions.set(row.id, row));
+    loaded.value = true;
+  };
+  sharedRoster.reset = () => {
+    sessions.clear();
+    loaded.value = false;
+    loading.value = false;
+    error.value = null;
+    sharedRoster.requestRefresh.mockClear();
+  };
+  sharedRoster.setRows = setRows;
+  sharedRoster.setLoaded = (next: boolean) => {
+    loaded.value = next;
+  };
+  return {
+    useSharedTerminalSessions: () => ({
+      sessions,
+      list: vue.computed(() => [...sessions.values()]),
+      loading,
+      error,
+      loaded,
+      hasLoadedSuccessfully: loaded,
+      refresh: vi.fn(async () => undefined),
+      requestRefresh: sharedRoster.requestRefresh,
+    }),
+  };
+});
 vi.mock("../../../src/composables/useTerminalSnapshots", () => ({
   useTerminalSnapshots: () => ({ snapshots: new Map(), request: vi.fn(), pollMs: 1500, maxConcurrent: 3 }),
 }));
@@ -102,6 +134,7 @@ beforeEach(() => {
   posts.length = 0;
   control.ready = true;
   control.owner = true;
+  sharedRoster.reset();
   pubsub.reset();
   localStorage.clear();
   globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
@@ -159,6 +192,184 @@ describe("GridView terminal control gate", () => {
 
     expect(w.findComponent({ name: "TerminalGrid" }).exists()).toBe(false);
     expect(w.get("[data-testid='terminal-control-syncing']").text()).toContain("Syncing terminal control");
+  });
+});
+
+const HIDDEN_SHARED_TERMINALS_KEY = "mulmoterminal_hidden_shared_terminal_sessions_v1";
+const sharedRow = (id: string, cwd = "/w"): TerminalSessionSummary => ({
+  id,
+  title: id,
+  cwd,
+  live: true,
+  agent: "shell",
+  resume: { kind: "launcher", shell: true },
+});
+const SharedGridStub = {
+  name: "TerminalGrid",
+  props: ["cells"],
+  emits: ["hide-snapshot", "close"],
+  template: '<div class="shared-grid-stub" />',
+};
+const storedHidden = () => JSON.parse(localStorage.getItem(HIDDEN_SHARED_TERMINALS_KEY) ?? "[]") as string[];
+const mountSharedGrid = async () => {
+  const w = mount(GridView, {
+    global: { stubs: { TerminalGrid: SharedGridStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+  });
+  await flushPromises();
+  return w;
+};
+
+describe("GridView shared terminal hidden state", () => {
+  it("does not prune hidden ids before the shared roster has loaded", async () => {
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([IDS.idleA]));
+    const w = await mountSharedGrid();
+
+    expect(storedHidden()).toEqual([IDS.idleA]);
+    w.unmount();
+  });
+
+  it("keeps hidden ids through an initial roster failure state", async () => {
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([IDS.idleA]));
+    sharedRoster.setLoaded(false);
+    const w = await mountSharedGrid();
+
+    expect(storedHidden()).toEqual([IDS.idleA]);
+    w.unmount();
+  });
+
+  it("keeps live hidden ids after roster load and prunes only vanished ids", async () => {
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([IDS.idleA, IDS.idleB]));
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+    const w = await mountSharedGrid();
+
+    expect(storedHidden()).toEqual([IDS.idleA]);
+    w.unmount();
+  });
+
+  it("clears hidden ids after a successful empty roster", async () => {
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([IDS.idleA]));
+    sharedRoster.setRows([]);
+    const w = await mountSharedGrid();
+
+    expect(storedHidden()).toEqual([]);
+    w.unmount();
+  });
+
+  it("keeps hidden sessions hidden across a reload-like remount", async () => {
+    control.owner = false;
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([IDS.idleA]));
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 1, session: IDS.idleA, cwd: "/w" }], expanded: null, page: 0, sortMode: "manual" }));
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+
+    const first = await mountSharedGrid();
+    expect(first.findComponent(SharedGridStub).props("cells")).toEqual([]);
+    first.unmount();
+
+    const second = await mountSharedGrid();
+    expect(second.findComponent(SharedGridStub).props("cells")).toEqual([]);
+    second.unmount();
+  });
+
+  it("ignores malformed hidden storage and survives hidden storage write failures", async () => {
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, "{");
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+    const malformed = await mountSharedGrid();
+    expect(malformed.find("[data-testid='shared-terminal-banner']").exists()).toBe(false);
+    malformed.unmount();
+
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([IDS.idleA]));
+    sharedRoster.setRows([]);
+    const originalSetItem = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function setItem(this: Storage, key: string, value: string) {
+      if (key === HIDDEN_SHARED_TERMINALS_KEY) throw new Error("storage blocked");
+      return originalSetItem.call(this, key, value);
+    });
+    const blocked = await mountSharedGrid();
+    expect(blocked.exists()).toBe(true);
+    blocked.unmount();
+    spy.mockRestore();
+  });
+
+  it("hides every viewer cell with the same session id and does not duplicate it on restore", async () => {
+    control.owner = false;
+    localStorage.setItem(
+      "grid_v2",
+      JSON.stringify({
+        cells: [
+          { uid: 1, session: IDS.idleA, cwd: "/w" },
+          { uid: 2, session: IDS.idleA, cwd: "/w" },
+        ],
+        expanded: null,
+        page: 0,
+        sortMode: "manual",
+      }),
+    );
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+    const w = await mountSharedGrid();
+    const grid = w.findComponent(SharedGridStub);
+    expect(grid.props("cells")).toHaveLength(2);
+
+    grid.vm.$emit("hide-snapshot", 1, IDS.idleA);
+    await flushPromises();
+    expect(grid.props("cells")).toHaveLength(0);
+
+    await w.get("[data-testid='shared-terminal-banner'] button").trigger("click");
+    await flushPromises();
+    expect(grid.props("cells")).toHaveLength(1);
+    expect(grid.props("cells")[0].session).toBe(IDS.idleA);
+    w.unmount();
+  });
+});
+
+describe("GridView shared terminal limit banner", () => {
+  const fullGrid = (extra: Array<{ uid: number; session: string; cwd: string }> = []) =>
+    JSON.stringify({
+      cells: [
+        ...Array.from({ length: 81 - extra.length }, (_, i) => ({ uid: i, session: `eeeeeeee-eeee-eeee-eeee-${String(i).padStart(12, "0")}`, cwd: "/w" })),
+        ...extra,
+      ],
+      expanded: null,
+      page: 0,
+      sortMode: "manual",
+    });
+
+  it("shows sessions blocked by the terminal limit, excluding hidden and existing sessions", async () => {
+    const missing = "99999999-9999-9999-9999-999999999999";
+    localStorage.setItem("grid_v2", fullGrid());
+    sharedRoster.setRows([sharedRow(missing)]);
+    const w = await mountSharedGrid();
+    expect(w.get("[data-testid='shared-terminal-limit-banner']").text()).toBe("1 shared terminal could not be shown because the terminal limit was reached.");
+    w.unmount();
+
+    localStorage.setItem(HIDDEN_SHARED_TERMINALS_KEY, JSON.stringify([missing]));
+    localStorage.setItem("grid_v2", fullGrid());
+    const hidden = await mountSharedGrid();
+    expect(hidden.find("[data-testid='shared-terminal-limit-banner']").exists()).toBe(false);
+    hidden.unmount();
+
+    localStorage.setItem("grid_v2", fullGrid([{ uid: 80, session: missing, cwd: "/w" }]));
+    localStorage.removeItem(HIDDEN_SHARED_TERMINALS_KEY);
+    const existing = await mountSharedGrid();
+    expect(existing.find("[data-testid='shared-terminal-limit-banner']").exists()).toBe(false);
+    existing.unmount();
+  });
+
+  it("clears the limit banner once room opens and the shared session is adopted", async () => {
+    const missing = "88888888-8888-8888-8888-888888888888";
+    localStorage.setItem("grid_v2", fullGrid());
+    sharedRoster.setRows([sharedRow(missing)]);
+    const w = await mountSharedGrid();
+    expect(w.find("[data-testid='shared-terminal-limit-banner']").exists()).toBe(true);
+
+    w.findComponent(SharedGridStub).vm.$emit("close", 0);
+    await flushPromises();
+    expect(w.find("[data-testid='shared-terminal-limit-banner']").exists()).toBe(false);
+    const sessions = w
+      .findComponent(SharedGridStub)
+      .props("cells")
+      .map((cell: { session: string | null }) => cell.session);
+    expect(sessions).toContain(missing);
+    w.unmount();
   });
 });
 

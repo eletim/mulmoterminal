@@ -54,9 +54,13 @@ describe("useSharedTerminalSessions", () => {
         template: "<div />",
       }),
     );
+    expect(wrapper.vm.loaded).toBe(false);
+    expect(wrapper.vm.hasLoadedSuccessfully).toBe(false);
     await flush();
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(wrapper.vm.list).toEqual([row]);
+    expect(wrapper.vm.loaded).toBe(true);
+    expect(wrapper.vm.hasLoadedSuccessfully).toBe(true);
 
     fetcher.mockImplementationOnce(async () => ok({ sessions: [{ ...row, id: "bad" }] }));
     await wrapper.vm.refresh();
@@ -88,6 +92,50 @@ describe("useSharedTerminalSessions", () => {
     await flush();
     expect(fetcher).toHaveBeenCalledTimes(5);
     expect(wrapper.vm.list[0].title).toBe("two");
+    expect(wrapper.vm.loaded).toBe(true);
     wrapper.unmount();
+  });
+
+  it("marks a successful empty roster as loaded", async () => {
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          return useSharedTerminalSessions(vi.fn(async () => ok({ sessions: [] })));
+        },
+        template: "<div />",
+      }),
+    );
+
+    expect(wrapper.vm.loaded).toBe(false);
+    await flush();
+    expect(wrapper.vm.list).toEqual([]);
+    expect(wrapper.vm.loaded).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("keeps loaded false for initial HTTP and invalid response failures", async () => {
+    const http = mount(
+      defineComponent({
+        setup() {
+          return useSharedTerminalSessions(vi.fn(async () => fail()));
+        },
+        template: "<div />",
+      }),
+    );
+    await flush();
+    expect(http.vm.loaded).toBe(false);
+    http.unmount();
+
+    const invalid = mount(
+      defineComponent({
+        setup() {
+          return useSharedTerminalSessions(vi.fn(async () => ok({ sessions: [{ ...row, id: "bad" }] })));
+        },
+        template: "<div />",
+      }),
+    );
+    await flush();
+    expect(invalid.vm.loaded).toBe(false);
+    invalid.unmount();
   });
 });
