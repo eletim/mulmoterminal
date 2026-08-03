@@ -76,7 +76,7 @@ panel moved to the zoomed cell, which is the same thing — one agent with the w
 
 ## Workspace {#workspace}
 
-The server's **default working directory** (`CLAUDE_CWD`) — by default the directory you ran `npx mulmoterminal` in, with `--cwd` and the `CLAUDE_CWD` environment variable taking precedence.
+The server's **default working directory** (`CLAUDE_CWD`) — settled in the order `--cwd`, the `CLAUDE_CWD` environment variable, then the directory you ran `npx mulmoterminal` in; a server started directly falls back to `~/mulmoclaude`.
 It is printed as `Workspace: …` at startup.
 Collections, Wiki and Accounting read and write there, and if you also run MulmoClaude it should be **the same directory for both** (`~/mulmoclaude` by default) — not the directory you cloned MulmoClaude into.
 

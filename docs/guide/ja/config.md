@@ -1264,7 +1264,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 
 | 変数 | 既定 | 役割 |
 |---|---|---|
-| `CLAUDE_CWD` / `--cwd` | 実行したディレクトリ（`npx mulmoterminal@latest`。サーバを直接起動した場合のみ `~/mulmoclaude`） | 既定の作業ディレクトリ（PTY の cwd）。`--cwd` でも指定可。**ここと同じディレクトリで起動した Claude のセルだけが GUI MCP をフルで持ちます**（→ [どのディレクトリで起動するか](basics.html#launch-dir)） |
+| `CLAUDE_CWD` / `--cwd` | 実行したディレクトリ（`npx mulmoterminal@latest`。サーバを直接起動した場合のみ `~/mulmoclaude`） | 既定の作業ディレクトリ（PTY の cwd）。決まり方は `--cwd` > 環境変数 `CLAUDE_CWD` > 実行したディレクトリ の順。**ここと同じディレクトリで起動した Claude のセルだけが GUI MCP をフルで持ちます**（→ [どのディレクトリで起動するか](basics.html#launch-dir)） |
 | `PORT` | `34567` | サーバのポート |
 | `MULMOTERMINAL_HOST` | `127.0.0.1` | サーバが待ち受けるインターフェース（→ [下記](#bind-host)） |
 | `MULMOTERMINAL_ALLOWED_ORIGINS` | *(なし)* | ターミナルに接続してよいブラウザのオリジンを追加（カンマ区切り）。`MULMOTERMINAL_HOST` を広げたときにだけ必要（→ [下記](#bind-host)） |
