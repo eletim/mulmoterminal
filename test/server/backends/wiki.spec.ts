@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from "vitest";
 import express from "express";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { appRequest } from "../../helpers/appRequest.js";
 import { mountWikiRoutes } from "../../../server/backends/wiki.js";
+import { makeTempDir } from "../../support/tempDir";
 
 // A minimal wiki laid out at core's canonical location (wikiDirs):
 //   <ws>/data/wiki/index.md       — the index (two bullet [[links]])
@@ -15,7 +15,7 @@ import { mountWikiRoutes } from "../../../server/backends/wiki.js";
 let request: ReturnType<typeof appRequest>;
 
 beforeAll(() => {
-  const ws = mkdtempSync(path.join(tmpdir(), "mt-wiki-"));
+  const ws = makeTempDir("mt-wiki-");
   const wikiDir = path.join(ws, "data", "wiki");
   mkdirSync(path.join(wikiDir, "pages"), { recursive: true });
   writeFileSync(path.join(wikiDir, "index.md"), "# Index\n\n- [[alpha]]\n- [[beta]]\n");
