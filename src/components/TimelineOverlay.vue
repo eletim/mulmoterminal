@@ -76,10 +76,10 @@ watch(
       document.removeEventListener("keydown", onKeydown);
       return;
     }
-    load();
+    void load();
     if (!oldVals?.[0]) {
       document.addEventListener("keydown", onKeydown);
-      nextTick(() => modalEl.value?.focus());
+      void nextTick(() => modalEl.value?.focus());
     }
   },
   { immediate: true },

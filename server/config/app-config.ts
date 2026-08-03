@@ -32,6 +32,7 @@ import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
 import { isRepoEntry } from "../../common/repoEntry.js";
+import { sanitizeGitlabHosts } from "../../common/gitlabHosts.js";
 
 export interface AppConfig {
   cwdPresets: CwdPreset[];
@@ -47,6 +48,10 @@ export interface AppConfig {
   sounds: Partial<Record<NotifyKind, string>>;
   // GitHub repos ("owner/repo") whose open PRs the cross-repo PR view aggregates.
   prRepos: string[];
+  // Hosts that run a self-hosted GitLab (#1332), e.g. "gitlab.hogefuga.com". A host named here is
+  // read with `glab`, exactly as gitlab.com is; nothing else can tell them apart from the URL.
+  // config.json only — no Settings control, so a hand edit needs a restart like `prRepos` does.
+  gitlabHosts: string[];
   // Which local clone work on a repo starts in, for the repos the user has chosen one for (#1172).
   // Only the CHOICE is stored: which clones exist at all is derived from `cwdPresets` on every
   // read, so adding a clone needs no second edit and a stale entry cannot invent a directory.
@@ -361,6 +366,7 @@ export const emptyConfig = (): AppConfig => ({
   soundKinds: [...DEFAULT_SOUND_KINDS],
   sounds: {},
   prRepos: [],
+  gitlabHosts: [],
   repoDirs: {},
   launchers: [],
   quickCommands: [],
@@ -405,6 +411,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     soundKinds: sanitizeSoundKinds(o.soundKinds),
     sounds: sanitizeSounds(o.sounds),
     prRepos: sanitizeRepos(o.prRepos),
+    gitlabHosts: sanitizeGitlabHosts(o.gitlabHosts),
     repoDirs: sanitizeRepoDirs(o.repoDirs),
     launchers: sanitizeLaunchers(o.launchers),
     quickCommands: sanitizeQuickCommands(o.quickCommands),
@@ -509,6 +516,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     soundKinds: updated("soundKinds", sanitizeSoundKinds, base.soundKinds),
     sounds: updated("sounds", sanitizeSounds, base.sounds),
     prRepos: updated("prRepos", sanitizeRepos, base.prRepos),
+    gitlabHosts: updated("gitlabHosts", sanitizeGitlabHosts, base.gitlabHosts),
     repoDirs: updated("repoDirs", sanitizeRepoDirs, base.repoDirs),
     launchers: updated("launchers", sanitizeLaunchers, base.launchers),
     quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
@@ -544,6 +552,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     soundKinds: config.soundKinds,
     sounds: config.sounds,
     prRepos: config.prRepos,
+    gitlabHosts: config.gitlabHosts,
     repoDirs: config.repoDirs,
     launchers: config.launchers,
     quickCommands: config.quickCommands,

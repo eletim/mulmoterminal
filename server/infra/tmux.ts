@@ -118,7 +118,7 @@ export function planMsOverride(showStdout: string): MsOverridePlan {
     const entry = /^terminal-overrides\[(\d+)\] (.*)$/.exec(line);
     if (!entry) continue;
     const [, index, value] = entry;
-    if (!value.includes("Ms=") || !value.includes("]52;")) continue; // someone else's override
+    if (value === undefined || !value.includes("Ms=") || !value.includes("]52;")) continue; // someone else's override
     return value.includes("Ms=\\\\E]52;") ? { kind: "ok" } : { kind: "replace", index: Number(index) };
   }
   return { kind: "append" };
@@ -357,7 +357,7 @@ export function redrawTargets(stdout: string, clientPid: number): string[] {
   const clients = splitLines(stdout)
     .map((line) => line.trim().split(/\s+/))
     .filter((parts) => parts.length >= 2)
-    .map(([pid, tty]) => ({ pid: Number(pid), tty }));
+    .map(([pid, tty]) => ({ pid: Number(pid), tty: tty ?? "" }));
   const ours = clients.filter((client) => client.pid === clientPid);
   return (ours.length > 0 ? ours : clients).map((client) => client.tty);
 }

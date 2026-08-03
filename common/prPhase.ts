@@ -83,7 +83,7 @@ function toIssueNumber(digits: string): number | null {
 // shown next to this cell's PR has to belong to the same repo to be clickable and true.
 export function issueRefFromPrBody(body: string | null | undefined): number | null {
   const found = typeof body === "string" ? CLOSING_KEYWORD.exec(body) : null;
-  return found ? toIssueNumber(found[1]) : null;
+  return found?.[1] === undefined ? null : toIssueNumber(found[1]);
 }
 
 // Whether the body ALREADY states what merging it closes, in either form GitHub honours. Broader
@@ -105,7 +105,7 @@ const BRANCH_ISSUE = /^[a-z][a-z-]*\/([1-9]\d*)-/;
 // somebody else's issue. Named for the doubt so a call site can't forget it.
 export function issueCandidateFromBranch(branch: string | null | undefined): number | null {
   const found = typeof branch === "string" ? BRANCH_ISSUE.exec(branch) : null;
-  return found ? toIssueNumber(found[1]) : null;
+  return found?.[1] === undefined ? null : toIssueNumber(found[1]);
 }
 
 // The prefix this app gives a branch it creates FOR an issue (#1171). Shared because the two
@@ -121,5 +121,5 @@ const ANCHORED_ISSUE = new RegExp(`^${ISSUE_BRANCH_PREFIX}([1-9]\\d*)-`);
 // else's issue the moment the PR merges, which no amount of confirming afterwards undoes.
 export function issueFromAnchoredBranch(branch: string | null | undefined): number | null {
   const found = typeof branch === "string" ? ANCHORED_ISSUE.exec(branch) : null;
-  return found ? toIssueNumber(found[1]) : null;
+  return found?.[1] === undefined ? null : toIssueNumber(found[1]);
 }

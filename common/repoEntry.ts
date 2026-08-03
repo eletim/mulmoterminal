@@ -30,8 +30,9 @@ export interface RepoEntry {
 export function parseRepoEntry(entry: string): RepoEntry | null {
   const segments = entry.trim().split("/");
   if (segments.some((segment) => segment === "")) return null;
-  const declared = segments.length > 1 && HOST_SEGMENT.test(segments[0]);
-  return declared ? { host: segments[0].toLowerCase(), path: segments.slice(1), declared } : { host: GITHUB_HOST, path: segments, declared };
+  const first = segments[0];
+  const host = segments.length > 1 && first !== undefined && HOST_SEGMENT.test(first) ? first : null;
+  return host === null ? { host: GITHUB_HOST, path: segments, declared: false } : { host: host.toLowerCase(), path: segments.slice(1), declared: true };
 }
 
 /** The identity a repository is known by ON ITS OWN HOST — `owner/repo` for GitHub, the group path

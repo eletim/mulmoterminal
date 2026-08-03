@@ -54,6 +54,7 @@ export function resolveScript(workspaceDir: string, index: number): { command: s
   const scripts = loadScripts(workspaceDir);
   if (!Number.isInteger(index) || index < 0 || index >= scripts.length) return null;
   const def = scripts[index];
+  if (!def) return null; // unreachable: the bounds were checked above
   const cwd = def.cwd ? path.resolve(workspaceDir, def.cwd) : workspaceDir;
   try {
     if (!statSync(cwd).isDirectory()) return null;

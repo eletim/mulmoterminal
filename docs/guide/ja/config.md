@@ -19,6 +19,7 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | キーボードで**拡大するターミナルを切り替えたい** | [キーボードショートカット](#keymap) |
 | ロスターの1行が**長すぎる / 短すぎる** | [ロスターの行数](#cockpit-lines) |
 | セッションに**別のフォルダも見せたい** | [複数フォルダ](#add-dirs) |
+| **worktree だけ別プロジェクトに見える** | [worktree はこのファイルを引き継ぐ](#worktree-inherit) |
 | 拡大しても **Canvas が出ない** / GUI ツールが使えない | [どのディレクトリで起動するか](basics.html#launch-dir) |
 | **Claude 以外のモデル**で動かしたい | [プロバイダ](#providers) |
 | ヘッダーに**自分のボタン**を足したい | [ヘッダーのカスタマイズ](#header) |
@@ -228,6 +229,36 @@ auto（注目度順）と manual（移動ボタンで手動）と並びます。
 どちらの画面でも同じ位置に来るということです。チップは本来「最後に起動した順」で、起動のたびに並びが
 変わってしまうので、順位を宣言するのが固定する方法になります。宣言していないディレクトリは、順位を持つ
 ものの後ろに、その起動順のまま残ります。
+
+### worktree はこのファイルを引き継ぐ {#worktree-inherit}
+
+`.mulmoterminal.json` は通常 gitignore されているので、プロジェクトから切った
+[worktree](glossary.html#git-worktree) には何も入っていませんでした。色も名前もモデルも順位も無く、
+グリッドの末尾に灰色のセルが1つ増えるだけ — 無関係なプロジェクトに見えていました。
+
+いまは新しい worktree に、プロジェクトの設定から作った専用のコピーが置かれます。
+
+- **同一性はそのままコピー** — `name` / `theme` / `colors` / `fontSize` / `fontFamily` /
+  `provider` / `model`。同じプロジェクト、同じターミナル、同じモデルです
+- **セルの色は色相を少しずつ回す** — `badgeColor` / `headerColor` / `headerTextColor` /
+  `cellColor` / `cellBorderColor` / `dotColor` / `buttonColor`。1本ごとに 12 度ずつ進むので、
+  並べるとグラデーションになります。「このプロジェクトだ」と分かり、かつ「どの worktree か」も分かる状態です。
+  彩度と明度は触らないので、`headerTextColor` の `#ffffff` は白のままです（無彩色には回す色相がありません）
+- **`orderPriority` はプロジェクトの順位 +1**。末尾に落ちるのではなく、切り出し元のすぐ後ろに並びます。
+  プロジェクトが順位を宣言しているときだけで、未設定なら worktree も未設定のままです
+- **`sound` / `sounds` / `addDirs` は引き継ぎません**。これらはプロジェクトのディレクトリ内のパスを指しており、
+  worktree にその実体はありません。`addDirs` にいたっては worktree 基準で解決され、黙って別のフォルダを許可してしまいます
+
+書き込まないケースが2つあります。どちらも意図的です。
+
+- **プロジェクトの config が gitignore されていない場合。** worktree の `git status` に未追跡ファイルとして出てしまいます。
+  これは単に汚いだけではありません。MulmoTerminal は未コミットの変更がある worktree の削除を拒否するので、
+  掃除できない worktree になります。リポジトリの `.gitignore` に `.mulmoterminal.json` を足せば、次の worktree から色が付きます
+- **worktree に既にファイルがある場合**（リポジトリにコミットされている、または自分で書いた）。そのファイルが答えなので、
+  MulmoTerminal が上書きすることはありません
+
+コピーは作成時に1度だけ取られ、以後は worktree のものです。あとからプロジェクト側の色を変えても、
+既存の worktree は与えられた色のままです。変えたいときは worktree 側のファイルを編集するか削除してください。
 
 ### ヘッダーのカスタマイズ（ボタン / チップ） {#header}
 
@@ -1199,6 +1230,7 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `launchers` | グリッドセルの「OR LAUNCH」に並ぶ起動コマンド。自分で足したものだけ — 素のシェルはランチャの **Shell** トグルが担当 |
 | `quickCommands` | **スマホ**のターミナル表示にチップとして並ぶ定型文（`{ label, text, agents? }`）。タップすると `text` が入力欄に入るだけで、**送信されるのは送信ボタンを押したとき**。`agents` で `"claude"` / `"codex"` / `"shell"` に絞れる（省略＝全種別）。設定画面の **Phone quick commands** で編集 |
 | `prRepos` | 横断 PR/Issue ビューの対象リポ |
+| `gitlabHosts` | 自前ホスティングの GitLab のホスト名（例 `["gitlab.example.com"]`）。URL からは forge の種類が分からないので、宣言してはじめて `prRepos` のそのホストのエントリが `glab` で読まれる。`glab auth login --hostname <host>` が前提。設定画面は無く config.json のみなので、手で書いたら再起動（→ [自前ホスティングの GitLab](github.html#自前ホスティングの-gitlab)） |
 | `repoDirs` | 同じリポのクローンを複数並べているとき、そのリポの作業をどれで始めるか: `{ "acme/web": "/Users/you/src/web" }`。保存されるのは**選択だけ**で、どのクローンがあるかは `cwdPresets` から毎回導出するのでクローンを増やしても二重管理にならない。そのリポのクローンでなくなったエントリは無視される |
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |
 | `providers` | Anthropic 互換の接続先（→ [OpenRouter で別のモデルを使う](providers.html)） |

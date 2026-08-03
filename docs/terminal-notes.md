@@ -155,8 +155,13 @@ all confirmed against `@xterm/headless@6.0.0` by reproducing the upstream flight
 
 - **The throw is out of reach.** It happens inside the WriteBuffer's own `setTimeout`, not under
   our `term.write()` call, so no try/catch of ours can see it. The state has to be found by
-  looking, not by catching — hence the probe in `terminalBufferHealth.ts`, run on `fit()` and on
-  each output message.
+  looking, not by catching — hence the probe in `terminalBufferHealth.ts`, run on `fit()`, on
+  each output message, **and on a typed keystroke**. The third one exists because the first two
+  can both stop happening: an idle cell is not being written to and is not being resized, so a
+  terminal that died there stayed dead until a reload — while the person in front of it typed and
+  read the frozen screen as "input is broken". The keystroke is the only signal such a cell gets,
+  so it is the one that has to trigger the repair. Pointer reports are excluded (`isTypedInput`),
+  like everywhere else input means "a person did this".
 - **The write queue stays stuck forever.** `WriteBuffer.write()` only starts the drain when the
   queue *was* empty, so the entries a throw left behind are never parsed. This is why the cell
   freezes until a page reload.
@@ -168,6 +173,36 @@ all confirmed against `@xterm/headless@6.0.0` by reproducing the upstream flight
 
 Rendering itself survives: `RenderDebouncer._innerRefresh` clears its animation frame *before*
 calling the render callback, so a renderer that throws still repaints on the next refresh.
+
+### The other silence: input the socket never took
+
+A slot only writes to the socket when it is `OPEN` — during the reconnect backoff, or after a
+`superseded` message, input is dropped and **nothing changes on screen**, which is indistinguishable
+from a terminal that received it and printed nothing. The status pill says `disconnected`, but it
+lives in a header the filmstrip hides and nobody watches a pill while typing.
+
+So the manager tells the view (`ConnHandlers.onInputDropped`) and `Terminal.vue` shows the same
+transient banner the drop/paste hints use. There is a `console.warn` on the same path, which is
+what makes "I did something and nothing happened" diagnosable after the fact: it distinguishes a
+socket that was down from a terminal that had stopped drawing (the #846 case above, which logs its
+own line when it rebuilds).
+
+Three details, each of which was wrong once:
+
+- **Every path into the PTY reports, not just the keyboard.** `submitText` / `pasteText` /
+  `pasteAndSubmit` used to answer a closed socket with `false` and nothing else, and only one
+  caller ever read it — so a header button or a picked skill did nothing and explained nothing
+  (#1315). `insertText` is the quietest of them: a dictated sentence, a dropped path, a pasted
+  screenshot's path, all of which the user waits to see appear in the input box. A GUI press is
+  the worse case in general: whoever made it never typed, so the natural reading is "this button
+  is broken". Empty text is not a drop and stays silent.
+- **The banner is on a cooldown, not once per stretch.** A stretch has no upper bound (the backoff
+  retries forever at a 5s cap) while the banner lives six seconds, so "once per stretch" meant the
+  person who came back and typed again got the silence back (#1316). The **log** line stays one per
+  stretch — a post-mortem needs one, not fifty. Both reset in `sock.onopen`.
+- **`willReconnect` decides the wording.** `connectionWillReturn` in `reconnectPolicy.ts`, not
+  `shouldReconnect`: that one is blind to an armed retry (it answers "schedule another?"), so it
+  would deny a reconnect mid-backoff and promise one after an exit.
 
 ### Renderer (canvas vs DOM)
 

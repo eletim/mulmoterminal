@@ -331,9 +331,10 @@ const { translateViaHiddenChat } = createTranslationWorker({
 // Before anything binds a port: a typo'd key binding must stop the boot with a message
 // naming it, not disappear into a shortcut that silently never fires.
 enforceKeymap(APP_CONFIG_FILE, {
-  readConfig: () => {
+  readConfig: (): unknown => {
     try {
-      return JSON.parse(readFileSync(APP_CONFIG_FILE, "utf8"));
+      const parsed: unknown = JSON.parse(readFileSync(APP_CONFIG_FILE, "utf8"));
+      return parsed;
     } catch {
       return undefined; // missing or unparseable — not this check's business to report
     }

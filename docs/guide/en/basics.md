@@ -20,7 +20,7 @@ The grid view is the screen for **supervising many AI coding agents (Claude Code
 parallel**. Vibe coding with one agent needs one terminal; going **parallel** is what makes this
 screen necessary. Each cell is one independent
 agent (or terminal). While one is thinking, you push another cell forward and pick up **only the ones that
-call you** — **amber** for a cell awaiting input or a permission, a **blue ring** for a turn that finished and
+call you** — **amber** for a cell awaiting input or a permission, a **green ring** for a turn that finished and
 awaits review — the goal is to run many agents solo instead of babysitting them all.
 
 **The grid is the app.** `http://localhost:34567/` lands here (the URL settles on `/terminals`), and
@@ -126,8 +126,8 @@ The header of a running cell has two rows. Together they capture that agent's **
   buttons — [replaceable in config](config.html#header)), GitHub, and **Activity timeline** (tool-call history).
 
 > **Status shows up as color.** A bluish border means **working** (thinking), **amber means awaiting input or a
-> permission** (Needs input), a **blue ring + glow means a finished, unreviewed turn** (Done — review; a green dot
-> in the thumbnails), and neutral means idle. A sound plays too, so you know you've been **called without watching
+> permission** (Needs input), a **green ring + glow means a finished, unreviewed turn** (Done — review; the
+> thumbnails and roster rows use that same green), and neutral means idle. A sound plays too, so you know you've been **called without watching
 > the screen**. This is the heart of the grid.
 
 ## Tiling many, pages, and reordering

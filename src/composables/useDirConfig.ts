@@ -111,7 +111,7 @@ export function invalidateDirConfig(cwd: string): void {
   if (!targets?.size) return;
   const seq = generationOf(cwd) + 1;
   generation.set(cwd, seq);
-  fetchDirConfig(cwd).then((config) => {
+  void fetchDirConfig(cwd).then((config) => {
     if (generationOf(cwd) !== seq) return; // a newer invalidation superseded this response
     targets.forEach((apply) => apply(config));
   });

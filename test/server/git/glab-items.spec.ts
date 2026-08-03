@@ -1,3 +1,4 @@
+// @vitest-environment node
 // GitLab's JSON turned into the rows this app already renders. The two fixtures below were
 // CAPTURED from gitlab.com (gitlab-org/cli, 2026-08-01) rather than written by hand, so a field
 // GitLab renames breaks this instead of quietly emptying a row.
@@ -24,7 +25,18 @@ import {
   glabIssueNotesArgs,
   glabIssueViewArgs,
   glabMrListArgs,
+  glabTarget,
+  type GlabTarget,
 } from "../../../server/git/glab.js";
+import { forgeFromRepoEntry } from "../../../server/git/forge-host.js";
+
+// Built through the real chain rather than as an object literal: what `--repo` and `api` are given
+// is decided by forge-host + glabTarget together, and a hand-made target would test neither.
+const targetFor = (entry: string): GlabTarget => {
+  const forge = forgeFromRepoEntry(entry);
+  if (!forge) throw new Error(`not a repository entry: ${entry}`);
+  return glabTarget(forge);
+};
 
 const REAL_MR = {
   iid: 3675,
@@ -139,7 +151,16 @@ describe("normalizeGlabMr", () => {
 // one produces a command that RUNS and returns the wrong thing (verified against glab 1.111.0).
 describe("glab list arguments", () => {
   it("asks mr list for json with -F", () => {
-    expect(glabMrListArgs("group/project", 21)).toEqual(["mr", "list", "--repo", "group/project", "--per-page", "21", "-F", "json"]);
+    expect(glabMrListArgs(targetFor("gitlab.com/group/project"), 21)).toEqual([
+      "mr",
+      "list",
+      "--repo",
+      "https://gitlab.com/group/project",
+      "--per-page",
+      "21",
+      "-F",
+      "json",
+    ]);
   });
 
   // `-F` on `issue list` is `--output-format` (details|ids|urls), NOT the output format — that is
@@ -148,7 +169,16 @@ describe("glab list arguments", () => {
   // No state flag: `--opened` exists but is deprecated, and running it prints a warning saying the
   // open list is the default. Passing it would add noise now and break later.
   it("asks issue list for json with -O, and passes no state flag", () => {
-    expect(glabIssueListArgs("group/project", 21)).toEqual(["issue", "list", "--repo", "group/project", "--per-page", "21", "-O", "json"]);
+    expect(glabIssueListArgs(targetFor("gitlab.com/group/project"), 21)).toEqual([
+      "issue",
+      "list",
+      "--repo",
+      "https://gitlab.com/group/project",
+      "--per-page",
+      "21",
+      "-O",
+      "json",
+    ]);
   });
 });
 
@@ -193,7 +223,15 @@ describe("glabIssueViewArgs", () => {
   // `-F`, like `mr list` — and UNLIKE `issue list`, which takes `-O` and gives `-F` another
   // meaning. Three subcommands, three answers; `-O` here is rejected outright by glab.
   it("asks for json with -F", () => {
-    expect(glabIssueViewArgs("group/project", 7)).toEqual(["issue", "view", "7", "--repo", "group/project", "-F", "json"]);
+    expect(glabIssueViewArgs(targetFor("gitlab.com/group/project"), 7)).toEqual([
+      "issue",
+      "view",
+      "7",
+      "--repo",
+      "https://gitlab.com/group/project",
+      "-F",
+      "json",
+    ]);
   });
 });
 
@@ -245,25 +283,39 @@ describe("glab issue write arguments", () => {
   // `note`, not `comment`. A reader who pattern-matched from `gh` would write the wrong verb, and
   // glab would reject it outright rather than doing something subtly different.
   it("comments with `note` and -m", () => {
-    expect(glabIssueNoteArgs("group/project", 7, "hello")).toEqual(["issue", "note", "7", "--repo", "group/project", "-m", "hello"]);
+    expect(glabIssueNoteArgs(targetFor("gitlab.com/group/project"), 7, "hello")).toEqual([
+      "issue",
+      "note",
+      "7",
+      "--repo",
+      "https://gitlab.com/group/project",
+      "-m",
+      "hello",
+    ]);
   });
 
   it("closes with the issue id", () => {
-    expect(glabIssueCloseArgs("group/project", 7)).toEqual(["issue", "close", "7", "--repo", "group/project"]);
+    expect(glabIssueCloseArgs(targetFor("gitlab.com/group/project"), 7)).toEqual(["issue", "close", "7", "--repo", "https://gitlab.com/group/project"]);
   });
 
   // The notes endpoint, because `issue view -F json` carries no comments. The project path is
   // percent-encoded: GitLab's REST API takes it as ONE path segment, so a group's slashes must not
   // read as segment separators.
   it("reads notes from the REST endpoint, with the project encoded", () => {
-    expect(glabIssueNotesArgs("group/sub/project", 7)).toEqual(["api", "projects/group%2Fsub%2Fproject/issues/7/notes", "--paginate"]);
+    expect(glabIssueNotesArgs(targetFor("gitlab.com/group/sub/project"), 7)).toEqual([
+      "api",
+      "--hostname",
+      "gitlab.com",
+      "projects/group%2Fsub%2Fproject/issues/7/notes",
+      "--paginate",
+    ]);
   });
 
   // Not a nicety. A page holds 20 notes, newest first, so one page drops the OLDEST — and the
   // work comment is written when work STARTS, which is the end that falls off. Without this the
   // duplicate check misses it and comments again (Codex review).
   it("always paginates, so an old comment on a long thread is still found", () => {
-    expect(glabIssueNotesArgs("group/project", 1)).toContain("--paginate");
+    expect(glabIssueNotesArgs(targetFor("gitlab.com/group/project"), 1)).toContain("--paginate");
   });
 });
 

@@ -15,7 +15,7 @@ function readOriginUrl(dir: string): Promise<string | null> {
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- 'git' is a standard tool resolved from PATH in this local dev server; dir is passed via -C as a separate argv (no shell)
     const child = spawn("git", ["-C", dir, "config", "--get", "remote.origin.url"], { stdio: ["ignore", "pipe", "ignore"] });
     let out = "";
-    child.stdout.on("data", (chunk) => (out += chunk.toString()));
+    child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
     child.on("error", () => resolve(null)); // git not installed
     child.on("close", () => resolve(out.trim() || null));
   });

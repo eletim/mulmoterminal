@@ -31,18 +31,17 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
-import { swallowsMouseTracking } from "./mouseTrackingModes";
-import { clearResetModes, recordSwallowedModes } from "./mouseReports";
-import { guardMouseClicks, guardMouseWheel } from "./terminalMouseInput";
+import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
+import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { connWsUrl, type LaunchChoice } from "../components/wsUrl";
-import { reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
+import { connectionWillReturn, reconnectDelayMs, shouldReconnect } from "./reconnectPolicy";
 import type { RunCommand } from "../components/runCommand";
 import { readableSlot, type SlotCandidate, type SlotInfo } from "./readableSlot";
-import { exitCodeOf, messageEffect } from "./serverMessage";
+import { exitCodeOf, messageEffect, parseServerFrame } from "./serverMessage";
 import {
   enterKeyOverride,
   submitSequence,
@@ -54,7 +53,6 @@ import {
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
-import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
 import { sendBytesFor, type Keymap, type KeymapKeyEvent } from "../../common/keymap";
 import { getActiveKeymap } from "./activeKeymap";
@@ -157,6 +155,14 @@ export interface ConnHandlers {
   // and pastes all funnel through on their way to the socket, so it cannot be reached by output
   // the server writes back or by anything the app renders — only by someone using the session.
   onInput?: () => void;
+  // …and it went nowhere, because the socket is not open. Fired for a keystroke and for anything
+  // the GUI sends into the PTY (a header button, a picked skill, a pasted block), because the
+  // silence is the same either way and a button press is the worse of the two: whoever pressed it
+  // has no sense of having typed, so nothing points at the connection (#1315). Rate-limited, so a
+  // held-down key doesn't turn into a stream of notices. `willReconnect` is false for a session
+  // that ended and for a Run cell, neither of which comes back — telling those to wait would be a
+  // promise nothing will keep.
+  onInputDropped?: (willReconnect: boolean) => void;
 }
 
 // The two xterm options that decide the CELL METRICS, so they travel together: both change how
@@ -194,6 +200,33 @@ interface Conn {
   theme: ITheme | undefined; // last applied, so a rebuilt terminal keeps the cell's colours
   font: TerminalFont; // same reason as `theme` — a rebuilt terminal must not snap back to the default
   lastRebuildMs: number; // rate-limits the #846 recovery so a stuck reading can't spin
+  // A drop has already been LOGGED for this disconnected stretch. One line is all a post-mortem
+  // needs; fifty say nothing more. The banner is timed separately below. Both clear on open.
+  warnedDroppedInput: boolean;
+  // -Infinity rather than 0 so "never notified" outlasts any cooldown: a spec that stubs Date.now
+  // to a small number would otherwise lose the FIRST banner and still read as passing.
+  lastDroppedInputNoticeMs: number;
+}
+
+// The banner is re-armed on a timer rather than shown once per stretch, because a stretch has no
+// upper bound: the backoff retries forever at a 5s cap, so a server that stays down outlives the
+// notice by hours, and whoever comes back and types again meets the silence this exists to break
+// (#1316). One notice per banner-lifetime still cannot become a stream — the next one can only
+// land once the previous has left the screen. Matches DROP_HINT_MS in Terminal.vue.
+const DROPPED_INPUT_NOTICE_MS = 6_000;
+
+// Input that reached a socket which is not open — a keystroke, or anything the GUI sends.
+function reportDroppedInput(c: Conn): void {
+  const willReconnect = connectionWillReturn({ released: c.released, sawExit: c.sawExit, isCommand: !!c.target.command });
+  if (!c.warnedDroppedInput) {
+    c.warnedDroppedInput = true;
+    const fate = willReconnect ? "reconnecting" : "not reconnecting";
+    console.warn(`[terminal] slot ${c.key}: dropped input — the socket is not open (status ${connView.get(c.key)?.status ?? "unknown"}, ${fate})`);
+  }
+  const now = Date.now();
+  if (now - c.lastDroppedInputNoticeMs < DROPPED_INPUT_NOTICE_MS) return;
+  c.lastDroppedInputNoticeMs = now;
+  c.handlers.onInputDropped?.(willReconnect);
 }
 
 // A rebuild costs a re-attach and the client-side scrollback, so a slot gets at most one per
@@ -349,18 +382,6 @@ export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.
 //
 // The record is owned by the connection, not this closure, because it is per SESSION: connect()
 // clears it alongside term.reset() so a crashed app's modes can't outlive it.
-function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<number>): void {
-  term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
-    const swallowed = swallowsMouseTracking(params);
-    if (swallowed) recordSwallowedModes(swallowedMouseModes, params);
-    return swallowed;
-  });
-  term.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
-    clearResetModes(swallowedMouseModes, params);
-    return false;
-  });
-  guardMouseWheel(term, swallowedMouseModes, getTerminalScrollSpeed);
-}
 
 // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
 // each keystroke, so input always targets the live socket). The Enter-family key handler
@@ -374,8 +395,25 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
     // Pointer and focus reports ride this same function — the app feeds its own clicks and wheel
     // through `term.input()` — so they have to be excluded here or clicking a parked cell to READ
     // it would wake it, which is the one thing parking is for.
-    if (isTypedInput(data)) c.handlers.onInput?.();
-    if (c.ws && c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data }));
+    if (isTypedInput(data)) {
+      c.handlers.onInput?.();
+      // Someone typing is the ONLY sign of life an idle cell gets, so it is also the only chance to
+      // notice that its terminal is dead. guardBufferHealth's other two callers are a fit and an
+      // incoming output frame, and #846 strands a cell where neither ever runs again: the keystroke
+      // reaches the pty, the reply lands in a write queue xterm will never drain, and the screen
+      // stays frozen. Nothing resizes it, nothing renders, so the cell sits dead until a reload —
+      // while the person in front of it types and reads it as "input is broken".
+      guardBufferHealth(c);
+    }
+    if (c.ws && c.ws.readyState === WebSocket.OPEN) {
+      c.ws.send(JSON.stringify({ type: "input", data }));
+    } else if (isTypedInput(data)) {
+      // A keystroke with nowhere to go is dropped in silence — the status pill is the only sign,
+      // and a filmstrip cell doesn't render one. Say so once per disconnected stretch, so "I typed
+      // and nothing happened" leaves evidence of WHICH of the two silences it was: a socket that is
+      // down, or a terminal that has stopped drawing.
+      reportDroppedInput(c);
+    }
   };
   term.onData(send);
   const onEnter = makeEnterHandler(() => effectiveSubmitMode(c), send);
@@ -521,6 +559,8 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     theme: undefined,
     font,
     lastRebuildMs: 0,
+    warnedDroppedInput: false,
+    lastDroppedInputNoticeMs: Number.NEGATIVE_INFINITY,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
@@ -611,6 +651,10 @@ function connect(c: Conn) {
   sock.onopen = () => {
     if (sock !== c.ws) return;
     c.reconnectAttempts = 0;
+    // A new stretch: worth a line again, and worth saying at once rather than after whatever was
+    // left of the previous stretch's cooldown.
+    c.warnedDroppedInput = false;
+    c.lastDroppedInputNoticeMs = Number.NEGATIVE_INFINITY;
     setStatus(c, "connected");
     sock.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
   };
@@ -629,34 +673,44 @@ function connect(c: Conn) {
   };
 }
 
+// The live session id, so a later reconnect resumes THIS session (esp. a brand-new one that had
+// no id yet), plus the effective cwd.
+function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
+  if (typeof msg.id === "string") {
+    c.knownSessionId = msg.id;
+    c.handlers.onSession?.(msg.id);
+  }
+  if (typeof msg.cwd === "string") {
+    c.knownCwd = msg.cwd;
+    const v = connView.get(c.key);
+    if (v) v.serverCwd = msg.cwd;
+    c.handlers.onCwd?.(msg.cwd);
+  }
+}
+
+// exit / superseded / error — a terminal message. messageEffect decides which retries, which
+// fires onExit (NOT superseded — the session is alive in another tab), and the wording.
+function applyTerminalFrame(c: Conn, msg: Record<string, unknown>): void {
+  const effect = messageEffect(typeof msg.type === "string" ? msg.type : undefined, !!c.target.command, msg.message, exitCodeOf(msg));
+  if (!effect.terminal) return;
+  c.sawExit = true;
+  if (effect.banner) c.term.write(effect.banner);
+  setStatus(c, "disconnected");
+  if (effect.callsOnExit) c.handlers.onExit?.(exitCodeOf(msg));
+}
+
 function handleMessage(c: Conn, event: MessageEvent) {
-  const msg = JSON.parse(event.data);
+  const msg = parseServerFrame(event.data);
+  if (!msg) return;
   if (msg.type === "output") {
     // Checked here as well as on fit() because a slot that is only receiving output would
     // otherwise sit frozen until something happened to resize it (#846).
     guardBufferHealth(c);
-    c.term.write(msg.data);
+    if (typeof msg.data === "string") c.term.write(msg.data);
   } else if (msg.type === "session") {
-    // Server reports the live session id — remember it so a later reconnect resumes
-    // THIS session (esp. brand-new sessions that had no id yet) and the effective cwd.
-    c.knownSessionId = msg.id;
-    c.handlers.onSession?.(msg.id);
-    if (typeof msg.cwd === "string") {
-      c.knownCwd = msg.cwd;
-      const v = connView.get(c.key);
-      if (v) v.serverCwd = msg.cwd;
-      c.handlers.onCwd?.(msg.cwd);
-    }
+    applySessionFrame(c, msg);
   } else {
-    // exit / superseded / error — a terminal message. messageEffect decides which retries,
-    // which fires onExit (NOT superseded — the session is alive in another tab), and the
-    // wording; this applies it.
-    const effect = messageEffect(msg.type, !!c.target.command, msg.message, exitCodeOf(msg));
-    if (!effect.terminal) return;
-    c.sawExit = true;
-    if (effect.banner) c.term.write(effect.banner);
-    setStatus(c, "disconnected");
-    if (effect.callsOnExit) c.handlers.onExit?.(exitCodeOf(msg));
+    applyTerminalFrame(c, msg);
   }
 }
 
@@ -778,7 +832,13 @@ export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
   if (!c) return false;
   const sock = c.ws;
-  if (!sock || sock.readyState !== WebSocket.OPEN) return false;
+  // The `false` used to be the whole answer, and only one caller ever read it — the rest pressed
+  // a button into a closed socket and showed nothing (#1315). Saying so here reaches every host,
+  // including the ones written after this line.
+  if (!sock || sock.readyState !== WebSocket.OPEN) {
+    reportDroppedInput(c);
+    return false;
+  }
   const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
   setTimeout(() => {
@@ -798,7 +858,12 @@ const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 export function pasteText(key: string, text: string): boolean {
   const c = conns.get(key);
-  if (!text || c?.ws?.readyState !== WebSocket.OPEN) return false;
+  // Empty text is not a dropped paste — there was nothing to deliver, so it stays silent (#1315).
+  if (!text || !c) return false;
+  if (c.ws?.readyState !== WebSocket.OPEN) {
+    reportDroppedInput(c);
+    return false;
+  }
   c.ws.send(JSON.stringify({ type: "input", data: `${PASTE_START}${text}${PASTE_END}` }));
   c.term.focus();
   return true;
@@ -813,7 +878,11 @@ const PASTE_SUBMIT_MS = 200;
 export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
-  if (!text || !c || !sock || sock.readyState !== WebSocket.OPEN) return false;
+  if (!text || !c) return false; // nothing to deliver — not a drop (#1315)
+  if (!sock || sock.readyState !== WebSocket.OPEN) {
+    reportDroppedInput(c);
+    return false;
+  }
   const submit = submitBytesFor(c);
   // The guard's space rides INSIDE the paste, where the TUI takes it as text — after the
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
@@ -844,10 +913,16 @@ export function listSlots(): SlotInfo[] {
 // Insert text (a path, or space-joined paths) at the cursor via the normal input
 // channel — no trailing CR, so the user reviews and submits.
 export function insertText(key: string, text: string) {
-  if (!text) return;
+  if (!text) return; // nothing to deliver — not a drop
   const c = conns.get(key);
   if (!c) return;
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "input", data: text }));
+  // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
+  // is watching for text to appear in the input box rather than for a reply (#1315).
+  if (c.ws?.readyState === WebSocket.OPEN) {
+    c.ws.send(JSON.stringify({ type: "input", data: text }));
+  } else {
+    reportDroppedInput(c);
+  }
   c.term.focus();
 }
 

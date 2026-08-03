@@ -10,7 +10,7 @@
 // started, that cannot be taken back, and the phone has no way to show which tree it landed in.
 // The desktop opens a menu for exactly this case, and one pick there settles it for good.
 import { toJsonObject, type CommandHandlers, type JsonObject } from "@mulmoclaude/core/remote-host";
-import { getCwdPresets, getPrRepos, getRepoDirs } from "../../../config/config-routes.js";
+import { getCwdPresets, getGitlabHosts, getPrRepos, getRepoDirs } from "../../../config/config-routes.js";
 import { listIssuesAcrossRepos } from "../../../git/issues.js";
 import { startIssueWork } from "../../../git/issue-work.js";
 import { repoDirsFromPresets } from "../../../git/repo-dirs.js";
@@ -37,8 +37,10 @@ const entryFor = (repos: RepoDirs[], repo: string): RepoDirs | undefined => {
 export function issueStartRefusal(plan: BlockedIssueStartPlan, repo: string): string {
   // Named separately from "no clone" on purpose: adding a clone would not help, so a reader told
   // the wrong reason would go and do something useless (#981).
+  // The fix is on the DESKTOP even for a self-hosted GitLab, which is one config line away from
+  // working (#1332) — but not a line anyone can write from a phone.
   if (plan.kind === "unsupported-forge")
-    return `${repo} is on ${plan.host}. Its issues are listed here, but work can only be started on ${startableHosts()} for now.`;
+    return `${repo} is on ${plan.host}. Work can be started on ${startableHosts(getGitlabHosts())} — a self-hosted GitLab has to be added to "gitlabHosts" in the config on the desktop first.`;
   return plan.kind === "no-clone"
     ? `No local clone of ${repo} on this machine. Add one to your directory presets on the desktop to start work here.`
     : `${repo} has several clones on this machine and none is chosen yet. Start one issue from the desktop to choose which clone the work happens in, and this will use it from then on.`;
@@ -54,7 +56,7 @@ const listIssuesHandler: CommandHandlers[string] = async () => {
   const [repos, dirs] = await Promise.all([listIssuesAcrossRepos(getPrRepos()), repoDirsNow()]);
   return toJsonObject({
     repos: repos.map((row) => {
-      const plan = issueStartPlan(entryFor(dirs, row.repo), row.repo);
+      const plan = issueStartPlan(entryFor(dirs, row.repo), row.repo, getGitlabHosts());
       return plan.kind === "ready" ? { ...row, canStart: true } : { ...row, canStart: false, startBlocked: issueStartRefusal(plan, row.repo) };
     }),
   });
@@ -72,7 +74,7 @@ const startIssueWorkHandler =
     // `ran` below, which reports what happened rather than what was asked for.
     const run = params.run === true;
 
-    const plan = issueStartPlan(entryFor(await repoDirsNow(), repo), repo);
+    const plan = issueStartPlan(entryFor(await repoDirsNow(), repo), repo, getGitlabHosts());
     if (plan.kind !== "ready") throw new Error(issueStartRefusal(plan, repo));
 
     // OBSERVED, not derived from the outcome: startIssueWork spawns for `created` and `reused` and

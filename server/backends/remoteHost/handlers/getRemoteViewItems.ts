@@ -9,10 +9,11 @@ import type { CommandHandlers, JsonObject } from "@mulmoclaude/core/remote-host"
 import { clampLimit, clampOffset } from "../collectionPage.js";
 import { remoteViewItems, remoteViewItemsFailureMessage } from "../../remoteView.js";
 import { jsonPayload } from "../jsonPayload.js";
+import { readString } from "../../../../common/readString.js";
 
 export const getRemoteViewItems: CommandHandlers["getRemoteViewItems"] = async (params: JsonObject) => {
-  const slug = String(params.slug ?? "");
-  const viewId = String(params.viewId ?? "");
+  const slug = readString(params.slug);
+  const viewId = readString(params.viewId);
   const fields = normalizeFields(params.fields);
   const request = { offset: clampOffset(params.offset), limit: clampLimit(params.limit), ...(fields ? { fields } : {}) };
   const collection = await loadCollection(slug);

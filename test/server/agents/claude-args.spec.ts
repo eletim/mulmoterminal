@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { buildClaudeArgs, type ClaudeArgsInput } from "../../../server/agents/claude-args.js";
 import { SESSION_SUMMARY_PROMPT } from "../../../server/agents/session-summary-prompt.js";

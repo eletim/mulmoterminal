@@ -11,6 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import { isStrictlyWithin } from "../infra/path-within.js";
 import { splitLines } from "../infra/split-lines.js";
+import { DIR_CONFIG_FILE } from "../config/dir-config.js";
+import { writeInheritedDirConfig } from "../config/worktree-dir-config.js";
 import { ISSUE_BRANCH_PREFIX, issueFromAnchoredBranch } from "../../common/prPhase.js";
 
 // realpathSync.native, not the JS one: on Windows only the native call expands an
@@ -282,6 +284,27 @@ function serializeCreate<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// Carry the project's look and settings into a worktree that has just been created (#1317):
+// same name, theme, model and grid rank, with the chrome colours nudged around the hue wheel so
+// each tree is its own shade of the project. The parent is the MAIN checkout, so cutting a
+// worktree from another worktree still measures the gradient from the project itself.
+//
+// Only where git would IGNORE the file. A worktree whose `git status` gains an untracked file is
+// not merely untidy: `isDirty` reads that same status, so removeWorktree would go on refusing to
+// clean up a worktree whose only change we wrote ourselves.
+//
+// Best effort throughout — a worktree without its parent's colours is a worktree that works.
+async function adoptParentDirConfig(repo: string, worktreeDir: string): Promise<void> {
+  try {
+    if (!(await git(["check-ignore", "--quiet", "--", DIR_CONFIG_FILE], worktreeDir)).ok) return;
+    // Counted AFTER the add, so it includes the new tree: the first worktree of a repo is index
+    // 1 and therefore already one hue step away from the parent, not identical to it.
+    writeInheritedDirConfig(repo, worktreeDir, (await listWorktrees(repo)).length);
+  } catch {
+    // ignored
+  }
+}
+
 // Create a fresh worktree + branch for `task`, forked from the repo's base branch. Pass `issue`
 // to anchor the branch to a GitHub issue (`issue/<N>-<slug>`), which also forks from the base as
 // the REMOTE has it. Returns the worktree path + branch, or null if `repoDir` isn't a git repo /
@@ -299,7 +322,9 @@ export async function createWorktree(repoDir: string, task: string, issue?: numb
     const branch = await uniqueBranch(repo, stem, root);
     const dir = path.join(root, worktreeDirName(branch));
     const res = await git(["worktree", "add", "-b", branch, dir, start], repo);
-    return res.ok ? { path: dir, branch } : null;
+    if (!res.ok) return null;
+    await adoptParentDirConfig(repo, dir);
+    return { path: dir, branch };
   });
 }
 

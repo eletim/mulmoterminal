@@ -43,8 +43,13 @@ beforeEach(() => {
   }) as unknown as typeof fetch;
 });
 
+// At module scope, not inside a test: a component's module load is not the test's work, and
+// billing it to `testTimeout` is what makes the first test of a file the one that flakes.
+const TerminalCell = (await import("../../../src/components/TerminalCell.vue")).default;
+const LauncherCell = (await import("../../../src/components/LauncherCell.vue")).default;
+const CommandCell = (await import("../../../src/components/CommandCell.vue")).default;
+
 async function mountClaudeCell(cwd: string) {
-  const TerminalCell = (await import("../../../src/components/TerminalCell.vue")).default;
   return mount(TerminalCell, {
     props: {
       uid: 1,
@@ -63,14 +68,12 @@ async function mountClaudeCell(cwd: string) {
 }
 
 async function mountLauncherCell(cwd: string) {
-  const LauncherCell = (await import("../../../src/components/LauncherCell.vue")).default;
   return mount(LauncherCell, {
     props: { uid: 2, expanded: false, zoomed: false, launcher: { index: 0, label: "shell" }, session: null, cwd, home: "/home/me" },
   });
 }
 
 async function mountCommandCell(cwd: string) {
-  const CommandCell = (await import("../../../src/components/CommandCell.vue")).default;
   return mount(CommandCell, {
     props: { uid: 3, expanded: false, zoomed: false, command: { source: "script", index: 0, label: "build", cwd }, home: "/home/me" },
   });

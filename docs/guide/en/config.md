@@ -19,6 +19,7 @@ description: Configuring MulmoTerminal — the settings modal, per-project colou
 | Move the enlargement **from the keyboard** | [Keyboard shortcuts](#keymap) |
 | Roster rows are **too long or too short** | [Roster rows](#cockpit-lines) |
 | Let a session **see another folder** | [Several folders](#add-dirs) |
+| A **worktree** looks like a different project | [Worktrees inherit this file](#worktree-inherit) |
 | **No Canvas** when you enlarge a cell / no GUI tools | [Which directory to launch in](basics.html#launch-dir) |
 | Run on **a model other than Claude** | [Providers](#providers) |
 | Add **your own button** to the header | [Customizing the header](#header) |
@@ -235,6 +236,41 @@ The **launcher's directory chips always sort by it**, whichever mode the grid's 
 sits in the same place on both screens. The chips otherwise come in the order you last launched them, which
 changes under you; declaring ranks is how you pin them down. Directories that declare none stay behind the
 ranked ones, in that launch order.
+
+### Worktrees inherit this file {#worktree-inherit}
+
+`.mulmoterminal.json` is normally gitignored, so a [worktree](glossary.html#git-worktree) cut from the project used
+to start with nothing in it: no colours, no name, no model, no rank — one more grey cell at the end
+of the grid, looking like an unrelated project.
+
+Now a new worktree is given its own copy, derived from the project's:
+
+- **The identity is copied as written** — `name`, `theme`, `colors`, `fontSize`, `fontFamily`,
+  `provider`, `model`. Same project, same terminal, same model.
+- **The chrome colours are rotated a little around the colour wheel** — `badgeColor`,
+  `headerColor`, `headerTextColor`, `cellColor`, `cellBorderColor`, `dotColor`, `buttonColor`. Each
+  worktree of a project sits one 12-degree step further round than the one before it, so a row of
+  them reads as a gradient: recognisably this project, and recognisably not each other.
+  Saturation and lightness are untouched, which is why a `headerTextColor` of `#ffffff` stays
+  white — a grey has no hue to move.
+- **`orderPriority` becomes the project's rank plus one**, so the worktree sits directly after the
+  project it was cut from instead of falling to the end. Only when the project declares a rank;
+  one that sets none has worktrees that set none either.
+- **`sound`, `sounds` and `addDirs` are NOT carried.** Those name paths inside the project
+  directory, which the worktree has no copy of, and `addDirs` would resolve against the worktree
+  and quietly grant a different set of folders.
+
+Two cases where nothing is written, both deliberate:
+
+- **The project's config isn't gitignored.** The file would show up as an untracked change in the
+  worktree's `git status` — which is not just untidy: MulmoTerminal refuses to remove a worktree
+  that has uncommitted changes, so it could no longer be cleaned up. Add `.mulmoterminal.json` to
+  the repo's `.gitignore` and the next worktree gets its colours.
+- **The worktree already has one** (it is committed to the repo, or you wrote it yourself). That
+  file is the answer; MulmoTerminal never overwrites it.
+
+The copy is taken at creation and then belongs to the worktree. Recolour the project afterwards and
+existing worktrees keep the shade they were given — edit or delete their own file to change it.
 
 ### Customizing the header (buttons / chips) {#header}
 
@@ -1232,6 +1268,7 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | `launchers` | The launch commands that appear under "OR LAUNCH" in a grid cell. Only what you add — a plain shell is already the launcher's **Shell** toggle |
 | `quickCommands` | Phrases the **phone** offers as chips on a session (`{ label, text, agents? }`). Tapping one fills the input box — it is not sent until you press send. `agents` scopes a chip to `"claude"` / `"codex"` / `"shell"`; omit it to offer the chip everywhere. Editable in Settings → **Phone quick commands** |
 | `prRepos` | The repos targeted by the cross-repo PR/Issue view |
+| `gitlabHosts` | Hosts running a **self-hosted GitLab**, e.g. `["gitlab.example.com"]`. A URL does not say which forge a host runs, so declaring it is what lets `prRepos` entries on that host be read with `glab`. Needs `glab auth login --hostname <host>`. config.json only (no Settings control), so a hand edit takes effect on the next start (→ [A GitLab of your own](github.html#a-gitlab-of-your-own-self-hosted)) |
 | `repoDirs` | Which local clone work on a repo starts in, when you keep several side by side: `{ "acme/web": "/Users/you/src/web" }`. Only the choice is stored — which clones exist is re-derived from `cwdPresets`, so adding one needs no second edit, and an entry that no longer names a clone of that repo is ignored |
 | `buttons` / `chips` | Header buttons / chips (merged with project settings → [Customizing the header](#header)) |
 | `providers` | Anthropic-compatible backends (→ [Using another model via OpenRouter](providers.html)) |

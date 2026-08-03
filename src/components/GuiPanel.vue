@@ -9,6 +9,8 @@ import { reconcileCollectionCard } from "../../common/collectionSeed";
 import { collapseByIdentity } from "../utils/canvasCollapse";
 import { useCanvasCardHeight } from "../composables/useCanvasCardHeight";
 import { isRecord } from "../../common/isRecord";
+import { isUnknownArray } from "../../common/isUnknownArray";
+import { jsonBody } from "../jsonBody";
 
 // The GUI panel renders the toolResults produced by GUI-protocol plugins. It
 // mirrors the terminal's active session: live results arrive on that session's
@@ -28,7 +30,9 @@ interface ToolResult {
 const props = defineProps<{
   sessionId: string | null;
   sendTextMessage: (text: string) => boolean;
-  toolsOpen?: boolean;
+  // Whether the panel currently covers the terminal area. Owned by the grid (it is the grid's
+  // layout that changes), shown here because the button that flips it lives in this toolbar.
+  expanded?: boolean;
   // Why this panel cannot show anything, when that is knowable. The pane outlives the cell it
   // was opened on — walking the zoom to a launcher or to a directory with no render MCP leaves
   // it mounted — and the empty-state hint below ("ask Claude to use one of these") is a LIE in
@@ -36,7 +40,7 @@ const props = defineProps<{
   // panel is usable, which keeps the single view (where it always is) unchanged.
   unavailable?: "no-session" | "no-canvas-mcp" | null;
 }>();
-const emit = defineEmits<{ toggleTools: [] }>();
+const emit = defineEmits<{ toggleExpand: []; close: [] }>();
 
 const results = ref<ToolResult[]>([]);
 
@@ -189,7 +193,7 @@ const latestCardKey = computed(() => {
 // After the pending layout — the new/resized card's height is what we are scrolling past.
 function followToEnd() {
   if (!stickToBottom.value) return;
-  nextTick(() => {
+  void nextTick(() => {
     const element = scrollRef.value;
     if (element) element.scrollTop = element.scrollHeight;
   });
@@ -238,11 +242,11 @@ async function loadAvailableTools(sessionId: string | null) {
   try {
     const res = await fetch(sessionId ? `/api/tools?sessionId=${encodeURIComponent(sessionId)}` : "/api/tools");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
+    const body = await jsonBody(res);
     // Late reply for a session we have since walked away from would list another cell's tools.
     if (sessionId !== props.sessionId) return;
-    if (!Array.isArray(body.tools)) return;
-    availableTools.value = body.tools.map((tool: { toolName?: unknown }) => tool?.toolName).filter((name: unknown): name is string => typeof name === "string");
+    if (!isUnknownArray(body.tools)) return;
+    availableTools.value = body.tools.map((tool) => (isRecord(tool) ? tool.toolName : undefined)).filter((name): name is string => typeof name === "string");
   } catch {
     // Leave it unknown rather than empty — the hint falls back to the full list, which is a
     // better answer than telling a working session it has nothing.
@@ -254,7 +258,7 @@ watch(() => props.sessionId, loadAvailableTools, { immediate: true });
 // while claude is still being spawned, so its MCP client has not connected to the group URLs yet
 // and the server has not learned which tools this cell got.
 onToolGroupsAnnounced((announcement) => {
-  if (announcement.sessionId === props.sessionId) loadAvailableTools(props.sessionId);
+  if (announcement.sessionId === props.sessionId) void loadAvailableTools(props.sessionId);
 });
 
 // What this session can be asked for, grouped. Ordered by TOOL_GROUPS (blast radius, least
@@ -283,16 +287,34 @@ const hasTools = computed(() => toolSections.value.some((section) => section.too
   <section class="flex h-full min-w-0 flex-1 flex-col border-l border-border bg-deep">
     <div class="py-2 px-4 bg-panel text-fg font-sans text-[14px] flex items-center justify-between">
       <span class="font-semibold">Canvas</span>
-      <button
-        v-if="!toolsOpen"
-        type="button"
-        class="bg-transparent border-0 text-dim text-[15px] leading-none py-0.5 px-1 cursor-pointer rounded hover:text-fg"
-        title="Tools & tool-call history"
-        aria-label="Open tools pane"
-        @click="emit('toggleTools')"
-      >
-        <span class="material-symbols-outlined" aria-hidden="true">build</span>
-      </button>
+      <!-- Close sits at the RIGHT END, where the files and tools panes put theirs — three panes
+           share one slot, so the button that dismisses whichever one is showing has to be in the
+           same place each time. Expand is the pane's own control and sits inside it. -->
+      <div class="flex items-center gap-1">
+        <!-- Same glyph pair as a cell's own enlarge/restore button (CellChromeButtons), because it
+             is the same gesture one level in: give this thing the whole area beside the roster. -->
+        <button
+          type="button"
+          data-testid="canvas-expand-btn"
+          class="bg-transparent border-0 text-dim text-[15px] leading-none py-0.5 px-1 cursor-pointer rounded hover:text-fg"
+          :title="expanded ? 'Restore the terminal beside the canvas' : 'Expand the canvas over the terminal'"
+          :aria-label="expanded ? 'Restore canvas width' : 'Expand canvas'"
+          :aria-pressed="expanded === true"
+          @click="emit('toggleExpand')"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">{{ expanded ? "close_fullscreen" : "open_in_full" }}</span>
+        </button>
+        <button
+          type="button"
+          data-testid="canvas-close-btn"
+          class="cursor-pointer rounded border-0 bg-transparent px-1 py-0.5 text-[15px] leading-none text-dim hover:text-fg"
+          title="Close canvas pane"
+          aria-label="Close canvas pane"
+          @click="emit('close')"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </div>
     </div>
     <div ref="scrollRef" data-testid="canvas-scroll" class="flex-1 overflow-y-auto px-4 py-3 font-sans text-[14px] leading-normal text-fg" @scroll="onScroll">
       <!-- Unavailable outranks empty: both look like "nothing here", but only one of them is

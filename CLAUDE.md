@@ -12,14 +12,30 @@ anything not covered here.
 ## Run after changes
 - `yarn format` — Prettier. `.prettierignore` excludes `*.md`, so Markdown is not reformatted.
 - `yarn lint` — ESLint.
-- `yarn typecheck` — `vue-tsc -b`. **App code only — it does NOT compile the specs.**
-- `yarn typecheck:server` / `yarn typecheck:test` — CI runs these too. `typecheck:test`
-  (`tsconfig.test.json` + `tsconfig.test-server.json`) is the one that type-checks the specs,
-  including the ones colocated under `server/` rather than in `test/`. Change a shared type or
-  a wire shape and run **all three**: `yarn typecheck` alone passes while CI fails.
+- `yarn typecheck` — `vue-tsc -b`, and it covers the whole repo: the root `tsconfig.json`
+  references all five projects (app, node, server, and the two spec ones — including the specs
+  colocated under `server/` rather than in `test/`). Adding a project means adding it there too,
+  or nothing type-checks it and CI will not tell you.
 - `yarn build` — `vue-tsc -b && vite build`.
 - `yarn test` — **Vitest** (`test/**/*.spec.ts`). Mock external APIs; tests must run without API keys.
 - `yarn dev` — server + Vite together (local development).
+
+### Import a component at module scope, never inside a test
+
+`await import("…/Foo.vue")` inside an `it` (or a helper an `it` awaits) pulls the component's
+whole module graph through the transform, and **the first test to reach it is billed that time
+against `testTimeout`**. On this repo that was 2132ms of loading against an 18ms mount — so the
+file's first test looked 100x slower than its siblings, and on a loaded runner it was the one
+that crossed 15s and went red (#1314). The test was never the slow part.
+
+Load it once at module scope instead — `const Foo = (await import("…/Foo.vue")).default;`, a
+top-level await, or a plain static import. Collection has no per-test budget, so the same work
+costs nothing there.
+
+The exception is a module that must be evaluated AFTER a non-hoisted mock: `vi.doMock` and
+`vi.resetModules` only take effect on a later import, so those specs (`codeBlockCopy.spec.ts`,
+several under `test/server/`) keep the import inside the test on purpose. `vi.mock` is hoisted
+and needs no such thing.
 
 ## No emojis
 **Never use emojis anywhere in this project** — UI, source comments, docs, changelog, commit

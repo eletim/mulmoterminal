@@ -39,7 +39,7 @@ npx mulmoterminal@latest        # starts on http://localhost:34567 and opens you
 
 ![MulmoTerminal's grid view — four live Claude sessions running side by side, each in its own color-coded project](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-2x2-live.png)
 
-*The grid is a **cockpit for parallel agents** — here, four live Claude sessions, each in its own color-coded project. Every cell's header carries what you need to triage at a glance: **model · context %**, **token counts** (`⇡in ⇣out`), the **git branch / changes** chip, and an AI summary of what the agent is doing. A cell's **border color signals state** — working / done (blue), needs-you (amber — e.g. waiting on a permission), idle — with an attention chime so a stuck cell off-screen still pulls you back. Supervise many; only step in where you're called.*
+*The grid is a **cockpit for parallel agents** — here, four live Claude sessions, each in its own color-coded project. Every cell's header carries what you need to triage at a glance: **model · context %**, **token counts** (`⇡in ⇣out`), the **git branch / changes** chip, and an AI summary of what the agent is doing. A cell's **border color signals state** — working (blue), done (green), needs-you (amber — e.g. waiting on a permission), idle — with an attention chime so a stuck cell off-screen still pulls you back. Supervise many; only step in where you're called.*
 
 ## Why you'll want it
 
@@ -214,7 +214,7 @@ Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
 | **Required** | [`claude`](https://claude.com/claude-code) | every Claude session — this app is a cockpit for it | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to log in |
 | **Required** | `git` | [worktree isolation](#git-worktrees--pull-requests), each cell's branch / unsaved-dot / diff readout, the PR footer | `brew install git` · `sudo apt install git` · `sudo dnf install git` · Windows: [git-scm.com](https://git-scm.com/download/win) |
 | **Required** | `gh` | the cross-repo **PRs & Issues** view and one-click PR creation — it uses your `gh` login, so no token is stored | [cli.github.com](https://cli.github.com), then `gh auth login` |
-| Optional | `glab` | the same for **gitlab.com** projects (#981). Same arrangement: the CLI holds the credentials, this app stores no token | `brew install glab`, then `glab auth login` |
+| Optional | `glab` | the same for **GitLab** projects (#981) — gitlab.com, and a self-hosted instance you declare in `gitlabHosts` (#1332). Same arrangement: the CLI holds the credentials, this app stores no token | `brew install glab`, then `glab auth login` (self-hosted: `glab auth login --hostname gitlab.example.com`) |
 | Recommended | `tmux` | [session persistence](#session-persistence-tmux) — terminals survive a server restart | `brew install tmux` · `sudo apt install tmux` · `sudo dnf install tmux` · no native Windows build (falls back to plain PTYs) |
 | Optional | `codex` | [Codex sessions](#agents-claude--codex) in a cell, alongside Claude | `npm i -g @openai/codex` |
 | Optional | `ffmpeg` | video rendering from the [mulmo-script panel](#wiki-collections--the-gui-panel) (its plugin ships enabled) | `brew install ffmpeg` · `sudo apt install ffmpeg` · `sudo dnf install ffmpeg` |
@@ -543,6 +543,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
 | `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
 | `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates, using whichever CLI the host needs — your own `gh` or `glab` login, so no token is stored here. An entry may name its host — `gitlab.com/group/project` is read with `glab`, and work can be started on it, commented on and turned into a merge request. A host that is neither shows a row saying so. |
+| `gitlabHosts` | Hosts that run a **self-hosted GitLab**, e.g. `["gitlab.example.com"]`. Nothing in a URL says which forge a host runs, so declaring it is what lets `prRepos` entries on that host be read with `glab` — everything gitlab.com can do, it can do. Needs `glab auth login --hostname <host>`. config.json only (no Settings control), so a hand edit takes effect on the next server start. |
 | `repoDirs`   | `{ "owner/repo": "/abs/path" }` — which local clone work on a repo starts in, when you keep several side by side. Only the *choice* is stored; which clones exist is re-derived from `cwdPresets` on every read, and an entry that no longer names a clone of that repo is ignored. |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides the agents — any interactive command. A plain shell needs no entry: the launch form's **Shell** toggle opens `$SHELL` unconfigured. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
@@ -740,22 +741,21 @@ yarn dev                # backend (:34567) + Vite UI (:6856), concurrently — o
 yarn dev:server         # backend only  (node --import tsx --env-file-if-exists=.env server/index.ts)
 yarn dev:client         # Vite dev server only
 
-yarn build              # type-check (vue-tsc) + vite build -> dist/
-yarn typecheck:server   # type-check the server (tsconfig.server.json)
-yarn typecheck:test     # type-check the specs (tsconfig.test*.json)
+yarn typecheck          # type-check everything (vue-tsc -b)
+yarn build              # type-check + vite build -> dist/
 yarn server             # run backend; serves dist/ + the APIs on :34567
 yarn test               # vitest run
 ```
 
-The backend is TypeScript run directly via `tsx` (no build step); `server/` is
-type-checked separately through `tsconfig.server.json` (`strict`), kept out of
-the main `build` so the two type-check independently.
-
-Specs sit outside both of those projects, and vitest strips types rather than
-checking them — so `yarn typecheck:test` is what keeps them honest. It mirrors
-the same split: `tsconfig.test.json` (client specs, DOM + `.vue`) and
-`tsconfig.test-server.json` (server specs, node). CI runs it alongside the
-other two.
+`yarn typecheck` covers the whole repo. The root `tsconfig.json` is a solution
+file that references all five projects, so one `vue-tsc -b` builds them:
+`tsconfig.app.json` (client), `tsconfig.node.json` (vite config),
+`tsconfig.server.json` (backend, run directly via `tsx` with no build step),
+plus `tsconfig.test.json` and `tsconfig.test-server.json` for the specs — which
+need checking of their own because vitest strips types rather than checking
+them. They exist as separate projects because each has its own compiler options
+(the client ones DOM + `.vue`, the server ones node, the specs with
+`noUncheckedIndexedAccess` off).
 
 In dev, open the Vite URL; its proxy forwards `/ws`, `/ws/pubsub`, and `/api` to
 `:34567`. In production, run `yarn build` then `yarn server` and open
@@ -920,6 +920,17 @@ separate working tree that shares the repo's `.git`, so several agents can work 
 repo without colliding. Worktrees live under `~/.mulmoterminal/worktrees/` (override with
 `MULMOTERMINAL_HOME`), and existing ones are listed below the field.
 
+**A worktree inherits the project's settings.** `.mulmoterminal.json` is normally gitignored,
+so a fresh worktree used to have none — no colours, no name, no model, no grid rank. It is now
+given its own copy derived from the project's: `name` / `theme` / `colors` / `fontSize` /
+`fontFamily` / `provider` / `model` as written, the seven chrome colours **rotated 12 degrees
+further around the hue wheel per worktree** (so a project's trees read as a gradient; a grey like
+`#ffffff` has no hue to move and stays put), and `orderPriority` at the project's rank **+ 1**, so
+the worktree sorts directly after it. `sound` / `sounds` / `addDirs` are not carried — they name
+paths inside the project directory. Written only where git would **ignore** it: an untracked file
+in a worktree's `git status` would make it count as dirty, and a dirty worktree is one
+MulmoTerminal refuses to remove. An existing config in the worktree is never overwritten.
+
 **One worktree, one session.** A worktree is tied to a branch, so it is never started
 twice: a listed row **resumes** that worktree's session when it has one, and **starts** one
 only when it has none. A row whose session is open in another terminal reads `in use` and
@@ -968,7 +979,7 @@ Closing a worktree cell asks whether to **keep** the worktree or **discard & rem
 
 **PRs & Issues (cross-repo).** The toolbar's **Pull requests** button opens a full-screen
 view that aggregates open PRs **and** issues across the repos listed in Settings →
-**Pull request repos** (`prRepos`, `owner/repo` entries, or `gitlab.com/group/project`) via your server-side `gh` / `glab` login.
+**Pull request repos** (`prRepos`, `owner/repo` entries, or `gitlab.com/group/project` — plus any host declared in `gitlabHosts`) via your server-side `gh` / `glab` login.
 PRs show a CI-rollup / review-decision / draft badge; each repo lists its latest open
 issues. Rows are real links, per-repo errors don't sink the view, and the two lists load
 independently. Backed by `GET /api/prs` and `GET /api/issues`.
@@ -1309,7 +1320,7 @@ same-origin-guarded.
 | `POST /api/git-remote` | The dir's GitHub repo URL (for the header GitHub menu). |
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>` — or, with `issue: <N>`, on `issue/<N>-<slug>` forked from a freshly fetched `origin/<base>`; remove (managed root only), push, open a PR (`gh`, else compare URL). |
-| `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` — `gh` for github.com entries, `glab` for `gitlab.com/...` ones. |
+| `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` — `gh` for github.com entries, `glab` for gitlab.com and any host declared in `gitlabHosts`. |
 | `GET /api/repo-dirs` | Which saved directories clone which GitHub repo, ordered, with the recorded choice per repo. |
 | `POST /api/issues/start` | Cut an issue's worktree in one of that repo's known clones and spawn a session there, seeded with the issue as a draft. |
 | `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |

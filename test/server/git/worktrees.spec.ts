@@ -1,7 +1,8 @@
+// @vitest-environment node
 import { canSymlink } from "../../support/canSymlink.js";
 import { makeTempDir } from "../../support/tempDir.js";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { writeFileSync, existsSync, symlinkSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { rmDirRetrying, GIT_TEST_TIMEOUT_MS } from "./wtTestUtil.js";
@@ -148,6 +149,50 @@ describe("git worktree lifecycle", () => {
       // when the branch lookup compared non-canonical paths and found no match.
       const branchList = await git(["branch", "--list", wt.branch], repo);
       expect(branchList.stdout.trim()).toBe("");
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  // #1317. `.mulmoterminal.json` is gitignored, so a worktree used to start with no config at
+  // all: the project's colours, name, model and grid rank all stopped at the main checkout.
+  it.skipIf(!hasGit)(
+    "gives each new worktree the project's settings, a hue further round each time",
+    async () => {
+      writeFileSync(path.join(repo, ".gitignore"), ".mulmoterminal.json\n");
+      const project = { name: "proj", headerColor: "#2d4ea9", headerTextColor: "#ffffff", orderPriority: 30, model: "qwen3:8b" };
+      writeFileSync(path.join(repo, ".mulmoterminal.json"), JSON.stringify(project));
+      await git(["add", ".gitignore"], repo);
+      await git(["commit", "-m", "ignore the local config"], repo);
+
+      const first = await createWorktree(repo, "first");
+      if (!first) throw new Error("expected a worktree");
+      const config = (dir: string): unknown => JSON.parse(readFileSync(path.join(dir, ".mulmoterminal.json"), "utf8"));
+      expect(config(first.path)).toEqual({ name: "proj", model: "qwen3:8b", headerColor: "#2d35a9", headerTextColor: "#ffffff", orderPriority: 31 });
+      // The file we just wrote must not read as a change. isDirty is what removeWorktree
+      // consults, so a worktree dirtied by our own write could no longer be cleaned up.
+      expect(await isDirty(first.path)).toBe(false);
+
+      const second = await createWorktree(repo, "second");
+      if (!second) throw new Error("expected a second worktree");
+      expect(config(second.path)).toMatchObject({ headerColor: "#3e2da9" });
+
+      // The failure the check-ignore guard exists to prevent, pinned end to end: a worktree
+      // holding a config we wrote is still removable WITHOUT force. Asserting isDirty alone
+      // would miss it — `git worktree remove` has its own idea of clean.
+      expect(await removeWorktree(repo, second.path, { deleteBranch: true })).toEqual({ ok: true });
+      expect(existsSync(second.path)).toBe(false);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it.skipIf(!hasGit)(
+    "writes no config where git would not ignore it",
+    async () => {
+      writeFileSync(path.join(repo, ".mulmoterminal.json"), JSON.stringify({ headerColor: "#2d4ea9" }));
+      const wt = await createWorktree(repo, "unignored");
+      if (!wt) throw new Error("expected a worktree");
+      expect(existsSync(path.join(wt.path, ".mulmoterminal.json"))).toBe(false);
+      expect(await isDirty(wt.path)).toBe(false);
     },
     GIT_TEST_TIMEOUT_MS,
   );
