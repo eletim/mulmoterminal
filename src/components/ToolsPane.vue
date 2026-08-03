@@ -34,8 +34,13 @@ interface ToolCall {
   durationMs?: number;
 }
 
-const props = defineProps<{ sessionId: string | null }>();
-const emit = defineEmits<{ close: [] }>();
+const props = defineProps<{
+  sessionId: string | null;
+  // Whether this pane currently covers the terminal area. Owned by the grid (it is the grid's
+  // layout that changes), shown here because the button that flips it lives in this header.
+  expanded?: boolean;
+}>();
+const emit = defineEmits<{ close: []; toggleExpand: [] }>();
 
 // Whether this session's history holds the GUI tools ALONE (the broker fed it) rather than every
 // tool (claude's hooks fed it). An empty GUI-only history looks exactly like an agent that ran
@@ -191,15 +196,31 @@ onUnmounted(() => window.clearTimeout(historyCopyTimer));
   <section class="flex h-full w-[340px] shrink-0 flex-col border-l border-border bg-deep">
     <div class="flex items-center justify-between bg-panel px-4 py-2 font-sans text-[14px] text-fg">
       <span class="font-semibold">Tools</span>
-      <button
-        type="button"
-        class="cursor-pointer rounded border-0 bg-transparent px-1 py-0.5 text-[15px] leading-none text-dim hover:text-fg"
-        title="Close tools pane"
-        aria-label="Close tools pane"
-        @click="emit('close')"
-      >
-        <span class="material-symbols-outlined" aria-hidden="true">close</span>
-      </button>
+      <!-- Expand then close, in that order, exactly as the Canvas header has them: the two panes
+           share one slot, so the same control must be in the same place in both. -->
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          data-testid="tools-expand-btn"
+          class="cursor-pointer rounded border-0 bg-transparent px-1 py-0.5 text-[15px] leading-none text-dim hover:text-fg"
+          :title="expanded ? 'Restore the terminal beside the tools' : 'Expand the tools over the terminal'"
+          :aria-label="expanded ? 'Restore tools pane width' : 'Expand tools pane'"
+          :aria-pressed="expanded === true"
+          @click="emit('toggleExpand')"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">{{ expanded ? "close_fullscreen" : "open_in_full" }}</span>
+        </button>
+        <button
+          type="button"
+          data-testid="tools-close-btn"
+          class="cursor-pointer rounded border-0 bg-transparent px-1 py-0.5 text-[15px] leading-none text-dim hover:text-fg"
+          title="Close tools pane"
+          aria-label="Close tools pane"
+          @click="emit('close')"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </div>
     </div>
     <div class="flex-1 overflow-y-auto font-sans text-[13px] text-fg">
       <!-- Available tools -->

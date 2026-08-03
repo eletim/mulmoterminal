@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createTranslationWorker, submitTranslation, failPendingTranslation } from "../../../server/session/translation-worker.js";
 import { hiddenSessions, translationWorkerIds, knownSessions, activity, lastPrompts } from "../../../server/session/registry.js";
