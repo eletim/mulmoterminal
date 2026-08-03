@@ -300,6 +300,7 @@ describe("loadAppConfig / saveAppConfig", () => {
     soundKinds: [...DEFAULT_SOUND_KINDS],
     sounds: {},
     prRepos: [],
+    gitlabHosts: [],
     repoDirs: {},
     launchers: [],
     quickCommands: [],
@@ -333,6 +334,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       soundKinds: [...DEFAULT_SOUND_KINDS],
       sounds: {},
       prRepos: ["o/r"],
+      gitlabHosts: ["gitlab.hogefuga.com"], // config.json-only, so the file is its only way home
       repoDirs: {},
       launchers: [{ label: "Shell", command: "$SHELL" }],
       quickCommands: [],
@@ -376,6 +378,7 @@ describe("loadAppConfig / saveAppConfig", () => {
         cwdPresets: [{ label: "a", path: "/a" }, "junk"],
         soundFile: 5,
         prRepos: ["o/r", "bad"],
+        gitlabHosts: ["GitLab.Hogefuga.com", "https://gitlab.two.example/", "not a host", 5], // case, a pasted URL, junk
         launchers: [{ label: "S", command: "sh" }, "x"],
         userMcpServers: [
           { id: "ok", url: "https://x/mcp" },
@@ -392,6 +395,7 @@ describe("loadAppConfig / saveAppConfig", () => {
       soundKinds: [...DEFAULT_SOUND_KINDS],
       sounds: {},
       prRepos: ["o/r"],
+      gitlabHosts: ["gitlab.hogefuga.com", "gitlab.two.example"],
       repoDirs: {},
       launchers: [{ label: "S", command: "sh" }],
       quickCommands: [],
@@ -501,6 +505,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     soundKinds: [...DEFAULT_SOUND_KINDS],
     sounds: {},
     prRepos: ["o/r"],
+    gitlabHosts: ["gitlab.hogefuga.com"],
     repoDirs: {},
     launchers: [{ label: "Shell", command: "$SHELL" }],
     quickCommands: [],
@@ -566,6 +571,7 @@ describe("mergeConfigUpdate", () => {
     soundKinds: [...DEFAULT_SOUND_KINDS],
     sounds: {},
     prRepos: [],
+    gitlabHosts: [],
     repoDirs: {},
     launchers: [],
     quickCommands: [],

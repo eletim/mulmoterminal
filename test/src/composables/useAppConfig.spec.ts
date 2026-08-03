@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { useAppConfig } from "../../../src/composables/useAppConfig";
+import { currentGitlabHosts, useAppConfig } from "../../../src/composables/useAppConfig";
 
 // Echo the posted cwdPresets back as the server would, so presets.value reflects
 // each save. useAppConfig's presets ref is per-call (not a singleton), so every
@@ -205,6 +205,18 @@ describe("useAppConfig — loadConfig validates what the server sends", () => {
     expect(pushKinds.value).toEqual(["finished"]);
     expect(prRepos.value).toEqual(["owner/repo"]);
     expect(presets.value).toEqual([{ label: "proj", path: "/p" }]);
+  });
+
+  // The declared self-hosted GitLab hosts (#1332). config.json-only, so the browser can never write
+  // them — but it decides from them (an issue row on such a host can start work), and without this
+  // adoption that decision is made against an empty list on every page.
+  it("adopts the declared gitlab hosts, dropping anything that is not a string", async () => {
+    mockConfigGet({ gitlabHosts: ["gitlab.hogefuga.com", 42] });
+    const { loadConfig } = useAppConfig();
+
+    await loadConfig();
+
+    expect(currentGitlabHosts()).toEqual(["gitlab.hogefuga.com"]);
   });
 
   // A body that is not a JSON object at all must leave what is already shown alone rather than

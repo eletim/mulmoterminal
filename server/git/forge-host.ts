@@ -11,6 +11,7 @@
 // showing is a separate decision, and one this repo has not made yet.
 import { parseRemoteRef, topSegments } from "./remote-ref.js";
 import { isRepoEntry, parseRepoEntry } from "../../common/repoEntry.js";
+import { isGitlabHost } from "../../common/gitlabHosts.js";
 
 export type ForgeKind = "github" | "gitlab" | "unknown";
 
@@ -28,9 +29,23 @@ export const GITHUB_HOST = "github.com";
 const GITLAB_HOST = "gitlab.com";
 
 // Only the hosts we can name from the URL alone. A self-hosted GitLab at `git.example.com` is
-// indistinguishable from anything else here and comes out `unknown` — declaring those needs config,
-// which belongs with the GitLab implementation that would read it rather than ahead of it.
+// indistinguishable from anything else here, so the user declares it in `gitlabHosts` (#1332).
 const KNOWN_HOSTS: Readonly<Record<string, ForgeKind>> = { [GITHUB_HOST]: "github", [GITLAB_HOST]: "gitlab" };
+
+// The declared hosts, as a GETTER rather than a value: they come from the config, which is
+// re-read on every POST /api/config, and a snapshot taken at boot would answer with whatever was
+// on disk then. It is injected because the edge only runs one way — `server/git` already imports
+// `server/config` (worktree-pr), so importing it back from here would close a cycle.
+//
+// The default is what this module did before the config existed, which is what keeps every spec
+// and every caller that never wires it behaving exactly as it used to.
+let declaredGitlabHosts: () => readonly string[] = () => [];
+
+export const setDeclaredGitlabHosts = (source: () => readonly string[]): void => {
+  declaredGitlabHosts = source;
+};
+
+const kindOf = (host: string): ForgeKind => KNOWN_HOSTS[host] ?? (isGitlabHost(host, declaredGitlabHosts()) ? "gitlab" : "unknown");
 
 // GitHub: a project is exactly `owner/repo`, so a deeper path is truncated to it.
 const GITHUB_PATH_SEGMENTS = 2;
@@ -59,7 +74,7 @@ export function forgeOf(remoteUrl: string): RemoteForge | null {
 }
 
 const forgeAt = (host: string, path: string): RemoteForge => {
-  const kind = KNOWN_HOSTS[host] ?? "unknown";
+  const kind = kindOf(host);
   return { host, kind, path, webUrl: webUrlFor(kind, host, path) };
 };
 

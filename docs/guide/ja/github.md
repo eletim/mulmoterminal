@@ -57,6 +57,28 @@ GitHub に対する `gh` と同じ役割を `glab` が果たし、一覧・issue
 入っておらず、読むには MR ごとに 1 コール必要なためです。1 ブランチだけを見るセルは読むので、
 コックピットのフェーズ pill は正確です。
 
+### 自前ホスティングの GitLab
+
+`gitlab.example.com` はアドレスからは判別できません — そのホストで動いているのが GitLab なのか
+Gitea なのか Wiki なのか、名前のどこにも書いていないからです。そこで、同じファイルで一度だけ宣言します。
+
+```json
+{
+  "gitlabHosts": ["gitlab.example.com"],
+  "prRepos": ["gitlab.example.com/group/project"]
+}
+```
+
+宣言したホストは **gitlab.com と完全に同じ**に振る舞います — 一覧・issue からの着手・作業コメント・
+MR 作成のすべてです。必要なのは 2 つだけ。
+
+1. **そのホストに `glab` でログインしていること** — `glab auth login --hostname gitlab.example.com`。
+   このアプリは自前のトークンを持たず、`gh` と同じくあなたの `glab` を実行します。
+2. **`config.json` を手で書いたらサーバを再起動する** — 起動時に読むので、手書きの `prRepos` と同じです。
+
+宣言する前は、その行が「未対応」ではなく**足すべきキー**を挙げて出ます。まだ対象外なのは、
+ポート付きのホスト名 (`gitlab.example.com:8443`)、http のみのインスタンス、GitHub Enterprise です。
+
 → キーの一覧は [設定方法](config.html) を参照。
 
 ## ② ビューを開いて見る

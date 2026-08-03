@@ -6,7 +6,7 @@
 // and the browser is the wrong place to unwind that. Here a failed step simply stops, and the
 // caller learns which one.
 import { runGh } from "./gh.js";
-import { runGlab, glabIssueViewArgs } from "./glab.js";
+import { runGlab, glabIssueViewArgs, glabTarget } from "./glab.js";
 import { normalizeGlabIssueDetail } from "./glab-items.js";
 import { forgeFromRepoEntry, projectPath } from "./forge-host.js";
 import { createWorktree, issueWorktree } from "./worktrees.js";
@@ -50,10 +50,12 @@ const DETAIL_LIMIT = 300;
 // somebody decides to work on that issue, so it is read here instead.
 export async function fetchIssueDetail(repo: string, issue: number): Promise<IssueDetail | null> {
   const forge = forgeFromRepoEntry(repo);
-  const gitlab = forge?.kind === "gitlab";
+  // The forge itself when it is a GitLab, so the glab call can be addressed at its HOST — a bare
+  // project path reaches gitlab.com whatever host the entry named (#1332, see glabTarget).
+  const gitlab = forge?.kind === "gitlab" ? forge : null;
   const project = forge ? (projectPath(forge) ?? forge.path) : repo;
   const res = gitlab
-    ? await runGlab(glabIssueViewArgs(project, issue))
+    ? await runGlab(glabIssueViewArgs(glabTarget(gitlab), issue))
     : await runGh(["issue", "view", String(issue), "--repo", project, "--json", "number,title,body"]);
   if (!res.ok) return null;
   try {
