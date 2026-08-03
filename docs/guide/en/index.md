@@ -16,6 +16,8 @@ running grid. Already set up? `npx mulmoterminal@latest` is the whole thing.
 [Getting started — from zero to running](getting-started.html){: .btn .btn-purple .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Basics — how to read the screen](basics.html){: .btn .fs-5 .mb-4 .mb-md-0 }
 
+> **[What's new in 4.2.0](v4.2.0.html)** — a **self-hosted GitLab** works once you name it in `gitlabHosts`, the **Canvas and Tools panes** can take the whole terminal area, a new **worktree inherits its project's settings** one hue step off, and a terminal that stops taking input **repairs itself as you type** or says why it cannot. One key to configure (as of 2026-08-03)
+>
 > **[What's new in 4.1.1](v4.1.1.html)** — the header's **usage** figure stops sticking at `n/a` on machines where the TUI is slow to start, the phone's terminal returns **300 lines** of scrollback instead of one screenful, and GitLab worktrees get the **PR phase pill** and **⧉ Open PR** that GitHub ones already had. Nothing to configure (as of 2026-08-02)
 >
 > **[What's new in 4.0.0](v4.0.0.html)** — the **single terminal view is removed**: the grid is the app, focusing on one agent is zooming its cell, and the content surfaces get a **Collections** door in the toolbar. A **worktree now runs one agent session** and refuses a second. The Docker sandbox is gone (as of 2026-08-01)

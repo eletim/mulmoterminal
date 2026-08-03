@@ -8,7 +8,56 @@ This file records **what changed and why**. For **how to actually use** a new fe
 
 Entries here are folded into the next release's heading when it ships.
 
+## mulmoterminal@4.2.0 — 2026-08-03
+
+> **Setup guide:** [Self-hosted GitLab, panes that take the whole terminal, and worktrees that keep their colours](https://receptron.github.io/mulmoterminal/guide/en/v4.2.0.html) — written at release time. ([日本語](https://receptron.github.io/mulmoterminal/guide/ja/v4.2.0.html))
+
+Four things you can see: a self-hosted GitLab works by naming it in one config key, the Canvas and
+Tools panes can take the whole terminal area, a new worktree keeps the project's colours instead of
+arriving blank, and a terminal that has stopped accepting input either repairs itself as you type or
+says why it cannot. Underneath, the two type-safety programmes ([#1300](https://github.com/receptron/mulmoterminal/issues/1300),
+[#1301](https://github.com/receptron/mulmoterminal/issues/1301)) are finished: **407 `no-unsafe-*`
+findings are zero and the rules are errors**, `noUncheckedIndexedAccess` is on, and `yarn typecheck`
+finally looks at the whole repository rather than two fifths of it.
+
 ### Added
+
+- **A self-hosted GitLab works once you name it** (#1332). `gitlab.hogefuga.com` used to get one
+  sentence saying MulmoTerminal reads github.com and gitlab.com, and nothing else. Declare the host
+  in the global config and it goes down the same path gitlab.com does — the PRs & Issues lists,
+  starting work from an issue, work comments, and creating a merge request:
+
+  ```json
+  { "gitlabHosts": ["gitlab.hogefuga.com"], "prRepos": ["gitlab.hogefuga.com/group/project"] }
+  ```
+
+  An undeclared host now names the key to add rather than just refusing. `--repo` is passed as a
+  full https URL for **every** GitLab host including gitlab.com, which is not tidiness: measured
+  against glab 1.111.0, `--repo gitlab.nonexistent.invalid/group/project` asks **gitlab.com** for a
+  project by that name and 404s, so the short host-qualified form silently queries the wrong server.
+  `github.com` is rejected as a value, since it is an easy thing to write and an expensive thing to
+  get wrong. Not covered: ports (`prRepos` entries cannot hold a colon), http-only instances, and
+  GitHub Enterprise. The host list is read from the in-memory config, so an edit through Settings
+  applies at once while a hand-edited `config.json` needs a restart — the same rule `prRepos`
+  already follows. There is no Settings UI for it yet, by request.
+
+- **The Canvas and Tools panes can take the whole terminal area** (#1333). The expand button in each
+  pane's header (`open_in_full` / `close_fullscreen`) gives the pane the entire zoom row while it is
+  held. It covers **only the enlarged terminal** — the cockpit roster to the left and the filmstrip
+  below sit outside that row and do not move, verified in both zoom modes. The terminal is moved
+  off-screen at full size rather than hidden, because an xterm with `display: none` shrinks to zero
+  and comes back mangled (the same reason as #1125, and the same trick list mode already plays on the
+  tiled grid). Tools gained the identical button pair in the identical position, since two panes
+  sharing one slot must not need to be learned twice. Canvas also gained a Close at the right end,
+  matching Files and Tools, and lost its tools button — the Tools pane still opens from each cell's
+  own header.
+
+  **The expanded state is deliberately not remembered.** The first cut persisted it, and reopening
+  the pane then restored it on top of the terminal: a pane over the terminal is a surprise every time
+  except the moment you asked for it, and what it hides is the thing being worked on. It resets on
+  every `setRightPane` — reopening the same pane, switching panes, or reloading all start split.
+  Which pane was open and how wide it was are remembered as before. Canvas and Tools share the state,
+  so at most one thing ever covers the terminal.
 
 - **A new worktree inherits the project's settings, one hue step off** (#1317). `.mulmoterminal.json`
   is normally gitignored, so `git worktree add` produced a directory with no config in it at all:
@@ -46,6 +95,137 @@ Entries here are folded into the next release's heading when it ships.
   again, and a spec holds them to it. The toolbar's `done` tally went green as well — via `--ok`
   rather than `--done`, because that one is text and `--done` is a fill colour that reads at 2.3:1
   on a white panel. The roster is unchanged: its green is what everything else moved to.
+
+### Fixed
+
+- **A terminal that will not take input now repairs itself as you type, or says why it cannot**
+  (#1306). Two different paths swallow keystrokes in silence, and both look identical from the
+  outside — "input is broken."
+
+  The first is xterm 6.0.0's `Buffer.resize` bug ([xtermjs/xterm.js#6063](https://github.com/xtermjs/xterm.js/issues/6063),
+  still open upstream, so the version is pinned): the write queue jams permanently, keystrokes keep
+  reaching the pty, and nothing that comes back is ever drawn again. The repair already existed
+  (`guardBufferHealth` → `rebuildTerminal`, #848), but it was only reachable from `fit()` and from
+  receiving an output frame — and an **idle** cell gets neither. The cell most in need of repair was
+  the one least able to ask for it, so it stayed dead until a reload. Typing is the one signal such a
+  cell does receive, and it is now a third trigger. Pointer reports are excluded via `isTypedInput`,
+  the same reading of "input" as everywhere else (#992).
+
+  The second is a keystroke sent to a socket that is not `OPEN` — during reconnect backoff, or after
+  `superseded`. It was dropped without a word. The status pill did say `disconnected`, but the header
+  carrying it is hidden in the filmstrip, and nobody watches a pill while typing. The manager now
+  tells the view and a temporary banner appears, with a matching `console.warn` that distinguishes
+  the two silences after the fact: socket down, or terminal stopped drawing.
+
+- **The dropped-input notice reaches every path, and says so again when it lapses** (#1315, #1316).
+  Follow-ups found while reviewing #1306. `submitText` / `pasteText` / `pasteAndSubmit` merely
+  returned `false` on a closed socket, and only `TerminalCell.vue` looked at the return value — the
+  header buttons and the Skill menu discarded it, so **pressing them while disconnected did nothing
+  and explained nothing**. The notice moved into the manager, so no call site had to change. The
+  banner was also armed once per disconnect and only reset on `sock.onopen`; backoff retries
+  indefinitely at a five-second ceiling, so one stretch can run for hours while the banner lives six
+  seconds — every attempt after the first was silent. It now re-arms on a cooldown equal to its own
+  lifetime, while the log line stays one per stretch. The wording moved from "what you typed" to
+  "what you sent", because someone who pressed a button did not type.
+
+### Changed — dependencies
+
+- **gui-chat-protocol 2.0.0**, with exactly one copy in the tree (#1342). 2.0.0 removes the
+  return-position-only type parameter from `dispatch` / `subscribe` / `getConfig` and takes a reader
+  instead, so MulmoTerminal's `BrowserPluginRuntime` had to follow; `@mulmoclaude/*` (core and eight
+  plugins) and `@mulmochat-plugin/generate-image` all move to 2.0.0 with it, and
+  `@receptron/task-scheduler` to 1.0.3 to satisfy core's peer range. One copy is a requirement rather
+  than tidiness: `PLUGIN_RUNTIME_KEY` is a Vue `InjectionKey`, so two copies are two Symbols and a
+  plugin View cannot receive the runtime the host provided.
+
+  The `dispatch` half is **not reachable by typecheck** — TypeScript relates overloaded targets
+  leniently, so the old `as T` implementation still compiled against the new signature while
+  ignoring a caller's `parse` and returning raw JSON. Its behaviour is pinned by tests instead.
+  `subscribe` also gained a guard that drops an unparseable frame rather than the channel: the reader
+  idiom the protocol documents is `Schema.parse(raw)`, Zod's `parse` throws, and without the guard one
+  malformed frame would take every other subscriber on that channel down with it. Removing the guard
+  turns its test red.
+
+- **`@mulmoclaude/markdown-plugin` 1.6.0** (#1324), with `@mulmoclaude/core` raised alongside it.
+  Bumping the plugin alone installs and typechecks cleanly — and ships **two** copies of core,
+  because yarn satisfies the plugin's newer range with a nested one.
+
+### Changed — type safety
+
+[#1300](https://github.com/receptron/mulmoterminal/issues/1300) and
+[#1301](https://github.com/receptron/mulmoterminal/issues/1301) are both closed.
+
+- **`no-unsafe-*` went from 407 findings to zero, and the five rules are errors** (#1321, #1325,
+  #1326). Server first (145 → 0), then the UI (262 → 108, then 0). Excluding `.vue` was not enough:
+  four `.ts` files that import a type **from** a `.vue` inherit the same blind spot, and the
+  exclusion list now names which `.vue` each one imports. Real defects fell out — `createSessionStore`
+  gained a required `isEntry` (optional would have defaulted back to "accept everything"),
+  `useAppConfig.loadConfig` now rejects a broken entry at load rather than only at save, and
+  `TerminalCell`'s `SessionDetail` type was deleted because `/api/session/:id` does not return `id`,
+  which four failing tests revealed the moment a guard was added.
+- **`noUncheckedIndexedAccess` is on for the shipped code, all 118 findings fixed** (#1301). #1301
+  had estimated 445 and called it separate work; measured against the app it was 118, every one
+  mechanical. Specs are explicitly exempt — a test indexing its own fixture is noise, and that is 233
+  of the findings. It also **removed** lint false positives: `sonarjs/different-types-comparison`
+  fell 9 → 4, because a guard like `process.argv[2] === undefined` only looked impossible while the
+  flag was off.
+- **The `as` and `!` bans now reach Vue templates** (#1339). `consistent-type-assertions` was already
+  an error with `**/*.vue` in `files`, and had **never once reported** an `as` inside `<template>`:
+  `vue-eslint-parser` exposes the template as a separate AST that typescript-eslint's rules do not
+  walk. Written as `vue/no-restricted-syntax` selectors, the only rule that walks it. Two findings
+  repo-wide, both resolved by narrowing in `<script>` rather than casting; `as const` is exempt.
+- **The eight type-aware sonarjs rules were judged one finding at a time** (#1300). Eighteen findings
+  read individually: three real, fifteen false positives or deliberate. The false positives are
+  **structural**, so the rules are off rather than each finding suppressed. sonarjs warnings 18 → 5,
+  total lint warnings 23 → 10.
+- **`await-thenable` and `no-base-to-string` at error** (#1300), all 19 findings fixed.
+- **Sixty-six unawaited promises are marked `void`** (#1300), warnings 102 → 33. None was a real bug;
+  the value is that the next floating-promise warning means somebody actually forgot an `await`.
+  `sonarjs/void-use` is off, since it forbids exactly what `no-floating-promises` asks for.
+- **Type information reaches `.vue`** (#1300), which made `no-floating-promises` visible in SFCs for
+  the first time (34 → 66 findings). The wiring is two edits and one of them is a trap: naming `.vue`
+  in the type-aware block's `files` replaces `vue-eslint-parser` and every SFC fails to parse.
+- **Filename sorting is explicit and locale-independent** (#1300). `localeCompare` would have been
+  wrong here: these are zero-padded date directories and ISO timestamps, so a locale-ordered sort
+  gives a different answer per machine.
+
+### Changed — tooling and tests
+
+- **`yarn typecheck` covers the whole repository** (#1312). It had been looking at `app` and `node`
+  only — **server and test were never checked**, which is what the CLAUDE.md warning about "passes
+  locally, fails in CI" existed to paper over. Root `references` went 2 → 5, `typecheck:server` and
+  `typecheck:test` are gone, and CI's three steps collapsed to one. Proven by planting a type error
+  in each of the four areas and confirming all four are caught; the old config reported **0 errors**
+  for the same server error. It is also slightly faster cold (13.3s vs 14.1s), because `-b` shares
+  work across projects.
+- **153 server specs run in the node environment** (#1331). They touch no DOM but were standing up
+  jsdom anyway. One line each, no test bodies changed. Measured at `--maxWorkers=4` to mimic the CI
+  runner: median duration 84.30s → 62.88s, median `environment` time 181.32s → 104.70s.
+- **The first test in a file no longer pays for module loading** (#1314). `await import("…/Foo.vue")`
+  inside an `it` pulls the component's whole module graph through the transform and bills it to that
+  test's `testTimeout`. `GridView.spec.ts`'s first test measured import=2132ms against mount=18ms.
+  Four specs went from 27.5s to about 0.1s combined; `cellChromeColors.spec.ts` alone was 11084ms
+  with a 15s limit, and was the next thing due to turn CI red.
+- **Route specs no longer make socket round-trips** (#1314). `presentPathRoot.spec.ts` tested
+  deterministic middleware through eight unnecessary round-trips, which spin the event loop orders of
+  magnitude more than a plain assertion and made it the first casualty of a busy runner. Thirteen of
+  the fourteen hand-rolled `app.listen(0)` specs moved to an in-process helper.
+- **`probe-transcript.spec.ts` gets a budget matched to what it measures** (#1328). It writes 601
+  files and reads them back — 1200 real disk operations this process does not control — against a
+  15s default. Now an explicit 60s, about six times the worst observed 9.7s, so a genuine hang is
+  still caught. The 601 stays: it is the claim the test makes.
+
+### Docs
+
+- **Which directory to launch a cell in** (workspace vs project), in both languages — a question with
+  the answer scattered across a config table, an environment-variable table and a 2.8.0 release page,
+  and absent from all three places a reader would look (#1309).
+- **The worktree close dialog** now has screenshots and prose in both guides; the creation side was
+  documented and the cleanup side was not (#1322). Capturing it turned up a rule worth keeping:
+  `deviceScaleFactor: 2` bakes xterm's glyphs at double size, so any shot containing a terminal has to
+  be taken at 1.
+- **The hero GIF matches the current 4.1 UI** (#1305), re-shot as a 3x3 grid of live sessions,
+  enlarging one, typing, and returning.
 
 ## mulmoterminal@4.1.1 — 2026-08-02
 
