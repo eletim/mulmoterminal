@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Which forge a remote points at. The distinction this layer exists to make is the one
 // `parseGithubWebUrl` cannot: "a repo we do not support" vs "no remote at all" — both of which the
 // GitHub-shaped answer reports as null (#981).

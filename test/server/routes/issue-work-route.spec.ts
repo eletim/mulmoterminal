@@ -1,3 +1,4 @@
+// @vitest-environment node
 // POST /api/issues/start. The case that matters most is the guard: `dir` arrives from the browser
 // and becomes a spawn's working directory, so it has to be one of the clones the server itself
 // resolved for that repo — not any path a request cares to name.
