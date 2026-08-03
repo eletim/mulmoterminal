@@ -162,6 +162,52 @@ describe("expanding a pane over the terminal", () => {
     expect(w.find('[aria-label="Resize side pane"]').exists()).toBe(true);
   });
 
+  // Off-screen is not out of reach: the parked cell keeps its header buttons and xterm's textarea,
+  // so without `inert` a Shift+Tab out of the pane lands on controls nobody can see.
+  it("takes the parked terminal out of the tab order, and puts it back", async () => {
+    const w = mountGrid();
+    await open(w);
+    expect(w.find(".zoom-main").attributes("inert")).toBeUndefined();
+
+    await clickExpand(w);
+    expect(w.find(".zoom-main").attributes("inert")).toBeDefined();
+
+    await clickExpand(w);
+    expect(w.find(".zoom-main").attributes("inert")).toBeUndefined();
+  });
+
+  // The roster's floor is the PANE's while full and the TERMINAL's while split, so a roster
+  // dragged out while full has taken room the split row needs back. Restoring the remembered
+  // paneWidth unclamped is what squeezes the terminal to nothing.
+  it("re-clamps the split row after the roster moved while it was full", async () => {
+    const widths = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1200);
+    try {
+      const w = mountGrid();
+      await open(w);
+      await clickExpand(w);
+
+      // End = give the roster everything the pane's floor allows.
+      await w.get('[aria-label="Resize the roster"]').trigger("keydown", { key: "End" });
+      await clickExpand(w);
+
+      const roster = Number(
+        w
+          .get('[data-testid="cockpit"]')
+          .attributes("style")
+          ?.match(/flex-basis: (\d+)px/)?.[1],
+      );
+      const paneW = Number(
+        pane(w)
+          .attributes("style")
+          ?.match(/flex: 0 0 (\d+)px/)?.[1],
+      );
+      // Whatever the two took, the terminal keeps its floor (MIN_TERMINAL = 320) out of the stage.
+      expect(1200 - 5 - roster - 6 - paneW).toBeGreaterThanOrEqual(320);
+    } finally {
+      widths.mockRestore();
+    }
+  });
+
   it("closes from its own header, full-width or not", async () => {
     const w = mountGrid();
     await open(w);
@@ -201,6 +247,19 @@ describe("the takeover is not remembered", () => {
 
     await open(w);
     expect(pane(w).props("expanded")).toBe(false);
+  });
+
+  // The other way out: collapsing the zoom hides the row without unmounting the pane, so nothing
+  // in setRightPane runs. Zooming back in — on this cell or another — must still be a split row.
+  it("does not survive collapsing the zoom", async () => {
+    const w = mountGrid();
+    await open(w);
+    await clickExpand(w);
+
+    await w.setProps({ expandedUid: null });
+    await w.setProps({ expandedUid: 2 });
+    expect(pane(w).props("expanded")).toBe(false);
+    expect(w.find(".zoom-row").classes()).not.toContain("pane-full");
   });
 
   it("does not survive a reload", async () => {

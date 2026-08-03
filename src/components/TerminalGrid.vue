@@ -196,6 +196,12 @@ const paneFull = computed(() => paneExpanded.value && (rightPane.value === "canv
 function togglePaneExpanded(): void {
   paneExpanded.value = !paneExpanded.value;
 }
+// Collapsing the zoom is the other way out of the takeover, and it does not go through
+// setRightPane: the pane stays mounted, merely hidden with the row. Without this, zooming back in
+// — on ANY cell — would come up full-width. Reported by CodeRabbit on PR #1333.
+watch(zoomed, (is) => {
+  if (!is) paneExpanded.value = false;
+});
 const paneWidth = ref(Number(stored(PANE_WIDTH_KEY)) || PANE_WIDTH_DEFAULT);
 const zoomRow = ref<HTMLElement | null>(null);
 // A separator is `flex-none` and belongs to NEITHER side, so counting its 5px as usable is how a
@@ -652,6 +658,25 @@ function setRosterWidth(width: number): void {
   if (rightPane.value && !paneFull.value) setPaneWidth(paneWidth.value, available - rosterWidth.value - PANE_CHROME_PX);
 }
 
+// Both floors change under a full-width transition, so both geometries are re-clamped after it.
+// GOING FULL, the roster's floor rises from the terminal's to the pane's (MIN_GUI is the larger),
+// so a roster already at its old maximum would leave the pane under its minimum. COMING BACK, a
+// roster widened while the pane was full has taken room the split row needs, and the paneWidth
+// waiting to be restored was clamped against the row as it was BEFORE that — restoring it
+// unclamped is what squeezes the terminal to nothing. Reported by Codex on PR #1333.
+//
+// The pane is re-clamped only on the way back: while it is full its remembered split width is not
+// in play, and clamping it against a row it does not currently share would shrink it for nothing.
+watch(paneFull, async (full) => {
+  await nextTick();
+  // In list mode setRosterWidth re-clamps the pane itself, from the width it COMPUTES for the row
+  // rather than one measured off a row the browser may not have laid out yet — the same reason
+  // setPaneWidth takes an `available` parameter at all. Strip mode has no roster, so there the
+  // pane is re-clamped directly.
+  if (props.listMode) setRosterWidth(rosterWidth.value);
+  else if (!full) setPaneWidth(paneWidth.value);
+});
+
 function setStripHeight(height: number): void {
   const available = stageHeight();
   stageHeightNow.value = available;
@@ -901,7 +926,14 @@ watch(
          in strip mode (terminal / filmstrip), so only nesting puts the pane beside the terminal
          in both. Hidden outright when nothing is zoomed, like .zoom-main itself. -->
     <div ref="zoomRow" :class="[zoomed ? 'zoom-row flex min-h-0 min-w-0 flex-auto' : 'hidden', paneFull ? 'pane-full' : '']">
-      <div ref="zoomMain" class="zoom-main" />
+      <!-- Off-screen but still MOUNTED is what keeps xterm measurable (#1125) — and a terminal has
+           plenty to focus: its header buttons and xterm's own textarea. Without `inert`, Shift+Tab
+           from the pane's first control walks into controls nobody can see. Reported by Codex on
+           PR #1333. `inert` takes the subtree out of the tab order and off the accessibility tree
+           without touching layout, which is exactly the half we need to keep. -->
+      <!-- `|| undefined` rather than the boolean: `inert` is Booleanish to Vue, so `false` reaches
+           the DOM as inert="false" — which is an inert element. -->
+      <div ref="zoomMain" class="zoom-main" :inert="paneFull || undefined" />
       <template v-if="rightPane">
         <div
           v-if="!paneFull"
