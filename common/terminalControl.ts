@@ -62,18 +62,32 @@ export function isTerminalControlError(value: unknown): value is TerminalControl
 export function isTerminalControlState(value: unknown): value is TerminalControlState {
   if (!isRecord(value)) return false;
   const { revision, serverTime, owner, isOwner } = value;
-  return isFiniteNumber(revision) && isFiniteNumber(serverTime) && isTerminalControlOwnerView(owner) && typeof isOwner === "boolean";
+  return isNonNegativeInteger(revision) && isFiniteNumber(serverTime) && isTerminalControlOwnerView(owner) && typeof isOwner === "boolean";
 }
 
 function isTerminalControlOwnerView(value: unknown): value is TerminalControlOwnerView | null {
   if (value === null) return true;
   if (!isRecord(value)) return false;
   const { label, connected, leaseExpiresAt } = value;
-  return typeof label === "string" && typeof connected === "boolean" && (leaseExpiresAt === null || isFiniteNumber(leaseExpiresAt));
+  return isValidOwnerLabel(label) && isValidOwnerLease(connected, leaseExpiresAt);
 }
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && typeof value === "number" && value >= 0;
+}
+
+function isValidOwnerLease(connected: unknown, leaseExpiresAt: unknown): boolean {
+  if (connected === true) return leaseExpiresAt === null;
+  if (connected === false) return isFiniteNumber(leaseExpiresAt);
+  return false;
+}
+
+function isValidOwnerLabel(value: unknown): value is string {
+  return typeof value === "string" && normalizeTerminalControlLabel(value) === value;
 }
 
 function isControlChar(value: string): boolean {

@@ -53,4 +53,31 @@ describe("terminal control protocol", () => {
     );
     expect(isTerminalControlState({ revision: 1, serverTime: 2, owner: null, isOwner: "no" })).toBe(false);
   });
+
+  it("rejects negative revisions", () => {
+    expect(isTerminalControlState({ revision: -1, serverTime: 2, owner: null, isOwner: false })).toBe(false);
+  });
+
+  it("rejects fractional revisions", () => {
+    expect(isTerminalControlState({ revision: 1.5, serverTime: 2, owner: null, isOwner: false })).toBe(false);
+  });
+
+  it("rejects owner lease contradictions", () => {
+    expect(isTerminalControlState({ revision: 1, serverTime: 2, owner: { label: "Laptop", connected: true, leaseExpiresAt: 3 }, isOwner: false })).toBe(false);
+    expect(isTerminalControlState({ revision: 1, serverTime: 2, owner: { label: "Laptop", connected: false, leaseExpiresAt: null }, isOwner: false })).toBe(
+      false,
+    );
+  });
+
+  it("accepts a connected owner state", () => {
+    expect(isTerminalControlState({ revision: 1, serverTime: 2, owner: { label: "Laptop", connected: true, leaseExpiresAt: null }, isOwner: false })).toBe(
+      true,
+    );
+  });
+
+  it("accepts a reserved owner state", () => {
+    expect(isTerminalControlState({ revision: 1, serverTime: 2, owner: { label: "Laptop", connected: false, leaseExpiresAt: 12_000 }, isOwner: false })).toBe(
+      true,
+    );
+  });
 });
