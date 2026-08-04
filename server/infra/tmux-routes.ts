@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { TERMINAL_CONTROL_INSTANCE_HEADER, isTerminalControlUuid } from "../../common/terminalControl.js";
 import { requestOriginAllowed } from "../routes/same-origin-guard.js";
 
 // Deps injected from index.ts so the origin guard, session-id validation, and the
@@ -9,8 +10,11 @@ export interface TmuxRouteDeps {
   isValidSessionId: (id: string) => boolean;
   // Reap a live session (kills its pty + tmux + cleanup); a no-op without a live entry.
   reapSession: (id: string) => void;
+  hasLiveSession: (id: string) => boolean;
+  closeOrphanSession: (id: string) => void;
   hasTmux: (id: string) => boolean;
   killTmux: (id: string) => void;
+  isOwnerInstance: (instanceId: string) => boolean;
   listTmuxIds: () => string[];
   // Clients attached to a tmux session, or null when tmux can't say. Each mulmoterminal
   // holds ONE client per session it is live on; the cleanup only reaches ids this process
@@ -37,10 +41,14 @@ export function mountTmuxRoutes(app: Express, deps: TmuxRouteDeps): void {
   // orphaned by a prior server restart (reap alone is a no-op without a live entry).
   app.post("/api/session/:id/terminate", (req, res) => {
     if (!requestOriginAllowed(req, deps.isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const instanceId = req.header(TERMINAL_CONTROL_INSTANCE_HEADER);
+    if (!isTerminalControlUuid(instanceId) || !deps.isOwnerInstance(instanceId)) return res.status(403).json({ error: "terminal control required" });
     const id = req.params.id;
     if (!deps.isValidSessionId(id)) return res.status(400).json({ error: "invalid session id" });
+    const hadLiveSession = deps.hasLiveSession(id);
     deps.reapSession(id); // live entry → kills pty + tmux + cleanup
     if (deps.hasTmux(id)) deps.killTmux(id); // orphan (e.g. post-restart) → kill directly
+    if (!hadLiveSession) deps.closeOrphanSession(id); // tmux-only / already-detached bookkeeping + closed event
     return res.json({ ok: true });
   });
 

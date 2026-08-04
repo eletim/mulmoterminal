@@ -136,7 +136,7 @@ function showPrs(): void {
 </script>
 
 <template>
-  <header class="flex h-10 flex-none items-center gap-2 overflow-hidden border-b border-border bg-panel px-2 sm:gap-4 sm:px-4">
+  <header class="flex h-10 flex-none items-center gap-2 border-b border-border bg-panel px-2 sm:gap-4 sm:px-4">
     <span class="hidden flex-none font-sans text-[14px] font-semibold tracking-[0.02em] text-fg min-[360px]:inline">MulmoTerminal</span>
     <nav class="flex min-w-0 flex-1 items-center gap-[3px] overflow-x-auto" aria-label="Views">
       <!-- Both views: the pair that switches between them. Fenced off with a rule because it is

@@ -29,8 +29,21 @@ vi.mock("../../../src/components/FilesPane.vue", () => ({
 vi.mock("../../../src/components/TerminalCell.vue", () => ({
   default: {
     name: "TerminalCell",
-    props: ["expanded", "initialSessionId", "initialCwd", "defaultCwd", "presets", "home", "openSessionIds", "cancellable", "reorderable"],
-    emits: ["toggle-expand", "toggle-files", "session", "cwd", "run", "close", "move", "status"],
+    props: [
+      "expanded",
+      "initialSessionId",
+      "initialCwd",
+      "defaultCwd",
+      "presets",
+      "home",
+      "openSessionIds",
+      "cancellable",
+      "reorderable",
+      "sharedSession",
+      "sharedDeleting",
+      "sharedDeleteError",
+    ],
+    emits: ["toggle-expand", "toggle-files", "session", "cwd", "run", "close", "move", "status", "hide-shared", "delete-shared"],
     template: '<div class="stub-cell" />',
   },
 }));
@@ -45,8 +58,8 @@ vi.mock("../../../src/components/CommandCell.vue", () => ({
 vi.mock("../../../src/components/LauncherCell.vue", () => ({
   default: {
     name: "LauncherCell",
-    props: ["uid", "expanded", "launcher", "session", "cwd", "home", "reorderable"],
-    emits: ["toggle-expand", "close", "move", "status", "session"],
+    props: ["uid", "expanded", "launcher", "session", "cwd", "home", "reorderable", "sharedSession", "sharedDeleting", "sharedDeleteError"],
+    emits: ["toggle-expand", "close", "move", "status", "session", "hide-shared", "delete-shared"],
     template: '<div class="stub-launcher-cell" />',
   },
 }));
@@ -155,6 +168,49 @@ describe("TerminalGrid (page renderer)", () => {
     expect(w.findAllComponents({ name: "LauncherCell" })).toHaveLength(0);
     expect(w.findAll("[data-testid='terminal-snapshot-cell']")).toHaveLength(2);
     expect(w.text()).toContain("hello");
+  });
+
+  it("marks only roster-backed owner cells as shared and forwards shared actions by session id", () => {
+    const sharedSessions = new Map([[ID, summary()]]);
+    const deletingSharedSessions = new Set([ID]);
+    const sharedDeleteErrors = new Map([[ID, "no control"]]);
+    const w = mount(TerminalGrid, {
+      props: {
+        cells: [
+          cell(1, ID, "/work"),
+          { ...cell(2, ID, "/work"), launcher: { shell: true, label: "shell" } },
+          cell(3, "99999999-9999-9999-9999-999999999999", "/work"),
+          cmdCell(4, { source: "script", index: 0, label: "test", cwd: "/work" }),
+        ],
+        expandedUid: null,
+        listRows: [],
+        cancelUid: null,
+        defaultCwd: "/work",
+        presets: [],
+        launchers: [],
+        home: "/work",
+        openSessionIds: [],
+        openCwds: [],
+        reorderable: false,
+        listMode: true,
+        sharedSessions,
+        deletingSharedSessions,
+        sharedDeleteErrors,
+      },
+    });
+
+    const terminals = w.findAllComponents({ name: "TerminalCell" });
+    const launcher = w.findComponent({ name: "LauncherCell" });
+    expect(terminals[0].props("sharedSession")).toBe(true);
+    expect(terminals[0].props("sharedDeleting")).toBe(true);
+    expect(terminals[0].props("sharedDeleteError")).toBe("no control");
+    expect(launcher.props("sharedSession")).toBe(true);
+    expect(terminals[1].props("sharedSession")).toBe(false);
+
+    terminals[0].vm.$emit("hide-shared");
+    launcher.vm.$emit("delete-shared");
+    expect(w.emitted("hide-shared")?.[0]).toEqual([ID]);
+    expect(w.emitted("delete-shared")?.[0]).toEqual([ID]);
   });
 
   it("passes session / cwd / expanded through to the cells", () => {

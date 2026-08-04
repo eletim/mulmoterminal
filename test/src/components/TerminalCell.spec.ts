@@ -3,6 +3,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
 import { TOOL_GROUPS } from "../../../common/toolGroups";
+import { TERMINAL_CONTROL_INSTANCE_HEADER } from "../../../common/terminalControl";
 
 // Capture the "sessions" pub/sub callback and the reconnect handler so tests can push
 // activity and simulate a dropped-then-restored socket directly.
@@ -39,6 +40,11 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
       },
     },
   },
+}));
+vi.mock("../../../src/composables/useTerminalControl", () => ({
+  useTerminalControl: () => ({
+    instanceId: "123e4567-e89b-42d3-a456-426614174001",
+  }),
 }));
 
 const promptText = (w: ReturnType<typeof mount>) => w.find('[data-testid="cell-prompt"]').text();
@@ -115,6 +121,19 @@ describe("TerminalCell", () => {
     const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/ss/my-project" });
     await flushPromises();
     expect(w.find(".cell-dir").text()).toBe("~/ss/my-project");
+  });
+
+  it("shows shared Hide/Delete actions instead of the close button for shared sessions", async () => {
+    const w = mountCell("11111111-1111-1111-1111-111111111111", { initialCwd: "/home/me/ss/my-project" });
+    await w.setProps({ sharedSession: true });
+    await flushPromises();
+
+    expect(w.find('[aria-label="Close terminal"]').exists()).toBe(false);
+    await w.get('[aria-label="Shared terminal actions"]').trigger("click");
+    expect(w.text()).toContain("Hide on this device");
+    expect(w.text()).toContain("Delete session...");
+    await w.get("button[role='menuitem']").trigger("click");
+    expect(w.emitted("hide-shared")).toHaveLength(1);
   });
 
   it("clicking the header dir asks the server to open that folder", async () => {
@@ -1516,6 +1535,10 @@ describe("TerminalCell", () => {
     await nextTick();
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true); // torn down to the launcher
+    const terminate = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([url, init]) => String(url).includes("/api/session/") && (init as RequestInit | undefined)?.method === "POST",
+    )?.[1] as RequestInit | undefined;
+    expect(terminate?.headers).toMatchObject({ [TERMINAL_CONTROL_INSTANCE_HEADER]: "123e4567-e89b-42d3-a456-426614174001" });
   });
 
   it("Keep worktree tears the cell down WITHOUT removing the room", async () => {

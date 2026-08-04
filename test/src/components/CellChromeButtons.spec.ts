@@ -42,6 +42,12 @@ describe("CellChromeButtons", () => {
     expect(w.emitted("toggle-expand")).toHaveLength(1);
     expect(w.emitted("close")).toHaveLength(1);
   });
+
+  it("can suppress the close button when a shared-session menu owns deletion", () => {
+    const w = mount(CellChromeButtons, { props: { expanded: false, showClose: false } });
+    expect(w.find('[aria-label="Expand terminal"]').exists()).toBe(true);
+    expect(w.find('[aria-label="Close terminal"]').exists()).toBe(false);
+  });
 });
 
 // The file pane splits the ENLARGED cell's room, so its toggle only exists there — a tiled

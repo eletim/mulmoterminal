@@ -125,7 +125,7 @@ import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
-import { createTerminalControlServer } from "./control/terminal-control-server.js";
+import { createTerminalControlServer, type TerminalControlServer } from "./control/terminal-control-server.js";
 
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -282,7 +282,7 @@ const lifecycle = createSessionLifecycle({
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
 });
-const { cancelReap, reap, armReapForDetached, publishActivity, setWorking, setWaiting } = lifecycle;
+const { cancelReap, reap, closeOrphanSession, armReapForDetached, publishActivity, setWorking, setWaiting } = lifecycle;
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
@@ -456,6 +456,7 @@ refreshCodexRateLimits();
 
 const app = express();
 hideErrorStacks(app);
+let terminalControl: TerminalControlServer | null = null;
 // Generous body limit: PostToolUse hook payloads carry the tool's full output
 // (a big Read/Bash result can blow past Express's 100kb default, which would 413
 // the hook and leave its tool-call entry stuck on "running").
@@ -487,17 +488,19 @@ mountAppRoutes(app, {
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
   maybeGenerateTitle,
   reap,
+  closeOrphanSession,
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
   agentOfSession: (id: string) => agentOfSession(id),
   setWorking,
   setWaiting,
   publishActivity,
+  isOwnerInstance: (instanceId: string) => terminalControl?.isOwnerInstance(instanceId) === true,
 });
 
 const server = http.createServer(app);
 pubsub = createPubSub(server, isAllowedOrigin);
-createTerminalControlServer(server, { isAllowedOrigin });
+terminalControl = createTerminalControlServer(server, { isAllowedOrigin });
 
 // Wire the shared file-change publisher (markdown + html live-refresh) against
 // pubsub + the workspace. Must run before any write route fires (publishFileChange

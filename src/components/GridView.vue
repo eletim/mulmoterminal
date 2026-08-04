@@ -72,6 +72,7 @@ import { useTerminalSnapshots } from "../composables/useTerminalSnapshots";
 import type { LaunchAgent } from "../../common/launchAgent";
 import type { LaunchPick } from "./launchers";
 import { isRecord } from "../../common/isRecord";
+import { TERMINAL_CONTROL_INSTANCE_HEADER } from "../../common/terminalControl";
 
 // The multi-terminal grid view, shown at /terminals. Leaving the grid is just a
 // route push from the shared toolbar (Chat / Collections / a favorite), so there's
@@ -211,7 +212,7 @@ const baseDisplayCells = computed(() => (zoomedUid(state.value) !== null ? order
 const displayCells = computed(() =>
   viewerMode.value
     ? baseDisplayCells.value.filter((cell) => cell.session !== null && sharedSessions.sessions.has(cell.session) && !hiddenSharedIds.value.has(cell.session))
-    : baseDisplayCells.value,
+    : baseDisplayCells.value.filter((cell) => cell.session === null || !hiddenSharedIds.value.has(cell.session)),
 );
 const expandedUid = computed(() => zoomedUid(state.value));
 const unadoptedSharedSessionCount = computed(() => {
@@ -228,14 +229,44 @@ const restoreHiddenShared = (): void => {
   saveHiddenSharedIds();
   if (sharedRosterLoaded.value) adoptShared();
 };
-const hideSharedSession = (uid: number, sessionId: string): void => {
+const hideSharedSession = (sessionId: string): void => {
   hiddenSharedIds.value = new Set([...hiddenSharedIds.value, sessionId]);
   saveHiddenSharedIds();
-  state.value = closeCell(
-    state.value,
-    uid,
-    displayCells.value.map((cell) => cell.uid),
+};
+const deletingSharedIds = reactive(new Set<string>());
+const sharedDeleteErrors = reactive(new Map<string, string>());
+const removeSharedSessionCells = (sessionId: string): void => {
+  const order = displayCells.value.map((cell) => cell.uid);
+  let next = state.value;
+  for (const cell of state.value.cells.filter((row) => row.session === sessionId)) next = closeCell(next, cell.uid, order);
+  state.value = next;
+};
+const deleteSharedSession = async (sessionId: string): Promise<void> => {
+  if (deletingSharedIds.has(sessionId)) return;
+  const ok = window.confirm(
+    "Delete this terminal session?\n\nThis will stop the running process and remove it from all devices.\nThe conversation transcript is not deleted.",
   );
+  if (!ok) return;
+  deletingSharedIds.add(sessionId);
+  sharedDeleteErrors.delete(sessionId);
+  try {
+    const res = await fetch(`/api/session/${encodeURIComponent(sessionId)}/terminate`, {
+      method: "POST",
+      headers: { [TERMINAL_CONTROL_INSTANCE_HEADER]: control.instanceId },
+    });
+    if (!res.ok) {
+      sharedDeleteErrors.set(sessionId, res.status === 403 ? "Terminal control is required to delete this session." : `Delete failed (HTTP ${res.status}).`);
+      return;
+    }
+    hiddenSharedIds.value = new Set([...hiddenSharedIds.value].filter((id) => id !== sessionId));
+    saveHiddenSharedIds();
+    removeSharedSessionCells(sessionId);
+    sharedSessions.requestRefresh();
+  } catch {
+    sharedDeleteErrors.set(sessionId, "Couldn't reach the server to delete this session.");
+  } finally {
+    deletingSharedIds.delete(sessionId);
+  }
 };
 const visibleSnapshotSessionIds = computed(() => {
   if (!viewerMode.value) return [];
@@ -848,6 +879,8 @@ onBeforeUnmount(detachSpawnedChat);
       :viewer-mode="viewerMode"
       :shared-sessions="sharedSessions.sessions"
       :snapshots="terminalSnapshots.snapshots"
+      :deleting-shared-sessions="deletingSharedIds"
+      :shared-delete-errors="sharedDeleteErrors"
       @session="onSession"
       @agent="onAgent"
       @park="onPark"
@@ -862,7 +895,9 @@ onBeforeUnmount(detachSpawnedChat);
       @launch="onLaunch"
       @move="onMove"
       @status="onStatus"
-      @hide-snapshot="hideSharedSession"
+      @hide-snapshot="(_uid, sessionId) => hideSharedSession(sessionId)"
+      @hide-shared="hideSharedSession"
+      @delete-shared="deleteSharedSession"
     />
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
       <GuideLinks />

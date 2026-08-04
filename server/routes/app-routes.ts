@@ -95,6 +95,8 @@ export interface AppRouteDeps extends SessionActivityDeps {
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
   reap: (id: string) => void;
+  closeOrphanSession: (id: string) => void;
+  isOwnerInstance: (instanceId: string) => boolean;
   registerBackgroundSession: (id: string) => void;
 }
 
@@ -375,8 +377,11 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
     reapSession: deps.reap,
+    hasLiveSession: (id) => ptys.has(id),
+    closeOrphanSession: deps.closeOrphanSession,
     hasTmux: tmuxHasSession,
     killTmux: tmuxKillSession,
+    isOwnerInstance: deps.isOwnerInstance,
     listTmuxIds: tmuxListSessionIds,
     attachedClientCount: tmuxAttachedClientCount,
     resumablePredicate: resumableSessionPredicate,

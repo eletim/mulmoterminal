@@ -104,6 +104,18 @@ describe("AppToolbar per-view buttons", () => {
     expect(wrapper.get("[data-testid='terminal-control']").classes()).not.toContain("hidden");
   });
 
+  it("does not vertically clip toolbar popovers while keeping horizontal scrollers", async () => {
+    const wrapper = await mountAt("/terminals");
+    const header = wrapper.get("header");
+    const nav = wrapper.get("nav[aria-label='Views']");
+    const secondary = wrapper.get('[data-testid="toolbar-secondary-actions"]');
+
+    expect(header.classes()).not.toContain("overflow-hidden");
+    expect(nav.classes()).toContain("overflow-x-auto");
+    expect(secondary.classes()).toContain("overflow-x-auto");
+    expect(wrapper.findAll("[data-testid='terminal-control']")).toHaveLength(1);
+  });
+
   it("keeps the remaining actions reachable in a scrollable group", async () => {
     const wrapper = await mountAt("/terminals");
     const secondary = wrapper.get('[data-testid="toolbar-secondary-actions"]');

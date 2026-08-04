@@ -139,6 +139,19 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
+  forgetClosedBookkeeping(deps, id);
+  try {
+    entry.term.kill();
+  } catch {
+    // already gone
+  }
+  // Killing the pty only DETACHES a tmux client — end the tmux session too so an
+  // explicit close / idle reap actually stops the program (no orphan within a live
+  // server). A server crash never runs this, so sessions survive that (the point).
+  if (entry.tmux) tmuxKillSession(id);
+}
+
+function forgetClosedBookkeeping(deps: SessionLifecycleDeps, id: string) {
   // An unpersisted new session vanishes with its pty; a persisted one stays
   // visible via its on-disk record.
   knownSessions.delete(id);
@@ -159,15 +172,6 @@ function reap(deps: SessionLifecycleDeps, id: string) {
     activity.delete(id);
     hiddenSessions.delete(id); // the hidden flag rides with the record — see shouldForgetActivity
   }
-  try {
-    entry.term.kill();
-  } catch {
-    // already gone
-  }
-  // Killing the pty only DETACHES a tmux client — end the tmux session too so an
-  // explicit close / idle reap actually stops the program (no orphan within a live
-  // server). A server crash never runs this, so sessions survive that (the point).
-  if (entry.tmux) tmuxKillSession(id);
   // A provider session's settings file holds its token — drop it with the session (#579).
   cleanupSessionSettings(id);
   // Files dropped into this session were copied to tmp for it alone; nothing else refers to them.
@@ -186,6 +190,11 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   // field. Publishing a second "worker-failed" message instead let the generic teardown
   // notification race ahead of the specific one, and beeped twice for one event (Codex, #1188).
   deps.publish(SESSIONS_CHANNEL, { id, working: false, event: "closed", failed: isFailedWorker(id) });
+}
+
+function closeOrphanSession(deps: SessionLifecycleDeps, id: string) {
+  cancelReap(id);
+  forgetClosedBookkeeping(deps, id);
 }
 
 // Publish a session's current activity (working + waiting) to subscribers.
@@ -227,6 +236,7 @@ export function createSessionLifecycle(deps: SessionLifecycleDeps) {
     scheduleReap: (id: string, delayMs?: number) => scheduleReap(deps, id, delayMs),
     armReapForDetached: (id: string) => armReapForDetached(deps, id),
     reap: (id: string) => reap(deps, id),
+    closeOrphanSession: (id: string) => closeOrphanSession(deps, id),
     publishActivity: (id: string) => publishActivity(deps, id),
     setWorking: (id: string, working: boolean, event?: string) => setFlag(deps, id, "working", working, event),
     setWaiting: (id: string, waiting: boolean, event?: string) => setFlag(deps, id, "waiting", waiting, event),

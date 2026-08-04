@@ -28,6 +28,7 @@ import TimelineOverlay from "./TimelineOverlay.vue";
 import CopyCodeBlock from "./CopyCodeBlock.vue";
 import CockpitHeader from "./CockpitHeader.vue";
 import CellChromeButtons from "./CellChromeButtons.vue";
+import SharedTerminalActions from "./SharedTerminalActions.vue";
 import { isCellSunk, SUNK_CELL, SUNK_DOT_STATUS } from "./cellParked";
 import { cellChromeBinding } from "./cellChromeBinding";
 import type { CwdPreset } from "./presets";
@@ -46,11 +47,14 @@ import { worktreeFailureMessage } from "./cellChromeRules";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
+import { useTerminalControl } from "../composables/useTerminalControl";
+import { TERMINAL_CONTROL_INSTANCE_HEADER } from "../../common/terminalControl";
 
 // How long a handoff failure stays on the cell before it clears itself.
 const ASK_MSG_MS = 4000;
 
 const termRef = useTemplateRef<InstanceType<typeof TerminalView>>("termRef");
+const terminalControl = useTerminalControl();
 
 // Clicking the header background zooms this cell (mirrors clicking the terminal body) —
 // in the tiled grid and as a filmstrip thumbnail alike. Only the already-expanded cell
@@ -89,6 +93,9 @@ const props = defineProps<
     reorderable?: boolean;
     // Set aside by the user (#992): sunk out of the way, still connected, still holding history.
     parked?: boolean;
+    sharedSession?: boolean;
+    sharedDeleting?: boolean;
+    sharedDeleteError?: string | null | undefined;
   }
 >();
 const emit = defineEmits<
@@ -105,6 +112,7 @@ const emit = defineEmits<
     (e: "agent", value: TerminalAgent): void;
     // Set this cell aside, or bring it back. The grid owns the flag; this only asks.
     (e: "park", value: boolean): void;
+    (e: "hide-shared" | "delete-shared"): void;
   }
 >();
 
@@ -589,7 +597,11 @@ function teardown() {
   termRef.value?.terminate();
   // Reap on the server over HTTP too — the WS `terminate` only reaches the server while
   // the socket is open, so a disconnected cell's close button would otherwise leave its tmux alive.
-  if (id) fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }).catch(() => {});
+  if (id)
+    fetch(`/api/session/${encodeURIComponent(id)}/terminate`, {
+      method: "POST",
+      headers: { [TERMINAL_CONTROL_INSTANCE_HEADER]: terminalControl.instanceId },
+    }).catch(() => {});
   launched.value = false;
   recordNextCwd = false; // drop any pending fresh-launch record from a torn-down session
   sessionId.value = null;
@@ -973,7 +985,15 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           @click="onHeaderClick"
         >
           <span class="cell-actions" :class="CELL_ACTIONS">
-            <CellChromeButtons v-bind="chromeProps" :parked="parked" v-on="chromeEvents" @toggle-park="togglePark" />
+            <SharedTerminalActions
+              v-if="sharedSession"
+              can-delete
+              :deleting="sharedDeleting"
+              :delete-error="sharedDeleteError"
+              @hide="emit('hide-shared')"
+              @delete="emit('delete-shared')"
+            />
+            <CellChromeButtons v-bind="chromeProps" :parked="parked" :show-close="!sharedSession" v-on="chromeEvents" @toggle-park="togglePark" />
           </span>
         </CockpitHeader>
         <!-- Row 1 — INFO only (normal grid / expanded): dir + git + model/token + what it's doing.
@@ -1112,7 +1132,15 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
              track, so they're always pinned top-right. `.stop` so they don't trigger the
              header's click-to-zoom. -->
           <span class="cell-actions" :class="CELL_ACTIONS">
-            <CellChromeButtons v-bind="chromeProps" :parked="parked" v-on="chromeEvents" @toggle-park="togglePark" />
+            <SharedTerminalActions
+              v-if="sharedSession"
+              can-delete
+              :deleting="sharedDeleting"
+              :delete-error="sharedDeleteError"
+              @hide="emit('hide-shared')"
+              @delete="emit('delete-shared')"
+            />
+            <CellChromeButtons v-bind="chromeProps" :parked="parked" :show-close="!sharedSession" v-on="chromeEvents" @toggle-park="togglePark" />
           </span>
         </div>
         <TimelineOverlay :session-id="sessionId" :cwd="cwd" :open="timelineOpen" @close="timelineOpen = false" />

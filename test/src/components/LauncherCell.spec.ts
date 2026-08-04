@@ -43,6 +43,20 @@ describe("LauncherCell header zoom", () => {
     expect(w.emitted("close")).toHaveLength(1);
   });
 
+  it("shows shared Hide/Delete actions instead of close for a shared launcher session", async () => {
+    const w = mountCell({ session: "11111111-1111-1111-1111-111111111111", sharedSession: true });
+
+    expect(w.find('[aria-label="Close terminal"]').exists()).toBe(false);
+    await w.get('[aria-label="Shared terminal actions"]').trigger("click");
+    expect(w.text()).toContain("Hide on this device");
+    expect(w.text()).toContain("Delete session...");
+    await w.findAll("button[role='menuitem']")[0].trigger("click");
+    expect(w.emitted("hide-shared")).toHaveLength(1);
+    await w.get('[aria-label="Shared terminal actions"]').trigger("click");
+    await w.findAll("button[role='menuitem']")[1].trigger("click");
+    expect(w.emitted("delete-shared")).toHaveLength(1);
+  });
+
   it("zooms on a header-background click in the normal grid (mirrors clicking the body)", async () => {
     const w = mountCell(); // expanded: false, zoomed: undefined → tiled grid
     expect(w.find(".cell-header").classes()).toContain("is-zoomable");

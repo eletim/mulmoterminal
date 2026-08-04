@@ -33,6 +33,7 @@ import {
   CELL_HEADER_ZOOMABLE,
   CELL_INNER,
 } from "./cellChromeClasses";
+import SharedTerminalActions from "./SharedTerminalActions.vue";
 
 // CellChromeSource rather than GridCellProps: those props are OPTIONAL upstream, so under
 // exactOptionalPropertyTypes they read as `T | undefined` and cannot be handed to a `?: T` prop.
@@ -53,11 +54,14 @@ const props = defineProps<
     // names the thing being moved rather than saying "cell" twice.
     moveNoun: string;
     reorderable?: boolean;
+    sharedSession?: boolean;
+    sharedDeleting?: boolean;
+    sharedDeleteError?: string | null | undefined;
   }
 >();
 
 const emit = defineEmits<{
-  (e: "toggle-expand" | "close" | "toggle-files" | "toggle-canvas" | "toggle-tools"): void;
+  (e: "toggle-expand" | "close" | "toggle-files" | "toggle-canvas" | "toggle-tools" | "hide-shared" | "delete-shared"): void;
   (e: "move", dir: -1 | 1): void;
 }>();
 
@@ -115,7 +119,15 @@ function onHeaderClick(event: MouseEvent) {
           <!-- Whatever this particular cell can do, between the reorder buttons and the chrome
                ones — which is where both callers already had theirs. -->
           <slot name="actions" />
-          <CellChromeButtons v-bind="chromeProps" v-on="chromeEvents" />
+          <SharedTerminalActions
+            v-if="sharedSession"
+            can-delete
+            :deleting="sharedDeleting"
+            :delete-error="sharedDeleteError"
+            @hide="emit('hide-shared')"
+            @delete="emit('delete-shared')"
+          />
+          <CellChromeButtons v-bind="chromeProps" :show-close="!sharedSession" v-on="chromeEvents" />
         </span>
       </div>
       <slot />

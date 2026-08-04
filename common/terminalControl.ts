@@ -8,6 +8,7 @@ export const TERMINAL_CONTROL_ACQUIRE_EVENT = "control:acquire";
 export const TERMINAL_CONTROL_RELEASE_EVENT = "control:release";
 export const TERMINAL_CONTROL_STATE_EVENT = "control:state";
 export const TERMINAL_CONTROL_ERROR_EVENT = "control:error";
+export const TERMINAL_CONTROL_INSTANCE_HEADER = "X-MulmoTerminal-Control-Instance";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

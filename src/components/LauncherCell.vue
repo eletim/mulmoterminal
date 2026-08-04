@@ -23,12 +23,16 @@ const props = defineProps<
     cwd: string | null;
     // Manual sort mode: show move buttons to swap this cell with its neighbour.
     reorderable?: boolean;
+    sharedSession?: boolean;
+    sharedDeleting?: boolean;
+    sharedDeleteError?: string | null | undefined;
   }
 >();
 const emit = defineEmits<
   GridCellEmits & {
     // The server-assigned session id, so the parent persists it for reconnect.
     (e: "session", id: string): void;
+    (e: "hide-shared" | "delete-shared"): void;
   }
 >();
 
@@ -69,7 +73,12 @@ function relaunch() {
     :label="launcher.label"
     move-noun="launcher"
     :reorderable="reorderable"
+    :shared-session="sharedSession"
+    :shared-deleting="sharedDeleting"
+    :shared-delete-error="sharedDeleteError"
     v-on="shellEvents"
+    @hide-shared="emit('hide-shared')"
+    @delete-shared="emit('delete-shared')"
   >
     <template #actions>
       <button v-if="finished" class="cell-btn" :class="CELL_BTN" title="Relaunch" aria-label="Relaunch" @click="relaunch">

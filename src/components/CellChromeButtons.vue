@@ -12,22 +12,26 @@
 import { computed } from "vue";
 import { CELL_BTN, CELL_BTN_ACTIVE, CELL_BTN_DISABLEABLE, CELL_CLOSE_BTN } from "./cellChromeClasses";
 
-const props = defineProps<{
-  expanded: boolean;
-  filesOpen?: boolean;
-  // Which side pane this cell is showing, so each button can read as pressed. The three share
-  // one slot beside the enlarged terminal, so at most one is ever pressed.
-  rightPane?: "files" | "canvas" | "tools" | null | undefined;
-  // Whether this cell's session actually has the drawing tools — i.e. whether its directory has
-  // the `render` MCP group registered with Claude Code. False disables the button rather than
-  // removing it: the pane would open empty, and that is worth SAYING rather than hiding.
-  canvasAvailable?: boolean;
-  // Whether this cell is set aside (#992). Present ONLY on a cell that can be parked — a session
-  // terminal. Left undefined, the button is not rendered at all, which is how the command and
-  // launcher cells opt out without declaring anything: an ephemeral run and an empty launch slot
-  // have nothing to come back to.
-  parked?: boolean | undefined;
-}>();
+const props = withDefaults(
+  defineProps<{
+    expanded: boolean;
+    filesOpen?: boolean;
+    // Which side pane this cell is showing, so each button can read as pressed. The three share
+    // one slot beside the enlarged terminal, so at most one is ever pressed.
+    rightPane?: "files" | "canvas" | "tools" | null | undefined;
+    // Whether this cell's session actually has the drawing tools — i.e. whether its directory has
+    // the `render` MCP group registered with Claude Code. False disables the button rather than
+    // removing it: the pane would open empty, and that is worth SAYING rather than hiding.
+    canvasAvailable?: boolean;
+    // Whether this cell is set aside (#992). Present ONLY on a cell that can be parked — a session
+    // terminal. Left undefined, the button is not rendered at all, which is how the command and
+    // launcher cells opt out without declaring anything: an ephemeral run and an empty launch slot
+    // have nothing to come back to.
+    parked?: boolean | undefined;
+    showClose?: boolean;
+  }>(),
+  { parked: undefined, rightPane: undefined, showClose: true },
+);
 const emit = defineEmits<{ (e: "toggle-expand" | "close" | "toggle-files" | "toggle-canvas" | "toggle-tools" | "toggle-park"): void }>();
 
 // The unavailable case names the fix, not just the state: the registration is per directory and
@@ -118,7 +122,7 @@ const parkTitle = computed(() => (props.parked ? "Wake this terminal" : "Set asi
   >
     <span class="material-symbols-outlined" aria-hidden="true">bedtime</span>
   </button>
-  <button class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click="emit('close')">
+  <button v-if="showClose" class="cell-btn cell-close" :class="CELL_CLOSE_BTN" title="Close terminal" aria-label="Close terminal" @click="emit('close')">
     <span class="material-symbols-outlined" aria-hidden="true">close</span>
   </button>
 </template>

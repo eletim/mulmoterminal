@@ -40,6 +40,8 @@ describe("useTerminalSnapshots", () => {
     );
     await flush();
     expect(fetcher).not.toHaveBeenCalled();
+    expect(wrapper.vm.pollMs).toBe(1500);
+    expect(wrapper.vm.maxConcurrent).toBe(3);
 
     viewer.value = true;
     await flush();
@@ -58,6 +60,33 @@ describe("useTerminalSnapshots", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
 
     wrapper.unmount();
+  });
+
+  it("uses the default fetch without losing Window as the receiver", async () => {
+    const viewer = ref(true);
+    const visibleSessionIds = ref([ids[0]]);
+    const fetcher = vi.fn(function receiverCheckedFetch(this: unknown) {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(ok("native"));
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetcher as typeof fetch;
+    try {
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            return useTerminalSnapshots({ viewer, visibleSessionIds });
+          },
+          template: "<div />",
+        }),
+      );
+      await flush();
+      expect(fetcher).toHaveBeenCalledWith(`/api/terminal-sessions/${encodeURIComponent(ids[0])}/screen`, undefined);
+      expect(wrapper.vm.snapshots.get(ids[0])?.screen).toBe("native");
+      wrapper.unmount();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("stops while hidden, refreshes on visible, keeps stale screen on transient errors, and reports 404", async () => {

@@ -3,6 +3,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { router } from "../../../src/router";
 import { defineComponent, h, KeepAlive, type Component } from "vue";
 import type { TerminalSessionSummary } from "../../../common/terminalView";
+import { TERMINAL_CONTROL_INSTANCE_HEADER } from "../../../common/terminalControl";
 
 // App.vue renders GridView inside <KeepAlive>, and the grid registers its openers (new terminal,
 // spawned-chat placement) on ACTIVATE so a cached-but-hidden grid is never mutated behind the
@@ -60,6 +61,7 @@ vi.mock("../../../src/composables/useTerminalControl", () => ({
     },
     state: { value: {} },
     connectionStatus: { value: "connected" },
+    instanceId: "123e4567-e89b-42d3-a456-426614174001",
   }),
 }));
 const sharedRoster = vi.hoisted(() => ({
@@ -206,8 +208,8 @@ const sharedRow = (id: string, cwd = "/w"): TerminalSessionSummary => ({
 });
 const SharedGridStub = {
   name: "TerminalGrid",
-  props: ["cells"],
-  emits: ["hide-snapshot", "close"],
+  props: ["cells", "deletingSharedSessions", "sharedDeleteErrors"],
+  emits: ["hide-snapshot", "hide-shared", "delete-shared", "close"],
   template: '<div class="shared-grid-stub" />',
 };
 const storedHidden = () => JSON.parse(localStorage.getItem(HIDDEN_SHARED_TERMINALS_KEY) ?? "[]") as string[];
@@ -315,8 +317,66 @@ describe("GridView shared terminal hidden state", () => {
 
     await w.get("[data-testid='shared-terminal-banner'] button").trigger("click");
     await flushPromises();
-    expect(grid.props("cells")).toHaveLength(1);
+    expect(grid.props("cells")).toHaveLength(2);
     expect(grid.props("cells")[0].session).toBe(IDS.idleA);
+    w.unmount();
+  });
+
+  it("lets an owner hide a shared terminal locally without sending a terminate request", async () => {
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 1, session: IDS.idleA, cwd: "/w" }], expanded: null, page: 0, sortMode: "manual" }));
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+    const w = await mountSharedGrid();
+    const grid = w.findComponent(SharedGridStub);
+
+    grid.vm.$emit("hide-shared", IDS.idleA);
+    await flushPromises();
+
+    expect(grid.props("cells").map((cell: { session: string | null }) => cell.session)).not.toContain(IDS.idleA);
+    expect(storedHidden()).toEqual([IDS.idleA]);
+    expect((globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => String(url).includes("/terminate"))).toBe(false);
+    w.unmount();
+  });
+
+  it("confirms before deleting and sends the owner instance header", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 1, session: IDS.idleA, cwd: "/w" }], expanded: null, page: 0, sortMode: "manual" }));
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+    const w = await mountSharedGrid();
+    const grid = w.findComponent(SharedGridStub);
+
+    grid.vm.$emit("delete-shared", IDS.idleA);
+    await flushPromises();
+    expect(confirm).toHaveBeenCalled();
+    expect((globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => String(url).includes("/terminate"))).toBe(false);
+
+    grid.vm.$emit("delete-shared", IDS.idleA);
+    await flushPromises();
+    const terminate = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([url]) => String(url).includes("/terminate"))?.[1] as
+      RequestInit | undefined;
+    expect(terminate?.headers).toMatchObject({ [TERMINAL_CONTROL_INSTANCE_HEADER]: "123e4567-e89b-42d3-a456-426614174001" });
+    expect(grid.props("cells").map((cell: { session: string | null }) => cell.session)).not.toContain(IDS.idleA);
+    w.unmount();
+  });
+
+  it("keeps the cell visible and reports control errors when delete is rejected", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/session/") && init?.method === "POST") return { ok: false, status: 403, json: async () => ({}) } as Response;
+      return { ok: true, json: async () => ({}) } as Response;
+    }) as typeof fetch;
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 1, session: IDS.idleA, cwd: "/w" }], expanded: null, page: 0, sortMode: "manual" }));
+    sharedRoster.setRows([sharedRow(IDS.idleA)]);
+    const w = await mountSharedGrid();
+    const grid = w.findComponent(SharedGridStub);
+
+    grid.vm.$emit("delete-shared", IDS.idleA);
+    grid.vm.$emit("delete-shared", IDS.idleA);
+    expect(grid.props("deletingSharedSessions").has(IDS.idleA)).toBe(true);
+    await flushPromises();
+
+    expect(grid.props("cells")).toHaveLength(1);
+    expect(grid.props("sharedDeleteErrors").get(IDS.idleA)).toBe("Terminal control is required to delete this session.");
+    expect((globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => String(url).includes("/terminate"))).toHaveLength(1);
     w.unmount();
   });
 });

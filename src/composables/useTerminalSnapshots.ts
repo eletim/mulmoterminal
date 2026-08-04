@@ -31,6 +31,7 @@ const snapshotState = (): TerminalSnapshotState => ({
 });
 
 type Fetcher = typeof fetch;
+const defaultFetcher: Fetcher = (input, init) => globalThis.fetch(input, init);
 
 interface TerminalSnapshotsOptions {
   viewer: Ref<boolean>;
@@ -149,7 +150,7 @@ const syncSnapshots = (ctx: SnapshotRuntime): void => {
 export function useTerminalSnapshots(options: TerminalSnapshotsOptions) {
   const snapshots = reactive(new Map<string, TerminalSnapshotState>());
   const visibleIds = computed(() => [...new Set(options.visibleSessionIds.value)].filter(Boolean));
-  const ctx: SnapshotRuntime = { fetcher: options.fetcher ?? fetch, snapshots, options, visibleIds, queue: [], timer: null, active: 0 };
+  const ctx: SnapshotRuntime = { fetcher: options.fetcher ?? defaultFetcher, snapshots, options, visibleIds, queue: [], timer: null, active: 0 };
   const request = (ids?: readonly string[]): void => requestSnapshots(ctx, ids);
   const sync = (): void => syncSnapshots(ctx);
   const onVisibility = (): void => (document.hidden ? stopSnapshots(ctx) : sync());

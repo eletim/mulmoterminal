@@ -91,6 +91,8 @@ const props = defineProps<{
   viewerMode?: boolean;
   sharedSessions?: Map<string, TerminalSessionSummary>;
   snapshots?: Map<string, TerminalSnapshotState>;
+  deletingSharedSessions?: Set<string>;
+  sharedDeleteErrors?: Map<string, string>;
   // While a cell is zoomed: cockpit roster (true) vs thumbnail strip (false). Owned by GridView
   // so the toggle can live in the global toolbar rather than float over the stage.
   listMode: boolean;
@@ -105,11 +107,14 @@ const emit = defineEmits<{
   (e: "agent", uid: number, value: TerminalAgent): void;
   (e: "park", uid: number, value: boolean): void;
   // Shared preset list events — uid-less since they mutate the one config list.
-  (e: "record-cwd" | "remove-preset", value: string): void;
+  (e: "hide-shared" | "delete-shared" | "record-cwd" | "remove-preset", value: string): void;
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
 const snapshotSummary = (cell: Cell): TerminalSessionSummary | undefined => (cell.session ? props.sharedSessions?.get(cell.session) : undefined);
+const isSharedCell = (cell: Cell): boolean => cell.session !== null && props.sharedSessions?.has(cell.session) === true;
+const sharedDeleting = (cell: Cell): boolean => (cell.session ? props.deletingSharedSessions?.has(cell.session) === true : false);
+const sharedDeleteError = (cell: Cell): string | null => (cell.session ? (props.sharedDeleteErrors?.get(cell.session) ?? null) : null);
 const snapshotSummaryOrFallback = (cell: Cell): TerminalSessionSummary => {
   const summary = snapshotSummary(cell);
   if (summary) return summary;
@@ -1069,8 +1074,13 @@ watch(
             :launcher="cell.launcher"
             :session="cell.session"
             :cwd="cell.cwd"
+            :shared-session="isSharedCell(cell)"
+            :shared-deleting="sharedDeleting(cell)"
+            :shared-delete-error="sharedDeleteError(cell)"
             v-on="gridCellEvents(cell)"
             @session="(id) => emit('session', cell.uid, id)"
+            @hide-shared="cell.session && emit('hide-shared', cell.session)"
+            @delete-shared="cell.session && emit('delete-shared', cell.session)"
           />
           <TerminalCell
             v-else
@@ -1086,6 +1096,9 @@ watch(
             :open-cwds="openCwds"
             :cancellable="cell.uid === cancelUid"
             :parked="cell.parked === true"
+            :shared-session="isSharedCell(cell)"
+            :shared-deleting="sharedDeleting(cell)"
+            :shared-delete-error="sharedDeleteError(cell)"
             v-on="gridCellEvents(cell)"
             @park="(on) => emit('park', cell.uid, on)"
             @session="(id) => emit('session', cell.uid, id)"
@@ -1096,6 +1109,8 @@ watch(
             @run="(cmd) => emit('run', cell.uid, cmd)"
             @run-spare="(cmd) => emit('runSpare', cell.uid, cmd)"
             @launch="(pick) => emit('launch', cell.uid, pick)"
+            @hide-shared="cell.session && emit('hide-shared', cell.session)"
+            @delete-shared="cell.session && emit('delete-shared', cell.session)"
           />
         </template>
       </Teleport>
