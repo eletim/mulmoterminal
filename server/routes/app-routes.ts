@@ -39,7 +39,6 @@ import { mountWikiRoutes } from "../backends/wiki.js";
 import { mountAccountingRoutes } from "../backends/accounting.js";
 import { mountFeedsRoutes } from "../backends/feeds.js";
 import { mountCalendarPushRoutes } from "../backends/calendarPush.js";
-import { mountRemoteHostRoutes } from "../backends/remoteHost/index.js";
 import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
@@ -56,6 +55,7 @@ import {
 } from "../session/registry.js";
 import { mountShortcutsRoutes } from "../backends/shortcuts.js";
 import { mountDecisionRoutes } from "./decision-routes.js";
+import { mountMobileModeRoute } from "./mobile-mode-route.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountPresentPathRoot } from "../backends/presentPathRoot.js";
@@ -215,6 +215,10 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // project and what they chose, read back out of Claude's own transcripts. Writes nothing.
   mountDecisionRoutes(app);
 
+  // GET /api/mobile-mode — read-only, mounted regardless of MULMOTERMINAL_MOBILE_MODE (unlike
+  // the remote-host / local-terminal routes below, which are exclusive on it).
+  mountMobileModeRoute(app);
+
   // Local voice input (POST /api/transcribe + model status/download) — macOS only,
   // whisper.cpp via @mulmoclaude/core/whisper. Models live in the shared
   // <workspace>/models dir, so a download by either app is reused.
@@ -344,10 +348,9 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // sessions, from public per-model pricing. Read-only; shown in the Settings modal (#245).
   mountCostRoute(app, { resolveCwd: workspaceForRoute });
 
-  // POST /api/remote-host/connect|disconnect + GET /status — start/stop the
-  // Firestore host loop from the toolbar Connect control. Same-origin guarded like
-  // the other local-only routes; the connect idToken is never logged.
-  mountRemoteHostRoutes(app, { isAllowedOrigin: deps.isAllowedOrigin });
+  // POST /api/remote-host/connect|disconnect + GET /status, OR the local mobile terminal API —
+  // mutually exclusive with each other, on MULMOTERMINAL_MOBILE_MODE. Mounted from index.ts's
+  // switch, once the terminal-access functions this needs exist, rather than here.
 
   // GET /api/google/status + POST /api/google/authorize|unlink — the Settings modal's
   // Google account link. Consent needs a browser on THIS machine (loopback listener),

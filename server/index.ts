@@ -30,7 +30,7 @@ import {
 } from "./infra/tmux.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
-import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE } from "./config/env.js";
+import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE, MOBILE_MODE } from "./config/env.js";
 import { isLoopbackBinding } from "./infra/loopback.js";
 import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
@@ -108,7 +108,9 @@ import { initGoogleBackend } from "./backends/google.js";
 import { initPluginRuntime } from "./infra/pluginRuntime.js";
 import { initAccountingBackend } from "./backends/accounting.js";
 import { initFeedsBackend } from "./backends/feeds.js";
-import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend } from "./backends/remoteHost/index.js";
+import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend, mountRemoteHostRoutes } from "./backends/remoteHost/index.js";
+import { mountLocalMobileTerminalRoutes } from "./routes/local-mobile-terminal-routes.js";
+import { mountMobileTransport } from "./mobileTransportMount.js";
 import { createSessionActivityPublisher, firestoreSessionActivityStore } from "./backends/remoteHost/sessionActivity.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
 import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
@@ -743,23 +745,54 @@ const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
   return delivered ? { ok: true as const } : { ok: false as const, error: NO_BROWSER_ERROR };
 };
 
-initRemoteHostBackend({
-  workspace: CLAUDE_CWD,
-  spawnChat: remoteHostSpawnChat,
-  spawnIssueSeed: remoteHostSpawnIssueSeed,
-  launchTerminal: remoteHostLaunchTerminal,
-  listTerminalSessions: remoteHostListTerminalSessions,
-  captureTerminalScreen: remoteHostCaptureTerminalScreen,
-  writeToSession: remoteHostWriteToSession,
-  canClearBox: remoteHostCanClearBox,
-  // The byte(s) that submit for this session (#772), resolved live from config so the
-  // phone's "send" commits the paste the same way the keyboard does. Scoped to the
-  // session's agent — the mapping is Claude's binding, so a shell/codex session in the
-  // picker keeps plain CR (same agent lookup as canClearBox above).
-  submitSequence: (sessionId) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit()),
-  // Which agent the typed text is going to, for the completion-menu guard (#1142) — same lookup
-  // again, because that guard is Claude Code's behaviour and nobody else's.
-  sessionAgent: (sessionId) => ptys.get(sessionId)?.agent,
+// The byte(s) that submit for a given session (#772), resolved live from config so a typed
+// "send" commits the paste the same way the keyboard does. Scoped to the session's agent — the
+// mapping is Claude's binding, so a shell/codex session in the picker keeps plain CR. Shared by
+// both mobile transports below (each is an adapter over the same PTY access, never a copy of it).
+const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit());
+// Which agent the typed text is going to, for the completion-menu guard (#1142) — only Claude
+// Code has the menu that eats a submit, and only there is the guard's trailing space not real
+// input. Same lookup as sessionSubmitSequence above; shared for the same reason.
+const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
+
+// The phone's terminal transport is exclusively one of two adapters over the SAME PTY access
+// above — never both, so a build never has to reconcile a Firestore command doc and an HTTP
+// request racing the same session. MOBILE_MODE is decided once at boot (server/config/env.ts);
+// switching which one runs needs a restart. The dispatch itself is mobileTransportMount.ts's
+// job, so its exclusivity is a fact a test can assert on rather than only readable here.
+mountMobileTransport({
+  mode: MOBILE_MODE,
+  mountRemote: () => {
+    initRemoteHostBackend({
+      workspace: CLAUDE_CWD,
+      spawnChat: remoteHostSpawnChat,
+      spawnIssueSeed: remoteHostSpawnIssueSeed,
+      launchTerminal: remoteHostLaunchTerminal,
+      listTerminalSessions: remoteHostListTerminalSessions,
+      captureTerminalScreen: remoteHostCaptureTerminalScreen,
+      writeToSession: remoteHostWriteToSession,
+      canClearBox: remoteHostCanClearBox,
+      submitSequence: sessionSubmitSequence,
+      sessionAgent: sessionAgentFor,
+    });
+    // POST /api/remote-host/connect|disconnect + GET /status — start/stop the Firestore host
+    // loop from the toolbar Connect control. Same-origin guarded internally.
+    mountRemoteHostRoutes(app, { isAllowedOrigin });
+  },
+  mountLocal: () => {
+    // GET the session list/screen + POST input/launch, over plain same-origin HTTP instead of
+    // the Firestore command channel. No Firebase connect/status/disconnect API in this mode.
+    mountLocalMobileTerminalRoutes(app, {
+      isAllowedOrigin,
+      listTerminalSessions: remoteHostListTerminalSessions,
+      captureTerminalScreen: remoteHostCaptureTerminalScreen,
+      writeToSession: remoteHostWriteToSession,
+      canClearBox: remoteHostCanClearBox,
+      submitSequence: sessionSubmitSequence,
+      sessionAgent: sessionAgentFor,
+      launchTerminal: remoteHostLaunchTerminal,
+    });
+  },
 });
 
 // Mount per-collection fs.watchers → completion bells via the notifier. After the

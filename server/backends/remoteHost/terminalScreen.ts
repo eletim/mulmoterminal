@@ -242,6 +242,15 @@ export async function buildScreenMeta(id: string, sources: ScreenMetaSources): P
   });
 }
 
+// Distinguishes "no such session" from any other capture failure, so a caller (e.g. the local
+// mobile terminal API's GET screen route) can answer 404 without comparing error text.
+export class TerminalSessionNotFoundError extends Error {
+  constructor(id: string) {
+    super(`terminal session '${id}' not found`);
+    this.name = "TerminalSessionNotFoundError";
+  }
+}
+
 // tmux first: it renders the real screen, works while detached, and survives a restart.
 // Falling back to the in-process buffer covers the tmux-less host, the non-persistent
 // spawn, AND the race where the session ends between listing and reading.
@@ -249,7 +258,7 @@ const screenRowsOf = async (id: string, { captureStyledPane, sourceOf, render }:
   const captured = captureStyledPane(id);
   if (captured !== null) return parseStyledRows(captured);
   const source = sourceOf(id);
-  if (!source) throw new Error(`terminal session '${id}' not found`);
+  if (!source) throw new TerminalSessionNotFoundError(id);
   return render(source);
 };
 
