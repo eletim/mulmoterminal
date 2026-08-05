@@ -22,12 +22,16 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => gitT
        chip's text AND its background wash out toward white — unreadable regardless of theme. The
        background and text now come from theme tokens (bg-elevated / text-fg, same pairing the diff
        and canvas chips beside it use) instead of the parent's currentColor, so a custom header
-       color can no longer erase the chip that sits on top of it. -->
+       color can no longer erase the chip that sits on top of it.
+
+       Detached HEAD uses `--warn`, not `--amber`: both flip for a light appearance, but amber's
+       light variant (#b8860b) still reads under 3:1 against bg-elevated on Daylight/Solarized.
+       warn's light variant (#8a4b00) is darker and clears AA (>=5.8:1) on every built-in theme. -->
   <span
     v-if="status?.repo && (status.branch || status.detached)"
     data-testid="git-chip"
     class="inline-flex h-[1.5em] max-w-[16ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] border border-border bg-elevated px-[0.4em] font-sans text-[0.72rem] leading-[1.5em]"
-    :class="status.detached ? 'text-amber' : 'text-fg'"
+    :class="status.detached ? 'text-warn' : 'text-fg'"
     :aria-describedby="described ? HOVER_TIP_ID : undefined"
     @pointerenter="showTip"
     @pointerleave="hideTip"

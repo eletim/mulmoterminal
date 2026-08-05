@@ -51,6 +51,17 @@ describe("GitBranchChip", () => {
     expect(w.find('[data-testid="git-branch"]').text()).toContain("detached");
   });
 
+  // `--amber`'s light-appearance variant (#b8860b) still reads under 3:1 against bg-elevated on
+  // Daylight/Solarized (measured, not assumed) — `--warn`'s (#8a4b00) is darker and clears AA on
+  // every built-in theme, so detached moved to that token instead.
+  it("colors a detached HEAD with the warn token, not amber", () => {
+    const classes = render({ ...base, branch: null, detached: true })
+      .find('[data-testid="git-chip"]')
+      .classes();
+    expect(classes).toContain("text-warn");
+    expect(classes).not.toContain("text-amber");
+  });
+
   // #921: the chip sits in a `flex ... overflow-hidden` header row, where a flex item shrinks by
   // default. Without this it collapsed in a narrow grid cell and the clipped text left just the
   // padded, rounded background — reported as "an empty badge", which is a much harder thing to
