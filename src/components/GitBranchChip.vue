@@ -16,11 +16,18 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => gitT
 </script>
 
 <template>
+  <!-- The header sets --cell-header-fg from a directory's `headerTextColor` and this chip used to
+       inherit it (`text-inherit`) and derive its own background from that same inherited color
+       (`color-mix(in srgb, currentColor 12%, transparent)`). A white headerTextColor made both the
+       chip's text AND its background wash out toward white — unreadable regardless of theme. The
+       background and text now come from theme tokens (bg-elevated / text-fg, same pairing the diff
+       and canvas chips beside it use) instead of the parent's currentColor, so a custom header
+       color can no longer erase the chip that sits on top of it. -->
   <span
     v-if="status?.repo && (status.branch || status.detached)"
     data-testid="git-chip"
-    class="inline-flex h-[1.5em] max-w-[16ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] bg-[color-mix(in_srgb,currentColor_12%,transparent)] px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] opacity-85"
-    :class="status.detached ? 'text-[#d19a66]' : 'text-inherit'"
+    class="inline-flex h-[1.5em] max-w-[16ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] border border-border bg-elevated px-[0.4em] font-sans text-[0.72rem] leading-[1.5em]"
+    :class="status.detached ? 'text-amber' : 'text-fg'"
     :aria-describedby="described ? HOVER_TIP_ID : undefined"
     @pointerenter="showTip"
     @pointerleave="hideTip"

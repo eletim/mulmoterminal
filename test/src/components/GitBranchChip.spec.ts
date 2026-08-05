@@ -61,4 +61,45 @@ describe("GitBranchChip", () => {
   it("does not shrink in a tight header row", () => {
     expect(render(base).find('[data-testid="git-chip"]').classes()).toContain("flex-none");
   });
+
+  // The chip used to inherit its text color from the header (`text-inherit`) and derive its
+  // background from that same inherited color (`color-mix(in srgb, currentColor 12%, transparent)`).
+  // A directory with `headerTextColor: "#ffffff"` made the chip's text white AND its background a
+  // white-derived wash — near-white on near-white. Both must now come from theme tokens instead,
+  // so a white header text color can no longer erase the chip sitting on top of it.
+  describe("colors do not depend on the parent's inherited text color", () => {
+    it("does not use text-inherit for a normal branch", () => {
+      expect(render(base).find('[data-testid="git-chip"]').classes()).not.toContain("text-inherit");
+    });
+
+    it("does not derive its background from currentColor", () => {
+      const classes = render(base).find('[data-testid="git-chip"]').classes();
+      expect(classes.some((c) => c.includes("currentColor"))).toBe(false);
+    });
+
+    it("carries theme-token background and text classes for a normal branch", () => {
+      const classes = render(base).find('[data-testid="git-chip"]').classes();
+      expect(classes).toContain("bg-elevated");
+      expect(classes).toContain("text-fg");
+    });
+
+    // jsdom does no layout or color resolution, so this can only assert the classes are present
+    // regardless of what the (irrelevant, in this mount) parent would have set on `color` — the
+    // fix is precisely that the chip no longer reads that value at all.
+    it("still carries its own contrast classes when the parent sets a white text color", () => {
+      const w = mount(GitBranchChip, {
+        props: { status: base, hideDirty: false },
+        attachTo: (() => {
+          const host = document.createElement("div");
+          host.style.color = "#ffffff";
+          document.body.appendChild(host);
+          return host;
+        })(),
+      });
+      const classes = w.find('[data-testid="git-chip"]').classes();
+      expect(classes).toContain("bg-elevated");
+      expect(classes).toContain("text-fg");
+      expect(classes).not.toContain("text-inherit");
+    });
+  });
 });
