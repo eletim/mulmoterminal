@@ -146,10 +146,6 @@ function manualRefreshScreen(): void {
   void loadScreen(selectedSessionId.value);
 }
 
-onUnmounted(() => {
-  if (cooldownTimeoutId !== null) clearTimeout(cooldownTimeoutId);
-});
-
 // Selection lives in this ref alone — no query param, no localStorage, no store. It is
 // forgotten on reload, same as any other unrouted UI state on this page. Re-clicking the already
 // selected session is a no-op: no new screen request for a session already showing.
@@ -159,7 +155,29 @@ function selectSession(id: string): void {
   void loadScreen(id);
 }
 
-onMounted(load);
+// Refetches the selected session's screen once whenever the tab comes back from the background —
+// covering the phone-locked-then-unlocked case, where the screen shown is otherwise however old
+// it was when the tab went away. Independent of the manual Refresh cooldown in both directions:
+// it fires even while that cooldown is running, and it never starts or resets it. Only the
+// existing stale-response guard inside loadScreen applies; hidden itself changes nothing.
+function handleVisibilityChange(): void {
+  if (document.visibilityState !== "visible") return;
+  if (status.value !== "local") return;
+  if (!selectedSessionId.value) return;
+  if (screenStatus.value === "loading") return;
+
+  void loadScreen(selectedSessionId.value);
+}
+
+onMounted(() => {
+  void load();
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+});
+
+onUnmounted(() => {
+  if (cooldownTimeoutId !== null) clearTimeout(cooldownTimeoutId);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+});
 </script>
 
 <template>

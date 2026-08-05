@@ -64,6 +64,27 @@ function findButton(wrapper: Awaited<ReturnType<typeof mountPage>>, text: string
   return button;
 }
 
+function screenCallCount(id: string): number {
+  return vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === `/api/mobile/terminal-sessions/${id}/screen`).length;
+}
+
+// Sets document.visibilityState, dispatches visibilitychange (which MobileTerminalPage's
+// listener handles synchronously), then restores the original property — so no test leaks a
+// stubbed visibilityState into the next one.
+function fireVisibilityChange(state: DocumentVisibilityState): void {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  try {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+    document.dispatchEvent(new Event("visibilitychange"));
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(document, "visibilityState", originalDescriptor);
+    } else {
+      delete (document as Omit<Document, "visibilityState"> & { visibilityState?: DocumentVisibilityState }).visibilityState;
+    }
+  }
+}
+
 describe("MobileTerminalPage", () => {
   it("checks the mobile mode on mount", async () => {
     mockFetch({ mode: "local", sessions: [] });
@@ -300,10 +321,6 @@ describe("MobileTerminalPage", () => {
   // timer set — see its implementation. The 5s cooldown is real setTimeout, which is what these
   // tests need control over.
   describe("manual screen refresh", () => {
-    function screenCallCount(id: string): number {
-      return vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === `/api/mobile/terminal-sessions/${id}/screen`).length;
-    }
-
     it("shows a Refresh button once the screen has loaded", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") } });
       const wrapper = await mountPage();
@@ -469,6 +486,154 @@ describe("MobileTerminalPage", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe("screen refresh on resume", () => {
+    it("does not fetch a screen for a hidden visibilitychange", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      await mountPage();
+
+      fireVisibilityChange("hidden");
+      await flushPromises();
+
+      expect(screenCallCount("a")).toBe(1); // only the initial load's fetch
+    });
+
+    it("fetches the selected session's screen once when the tab becomes visible", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      await mountPage();
+
+      fireVisibilityChange("visible");
+      await flushPromises();
+
+      expect(screenCallCount("a")).toBe(2); // the initial load's fetch, plus one on resume
+    });
+
+    it("does not refetch the mode or the session list when the tab becomes visible", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      await mountPage();
+
+      fireVisibilityChange("visible");
+      await flushPromises();
+
+      const modeCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile-mode");
+      const sessionsCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile/terminal-sessions");
+      expect(modeCalls).toHaveLength(1);
+      expect(sessionsCalls).toHaveLength(1);
+    });
+
+    it("does not fetch a screen on resume in remote mode", async () => {
+      mockFetch({ mode: "remote" });
+      await mountPage();
+
+      fireVisibilityChange("visible");
+      await flushPromises();
+
+      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
+    });
+
+    it("does not fetch a screen on resume when there are no sessions", async () => {
+      mockFetch({ mode: "local", sessions: [] });
+      await mountPage();
+
+      fireVisibilityChange("visible");
+      await flushPromises();
+
+      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
+    });
+
+    it("does not add a screen request on resume while one is already loading", async () => {
+      let resolveScreen: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredScreen = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveScreen = resolve;
+      });
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) };
+        if (url === "/api/mobile/terminal-sessions/a/screen") return deferredScreen;
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+      await flushPromises();
+      // The initial screen fetch is still pending ("loading").
+
+      fireVisibilityChange("visible");
+      await flushPromises();
+
+      expect(screenCallCount("a")).toBe(1); // the still-pending initial fetch only — no second one added
+      expect(wrapper.text()).toContain("Loading terminal screen…");
+
+      resolveScreen({ ok: true, json: async () => ({ screen: "hello" }) });
+      await flushPromises();
+    });
+
+    it("recovers from a screen error when the tab becomes visible again", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenFail(500) } });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("Failed to load terminal screen.");
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("recovered") } });
+      fireVisibilityChange("visible");
+      await flushPromises();
+
+      expect(wrapper.text()).toContain("recovered");
+    });
+
+    it("still fetches on resume during a manual-refresh cooldown, once the refresh request has settled", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+
+        const refreshButton = findButton(wrapper, "Refresh");
+        await refreshButton.trigger("click"); // starts the cooldown; the mocked request settles immediately
+        await flushPromises();
+
+        fireVisibilityChange("visible"); // must fire even though the cooldown is still running
+        await flushPromises();
+
+        expect(screenCallCount("a")).toBe(3); // initial load + the manual refresh + the resume fetch
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not start the manual-refresh cooldown from a resume fetch", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+
+        fireVisibilityChange("visible");
+        await flushPromises();
+
+        // If the resume fetch had started the manual-refresh cooldown, Refresh would still be
+        // disabled here and the click below would silently do nothing.
+        const refreshButton = findButton(wrapper, "Refresh");
+        expect(refreshButton.attributes("disabled")).toBeUndefined();
+
+        await refreshButton.trigger("click");
+        await flushPromises();
+
+        expect(screenCallCount("a")).toBe(3); // initial load + the resume fetch + the manual refresh
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("removes the visibilitychange listener on unmount", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      const wrapper = await mountPage();
+
+      const removeSpy = vi.spyOn(document, "removeEventListener");
+      wrapper.unmount();
+
+      expect(removeSpy).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+      removeSpy.mockRestore();
     });
   });
 });
