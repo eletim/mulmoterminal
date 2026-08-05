@@ -6,7 +6,7 @@
 // (GET /api/mobile/terminal-sessions), and the selected session's current terminal screen
 // (GET /api/mobile/terminal-sessions/:id/screen). Input and launching are a follow-up change —
 // this page stops at a read-only view of one session's screen.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
@@ -59,6 +59,13 @@ type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
+
+// Rate limit for the manual Refresh/Retry button alone — session switches bypass it entirely
+// (section 9 of the spec this implements). Counted from when a refresh STARTS, not when its
+// request resolves, so a slow or failing request doesn't extend the cooldown.
+const MANUAL_REFRESH_COOLDOWN_MS = 5000;
+const manualRefreshCoolingDown = ref(false);
+let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
 // called again except by the Retry button, which re-enters here from the mode check.
@@ -122,11 +129,26 @@ async function loadScreen(id: string): Promise<void> {
   }
 }
 
-// Re-fetches only the currently selected session's screen — never the mode check or the session
-// list, which have their own Retry.
-function retryScreen(): void {
-  if (selectedSessionId.value) void loadScreen(selectedSessionId.value);
+// The manual Refresh button and the screen error's Retry button are the same action: re-fetch
+// only the currently selected session's screen — never the mode check or the session list,
+// which have their own Retry — rate-limited to one call per MANUAL_REFRESH_COOLDOWN_MS.
+function manualRefreshScreen(): void {
+  if (!selectedSessionId.value) return;
+  if (screenStatus.value === "loading") return;
+  if (manualRefreshCoolingDown.value) return;
+
+  manualRefreshCoolingDown.value = true;
+  cooldownTimeoutId = setTimeout(() => {
+    manualRefreshCoolingDown.value = false;
+    cooldownTimeoutId = null;
+  }, MANUAL_REFRESH_COOLDOWN_MS);
+
+  void loadScreen(selectedSessionId.value);
 }
+
+onUnmounted(() => {
+  if (cooldownTimeoutId !== null) clearTimeout(cooldownTimeoutId);
+});
 
 // Selection lives in this ref alone — no query param, no localStorage, no store. It is
 // forgotten on reload, same as any other unrouted UI state on this page. Re-clicking the already
@@ -189,13 +211,28 @@ onMounted(load);
         </ul>
 
         <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
-          <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
+            <button
+              type="button"
+              class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+              :disabled="screenStatus === 'loading' || manualRefreshCoolingDown"
+              @click="manualRefreshScreen"
+            >
+              Refresh
+            </button>
+          </div>
 
           <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
 
           <div v-else-if="screenStatus === 'error'" class="flex flex-col gap-2 text-[13px]">
             <p class="text-err-text">Failed to load terminal screen.</p>
-            <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="retryScreen">
+            <button
+              type="button"
+              class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+              :disabled="manualRefreshCoolingDown"
+              @click="manualRefreshScreen"
+            >
               Retry
             </button>
           </div>

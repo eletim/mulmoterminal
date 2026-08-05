@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
+import { nextTick } from "vue";
 import MobileTerminalPage from "../../../src/components/MobileTerminalPage.vue";
 import { router } from "../../../src/router/index";
 
@@ -54,6 +55,13 @@ async function mountPage() {
   const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
   await flushPromises();
   return wrapper;
+}
+
+// Prefer a thrown "not found" over a non-null assertion at every call site below.
+function findButton(wrapper: Awaited<ReturnType<typeof mountPage>>, text: string) {
+  const button = wrapper.findAll("button").find((b) => b.text() === text);
+  if (!button) throw new Error(`button not found: ${text}`);
+  return button;
 }
 
 describe("MobileTerminalPage", () => {
@@ -284,6 +292,183 @@ describe("MobileTerminalPage", () => {
 
       expect(wrapper.text()).not.toContain("screen-a");
       expect(wrapper.text()).toContain("screen-b");
+    });
+  });
+
+  // Only setTimeout/clearTimeout are faked here (not setImmediate), because @vue/test-utils'
+  // flushPromises() schedules its resolution via setImmediate and would hang under a full fake
+  // timer set — see its implementation. The 5s cooldown is real setTimeout, which is what these
+  // tests need control over.
+  describe("manual screen refresh", () => {
+    function screenCallCount(id: string): number {
+      return vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === `/api/mobile/terminal-sessions/${id}/screen`).length;
+    }
+
+    it("shows a Refresh button once the screen has loaded", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") } });
+      const wrapper = await mountPage();
+      expect(wrapper.findAll("button").some((b) => b.text() === "Refresh")).toBe(true);
+    });
+
+    it("refetches the current session's screen, once, when Refresh is clicked", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      const wrapper = await mountPage();
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v2") } });
+      const refreshButton = wrapper.findAll("button").find((b) => b.text() === "Refresh");
+      await refreshButton?.trigger("click");
+      await flushPromises();
+
+      expect(vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile/terminal-sessions/a/screen")).toHaveLength(1);
+      expect(wrapper.text()).toContain("v2");
+    });
+
+    it("does not refetch the mode or the session list when Refresh is clicked", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      const wrapper = await mountPage();
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v2") } });
+      const refreshButton = wrapper.findAll("button").find((b) => b.text() === "Refresh");
+      await refreshButton?.trigger("click");
+      await flushPromises();
+
+      expect(globalThis.fetch).not.toHaveBeenCalledWith("/api/mobile-mode");
+      expect(globalThis.fetch).not.toHaveBeenCalledWith("/api/mobile/terminal-sessions");
+    });
+
+    it("disables Refresh while the screen is loading", async () => {
+      let resolveScreen: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredScreen = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveScreen = resolve;
+      });
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) };
+        if (url === "/api/mobile/terminal-sessions/a/screen") return deferredScreen;
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+      await flushPromises();
+      // Mode and the session list have resolved; the initial screen fetch is still pending.
+      const refreshButton = wrapper.findAll("button").find((b) => b.text() === "Refresh");
+      expect(refreshButton?.attributes("disabled")).toBeDefined();
+
+      resolveScreen({ ok: true, json: async () => ({ screen: "hello" }) });
+      await flushPromises();
+    });
+
+    it("ignores a second manual refresh within the 5s cooldown", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+        const refreshButton = () => findButton(wrapper, "Refresh");
+
+        await refreshButton().trigger("click"); // starts the cooldown
+        await flushPromises();
+        vi.advanceTimersByTime(4000); // still within the 5s window
+
+        await refreshButton().trigger("click");
+        await flushPromises();
+
+        // The initial load's screen fetch, plus the one Refresh that started the cooldown — the
+        // second click, inside the cooldown, adds none.
+        expect(screenCallCount("a")).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("allows another manual refresh once the 5s cooldown has elapsed", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+        const refreshButton = () => findButton(wrapper, "Refresh");
+
+        await refreshButton().trigger("click");
+        await flushPromises();
+        vi.advanceTimersByTime(5000);
+        // The cooldown ref flips synchronously inside the timer callback, but Vue patches the
+        // button's `disabled` attribute asynchronously — without this, trigger("click") below
+        // would hit a still-disabled real DOM button and silently do nothing.
+        await nextTick();
+
+        await refreshButton().trigger("click");
+        await flushPromises();
+
+        expect(screenCallCount("a")).toBe(3); // initial load + two manual refreshes
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shares the cooldown between the manual Refresh button and the screen error's Retry button", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenFail(500) } });
+        const wrapper = await mountPage();
+        expect(wrapper.text()).toContain("Failed to load terminal screen.");
+
+        const retryButton = () => findButton(wrapper, "Retry");
+        await retryButton().trigger("click"); // starts the cooldown
+        await flushPromises();
+        vi.advanceTimersByTime(1000);
+
+        await retryButton().trigger("click"); // still within the cooldown
+        await flushPromises();
+
+        expect(screenCallCount("a")).toBe(2); // initial load's fetch, plus the one Retry that started the cooldown
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still fetches a newly selected session's screen immediately during a manual-refresh cooldown", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({
+          mode: "local",
+          sessions: [session({ id: "a", live: true }), session({ id: "b", live: false })],
+          screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+        });
+        const wrapper = await mountPage();
+
+        const refreshButton = wrapper.findAll("button").find((b) => b.text() === "Refresh");
+        await refreshButton?.trigger("click"); // starts the cooldown, still active below
+        await flushPromises();
+
+        const buttons = wrapper.findAll("main li button");
+        await buttons[1].trigger("click"); // select "b" while the cooldown is active
+        await flushPromises();
+
+        expect(screenCallCount("b")).toBe(1);
+        expect(wrapper.text()).toContain("screen-b");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clears the cooldown timeout on unmount", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+
+        const refreshButton = wrapper.findAll("button").find((b) => b.text() === "Refresh");
+        await refreshButton?.trigger("click"); // starts the cooldown timeout
+        await flushPromises();
+
+        const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+        wrapper.unmount();
+
+        expect(clearTimeoutSpy).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });
