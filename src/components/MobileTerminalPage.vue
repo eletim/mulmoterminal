@@ -67,6 +67,19 @@ const MANUAL_REFRESH_COOLDOWN_MS = 5000;
 const manualRefreshCoolingDown = ref(false);
 let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
+// One line of input, sent to a live session's PTY as-is. Sanitization, control-character
+// stripping, bracketed paste and Enter handling are all the existing POST /input route's job
+// (server/backends/remoteHost/terminalScreen.ts) — this page only forwards what was typed.
+const inputText = ref("");
+type InputStatus = "idle" | "sending" | "error";
+const inputStatus = ref<InputStatus>("idle");
+
+interface MobileInputResult {
+  sent: true;
+}
+
+const isMobileInputResult = (value: unknown): value is MobileInputResult => isRecord(value) && value.sent === true;
+
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
 // called again except by the Retry button, which re-enters here from the mode check.
 async function load(): Promise<void> {
@@ -152,7 +165,43 @@ function manualRefreshScreen(): void {
 function selectSession(id: string): void {
   if (selectedSessionId.value === id) return;
   selectedSessionId.value = id;
+  // Otherwise a line typed for session A would sit in the box and could be sent to session B.
+  inputText.value = "";
+  inputStatus.value = "idle";
   void loadScreen(id);
+}
+
+// Sends the current input as one line to the selected session's PTY via the existing POST
+// /input route, then clears it. `requestedId` is captured at call time and re-checked before
+// the response is reflected, the same guard loadScreen uses — a response for a session the user
+// has since switched away from must not touch the (now different) session's input state at all.
+async function sendTerminalInput(): Promise<void> {
+  if (!selectedSessionId.value) return;
+  if (!selectedSession.value?.live) return;
+  if (screenStatus.value !== "loaded") return;
+  if (inputStatus.value === "sending") return;
+  if (inputText.value.trim() === "") return;
+
+  const requestedId = selectedSessionId.value;
+  const text = inputText.value;
+  inputStatus.value = "sending";
+
+  try {
+    const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(requestedId)}/input`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await jsonBody(res);
+    if (!isMobileInputResult(body)) throw new Error("invalid /api/mobile/terminal-sessions/:id/input response");
+    if (selectedSessionId.value !== requestedId) return;
+    inputText.value = "";
+    inputStatus.value = "idle";
+  } catch {
+    if (selectedSessionId.value !== requestedId) return;
+    inputStatus.value = "error";
+  }
 }
 
 // Refetches the selected session's screen once whenever the tab comes back from the background —
@@ -259,6 +308,27 @@ onUnmounted(() => {
             v-else-if="screenStatus === 'loaded'"
             class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
             >{{ screenText }}</pre>
+
+          <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
+
+          <form v-if="screenStatus === 'loaded' && selectedSession.live" class="flex gap-2" @submit.prevent="sendTerminalInput">
+            <input
+              v-model="inputText"
+              type="text"
+              placeholder="Type a line…"
+              class="min-w-0 flex-1 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-[13px] text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="inputStatus === 'sending'"
+            />
+            <button
+              type="submit"
+              class="flex-none rounded-md border border-border bg-panel px-3 py-1.5 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+              :disabled="inputStatus === 'sending'"
+            >
+              Send
+            </button>
+          </form>
+
+          <p v-if="inputStatus === 'error'" class="text-[12px] text-err-text">Failed to send terminal input.</p>
         </div>
       </template>
     </main>

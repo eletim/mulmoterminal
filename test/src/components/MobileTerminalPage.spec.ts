@@ -10,9 +10,36 @@ import { router } from "../../../src/router/index";
 // all three responses independently.
 type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null };
 type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
+type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 
 const screenOk = (screen: unknown): ScreenResult => ({ ok: true, screen });
 const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
+
+const inputOk = (): InputResult => ({ ok: true, body: { sent: true } });
+const inputBadBody = (body: unknown): InputResult => ({ ok: true, body });
+const inputFail = (status = 500): InputResult => ({ ok: false, status });
+
+type MockFetchResponse = { ok: boolean; status?: number; json: () => Promise<unknown> };
+
+// Split out of mockFetch's routing so that function stays a flat list of if-checks — each
+// helper owns one endpoint's own "not this URL" / "unmapped id" / "ok vs. fail" branching.
+function screenResponse(url: string, screens: Record<string, ScreenResult>): MockFetchResponse | null {
+  const match = /^\/api\/mobile\/terminal-sessions\/([^/]+)\/screen$/.exec(url);
+  if (!match) return null;
+  const result = screens[decodeURIComponent(match[1])];
+  if (!result) throw new Error(`unexpected screen fetch: ${url}`);
+  if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => ({}) };
+  return { ok: true, json: async () => ({ screen: result.screen }) };
+}
+
+function inputResponse(url: string, inputs: Record<string, InputResult>): MockFetchResponse | null {
+  const match = /^\/api\/mobile\/terminal-sessions\/([^/]+)\/input$/.exec(url);
+  if (!match) return null;
+  const result = inputs[decodeURIComponent(match[1])];
+  if (!result) throw new Error(`unexpected input fetch: ${url}`);
+  if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => ({}) };
+  return { ok: true, json: async () => result.body };
+}
 
 function mockFetch(opts: {
   mode?: "local" | "remote";
@@ -20,8 +47,9 @@ function mockFetch(opts: {
   modeOk?: boolean;
   sessionsOk?: boolean;
   screens?: Record<string, ScreenResult>;
+  inputs?: Record<string, InputResult>;
 }) {
-  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {} } = opts;
+  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {}, inputs = {} } = opts;
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url === "/api/mobile-mode") {
@@ -32,13 +60,10 @@ function mockFetch(opts: {
       if (!sessionsOk) return { ok: false, status: 500, json: async () => ({}) };
       return { ok: true, json: async () => ({ sessions }) };
     }
-    const screenMatch = /^\/api\/mobile\/terminal-sessions\/([^/]+)\/screen$/.exec(url);
-    if (screenMatch) {
-      const result = screens[decodeURIComponent(screenMatch[1])];
-      if (!result) throw new Error(`unexpected screen fetch: ${url}`);
-      if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => ({}) };
-      return { ok: true, json: async () => ({ screen: result.screen }) };
-    }
+    const input_ = inputResponse(url, inputs);
+    if (input_) return input_;
+    const screen = screenResponse(url, screens);
+    if (screen) return screen;
     throw new Error(`unexpected fetch: ${url}`);
   }) as unknown as typeof fetch;
 }
@@ -634,6 +659,273 @@ describe("MobileTerminalPage", () => {
 
       expect(removeSpy).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
       removeSpy.mockRestore();
+    });
+  });
+
+  describe("terminal input", () => {
+    function inputEl(wrapper: Awaited<ReturnType<typeof mountPage>>) {
+      return wrapper.find('input[type="text"]');
+    }
+
+    function inputCallCount(id: string): number {
+      return vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => String(url) === `/api/mobile/terminal-sessions/${id}/input`).length;
+    }
+
+    it("shows a one-line input and Send button for a live session once its screen has loaded", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") } });
+      const wrapper = await mountPage();
+      expect(inputEl(wrapper).exists()).toBe(true);
+      expect(wrapper.findAll("button").some((b) => b.text() === "Send")).toBe(true);
+    });
+
+    it("does not show the input form for a detached session", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: false })], screens: { a: screenOk("hello") } });
+      const wrapper = await mountPage();
+      expect(inputEl(wrapper).exists()).toBe(false);
+      expect(wrapper.text()).toContain("Detached sessions are read-only.");
+    });
+
+    it("does not show the input form while the screen is loading", async () => {
+      let resolveScreen: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredScreen = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveScreen = resolve;
+      });
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) };
+        if (url === "/api/mobile/terminal-sessions/a/screen") return deferredScreen;
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+      await flushPromises();
+      expect(inputEl(wrapper).exists()).toBe(false);
+
+      resolveScreen({ ok: true, json: async () => ({ screen: "hello" }) });
+      await flushPromises();
+    });
+
+    it("does not show the input form when the screen failed to load", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenFail(500) } });
+      const wrapper = await mountPage();
+      expect(inputEl(wrapper).exists()).toBe(false);
+    });
+
+    it("does not show the input form in remote mode", async () => {
+      mockFetch({ mode: "remote" });
+      const wrapper = await mountPage();
+      expect(inputEl(wrapper).exists()).toBe(false);
+    });
+
+    it("POSTs the typed text, unmodified, to the session's input endpoint with a JSON content type", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "id with space", live: true })],
+        screens: { "id with space": screenOk("hello") },
+        inputs: { "id with space": inputOk() },
+      });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("  echo hi  ");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      // encodeURIComponent applied to the session id in the URL.
+      const call = vi.mocked(globalThis.fetch).mock.calls.find(([url]) => String(url) === "/api/mobile/terminal-sessions/id%20with%20space/input");
+      if (!call) throw new Error("input POST not found");
+      const [, init] = call;
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toMatchObject({ "Content-Type": "application/json" });
+      // The original string, not the trimmed one — trimming only decides whether to send at all.
+      expect(init?.body).toBe(JSON.stringify({ text: "  echo hi  " }));
+    });
+
+    it("clears the input after a successful send", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("");
+    });
+
+    it("shows a fixed error message and keeps the input on a non-2xx response", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputFail(500) } });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(wrapper.text()).toContain("Failed to send terminal input.");
+      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("echo hi");
+    });
+
+    it("shows the fixed error message and keeps the input when the response's sent field is not true", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk("hello") },
+        inputs: { a: inputBadBody({ sent: false }) },
+      });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(wrapper.text()).toContain("Failed to send terminal input.");
+      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("echo hi");
+    });
+
+    it("disables the input and Send button while sending, and ignores an extra submit meanwhile", async () => {
+      let resolveInput: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredInput = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveInput = resolve;
+      });
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) };
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "hello" }) };
+        if (url === "/api/mobile/terminal-sessions/a/input") return deferredInput;
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+      await flushPromises();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await wrapper.find("form").trigger("submit"); // a second submit while the first is still in flight
+      await flushPromises();
+
+      expect(inputEl(wrapper).attributes("disabled")).toBeDefined();
+      expect(findButton(wrapper, "Send").attributes("disabled")).toBeDefined();
+      expect(inputCallCount("a")).toBe(1); // the second submit added no request
+
+      resolveInput({ ok: true, json: async () => ({ sent: true }) });
+      await flushPromises();
+    });
+
+    it("does not POST for empty or whitespace-only input", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("   ");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(inputCallCount("a")).toBe(0);
+    });
+
+    it("can resend the same text after a failed send", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputFail(500) } });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+      expect(wrapper.text()).toContain("Failed to send terminal input.");
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
+      await wrapper.find("form").trigger("submit"); // the box still holds the same text
+      await flushPromises();
+
+      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("");
+      expect(wrapper.text()).not.toContain("Failed to send terminal input.");
+    });
+
+    it("does not refetch the screen after a successful send", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(screenCallCount("a")).toBe(1); // only the initial load's fetch
+    });
+
+    it("does not refetch the mode or the session list after a successful send", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      const modeCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => String(url) === "/api/mobile-mode");
+      const sessionsCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => String(url) === "/api/mobile/terminal-sessions");
+      expect(modeCalls).toHaveLength(1);
+      expect(sessionsCalls).toHaveLength(1);
+    });
+
+    it("clears the input text and any input error when switching sessions", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+        screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+        inputs: { a: inputFail(500) },
+      });
+      const wrapper = await mountPage();
+
+      await inputEl(wrapper).setValue("echo hi");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+      expect(wrapper.text()).toContain("Failed to send terminal input.");
+
+      const buttons = wrapper.findAll("main li button");
+      await buttons[1].trigger("click"); // switch to "b"
+      await flushPromises();
+
+      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("");
+      expect(wrapper.text()).not.toContain("Failed to send terminal input.");
+    });
+
+    it("does not let a stale send response from session A affect session B's input state", async () => {
+      let resolveInputA: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredInputA = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveInputA = resolve;
+      });
+
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions")
+          return { ok: true, json: async () => ({ sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })] }) };
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/b/screen") return { ok: true, json: async () => ({ screen: "screen-b" }) };
+        if (url === "/api/mobile/terminal-sessions/a/input") return deferredInputA;
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+      await flushPromises();
+      // Initial selection is "a" (the first live session).
+
+      await inputEl(wrapper).setValue("echo from a");
+      await wrapper.find("form").trigger("submit"); // A's send is now pending
+      await flushPromises();
+
+      const buttons = wrapper.findAll("main li button");
+      await buttons[1].trigger("click"); // switch to "b" while A's send is in flight
+      await flushPromises();
+
+      await inputEl(wrapper).setValue("echo from b");
+
+      // A's response arrives late, as a failure — it must not clear B's typed text or show B an
+      // error message that was never B's.
+      resolveInputA({ ok: false, json: async () => ({}) });
+      await flushPromises();
+
+      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("echo from b");
+      expect(wrapper.text()).not.toContain("Failed to send terminal input.");
     });
   });
 });
