@@ -123,4 +123,38 @@ describe("MobileTerminalPage", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/mobile-mode");
     expect(wrapper.text()).toContain("a");
   });
+
+  // A malformed row must fail the whole load rather than being dropped: silently filtering it
+  // out would make the list, the empty state and the initial selection all disagree with what
+  // the server actually reported.
+  it("shows an error when a session is missing a required field", async () => {
+    mockFetch({
+      mode: "local",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately malformed wire payload
+      sessions: [{ id: "a", title: "fix bug", live: true, agent: null } as any],
+    });
+    const wrapper = await mountPage();
+    expect(wrapper.text()).toContain("Failed to load");
+  });
+
+  it("shows an error when a session has an unrecognised agent", async () => {
+    mockFetch({
+      mode: "local",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately malformed wire payload
+      sessions: [session({ id: "a", live: true, agent: "not-a-real-agent" as any })],
+    });
+    const wrapper = await mountPage();
+    expect(wrapper.text()).toContain("Failed to load");
+  });
+
+  it("does not treat a response with only invalid rows as an empty session list", async () => {
+    mockFetch({
+      mode: "local",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately malformed wire payload
+      sessions: [{ id: "a" } as any],
+    });
+    const wrapper = await mountPage();
+    expect(wrapper.text()).not.toContain("No terminal sessions.");
+    expect(wrapper.text()).toContain("Failed to load");
+  });
 });

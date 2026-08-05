@@ -8,6 +8,7 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
+import { SESSION_AGENTS } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
@@ -35,7 +36,7 @@ const isMobileSession = (value: unknown): value is MobileSession =>
   typeof value.title === "string" &&
   typeof value.cwd === "string" &&
   typeof value.live === "boolean" &&
-  (value.agent === null || typeof value.agent === "string");
+  (value.agent === null || SESSION_AGENTS.some((known) => known === value.agent));
 
 type Status = "loading" | "remote-disabled" | "local" | "error";
 
@@ -63,7 +64,11 @@ async function load(): Promise<void> {
     if (!sessionsRes.ok) throw new Error(`HTTP ${sessionsRes.status}`);
     const sessionsBody = await jsonBody(sessionsRes);
     if (!isUnknownArray(sessionsBody.sessions)) throw new Error("invalid /api/mobile/terminal-sessions response");
-    const parsed = sessionsBody.sessions.filter(isMobileSession);
+    // Every row must be well-formed. Silently dropping a bad one would make the count, the empty
+    // state and the first-live/first-session selection all quietly disagree with what the server
+    // actually reported, so one invalid row fails the whole load instead.
+    if (!sessionsBody.sessions.every(isMobileSession)) throw new Error("invalid session row in /api/mobile/terminal-sessions response");
+    const parsed = sessionsBody.sessions;
 
     sessions.value = parsed;
     // The first live session wins; with none live, the first session; with none at all, nothing.
