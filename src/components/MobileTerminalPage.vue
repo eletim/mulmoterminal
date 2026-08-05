@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The mobile entry point (/mobile/terminals), mounted by App.vue instead of
-// DesktopAppShell — never alongside it. Wired to the two read-only endpoints the local
-// mobile terminal API already exposes: which transport mode the server is running
-// (GET /api/mobile-mode) and, only in local mode, the terminal session roster
-// (GET /api/mobile/terminal-sessions). Screen display, input and launching are a
-// follow-up change — this page stops at picking a session in the list.
-import { onMounted, ref } from "vue";
+// DesktopAppShell — never alongside it. Wired to three read-only endpoints the local mobile
+// terminal API already exposes: which transport mode the server is running
+// (GET /api/mobile-mode), only in local mode the terminal session roster
+// (GET /api/mobile/terminal-sessions), and the selected session's current terminal screen
+// (GET /api/mobile/terminal-sessions/:id/screen). Input and launching are a follow-up change —
+// this page stops at a read-only view of one session's screen.
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
@@ -43,6 +44,21 @@ type Status = "loading" | "remote-disabled" | "local" | "error";
 const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
 const selectedSessionId = ref<string | null>(null);
+const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
+
+// The only field this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
+// SessionScreen also carries suggestion, quickCommands and meta (cwd, branch, memo, summary,
+// prompt, githubUrl) — none of it is used or shown here yet, so it stays off this shape.
+interface MobileScreen {
+  screen: string;
+}
+
+const isMobileScreen = (value: unknown): value is MobileScreen => isRecord(value) && typeof value.screen === "string";
+
+type ScreenStatus = "idle" | "loading" | "loaded" | "error";
+
+const screenStatus = ref<ScreenStatus>("idle");
+const screenText = ref("");
 
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
 // called again except by the Retry button, which re-enters here from the mode check.
@@ -74,15 +90,51 @@ async function load(): Promise<void> {
     // The first live session wins; with none live, the first session; with none at all, nothing.
     selectedSessionId.value = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
     status.value = "local";
+    if (selectedSessionId.value) {
+      void loadScreen(selectedSessionId.value);
+    } else {
+      screenStatus.value = "idle";
+      screenText.value = "";
+    }
   } catch {
     status.value = "error";
   }
 }
 
+// Fetches one session's current screen exactly once. `requestedId` is captured at call time and
+// re-checked against the live selection right before the response is reflected — the minimal
+// guard against a slow response for a session the user has since switched away from landing on
+// top of whatever the newer selection has already shown.
+async function loadScreen(id: string): Promise<void> {
+  const requestedId = id;
+  screenStatus.value = "loading";
+  try {
+    const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(id)}/screen`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await jsonBody(res);
+    if (!isMobileScreen(body)) throw new Error("invalid /api/mobile/terminal-sessions/:id/screen response");
+    if (selectedSessionId.value !== requestedId) return;
+    screenText.value = body.screen;
+    screenStatus.value = "loaded";
+  } catch {
+    if (selectedSessionId.value !== requestedId) return;
+    screenStatus.value = "error";
+  }
+}
+
+// Re-fetches only the currently selected session's screen — never the mode check or the session
+// list, which have their own Retry.
+function retryScreen(): void {
+  if (selectedSessionId.value) void loadScreen(selectedSessionId.value);
+}
+
 // Selection lives in this ref alone — no query param, no localStorage, no store. It is
-// forgotten on reload, same as any other unrouted UI state on this page.
+// forgotten on reload, same as any other unrouted UI state on this page. Re-clicking the already
+// selected session is a no-op: no new screen request for a session already showing.
 function selectSession(id: string): void {
+  if (selectedSessionId.value === id) return;
   selectedSessionId.value = id;
+  void loadScreen(id);
 }
 
 onMounted(load);
@@ -117,23 +169,43 @@ onMounted(load);
 
       <p v-else-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
 
-      <ul v-else class="flex flex-col gap-2">
-        <li v-for="session in sessions" :key="session.id">
-          <button
-            type="button"
-            class="w-full rounded-md border px-3 py-2 text-left"
-            :class="session.id === selectedSessionId ? 'border-accent bg-accent-bg text-on-accent' : 'border-border bg-elevated text-fg hover:bg-hover'"
-            @click="selectSession(session.id)"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
-              <span class="flex-none text-[11px]" :class="session.live ? 'text-ok' : 'text-muted'">{{ session.live ? "live" : "detached" }}</span>
-            </div>
-            <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
-            <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
-          </button>
-        </li>
-      </ul>
+      <template v-else>
+        <ul class="flex flex-col gap-2">
+          <li v-for="session in sessions" :key="session.id">
+            <button
+              type="button"
+              class="w-full rounded-md border px-3 py-2 text-left"
+              :class="session.id === selectedSessionId ? 'border-accent bg-accent-bg text-on-accent' : 'border-border bg-elevated text-fg hover:bg-hover'"
+              @click="selectSession(session.id)"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
+                <span class="flex-none text-[11px]" :class="session.live ? 'text-ok' : 'text-muted'">{{ session.live ? "live" : "detached" }}</span>
+              </div>
+              <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
+              <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
+            </button>
+          </li>
+        </ul>
+
+        <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
+          <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
+
+          <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
+
+          <div v-else-if="screenStatus === 'error'" class="flex flex-col gap-2 text-[13px]">
+            <p class="text-err-text">Failed to load terminal screen.</p>
+            <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="retryScreen">
+              Retry
+            </button>
+          </div>
+
+          <pre
+            v-else-if="screenStatus === 'loaded'"
+            class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
+            >{{ screenText }}</pre>
+        </div>
+      </template>
     </main>
   </div>
 </template>
