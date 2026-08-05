@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // The mobile entry point (/mobile/terminals), mounted by App.vue instead of
-// DesktopAppShell — never alongside it. Wired to three read-only endpoints the local mobile
-// terminal API already exposes: which transport mode the server is running
-// (GET /api/mobile-mode), only in local mode the terminal session roster
-// (GET /api/mobile/terminal-sessions), and the selected session's current terminal screen
-// (GET /api/mobile/terminal-sessions/:id/screen). Input and launching are a follow-up change —
-// this page stops at a read-only view of one session's screen.
+// DesktopAppShell — never alongside it. Wired to the local mobile terminal API: which transport
+// mode the server is running (GET /api/mobile-mode), only in local mode the terminal session
+// roster (GET /api/mobile/terminal-sessions), the selected session's current terminal screen
+// (GET /api/mobile/terminal-sessions/:id/screen), and — for a live session — sending it one line
+// of input (POST /api/mobile/terminal-sessions/:id/input). Launching a terminal is still a
+// follow-up change.
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
@@ -69,7 +69,7 @@ let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 // One line of input, sent to a live session's PTY as-is. Sanitization, control-character
 // stripping, bracketed paste and Enter handling are all the existing POST /input route's job
-// (server/backends/remoteHost/terminalScreen.ts) — this page only forwards what was typed.
+// (server/backends/remoteHost/terminalInput.ts) — this page only forwards what was typed.
 const inputText = ref("");
 type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
