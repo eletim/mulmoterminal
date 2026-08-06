@@ -352,7 +352,18 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-screen flex-col bg-base text-fg">
+  <div class="flex h-dvh flex-col overflow-hidden bg-base text-fg">
+    <!-- h-dvh keeps the page bound to the dynamic viewport as browser chrome (address bar, etc.)
+         expands or collapses, and overflow-hidden stops the page itself from growing past it.
+         On supporting Android browsers, index.html's interactive-widget=resizes-content also
+         makes the layout viewport — and with it, this h-dvh — shrink when the on-screen keyboard
+         opens, so the footer below stays above the keyboard instead of behind it. No
+         VisualViewport or window.innerHeight JavaScript is used here; iOS and other browsers'
+         keyboard behavior can still differ and needs real-device verification. Only `main` below
+         scrolls; header and footer stay put via flex-none.
+         (Kept as the first child rather than above the root <div>: a comment before a template's
+         single root element makes Vue treat it as a multi-root fragment, and @vue/test-utils'
+         wrapper.element/.classes() then resolve to that comment node instead of the div.) -->
     <header class="flex h-10 flex-none items-center justify-between border-b border-border bg-panel px-4">
       <div class="flex min-w-0 items-baseline gap-2">
         <span class="font-sans text-[14px] font-semibold tracking-[0.02em]">MulmoTerminal</span>
@@ -363,7 +374,12 @@ onUnmounted(() => {
       </button>
     </header>
 
-    <main class="flex-1 overflow-y-auto px-4 py-4">
+    <!-- min-h-0 overrides the flex item's default min-height:auto, which otherwise lets this
+         grow to fit its content instead of clipping to the space flex-1 gives it — without it,
+         overflow-y-auto never kicks in and the page grows past the viewport instead of scrolling.
+         overscroll-contain stops a scroll-past-the-end here from dragging the whole page (and,
+         with it, the fixed footer) along with it. -->
+    <main class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
       <p v-if="status === 'loading'" class="text-[13px] text-secondary">Loading…</p>
 
       <div v-else-if="status === 'remote-disabled'" class="flex flex-col gap-2 text-[13px]">
@@ -437,27 +453,36 @@ onUnmounted(() => {
             >{{ screenText }}</pre>
 
           <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
-
-          <form v-if="screenStatus === 'loaded' && selectedSession.live" class="flex gap-2" @submit.prevent="sendTerminalInput">
-            <input
-              v-model="inputText"
-              type="text"
-              placeholder="Type a line…"
-              class="min-w-0 flex-1 rounded-md border border-border bg-elevated px-2.5 py-1.5 text-[13px] text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="inputStatus === 'sending'"
-            />
-            <button
-              type="submit"
-              class="flex-none rounded-md border border-border bg-panel px-3 py-1.5 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-              :disabled="inputStatus === 'sending'"
-            >
-              Send
-            </button>
-          </form>
-
-          <p v-if="inputStatus === 'error'" class="text-[12px] text-err-text">Failed to send terminal input.</p>
         </div>
       </template>
     </main>
+
+    <!-- Outside `main` on purpose: the input has to stay on screen while the session list and
+         terminal output scroll past it, not scroll away with them. flex-none plus the column
+         layout above is what pins it to the bottom — no position:fixed/sticky needed, and so
+         nothing here has to account for header height or scroll offset the way those would. -->
+    <footer
+      v-if="status === 'local' && screenStatus === 'loaded' && selectedSession?.live"
+      class="flex-none border-t border-border bg-panel px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+    >
+      <form class="flex gap-2" @submit.prevent="sendTerminalInput">
+        <input
+          v-model="inputText"
+          type="text"
+          placeholder="Type a line…"
+          class="min-w-0 flex-1 rounded-md border border-border bg-elevated px-2.5 py-2 text-[16px] text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="inputStatus === 'sending'"
+        />
+        <button
+          type="submit"
+          class="flex-none rounded-md border border-border bg-panel px-3 py-2 text-[13px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+          :disabled="inputStatus === 'sending' || inputText.trim() === ''"
+        >
+          Send
+        </button>
+      </form>
+
+      <p v-if="inputStatus === 'error'" class="mt-1 text-[12px] text-err-text">Failed to send terminal input.</p>
+    </footer>
   </div>
 </template>
