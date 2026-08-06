@@ -82,6 +82,18 @@ describe("parseAnsiRow", () => {
     expect(parseAnsiRow(`${ESC}[3;31mitalic red`)).toEqual([{ text: "italic red", fg: "#e06c75", bg: null, bold: false }]);
   });
 
+  // A known, documented limitation (see sgrOfEscape's own comment): the colon-separated
+  // ITU-T.416 sub-parameter form is a single unsplit token here, so 38/48 never matches it.
+  // `tmux capture-pane -e` — the only real producer of this text — has always used semicolons,
+  // so this never occurs in practice; the case here is that it degrades safely (colour simply
+  // not applied) rather than throwing or leaking the raw escape into the visible text.
+  it("does not crash or leak raw escape bytes on a colon-separated (ITU-T.416) colour code", () => {
+    expect(() => parseAnsiRow(`${ESC}[38:2::10:20:30mtext`)).not.toThrow();
+    const row = parseAnsiRow(`${ESC}[38:2::10:20:30mtext`);
+    expect(row.map((s) => s.text).join("")).toBe("text");
+    expect(row.map((s) => s.text).join("")).not.toContain(ESC);
+  });
+
   it("drops an OSC 8 hyperlink escape without exposing it as text", () => {
     const row = `${ESC}]8;id=1;https://example.com${ESC}\\link text${ESC}]8;;${ESC}\\`;
     expect(parseAnsiRow(row)).toEqual([plain("link text")]);

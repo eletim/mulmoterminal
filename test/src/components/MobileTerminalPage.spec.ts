@@ -763,8 +763,26 @@ describe("MobileTerminalPage", () => {
         const wrapper = await mountPage();
 
         const pre = wrapper.find("pre");
-        expect(pre.findAll("div")).toHaveLength(3);
-        expect(pre.element.textContent).toBe("firstthird");
+        const rows = pre.findAll("div");
+        expect(rows).toHaveLength(3);
+        expect(rows[0].text()).toBe("first");
+        expect(rows[2].text()).toBe("third");
+      });
+
+      // An empty <div> has no line box and collapses to zero height, so a blank terminal line
+      // would otherwise silently disappear from the styled view even though the plain-text
+      // fallback (a real "\n") keeps it — the blank row needs SOME content to hold its line.
+      // An empty <div> has no line box and collapses to zero height, so a blank terminal line
+      // would otherwise silently disappear from the styled view even though the plain-text
+      // fallback (a real "\n") keeps it. `.text()` trims whitespace (including U+00A0, per
+      // ECMA-262's WhiteSpace production), so this reads `element.textContent` directly rather
+      // than through that trimming helper.
+      it("keeps a blank row's line height instead of letting it collapse to nothing", async () => {
+        mockScreenWith([[{ text: "first", fg: null, bg: null, bold: false }], [], [{ text: "third", fg: null, bg: null, bold: false }]]);
+        const wrapper = await mountPage();
+
+        const rows = wrapper.find("pre").findAll("div");
+        expect(rows[1].element.textContent).toBe("\u00A0");
       });
 
       it("preserves long lines and horizontal scroll on the styled screen too", async () => {

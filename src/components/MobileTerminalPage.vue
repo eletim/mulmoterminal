@@ -107,6 +107,13 @@ function segmentStyle(segment: AnsiSegment): Record<string, string> {
   return style;
 }
 
+// An empty AnsiRow (a genuinely blank terminal line) renders as a `<div>` with no text content
+// at all — and an empty block element has no line box, so the row collapses to zero height and
+// the blank line disappears from the styled view (unlike the plain-text <pre> below, where the
+// same blank line is a real "\n" and keeps its height for free). A no-break space gives the div
+// content to lay out without being visible or copy-pasted as a stray glyph.
+const BLANK_ROW_FILLER = "\u00A0";
+
 // Rate limit for the manual Refresh/Retry button alone — session switches bypass it entirely
 // (section 9 of the spec this implements). Counted from when a refresh STARTS, not when its
 // request resolves, so a slow or failing request doesn't extend the cooldown.
@@ -468,13 +475,14 @@ onUnmounted(() => {
             here (rather than the page's own bg-elevated) is deliberate: ANSI's 16-colour
             palette (server/session/ansiSegments.ts) is tuned for a dark terminal background and
             would lose contrast against a light theme's page background otherwise — see the
-            palette's own comment.
+            palette's own comment. A row with no segments (a blank terminal line) falls back to
+            BLANK_ROW_FILLER so its <div> still has a line box — see that constant's comment.
           -->
           <pre
             v-else-if="screenStatus === 'loaded' && screenStyledRows"
             class="overflow-x-auto whitespace-pre rounded-md border border-border p-2 font-mono text-[12px]"
             style="background-color: #1e1e1e; color: #d4d4d4"
-          ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
+          ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-if="row.length === 0">{{ BLANK_ROW_FILLER }}</span><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
           <pre
             v-else-if="screenStatus === 'loaded'"
             class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"

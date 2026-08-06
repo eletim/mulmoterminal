@@ -152,6 +152,15 @@ const sgrAfter = (state: SgrState, params: readonly string[]): SgrState => {
   return sgrAfter(state, rest);
 };
 
+// Splits only on ";" — an SGR sequence using ITU-T.416's COLON-separated sub-parameter form
+// (e.g. "38:2::10:20:30", rather than the semicolon form "38;2;10;20;30") is left as one
+// unsplit token, so its 38/48 never matches and the colour is silently dropped (never shown
+// wrong, never crashes — just not decoded). Deliberately not handled: `tmux capture-pane -e` —
+// the only producer of the text this parses — has always re-emitted SGR with semicolons, so a
+// real capture never contains the colon form. screen-rows.ts's own dimAfter has the identical
+// limitation for the same reason and was never extended for it either. The OTHER capture route
+// (headlessScreen.ts's renderAnsiRows) is unaffected regardless: it reads @xterm/headless's own
+// resolved cell state, which parses both forms correctly on its own.
 const sgrOfEscape = (sequence: string, state: SgrState): SgrState => {
   const sgr = SGR.exec(sequence);
   return sgr === null ? state : sgrAfter(state, (sgr[1] ?? "").split(";"));
