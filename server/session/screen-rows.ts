@@ -26,8 +26,11 @@ const BEL = "\u0007";
 //
 // Composed from the control bytes rather than written as one literal: a regex literal
 // carrying them is exactly what the control-character lint rules exist to stop.
-const ESCAPE_SPLIT = new RegExp(`(${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)?|${ESC}\\[[\\d;:]*[a-zA-Z]|${ESC}[@-_])`, "u");
-const SGR = new RegExp(`^${ESC}\\[([\\d;:]*)m$`, "u");
+// Exported so ansiSegments.ts (the phone's colour path, #7) splits an escaped pane on the SAME
+// boundary this module already has tested against real `capture-pane -e` output — never a
+// second regex that has to be kept matching this one.
+export const ESCAPE_SPLIT = new RegExp(`(${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)?|${ESC}\\[[\\d;:]*[a-zA-Z]|${ESC}[@-_])`, "u");
+export const SGR = new RegExp(`^${ESC}\\[([\\d;:]*)m$`, "u");
 
 // Walk SGR parameters left to right. 38/48/58 introduce an extended colour whose own
 // arguments must be skipped — otherwise the trailing 2 of "38;5;2" (green) reads as the

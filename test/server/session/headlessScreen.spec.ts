@@ -4,8 +4,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { renderScreen, type HeadlessScreenInput } from "../../../server/session/headlessScreen.js";
+import { renderScreen, renderAnsiRows, type HeadlessScreenInput } from "../../../server/session/headlessScreen.js";
 import { rowsToScreen } from "../../../server/session/screen-rows.js";
+import { resolveIndexColor } from "../../../server/session/ansiSegments.js";
 
 const ESC = String.fromCharCode(0x1b);
 
@@ -99,5 +100,62 @@ describe("renderScreen", () => {
   it("leaves dim empty on a plain row", async () => {
     const rows = await renderScreen({ buffer: "❯ write the tests", cols: 40, rows: 2, historyLines: 0 });
     expect(rows[0]).toEqual({ text: "❯ write the tests", dim: "" });
+  });
+});
+
+// The fallback capture route's colour layer (#7): the same emulator renderScreen already runs
+// over the same buffer, read for the cells' resolved colour/bold instead of for dim. Reading
+// the emulator's own resolved state (rather than re-parsing the escapes) means this is exact by
+// construction — these cases exercise the merging into segments and the trims, not the SGR
+// parsing itself (ansiSegments.spec.ts already covers that for the tmux-text route).
+describe("renderAnsiRows", () => {
+  const ansiRowsOf = async (input: Omit<HeadlessScreenInput, "historyLines"> & { historyLines?: number }) => renderAnsiRows({ historyLines: 0, ...input });
+
+  it("renders a colourless buffer as one plain segment per row", async () => {
+    const rows = await ansiRowsOf({ buffer: "plain text", cols: 20, rows: 2 });
+    expect(rows).toEqual([[{ text: "plain text", fg: null, bg: null, bold: false }]]);
+  });
+
+  it("reads a foreground colour off the cells", async () => {
+    const rows = await ansiRowsOf({ buffer: `${ESC}[31mred${ESC}[0m`, cols: 20, rows: 2 });
+    expect(rows).toEqual([[{ text: "red", fg: "#e06c75", bg: null, bold: false }]]);
+  });
+
+  it("reads a background colour and bold off the cells", async () => {
+    const rows = await ansiRowsOf({ buffer: `${ESC}[1;42mbold on green${ESC}[0m`, cols: 20, rows: 2 });
+    expect(rows).toEqual([[{ text: "bold on green", fg: null, bg: "#98c379", bold: true }]]);
+  });
+
+  it("does not let style leak past a reset, even mid-row", async () => {
+    const rows = await ansiRowsOf({ buffer: `${ESC}[31mred${ESC}[0m plain`, cols: 20, rows: 2 });
+    expect(rows).toEqual([
+      [
+        { text: "red", fg: "#e06c75", bg: null, bold: false },
+        { text: " plain", fg: null, bg: null, bold: false },
+      ],
+    ]);
+  });
+
+  it("resolves a 256-colour cell to the same colour ansiSegments.ts's table would", async () => {
+    const rows = await ansiRowsOf({ buffer: `${ESC}[38;5;196mvivid`, cols: 20, rows: 2 });
+    expect(rows[0]?.[0]?.fg).toBe(resolveIndexColor(196));
+  });
+
+  it("resolves a truecolor cell", async () => {
+    const rows = await ansiRowsOf({ buffer: `${ESC}[38;2;10;20;30mtruecolor`, cols: 20, rows: 2 });
+    expect(rows[0]?.[0]?.fg).toBe("#0a141e");
+  });
+
+  it("survives a buffer ending mid-sequence without throwing", async () => {
+    await expect(ansiRowsOf({ buffer: `visible${ESC}[3`, cols: 20, rows: 2 })).resolves.toEqual([[{ text: "visible", fg: null, bg: null, bold: false }]]);
+  });
+
+  it("drops trailing blank rows below the last row with content", async () => {
+    const rows = await ansiRowsOf({ buffer: "one line", cols: 20, rows: 5 });
+    expect(rows).toHaveLength(1);
+  });
+
+  it("handles an empty buffer without throwing", async () => {
+    await expect(ansiRowsOf({ buffer: "", cols: 20, rows: 3 })).resolves.toEqual([]);
   });
 });

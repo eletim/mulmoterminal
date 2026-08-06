@@ -14,6 +14,7 @@ import { localSessionActivity, mountLocalMobileTerminalRoutes, type LocalMobileT
 import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/backends/remoteHost/terminalScreen";
 import { NO_BROWSER_ERROR } from "../../../server/backends/remoteHost/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";
+import type { AnsiRow } from "../../../common/ansiStyle";
 
 const LIVE = randomUUID();
 const TMUX_ONLY = randomUUID();
@@ -21,6 +22,7 @@ const GONE = randomUUID();
 const NO_CWD = randomUUID();
 
 const SCREEN: SessionScreen = { screen: "$ ", suggestion: "", quickCommands: [], cwd: "/home/user/project" };
+const STYLED_ROWS: AnsiRow[] = [[{ text: "$ ", fg: null, bg: null, bold: false }]];
 const SESSIONS: TerminalSessionSummary[] = [{ id: LIVE, title: "one", cwd: "/home/user/project", live: true, agent: "claude" }];
 const IDLE_ACTIVITY = { working: false, waiting: false, event: null, workPhase: null };
 
@@ -51,6 +53,7 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
     // Every session reads idle by default — the interesting cases override this per test.
     activityOf: () => ({ working: false, waiting: false, event: null }),
     workPhaseOf: () => null,
+    captureStyledScreen: async () => STYLED_ROWS,
     ...overrides,
   };
   const app = express();
@@ -106,11 +109,11 @@ describe("GET /api/mobile/terminal-sessions", () => {
 });
 
 describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
-  it("returns the existing SessionScreen shape", async () => {
+  it("returns the existing SessionScreen shape plus styledScreen (#7)", async () => {
     const { app } = appFor();
     const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(SCREEN);
+    expect(res.body).toEqual({ ...SCREEN, styledScreen: STYLED_ROWS });
   });
 
   it("400s an id that is not a session id", async () => {
@@ -135,6 +138,19 @@ describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "failed to read terminal screen" });
     expect(JSON.stringify(res.body)).not.toMatch(/at .*\.(ts|js):\d+/);
+  });
+
+  // The plain-text screen above is already a real, successful capture by the time styling is
+  // attempted — a failure building JUST the coloured rows must not turn that into a 500.
+  it("degrades to the plain-text screen alone when captureStyledScreen throws", async () => {
+    const { app } = appFor({
+      captureStyledScreen: async () => {
+        throw new Error("styling blew up");
+      },
+    });
+    const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(SCREEN);
   });
 });
 

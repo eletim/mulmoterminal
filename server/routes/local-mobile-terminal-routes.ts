@@ -6,7 +6,9 @@
 // Every dependency here is one of the SAME functions server/index.ts already builds for the
 // remote host adapter (remoteHostListTerminalSessions, remoteHostCaptureTerminalScreen, …) — this
 // file is a second adapter over the same PTY access, never a reimplementation of it, and never a
-// caller of the Firestore handler table.
+// caller of the Firestore handler table. The one exception is captureStyledScreen (#7's ANSI
+// colour layer): it reads the same tmux/PTY sources remoteHostCaptureTerminalScreen does, but is
+// never handed to the Firestore remote-host adapter — see its own doc comment for why.
 import type { Express, Request, Response } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
 import { requestBody } from "./requestBody.js";
@@ -18,6 +20,7 @@ import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScr
 import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps.js";
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
+import type { AnsiRow } from "../../common/ansiStyle.js";
 
 // The local-only counterpart of remoteHost's Firestore SessionActivity doc (backends/remoteHost/
 // sessionActivity.ts): same working/waiting/event/workPhase vocabulary, but every field is always
@@ -48,6 +51,11 @@ export type LocalMobileTerminalRouteDeps = Pick<
   // answers false/false/null/null rather than the route reaching for globals of its own.
   activityOf: (sessionId: string) => ActivityTriple;
   workPhaseOf: (sessionId: string) => WorkPhase | null;
+  // The colour layer (#7), local-only — see its definition in server/index.ts for why this is
+  // a separate capture rather than a field on captureTerminalScreen's SessionScreen (that type
+  // is remote mobile's Firestore wire shape too, which has no reader for this and a byte
+  // ceiling this would eat into for no reason).
+  captureStyledScreen: (sessionId: string) => Promise<AnsiRow[]>;
 };
 
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
@@ -62,6 +70,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     launchTerminal,
     activityOf,
     workPhaseOf,
+    captureStyledScreen,
   } = deps;
   // One sender for the whole mount, so its per-session serialization (typeAndSubmit's chain in
   // terminalInput.ts) actually spans every request — mirrors the Remote Host adapter's own
@@ -82,7 +91,20 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     const { id } = req.params;
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
     try {
-      res.json(await captureTerminalScreen(id));
+      const screen = await captureTerminalScreen(id);
+      // Styling is additive on top of the plain-text screen above, which already reflects
+      // whatever real error there is (session gone, tmux down, …) via the catch below. A
+      // failure building JUST the styled rows must not cost the phone the screen it already
+      // has — it degrades to the plain-text display it has always had instead (#7's "an
+      // incomplete/unsupported sequence must not break the screen" requirement, extended here
+      // to "styling itself failing must not break the screen" either).
+      let styledScreen: AnsiRow[] | undefined;
+      try {
+        styledScreen = await captureStyledScreen(id);
+      } catch (err) {
+        console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed to build styled rows:", err);
+      }
+      res.json(styledScreen ? { ...screen, styledScreen } : screen);
     } catch (err) {
       if (err instanceof TerminalSessionNotFoundError) return res.status(404).json({ error: "session not found" });
       console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed:", err);

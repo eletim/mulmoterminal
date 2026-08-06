@@ -688,6 +688,113 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("recovered");
     });
 
+    // #7: ANSI colour/style on /mobile/terminals. `screenOk`/`screenResponse` above only ever
+    // send `{ screen }` — these tests mock the response directly to add `styledScreen`, the
+    // field these behaviours hang off (server/routes/local-mobile-terminal-routes.ts).
+    describe("styled (ANSI) screen", () => {
+      function mockScreenWith(styledScreen: unknown, screen = "fallback text") {
+        globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+          if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) };
+          if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen, styledScreen }) };
+          throw new Error(`unexpected fetch: ${url}`);
+        }) as unknown as typeof fetch;
+      }
+
+      it("renders a coloured segment as a styled span, not as visible ANSI codes", async () => {
+        mockScreenWith([[{ text: "red text", fg: "#e06c75", bg: null, bold: false }]]);
+        const wrapper = await mountPage();
+
+        const span = wrapper.find("pre span");
+        expect(span.exists()).toBe(true);
+        expect(span.text()).toBe("red text");
+        expect((span.element as HTMLElement).style.color).toBe("rgb(224, 108, 117)");
+        // The raw escape byte must never reach the rendered text.
+        expect(wrapper.text()).not.toContain(String.fromCharCode(0x1b));
+        expect(wrapper.text()).not.toContain("[31m");
+      });
+
+      it("applies a background colour and bold alongside the foreground", async () => {
+        mockScreenWith([[{ text: "warn", fg: "#e5c07b", bg: "#545862", bold: true }]]);
+        const wrapper = await mountPage();
+
+        const span = wrapper.find("pre span");
+        const style = (span.element as HTMLElement).style;
+        expect(style.color).toBe("rgb(229, 192, 123)");
+        expect(style.backgroundColor).toBe("rgb(84, 88, 98)");
+        expect(style.fontWeight).toBe("700");
+      });
+
+      it("does not leak style into a later, unstyled segment (reset)", async () => {
+        mockScreenWith([
+          [
+            { text: "red", fg: "#e06c75", bg: null, bold: false },
+            { text: " plain", fg: null, bg: null, bold: false },
+          ],
+        ]);
+        const wrapper = await mountPage();
+
+        const spans = wrapper.findAll("pre span");
+        expect(spans).toHaveLength(2);
+        expect((spans[0].element as HTMLElement).style.color).toBe("rgb(224, 108, 117)");
+        expect((spans[1].element as HTMLElement).style.color).toBe("");
+        expect((spans[1].element as HTMLElement).style.backgroundColor).toBe("");
+        expect((spans[1].element as HTMLElement).style.fontWeight).toBe("");
+      });
+
+      it("keeps a plain, colourless row readable as plain text", async () => {
+        mockScreenWith([[{ text: "no colour here", fg: null, bg: null, bold: false }]]);
+        const wrapper = await mountPage();
+        expect(wrapper.find("pre").text()).toBe("no colour here");
+      });
+
+      it("escapes an HTML/script-looking segment as text, never as markup", async () => {
+        mockScreenWith([[{ text: "<script>alert(1)</script>", fg: "#e06c75", bg: null, bold: false }]]);
+        const wrapper = await mountPage();
+
+        expect(wrapper.find("pre script").exists()).toBe(false);
+        expect(wrapper.find("pre span").text()).toBe("<script>alert(1)</script>");
+        expect(wrapper.html()).not.toContain("<script>alert(1)</script>");
+      });
+
+      it("keeps each row on its own line, including a blank row in the middle", async () => {
+        mockScreenWith([[{ text: "first", fg: null, bg: null, bold: false }], [], [{ text: "third", fg: null, bg: null, bold: false }]]);
+        const wrapper = await mountPage();
+
+        const pre = wrapper.find("pre");
+        expect(pre.findAll("div")).toHaveLength(3);
+        expect(pre.element.textContent).toBe("firstthird");
+      });
+
+      it("preserves long lines and horizontal scroll on the styled screen too", async () => {
+        mockScreenWith([[{ text: "x".repeat(500), fg: "#61afef", bg: null, bold: false }]]);
+        const wrapper = await mountPage();
+
+        const pre = wrapper.find("pre");
+        expect(pre.classes()).toContain("overflow-x-auto");
+        expect(pre.classes()).toContain("whitespace-pre");
+        expect(pre.text()).toBe("x".repeat(500));
+      });
+
+      it("falls back to the plain-text screen when the server sends no styledScreen at all", async () => {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("plain fallback") } });
+        const wrapper = await mountPage();
+        const pre = wrapper.find("pre");
+        expect(pre.find("span").exists()).toBe(false);
+        expect(pre.text()).toBe("plain fallback");
+      });
+
+      it("treats a malformed styledScreen as an invalid response rather than guessing at it", async () => {
+        // Not an array of rows of segments — isMobileScreen must reject the whole payload (the
+        // same fail-loud rule this file already applies to a malformed session row) rather than
+        // rendering something built from a shape nothing validated.
+        mockScreenWith("not-an-array-of-rows");
+        const wrapper = await mountPage();
+        expect(wrapper.text()).toContain("Failed to load terminal screen.");
+      });
+    });
+
     it("does not display a stale screen response for a session switched away from mid-request", async () => {
       let resolveA: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
       const deferredA = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
