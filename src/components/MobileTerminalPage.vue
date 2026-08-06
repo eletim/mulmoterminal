@@ -111,13 +111,34 @@ const ACTIVITY_CLASS: Record<ReturnType<typeof mobileActivityStatus>, string> = 
   running: "text-accent",
   "needs input": "text-warn",
   done: "text-done",
-  waiting: "text-muted",
   idle: "text-muted",
 };
 
 const activityStatusOf = (session: MobileSession) =>
   mobileActivityStatus(session.activity.working, session.activity.waiting, session.activity.event, session.activity.workPhase);
 const activityClassOf = (session: MobileSession) => ACTIVITY_CLASS[activityStatusOf(session)];
+
+// The one place selection ever changes — a manual click (selectSession) and a poll's fallback
+// (applySessionList, when the selected session has disappeared) both go through this. Whichever
+// caller it is, switching sessions means the input box and any in-flight-send state belong to
+// the session being left, not the one being entered: a line typed for the old session must not
+// end up sent to the new one, and a stale "sending"/"error" from the old session must not leave
+// the new session's input looking busy or broken. No-ops when `next` is already selected, so a
+// re-click or a poll that returns the same selection touches neither ref.
+function changeSelectedSession(next: string | null): void {
+  if (next === selectedSessionId.value) return;
+
+  selectedSessionId.value = next;
+  inputText.value = "";
+  inputStatus.value = "idle";
+
+  if (next) {
+    void loadScreen(next);
+  } else {
+    screenStatus.value = "idle";
+    screenText.value = "";
+  }
+}
 
 // Applies a freshly fetched session list, keeping the current selection when it still exists
 // (used by both the initial load and the recurring poll below) and only otherwise falling back
@@ -129,14 +150,7 @@ function applySessionList(parsed: MobileSession[]): void {
   if (selectedSessionId.value !== null && parsed.some((session) => session.id === selectedSessionId.value)) return;
 
   const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
-  if (next === selectedSessionId.value) return; // nothing to do — same answer as before
-  selectedSessionId.value = next;
-  if (next) {
-    void loadScreen(next);
-  } else {
-    screenStatus.value = "idle";
-    screenText.value = "";
-  }
+  changeSelectedSession(next);
 }
 
 // Parses a GET /api/mobile/terminal-sessions response, throwing on anything malformed. Shared by
@@ -152,6 +166,23 @@ async function fetchSessionList(): Promise<MobileSession[]> {
   // actually reported, so one invalid row fails the whole load instead.
   if (!sessionsBody.sessions.every(isMobileSession)) throw new Error("invalid session row in /api/mobile/terminal-sessions response");
   return sessionsBody.sessions;
+}
+
+// Guards every call to fetchSessionList() — the initial load and every poll tick (interval or
+// visibilitychange) share this one flag, so at most one GET /api/mobile/terminal-sessions is ever
+// in flight. Without it, two overlapping fetches (a slow response plus a poll tick, or the
+// interval firing at the same moment as a tab-resume refresh) can resolve out of order and the
+// older one's applySessionList() call would overwrite the newer one's state with stale data.
+let sessionListRefreshInFlight = false;
+
+async function withSessionListGuard(fetchAndApply: () => Promise<void>): Promise<void> {
+  if (sessionListRefreshInFlight) return;
+  sessionListRefreshInFlight = true;
+  try {
+    await fetchAndApply();
+  } finally {
+    sessionListRefreshInFlight = false;
+  }
 }
 
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
@@ -170,7 +201,7 @@ async function load(): Promise<void> {
       return;
     }
 
-    applySessionList(await fetchSessionList());
+    await withSessionListGuard(async () => applySessionList(await fetchSessionList()));
     status.value = "local";
   } catch {
     status.value = "error";
@@ -181,14 +212,17 @@ async function load(): Promise<void> {
 // stay current without a page reload — the poll below, and the immediate refresh on tab resume.
 // Deliberately silent on failure and never flips `status`: an in-flight blip (server restart,
 // a dropped connection) must not blank a list the user is currently looking at, and the next
-// poll a couple of seconds later simply tries again.
+// poll a couple of seconds later simply tries again. Guarded by sessionListRefreshInFlight so the
+// interval and a visibilitychange resume never run concurrently with each other or with `load()`.
 async function refreshSessionList(): Promise<void> {
   if (status.value !== "local") return;
-  try {
-    applySessionList(await fetchSessionList());
-  } catch {
-    // leave the current list showing; the next poll retries
-  }
+  await withSessionListGuard(async () => {
+    try {
+      applySessionList(await fetchSessionList());
+    } catch {
+      // leave the current list showing; the next poll retries
+    }
+  });
 }
 
 const SESSION_LIST_POLL_MS = 2000;
@@ -241,14 +275,10 @@ function manualRefreshScreen(): void {
 
 // Selection lives in this ref alone — no query param, no localStorage, no store. It is
 // forgotten on reload, same as any other unrouted UI state on this page. Re-clicking the already
-// selected session is a no-op: no new screen request for a session already showing.
+// selected session is a no-op: no new screen request for a session already showing (handled by
+// changeSelectedSession's own guard).
 function selectSession(id: string): void {
-  if (selectedSessionId.value === id) return;
-  selectedSessionId.value = id;
-  // Otherwise a line typed for session A would sit in the box and could be sent to session B.
-  inputText.value = "";
-  inputStatus.value = "idle";
-  void loadScreen(id);
+  changeSelectedSession(id);
 }
 
 // Sends the current input as one line to the selected session's PTY via the existing POST

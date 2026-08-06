@@ -299,6 +299,188 @@ describe("MobileTerminalPage", () => {
         }
       });
 
+      // A poll auto-switching the selection away from a session that disappeared must go through
+      // the exact same reset as a manual click — otherwise a line typed for the vanished session
+      // could still be sent to whatever the fallback landed on, and a "sending"/"error" input
+      // status left over from it would leave the new selection's input looking busy or broken.
+      describe("automatic selection change (poll fallback)", () => {
+        it("clears typed input and a stuck error status when a poll auto-switches away from a disappeared session", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({
+              mode: "local",
+              sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+              screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+              inputs: { b: inputFail(500) },
+            });
+            const wrapper = await mountPage();
+            const buttons = wrapper.findAll("main li button");
+            await buttons[1].trigger("click"); // select "b"
+            await flushPromises();
+
+            const inputEl = () => wrapper.find('input[type="text"]');
+            await inputEl().setValue("leftover for b");
+            await wrapper.find("form").trigger("submit");
+            await flushPromises();
+            expect(wrapper.text()).toContain("Failed to send terminal input.");
+
+            // "b" is gone from the next poll — falls back to "a".
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
+            expect(wrapper.text()).not.toContain("Failed to send terminal input.");
+            expect((inputEl().element as HTMLInputElement).value).toBe("");
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it("does not let a stale send response from a session that disappeared via polling affect the fallback session's input", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            let resolveInputB: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+            const deferredInputB = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+              resolveInputB = resolve;
+            });
+            let sessionsNow: MockSession[] = [session({ id: "a", live: true }), session({ id: "b", live: true })];
+
+            globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+              if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: sessionsNow }) };
+              if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+              if (url === "/api/mobile/terminal-sessions/b/screen") return { ok: true, json: async () => ({ screen: "screen-b" }) };
+              if (url === "/api/mobile/terminal-sessions/b/input") return deferredInputB;
+              throw new Error(`unexpected fetch: ${url}`);
+            }) as unknown as typeof fetch;
+
+            const wrapper = await mountPage();
+            const buttons = wrapper.findAll("main li button");
+            await buttons[1].trigger("click"); // select "b"
+            await flushPromises();
+
+            const inputEl = () => wrapper.find('input[type="text"]');
+            await inputEl().setValue("echo from b");
+            await wrapper.find("form").trigger("submit"); // b's send is now pending
+            await flushPromises();
+
+            // "b" disappears from the list before its send resolves — falls back to "a".
+            sessionsNow = [session({ id: "a", live: true })];
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+            expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
+
+            await inputEl().setValue("echo from a");
+
+            // b's response finally arrives, as a failure — it must not touch a's input state.
+            resolveInputB({ ok: false, json: async () => ({}) });
+            await flushPromises();
+
+            expect((inputEl().element as HTMLInputElement).value).toBe("echo from a");
+            expect(wrapper.text()).not.toContain("Failed to send terminal input.");
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it("clears selection, screen and input state when the session list becomes empty via polling", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+            const wrapper = await mountPage();
+            await wrapper.find('input[type="text"]').setValue("leftover");
+
+            mockFetch({ mode: "local", sessions: [] });
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            expect(wrapper.text()).toContain("No terminal sessions.");
+            expect(wrapper.find('input[type="text"]').exists()).toBe(false);
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+      });
+
+      // The 2s interval and the visibilitychange resume handler both call refreshSessionList();
+      // without a shared in-flight guard, a slow response and an overlapping trigger can resolve
+      // out of order and the older one's applySessionList() call would clobber newer state.
+      describe("request de-duplication", () => {
+        it("does not start a second session list fetch while one is in flight, and retries once it settles", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+            await mountPage();
+
+            let resolvePoll: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+            const deferredPoll = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+              resolvePoll = resolve;
+            });
+            let sessionsCallCount = 0;
+            globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url === "/api/mobile/terminal-sessions") {
+                sessionsCallCount += 1;
+                return deferredPoll;
+              }
+              if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "v1" }) };
+              throw new Error(`unexpected fetch: ${url}`);
+            }) as unknown as typeof fetch;
+
+            vi.advanceTimersByTime(2000); // first poll tick starts a request and leaves it pending
+            await flushPromises();
+            expect(sessionsCallCount).toBe(1);
+
+            // A tab-resume overlapping the still-pending poll must not add a second request.
+            fireVisibilityChange("visible");
+            await flushPromises();
+            expect(sessionsCallCount).toBe(1);
+
+            // Also true of a second interval tick landing before the first request settles.
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+            expect(sessionsCallCount).toBe(1);
+
+            resolvePoll({ ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) });
+            await flushPromises();
+
+            // Once the in-flight request has settled, the guard is released and the next tick fetches again.
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+            expect(sessionsCallCount).toBe(2);
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it("releases the in-flight guard after a failed poll so the next interval can retry", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+            const wrapper = await mountPage();
+
+            mockFetch({ mode: "local", sessions: [], sessionsOk: false }); // this poll fails
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            mockFetch({
+              mode: "local",
+              sessions: [session({ id: "a", live: true, activity: { working: true, waiting: false, event: null, workPhase: null } })],
+              screens: { a: screenOk("v1") },
+            });
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            // The next poll after the failure succeeded — the guard was released, not left stuck.
+            expect(wrapper.text()).toContain("running · live");
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+      });
+
       it("does not empty the visible list when a poll fails", async () => {
         vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
         try {
