@@ -37,14 +37,20 @@ function notificationUrlFrom(payload) {
   return mobileTerminalsUrl(payload.sessionId);
 }
 
+function notificationText(payload, key, fallback) {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() !== "" ? value : fallback;
+}
+
 self.addEventListener("push", (event) => {
   const payload = pushPayload(event);
   const url = notificationUrlFrom(payload);
+  const kind = typeof payload.kind === "string" && payload.kind.trim() !== "" ? payload.kind : "mobile";
 
   event.waitUntil(
-    self.registration.showNotification("MulmoTerminal", {
-      body: "A mobile terminal session needs attention.",
-      tag: typeof payload.sessionId === "string" ? `mulmoterminal-mobile-${payload.sessionId}` : "mulmoterminal-mobile",
+    self.registration.showNotification(notificationText(payload, "title", "MulmoTerminal"), {
+      body: notificationText(payload, "body", "A mobile terminal session needs attention."),
+      tag: typeof payload.sessionId === "string" ? `mulmoterminal-mobile-${kind}-${payload.sessionId}` : `mulmoterminal-mobile-${kind}`,
       data: { url },
     }),
   );

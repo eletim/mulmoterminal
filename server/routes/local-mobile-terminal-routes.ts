@@ -23,6 +23,9 @@ import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
 import type { AnsiRow } from "../../common/ansiStyle.js";
+import { publicMobileWebPushConfig, type MobileWebPushConfig } from "../mobile-web-push/config.js";
+import { parseMobileWebPushSubscription, type MobileWebPushSubscriptionStore } from "../mobile-web-push/subscription-store.js";
+import type { MobileWebPushSender } from "../mobile-web-push/sender.js";
 
 // The local-only counterpart of remoteHost's Firestore SessionActivity doc (backends/remoteHost/
 // sessionActivity.ts): same working/waiting/event/workPhase vocabulary, but every field is always
@@ -59,6 +62,11 @@ export type LocalMobileTerminalRouteDeps = Pick<
   // is remote mobile's Firestore wire shape too, which has no reader for this and a byte
   // ceiling this would eat into for no reason).
   captureStyledScreen: (sessionId: string) => Promise<AnsiRow[]>;
+  mobileWebPush: {
+    config: () => MobileWebPushConfig;
+    subscriptions: MobileWebPushSubscriptionStore;
+    sender: MobileWebPushSender;
+  };
 };
 
 // Resolves the styled rows for a screen response, or undefined when styling isn't usable —
@@ -113,6 +121,50 @@ function mountCreateTerminalRoute(
   });
 }
 
+function webPushConfigured(config: MobileWebPushConfig, res: Response): config is Extract<MobileWebPushConfig, { enabled: true }> {
+  if (config.enabled) return true;
+  res.status(503).json({ error: config.reason });
+  return false;
+}
+
+function mountMobileWebPushRoutes(
+  app: Express,
+  isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
+  mobileWebPush: LocalMobileTerminalRouteDeps["mobileWebPush"],
+) {
+  app.get("/api/mobile/web-push/config", (_req: Request, res: Response) => {
+    res.json(publicMobileWebPushConfig(mobileWebPush.config()));
+  });
+
+  app.post("/api/mobile/web-push/subscriptions", async (req: Request, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    if (!webPushConfigured(mobileWebPush.config(), res)) return;
+    const { subscription } = requestBody(req.body);
+    const parsed = parseMobileWebPushSubscription(subscription);
+    if (!parsed) return res.status(400).json({ error: "subscription is invalid" });
+    const result = await mobileWebPush.subscriptions.upsert(parsed);
+    res.json({ ok: true, created: result.created, subscriptions: result.count });
+  });
+
+  app.delete("/api/mobile/web-push/subscriptions", async (req: Request, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const { endpoint } = requestBody(req.body);
+    if (typeof endpoint !== "string" || endpoint.trim() === "") return res.status(400).json({ error: "endpoint is required" });
+    const result = await mobileWebPush.subscriptions.removeEndpoint(endpoint);
+    res.json({ ok: true, removed: result.removed, subscriptions: result.count });
+  });
+
+  app.post("/api/mobile/web-push/test", async (req: Request, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const { sessionId } = requestBody(req.body);
+    const id = sessionId === undefined || sessionId === null ? null : sessionId;
+    if (id !== null && (typeof id !== "string" || !SESSION_ID_RE.test(id))) return res.status(400).json({ error: "invalid session id" });
+    const result = await mobileWebPush.sender.sendTest(id);
+    if (!result.ok) return res.status(503).json({ error: result.reason });
+    res.json(result);
+  });
+}
+
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
   const {
     isAllowedOrigin,
@@ -127,6 +179,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     activityOf,
     workPhaseOf,
     captureStyledScreen,
+    mobileWebPush,
   } = deps;
   // One sender for the whole mount, so its per-session serialization (typeAndSubmit's chain in
   // terminalInput.ts) actually spans every request — mirrors the Remote Host adapter's own
@@ -144,6 +197,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   });
 
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
+  mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
     const { id } = req.params;

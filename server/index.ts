@@ -113,6 +113,9 @@ import { initAccountingBackend } from "./backends/accounting.js";
 import { initFeedsBackend } from "./backends/feeds.js";
 import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend, mountRemoteHostRoutes } from "./backends/remoteHost/index.js";
 import { mountLocalMobileTerminalRoutes } from "./routes/local-mobile-terminal-routes.js";
+import { mobileWebPushConfigFromEnv } from "./mobile-web-push/config.js";
+import { createMobileWebPushSubscriptionStore, mobileWebPushSubscriptionsFile } from "./mobile-web-push/subscription-store.js";
+import { createMobileWebPushSender } from "./mobile-web-push/sender.js";
 import { normalizeActivity } from "./session/activity-transition.js";
 import { mountMobileTransport } from "./mobileTransportMount.js";
 import { createSessionActivityPublisher, firestoreSessionActivityStore } from "./backends/remoteHost/sessionActivity.js";
@@ -752,6 +755,12 @@ const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRo
 
 const mobileTerminalLauncher = createLaunchTerminalPublisher({ pubsub, cwdOfSession: (id) => ptys.get(id)?.cwd ?? null });
 const localMobileTerminalCreator = createLocalMobileTerminalCreator({ spawnClaudePty, spawnCodexPty, spawnAntigravityPty, spawnLauncherPty });
+const mobileWebPushSubscriptions = createMobileWebPushSubscriptionStore(mobileWebPushSubscriptionsFile(MULMOTERMINAL_HOME));
+const mobileWebPush = {
+  config: mobileWebPushConfigFromEnv,
+  subscriptions: mobileWebPushSubscriptions,
+  sender: createMobileWebPushSender({ config: mobileWebPushConfigFromEnv, store: mobileWebPushSubscriptions }),
+};
 
 // The byte(s) that submit for a given session (#772), resolved live from config per agent.
 const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit());
@@ -809,6 +818,7 @@ mountMobileTransport({
       createTerminalAtCwd: localMobileTerminalCreator,
       activityOf: localMobileActivityOf,
       workPhaseOf: localMobileWorkPhaseOf,
+      mobileWebPush,
     });
   },
 });

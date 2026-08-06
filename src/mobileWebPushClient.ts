@@ -1,10 +1,11 @@
+import { isRecord } from "../common/isRecord";
+import { jsonBody } from "./jsonBody";
+
 export const MOBILE_WEB_PUSH_SW_URL = "/mobile-web-push-sw.js";
 export const MOBILE_WEB_PUSH_SW_SCOPE = "/";
-
-// Public-only VAPID key used so the browser can create a PushSubscription in this
-// client-only slice. The matching private key is intentionally not in the repo;
-// server-side push delivery and persisted subscriptions are the follow-up issue.
-export const MOBILE_WEB_PUSH_PUBLIC_KEY = "BDCNh5z_3cDbWkcfgYzTs8uHi3AGwGUYXq2LZ1hHYwV3G3r6wauEOCh_2GwiCSA0H82cel5ItH4pPCHlMPYGPDg";
+export const MOBILE_WEB_PUSH_CONFIG_URL = "/api/mobile/web-push/config";
+export const MOBILE_WEB_PUSH_SUBSCRIPTIONS_URL = "/api/mobile/web-push/subscriptions";
+export const MOBILE_WEB_PUSH_TEST_URL = "/api/mobile/web-push/test";
 
 export type MobileWebPushSupport =
   | { supported: true }
@@ -43,4 +44,55 @@ export function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
 
 export async function registerMobileWebPushServiceWorker(): Promise<ServiceWorkerRegistration> {
   return navigator.serviceWorker.register(MOBILE_WEB_PUSH_SW_URL, { scope: MOBILE_WEB_PUSH_SW_SCOPE });
+}
+
+export interface MobileWebPushServerConfig {
+  enabled: boolean;
+  publicKey: string | null;
+  reason: string | null;
+}
+
+function parseServerConfig(value: Record<string, unknown>): MobileWebPushServerConfig {
+  const enabled = value.enabled === true;
+  const publicKey = typeof value.publicKey === "string" && value.publicKey.trim() !== "" ? value.publicKey : null;
+  const reason = typeof value.reason === "string" && value.reason.trim() !== "" ? value.reason : null;
+  return { enabled: enabled && publicKey !== null, publicKey, reason };
+}
+
+async function checkedJsonRequest(url: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  const res = await fetch(url, init);
+  const body = await jsonBody(res);
+  if (res.ok) return body;
+  const error = typeof body.error === "string" && body.error.trim() !== "" ? body.error : `HTTP ${res.status}`;
+  throw new Error(error);
+}
+
+export async function fetchMobileWebPushConfig(): Promise<MobileWebPushServerConfig> {
+  return parseServerConfig(await checkedJsonRequest(MOBILE_WEB_PUSH_CONFIG_URL));
+}
+
+export async function registerMobileWebPushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
+  if (!isRecord(subscription) || typeof subscription.endpoint !== "string") throw new Error("subscription endpoint is missing");
+  await checkedJsonRequest(MOBILE_WEB_PUSH_SUBSCRIPTIONS_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subscription }),
+  });
+}
+
+export async function unregisterMobileWebPushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
+  if (!isRecord(subscription) || typeof subscription.endpoint !== "string") throw new Error("subscription endpoint is missing");
+  await checkedJsonRequest(MOBILE_WEB_PUSH_SUBSCRIPTIONS_URL, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+}
+
+export async function sendMobileWebPushTest(sessionId: string | null | undefined): Promise<void> {
+  await checkedJsonRequest(MOBILE_WEB_PUSH_TEST_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: sessionId ?? null }),
+  });
 }

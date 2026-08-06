@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import {
-  MOBILE_WEB_PUSH_PUBLIC_KEY,
-  mobileTerminalNotificationUrl,
+  fetchMobileWebPushConfig,
   mobileWebPushSupport,
+  registerMobileWebPushSubscription,
   registerMobileWebPushServiceWorker,
+  sendMobileWebPushTest,
+  unregisterMobileWebPushSubscription,
   urlBase64ToUint8Array,
+  type MobileWebPushServerConfig,
 } from "../mobileWebPushClient";
 
 const props = defineProps<{ sessionId: string | null }>();
@@ -20,6 +23,7 @@ const pushPermission = ref<NotificationPermission | "unknown">(pushSupport.suppo
 const pushSubscribed = ref(false);
 const pushSubscriptionJson = ref<PushSubscriptionJSON | null>(null);
 const pushError = ref<string | null>(pushSupport.supported ? null : pushSupport.reason);
+const serverConfig = ref<MobileWebPushServerConfig | null>(null);
 
 const permissionLabel = computed(() => {
   if (pushPermission.value === "granted") return "Allowed";
@@ -32,11 +36,13 @@ const pushSummaryLabel = computed(() => {
   if (pushBusy.value) return "Working";
   if (pushStatus.value === "unsupported") return "Unsupported";
   if (pushStatus.value === "error") return "Needs attention";
+  if (!serverConfig.value?.enabled) return "Server off";
   return pushSubscribed.value ? "On" : "Off";
 });
-const canEnablePush = computed(() => pushSupport.supported && !pushBusy.value && !pushSubscribed.value && pushPermission.value !== "denied");
+const canUseServerPush = computed(() => pushSupport.supported && serverConfig.value?.enabled === true && !pushBusy.value);
+const canEnablePush = computed(() => canUseServerPush.value && pushPermission.value !== "denied");
 const canDisablePush = computed(() => pushSupport.supported && !pushBusy.value && pushSubscribed.value);
-const canTestPush = computed(() => pushSupport.supported && !pushBusy.value && pushPermission.value !== "denied");
+const canTestPush = computed(() => canUseServerPush.value && pushSubscribed.value && pushPermission.value !== "denied");
 
 function syncPushPermission(): void {
   if (!pushSupport.supported) return;
@@ -56,6 +62,13 @@ async function refreshPushState(): Promise<void> {
   syncPushPermission();
 
   try {
+    serverConfig.value = await fetchMobileWebPushConfig();
+    if (!serverConfig.value.enabled) {
+      pushStatus.value = "unsupported";
+      pushError.value = serverConfig.value.reason ?? "Mobile Web Push is not configured on this server.";
+      return;
+    }
+
     const registration = await registerMobileWebPushServiceWorker();
     reflectSubscription(await registration.pushManager.getSubscription());
     syncPushPermission();
@@ -83,6 +96,11 @@ async function enablePushNotifications(): Promise<void> {
   pushError.value = null;
   try {
     if (!(await ensureNotificationPermission())) return;
+    if (!serverConfig.value?.enabled || !serverConfig.value.publicKey) {
+      pushStatus.value = "unsupported";
+      pushError.value = serverConfig.value?.reason ?? "Mobile Web Push is not configured on this server.";
+      return;
+    }
 
     const registration = await registerMobileWebPushServiceWorker();
     const existing = await registration.pushManager.getSubscription();
@@ -90,13 +108,14 @@ async function enablePushNotifications(): Promise<void> {
       existing ??
       (await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(MOBILE_WEB_PUSH_PUBLIC_KEY),
+        applicationServerKey: urlBase64ToUint8Array(serverConfig.value.publicKey),
       }));
+    await registerMobileWebPushSubscription(subscription.toJSON());
     reflectSubscription(subscription);
     pushStatus.value = "ready";
   } catch {
     pushStatus.value = "error";
-    pushError.value = "Failed to subscribe to notifications.";
+    pushError.value = "Failed to register notifications with the server.";
   } finally {
     pushBusy.value = null;
     syncPushPermission();
@@ -111,12 +130,15 @@ async function disablePushNotifications(): Promise<void> {
   try {
     const registration = await registerMobileWebPushServiceWorker();
     const subscription = await registration.pushManager.getSubscription();
-    if (subscription) await subscription.unsubscribe();
+    if (subscription) {
+      await unregisterMobileWebPushSubscription(subscription.toJSON());
+      await subscription.unsubscribe();
+    }
     reflectSubscription(null);
     pushStatus.value = "ready";
   } catch {
     pushStatus.value = "error";
-    pushError.value = "Failed to unsubscribe from notifications.";
+    pushError.value = "Failed to unregister notifications from the server.";
   } finally {
     pushBusy.value = null;
     syncPushPermission();
@@ -130,15 +152,10 @@ async function showLocalTestNotification(): Promise<void> {
   pushError.value = null;
   try {
     if (!(await ensureNotificationPermission())) return;
-    const registration = await registerMobileWebPushServiceWorker();
-    await registration.showNotification("MulmoTerminal test", {
-      body: "Mobile notifications are working.",
-      tag: "mulmoterminal-mobile-test",
-      data: { url: mobileTerminalNotificationUrl(props.sessionId) },
-    });
+    await sendMobileWebPushTest(props.sessionId);
   } catch {
     pushStatus.value = "error";
-    pushError.value = "Failed to show the test notification.";
+    pushError.value = "Failed to send the test notification.";
   } finally {
     pushBusy.value = null;
     syncPushPermission();
@@ -162,7 +179,7 @@ void refreshPushState();
       <span class="text-fg">{{ subscriptionLabel }}</span>
     </div>
 
-    <p v-if="pushSubscriptionJson" class="mt-2 text-muted">Subscription ready for server storage.</p>
+    <p v-if="pushSubscriptionJson" class="mt-2 text-muted">Subscription registered for server push.</p>
     <p v-if="pushError" class="mt-2 text-err-text">{{ pushError }}</p>
 
     <div class="mt-3 flex flex-wrap gap-2">
