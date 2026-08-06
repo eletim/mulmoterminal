@@ -16,16 +16,53 @@ import { isLaunchAgent } from "../../common/launchAgent.js";
 import { createTerminalInputSender, sanitizeTerminalInput } from "../backends/remoteHost/terminalInput.js";
 import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScreen.js";
 import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps.js";
+import type { ActivityTriple } from "../session/activity-transition.js";
+import type { WorkPhase } from "../session/workPhase.js";
+
+// The local-only counterpart of remoteHost's Firestore SessionActivity doc (backends/remoteHost/
+// sessionActivity.ts): same working/waiting/event/workPhase vocabulary, but every field is always
+// present (never omitted the way the Firestore doc's optional ones are) — a shape a mobile client
+// can read without optional chaining. Deliberately NOT added to TerminalSessionSummary or
+// buildSessionList (backends/remoteHost/terminalScreen.ts): that type is remote mobile's wire
+// contract too, and this field is local-only (see the route below for why).
+export interface LocalSessionActivity extends ActivityTriple {
+  workPhase: WorkPhase | null;
+}
+
+// Combines the two readers server/index.ts wires in (one per source: the `activity` map, the
+// work-phase tracker) into the one field the route adds to each session row. Pure, so the mapping
+// itself needs no Express/fake-session-table setup to test.
+export const localSessionActivity = (activity: ActivityTriple, workPhase: WorkPhase | null): LocalSessionActivity => ({ ...activity, workPhase });
 
 export type LocalMobileTerminalRouteDeps = Pick<
   RemoteHostHandlerDeps,
   "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "sessionAgent" | "launchTerminal"
 > & {
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
+  // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
+  // roster and the remote host's Firestore mirror read (session/registry.js's `activity` map,
+  // session/work-phase-tracker.js) — never a second copy of that state. Two readers rather than
+  // one combined accessor because those are genuinely separate stores in server/index.ts; both
+  // are already normalized (see normalizeActivity / workPhaseTracker.phaseOf), so a session
+  // neither has ever heard from — a shell, a fresh launch, a tmux-only survivor of a restart —
+  // answers false/false/null/null rather than the route reaching for globals of its own.
+  activityOf: (sessionId: string) => ActivityTriple;
+  workPhaseOf: (sessionId: string) => WorkPhase | null;
 };
 
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
-  const { isAllowedOrigin, listTerminalSessions, captureTerminalScreen, writeToSession, canClearBox, submitSequence, sessionAgent, launchTerminal } = deps;
+  const {
+    isAllowedOrigin,
+    listTerminalSessions,
+    captureTerminalScreen,
+    writeToSession,
+    canClearBox,
+    submitSequence,
+    sessionAgent,
+    launchTerminal,
+    activityOf,
+    workPhaseOf,
+  } = deps;
   // One sender for the whole mount, so its per-session serialization (typeAndSubmit's chain in
   // terminalInput.ts) actually spans every request — mirrors the Remote Host adapter's own
   // createTerminalSessionHandlers (backends/remoteHost/handlers/terminalSession.ts), which builds
@@ -33,7 +70,12 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence, sessionAgent });
 
   app.get("/api/mobile/terminal-sessions", async (_req: Request, res: Response) => {
-    res.json({ sessions: await listTerminalSessions() });
+    const sessions = await listTerminalSessions();
+    // `activity` is joined in here, by id, rather than added to buildSessionList/
+    // TerminalSessionSummary — see LocalSessionActivity's comment. remoteHostListTerminalSessions
+    // (passed in as listTerminalSessions) is the SAME function the Firestore remote-host adapter
+    // calls, and its return shape is remote mobile's wire contract too.
+    res.json({ sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })) });
   });
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {

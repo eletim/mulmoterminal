@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { nextActivity, sessionRow, shouldRefreshReply } from "../../../server/session/activity-transition.js";
+import { nextActivity, normalizeActivity, sessionRow, shouldRefreshReply } from "../../../server/session/activity-transition.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -143,6 +143,27 @@ describe("sessionRow", () => {
 
   it("keeps a null cwd, which is what a reaped session has", () => {
     expect(sessionRow("S", { working: true }, null, {}).cwd).toBeNull();
+  });
+});
+
+// The working/waiting/event triple sessionRow spreads in — pinned on its own since the local
+// mobile route (local-mobile-terminal-routes.ts) reads it directly for a session's `activity`
+// field, without building a full SessionRow.
+describe("normalizeActivity", () => {
+  it("defaults every field for a session with no activity record", () => {
+    expect(normalizeActivity(undefined)).toEqual({ working: false, waiting: false, event: null });
+  });
+
+  it("defaults only the fields the record omits", () => {
+    expect(normalizeActivity({ working: true })).toEqual({ working: true, waiting: false, event: null });
+  });
+
+  it("carries a set flag and its event through unchanged", () => {
+    expect(normalizeActivity({ working: true, waiting: true, event: "Stop", at: 1 })).toEqual({ working: true, waiting: true, event: "Stop" });
+  });
+
+  it("drops `at` — bookkeeping, not part of the triple", () => {
+    expect(Object.keys(normalizeActivity({ working: true, at: 999 }))).not.toContain("at");
   });
 });
 

@@ -110,6 +110,7 @@ import { initAccountingBackend } from "./backends/accounting.js";
 import { initFeedsBackend } from "./backends/feeds.js";
 import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend, mountRemoteHostRoutes } from "./backends/remoteHost/index.js";
 import { mountLocalMobileTerminalRoutes } from "./routes/local-mobile-terminal-routes.js";
+import { normalizeActivity } from "./session/activity-transition.js";
 import { mountMobileTransport } from "./mobileTransportMount.js";
 import { createSessionActivityPublisher, firestoreSessionActivityStore } from "./backends/remoteHost/sessionActivity.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
@@ -755,6 +756,15 @@ const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys
 // input. Same lookup as sessionSubmitSequence above; shared for the same reason.
 const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
 
+// What the LOCAL mobile route's `activity` field reads (server/routes/local-mobile-terminal-
+// routes.ts) — the same `activity` map and work-phase tracker the desktop roster and the remote
+// host's Firestore mirror read (publishActivity in session/lifecycle.ts), joined by session id
+// rather than added to buildSessionList/TerminalSessionSummary (remote mobile's own wire shape).
+// Only wired into mountLocal below: remote mode has no use for it, since the Firestore doc
+// already carries the same fields per session.
+const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
+const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
+
 // The phone's terminal transport is exclusively one of two adapters over the SAME PTY access
 // above — never both, so a build never has to reconcile a Firestore command doc and an HTTP
 // request racing the same session. MOBILE_MODE is decided once at boot (server/config/env.ts);
@@ -791,6 +801,8 @@ mountMobileTransport({
       submitSequence: sessionSubmitSequence,
       sessionAgent: sessionAgentFor,
       launchTerminal: remoteHostLaunchTerminal,
+      activityOf: localMobileActivityOf,
+      workPhaseOf: localMobileWorkPhaseOf,
     });
   },
 });

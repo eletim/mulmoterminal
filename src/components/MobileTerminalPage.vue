@@ -13,12 +13,32 @@ import { SESSION_AGENTS } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
+import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 
 const router = useRouter();
 
 function backToDesktop(): void {
   void router.push("/terminals");
 }
+
+// The activity local mode alone adds to a session row (server/routes/local-mobile-terminal-
+// routes.ts's LocalSessionActivity) — never present on remote mobile's Firestore-backed rows,
+// but this page only ever talks to the local route, so it is required here rather than optional.
+// Present-but-idle (false/false/null/null) for a session activity has never observed — a fresh
+// launch, a shell, a tmux-only survivor of a restart — never an absent field.
+interface MobileActivity {
+  working: boolean;
+  waiting: boolean;
+  event: string | null;
+  workPhase: WorkPhase | null;
+}
+
+const isMobileActivity = (value: unknown): value is MobileActivity =>
+  isRecord(value) &&
+  typeof value.working === "boolean" &&
+  typeof value.waiting === "boolean" &&
+  (value.event === null || typeof value.event === "string") &&
+  (value.workPhase === null || isWorkPhase(value.workPhase));
 
 // The fields this page reads off a GET /api/mobile/terminal-sessions row. The backend's
 // TerminalSessionSummary (server/backends/remoteHost/terminalScreen.ts) carries more
@@ -29,6 +49,7 @@ interface MobileSession {
   cwd: string;
   live: boolean;
   agent: string | null;
+  activity: MobileActivity;
 }
 
 const isMobileSession = (value: unknown): value is MobileSession =>
@@ -37,7 +58,8 @@ const isMobileSession = (value: unknown): value is MobileSession =>
   typeof value.title === "string" &&
   typeof value.cwd === "string" &&
   typeof value.live === "boolean" &&
-  (value.agent === null || SESSION_AGENTS.some((known) => known === value.agent));
+  (value.agent === null || SESSION_AGENTS.some((known) => known === value.agent)) &&
+  isMobileActivity(value.activity);
 
 type Status = "loading" | "remote-disabled" | "local" | "error";
 
@@ -80,6 +102,58 @@ interface MobileInputResult {
 
 const isMobileInputResult = (value: unknown): value is MobileInputResult => isRecord(value) && value.sent === true;
 
+// Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
+// DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
+// user, the shared "done" green for a finished-but-unreviewed turn, muted for idle/waiting.
+const ACTIVITY_CLASS: Record<ReturnType<typeof mobileActivityStatus>, string> = {
+  planning: "text-accent",
+  implementing: "text-accent",
+  running: "text-accent",
+  "needs input": "text-warn",
+  done: "text-done",
+  waiting: "text-muted",
+  idle: "text-muted",
+};
+
+const activityStatusOf = (session: MobileSession) =>
+  mobileActivityStatus(session.activity.working, session.activity.waiting, session.activity.event, session.activity.workPhase);
+const activityClassOf = (session: MobileSession) => ACTIVITY_CLASS[activityStatusOf(session)];
+
+// Applies a freshly fetched session list, keeping the current selection when it still exists
+// (used by both the initial load and the recurring poll below) and only otherwise falling back
+// to the first live session, then the first session, then nothing. On the initial load
+// `selectedSessionId` is always null, so this always falls into the fallback branch — the same
+// choice `load()` made before this was split out.
+function applySessionList(parsed: MobileSession[]): void {
+  sessions.value = parsed;
+  if (selectedSessionId.value !== null && parsed.some((session) => session.id === selectedSessionId.value)) return;
+
+  const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
+  if (next === selectedSessionId.value) return; // nothing to do — same answer as before
+  selectedSessionId.value = next;
+  if (next) {
+    void loadScreen(next);
+  } else {
+    screenStatus.value = "idle";
+    screenText.value = "";
+  }
+}
+
+// Parses a GET /api/mobile/terminal-sessions response, throwing on anything malformed. Shared by
+// the initial load (a bad response fails the whole page) and the poll (a bad response is caught
+// by the caller and simply skipped, leaving the list as it was).
+async function fetchSessionList(): Promise<MobileSession[]> {
+  const sessionsRes = await fetch("/api/mobile/terminal-sessions");
+  if (!sessionsRes.ok) throw new Error(`HTTP ${sessionsRes.status}`);
+  const sessionsBody = await jsonBody(sessionsRes);
+  if (!isUnknownArray(sessionsBody.sessions)) throw new Error("invalid /api/mobile/terminal-sessions response");
+  // Every row must be well-formed. Silently dropping a bad one would make the count, the empty
+  // state and the first-live/first-session selection all quietly disagree with what the server
+  // actually reported, so one invalid row fails the whole load instead.
+  if (!sessionsBody.sessions.every(isMobileSession)) throw new Error("invalid session row in /api/mobile/terminal-sessions response");
+  return sessionsBody.sessions;
+}
+
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
 // called again except by the Retry button, which re-enters here from the mode check.
 async function load(): Promise<void> {
@@ -96,29 +170,35 @@ async function load(): Promise<void> {
       return;
     }
 
-    const sessionsRes = await fetch("/api/mobile/terminal-sessions");
-    if (!sessionsRes.ok) throw new Error(`HTTP ${sessionsRes.status}`);
-    const sessionsBody = await jsonBody(sessionsRes);
-    if (!isUnknownArray(sessionsBody.sessions)) throw new Error("invalid /api/mobile/terminal-sessions response");
-    // Every row must be well-formed. Silently dropping a bad one would make the count, the empty
-    // state and the first-live/first-session selection all quietly disagree with what the server
-    // actually reported, so one invalid row fails the whole load instead.
-    if (!sessionsBody.sessions.every(isMobileSession)) throw new Error("invalid session row in /api/mobile/terminal-sessions response");
-    const parsed = sessionsBody.sessions;
-
-    sessions.value = parsed;
-    // The first live session wins; with none live, the first session; with none at all, nothing.
-    selectedSessionId.value = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
+    applySessionList(await fetchSessionList());
     status.value = "local";
-    if (selectedSessionId.value) {
-      void loadScreen(selectedSessionId.value);
-    } else {
-      screenStatus.value = "idle";
-      screenText.value = "";
-    }
   } catch {
     status.value = "error";
   }
+}
+
+// Re-fetches the session list so activity (working/waiting/workPhase) and live/detached state
+// stay current without a page reload — the poll below, and the immediate refresh on tab resume.
+// Deliberately silent on failure and never flips `status`: an in-flight blip (server restart,
+// a dropped connection) must not blank a list the user is currently looking at, and the next
+// poll a couple of seconds later simply tries again.
+async function refreshSessionList(): Promise<void> {
+  if (status.value !== "local") return;
+  try {
+    applySessionList(await fetchSessionList());
+  } catch {
+    // leave the current list showing; the next poll retries
+  }
+}
+
+const SESSION_LIST_POLL_MS = 2000;
+let sessionListTimer: ReturnType<typeof setInterval> | null = null;
+
+// Only while the tab is actually visible — a backgrounded phone tab has no reason to keep
+// polling, and the resume handler below (handleVisibilityChange) already covers "came back".
+function pollSessionListIfVisible(): void {
+  if (document.visibilityState !== "visible") return;
+  void refreshSessionList();
 }
 
 // Fetches one session's current screen exactly once. `requestedId` is captured at call time and
@@ -204,14 +284,20 @@ async function sendTerminalInput(): Promise<void> {
   }
 }
 
-// Refetches the selected session's screen once whenever the tab comes back from the background —
-// covering the phone-locked-then-unlocked case, where the screen shown is otherwise however old
-// it was when the tab went away. Independent of the manual Refresh cooldown in both directions:
-// it fires even while that cooldown is running, and it never starts or resets it. Only the
-// existing stale-response guard inside loadScreen applies; hidden itself changes nothing.
+// Refetches the session list and the selected session's screen whenever the tab comes back from
+// the background — covering the phone-locked-then-unlocked case, where both would otherwise be
+// however old they were when the tab went away. The session list refresh runs unconditionally
+// (subject only to the `status === "local"` guard inside refreshSessionList itself); the screen
+// refresh keeps its own independent guards below. Independent of the manual Refresh cooldown in
+// both directions: it fires even while that cooldown is running, and it never starts or resets
+// it. Only the existing stale-response guard inside loadScreen applies; hidden itself changes
+// nothing.
 function handleVisibilityChange(): void {
   if (document.visibilityState !== "visible") return;
   if (status.value !== "local") return;
+
+  void refreshSessionList();
+
   if (!selectedSessionId.value) return;
   if (screenStatus.value === "loading") return;
 
@@ -221,11 +307,17 @@ function handleVisibilityChange(): void {
 onMounted(() => {
   void load();
   document.addEventListener("visibilitychange", handleVisibilityChange);
+  // Keeps activity (working/waiting/workPhase) and live/detached current while the list is on
+  // screen. Runs for the lifetime of the component regardless of `status` — refreshSessionList
+  // itself no-ops outside "local" — so a Retry that recovers into "local" is covered by the same
+  // timer rather than needing to (re)start one.
+  sessionListTimer = setInterval(pollSessionListIfVisible, SESSION_LIST_POLL_MS);
 });
 
 onUnmounted(() => {
   if (cooldownTimeoutId !== null) clearTimeout(cooldownTimeoutId);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
+  if (sessionListTimer !== null) clearInterval(sessionListTimer);
 });
 </script>
 
@@ -269,7 +361,12 @@ onUnmounted(() => {
             >
               <div class="flex items-center justify-between gap-2">
                 <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
-                <span class="flex-none text-[11px]" :class="session.live ? 'text-ok' : 'text-muted'">{{ session.live ? "live" : "detached" }}</span>
+                <!-- Activity (running/planning/…/idle) alongside the connection state (live/detached) —
+                     two different concepts (docs/grid-view-modes.md's desktop equivalent keeps them
+                     as separate signals too), shown together since the phone has one line of room. -->
+                <span class="flex-none text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : activityClassOf(session)">
+                  {{ activityStatusOf(session) }} · {{ session.live ? "live" : "detached" }}
+                </span>
               </div>
               <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
               <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
