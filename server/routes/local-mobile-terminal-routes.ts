@@ -17,6 +17,7 @@ import { messageOf } from "../errors.js";
 import { isLaunchAgent } from "../../common/launchAgent.js";
 import { createTerminalInputSender, sanitizeTerminalInput } from "../backends/remoteHost/terminalInput.js";
 import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScreen.js";
+import { ansiRowsToText } from "../session/ansiSegments.js";
 import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps.js";
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
@@ -58,6 +59,32 @@ export type LocalMobileTerminalRouteDeps = Pick<
   captureStyledScreen: (sessionId: string) => Promise<AnsiRow[]>;
 };
 
+// Resolves the styled rows for a screen response, or undefined when styling isn't usable —
+// either it failed outright, or (#7 round-3 review) it and the plain `screen` disagree on what
+// the pane showed, which only happens when captureTerminalScreen and captureStyledScreen (two
+// INDEPENDENT reads of the same live session — nothing makes them atomic with each other) raced
+// against an active repaint. Both parsers extract the SAME text off the SAME capture, so the two
+// agree byte for byte whenever they really did read the same frame; a mismatch means they
+// didn't, and only the already-successful plain `screen` is trustworthy then. Split out of the
+// route handler so a styling failure or mismatch can never touch what has already succeeded.
+async function resolveStyledScreen(
+  id: string,
+  screen: { screen: string },
+  captureStyledScreen: LocalMobileTerminalRouteDeps["captureStyledScreen"],
+): Promise<AnsiRow[] | undefined> {
+  try {
+    const captured = await captureStyledScreen(id);
+    // `.trimEnd()` matches captureSessionScreen's own `rowsToScreen(...).trimEnd()` — it strips
+    // more than ASCII space (U+00A0 included), so leaving it off here would make a screen
+    // ending in Claude Code's NBSP-padded ghost text mismatch for a reason that isn't a real
+    // capture race at all.
+    return ansiRowsToText(captured).trimEnd() === screen.screen ? captured : undefined;
+  } catch (err) {
+    console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed to build styled rows:", err);
+    return undefined;
+  }
+}
+
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
   const {
     isAllowedOrigin,
@@ -93,17 +120,10 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     try {
       const screen = await captureTerminalScreen(id);
       // Styling is additive on top of the plain-text screen above, which already reflects
-      // whatever real error there is (session gone, tmux down, …) via the catch below. A
-      // failure building JUST the styled rows must not cost the phone the screen it already
-      // has — it degrades to the plain-text display it has always had instead (#7's "an
-      // incomplete/unsupported sequence must not break the screen" requirement, extended here
-      // to "styling itself failing must not break the screen" either).
-      let styledScreen: AnsiRow[] | undefined;
-      try {
-        styledScreen = await captureStyledScreen(id);
-      } catch (err) {
-        console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed to build styled rows:", err);
-      }
+      // whatever real error there is (session gone, tmux down, …) via the catch below — a
+      // failure or a mismatch resolving styled rows must not cost the phone the screen it
+      // already has (resolveStyledScreen's own comment covers both cases).
+      const styledScreen = await resolveStyledScreen(id, screen, captureStyledScreen);
       res.json(styledScreen ? { ...screen, styledScreen } : screen);
     } catch (err) {
       if (err instanceof TerminalSessionNotFoundError) return res.status(404).json({ error: "session not found" });

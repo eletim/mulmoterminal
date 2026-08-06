@@ -208,6 +208,24 @@ describe("ansiScreenWindow", () => {
     expect(rows.map((row) => row.map((s) => s.text).join(""))).toEqual(["newest"]);
   });
 
+  // Round-3 review: measuring only VISIBLE text bytes lets output that changes style every
+  // character defeat the cap entirely — each character becomes its own {text,fg,bg,bold}
+  // object, and that JSON overhead (not the one-character text) is what actually reaches the
+  // phone. A row with 6000 such segments is only 6 KB of visible text but is excluded here,
+  // proving the cap measures the SERIALIZED row rather than rowText(row).
+  it("excludes a row whose visible text is tiny but whose per-character styling makes it huge on the wire", () => {
+    const highlySegmented: AnsiRow = Array.from({ length: 6000 }, (_, index) => ({
+      text: "x",
+      fg: index % 2 === 0 ? "#e06c75" : "#98c379",
+      bg: null,
+      bold: false,
+    }));
+    expect(highlySegmented.map((s) => s.text).join("").length).toBeLessThan(256 * 1024); // visible text alone would pass the old check
+
+    const rows = ansiScreenWindow([highlySegmented, plainRow("newest")]);
+    expect(rows.map((row) => row.map((s) => s.text).join(""))).toEqual(["newest"]);
+  });
+
   it("survives a session with nothing on screen at all", () => {
     expect(ansiScreenWindow([[], [], []])).toEqual([]);
     expect(ansiScreenWindow([])).toEqual([]);

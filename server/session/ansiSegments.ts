@@ -218,6 +218,14 @@ export const parseAnsiRows = (styled: string): AnsiRow[] => styled.split("\n").m
 
 const rowText = (row: AnsiRow): string => row.map((segment) => segment.text).join("");
 
+// The plain text `styledScreen` would show with every colour stripped — used ONLY to check that
+// styledScreen and the plain-text `screen` field it accompanies came from the SAME underlying
+// capture (server/routes/local-mobile-terminal-routes.ts's consistency check, #7 round-3
+// review), mirroring rowsToScreen's job for ScreenRow[]. Both parsers extract text identically
+// off the same raw capture, so this equals `screen.screen` byte for byte when — and only when —
+// the two captures agreed.
+export const ansiRowsToText = (rows: readonly AnsiRow[]): string => rows.map(rowText).join("\n");
+
 // The blank rows below the last line with real content — the unused part of the visible pane,
 // not output — dropped the same way terminalScreen.ts's withoutTrailingBlanks drops them from
 // the plain-text screen, so the styled and plain views end at the same line.
@@ -225,8 +233,7 @@ export const trimTrailingBlankAnsiRows = (rows: readonly AnsiRow[]): AnsiRow[] =
 
 // Newline, counted alongside each row so the cap measures roughly the size of the JSON the
 // phone receives — mirrors terminalScreen.ts's own ROW_SEPARATOR_BYTES accounting for the
-// plain-text screen (the styled wire shape is heavier per row than one newline, but this stays
-// a ceiling on the TEXT content, same rationale as that constant's own comment: not a budget).
+// plain-text screen.
 const ROW_SEPARATOR_BYTES = 1;
 
 // The newest rows that fit in SCREEN_MAX_BYTES, scanned from the bottom exactly like
@@ -235,11 +242,17 @@ const ROW_SEPARATOR_BYTES = 1;
 // one text field) — kept as the SAME algorithm over the SAME budget, not a smaller version of
 // it, so a local response can't grow unboundedly on a wide pane just because it is not
 // Firestore-constrained (#7 round-2 review).
+//
+// Measures the SERIALIZED row (JSON.stringify), not just its visible text (#7 round-3 review):
+// output that changes style every character (an extreme case, but not an impossible one) turns
+// every character into its own `{text, fg, bg, bold}` object, whose JSON overhead dwarfs the
+// one-byte-per-character the visible text alone would suggest — measuring text bytes only would
+// let exactly that case defeat the cap this exists to enforce.
 const withinAnsiByteCap = (rows: readonly AnsiRow[]): AnsiRow[] =>
   rows.reduceRight<{ kept: AnsiRow[]; bytes: number; full: boolean }>(
     (state, row) => {
       if (state.full) return state;
-      const bytes = state.bytes + Buffer.byteLength(rowText(row), "utf8") + ROW_SEPARATOR_BYTES;
+      const bytes = state.bytes + Buffer.byteLength(JSON.stringify(row), "utf8") + ROW_SEPARATOR_BYTES;
       if (bytes > SCREEN_MAX_BYTES) return { ...state, full: true };
       return { kept: [row, ...state.kept], bytes, full: false };
     },
