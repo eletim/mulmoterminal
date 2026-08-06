@@ -135,6 +135,87 @@ describe("WorkItemChip", () => {
     const w = mount(WorkItemChip, { props: { item: item({ phase, pr: 977, issue: 966 }) } });
     expect(w.find('[data-testid="work-chip"]').exists()).toBe(false);
   });
+
+  // Same bug as GitBranchChip beside it, and the same fix: the root used to derive its background
+  // from `color-mix(in srgb, currentColor 12%, transparent)` while the PR/issue links read
+  // `text-inherit` off the header's `--cell-header-fg`. A `headerTextColor: "#ffffff"` header made
+  // the links AND the background wash toward that same white. The root now carries `text-fg`
+  // itself, so `text-inherit` on the links resolves to the chip's own color instead of the
+  // header's — and the root's background/border come from theme tokens, not currentColor.
+  describe("colors do not depend on the parent's inherited text color", () => {
+    const render = () =>
+      mount(WorkItemChip, { props: { item: item({ phase: "ready", pr: 977, prUrl: "https://x/pull/977", issue: 966, issueUrl: "https://x/issues/966" }) } });
+
+    it("carries theme-token background, text and border classes", () => {
+      const classes = render().find('[data-testid="work-chip"]').classes();
+      expect(classes).toContain("bg-elevated");
+      expect(classes).toContain("text-fg");
+      expect(classes).toContain("border");
+      expect(classes).toContain("border-border");
+    });
+
+    it("does not derive its background from currentColor", () => {
+      const classes = render().find('[data-testid="work-chip"]').classes();
+      expect(classes.some((c) => c.includes("currentColor"))).toBe(false);
+    });
+
+    it("does not carry the old opacity-85 fade", () => {
+      expect(render().find('[data-testid="work-chip"]').classes()).not.toContain("opacity-85");
+    });
+
+    // jsdom does no layout or color resolution, so this can only assert the classes are present
+    // regardless of what the (irrelevant, in this mount) parent would have set on `color` — the
+    // fix is precisely that the root's own bg-elevated/text-fg no longer depend on that value.
+    it("still carries its own contrast classes when the parent sets a white text color", () => {
+      const host = document.createElement("div");
+      host.style.color = "#ffffff";
+      document.body.appendChild(host);
+      const w = mount(WorkItemChip, {
+        props: { item: item({ phase: "ready", pr: 977, issue: 966 }) },
+        attachTo: host,
+      });
+      const classes = w.find('[data-testid="work-chip"]').classes();
+      expect(classes).toContain("bg-elevated");
+      expect(classes).toContain("text-fg");
+    });
+
+    it("still shows the PR and issue numbers, each linked to the same URL as before", () => {
+      const w = render();
+      expect(w.get('[data-testid="work-pr"]').text()).toBe("#977");
+      expect(w.get('[data-testid="work-pr"]').attributes("href")).toBe("https://x/pull/977");
+      expect(w.get('[data-testid="work-issue"]').text()).toBe("#966");
+      expect(w.get('[data-testid="work-issue"]').attributes("href")).toBe("https://x/issues/966");
+    });
+
+    it("still shows the arrow between PR and issue", () => {
+      expect(render().get('[data-testid="work-arrow"]').text()).toBe("→");
+    });
+
+    it("still shows the phase label", () => {
+      expect(render().get('[data-testid="work-phase"]').text()).toBe("ready");
+    });
+
+    // Opacity on small text loses more contrast against a light bg-elevated than the same color at
+    // full alpha would — text-secondary is the token pairing already used for de-emphasized text
+    // elsewhere (e.g. dir path breadcrumbs), and it stays legible on every built-in theme.
+    it("colors the arrow and phase with text-secondary instead of opacity", () => {
+      const w = render();
+      expect(w.get('[data-testid="work-arrow"]').classes()).toContain("text-secondary");
+      expect(w.get('[data-testid="work-arrow"]').classes()).not.toContain("opacity-60");
+      expect(w.get('[data-testid="work-phase"]').classes()).toContain("text-secondary");
+      expect(w.get('[data-testid="work-phase"]').classes()).not.toContain("opacity-70");
+    });
+  });
+
+  // #1235: the tip is what carries what an 18ch chip has no room for — unaffected by the color
+  // change above, but worth pinning here since both are read off the same root element.
+  it("keeps flex-none in the tight header row", () => {
+    expect(
+      mount(WorkItemChip, { props: { item: item({ phase: "ready", pr: 977 }) } })
+        .find('[data-testid="work-chip"]')
+        .classes(),
+    ).toContain("flex-none");
+  });
 });
 
 // Which transition is worth telling the issue about (#979 Phase 2). The client only decides WHEN
