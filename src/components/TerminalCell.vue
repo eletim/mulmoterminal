@@ -73,7 +73,6 @@ const props = defineProps<
     initialCwd: string | null;
     // The persisted agent for this cell; absent (or "claude") resumes as a normal Claude session.
     initialAgent?: TerminalAgent | null | undefined;
-    launchRequestId?: string | undefined;
     defaultCwd: string | null;
     presets: CwdPreset[];
     // Configured launch commands (shell/codex/…) offered next to Claude in this launcher.
@@ -1127,7 +1126,6 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           :cwd="cwd"
           :agent="agent"
           :launch="launchChoice"
-          :launch-request-id="launchRequestId"
           :hide-header="filmstrip"
           :expanded="expanded"
           :zoomed="zoomed"

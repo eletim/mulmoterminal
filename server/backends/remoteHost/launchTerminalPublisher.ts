@@ -16,8 +16,8 @@ export function createLaunchTerminalPublisher(deps: { pubsub: LaunchTerminalPubl
       const decision = decideLaunchTerminal({ agent, sessionId, cwdOf: deps.cwdOfSession, listenerCount: listenerCount() });
       return decision.ok ? publish(decision.request) : decision;
     },
-    atCwd(agent: unknown, cwd: string, requestId?: string) {
-      const decision = decideLaunchTerminalAtCwd({ agent, cwd, requestId, listenerCount: listenerCount() });
+    atCwd(agent: unknown, cwd: string) {
+      const decision = decideLaunchTerminalAtCwd({ agent, cwd, listenerCount: listenerCount() });
       return decision.ok ? publish(decision.request) : decision;
     },
   };

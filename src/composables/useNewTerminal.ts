@@ -18,7 +18,6 @@ export interface NewTerminalRequest {
   // What the new cell runs. Omitted means the OS default shell, which is what the header
   // button has always opened; the phone can also ask for claude or codex (#831).
   agent?: LaunchAgent | undefined;
-  launchRequestId?: string | undefined;
 }
 type Handler = (req: NewTerminalRequest) => void;
 
@@ -34,8 +33,8 @@ export function registerNewTerminalHandler(h: Handler): () => void {
 
 // Open a new terminal cell in `cwd`, next to `afterSlotKey`'s cell — running `agent`, or the OS
 // default shell when it is omitted. If the grid isn't mounted yet, queue the request and switch to it.
-export function openTerminalAt(cwd: string, afterSlotKey: string | null, agent?: LaunchAgent, launchRequestId?: string): void {
-  queue.deliver({ cwd, afterSlotKey, agent, launchRequestId }, undefined);
+export function openTerminalAt(cwd: string, afterSlotKey: string | null, agent?: LaunchAgent): void {
+  queue.deliver({ cwd, afterSlotKey, agent }, undefined);
   // Then SHOW the grid. Mounted is not the same as on screen: it now stays alive underneath a
   // full-screen overlay, so the phone's launch (#831) would be reported as served while the new
   // terminal appeared behind the wiki or the collection browser, seen by nobody. Before the grid

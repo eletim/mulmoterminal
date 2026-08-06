@@ -14,12 +14,11 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { requestBody } from "./requestBody.js";
 import { requestOriginAllowed } from "./same-origin-guard.js";
 import { messageOf } from "../errors.js";
-import { isLaunchAgent, LAUNCH_AGENTS } from "../../common/launchAgent.js";
+import { isLaunchAgent, LAUNCH_AGENTS, type LaunchAgent } from "../../common/launchAgent.js";
 import { createTerminalInputSender, sanitizeTerminalInput } from "../backends/remoteHost/terminalInput.js";
 import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScreen.js";
 import { ansiRowsToText } from "../session/ansiSegments.js";
 import { workspaceRequest } from "../config/workspace.js";
-import { createMobileTerminalLaunchRequest, mobileTerminalLaunchSession } from "../backends/remoteHost/mobileTerminalLaunches.js";
 import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps.js";
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
@@ -44,7 +43,7 @@ export type LocalMobileTerminalRouteDeps = Pick<
   RemoteHostHandlerDeps,
   "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "sessionAgent" | "launchTerminal"
 > & {
-  launchTerminalAtCwd: (agent: unknown, cwd: string, requestId?: string) => { ok: true } | { ok: false; error: string };
+  createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
   // roster and the remote host's Firestore mirror read (session/registry.js's `activity` map,
@@ -88,36 +87,29 @@ async function resolveStyledScreen(
   }
 }
 
-function createTerminalFromBody(body: unknown, launchTerminalAtCwd: LocalMobileTerminalRouteDeps["launchTerminalAtCwd"]): { status: number; body: unknown } {
+async function createTerminalFromBody(
+  body: unknown,
+  createTerminalAtCwd: LocalMobileTerminalRouteDeps["createTerminalAtCwd"],
+): Promise<{ status: number; body: unknown }> {
   const { agent, cwd } = requestBody(body);
   if (!isLaunchAgent(agent)) return { status: 400, body: { error: `agent must be one of: ${LAUNCH_AGENTS.join(", ")}` } };
   if (typeof cwd !== "string" || cwd.trim() === "") return { status: 400, body: { error: "cwd is required" } };
   const workspace = workspaceRequest(cwd);
   if (workspace.kind === "unusable") return { status: workspace.malformed ? 400 : 409, body: { error: workspace.problem } };
 
-  const requestId = createMobileTerminalLaunchRequest();
-  const decision = launchTerminalAtCwd(agent, workspace.cwd, requestId);
-  return decision.ok ? { status: 200, body: { ok: true, requestId } } : { status: 409, body: { error: decision.error } };
+  const decision = await createTerminalAtCwd(agent, workspace.cwd);
+  return decision.ok ? { status: 200, body: { ok: true, sessionId: decision.sessionId } } : { status: 409, body: { error: decision.error } };
 }
 
 function mountCreateTerminalRoute(
   app: Express,
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
-  launchTerminalAtCwd: LocalMobileTerminalRouteDeps["launchTerminalAtCwd"],
+  createTerminalAtCwd: LocalMobileTerminalRouteDeps["createTerminalAtCwd"],
 ) {
-  app.post("/api/mobile/terminal-sessions", (req: Request, res: Response) => {
+  app.post("/api/mobile/terminal-sessions", async (req: Request, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
-    const result = createTerminalFromBody(req.body, launchTerminalAtCwd);
+    const result = await createTerminalFromBody(req.body, createTerminalAtCwd);
     res.status(result.status).json(result.body);
-  });
-}
-
-function mountLaunchStatusRoute(app: Express): void {
-  app.get("/api/mobile/terminal-launches/:requestId", (req: Request<{ requestId: string }>, res: Response) => {
-    if (!SESSION_ID_RE.test(req.params.requestId)) return res.status(400).json({ error: "invalid launch request id" });
-    const sessionId = mobileTerminalLaunchSession(req.params.requestId);
-    if (sessionId === undefined) return res.status(404).json({ error: "launch request not found" });
-    res.json({ sessionId });
   });
 }
 
@@ -131,7 +123,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     submitSequence,
     sessionAgent,
     launchTerminal,
-    launchTerminalAtCwd,
+    createTerminalAtCwd,
     activityOf,
     workPhaseOf,
     captureStyledScreen,
@@ -151,8 +143,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     res.json({ sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })) });
   });
 
-  mountCreateTerminalRoute(app, isAllowedOrigin, launchTerminalAtCwd);
-  mountLaunchStatusRoute(app);
+  mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
     const { id } = req.params;

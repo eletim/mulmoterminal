@@ -144,10 +144,10 @@ const isMobileInputResult = (value: unknown): value is MobileInputResult => isRe
 
 interface MobileCreateResult {
   ok: true;
-  requestId: string;
+  sessionId: string;
 }
 
-const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true && typeof value.requestId === "string";
+const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true && typeof value.sessionId === "string";
 
 // Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
 // DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
@@ -283,8 +283,6 @@ async function refreshSessionList(): Promise<void> {
 }
 
 const SESSION_LIST_POLL_MS = 2000;
-const LAUNCH_RESOLVE_ATTEMPTS = 20;
-const LAUNCH_RESOLVE_MS = 100;
 let sessionListTimer: ReturnType<typeof setInterval> | null = null;
 
 // Only while the tab is actually visible — a backgrounded phone tab has no reason to keep
@@ -374,17 +372,6 @@ async function sendTerminalInput(): Promise<void> {
   }
 }
 
-async function resolveCreatedSessionId(requestId: string): Promise<string | null> {
-  for (let attempt = 0; attempt < LAUNCH_RESOLVE_ATTEMPTS; attempt += 1) {
-    const res = await fetch(`/api/mobile/terminal-launches/${encodeURIComponent(requestId)}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await jsonBody(res);
-    if (typeof body.sessionId === "string") return body.sessionId;
-    await new Promise((resolve) => setTimeout(resolve, LAUNCH_RESOLVE_MS));
-  }
-  return null;
-}
-
 async function createTerminal(): Promise<void> {
   if (createStatus.value === "creating") return;
   const cwd = newTerminalCwd.value.trim();
@@ -409,13 +396,10 @@ async function createTerminal(): Promise<void> {
     if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
     if (!isMobileCreateResult(body)) throw new Error("invalid /api/mobile/terminal-sessions response");
 
-    const createdSessionId = await resolveCreatedSessionId(body.requestId);
     const parsed = await fetchSessionList();
     sessions.value = parsed;
     changeSelectedSession(
-      createdSessionId && parsed.some((session) => session.id === createdSessionId)
-        ? createdSessionId
-        : (parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null),
+      parsed.some((session) => session.id === body.sessionId) ? body.sessionId : (parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null),
     );
     createStatus.value = "idle";
   } catch (err) {

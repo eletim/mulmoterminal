@@ -100,6 +100,7 @@ import {
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { createLaunchTerminalPublisher } from "./backends/remoteHost/launchTerminalPublisher.js";
+import { createLocalMobileTerminalCreator } from "./backends/remoteHost/localMobileTerminalLauncher.js";
 import { currentBranch, gitStatus } from "./git/git-status.js";
 import { phaseForRepoBranch } from "./git/prPhase.js";
 import { repoForDir } from "./git/forge-support.js";
@@ -750,6 +751,7 @@ const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRo
 };
 
 const mobileTerminalLauncher = createLaunchTerminalPublisher({ pubsub, cwdOfSession: (id) => ptys.get(id)?.cwd ?? null });
+const localMobileTerminalCreator = createLocalMobileTerminalCreator({ spawnClaudePty, spawnCodexPty, spawnAntigravityPty, spawnLauncherPty });
 
 // The byte(s) that submit for a given session (#772), resolved live from config per agent.
 const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit());
@@ -804,7 +806,7 @@ mountMobileTransport({
       submitSequence: sessionSubmitSequence,
       sessionAgent: sessionAgentFor,
       launchTerminal: mobileTerminalLauncher.fromSession,
-      launchTerminalAtCwd: mobileTerminalLauncher.atCwd,
+      createTerminalAtCwd: localMobileTerminalCreator,
       activityOf: localMobileActivityOf,
       workPhaseOf: localMobileWorkPhaseOf,
     });

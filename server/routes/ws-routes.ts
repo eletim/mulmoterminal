@@ -48,7 +48,6 @@ import { normalizeAgent, parseIndexParam } from "./routeParams.js";
 import { agentResumeId } from "../agents/agent-resume.js";
 import { claimLaunch, worktreeOccupancy } from "../session/worktree-session-limit.js";
 import { worktreeRefusal } from "../../common/worktreeSession.js";
-import { recordMobileTerminalLaunch } from "../backends/remoteHost/mobileTerminalLaunches.js";
 
 export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
@@ -125,14 +124,11 @@ function wsConnectionContext(req: WsUpgradeRequest): {
   cwd: string;
   unusable: string | null;
   size: TerminalSize | null;
-  launchRequestId: string | null;
 } {
   const url = new URL(req.url ?? "/", "http://localhost");
   const raw = url.searchParams.get("session");
   const requested = raw && SESSION_ID_RE.test(raw) ? raw : null;
-  const launchRaw = url.searchParams.get("launchRequestId");
-  const launchRequestId = launchRaw && SESSION_ID_RE.test(launchRaw) ? launchRaw : null;
-  return { url, requested, launchRequestId, size: sizeFromUrl(url), ...workspaceFromUrl(url) };
+  return { url, requested, size: sizeFromUrl(url), ...workspaceFromUrl(url) };
 }
 
 /** The geometry the browser has already fitted its terminal to, or null when it sent none it can
@@ -231,7 +227,6 @@ async function admitAgentSession(
     sessionId: string;
     live: PtyEntry | undefined;
     cwd: string;
-    launchRequestId?: string | null;
     /** A grid cell rather than the single view: keep it out of the chat sidebar. */
     devTerminal: boolean;
     /** False only for a launcher that runs no agent — `yarn dev` is not an agent editing the tree
@@ -239,11 +234,10 @@ async function admitAgentSession(
     worktreeLimited?: boolean;
   },
 ): Promise<EarlyFrames | null> {
-  const { requested, sessionId, live, cwd, devTerminal, launchRequestId = null, worktreeLimited = true } = session;
+  const { requested, sessionId, live, cwd, devTerminal, worktreeLimited = true } = session;
   if (worktreeLimited && (await refuseSecondWorktreeSession(ws, kind, cwd, { requested, sessionId }))) return null;
   if (devTerminal) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
   markAttachedSessionPlaced(sessionId, requested);
-  recordMobileTerminalLaunch(launchRequestId, sessionId);
   // The EFFECTIVE cwd, not this request's: on a reattach the live PTY's own directory is where the
   // agent really runs, and the request's `?cwd=` is ignored by everything downstream.
   return announceSession(ws, sessionId, live?.cwd ?? cwd);
@@ -382,7 +376,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // ?session=<id> resumes an existing conversation; absent => fresh session. For
   // new sessions we generate the id ourselves (--session-id) so the server always
   // knows the current session's id, even before any file exists.
-  const { url, requested, cwd, unusable, size, launchRequestId } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable, size } = wsConnectionContext(req);
   if (refuseUnusableWorkspace(ws, "claude", unusable, requested)) return;
   // A bad id is never silently reused — closing the socket without a replacement
   // makes the client auto-reconnect with the same bad id forever, so we warn and
@@ -412,7 +406,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // Buffered from the announcement on, like every other terminal endpoint: the browser's first
   // frame is the terminal's geometry and it arrives while this handler may still be awaiting the
   // Keychain — /ws was the one route that let it fall on the floor (#1178, see early-frames.ts).
-  const early = await admitAgentSession(ws, "claude", { requested, sessionId, live, cwd, launchRequestId, devTerminal: !attachGuiMcp });
+  const early = await admitAgentSession(ws, "claude", { requested, sessionId, live, cwd, devTerminal: !attachGuiMcp });
   if (!early) return;
 
   // A provider refusal already says exactly what is wrong with the directory's config (#579), and a
@@ -513,7 +507,7 @@ function clientStillConnected(ws: WebSocket, tag: string, sessionId: string, ear
 // lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
 // and is marked a dev-terminal session so it stays out of the chat sidebar.
 async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
-  const { url, requested, cwd, unusable, size, launchRequestId } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable, size } = wsConnectionContext(req);
   if (refuseUnusableWorkspace(ws, "launch", unusable, requested)) return;
   const index = parseIndexParam(url.searchParams.get("launcher"));
   const shell = url.searchParams.get("shell") === "1";
@@ -529,7 +523,6 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
     sessionId,
     live,
     cwd,
-    launchRequestId,
     devTerminal: true,
     worktreeLimited: launcherRunsAgent(command),
   });
@@ -555,12 +548,12 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
 // codex without the GUI MCP and keeps it out of the sidebar; absent (single view) attaches the GUI
 // MCP so codex drives the GUI panel like claude.
 async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
-  const { url, requested, cwd, unusable, size, launchRequestId } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable, size } = wsConnectionContext(req);
   if (refuseUnusableWorkspace(ws, "codex", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
   const { sessionId, live, resumeRolloutId } = resolveCodexSession(requested);
-  const early = await admitAgentSession(ws, "codex", { requested, sessionId, live, cwd, launchRequestId, devTerminal: !attachGuiMcp });
+  const early = await admitAgentSession(ws, "codex", { requested, sessionId, live, cwd, devTerminal: !attachGuiMcp });
   if (!early) return;
 
   // A grid cell's GUI tools are whatever its DIRECTORY registered — the same switches claude's
@@ -621,7 +614,7 @@ function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: Antigrav
 // in the DIRECTORY, so every session there reaches whatever that directory registered — `?gui=0`
 // only keeps a grid dev terminal out of the sidebar.
 async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
-  const { url, requested, cwd, unusable, size, launchRequestId } = wsConnectionContext(req);
+  const { url, requested, cwd, unusable, size } = wsConnectionContext(req);
   if (refuseUnusableWorkspace(ws, "antigravity", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
   // Before resolving, not after: the mapping this reads lives on disk, and a reconnect that
@@ -629,7 +622,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   // conversation that is right there — which is the restart case this exists for.
   await antigravityConversationsHydrated;
   const { sessionId, live, resumeConversationId } = resolveAntigravitySession(requested);
-  const early = await admitAgentSession(ws, "antigravity", { requested, sessionId, live, cwd, launchRequestId, devTerminal: !attachGuiMcp });
+  const early = await admitAgentSession(ws, "antigravity", { requested, sessionId, live, cwd, devTerminal: !attachGuiMcp });
   if (!early) return;
 
   // The directory's registered groups, read here because the lookup reads Claude Code's config

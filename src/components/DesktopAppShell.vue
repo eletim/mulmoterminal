@@ -33,17 +33,16 @@ import { isRecord } from "../../common/isRecord";
 // tells the phone outright when nothing is. Subscribed here rather than in GridView because this
 // component is the one that certainly exists: the grid is mounted for the life of the page now,
 // but openTerminalAt already queues and brings it on screen, so the seam costs nothing to keep.
-const launchRequestOf = (data: unknown): { cwd: string; agent: LaunchAgent; requestId?: string } | null => {
+const launchRequestOf = (data: unknown): { cwd: string; agent: LaunchAgent } | null => {
   if (!isRecord(data)) return null;
-  const { cwd, agent, requestId } = data;
-  if (typeof cwd !== "string" || !cwd || !isLaunchAgent(agent)) return null;
-  return typeof requestId === "string" ? { cwd, agent, requestId } : { cwd, agent };
+  const { cwd, agent } = data;
+  return typeof cwd === "string" && cwd && isLaunchAgent(agent) ? { cwd, agent } : null;
 };
 // Appended at the end of the grid: the phone has no notion of which desktop cell is
 // "current", and guessing would drop the terminal somewhere arbitrary.
 const unsubscribeLaunch = usePubSub().subscribe(LAUNCH_TERMINAL_CHANNEL, (data) => {
   const request = launchRequestOf(data);
-  if (request) openTerminalAt(request.cwd, null, request.agent, request.requestId);
+  if (request) openTerminalAt(request.cwd, null, request.agent);
 });
 onUnmounted(unsubscribeLaunch);
 

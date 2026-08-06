@@ -9,7 +9,6 @@ import { LAUNCH_AGENTS, isLaunchAgent, type LaunchAgent } from "../../../common/
 export interface LaunchTerminalRequest {
   agent: LaunchAgent;
   cwd: string;
-  requestId?: string | undefined;
 }
 
 export type LaunchTerminalDecision = { ok: true; request: LaunchTerminalRequest } | { ok: false; error: string };
@@ -29,7 +28,6 @@ export interface LaunchTerminalAtCwdInput {
   agent: unknown;
   cwd: string;
   listenerCount: number;
-  requestId?: string | undefined;
 }
 
 // Shared with the caller: the listener count is read before publishing, so a tab that closes
@@ -45,9 +43,9 @@ export function decideLaunchTerminal({ agent, sessionId, cwdOf, listenerCount }:
   return { ok: true, request: { agent, cwd } };
 }
 
-export function decideLaunchTerminalAtCwd({ agent, cwd, listenerCount, requestId }: LaunchTerminalAtCwdInput): LaunchTerminalDecision {
+export function decideLaunchTerminalAtCwd({ agent, cwd, listenerCount }: LaunchTerminalAtCwdInput): LaunchTerminalDecision {
   if (!isLaunchAgent(agent)) return { ok: false, error: `agent must be one of: ${LAUNCH_AGENTS.join(", ")}` };
   if (!cwd) return { ok: false, error: "cwd is required" };
   if (listenerCount < 1) return { ok: false, error: NO_BROWSER_ERROR };
-  return { ok: true, request: requestId ? { agent, cwd, requestId } : { agent, cwd } };
+  return { ok: true, request: { agent, cwd } };
 }

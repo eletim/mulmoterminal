@@ -21,7 +21,6 @@ const props = defineProps<
     launcher: CellLauncher;
     session: string | null;
     cwd: string | null;
-    launchRequestId?: string | undefined;
     // Manual sort mode: show move buttons to swap this cell with its neighbour.
     reorderable?: boolean;
   }
@@ -84,7 +83,6 @@ function relaunch() {
       :session-id="session"
       :connect-key="connectKey"
       :cwd="cwd"
-      :launch-request-id="launchRequestId"
       :launcher="target"
       :expanded="expanded"
       :zoomed="zoomed"

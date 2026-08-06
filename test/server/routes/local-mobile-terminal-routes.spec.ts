@@ -53,9 +53,9 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
       if (sessionId === NO_CWD) return { ok: false, error: `no working directory known for session '${String(sessionId)}'` };
       return { ok: true };
     },
-    launchTerminalAtCwd: (agent) => {
+    createTerminalAtCwd: async (agent) => {
       if (!isLaunchAgent(agent)) return { ok: false, error: `agent must be one of: ${LAUNCH_AGENTS.join(", ")}` };
-      return { ok: true };
+      return { ok: true, sessionId: LIVE };
     },
     // Every session reads idle by default — the interesting cases override this per test.
     activityOf: () => ({ working: false, waiting: false, event: null }),
@@ -91,24 +91,24 @@ describe("localSessionActivity", () => {
 
 describe("POST /api/mobile/terminal-sessions", () => {
   it("creates a terminal through the injected launch function with a normalized cwd", async () => {
-    const calls: Array<{ agent: unknown; cwd: string; requestId: string | undefined }> = [];
+    const calls: Array<{ agent: unknown; cwd: string }> = [];
     const cwd = `${process.cwd()}/`;
     const { app } = appFor({
-      launchTerminalAtCwd: (agent, resolvedCwd, requestId) => {
-        calls.push({ agent, cwd: resolvedCwd, requestId });
-        return { ok: true };
+      createTerminalAtCwd: async (agent, resolvedCwd) => {
+        calls.push({ agent, cwd: resolvedCwd });
+        return { ok: true, sessionId: TMUX_ONLY };
       },
     });
     const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "codex", cwd });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
-    expect(calls).toEqual([{ agent: "codex", cwd: process.cwd(), requestId: res.body.requestId }]);
+    expect(res.body).toEqual({ ok: true, sessionId: TMUX_ONLY });
+    expect(calls).toEqual([{ agent: "codex", cwd: process.cwd() }]);
   });
 
   it("400s an invalid agent without treating it as a shell command", async () => {
     let called = false;
     const { app } = appFor({
-      launchTerminalAtCwd: () => {
+      createTerminalAtCwd: async () => {
         called = true;
         return { ok: false, error: "should not matter" };
       },
@@ -128,9 +128,9 @@ describe("POST /api/mobile/terminal-sessions", () => {
   it("400s a relative cwd before publishing a launch request", async () => {
     let called = false;
     const { app } = appFor({
-      launchTerminalAtCwd: () => {
+      createTerminalAtCwd: async () => {
         called = true;
-        return { ok: true };
+        return { ok: true, sessionId: LIVE };
       },
     });
     const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: "relative/path" });
@@ -145,19 +145,20 @@ describe("POST /api/mobile/terminal-sessions", () => {
     expect(res.status).toBe(409);
   });
 
-  it("409s when no browser is open to receive the request", async () => {
-    const { app } = appFor({ launchTerminalAtCwd: () => ({ ok: false, error: NO_BROWSER_ERROR }) });
+  it("409s when the direct session start fails", async () => {
+    const { app } = appFor({ createTerminalAtCwd: async () => ({ ok: false, error: "codex not found" }) });
     const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: process.cwd() });
     expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "codex not found" });
   });
 
   it("403s a disallowed Origin without publishing", async () => {
     let called = false;
     const { app } = appFor(
       {
-        launchTerminalAtCwd: () => {
+        createTerminalAtCwd: async () => {
           called = true;
-          return { ok: true };
+          return { ok: true, sessionId: LIVE };
         },
       },
       () => false,
@@ -165,14 +166,6 @@ describe("POST /api/mobile/terminal-sessions", () => {
     const res = await request(app).post("/api/mobile/terminal-sessions").set("Origin", "https://evil.example").send({ agent: "shell", cwd: process.cwd() });
     expect(res.status).toBe(403);
     expect(called).toBe(false);
-  });
-
-  it("reports a pending launch request until the websocket records its session id", async () => {
-    const { app } = appFor();
-    const created = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: process.cwd() });
-    const res = await request(app).get(`/api/mobile/terminal-launches/${created.body.requestId}`);
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessionId: null });
   });
 });
 

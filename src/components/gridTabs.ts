@@ -44,7 +44,6 @@ export interface Cell {
   launcher?: CellLauncher | null;
   // The agent this cell runs. "codex" / "antigravity"; absent = Claude (the default).
   agent?: "codex" | "antigravity";
-  launchRequestId?: string | undefined;
   // Set aside by the user: still connected and still holding its history, just sunk out of the
   // way (#992). Stored as the ABSENCE of the key when not parked, for the same reason `agent`
   // is — only an absent key survives the JSON a persisted cell round-trips.
@@ -108,12 +107,7 @@ export function cancelableLaunchUid(state: GridState): number | null {
 }
 
 export function setSession(state: GridState, uid: number, id: string | null): GridState {
-  const cells = state.cells.map((c) => {
-    if (c.uid !== uid) return c;
-    const rest = { ...c };
-    delete rest.launchRequestId;
-    return { ...rest, session: id };
-  });
+  const cells = state.cells.map((c) => (c.uid === uid ? { ...c, session: id } : c));
   const expanded = id === null && state.expanded === uid ? null : state.expanded;
   return { ...state, cells, expanded };
 }

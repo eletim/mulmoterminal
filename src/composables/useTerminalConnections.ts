@@ -121,7 +121,6 @@ export interface ConnTarget {
   // The provider/model the launch form picked for this session (#584). Claude only —
   // it rides the /ws query and overrides the directory's default.
   launch?: LaunchChoice | null;
-  launchRequestId?: string | undefined;
 }
 
 // The `terminalSubmit` mapping describes the user's CLAUDE binding, so it only applies to
