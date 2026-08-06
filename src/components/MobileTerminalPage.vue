@@ -3,26 +3,22 @@
 // DesktopAppShell — never alongside it. Wired to the local mobile terminal API: which transport
 // mode the server is running (GET /api/mobile-mode), only in local mode the terminal session
 // roster (GET /api/mobile/terminal-sessions), the selected session's current terminal screen
-// (GET /api/mobile/terminal-sessions/:id/screen), and — for a live session — sending it one line
-// of input (POST /api/mobile/terminal-sessions/:id/input). Launching a terminal is still a
-// follow-up change.
-import { computed, onMounted, onUnmounted, ref } from "vue";
+// (GET /api/mobile/terminal-sessions/:id/screen), creating a new local terminal (POST
+// /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
+// (POST /api/mobile/terminal-sessions/:id/input).
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
+import type { LaunchAgent } from "../../common/launchAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
-import {
-  MOBILE_WEB_PUSH_PUBLIC_KEY,
-  mobileTerminalNotificationUrl,
-  mobileWebPushSupport,
-  readSessionIdQuery,
-  registerMobileWebPushServiceWorker,
-  urlBase64ToUint8Array,
-} from "../mobileWebPushClient";
+import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
+import MobileNewTerminalPanel from "./MobileNewTerminalPanel.vue";
+import MobileWebPushPanel from "./MobileWebPushPanel.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -32,11 +28,6 @@ function backToDesktop(): void {
   void router.push("/terminals");
 }
 
-// The activity local mode alone adds to a session row (server/routes/local-mobile-terminal-
-// routes.ts's LocalSessionActivity) — never present on remote mobile's Firestore-backed rows,
-// but this page only ever talks to the local route, so it is required here rather than optional.
-// Present-but-idle (false/false/null/null) for a session activity has never observed — a fresh
-// launch, a shell, a tmux-only survivor of a restart — never an absent field.
 interface MobileActivity {
   working: boolean;
   waiting: boolean;
@@ -51,9 +42,6 @@ const isMobileActivity = (value: unknown): value is MobileActivity =>
   (value.event === null || typeof value.event === "string") &&
   (value.workPhase === null || isWorkPhase(value.workPhase));
 
-// The fields this page reads off a GET /api/mobile/terminal-sessions row. The backend's
-// TerminalSessionSummary (server/backends/remoteHost/terminalScreen.ts) carries more
-// (work, …) — nothing here needs it yet, so it stays off this shape rather than pulled in.
 interface MobileSession {
   id: string;
   title: string;
@@ -78,43 +66,14 @@ const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
+const newTerminalCwd = ref("");
+const newTerminalAgent = ref<LaunchAgent>("shell");
+const newTerminalCwdTouched = ref(false);
 
-type PushStatus = "checking" | "ready" | "unsupported" | "error";
-type PushBusy = "enable" | "disable" | "test" | null;
+type CreateStatus = "idle" | "creating" | "error";
+const createStatus = ref<CreateStatus>("idle");
+const createError = ref("");
 
-const pushSupport = mobileWebPushSupport();
-const pushStatus = ref<PushStatus>(pushSupport.supported ? "checking" : "unsupported");
-const pushBusy = ref<PushBusy>(null);
-const pushPermission = ref<NotificationPermission | "unknown">(pushSupport.supported ? Notification.permission : "unknown");
-const pushSubscribed = ref(false);
-const pushSubscriptionJson = ref<PushSubscriptionJSON | null>(null);
-const pushError = ref<string | null>(pushSupport.supported ? null : pushSupport.reason);
-
-const permissionLabel = computed(() => {
-  if (pushPermission.value === "granted") return "Allowed";
-  if (pushPermission.value === "denied") return "Blocked";
-  if (pushPermission.value === "default") return "Not asked";
-  return "Unknown";
-});
-const subscriptionLabel = computed(() => (pushSubscribed.value ? "Active" : "Off"));
-const pushSummaryLabel = computed(() => {
-  if (pushBusy.value) return "Working";
-  if (pushStatus.value === "unsupported") return "Unsupported";
-  if (pushStatus.value === "error") return "Needs attention";
-  return pushSubscribed.value ? "On" : "Off";
-});
-const canEnablePush = computed(() => pushSupport.supported && !pushBusy.value && !pushSubscribed.value && pushPermission.value !== "denied");
-const canDisablePush = computed(() => pushSupport.supported && !pushBusy.value && pushSubscribed.value);
-const canTestPush = computed(() => pushSupport.supported && !pushBusy.value && pushPermission.value !== "denied");
-
-// The two fields this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
-// SessionScreen also carries suggestion, quickCommands and meta (cwd, branch, memo, summary,
-// prompt, githubUrl) — none of it is used or shown here yet, so it stays off this shape.
-//
-// styledScreen is optional on the wire (server/routes/local-mobile-terminal-routes.ts): an
-// older server, or a session the styling step itself failed for, sends `screen` alone, and this
-// page falls back to the plain-text display it has always had (see the template below) rather
-// than showing nothing.
 interface MobileScreen {
   screen: string;
   styledScreen: AnsiRow[] | undefined;
@@ -127,16 +86,8 @@ type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
-// null covers both "no styled rows on this response" and "reset because the session changed" —
-// either way the template's v-else-if falls back to the plain-text screen below.
 const screenStyledRows = ref<AnsiRow[] | null>(null);
 
-// segment.fg/bg are pre-resolved "#rrggbb" strings or null (never raw terminal bytes — see
-// common/ansiStyle.ts) and are applied here as a `:style` OBJECT, which Vue sets via direct
-// CSSStyleDeclaration property assignment. That is what keeps this safe without a sanitizer: a
-// value that isn't a valid CSS colour is simply dropped by the browser, never parsed as markup,
-// and the segment's actual text only ever reaches the DOM through `{{ }}` interpolation below,
-// which HTML-escapes it the same way the plain-text screen always has.
 function segmentStyle(segment: AnsiSegment): Record<string, string> {
   const style: Record<string, string> = {};
   if (segment.fg) style.color = segment.fg;
@@ -145,11 +96,6 @@ function segmentStyle(segment: AnsiSegment): Record<string, string> {
   return style;
 }
 
-// An empty AnsiRow (a genuinely blank terminal line) renders as a `<div>` with no text content
-// at all — and an empty block element has no line box, so the row collapses to zero height and
-// the blank line disappears from the styled view (unlike the plain-text <pre> below, where the
-// same blank line is a real "\n" and keeps its height for free). A no-break space gives the div
-// content to lay out without being visible or copy-pasted as a stray glyph.
 const BLANK_ROW_FILLER = "\u00A0";
 
 // Rate limit for the manual Refresh/Retry button alone — session switches bypass it entirely
@@ -159,9 +105,6 @@ const MANUAL_REFRESH_COOLDOWN_MS = 5000;
 const manualRefreshCoolingDown = ref(false);
 let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-// One line of input, sent to a live session's PTY as-is. Sanitization, control-character
-// stripping, bracketed paste and Enter handling are all the existing POST /input route's job
-// (server/backends/remoteHost/terminalInput.ts) — this page only forwards what was typed.
 const inputText = ref("");
 type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
@@ -171,6 +114,13 @@ interface MobileInputResult {
 }
 
 const isMobileInputResult = (value: unknown): value is MobileInputResult => isRecord(value) && value.sent === true;
+
+interface MobileCreateResult {
+  ok: true;
+  sessionId: string;
+}
+
+const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true && typeof value.sessionId === "string";
 
 // Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
 // DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
@@ -211,6 +161,11 @@ function changeSelectedSession(next: string | null): void {
   }
 }
 
+watch(selectedSession, (session) => {
+  if (newTerminalCwdTouched.value) return;
+  if (session?.cwd) newTerminalCwd.value = session.cwd;
+});
+
 // Applies a freshly fetched session list, keeping the current selection when it still exists
 // (used by both the initial load and the recurring poll below) and only otherwise falling back
 // to the first live session, then the first session, then nothing. On the initial load
@@ -229,113 +184,6 @@ function applySessionList(parsed: MobileSession[]): void {
 
   const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
   changeSelectedSession(next);
-}
-
-function syncPushPermission(): void {
-  if (!pushSupport.supported) return;
-  pushPermission.value = Notification.permission;
-}
-
-function reflectSubscription(subscription: PushSubscription | null): void {
-  pushSubscribed.value = subscription !== null;
-  pushSubscriptionJson.value = subscription?.toJSON() ?? null;
-}
-
-async function refreshPushState(): Promise<void> {
-  if (!pushSupport.supported) return;
-
-  pushStatus.value = "checking";
-  pushError.value = null;
-  syncPushPermission();
-
-  try {
-    const registration = await registerMobileWebPushServiceWorker();
-    reflectSubscription(await registration.pushManager.getSubscription());
-    syncPushPermission();
-    pushStatus.value = "ready";
-  } catch {
-    pushStatus.value = "error";
-    pushError.value = "Failed to register notifications.";
-  }
-}
-
-async function ensureNotificationPermission(): Promise<boolean> {
-  if (!pushSupport.supported) return false;
-  if (Notification.permission === "default") await Notification.requestPermission();
-  syncPushPermission();
-
-  if (Notification.permission === "granted") return true;
-  pushError.value = Notification.permission === "denied" ? "Notifications are blocked in this browser." : "Notification permission was not granted.";
-  return false;
-}
-
-async function enablePushNotifications(): Promise<void> {
-  if (!pushSupport.supported || pushBusy.value) return;
-
-  pushBusy.value = "enable";
-  pushError.value = null;
-  try {
-    if (!(await ensureNotificationPermission())) return;
-
-    const registration = await registerMobileWebPushServiceWorker();
-    const existing = await registration.pushManager.getSubscription();
-    const subscription =
-      existing ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(MOBILE_WEB_PUSH_PUBLIC_KEY),
-      }));
-    reflectSubscription(subscription);
-    pushStatus.value = "ready";
-  } catch {
-    pushStatus.value = "error";
-    pushError.value = "Failed to subscribe to notifications.";
-  } finally {
-    pushBusy.value = null;
-    syncPushPermission();
-  }
-}
-
-async function disablePushNotifications(): Promise<void> {
-  if (!pushSupport.supported || pushBusy.value) return;
-
-  pushBusy.value = "disable";
-  pushError.value = null;
-  try {
-    const registration = await registerMobileWebPushServiceWorker();
-    const subscription = await registration.pushManager.getSubscription();
-    if (subscription) await subscription.unsubscribe();
-    reflectSubscription(null);
-    pushStatus.value = "ready";
-  } catch {
-    pushStatus.value = "error";
-    pushError.value = "Failed to unsubscribe from notifications.";
-  } finally {
-    pushBusy.value = null;
-    syncPushPermission();
-  }
-}
-
-async function showLocalTestNotification(): Promise<void> {
-  if (!pushSupport.supported || pushBusy.value) return;
-
-  pushBusy.value = "test";
-  pushError.value = null;
-  try {
-    if (!(await ensureNotificationPermission())) return;
-    const registration = await registerMobileWebPushServiceWorker();
-    await registration.showNotification("MulmoTerminal test", {
-      body: "Mobile notifications are working.",
-      tag: "mulmoterminal-mobile-test",
-      data: { url: mobileTerminalNotificationUrl(selectedSessionId.value) },
-    });
-  } catch {
-    pushStatus.value = "error";
-    pushError.value = "Failed to show the test notification.";
-  } finally {
-    pushBusy.value = null;
-    syncPushPermission();
-  }
 }
 
 // Parses a GET /api/mobile/terminal-sessions response, throwing on anything malformed. Shared by
@@ -368,6 +216,10 @@ async function withSessionListGuard(fetchAndApply: () => Promise<void>): Promise
   } finally {
     sessionListRefreshInFlight = false;
   }
+}
+
+async function waitForSessionListIdle(): Promise<void> {
+  while (sessionListRefreshInFlight) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
@@ -500,6 +352,44 @@ async function sendTerminalInput(): Promise<void> {
   }
 }
 
+async function createTerminal(): Promise<void> {
+  if (createStatus.value === "creating") return;
+  const cwd = newTerminalCwd.value.trim();
+  if (!cwd) {
+    createStatus.value = "error";
+    createError.value = "Working directory is required.";
+    return;
+  }
+
+  createStatus.value = "creating";
+  createError.value = "";
+  await waitForSessionListIdle();
+  sessionListRefreshInFlight = true;
+
+  try {
+    const res = await fetch("/api/mobile/terminal-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent: newTerminalAgent.value, cwd }),
+    });
+    const body = await jsonBody(res);
+    if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
+    if (!isMobileCreateResult(body)) throw new Error("invalid /api/mobile/terminal-sessions response");
+
+    const parsed = await fetchSessionList();
+    sessions.value = parsed;
+    changeSelectedSession(
+      parsed.some((session) => session.id === body.sessionId) ? body.sessionId : (parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null),
+    );
+    createStatus.value = "idle";
+  } catch (err) {
+    createStatus.value = "error";
+    createError.value = err instanceof Error && err.message ? err.message : "Failed to create terminal.";
+  } finally {
+    sessionListRefreshInFlight = false;
+  }
+}
+
 // Refetches the session list and the selected session's screen whenever the tab comes back from
 // the background — covering the phone-locked-then-unlocked case, where both would otherwise be
 // however old they were when the tab went away. The session list refresh runs unconditionally
@@ -522,7 +412,6 @@ function handleVisibilityChange(): void {
 
 onMounted(() => {
   void load();
-  void refreshPushState();
   document.addEventListener("visibilitychange", handleVisibilityChange);
   // Keeps activity (working/waiting/workPhase) and live/detached current while the list is on
   // screen. Runs for the lifetime of the component regardless of `status` — refreshSessionList
@@ -582,49 +471,18 @@ onUnmounted(() => {
       </div>
 
       <template v-else>
-        <section class="mb-4 rounded-md border border-border bg-panel p-3 text-[12px]" data-testid="mobile-web-push-panel">
-          <div class="mb-2 flex items-center justify-between gap-2">
-            <h2 class="text-[13px] font-medium text-fg">Notifications</h2>
-            <span class="flex-none text-secondary">{{ pushSummaryLabel }}</span>
-          </div>
+        <MobileWebPushPanel :session-id="selectedSessionId" />
 
-          <div class="grid grid-cols-2 gap-x-3 gap-y-1">
-            <span class="text-muted">Permission</span>
-            <span class="text-fg">{{ permissionLabel }}</span>
-            <span class="text-muted">Subscription</span>
-            <span class="text-fg">{{ subscriptionLabel }}</span>
-          </div>
-
-          <p v-if="pushSubscriptionJson" class="mt-2 text-muted">Subscription ready for server storage.</p>
-          <p v-if="pushError" class="mt-2 text-err-text">{{ pushError }}</p>
-
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
-              :disabled="!canEnablePush"
-              @click="enablePushNotifications"
-            >
-              Enable
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
-              :disabled="!canDisablePush"
-              @click="disablePushNotifications"
-            >
-              Disable
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
-              :disabled="!canTestPush"
-              @click="showLocalTestNotification"
-            >
-              Test notification
-            </button>
-          </div>
-        </section>
+        <MobileNewTerminalPanel
+          :agent="newTerminalAgent"
+          :cwd="newTerminalCwd"
+          :error="createError"
+          :status="createStatus"
+          @create="createTerminal"
+          @cwd-touched="newTerminalCwdTouched = true"
+          @update:agent="newTerminalAgent = $event"
+          @update:cwd="newTerminalCwd = $event"
+        />
 
         <p v-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
 

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { decideLaunchTerminal } from "../../../../server/backends/remoteHost/launchTerminal.js";
+import { decideLaunchTerminal, decideLaunchTerminalAtCwd } from "../../../../server/backends/remoteHost/launchTerminal.js";
 
 const input = (over: Partial<Parameters<typeof decideLaunchTerminal>[0]> = {}) => ({
   agent: "shell",
@@ -8,6 +8,32 @@ const input = (over: Partial<Parameters<typeof decideLaunchTerminal>[0]> = {}) =
   cwdOf: () => "/repo",
   listenerCount: 1,
   ...over,
+});
+
+describe("decideLaunchTerminalAtCwd", () => {
+  it("accepts each launch kind with an already-normalized cwd", () => {
+    for (const agent of ["shell", "claude", "codex", "antigravity"]) {
+      expect(decideLaunchTerminalAtCwd({ agent, cwd: "/repo", listenerCount: 1 })).toEqual({ ok: true, request: { agent, cwd: "/repo" } });
+    }
+  });
+
+  it("refuses an invalid agent before checking browser availability", () => {
+    expect(decideLaunchTerminalAtCwd({ agent: "bash", cwd: "/repo", listenerCount: 0 })).toEqual({
+      ok: false,
+      error: expect.stringContaining("shell, claude, codex"),
+    });
+  });
+
+  it("refuses an empty cwd", () => {
+    expect(decideLaunchTerminalAtCwd({ agent: "shell", cwd: "", listenerCount: 1 })).toEqual({ ok: false, error: "cwd is required" });
+  });
+
+  it("refuses when no browser is listening", () => {
+    expect(decideLaunchTerminalAtCwd({ agent: "shell", cwd: "/repo", listenerCount: 0 })).toEqual({
+      ok: false,
+      error: expect.stringContaining("no MulmoTerminal browser is open"),
+    });
+  });
 });
 
 describe("decideLaunchTerminal", () => {

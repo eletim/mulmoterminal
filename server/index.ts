@@ -99,8 +99,8 @@ import {
 } from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
-import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
-import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
+import { createLaunchTerminalPublisher } from "./backends/remoteHost/launchTerminalPublisher.js";
+import { createLocalMobileTerminalCreator } from "./backends/remoteHost/localMobileTerminalLauncher.js";
 import { currentBranch, gitStatus } from "./git/git-status.js";
 import { phaseForRepoBranch } from "./git/prPhase.js";
 import { repoForDir } from "./git/forge-support.js";
@@ -750,29 +750,10 @@ const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRo
   return ansiScreenWindow(rows);
 };
 
-// The phone asked for a new terminal in the directory of the session it was viewing (#831).
-// The grid lives in the browser — markDevTerminalSession is only ever reached through the
-// terminal WebSocket — so the host cannot open the cell, and publishes the request to
-// whichever tab is connected instead. The phone sends a session id, never a path.
-const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
-  const decision = decideLaunchTerminal({
-    agent,
-    sessionId,
-    cwdOf: (id) => ptys.get(id)?.cwd ?? null,
-    listenerCount: pubsub?.subscriberCount(LAUNCH_TERMINAL_CHANNEL) ?? 0,
-  });
-  if (!decision.ok) return decision;
-  // ONE tab, not every tab: this asks for a terminal to be opened, so a broadcast would open
-  // one per connected browser. Delivery is also the authority on whether anyone was there —
-  // the count above was read a moment earlier and that tab may have closed since.
-  const delivered = pubsub?.publishToOne(LAUNCH_TERMINAL_CHANNEL, decision.request) ?? false;
-  return delivered ? { ok: true as const } : { ok: false as const, error: NO_BROWSER_ERROR };
-};
+const mobileTerminalLauncher = createLaunchTerminalPublisher({ pubsub, cwdOfSession: (id) => ptys.get(id)?.cwd ?? null });
+const localMobileTerminalCreator = createLocalMobileTerminalCreator({ spawnClaudePty, spawnCodexPty, spawnAntigravityPty, spawnLauncherPty });
 
-// The byte(s) that submit for a given session (#772), resolved live from config so a typed
-// "send" commits the paste the same way the keyboard does. Scoped to the session's agent — the
-// mapping is Claude's binding, so a shell/codex session in the picker keeps plain CR. Shared by
-// both mobile transports below (each is an adapter over the same PTY access, never a copy of it).
+// The byte(s) that submit for a given session (#772), resolved live from config per agent.
 const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit());
 // Which agent the typed text is going to, for the completion-menu guard (#1142) — only Claude
 // Code has the menu that eats a submit, and only there is the guard's trailing space not real
@@ -800,7 +781,7 @@ mountMobileTransport({
       workspace: CLAUDE_CWD,
       spawnChat: remoteHostSpawnChat,
       spawnIssueSeed: remoteHostSpawnIssueSeed,
-      launchTerminal: remoteHostLaunchTerminal,
+      launchTerminal: mobileTerminalLauncher.fromSession,
       listTerminalSessions: remoteHostListTerminalSessions,
       captureTerminalScreen: remoteHostCaptureTerminalScreen,
       writeToSession: remoteHostWriteToSession,
@@ -824,7 +805,8 @@ mountMobileTransport({
       canClearBox: remoteHostCanClearBox,
       submitSequence: sessionSubmitSequence,
       sessionAgent: sessionAgentFor,
-      launchTerminal: remoteHostLaunchTerminal,
+      launchTerminal: mobileTerminalLauncher.fromSession,
+      createTerminalAtCwd: localMobileTerminalCreator,
       activityOf: localMobileActivityOf,
       workPhaseOf: localMobileWorkPhaseOf,
     });
