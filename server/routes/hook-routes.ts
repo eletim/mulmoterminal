@@ -11,7 +11,7 @@ import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId 
 import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
-import { lastPrompts, lastResponses, ptys } from "../session/registry.js";
+import { activity, lastPrompts, lastResponses, ptys } from "../session/registry.js";
 import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt } from "../session/session-reads.js";
 import { notifyTaskFinished } from "../session/task-push.js";
@@ -19,6 +19,7 @@ import { preferredHeaderPrompt } from "../session/transcript.js";
 import { failPendingTranslation } from "../session/translation-worker.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { publishesDirConfig, toolHookRecord, type ToolCallEnd, type ToolCallStart, type ToolHookPayload } from "../session/tool-hook.js";
+import type { MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
 
 // The header shows one line, so a longer prompt is stored truncated rather than in full.
 
@@ -30,12 +31,16 @@ export interface HookDeps extends SessionActivityDeps {
   publishFileWrite: (file: string) => void;
   /** Which port this host's UI answers on, so a receiver can open it instead of guessing. */
   uiPort: string;
+  notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
+
+const activeWaitingMobileWebPushSent = new Set<string>();
 
 // Activity hooks update a session's working / needs-attention flags. `active` (this
 // session is the user's actively-viewed pane) suppresses the attention flag — see
 // activityHookEffects for why a mere attached socket doesn't count in the grid.
 function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, message: string, notificationType?: string) {
+  if (event !== "Notification") activeWaitingMobileWebPushSent.delete(sessionId);
   for (const eff of activityHookEffects(event, active, notificationType)) {
     if (eff.kind === "working") deps.setWorking(sessionId, eff.value, event);
     else deps.setWaiting(sessionId, eff.value, event);
@@ -46,6 +51,11 @@ function handleActivityHook(deps: HookDeps, sessionId: string, event: string, ac
   // though a background Stop publishes twice.
   const kind = pushKindFor(event, notificationType);
   if (kind) void notifyTaskFinished(sessionId, kind, message, deps.uiPort);
+  const currentActivity = activity.get(sessionId);
+  if (active && kind === "waiting" && currentActivity?.working === true && currentActivity.waiting !== true && !activeWaitingMobileWebPushSent.has(sessionId)) {
+    activeWaitingMobileWebPushSent.add(sessionId);
+    deps.notifyMobileWebPushActivity?.({ kind, sessionId, agent: ptys.get(sessionId)?.agent ?? null });
+  }
   // A finished turn is the ONLY success signal a PTY-hosted agent gives us (#1070). It is not
   // a process exit — `claude` sits at its prompt afterwards — so a worker that never reaches
   // Stop (blocked on a permission dialog nobody can answer, or dead before its first turn) is

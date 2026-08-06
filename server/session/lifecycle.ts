@@ -42,6 +42,7 @@ import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
+import { mobileWebPushKindForActivityTransition, type MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
 
 // The channel every session row is published on.
 export const SESSIONS_CHANNEL = "sessions";
@@ -63,6 +64,7 @@ export interface SessionLifecycleDeps {
   /** Free the tmux window/client size bookkeeping. Unlike a socket close — which a reattach
    *  undoes — a reap means this id will never be nudged again (#957). */
   forgetTerminalSize: (id: string) => void;
+  notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
 
 // Timers live per process, not per factory call — there is one server.
@@ -210,13 +212,22 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
 // A no-op when the flag's value did not actually move — flagEffect returns null and every
 // hook calls through here, so an unchanged publish would flood the socket.
 function setFlag(deps: SessionLifecycleDeps, id: string, flag: ActivityFlag, value: boolean, event?: string) {
-  const effect = flagEffect(activity.get(id), flag, value, event, Date.now());
+  const prev = activity.get(id);
+  const effect = flagEffect(prev, flag, value, event, Date.now());
   if (!effect.next) return;
   activity.set(id, effect.next);
   claimActivityOwnership(id); // this instance drives this session — persist may write/remove it
   publishActivity(deps, id);
   // Persist so an in-progress turn / the blocked-or-done set survives a restart (ACTIVITY_STATE_FILE).
   persistActivityState((id) => hiddenSessions.has(id));
+  const kind = mobileWebPushKindForActivityTransition(prev, effect.next, flag, value, event);
+  if (kind) {
+    try {
+      deps.notifyMobileWebPushActivity?.({ kind, sessionId: id, agent: ptys.get(id)?.agent ?? null });
+    } catch (err) {
+      console.warn(`[mobile-web-push] activity notification dropped for ${id}: ${messageOf(err)}`);
+    }
+  }
   if (effect.rearmReap) armReapForDetached(deps, id);
 }
 

@@ -38,11 +38,25 @@ function storeFor(subscriptions: MobileWebPushSubscription[]): MobileWebPushSubs
 describe("buildMobileWebPushPayload", () => {
   it("keeps test payload minimal and routes to the selected mobile session", () => {
     expect(buildMobileWebPushPayload("test", "session-a")).toEqual({
-      title: "MulmoTerminal test",
-      body: "Mobile notifications are working.",
       kind: "test",
       sessionId: "session-a",
+      agent: null,
       url: "/mobile/terminals?sessionId=session-a",
+    });
+  });
+
+  it("keeps activity payloads minimal and routes to the target session", () => {
+    expect(buildMobileWebPushPayload("waiting", "session-a", "codex")).toEqual({
+      kind: "waiting",
+      sessionId: "session-a",
+      agent: "codex",
+      url: "/mobile/terminals?sessionId=session-a",
+    });
+    expect(buildMobileWebPushPayload("finished", "session-b", "claude")).toEqual({
+      kind: "finished",
+      sessionId: "session-b",
+      agent: "claude",
+      url: "/mobile/terminals?sessionId=session-b",
     });
   });
 });
@@ -75,6 +89,32 @@ describe("createMobileWebPushSender", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String(send.mock.calls[0]?.[1]))).toMatchObject({ kind: "test", sessionId: "session-a" });
     expect(send.mock.calls[0]?.[2]).toMatchObject({ vapidDetails: CONFIG.vapid, TTL: 300, urgency: "normal" });
+  });
+
+  it("sends activity notifications through the same stored subscriptions", async () => {
+    const send = vi.fn(async (...args: unknown[]): Promise<SendResult> => {
+      expect(args.length).toBeGreaterThan(0);
+      return { statusCode: 201, body: "", headers: {} };
+    });
+    const sender = createMobileWebPushSender({
+      config: () => CONFIG,
+      store: storeFor([stored("https://push.example/a")]),
+      sendNotification: send as unknown as typeof import("web-push").sendNotification,
+    });
+
+    expect(await sender.sendActivity("waiting", { sessionId: "session-a", agent: "codex" })).toEqual({
+      ok: true,
+      sent: 1,
+      failed: 0,
+      targets: 1,
+      removed: 0,
+    });
+    expect(JSON.parse(String(send.mock.calls[0]?.[1]))).toMatchObject({
+      kind: "waiting",
+      sessionId: "session-a",
+      agent: "codex",
+      url: "/mobile/terminals?sessionId=session-a",
+    });
   });
 
   it("removes expired subscriptions before sending", async () => {

@@ -50,6 +50,7 @@ function mobileWebPushDeps(overrides: Partial<LocalMobileTerminalRouteDeps["mobi
   };
   const sender: MobileWebPushSender = {
     sendTest: async () => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
+    sendActivity: async () => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
   };
   return { config: () => WEB_PUSH_CONFIG, subscriptions, sender, ...overrides };
 }
@@ -325,6 +326,7 @@ describe("local mobile Web Push routes", () => {
             calls.push(sessionId);
             return { ok: true, sent: 1, failed: 0, targets: 2, removed: 1 };
           },
+          sendActivity: async () => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
         },
       }),
     });

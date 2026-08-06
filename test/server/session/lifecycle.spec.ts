@@ -6,7 +6,7 @@
 // unreachable without booting the server.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { createSessionLifecycle } from "../../../server/session/lifecycle.js";
+import { createSessionLifecycle, type SessionLifecycleDeps } from "../../../server/session/lifecycle.js";
 import type { WorkPhase } from "../../../server/session/workPhase.js";
 import { activity, aiTitles, hiddenSessions, knownSessions, lastPrompts, lastResponses, launchChoices, ptys } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
@@ -18,18 +18,20 @@ vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSe
 vi.mock("../../../server/session/session-reads.js", () => ({ readLatestResponse: vi.fn(() => "the reply on disk") }));
 
 const ID = "11111111-2222-4333-8444-555555555555";
+const OTHER_ID = "22222222-3333-4444-8555-666666666666";
 
-const makeDeps = (workPhase: WorkPhase | null = null) => ({
+const makeDeps = (workPhase: WorkPhase | null = null, overrides: Partial<SessionLifecycleDeps> = {}) => ({
   publish: vi.fn(),
   forgetTitle: vi.fn(),
   sessionActivityPublisher: { publish: vi.fn(), forget: vi.fn() },
   workPhaseOf: vi.fn(() => workPhase),
   forgetWorkPhase: vi.fn(),
   forgetTerminalSize: vi.fn(),
+  ...overrides,
 });
 
 // A pty entry with just the fields the lifecycle reads.
-const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: null, cwd: "/work", tmux: false, ...over }) as never;
+const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: null, cwd: "/work", tmux: false, agent: "claude", ...over }) as never;
 
 const clearRegistry = () => {
   for (const map of [ptys, activity, knownSessions, lastPrompts, lastResponses, aiTitles, launchChoices]) map.clear();
@@ -127,7 +129,7 @@ describe("setWorking / setWaiting", () => {
     const lifecycle = createSessionLifecycle(deps);
     ptys.set(ID, fakeEntry({ ws: {} }));
     lifecycle.setWorking(ID, true, "UserPromptSubmit");
-    deps.publish.mockClear();
+    (deps.publish as ReturnType<typeof vi.fn>).mockClear();
     lifecycle.setWorking(ID, true, "UserPromptSubmit");
     expect(deps.publish).not.toHaveBeenCalled();
   });
@@ -144,6 +146,96 @@ describe("setWorking / setWaiting", () => {
       event: "Notification",
       workPhase: "implementing",
     });
+  });
+
+  it("notifies local mobile Web Push when a running session starts waiting for input", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    notifyMobileWebPushActivity.mockClear();
+    lifecycle.setWaiting(ID, true, "Notification");
+    lifecycle.setWaiting(ID, true, "Notification");
+
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" });
+  });
+
+  it("notifies local mobile Web Push once when a running session completes", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    notifyMobileWebPushActivity.mockClear();
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
+  });
+
+  it("does not notify local mobile Web Push on first observation of waiting", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    ptys.set(ID, fakeEntry({ ws: {} }));
+    createSessionLifecycle(makeDeps(null, { notifyMobileWebPushActivity })).setWaiting(ID, true, "Notification");
+    expect(notifyMobileWebPushActivity).not.toHaveBeenCalled();
+  });
+
+  it("notifies independently for separate sessions", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
+    ptys.set(OTHER_ID, fakeEntry({ ws: {}, agent: "codex" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWorking(OTHER_ID, true, "UserPromptSubmit");
+    notifyMobileWebPushActivity.mockClear();
+    lifecycle.setWaiting(ID, true, "Notification");
+    lifecycle.setWaiting(OTHER_ID, true, "Notification");
+
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(2);
+    expect(notifyMobileWebPushActivity).toHaveBeenNthCalledWith(1, { kind: "waiting", sessionId: ID, agent: "claude" });
+    expect(notifyMobileWebPushActivity).toHaveBeenNthCalledWith(2, { kind: "waiting", sessionId: OTHER_ID, agent: "codex" });
+  });
+
+  it("notifies again after a viewed session starts a later turn and blocks again", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Notification");
+    lifecycle.setWaiting(ID, false);
+    lifecycle.setWorking(ID, false, "Stop");
+    notifyMobileWebPushActivity.mockClear();
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Notification");
+
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" });
+  });
+
+  it("keeps activity updates working when a local mobile Web Push notification throws", () => {
+    const deps = makeDeps(null, {
+      notifyMobileWebPushActivity: () => {
+        throw new Error("push failed");
+      },
+    });
+    ptys.set(ID, fakeEntry({ ws: {} }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    expect(() => lifecycle.setWaiting(ID, true, "Notification")).not.toThrow();
+    expect(activity.get(ID)).toMatchObject({ working: true, waiting: true, event: "Notification" });
+    expect(deps.publish).toHaveBeenCalled();
   });
 });
 
