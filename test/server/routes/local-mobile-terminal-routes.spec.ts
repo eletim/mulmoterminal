@@ -14,13 +14,18 @@ import { localSessionActivity, mountLocalMobileTerminalRoutes, type LocalMobileT
 import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/backends/remoteHost/terminalScreen";
 import { NO_BROWSER_ERROR } from "../../../server/backends/remoteHost/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";
+import type { AnsiRow } from "../../../common/ansiStyle";
 
 const LIVE = randomUUID();
 const TMUX_ONLY = randomUUID();
 const GONE = randomUUID();
 const NO_CWD = randomUUID();
 
-const SCREEN: SessionScreen = { screen: "$ ", suggestion: "", quickCommands: [], cwd: "/home/user/project" };
+// screen/STYLED_ROWS' text must agree byte for byte, matching what the route's consistency
+// check (#7 round-3 review) requires of a real, same-capture pair — screen.screen is already
+// `.trimEnd()`-ed by captureSessionScreen, so it must not end in trimmable whitespace either.
+const SCREEN: SessionScreen = { screen: "$ echo", suggestion: "", quickCommands: [], cwd: "/home/user/project" };
+const STYLED_ROWS: AnsiRow[] = [[{ text: "$ echo", fg: null, bg: null, bold: false }]];
 const SESSIONS: TerminalSessionSummary[] = [{ id: LIVE, title: "one", cwd: "/home/user/project", live: true, agent: "claude" }];
 const IDLE_ACTIVITY = { working: false, waiting: false, event: null, workPhase: null };
 
@@ -51,6 +56,7 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
     // Every session reads idle by default — the interesting cases override this per test.
     activityOf: () => ({ working: false, waiting: false, event: null }),
     workPhaseOf: () => null,
+    captureStyledScreen: async () => STYLED_ROWS,
     ...overrides,
   };
   const app = express();
@@ -106,11 +112,11 @@ describe("GET /api/mobile/terminal-sessions", () => {
 });
 
 describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
-  it("returns the existing SessionScreen shape", async () => {
+  it("returns the existing SessionScreen shape plus styledScreen (#7)", async () => {
     const { app } = appFor();
     const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(SCREEN);
+    expect(res.body).toEqual({ ...SCREEN, styledScreen: STYLED_ROWS });
   });
 
   it("400s an id that is not a session id", async () => {
@@ -135,6 +141,49 @@ describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "failed to read terminal screen" });
     expect(JSON.stringify(res.body)).not.toMatch(/at .*\.(ts|js):\d+/);
+  });
+
+  // The plain-text screen above is already a real, successful capture by the time styling is
+  // attempted — a failure building JUST the coloured rows must not turn that into a 500.
+  it("degrades to the plain-text screen alone when captureStyledScreen throws", async () => {
+    const { app } = appFor({
+      captureStyledScreen: async () => {
+        throw new Error("styling blew up");
+      },
+    });
+    const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(SCREEN);
+  });
+
+  // captureTerminalScreen and captureStyledScreen are two INDEPENDENT reads of the same live
+  // session (#7 round-3 review) — nothing makes them atomic, so an active repaint between the
+  // two can pair a `screen` from one frame with `styledScreen` rows from a DIFFERENT frame. The
+  // phone always prefers styled rows when present, so a mismatched pair must not reach it.
+  it("degrades to the plain-text screen alone when styledScreen's text disagrees with screen.screen", async () => {
+    const { app } = appFor({
+      // Simulates a repaint landing between the two captures: this text was never on screen
+      // at the same moment as SCREEN.screen.
+      captureStyledScreen: async () => [[{ text: "a different frame entirely", fg: null, bg: null, bold: false }]],
+    });
+    const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(SCREEN);
+  });
+
+  // Ghost text can end in a no-break space (Claude Code's empty input box, screen-rows.ts's own
+  // note) — `.trimEnd()` strips that along with plain ASCII space, so the consistency check must
+  // apply the SAME trim to its reconstruction or a perfectly matching pair would be rejected for
+  // a reason that isn't a capture race at all.
+  it("does not treat a screen ending in a no-break space as a capture mismatch", async () => {
+    const NBSP = String.fromCharCode(0xa0);
+    const { app } = appFor({
+      captureTerminalScreen: async () => ({ ...SCREEN, screen: `❯${NBSP}`.trimEnd() }), // what captureSessionScreen really sends
+      captureStyledScreen: async () => [[{ text: `❯${NBSP}`, fg: null, bg: null, bold: false }]], // the untrimmed styled reconstruction
+    });
+    const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
+    expect(res.status).toBe(200);
+    expect(res.body.styledScreen).toEqual([[{ text: "❯ ", fg: null, bg: null, bold: false }]]);
   });
 });
 

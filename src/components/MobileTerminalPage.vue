@@ -12,6 +12,7 @@ import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
+import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 
@@ -68,19 +69,50 @@ const sessions = ref<MobileSession[]>([]);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
 
-// The only field this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
+// The two fields this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
 // SessionScreen also carries suggestion, quickCommands and meta (cwd, branch, memo, summary,
 // prompt, githubUrl) — none of it is used or shown here yet, so it stays off this shape.
+//
+// styledScreen is optional on the wire (server/routes/local-mobile-terminal-routes.ts): an
+// older server, or a session the styling step itself failed for, sends `screen` alone, and this
+// page falls back to the plain-text display it has always had (see the template below) rather
+// than showing nothing.
 interface MobileScreen {
   screen: string;
+  styledScreen: AnsiRow[] | undefined;
 }
 
-const isMobileScreen = (value: unknown): value is MobileScreen => isRecord(value) && typeof value.screen === "string";
+const isMobileScreen = (value: unknown): value is MobileScreen =>
+  isRecord(value) && typeof value.screen === "string" && (value.styledScreen === undefined || isAnsiScreen(value.styledScreen));
 
 type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
+// null covers both "no styled rows on this response" and "reset because the session changed" —
+// either way the template's v-else-if falls back to the plain-text screen below.
+const screenStyledRows = ref<AnsiRow[] | null>(null);
+
+// segment.fg/bg are pre-resolved "#rrggbb" strings or null (never raw terminal bytes — see
+// common/ansiStyle.ts) and are applied here as a `:style` OBJECT, which Vue sets via direct
+// CSSStyleDeclaration property assignment. That is what keeps this safe without a sanitizer: a
+// value that isn't a valid CSS colour is simply dropped by the browser, never parsed as markup,
+// and the segment's actual text only ever reaches the DOM through `{{ }}` interpolation below,
+// which HTML-escapes it the same way the plain-text screen always has.
+function segmentStyle(segment: AnsiSegment): Record<string, string> {
+  const style: Record<string, string> = {};
+  if (segment.fg) style.color = segment.fg;
+  if (segment.bg) style.backgroundColor = segment.bg;
+  if (segment.bold) style.fontWeight = "700";
+  return style;
+}
+
+// An empty AnsiRow (a genuinely blank terminal line) renders as a `<div>` with no text content
+// at all — and an empty block element has no line box, so the row collapses to zero height and
+// the blank line disappears from the styled view (unlike the plain-text <pre> below, where the
+// same blank line is a real "\n" and keeps its height for free). A no-break space gives the div
+// content to lay out without being visible or copy-pasted as a stray glyph.
+const BLANK_ROW_FILLER = "\u00A0";
 
 // Rate limit for the manual Refresh/Retry button alone — session switches bypass it entirely
 // (section 9 of the spec this implements). Counted from when a refresh STARTS, not when its
@@ -137,6 +169,7 @@ function changeSelectedSession(next: string | null): void {
   } else {
     screenStatus.value = "idle";
     screenText.value = "";
+    screenStyledRows.value = null;
   }
 }
 
@@ -249,6 +282,7 @@ async function loadScreen(id: string): Promise<void> {
     if (!isMobileScreen(body)) throw new Error("invalid /api/mobile/terminal-sessions/:id/screen response");
     if (selectedSessionId.value !== requestedId) return;
     screenText.value = body.screen;
+    screenStyledRows.value = body.styledScreen ?? null;
     screenStatus.value = "loaded";
   } catch {
     if (selectedSessionId.value !== requestedId) return;
@@ -431,6 +465,24 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <!--
+            Two renderings of the same "loaded" state, never both at once. Styled rows are
+            preferred whenever the server sent a valid one (isMobileScreen already checked its
+            shape); a row's OWN text still reaches the DOM only through `{{ }}` interpolation,
+            so `<script>`/HTML in terminal output is escaped exactly as it always was in the
+            plain-text pre below — the row/segment split only adds structure (line breaks,
+            colour), never a new way for content to become markup. The fixed dark background
+            here (rather than the page's own bg-elevated) is deliberate: ANSI's 16-colour
+            palette (server/session/ansiSegments.ts) is tuned for a dark terminal background and
+            would lose contrast against a light theme's page background otherwise — see the
+            palette's own comment. A row with no segments (a blank terminal line) falls back to
+            BLANK_ROW_FILLER so its <div> still has a line box — see that constant's comment.
+          -->
+          <pre
+            v-else-if="screenStatus === 'loaded' && screenStyledRows"
+            class="overflow-x-auto whitespace-pre rounded-md border border-border p-2 font-mono text-[12px]"
+            style="background-color: #1e1e1e; color: #d4d4d4"
+          ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-if="row.length === 0">{{ BLANK_ROW_FILLER }}</span><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
           <pre
             v-else-if="screenStatus === 'loaded'"
             class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"

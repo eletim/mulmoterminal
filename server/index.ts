@@ -83,7 +83,9 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { antigravityAdapter } from "./agents/antigravity.js";
 import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
-import { renderScreen } from "./session/headlessScreen.js";
+import { renderScreen, renderAnsiRows } from "./session/headlessScreen.js";
+import { ansiScreenWindow, parseAnsiRows } from "./session/ansiSegments.js";
+import type { AnsiRow } from "../common/ansiStyle.js";
 import {
   agentFromPaneCommand,
   SCREEN_HISTORY_ROWS,
@@ -91,6 +93,7 @@ import {
   buildSessionList,
   captureSessionScreen,
   sessionWorkSummary,
+  TerminalSessionNotFoundError,
   type SessionScreenMeta,
   type SessionWorkSummary,
 } from "./backends/remoteHost/terminalScreen.js";
@@ -727,6 +730,26 @@ const remoteHostCaptureTerminalScreen = (sessionId: string) =>
     quickCommandsOf: (id) => quickCommandsForAgent(getQuickCommands(), agentOfSession(id)),
   });
 
+// The LOCAL mobile route's colour layer (#7) — never wired into remoteHostCaptureTerminalScreen
+// above, so the Firestore doc remote mode writes (1 MiB ceiling, see SessionScreen's own note)
+// never grows by this. Deliberately its own capture rather than a field added to SessionScreen:
+// that type is BOTH transports' wire shape (createTerminalSessionHandlers's own comment — "the
+// whole SessionScreen is the wire shape"), and remote mode has no reader for styled rows.
+//
+// Same two capture paths as remoteHostCaptureTerminalScreen, in the same order (tmux first),
+// so a session picks the same source for both its plain and its styled screen — just read for
+// colour (ansiSegments.ts / headlessScreen.ts's renderAnsiRows) instead of for plain text.
+// ansiScreenWindow applies the SAME row cap AND byte cap terminalScreen.ts's own screenWindow
+// applies to the plain screen, so the two never disagree on how much of the pane is shown.
+const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRow[]> => {
+  const captured = tmuxCaptureStyledPane(sessionId, SCREEN_HISTORY_ROWS);
+  if (captured !== null) return ansiScreenWindow(parseAnsiRows(captured));
+  const entry = ptys.get(sessionId);
+  if (!entry) throw new TerminalSessionNotFoundError(sessionId);
+  const rows = await renderAnsiRows({ buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows, historyLines: SCREEN_HISTORY_ROWS });
+  return ansiScreenWindow(rows);
+};
+
 // The phone asked for a new terminal in the directory of the session it was viewing (#831).
 // The grid lives in the browser — markDevTerminalSession is only ever reached through the
 // terminal WebSocket — so the host cannot open the cell, and publishes the request to
@@ -796,6 +819,7 @@ mountMobileTransport({
       isAllowedOrigin,
       listTerminalSessions: remoteHostListTerminalSessions,
       captureTerminalScreen: remoteHostCaptureTerminalScreen,
+      captureStyledScreen: localMobileCaptureStyledScreen,
       writeToSession: remoteHostWriteToSession,
       canClearBox: remoteHostCanClearBox,
       submitSequence: sessionSubmitSequence,
