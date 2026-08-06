@@ -21,6 +21,7 @@ const pushStatus = ref<PushStatus>(pushSupport.supported ? "checking" : "unsuppo
 const pushBusy = ref<PushBusy>(null);
 const pushPermission = ref<NotificationPermission | "unknown">(pushSupport.supported ? Notification.permission : "unknown");
 const pushSubscribed = ref(false);
+const pushServerRegistered = ref(false);
 const pushSubscriptionJson = ref<PushSubscriptionJSON | null>(null);
 const pushError = ref<string | null>(pushSupport.supported ? null : pushSupport.reason);
 const serverConfig = ref<MobileWebPushServerConfig | null>(null);
@@ -52,6 +53,7 @@ function syncPushPermission(): void {
 function reflectSubscription(subscription: PushSubscription | null): void {
   pushSubscribed.value = subscription !== null;
   pushSubscriptionJson.value = subscription?.toJSON() ?? null;
+  if (!subscription) pushServerRegistered.value = false;
 }
 
 async function refreshPushState(): Promise<void> {
@@ -63,15 +65,16 @@ async function refreshPushState(): Promise<void> {
 
   try {
     serverConfig.value = await fetchMobileWebPushConfig();
+    const registration = await registerMobileWebPushServiceWorker();
+    reflectSubscription(await registration.pushManager.getSubscription());
+    syncPushPermission();
+
     if (!serverConfig.value.enabled) {
       pushStatus.value = "unsupported";
       pushError.value = serverConfig.value.reason ?? "Mobile Web Push is not configured on this server.";
       return;
     }
 
-    const registration = await registerMobileWebPushServiceWorker();
-    reflectSubscription(await registration.pushManager.getSubscription());
-    syncPushPermission();
     pushStatus.value = "ready";
   } catch {
     pushStatus.value = "error";
@@ -104,13 +107,24 @@ async function enablePushNotifications(): Promise<void> {
 
     const registration = await registerMobileWebPushServiceWorker();
     const existing = await registration.pushManager.getSubscription();
+    let createdSubscription: PushSubscription | null = null;
     const subscription =
       existing ??
       (await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(serverConfig.value.publicKey),
       }));
-    await registerMobileWebPushSubscription(subscription.toJSON());
+    if (!existing) createdSubscription = subscription;
+    try {
+      await registerMobileWebPushSubscription(subscription.toJSON());
+      pushServerRegistered.value = true;
+    } catch (err) {
+      if (createdSubscription) {
+        await createdSubscription.unsubscribe().catch(() => undefined);
+        reflectSubscription(null);
+      }
+      throw err;
+    }
     reflectSubscription(subscription);
     pushStatus.value = "ready";
   } catch {
@@ -135,6 +149,7 @@ async function disablePushNotifications(): Promise<void> {
       await subscription.unsubscribe();
     }
     reflectSubscription(null);
+    pushServerRegistered.value = false;
     pushStatus.value = "ready";
   } catch {
     pushStatus.value = "error";
@@ -179,7 +194,8 @@ void refreshPushState();
       <span class="text-fg">{{ subscriptionLabel }}</span>
     </div>
 
-    <p v-if="pushSubscriptionJson" class="mt-2 text-muted">Subscription registered for server push.</p>
+    <p v-if="pushServerRegistered" class="mt-2 text-muted">Subscription registered for server push.</p>
+    <p v-else-if="pushSubscriptionJson" class="mt-2 text-muted">Browser subscription is active.</p>
     <p v-if="pushError" class="mt-2 text-err-text">{{ pushError }}</p>
 
     <div class="mt-3 flex flex-wrap gap-2">

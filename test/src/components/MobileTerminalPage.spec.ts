@@ -974,6 +974,25 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("Failed to register notifications with the server.");
     });
 
+    it("rolls back a newly-created browser subscription when server registration fails", async () => {
+      const webPush = mockWebPush({ permission: "granted", existingSubscription: null });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk("screen-a") },
+        webPushRegister: { ok: false, status: 500, body: { error: "store failed" } },
+      });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(webPush.registration.pushManager.subscribe).toHaveBeenCalled();
+      expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Off");
+      expect(wrapper.text()).toContain("Failed to register notifications with the server.");
+    });
+
     it("unsubscribes an existing PushSubscription", async () => {
       const webPush = mockWebPush({ permission: "granted" });
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
@@ -1017,6 +1036,26 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Unsupported");
       expect(wrapper.text()).toContain("missing VAPID config");
       expect(findButton(wrapper, "Enable").attributes("disabled")).toBeDefined();
+    });
+
+    it("still allows disabling an existing subscription when server VAPID config is missing", async () => {
+      const webPush = mockWebPush({ permission: "granted" });
+      mockFetch({
+        mode: "local",
+        sessions: [],
+        webPushConfig: webPushOk({ enabled: false, publicKey: null, reason: "missing VAPID config" }),
+      });
+      const wrapper = await mountPage();
+
+      expect(findButton(wrapper, "Disable").attributes("disabled")).toBeUndefined();
+      await findButton(wrapper, "Disable").trigger("click");
+      await flushPromises();
+
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({ method: "DELETE", body: JSON.stringify({ endpoint: "https://push.example/subscription" }) }),
+      );
+      expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
     });
 
     it("selects a session from the sessionId query parameter", async () => {
