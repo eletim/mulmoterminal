@@ -57,6 +57,7 @@ function mobileWebPushDeps(overrides: Partial<LocalMobileTerminalRouteDeps["mobi
 
 function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"] = () => true) {
   const writes: Array<{ id: string; chunk: string }> = [];
+  const waitingUpdates: Array<{ id: string; waiting: boolean; event: string | undefined }> = [];
   const deps: LocalMobileTerminalRouteDeps = {
     isAllowedOrigin,
     listTerminalSessions: async () => SESSIONS,
@@ -86,6 +87,9 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
     // Every session reads idle by default — the interesting cases override this per test.
     activityOf: () => ({ working: false, waiting: false, event: null }),
     workPhaseOf: () => null,
+    setWaiting: (id, waiting, event) => {
+      waitingUpdates.push({ id, waiting, event });
+    },
     captureStyledScreen: async () => STYLED_ROWS,
     mobileWebPush: mobileWebPushDeps(),
     ...overrides,
@@ -93,7 +97,7 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
   const app = express();
   app.use(express.json());
   mountLocalMobileTerminalRoutes(app, deps);
-  return { app, writes };
+  return { app, writes, waitingUpdates };
 }
 
 describe("localSessionActivity", () => {
@@ -424,12 +428,13 @@ describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
 
 describe("POST /api/mobile/terminal-sessions/:id/input", () => {
   it("sends through createTerminalInputSender — bracketed paste, not a raw PTY write", async () => {
-    const { app, writes } = appFor();
+    const { app, writes, waitingUpdates } = appFor();
     const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/input`).send({ text: "git status" });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ sent: true });
     expect(writes.map((w) => w.chunk)).toEqual([expect.stringContaining("git status"), "\r"]);
     expect(writes[0].chunk.startsWith("\x1b[200~")).toBe(true);
+    expect(waitingUpdates).toEqual([{ id: LIVE, waiting: false, event: undefined }]);
   });
 
   it("400s an id that is not a session id", async () => {
@@ -452,9 +457,10 @@ describe("POST /api/mobile/terminal-sessions/:id/input", () => {
   });
 
   it("409s a tmux-only session with no live PTY to write to", async () => {
-    const { app } = appFor();
+    const { app, waitingUpdates } = appFor();
     const res = await request(app).post(`/api/mobile/terminal-sessions/${TMUX_ONLY}/input`).send({ text: "ls" });
     expect(res.status).toBe(409);
+    expect(waitingUpdates).toEqual([]);
   });
 
   it("403s a disallowed Origin without calling the sender", async () => {

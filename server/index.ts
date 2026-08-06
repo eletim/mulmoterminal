@@ -814,6 +814,7 @@ mountMobileTransport({
       createTerminalAtCwd: localMobileTerminalCreator,
       activityOf: localMobileActivityOf,
       workPhaseOf: localMobileWorkPhaseOf,
+      setWaiting,
       mobileWebPush,
     });
   },

@@ -98,7 +98,7 @@ export function createMobileWebPushSender({
             vapidDetails: resolved.vapid,
             TTL: 300,
             urgency: "normal",
-            topic: `mulmoterminal-mobile-${payload.kind}`,
+            ...(payload.kind === "test" ? { topic: "mulmoterminal-mobile-test" } : {}),
           });
           if (result.statusCode >= 200 && result.statusCode < 300) sent += 1;
           else failed += 1;

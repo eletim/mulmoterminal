@@ -88,7 +88,7 @@ describe("createMobileWebPushSender", () => {
     expect(await sender.sendTest("session-a")).toEqual({ ok: true, sent: 2, failed: 0, targets: 2, removed: 0 });
     expect(send).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String(send.mock.calls[0]?.[1]))).toMatchObject({ kind: "test", sessionId: "session-a" });
-    expect(send.mock.calls[0]?.[2]).toMatchObject({ vapidDetails: CONFIG.vapid, TTL: 300, urgency: "normal" });
+    expect(send.mock.calls[0]?.[2]).toMatchObject({ vapidDetails: CONFIG.vapid, TTL: 300, urgency: "normal", topic: "mulmoterminal-mobile-test" });
   });
 
   it("sends activity notifications through the same stored subscriptions", async () => {
@@ -115,6 +115,7 @@ describe("createMobileWebPushSender", () => {
       agent: "codex",
       url: "/mobile/terminals?sessionId=session-a",
     });
+    expect(send.mock.calls[0]?.[2]).not.toHaveProperty("topic");
   });
 
   it("removes expired subscriptions before sending", async () => {
