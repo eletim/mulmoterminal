@@ -84,7 +84,7 @@ import { codexAdapter } from "./agents/codex.js";
 import { antigravityAdapter } from "./agents/antigravity.js";
 import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
 import { renderScreen, renderAnsiRows } from "./session/headlessScreen.js";
-import { parseAnsiRows, trimTrailingBlankAnsiRows } from "./session/ansiSegments.js";
+import { ansiScreenWindow, parseAnsiRows } from "./session/ansiSegments.js";
 import type { AnsiRow } from "../common/ansiStyle.js";
 import {
   agentFromPaneCommand,
@@ -739,13 +739,15 @@ const remoteHostCaptureTerminalScreen = (sessionId: string) =>
 // Same two capture paths as remoteHostCaptureTerminalScreen, in the same order (tmux first),
 // so a session picks the same source for both its plain and its styled screen — just read for
 // colour (ansiSegments.ts / headlessScreen.ts's renderAnsiRows) instead of for plain text.
+// ansiScreenWindow applies the SAME row cap AND byte cap terminalScreen.ts's own screenWindow
+// applies to the plain screen, so the two never disagree on how much of the pane is shown.
 const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRow[]> => {
   const captured = tmuxCaptureStyledPane(sessionId, SCREEN_HISTORY_ROWS);
-  if (captured !== null) return trimTrailingBlankAnsiRows(parseAnsiRows(captured)).slice(-SCREEN_HISTORY_ROWS);
+  if (captured !== null) return ansiScreenWindow(parseAnsiRows(captured));
   const entry = ptys.get(sessionId);
   if (!entry) throw new TerminalSessionNotFoundError(sessionId);
   const rows = await renderAnsiRows({ buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows, historyLines: SCREEN_HISTORY_ROWS });
-  return rows.slice(-SCREEN_HISTORY_ROWS);
+  return ansiScreenWindow(rows);
 };
 
 // The phone asked for a new terminal in the directory of the session it was viewing (#831).

@@ -1,13 +1,22 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 
-import { parseAnsiRow, parseAnsiRows, resolveIndexColor, trimTrailingBlankAnsiRows, trimTrailingPad } from "../../../server/session/ansiSegments.js";
-import type { AnsiSegment } from "../../../common/ansiStyle.js";
+import {
+  ansiScreenWindow,
+  parseAnsiRow,
+  parseAnsiRows,
+  resolveIndexColor,
+  trimTrailingBlankAnsiRows,
+  trimTrailingPad,
+} from "../../../server/session/ansiSegments.js";
+import { SCREEN_HISTORY_ROWS } from "../../../server/backends/remoteHost/terminalScreen.js";
+import type { AnsiRow, AnsiSegment } from "../../../common/ansiStyle.js";
 
 const ESC = String.fromCharCode(0x1b);
 const NBSP = String.fromCharCode(0xa0);
 
 const plain = (text: string): AnsiSegment => ({ text, fg: null, bg: null, bold: false });
+const plainRow = (text: string): AnsiRow => [plain(text)];
 
 describe("parseAnsiRow", () => {
   it("leaves an unstyled row as one plain segment", () => {
@@ -158,5 +167,49 @@ describe("trimTrailingBlankAnsiRows", () => {
   it("drops trailing rows with no visible text, keeping earlier blank rows", () => {
     const rows = [[plain("a")], [], [plain("b")], [], []];
     expect(trimTrailingBlankAnsiRows(rows)).toEqual([[plain("a")], [], [plain("b")]]);
+  });
+});
+
+// The same window terminalScreen.ts's screenWindow applies to the plain-text `screen` field —
+// pinned here so the styled-screen route (#7, local mobile only) can never disagree with it on
+// how much of the pane is shown (round 2 review: the styled path originally capped rows but not
+// bytes, so a wide/multibyte-heavy pane could return a styled screen larger than the plain one).
+describe("ansiScreenWindow", () => {
+  it("keeps a short screen whole", () => {
+    expect(ansiScreenWindow(["one", "two", "three"].map(plainRow)).map((row) => row.map((s) => s.text).join(""))).toEqual(["one", "two", "three"]);
+  });
+
+  it("drops the oldest rows once the history is longer than the window", () => {
+    const rows = ansiScreenWindow(Array.from({ length: SCREEN_HISTORY_ROWS + 50 }, (_, index) => plainRow(`line-${index}`)));
+    expect(rows).toHaveLength(SCREEN_HISTORY_ROWS);
+    expect(rows[0]?.[0]?.text).toBe("line-50");
+    expect(rows.at(-1)?.[0]?.text).toBe(`line-${SCREEN_HISTORY_ROWS + 49}`);
+  });
+
+  it("spends the window on content rather than on the pane's empty rows", () => {
+    const rows = ansiScreenWindow([...Array.from({ length: SCREEN_HISTORY_ROWS + 10 }, (_, index) => plainRow(`line-${index}`)), ...Array(38).fill([])]);
+    expect(rows).toHaveLength(SCREEN_HISTORY_ROWS);
+    expect(rows.at(-1)?.[0]?.text).toBe(`line-${SCREEN_HISTORY_ROWS + 9}`);
+  });
+
+  // The reply is a same-origin HTTP response rather than a Firestore doc, but the cap still
+  // applies (round 2 review) — a wide, multibyte-heavy pane must not return an unbounded payload
+  // just because there's no 1 MiB Firestore ceiling forcing the issue.
+  it("stops at the byte ceiling even when the row count would allow more", () => {
+    const wide = "あ".repeat(2000); // 6 KB per row: 300 of them would be 1.8 MB
+    const rows = ansiScreenWindow(Array.from({ length: SCREEN_HISTORY_ROWS }, (_, index) => plainRow(`${index}:${wide}`)));
+    expect(rows.length).toBeLessThan(SCREEN_HISTORY_ROWS);
+    expect(rows.reduce((bytes, row) => bytes + Buffer.byteLength(row.map((s) => s.text).join(""), "utf8") + 1, 0)).toBeLessThanOrEqual(256 * 1024);
+    expect(rows.at(-1)?.[0]?.text.startsWith(`${SCREEN_HISTORY_ROWS - 1}:`)).toBe(true);
+  });
+
+  it("stops at an oversized row instead of stepping over it", () => {
+    const rows = ansiScreenWindow([plainRow("ancient"), plainRow("あ".repeat(256 * 1024)), plainRow("newest")]);
+    expect(rows.map((row) => row.map((s) => s.text).join(""))).toEqual(["newest"]);
+  });
+
+  it("survives a session with nothing on screen at all", () => {
+    expect(ansiScreenWindow([[], [], []])).toEqual([]);
+    expect(ansiScreenWindow([])).toEqual([]);
   });
 });
