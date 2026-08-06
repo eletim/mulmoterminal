@@ -53,6 +53,10 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
       if (sessionId === NO_CWD) return { ok: false, error: `no working directory known for session '${String(sessionId)}'` };
       return { ok: true };
     },
+    launchTerminalAtCwd: (agent) => {
+      if (!isLaunchAgent(agent)) return { ok: false, error: `agent must be one of: ${LAUNCH_AGENTS.join(", ")}` };
+      return { ok: true };
+    },
     // Every session reads idle by default — the interesting cases override this per test.
     activityOf: () => ({ working: false, waiting: false, event: null }),
     workPhaseOf: () => null,
@@ -82,6 +86,85 @@ describe("localSessionActivity", () => {
       event: "Stop",
       workPhase: null,
     });
+  });
+});
+
+describe("POST /api/mobile/terminal-sessions", () => {
+  it("creates a terminal through the injected launch function with a normalized cwd", async () => {
+    const calls: Array<{ agent: unknown; cwd: string }> = [];
+    const cwd = `${process.cwd()}/`;
+    const { app } = appFor({
+      launchTerminalAtCwd: (agent, resolvedCwd) => {
+        calls.push({ agent, cwd: resolvedCwd });
+        return { ok: true };
+      },
+    });
+    const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "codex", cwd });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(calls).toEqual([{ agent: "codex", cwd: process.cwd() }]);
+  });
+
+  it("400s an invalid agent without treating it as a shell command", async () => {
+    let called = false;
+    const { app } = appFor({
+      launchTerminalAtCwd: () => {
+        called = true;
+        return { ok: false, error: "should not matter" };
+      },
+    });
+    const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "bash -lc env", cwd: process.cwd() });
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it("400s a missing cwd", async () => {
+    const { app } = appFor();
+    const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell" });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "cwd is required" });
+  });
+
+  it("400s a relative cwd before publishing a launch request", async () => {
+    let called = false;
+    const { app } = appFor({
+      launchTerminalAtCwd: () => {
+        called = true;
+        return { ok: true };
+      },
+    });
+    const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: "relative/path" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("not an absolute path");
+    expect(called).toBe(false);
+  });
+
+  it("409s an absolute cwd that cannot be used", async () => {
+    const { app } = appFor();
+    const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: "/no/such/mobile-terminal-cwd" });
+    expect(res.status).toBe(409);
+  });
+
+  it("409s when no browser is open to receive the request", async () => {
+    const { app } = appFor({ launchTerminalAtCwd: () => ({ ok: false, error: NO_BROWSER_ERROR }) });
+    const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: process.cwd() });
+    expect(res.status).toBe(409);
+  });
+
+  it("403s a disallowed Origin without publishing", async () => {
+    let called = false;
+    const { app } = appFor(
+      {
+        launchTerminalAtCwd: () => {
+          called = true;
+          return { ok: true };
+        },
+      },
+      () => false,
+    );
+    const res = await request(app).post("/api/mobile/terminal-sessions").set("Origin", "https://evil.example").send({ agent: "shell", cwd: process.cwd() });
+    expect(res.status).toBe(403);
+    expect(called).toBe(false);
   });
 });
 

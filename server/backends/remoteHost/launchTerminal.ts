@@ -24,6 +24,12 @@ export interface LaunchTerminalInput {
   listenerCount: number;
 }
 
+export interface LaunchTerminalAtCwdInput {
+  agent: unknown;
+  cwd: string;
+  listenerCount: number;
+}
+
 // Shared with the caller: the listener count is read before publishing, so a tab that closes
 // in between makes delivery fail after this said yes. Both paths report the same thing.
 export const NO_BROWSER_ERROR = "no MulmoTerminal browser is open — the grid opens the terminal, so a tab must be connected";
@@ -33,6 +39,13 @@ export function decideLaunchTerminal({ agent, sessionId, cwdOf, listenerCount }:
   if (typeof sessionId !== "string" || !sessionId) return { ok: false, error: "sessionId is required" };
   const cwd = cwdOf(sessionId);
   if (!cwd) return { ok: false, error: `no working directory known for session '${sessionId}'` };
+  if (listenerCount < 1) return { ok: false, error: NO_BROWSER_ERROR };
+  return { ok: true, request: { agent, cwd } };
+}
+
+export function decideLaunchTerminalAtCwd({ agent, cwd, listenerCount }: LaunchTerminalAtCwdInput): LaunchTerminalDecision {
+  if (!isLaunchAgent(agent)) return { ok: false, error: `agent must be one of: ${LAUNCH_AGENTS.join(", ")}` };
+  if (!cwd) return { ok: false, error: "cwd is required" };
   if (listenerCount < 1) return { ok: false, error: NO_BROWSER_ERROR };
   return { ok: true, request: { agent, cwd } };
 }

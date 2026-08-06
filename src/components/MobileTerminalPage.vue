@@ -3,13 +3,14 @@
 // DesktopAppShell — never alongside it. Wired to the local mobile terminal API: which transport
 // mode the server is running (GET /api/mobile-mode), only in local mode the terminal session
 // roster (GET /api/mobile/terminal-sessions), the selected session's current terminal screen
-// (GET /api/mobile/terminal-sessions/:id/screen), and — for a live session — sending it one line
-// of input (POST /api/mobile/terminal-sessions/:id/input). Launching a terminal is still a
-// follow-up change.
-import { computed, onMounted, onUnmounted, ref } from "vue";
+// (GET /api/mobile/terminal-sessions/:id/screen), creating a new local terminal (POST
+// /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
+// (POST /api/mobile/terminal-sessions/:id/input).
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
+import { LAUNCH_AGENTS, type LaunchAgent } from "../../common/launchAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
@@ -68,6 +69,14 @@ const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
+const newTerminalCwd = ref("");
+const newTerminalAgent = ref<LaunchAgent>("shell");
+const newTerminalCwdTouched = ref(false);
+const pendingCreatedSessionIds = ref<Set<string> | null>(null);
+
+type CreateStatus = "idle" | "creating" | "error";
+const createStatus = ref<CreateStatus>("idle");
+const createError = ref("");
 
 // The two fields this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
 // SessionScreen also carries suggestion, quickCommands and meta (cwd, branch, memo, summary,
@@ -134,6 +143,12 @@ interface MobileInputResult {
 
 const isMobileInputResult = (value: unknown): value is MobileInputResult => isRecord(value) && value.sent === true;
 
+interface MobileCreateResult {
+  ok: true;
+}
+
+const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true;
+
 // Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
 // DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
 // user, the shared "done" green for a finished-but-unreviewed turn, muted for idle/waiting.
@@ -173,13 +188,28 @@ function changeSelectedSession(next: string | null): void {
   }
 }
 
+watch(selectedSession, (session) => {
+  if (newTerminalCwdTouched.value) return;
+  if (session?.cwd) newTerminalCwd.value = session.cwd;
+});
+
 // Applies a freshly fetched session list, keeping the current selection when it still exists
 // (used by both the initial load and the recurring poll below) and only otherwise falling back
 // to the first live session, then the first session, then nothing. On the initial load
 // `selectedSessionId` is always null, so this always falls into the fallback branch — the same
 // choice `load()` made before this was split out.
-function applySessionList(parsed: MobileSession[]): void {
+function applySessionList(parsed: MobileSession[], preferNewFrom: Set<string> | null = pendingCreatedSessionIds.value): void {
   sessions.value = parsed;
+  if (preferNewFrom) {
+    const created = parsed.find((session) => !preferNewFrom.has(session.id));
+    if (created) {
+      pendingCreatedSessionIds.value = null;
+      createStatus.value = "idle";
+      createError.value = "";
+      changeSelectedSession(created.id);
+      return;
+    }
+  }
   if (selectedSessionId.value !== null && parsed.some((session) => session.id === selectedSessionId.value)) return;
 
   const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
@@ -348,6 +378,39 @@ async function sendTerminalInput(): Promise<void> {
   }
 }
 
+async function createTerminal(): Promise<void> {
+  if (createStatus.value === "creating") return;
+  const cwd = newTerminalCwd.value.trim();
+  if (!cwd) {
+    createStatus.value = "error";
+    createError.value = "Working directory is required.";
+    return;
+  }
+
+  const beforeIds = new Set(sessions.value.map((session) => session.id));
+  pendingCreatedSessionIds.value = beforeIds;
+  createStatus.value = "creating";
+  createError.value = "";
+
+  try {
+    const res = await fetch("/api/mobile/terminal-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent: newTerminalAgent.value, cwd }),
+    });
+    const body = await jsonBody(res);
+    if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
+    if (!isMobileCreateResult(body)) throw new Error("invalid /api/mobile/terminal-sessions response");
+
+    applySessionList(await fetchSessionList(), beforeIds);
+    if (pendingCreatedSessionIds.value === beforeIds) createStatus.value = "idle";
+  } catch (err) {
+    pendingCreatedSessionIds.value = null;
+    createStatus.value = "error";
+    createError.value = err instanceof Error && err.message ? err.message : "Failed to create terminal.";
+  }
+}
+
 // Refetches the session list and the selected session's screen whenever the tab comes back from
 // the background — covering the phone-locked-then-unlocked case, where both would otherwise be
 // however old they were when the tab went away. The session list refresh runs unconditionally
@@ -430,7 +493,45 @@ onUnmounted(() => {
 
       <p v-else-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
 
-      <template v-else>
+      <template v-if="status === 'local'">
+        <section class="mb-4 flex flex-col gap-2 rounded-md border border-border bg-elevated p-3">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-[13px] font-medium text-fg">New terminal</h2>
+            <button
+              type="button"
+              class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+              :disabled="createStatus === 'creating'"
+              @click="createTerminal"
+            >
+              {{ createStatus === "creating" ? "Starting…" : "Start" }}
+            </button>
+          </div>
+          <label class="flex flex-col gap-1 text-[12px] text-secondary">
+            <span>Working directory</span>
+            <input
+              v-model="newTerminalCwd"
+              type="text"
+              class="rounded-md border border-border bg-base px-2.5 py-2 font-mono text-[13px] text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
+              placeholder="/path/to/project"
+              :disabled="createStatus === 'creating'"
+              @input="newTerminalCwdTouched = true"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[12px] text-secondary">
+            <span>Agent</span>
+            <select
+              v-model="newTerminalAgent"
+              class="rounded-md border border-border bg-base px-2.5 py-2 text-[13px] text-fg disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="createStatus === 'creating'"
+            >
+              <option v-for="agent in LAUNCH_AGENTS" :key="agent" :value="agent">{{ agent }}</option>
+            </select>
+          </label>
+          <p v-if="createStatus === 'error'" class="text-[12px] text-err-text">{{ createError || "Failed to create terminal." }}</p>
+        </section>
+      </template>
+
+      <template v-if="status === 'local' && sessions.length > 0">
         <ul class="flex flex-col gap-2">
           <li v-for="session in sessions" :key="session.id">
             <button
