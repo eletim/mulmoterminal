@@ -12,6 +12,7 @@ type MockActivity = { working: boolean; waiting: boolean; event: string | null; 
 type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null; activity: MockActivity };
 type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
+type CreateResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
 
 const screenOk = (screen: unknown): ScreenResult => ({ ok: true, screen });
 const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
@@ -19,6 +20,8 @@ const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
 const inputOk = (): InputResult => ({ ok: true, body: { sent: true } });
 const inputBadBody = (body: unknown): InputResult => ({ ok: true, body });
 const inputFail = (status = 500): InputResult => ({ ok: false, status });
+const createOk = (body: unknown = { ok: true, sessionId: "created" }): CreateResult => ({ ok: true, body });
+const createFail = (status = 500, body: unknown = {}): CreateResult => ({ ok: false, status, body });
 
 type MockFetchResponse = { ok: boolean; status?: number; json: () => Promise<unknown> };
 
@@ -49,15 +52,20 @@ function mockFetch(opts: {
   sessionsOk?: boolean;
   screens?: Record<string, ScreenResult>;
   inputs?: Record<string, InputResult>;
+  create?: CreateResult;
 }) {
-  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {}, inputs = {} } = opts;
-  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {}, inputs = {}, create = createOk() } = opts;
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === "/api/mobile-mode") {
       if (!modeOk) return { ok: false, status: 500, json: async () => ({}) };
       return { ok: true, json: async () => ({ mode }) };
     }
     if (url === "/api/mobile/terminal-sessions") {
+      if (init?.method === "POST") {
+        if (!create.ok) return { ok: false, status: create.status ?? 500, json: async () => create.body ?? {} };
+        return { ok: true, json: async () => create.body ?? { ok: true } };
+      }
       if (!sessionsOk) return { ok: false, status: 500, json: async () => ({}) };
       return { ok: true, json: async () => ({ sessions }) };
     }
@@ -318,7 +326,7 @@ describe("MobileTerminalPage", () => {
             await buttons[1].trigger("click"); // select "b"
             await flushPromises();
 
-            const inputEl = () => wrapper.find('input[type="text"]');
+            const inputEl = () => wrapper.find('footer input[type="text"]');
             await inputEl().setValue("leftover for b");
             await wrapper.find("form").trigger("submit");
             await flushPromises();
@@ -361,7 +369,7 @@ describe("MobileTerminalPage", () => {
             await buttons[1].trigger("click"); // select "b"
             await flushPromises();
 
-            const inputEl = () => wrapper.find('input[type="text"]');
+            const inputEl = () => wrapper.find('footer input[type="text"]');
             await inputEl().setValue("echo from b");
             await wrapper.find("form").trigger("submit"); // b's send is now pending
             await flushPromises();
@@ -390,14 +398,14 @@ describe("MobileTerminalPage", () => {
           try {
             mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
             const wrapper = await mountPage();
-            await wrapper.find('input[type="text"]').setValue("leftover");
+            await wrapper.find('footer input[type="text"]').setValue("leftover");
 
             mockFetch({ mode: "local", sessions: [] });
             vi.advanceTimersByTime(2000);
             await flushPromises();
 
             expect(wrapper.text()).toContain("No terminal sessions.");
-            expect(wrapper.find('input[type="text"]').exists()).toBe(false);
+            expect(wrapper.find('footer input[type="text"]').exists()).toBe(false);
           } finally {
             vi.useRealTimers();
           }
@@ -558,6 +566,211 @@ describe("MobileTerminalPage", () => {
     mockFetch({ mode: "local", sessions: [] });
     const wrapper = await mountPage();
     expect(wrapper.text()).toContain("No terminal sessions.");
+  });
+
+  describe("new terminal", () => {
+    function cwdInput(wrapper: Awaited<ReturnType<typeof mountPage>>) {
+      return wrapper.find('input[placeholder="/path/to/project"]');
+    }
+
+    function agentSelect(wrapper: Awaited<ReturnType<typeof mountPage>>) {
+      return wrapper.find("select");
+    }
+
+    it("shows a local new-terminal launcher and pre-fills cwd from the selected session", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", cwd: "/repo/a", live: true })], screens: { a: screenOk("hello") } });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("New terminal");
+      expect((cwdInput(wrapper).element as HTMLInputElement).value).toBe("/repo/a");
+      expect(agentSelect(wrapper).text()).toContain("shell");
+      expect(agentSelect(wrapper).text()).toContain("codex");
+    });
+
+    it("keeps the launcher visible even when there are no sessions", async () => {
+      mockFetch({ mode: "local", sessions: [] });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("No terminal sessions.");
+      expect(wrapper.text()).toContain("New terminal");
+      expect(cwdInput(wrapper).exists()).toBe(true);
+    });
+
+    it("POSTs only agent and cwd, then refreshes sessions and selects the created terminal", async () => {
+      let sessionsCall = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return { ok: true, json: async () => ({ ok: true, sessionId: "created" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          sessionsCall += 1;
+          const rows =
+            sessionsCall === 1
+              ? [session({ id: "a", cwd: "/repo/a", live: true })]
+              : [session({ id: "a", cwd: "/repo/a", live: true }), session({ id: "created", cwd: "/repo/b", title: "created", live: true, agent: "codex" })];
+          return { ok: true, json: async () => ({ sessions: rows }) };
+        }
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/created/screen") return { ok: true, json: async () => ({ screen: "screen-created" }) };
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      await cwdInput(wrapper).setValue("/repo/b");
+      await agentSelect(wrapper).setValue("codex");
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST");
+      if (!post) throw new Error("create POST not found");
+      expect(post[1]?.headers).toMatchObject({ "Content-Type": "application/json" });
+      expect(post[1]?.body).toBe(JSON.stringify({ agent: "codex", cwd: "/repo/b" }));
+      expect(post[1]?.body).not.toContain("command");
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("created");
+      expect(wrapper.text()).toContain("screen-created");
+    });
+
+    it("selects the session resolved for the create request, not the first unrelated new row", async () => {
+      let sessionsCall = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return { ok: true, json: async () => ({ ok: true, sessionId: "created" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          sessionsCall += 1;
+          const rows =
+            sessionsCall === 1
+              ? [session({ id: "a", cwd: "/repo/a", live: true })]
+              : [
+                  session({ id: "a", cwd: "/repo/a", live: true }),
+                  session({ id: "other-new", cwd: "/repo/other", title: "other-new", live: true }),
+                  session({ id: "created", cwd: "/repo/b", title: "created", live: true }),
+                ];
+          return { ok: true, json: async () => ({ sessions: rows }) };
+        }
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/created/screen") return { ok: true, json: async () => ({ screen: "screen-created" }) };
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      await cwdInput(wrapper).setValue("/repo/b");
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("created");
+      expect(wrapper.get('[class*="border-accent"]').text()).not.toContain("other-new");
+    });
+
+    it("disables Start and ignores a second click while creation is in flight", async () => {
+      let resolveCreate: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredCreate = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveCreate = resolve;
+      });
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return deferredCreate;
+        if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", cwd: "/repo/a", live: true })] }) };
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+
+      expect(findButton(wrapper, "Starting…").attributes("disabled")).toBeDefined();
+      await findButton(wrapper, "Starting…").trigger("click");
+      const createCalls = vi
+        .mocked(globalThis.fetch)
+        .mock.calls.filter(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST");
+      expect(createCalls).toHaveLength(1);
+
+      resolveCreate({ ok: true, json: async () => ({ ok: true, sessionId: "a" }) });
+      await flushPromises();
+    });
+
+    it("locks Start before waiting for an in-flight session-list refresh", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", cwd: "/repo/a", live: true })], screens: { a: screenOk("hello") } });
+        const wrapper = await mountPage();
+        let resolveList: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+        const deferredList = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+          resolveList = resolve;
+        });
+        let firstListAfterReset = true;
+        globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/mobile/terminal-sessions" && init?.method !== "POST") {
+            if (firstListAfterReset) {
+              firstListAfterReset = false;
+              return deferredList;
+            }
+            return { ok: true, json: async () => ({ sessions: [session({ id: "a", cwd: "/repo/a", live: true })] }) };
+          }
+          if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return { ok: true, json: async () => ({ ok: true, sessionId: "a" }) };
+          if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "hello" }) };
+          throw new Error(`unexpected fetch: ${url}`);
+        }) as unknown as typeof fetch;
+
+        fireVisibilityChange("visible");
+        await flushPromises();
+        await findButton(wrapper, "Start").trigger("click");
+        await flushPromises();
+        await findButton(wrapper, "Starting…").trigger("click");
+        expect(
+          vi.mocked(globalThis.fetch).mock.calls.filter(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST"),
+        ).toHaveLength(0);
+
+        resolveList({ ok: true, json: async () => ({ sessions: [session({ id: "a", cwd: "/repo/a", live: true })] }) });
+        await flushPromises();
+        vi.advanceTimersByTime(10);
+        await flushPromises();
+
+        expect(
+          vi.mocked(globalThis.fetch).mock.calls.filter(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST"),
+        ).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows a create error and can retry with the same inputs", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", cwd: "/repo/a", live: true })],
+        screens: { a: screenOk("hello") },
+        create: createFail(409, { error: "no MulmoTerminal browser is open" }),
+      });
+      const wrapper = await mountPage();
+      await cwdInput(wrapper).setValue("/repo/a");
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+      expect(wrapper.text()).toContain("no MulmoTerminal browser is open");
+
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", cwd: "/repo/a", live: true }), session({ id: "created", cwd: "/repo/a", live: true })],
+        screens: { a: screenOk("hello"), created: screenOk("created screen") },
+        create: createOk(),
+      });
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+      expect(wrapper.text()).not.toContain("no MulmoTerminal browser is open");
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("created");
+    });
+
+    it("validates an empty cwd locally before POSTing", async () => {
+      mockFetch({ mode: "local", sessions: [] });
+      const wrapper = await mountPage();
+      await cwdInput(wrapper).setValue(" ");
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+      expect(wrapper.text()).toContain("Working directory is required.");
+      expect(vi.mocked(globalThis.fetch).mock.calls.some(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST")).toBe(
+        false,
+      );
+    });
   });
 
   it("shows an error and retries from the mode check when a fetch fails", async () => {
@@ -1169,7 +1382,7 @@ describe("MobileTerminalPage", () => {
 
   describe("terminal input", () => {
     function inputEl(wrapper: Awaited<ReturnType<typeof mountPage>>) {
-      return wrapper.find('input[type="text"]');
+      return wrapper.find('footer input[type="text"]');
     }
 
     function inputCallCount(id: string): number {

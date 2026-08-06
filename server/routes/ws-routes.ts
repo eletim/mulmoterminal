@@ -118,7 +118,13 @@ export function workspaceFromUrl(url: URL): { cwd: string; unusable: string | nu
   return { cwd: request.cwd, unusable: null };
 }
 
-function wsConnectionContext(req: WsUpgradeRequest): { url: URL; requested: string | null; cwd: string; unusable: string | null; size: TerminalSize | null } {
+function wsConnectionContext(req: WsUpgradeRequest): {
+  url: URL;
+  requested: string | null;
+  cwd: string;
+  unusable: string | null;
+  size: TerminalSize | null;
+} {
   const url = new URL(req.url ?? "/", "http://localhost");
   const raw = url.searchParams.get("session");
   const requested = raw && SESSION_ID_RE.test(raw) ? raw : null;
