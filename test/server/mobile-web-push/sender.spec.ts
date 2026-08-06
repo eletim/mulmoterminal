@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { WebPushError, type SendResult } from "web-push";
+import webPush from "web-push";
+import type { SendResult } from "web-push";
 import { describe, expect, it, vi } from "vitest";
 import { createMobileWebPushSender, buildMobileWebPushPayload } from "../../../server/mobile-web-push/sender";
 import type { MobileWebPushConfig } from "../../../server/mobile-web-push/config";
@@ -131,7 +132,7 @@ describe("createMobileWebPushSender", () => {
   it("removes subscriptions that the push service reports as gone", async () => {
     const store = storeFor([stored("https://push.example/gone")]);
     const send = vi.fn(async () => {
-      throw new WebPushError("gone", 410, {}, "", "https://push.example/gone");
+      throw new webPush.WebPushError("gone", 410, {}, "", "https://push.example/gone");
     });
     const sender = createMobileWebPushSender({ config: () => CONFIG, store, sendNotification: send });
 

@@ -1,4 +1,5 @@
-import { WebPushError, sendNotification, type PushSubscription, type SendResult } from "web-push";
+import webPush from "web-push";
+import type { PushSubscription, SendResult, sendNotification as webPushSendNotification } from "web-push";
 import type { PushKind } from "../../common/pushKinds.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import type { MobileWebPushConfig } from "./config.js";
@@ -34,7 +35,7 @@ export interface MobileWebPushSender {
 export interface MobileWebPushSenderDeps {
   config: () => MobileWebPushConfig;
   store: MobileWebPushSubscriptionStore;
-  sendNotification?: typeof sendNotification;
+  sendNotification?: typeof webPushSendNotification;
   now?: () => number;
 }
 
@@ -62,13 +63,13 @@ function isExpired(expirationTime: number | null, now: number): boolean {
 }
 
 function isGonePushError(err: unknown): boolean {
-  return err instanceof WebPushError && (err.statusCode === 404 || err.statusCode === 410);
+  return err instanceof webPush.WebPushError && (err.statusCode === 404 || err.statusCode === 410);
 }
 
 export function createMobileWebPushSender({
   config,
   store,
-  sendNotification: send = sendNotification,
+  sendNotification: send = webPush.sendNotification,
   now = () => Date.now(),
 }: MobileWebPushSenderDeps): MobileWebPushSender {
   const sendToStoredSubscriptions = async (payload: MobileWebPushPayload): Promise<MobileWebPushSendResult> => {
