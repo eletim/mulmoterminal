@@ -8,7 +8,8 @@ import { router } from "../../../src/router/index";
 // GET /api/mobile/terminal-sessions, followed by GET /api/mobile/terminal-sessions/:id/screen
 // for whichever session ends up selected. Route the mock fetch by path so each test controls
 // all three responses independently.
-type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null };
+type MockActivity = { working: boolean; waiting: boolean; event: string | null; workPhase: "planning" | "implementing" | null };
+type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null; activity: MockActivity };
 type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 
@@ -68,11 +69,14 @@ function mockFetch(opts: {
   }) as unknown as typeof fetch;
 }
 
+const IDLE_ACTIVITY: MockActivity = { working: false, waiting: false, event: null, workPhase: null };
+
 const session = (over: Partial<MockSession> & { id: string }): MockSession => ({
   title: over.id,
   cwd: `/repo/${over.id}`,
   live: false,
   agent: null,
+  activity: IDLE_ACTIVITY,
   ...over,
 });
 
@@ -134,6 +138,380 @@ describe("MobileTerminalPage", () => {
     const wrapper = await mountPage();
     expect(wrapper.text()).toContain("live");
     expect(wrapper.text()).toContain("detached");
+  });
+
+  describe("session activity", () => {
+    it("shows the activity status alongside live/detached", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, activity: { working: true, waiting: false, event: null, workPhase: null } })],
+      });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("running · live");
+    });
+
+    it("names the work phase for a working session", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, activity: { working: true, waiting: false, event: null, workPhase: "planning" } })],
+      });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("planning · live");
+    });
+
+    it("shows needs input for a Notification wait, and done for a Stop wait", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [
+          session({ id: "a", live: false, activity: { working: false, waiting: true, event: "Notification", workPhase: null } }),
+          session({ id: "b", live: false, activity: { working: false, waiting: true, event: "Stop", workPhase: null } }),
+        ],
+      });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("needs input · detached");
+      expect(wrapper.text()).toContain("done · detached");
+    });
+
+    it("shows idle for a session with no activity recorded", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: false })] });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).toContain("idle · detached");
+    });
+
+    describe("polling", () => {
+      it("refetches the session list on an interval while the tab is visible", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+        try {
+          mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+          await mountPage();
+
+          // Re-mocking resets the fetch spy's own call history (the pattern the manual-refresh
+          // tests above already use), so what is being counted below is calls made AFTER this
+          // point — one poll tick, not the initial load plus a poll.
+          mockFetch({
+            mode: "local",
+            sessions: [session({ id: "a", live: true, activity: { working: true, waiting: false, event: null, workPhase: null } })],
+            screens: { a: screenOk("v1") },
+          });
+          vi.advanceTimersByTime(2000); // exactly one poll interval
+          await flushPromises();
+
+          const sessionsCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile/terminal-sessions");
+          expect(sessionsCalls).toHaveLength(1);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("reflects a status change from a poll without any user action", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+        try {
+          mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+          const wrapper = await mountPage();
+          expect(wrapper.text()).toContain("idle · live");
+
+          mockFetch({
+            mode: "local",
+            sessions: [session({ id: "a", live: true, activity: { working: true, waiting: false, event: null, workPhase: "implementing" } })],
+            screens: { a: screenOk("v1") },
+          });
+          vi.advanceTimersByTime(2000);
+          await flushPromises();
+
+          expect(wrapper.text()).toContain("implementing · live");
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("does not poll while the tab is hidden", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+        try {
+          mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+          await mountPage();
+          const initialCalls = vi.mocked(globalThis.fetch).mock.calls.length;
+
+          Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+          try {
+            vi.advanceTimersByTime(6000); // several poll intervals' worth
+            await flushPromises();
+          } finally {
+            Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+          }
+
+          expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(initialCalls); // no polls fired while hidden
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("keeps the current selection across a poll when it still exists", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+        try {
+          mockFetch({
+            mode: "local",
+            sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+            screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+          });
+          const wrapper = await mountPage();
+          const buttons = wrapper.findAll("main li button");
+          await buttons[1].trigger("click"); // select "b"
+          await flushPromises();
+          expect(wrapper.get('[class*="border-accent"]').text()).toContain("b");
+
+          // The poll returns the same two sessions, reordered — selection must not bounce to "a".
+          mockFetch({
+            mode: "local",
+            sessions: [session({ id: "b", live: true }), session({ id: "a", live: true })],
+            screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+          });
+          vi.advanceTimersByTime(2000);
+          await flushPromises();
+
+          expect(wrapper.get('[class*="border-accent"]').text()).toContain("b");
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("falls back to the first live session when the selected one disappears from a poll", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+        try {
+          mockFetch({
+            mode: "local",
+            sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+            screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+          });
+          const wrapper = await mountPage();
+          const buttons = wrapper.findAll("main li button");
+          await buttons[1].trigger("click"); // select "b"
+          await flushPromises();
+
+          // "b" is gone from the next poll.
+          mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+          vi.advanceTimersByTime(2000);
+          await flushPromises();
+
+          expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
+          expect(wrapper.text()).toContain("screen-a");
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      // A poll auto-switching the selection away from a session that disappeared must go through
+      // the exact same reset as a manual click — otherwise a line typed for the vanished session
+      // could still be sent to whatever the fallback landed on, and a "sending"/"error" input
+      // status left over from it would leave the new selection's input looking busy or broken.
+      describe("automatic selection change (poll fallback)", () => {
+        it("clears typed input and a stuck error status when a poll auto-switches away from a disappeared session", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({
+              mode: "local",
+              sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+              screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+              inputs: { b: inputFail(500) },
+            });
+            const wrapper = await mountPage();
+            const buttons = wrapper.findAll("main li button");
+            await buttons[1].trigger("click"); // select "b"
+            await flushPromises();
+
+            const inputEl = () => wrapper.find('input[type="text"]');
+            await inputEl().setValue("leftover for b");
+            await wrapper.find("form").trigger("submit");
+            await flushPromises();
+            expect(wrapper.text()).toContain("Failed to send terminal input.");
+
+            // "b" is gone from the next poll — falls back to "a".
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
+            expect(wrapper.text()).not.toContain("Failed to send terminal input.");
+            expect((inputEl().element as HTMLInputElement).value).toBe("");
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it("does not let a stale send response from a session that disappeared via polling affect the fallback session's input", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            let resolveInputB: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+            const deferredInputB = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+              resolveInputB = resolve;
+            });
+            let sessionsNow: MockSession[] = [session({ id: "a", live: true }), session({ id: "b", live: true })];
+
+            globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+              if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: sessionsNow }) };
+              if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+              if (url === "/api/mobile/terminal-sessions/b/screen") return { ok: true, json: async () => ({ screen: "screen-b" }) };
+              if (url === "/api/mobile/terminal-sessions/b/input") return deferredInputB;
+              throw new Error(`unexpected fetch: ${url}`);
+            }) as unknown as typeof fetch;
+
+            const wrapper = await mountPage();
+            const buttons = wrapper.findAll("main li button");
+            await buttons[1].trigger("click"); // select "b"
+            await flushPromises();
+
+            const inputEl = () => wrapper.find('input[type="text"]');
+            await inputEl().setValue("echo from b");
+            await wrapper.find("form").trigger("submit"); // b's send is now pending
+            await flushPromises();
+
+            // "b" disappears from the list before its send resolves — falls back to "a".
+            sessionsNow = [session({ id: "a", live: true })];
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+            expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
+
+            await inputEl().setValue("echo from a");
+
+            // b's response finally arrives, as a failure — it must not touch a's input state.
+            resolveInputB({ ok: false, json: async () => ({}) });
+            await flushPromises();
+
+            expect((inputEl().element as HTMLInputElement).value).toBe("echo from a");
+            expect(wrapper.text()).not.toContain("Failed to send terminal input.");
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it("clears selection, screen and input state when the session list becomes empty via polling", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+            const wrapper = await mountPage();
+            await wrapper.find('input[type="text"]').setValue("leftover");
+
+            mockFetch({ mode: "local", sessions: [] });
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            expect(wrapper.text()).toContain("No terminal sessions.");
+            expect(wrapper.find('input[type="text"]').exists()).toBe(false);
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+      });
+
+      // The 2s interval and the visibilitychange resume handler both call refreshSessionList();
+      // without a shared in-flight guard, a slow response and an overlapping trigger can resolve
+      // out of order and the older one's applySessionList() call would clobber newer state.
+      describe("request de-duplication", () => {
+        it("does not start a second session list fetch while one is in flight, and retries once it settles", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+            await mountPage();
+
+            let resolvePoll: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+            const deferredPoll = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+              resolvePoll = resolve;
+            });
+            let sessionsCallCount = 0;
+            globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url === "/api/mobile/terminal-sessions") {
+                sessionsCallCount += 1;
+                return deferredPoll;
+              }
+              if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "v1" }) };
+              throw new Error(`unexpected fetch: ${url}`);
+            }) as unknown as typeof fetch;
+
+            vi.advanceTimersByTime(2000); // first poll tick starts a request and leaves it pending
+            await flushPromises();
+            expect(sessionsCallCount).toBe(1);
+
+            // A tab-resume overlapping the still-pending poll must not add a second request.
+            fireVisibilityChange("visible");
+            await flushPromises();
+            expect(sessionsCallCount).toBe(1);
+
+            // Also true of a second interval tick landing before the first request settles.
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+            expect(sessionsCallCount).toBe(1);
+
+            resolvePoll({ ok: true, json: async () => ({ sessions: [session({ id: "a", live: true })] }) });
+            await flushPromises();
+
+            // Once the in-flight request has settled, the guard is released and the next tick fetches again.
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+            expect(sessionsCallCount).toBe(2);
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+
+        it("releases the in-flight guard after a failed poll so the next interval can retry", async () => {
+          vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+          try {
+            mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+            const wrapper = await mountPage();
+
+            mockFetch({ mode: "local", sessions: [], sessionsOk: false }); // this poll fails
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            mockFetch({
+              mode: "local",
+              sessions: [session({ id: "a", live: true, activity: { working: true, waiting: false, event: null, workPhase: null } })],
+              screens: { a: screenOk("v1") },
+            });
+            vi.advanceTimersByTime(2000);
+            await flushPromises();
+
+            // The next poll after the failure succeeded — the guard was released, not left stuck.
+            expect(wrapper.text()).toContain("running · live");
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+      });
+
+      it("does not empty the visible list when a poll fails", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+        try {
+          mockFetch({ mode: "local", sessions: [session({ id: "a", title: "keep-me", live: true })], screens: { a: screenOk("v1") } });
+          const wrapper = await mountPage();
+          expect(wrapper.text()).toContain("keep-me");
+
+          mockFetch({ mode: "local", sessions: [], sessionsOk: false });
+          vi.advanceTimersByTime(2000);
+          await flushPromises();
+
+          // The failed poll must not have blanked the list still showing "keep-me".
+          expect(wrapper.text()).toContain("keep-me");
+          expect(wrapper.text()).not.toContain("No terminal sessions.");
+          expect(wrapper.text()).not.toContain("Failed to load");
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("clears the poll interval on unmount", async () => {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+
+        const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+        wrapper.unmount();
+
+        expect(clearIntervalSpy).toHaveBeenCalled();
+        clearIntervalSpy.mockRestore();
+      });
+    });
   });
 
   it("in remote mode, shows the disabled message and never fetches sessions", async () => {
@@ -535,7 +913,9 @@ describe("MobileTerminalPage", () => {
       expect(screenCallCount("a")).toBe(2); // the initial load's fetch, plus one on resume
     });
 
-    it("does not refetch the mode or the session list when the tab becomes visible", async () => {
+    it("does not refetch the mode check when the tab becomes visible, but does refresh the session list", async () => {
+      // The session list refresh on resume is what keeps activity current after a phone was
+      // locked — see the "session activity" describe block below for its own dedicated coverage.
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
       await mountPage();
 
@@ -545,7 +925,7 @@ describe("MobileTerminalPage", () => {
       const modeCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile-mode");
       const sessionsCalls = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile/terminal-sessions");
       expect(modeCalls).toHaveLength(1);
-      expect(sessionsCalls).toHaveLength(1);
+      expect(sessionsCalls).toHaveLength(2); // the initial load, plus one on resume
     });
 
     it("does not fetch a screen on resume in remote mode", async () => {

@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
-import { mountLocalMobileTerminalRoutes, type LocalMobileTerminalRouteDeps } from "../../../server/routes/local-mobile-terminal-routes";
+import { localSessionActivity, mountLocalMobileTerminalRoutes, type LocalMobileTerminalRouteDeps } from "../../../server/routes/local-mobile-terminal-routes";
 import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/backends/remoteHost/terminalScreen";
 import { NO_BROWSER_ERROR } from "../../../server/backends/remoteHost/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";
@@ -22,6 +22,7 @@ const NO_CWD = randomUUID();
 
 const SCREEN: SessionScreen = { screen: "$ ", suggestion: "", quickCommands: [], cwd: "/home/user/project" };
 const SESSIONS: TerminalSessionSummary[] = [{ id: LIVE, title: "one", cwd: "/home/user/project", live: true, agent: "claude" }];
+const IDLE_ACTIVITY = { working: false, waiting: false, event: null, workPhase: null };
 
 function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"] = () => true) {
   const writes: Array<{ id: string; chunk: string }> = [];
@@ -47,6 +48,9 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
       if (sessionId === NO_CWD) return { ok: false, error: `no working directory known for session '${String(sessionId)}'` };
       return { ok: true };
     },
+    // Every session reads idle by default — the interesting cases override this per test.
+    activityOf: () => ({ working: false, waiting: false, event: null }),
+    workPhaseOf: () => null,
     ...overrides,
   };
   const app = express();
@@ -55,12 +59,49 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
   return { app, writes };
 }
 
+describe("localSessionActivity", () => {
+  it("adds the work phase alongside the working/waiting/event triple", () => {
+    expect(localSessionActivity({ working: true, waiting: false, event: "PreToolUse" }, "planning")).toEqual({
+      working: true,
+      waiting: false,
+      event: "PreToolUse",
+      workPhase: "planning",
+    });
+  });
+
+  it("carries a null work phase through as-is", () => {
+    expect(localSessionActivity({ working: false, waiting: true, event: "Stop" }, null)).toEqual({
+      working: false,
+      waiting: true,
+      event: "Stop",
+      workPhase: null,
+    });
+  });
+});
+
 describe("GET /api/mobile/terminal-sessions", () => {
-  it("returns the injected function's result", async () => {
+  it("adds an `activity` field to each session, normalized to idle when none is tracked", async () => {
     const { app } = appFor();
     const res = await request(app).get("/api/mobile/terminal-sessions");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessions: SESSIONS });
+    expect(res.body).toEqual({ sessions: [{ ...SESSIONS[0], activity: IDLE_ACTIVITY }] });
+  });
+
+  it("joins working/waiting/event/workPhase from the injected readers, by session id", async () => {
+    const { app } = appFor({
+      activityOf: (id) => (id === LIVE ? { working: true, waiting: false, event: "PreToolUse" } : { working: false, waiting: false, event: null }),
+      workPhaseOf: (id) => (id === LIVE ? "implementing" : null),
+    });
+    const res = await request(app).get("/api/mobile/terminal-sessions");
+    expect(res.status).toBe(200);
+    expect(res.body.sessions[0].activity).toEqual({ working: true, waiting: false, event: "PreToolUse", workPhase: "implementing" });
+  });
+
+  it("does not otherwise change the session row shape (remote mobile's own wire contract)", async () => {
+    const { app } = appFor();
+    const res = await request(app).get("/api/mobile/terminal-sessions");
+    const { activity, ...rest } = res.body.sessions[0];
+    expect(rest).toEqual(SESSIONS[0]);
   });
 });
 
