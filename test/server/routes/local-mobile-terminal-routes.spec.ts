@@ -91,18 +91,18 @@ describe("localSessionActivity", () => {
 
 describe("POST /api/mobile/terminal-sessions", () => {
   it("creates a terminal through the injected launch function with a normalized cwd", async () => {
-    const calls: Array<{ agent: unknown; cwd: string }> = [];
+    const calls: Array<{ agent: unknown; cwd: string; requestId: string | undefined }> = [];
     const cwd = `${process.cwd()}/`;
     const { app } = appFor({
-      launchTerminalAtCwd: (agent, resolvedCwd) => {
-        calls.push({ agent, cwd: resolvedCwd });
+      launchTerminalAtCwd: (agent, resolvedCwd, requestId) => {
+        calls.push({ agent, cwd: resolvedCwd, requestId });
         return { ok: true };
       },
     });
     const res = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "codex", cwd });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
-    expect(calls).toEqual([{ agent: "codex", cwd: process.cwd() }]);
+    expect(res.body).toEqual({ ok: true, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+    expect(calls).toEqual([{ agent: "codex", cwd: process.cwd(), requestId: res.body.requestId }]);
   });
 
   it("400s an invalid agent without treating it as a shell command", async () => {
@@ -165,6 +165,14 @@ describe("POST /api/mobile/terminal-sessions", () => {
     const res = await request(app).post("/api/mobile/terminal-sessions").set("Origin", "https://evil.example").send({ agent: "shell", cwd: process.cwd() });
     expect(res.status).toBe(403);
     expect(called).toBe(false);
+  });
+
+  it("reports a pending launch request until the websocket records its session id", async () => {
+    const { app } = appFor();
+    const created = await request(app).post("/api/mobile/terminal-sessions").send({ agent: "shell", cwd: process.cwd() });
+    const res = await request(app).get(`/api/mobile/terminal-launches/${created.body.requestId}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessionId: null });
   });
 });
 

@@ -72,7 +72,6 @@ const selectedSession = computed(() => sessions.value.find((candidate) => candid
 const newTerminalCwd = ref("");
 const newTerminalAgent = ref<LaunchAgent>("shell");
 const newTerminalCwdTouched = ref(false);
-const pendingCreatedSessionIds = ref<Set<string> | null>(null);
 
 type CreateStatus = "idle" | "creating" | "error";
 const createStatus = ref<CreateStatus>("idle");
@@ -145,9 +144,10 @@ const isMobileInputResult = (value: unknown): value is MobileInputResult => isRe
 
 interface MobileCreateResult {
   ok: true;
+  requestId: string;
 }
 
-const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true;
+const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true && typeof value.requestId === "string";
 
 // Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
 // DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
@@ -198,18 +198,8 @@ watch(selectedSession, (session) => {
 // to the first live session, then the first session, then nothing. On the initial load
 // `selectedSessionId` is always null, so this always falls into the fallback branch — the same
 // choice `load()` made before this was split out.
-function applySessionList(parsed: MobileSession[], preferNewFrom: Set<string> | null = pendingCreatedSessionIds.value): void {
+function applySessionList(parsed: MobileSession[]): void {
   sessions.value = parsed;
-  if (preferNewFrom) {
-    const created = parsed.find((session) => !preferNewFrom.has(session.id));
-    if (created) {
-      pendingCreatedSessionIds.value = null;
-      createStatus.value = "idle";
-      createError.value = "";
-      changeSelectedSession(created.id);
-      return;
-    }
-  }
   if (selectedSessionId.value !== null && parsed.some((session) => session.id === selectedSessionId.value)) return;
 
   const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
@@ -246,6 +236,10 @@ async function withSessionListGuard(fetchAndApply: () => Promise<void>): Promise
   } finally {
     sessionListRefreshInFlight = false;
   }
+}
+
+async function waitForSessionListIdle(): Promise<void> {
+  while (sessionListRefreshInFlight) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
@@ -289,6 +283,8 @@ async function refreshSessionList(): Promise<void> {
 }
 
 const SESSION_LIST_POLL_MS = 2000;
+const LAUNCH_RESOLVE_ATTEMPTS = 20;
+const LAUNCH_RESOLVE_MS = 100;
 let sessionListTimer: ReturnType<typeof setInterval> | null = null;
 
 // Only while the tab is actually visible — a backgrounded phone tab has no reason to keep
@@ -378,6 +374,17 @@ async function sendTerminalInput(): Promise<void> {
   }
 }
 
+async function resolveCreatedSessionId(requestId: string): Promise<string | null> {
+  for (let attempt = 0; attempt < LAUNCH_RESOLVE_ATTEMPTS; attempt += 1) {
+    const res = await fetch(`/api/mobile/terminal-launches/${encodeURIComponent(requestId)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await jsonBody(res);
+    if (typeof body.sessionId === "string") return body.sessionId;
+    await new Promise((resolve) => setTimeout(resolve, LAUNCH_RESOLVE_MS));
+  }
+  return null;
+}
+
 async function createTerminal(): Promise<void> {
   if (createStatus.value === "creating") return;
   const cwd = newTerminalCwd.value.trim();
@@ -387,10 +394,10 @@ async function createTerminal(): Promise<void> {
     return;
   }
 
-  const beforeIds = new Set(sessions.value.map((session) => session.id));
-  pendingCreatedSessionIds.value = beforeIds;
   createStatus.value = "creating";
   createError.value = "";
+  await waitForSessionListIdle();
+  sessionListRefreshInFlight = true;
 
   try {
     const res = await fetch("/api/mobile/terminal-sessions", {
@@ -402,12 +409,20 @@ async function createTerminal(): Promise<void> {
     if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `HTTP ${res.status}`);
     if (!isMobileCreateResult(body)) throw new Error("invalid /api/mobile/terminal-sessions response");
 
-    applySessionList(await fetchSessionList(), beforeIds);
-    if (pendingCreatedSessionIds.value === beforeIds) createStatus.value = "idle";
+    const createdSessionId = await resolveCreatedSessionId(body.requestId);
+    const parsed = await fetchSessionList();
+    sessions.value = parsed;
+    changeSelectedSession(
+      createdSessionId && parsed.some((session) => session.id === createdSessionId)
+        ? createdSessionId
+        : (parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null),
+    );
+    createStatus.value = "idle";
   } catch (err) {
-    pendingCreatedSessionIds.value = null;
     createStatus.value = "error";
     createError.value = err instanceof Error && err.message ? err.message : "Failed to create terminal.";
+  } finally {
+    sessionListRefreshInFlight = false;
   }
 }
 

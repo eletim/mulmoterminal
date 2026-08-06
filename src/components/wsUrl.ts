@@ -31,15 +31,17 @@ export interface TerminalWsUrlInput {
   devTerminal?: boolean | undefined; // grid dev terminal: no GUI MCP (?gui=0)
   launch?: LaunchChoice | null | undefined; // picked at launch; absent => the directory's default
   size?: TerminalSize | null | undefined; // the fitted geometry, so the pty is born at it
+  launchRequestId?: string | undefined;
 }
 
 // The two session-terminal endpoints (/ws for claude, /ws/codex for codex) send the
 // identical session/cwd/gui query, so they share this assembly — only the path differs.
-function sessionTerminalWsUrl(path: string, { host, secure, sessionId, cwd, devTerminal, launch, size }: TerminalWsUrlInput): string {
+function sessionTerminalWsUrl(path: string, { host, secure, sessionId, cwd, devTerminal, launch, size, launchRequestId }: TerminalWsUrlInput): string {
   const params = new URLSearchParams();
   if (sessionId) params.set("session", sessionId);
   if (cwd) params.set("cwd", cwd);
   if (devTerminal) params.set("gui", "0");
+  if (launchRequestId) params.set("launchRequestId", launchRequestId);
   // Only sent when the user picked one — an absent param is what tells the server to use
   // the directory's own provider/model.
   if (launch?.provider) params.set("provider", launch.provider);
@@ -88,15 +90,17 @@ export interface LaunchWsUrlInput {
   launcher?: number; // position in the configured launcher list (the server resolves it)
   shell?: boolean; // run the OS default shell ($SHELL) — no configured index (the header "new terminal" button)
   size?: TerminalSize | null; // the fitted geometry, so the pty is born at it
+  launchRequestId?: string | undefined;
 }
 
 // The launcher-terminal endpoint (a configured shell/codex/command, or the OS default shell).
 // Persistent & reattachable like /ws: the browser sends the launcher INDEX (config is the allowlist)
 // — or `shell=1` for the OS default shell, which needs no index — plus the session id to reattach.
-export function buildLaunchWsUrl({ host, secure, sessionId, cwd, launcher, shell, size }: LaunchWsUrlInput): string {
+export function buildLaunchWsUrl({ host, secure, sessionId, cwd, launcher, shell, size, launchRequestId }: LaunchWsUrlInput): string {
   const params = new URLSearchParams();
   if (sessionId) params.set("session", sessionId);
   if (cwd) params.set("cwd", cwd);
+  if (launchRequestId) params.set("launchRequestId", launchRequestId);
   if (shell) params.set("shell", "1");
   else params.set("launcher", String(launcher));
   appendSize(params, size);
@@ -111,6 +115,7 @@ export interface AgentWsUrlInput {
   cwd?: string | null;
   devTerminal?: boolean; // grid dev terminal: no GUI MCP (?gui=0). Single view omits it => GUI MCP.
   size?: TerminalSize | null; // the fitted geometry, so the pty is born at it
+  launchRequestId?: string | undefined;
 }
 
 // Every non-Claude agent has its own endpoint, and they differ only in the path: persistent &
@@ -142,6 +147,7 @@ export interface ConnTargetUrlInput {
   // Which agent this slot runs. Absent means Claude, the default.
   agent?: TerminalAgent;
   launch?: LaunchChoice | null;
+  launchRequestId?: string | undefined;
 }
 
 // A command cell's endpoint: a script.json entry by index, or a header shell button by id
@@ -165,11 +171,36 @@ export function connWsUrl(target: ConnTargetUrlInput, resumeId: string | null, h
   if (target.command) return runCommandWsUrl(target.command, host, secure, size);
   if (target.launcher) {
     return "shell" in target.launcher
-      ? buildLaunchWsUrl({ host, secure, size, sessionId: resumeId, cwd: target.cwd, shell: true })
-      : buildLaunchWsUrl({ host, secure, size, sessionId: resumeId, cwd: target.cwd, launcher: target.launcher.index });
+      ? buildLaunchWsUrl({ host, secure, size, sessionId: resumeId, cwd: target.cwd, shell: true, launchRequestId: target.launchRequestId })
+      : buildLaunchWsUrl({
+          host,
+          secure,
+          size,
+          sessionId: resumeId,
+          cwd: target.cwd,
+          launcher: target.launcher.index,
+          launchRequestId: target.launchRequestId,
+        });
   }
   if (target.agent && target.agent !== "claude") {
-    return buildAgentWsUrl(target.agent, { host, secure, size, sessionId: resumeId, cwd: target.cwd, devTerminal: target.devTerminal });
+    return buildAgentWsUrl(target.agent, {
+      host,
+      secure,
+      size,
+      sessionId: resumeId,
+      cwd: target.cwd,
+      devTerminal: target.devTerminal,
+      launchRequestId: target.launchRequestId,
+    });
   }
-  return buildTerminalWsUrl({ host, secure, size, sessionId: resumeId, cwd: target.cwd, devTerminal: target.devTerminal, launch: target.launch });
+  return buildTerminalWsUrl({
+    host,
+    secure,
+    size,
+    sessionId: resumeId,
+    cwd: target.cwd,
+    devTerminal: target.devTerminal,
+    launch: target.launch,
+    launchRequestId: target.launchRequestId,
+  });
 }

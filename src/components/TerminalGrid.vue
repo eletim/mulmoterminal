@@ -1027,6 +1027,7 @@ watch(
           :launcher="cell.launcher"
           :session="cell.session"
           :cwd="cell.cwd"
+          :launch-request-id="cell.launchRequestId"
           v-on="gridCellEvents(cell)"
           @session="(id) => emit('session', cell.uid, id)"
         />
@@ -1037,6 +1038,7 @@ watch(
           :initial-session-id="cell.session"
           :initial-cwd="cell.cwd"
           :initial-agent="cell.agent"
+          :launch-request-id="cell.launchRequestId"
           :default-cwd="defaultCwd"
           :presets="presets"
           :launchers="launchers"

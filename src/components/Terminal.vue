@@ -60,6 +60,7 @@ const props = defineProps<{
   agent?: TerminalAgent;
   // Provider/model picked in the launch form, for this session only (#584).
   launch?: LaunchChoice | null;
+  launchRequestId?: string | undefined;
   runMenu?: boolean;
   // Hide this terminal's own header row (used when a grid cell is zoomed: the cell's
   // header already shows dir + activity, so the embedded header would just be clutter).
@@ -111,6 +112,7 @@ function currentTarget(): conn.ConnTarget {
     launcher: props.launcher ?? null,
     agent: props.agent ?? "claude",
     launch: props.launch ?? null,
+    launchRequestId: props.launchRequestId,
   };
 }
 

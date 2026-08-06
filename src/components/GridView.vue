@@ -417,12 +417,15 @@ const CELL_FOR_AGENT: Record<LaunchAgent, (cwd: string) => Omit<Cell, "uid">> = 
   codex: (cwd) => ({ session: null, cwd, agent: "codex" }),
   antigravity: (cwd) => ({ session: null, cwd, agent: "antigravity" }),
 };
-const cellForAgent = (cwd: string, agent: LaunchAgent | undefined): Omit<Cell, "uid"> => (agent ? CELL_FOR_AGENT[agent](cwd) : shellCell(cwd));
+const cellForAgent = (cwd: string, agent: LaunchAgent | undefined, launchRequestId: string | undefined): Omit<Cell, "uid"> => {
+  const cell = agent ? CELL_FOR_AGENT[agent](cwd) : shellCell(cwd);
+  return launchRequestId ? { ...cell, launchRequestId } : cell;
+};
 
-const openNewTerminal = ({ cwd, afterSlotKey, agent }: NewTerminalRequest) => {
+const openNewTerminal = ({ cwd, afterSlotKey, agent, launchRequestId }: NewTerminalRequest) => {
   const match = afterSlotKey?.match(SLOT_UID_RE);
   const afterUid = match ? Number(match[1]) : NO_ORIGIN_UID;
-  state.value = insertCellAfter(state.value, afterUid, cellForAgent(cwd, agent));
+  state.value = insertCellAfter(state.value, afterUid, cellForAgent(cwd, agent, launchRequestId));
 };
 const detachNewTerminal = () => {
   offNewTerminal?.();

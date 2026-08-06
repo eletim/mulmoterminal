@@ -247,6 +247,18 @@ describe("connWsUrl — endpoint precedence", () => {
     expect([q.get("session"), q.get("cwd"), q.get("gui"), q.get("provider")]).toEqual(["sess-1", "/work/proj", "0", "openrouter"]);
   });
 
+  it("carries a mobile launch request id to persistent terminal endpoints, but not Run commands", () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const command = { source: "script", index: 3, label: "build", cwd: "/work/proj" } as const;
+    const urls = [
+      connWsUrl(target({ launchRequestId: requestId }), null, HOST, false),
+      connWsUrl(target({ agent: "codex", launchRequestId: requestId }), null, HOST, false),
+      connWsUrl(target({ launcher: { shell: true }, launchRequestId: requestId }), null, HOST, false),
+    ];
+    for (const url of urls) expect(new URL(url).searchParams.get("launchRequestId")).toBe(requestId);
+    expect(new URL(connWsUrl(target({ command, launchRequestId: requestId }), null, HOST, false)).searchParams.get("launchRequestId")).toBeNull();
+  });
+
   // The pty is spawned at whatever the URL says (#1178), so every endpoint that starts one has to
   // carry the geometry — a cell that reached the server without it drew its first frame at the
   // server's 120x30 default in a pane of another size.

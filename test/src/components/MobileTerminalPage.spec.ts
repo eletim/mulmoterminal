@@ -13,6 +13,7 @@ type MockSession = { id: string; title: string; cwd: string; live: boolean; agen
 type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 type CreateResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
+type LaunchResult = { ok: true; sessionId: string | null } | { ok: false; status?: number };
 
 const screenOk = (screen: unknown): ScreenResult => ({ ok: true, screen });
 const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
@@ -20,7 +21,7 @@ const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
 const inputOk = (): InputResult => ({ ok: true, body: { sent: true } });
 const inputBadBody = (body: unknown): InputResult => ({ ok: true, body });
 const inputFail = (status = 500): InputResult => ({ ok: false, status });
-const createOk = (body: unknown = { ok: true }): CreateResult => ({ ok: true, body });
+const createOk = (body: unknown = { ok: true, requestId: "11111111-1111-4111-8111-111111111111" }): CreateResult => ({ ok: true, body });
 const createFail = (status = 500, body: unknown = {}): CreateResult => ({ ok: false, status, body });
 
 type MockFetchResponse = { ok: boolean; status?: number; json: () => Promise<unknown> };
@@ -45,6 +46,14 @@ function inputResponse(url: string, inputs: Record<string, InputResult>): MockFe
   return { ok: true, json: async () => result.body };
 }
 
+function launchResponse(url: string, launches: Record<string, LaunchResult>, sessions: MockSession[]): MockFetchResponse | null {
+  const match = /^\/api\/mobile\/terminal-launches\/([^/]+)$/.exec(url);
+  if (!match) return null;
+  const result = launches[decodeURIComponent(match[1])] ?? { ok: true, sessionId: sessions[0]?.id ?? null };
+  if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => ({}) };
+  return { ok: true, json: async () => ({ sessionId: result.sessionId }) };
+}
+
 function mockFetch(opts: {
   mode?: "local" | "remote";
   sessions?: MockSession[];
@@ -53,8 +62,9 @@ function mockFetch(opts: {
   screens?: Record<string, ScreenResult>;
   inputs?: Record<string, InputResult>;
   create?: CreateResult;
+  launches?: Record<string, LaunchResult>;
 }) {
-  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {}, inputs = {}, create = createOk() } = opts;
+  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {}, inputs = {}, create = createOk(), launches = {} } = opts;
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === "/api/mobile-mode") {
@@ -73,6 +83,8 @@ function mockFetch(opts: {
     if (input_) return input_;
     const screen = screenResponse(url, screens);
     if (screen) return screen;
+    const launch = launchResponse(url, launches, sessions);
+    if (launch) return launch;
     throw new Error(`unexpected fetch: ${url}`);
   }) as unknown as typeof fetch;
 }
@@ -599,7 +611,9 @@ describe("MobileTerminalPage", () => {
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
-        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return { ok: true, json: async () => ({ ok: true }) };
+        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST")
+          return { ok: true, json: async () => ({ ok: true, requestId: "22222222-2222-4222-8222-222222222222" }) };
+        if (url === "/api/mobile/terminal-launches/22222222-2222-4222-8222-222222222222") return { ok: true, json: async () => ({ sessionId: "created" }) };
         if (url === "/api/mobile/terminal-sessions") {
           sessionsCall += 1;
           const rows =
@@ -628,6 +642,40 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("screen-created");
     });
 
+    it("selects the session resolved for the create request, not the first unrelated new row", async () => {
+      let sessionsCall = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST")
+          return { ok: true, json: async () => ({ ok: true, requestId: "33333333-3333-4333-8333-333333333333" }) };
+        if (url === "/api/mobile/terminal-launches/33333333-3333-4333-8333-333333333333") return { ok: true, json: async () => ({ sessionId: "created" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          sessionsCall += 1;
+          const rows =
+            sessionsCall === 1
+              ? [session({ id: "a", cwd: "/repo/a", live: true })]
+              : [
+                  session({ id: "a", cwd: "/repo/a", live: true }),
+                  session({ id: "other-new", cwd: "/repo/other", title: "other-new", live: true }),
+                  session({ id: "created", cwd: "/repo/b", title: "created", live: true }),
+                ];
+          return { ok: true, json: async () => ({ sessions: rows }) };
+        }
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/created/screen") return { ok: true, json: async () => ({ screen: "screen-created" }) };
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      await cwdInput(wrapper).setValue("/repo/b");
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("created");
+      expect(wrapper.get('[class*="border-accent"]').text()).not.toContain("other-new");
+    });
+
     it("disables Start and ignores a second click while creation is in flight", async () => {
       let resolveCreate: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
       const deferredCreate = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
@@ -637,6 +685,7 @@ describe("MobileTerminalPage", () => {
         const url = String(input);
         if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
         if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return deferredCreate;
+        if (url === "/api/mobile/terminal-launches/11111111-1111-4111-8111-111111111111") return { ok: true, json: async () => ({ sessionId: "a" }) };
         if (url === "/api/mobile/terminal-sessions") return { ok: true, json: async () => ({ sessions: [session({ id: "a", cwd: "/repo/a", live: true })] }) };
         if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
         throw new Error(`unexpected fetch: ${url}`);
@@ -653,8 +702,56 @@ describe("MobileTerminalPage", () => {
         .mock.calls.filter(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST");
       expect(createCalls).toHaveLength(1);
 
-      resolveCreate({ ok: true, json: async () => ({ ok: true }) });
+      resolveCreate({ ok: true, json: async () => ({ ok: true, requestId: "11111111-1111-4111-8111-111111111111" }) });
       await flushPromises();
+    });
+
+    it("locks Start before waiting for an in-flight session-list refresh", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", cwd: "/repo/a", live: true })], screens: { a: screenOk("hello") } });
+        const wrapper = await mountPage();
+        let resolveList: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+        const deferredList = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+          resolveList = resolve;
+        });
+        let firstListAfterReset = true;
+        globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/mobile/terminal-sessions" && init?.method !== "POST") {
+            if (firstListAfterReset) {
+              firstListAfterReset = false;
+              return deferredList;
+            }
+            return { ok: true, json: async () => ({ sessions: [session({ id: "a", cwd: "/repo/a", live: true })] }) };
+          }
+          if (url === "/api/mobile/terminal-sessions" && init?.method === "POST")
+            return { ok: true, json: async () => ({ ok: true, requestId: "11111111-1111-4111-8111-111111111111" }) };
+          if (url === "/api/mobile/terminal-launches/11111111-1111-4111-8111-111111111111") return { ok: true, json: async () => ({ sessionId: "a" }) };
+          if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "hello" }) };
+          throw new Error(`unexpected fetch: ${url}`);
+        }) as unknown as typeof fetch;
+
+        fireVisibilityChange("visible");
+        await flushPromises();
+        await findButton(wrapper, "Start").trigger("click");
+        await flushPromises();
+        await findButton(wrapper, "Starting…").trigger("click");
+        expect(
+          vi.mocked(globalThis.fetch).mock.calls.filter(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST"),
+        ).toHaveLength(0);
+
+        resolveList({ ok: true, json: async () => ({ sessions: [session({ id: "a", cwd: "/repo/a", live: true })] }) });
+        await flushPromises();
+        vi.advanceTimersByTime(10);
+        await flushPromises();
+
+        expect(
+          vi.mocked(globalThis.fetch).mock.calls.filter(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST"),
+        ).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("shows a create error and can retry with the same inputs", async () => {
@@ -675,6 +772,7 @@ describe("MobileTerminalPage", () => {
         sessions: [session({ id: "a", cwd: "/repo/a", live: true }), session({ id: "created", cwd: "/repo/a", live: true })],
         screens: { a: screenOk("hello"), created: screenOk("created screen") },
         create: createOk(),
+        launches: { "11111111-1111-4111-8111-111111111111": { ok: true, sessionId: "created" } },
       });
       await findButton(wrapper, "Start").trigger("click");
       await flushPromises();

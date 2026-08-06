@@ -17,6 +17,13 @@ describe("decideLaunchTerminalAtCwd", () => {
     }
   });
 
+  it("carries a request id when the mobile create route supplied one", () => {
+    expect(decideLaunchTerminalAtCwd({ agent: "shell", cwd: "/repo", listenerCount: 1, requestId: "r1" })).toEqual({
+      ok: true,
+      request: { agent: "shell", cwd: "/repo", requestId: "r1" },
+    });
+  });
+
   it("refuses an invalid agent before checking browser availability", () => {
     expect(decideLaunchTerminalAtCwd({ agent: "bash", cwd: "/repo", listenerCount: 0 })).toEqual({
       ok: false,

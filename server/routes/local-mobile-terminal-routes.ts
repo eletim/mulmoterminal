@@ -19,6 +19,7 @@ import { createTerminalInputSender, sanitizeTerminalInput } from "../backends/re
 import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScreen.js";
 import { ansiRowsToText } from "../session/ansiSegments.js";
 import { workspaceRequest } from "../config/workspace.js";
+import { createMobileTerminalLaunchRequest, mobileTerminalLaunchSession } from "../backends/remoteHost/mobileTerminalLaunches.js";
 import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps.js";
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
@@ -43,7 +44,7 @@ export type LocalMobileTerminalRouteDeps = Pick<
   RemoteHostHandlerDeps,
   "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "sessionAgent" | "launchTerminal"
 > & {
-  launchTerminalAtCwd: (agent: unknown, cwd: string) => { ok: true } | { ok: false; error: string };
+  launchTerminalAtCwd: (agent: unknown, cwd: string, requestId?: string) => { ok: true } | { ok: false; error: string };
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
   // roster and the remote host's Firestore mirror read (session/registry.js's `activity` map,
@@ -94,8 +95,9 @@ function createTerminalFromBody(body: unknown, launchTerminalAtCwd: LocalMobileT
   const workspace = workspaceRequest(cwd);
   if (workspace.kind === "unusable") return { status: workspace.malformed ? 400 : 409, body: { error: workspace.problem } };
 
-  const decision = launchTerminalAtCwd(agent, workspace.cwd);
-  return decision.ok ? { status: 200, body: { ok: true } } : { status: 409, body: { error: decision.error } };
+  const requestId = createMobileTerminalLaunchRequest();
+  const decision = launchTerminalAtCwd(agent, workspace.cwd, requestId);
+  return decision.ok ? { status: 200, body: { ok: true, requestId } } : { status: 409, body: { error: decision.error } };
 }
 
 function mountCreateTerminalRoute(
@@ -107,6 +109,15 @@ function mountCreateTerminalRoute(
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const result = createTerminalFromBody(req.body, launchTerminalAtCwd);
     res.status(result.status).json(result.body);
+  });
+}
+
+function mountLaunchStatusRoute(app: Express): void {
+  app.get("/api/mobile/terminal-launches/:requestId", (req: Request<{ requestId: string }>, res: Response) => {
+    if (!SESSION_ID_RE.test(req.params.requestId)) return res.status(400).json({ error: "invalid launch request id" });
+    const sessionId = mobileTerminalLaunchSession(req.params.requestId);
+    if (sessionId === undefined) return res.status(404).json({ error: "launch request not found" });
+    res.json({ sessionId });
   });
 }
 
@@ -141,6 +152,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   });
 
   mountCreateTerminalRoute(app, isAllowedOrigin, launchTerminalAtCwd);
+  mountLaunchStatusRoute(app);
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
     const { id } = req.params;
