@@ -353,10 +353,14 @@ onUnmounted(() => {
 
 <template>
   <div class="flex h-dvh flex-col overflow-hidden bg-base text-fg">
-    <!-- h-dvh (dynamic viewport height, not the static 100vh) plus overflow-hidden pins the page
-         to whatever the mobile browser's chrome currently leaves visible — its address bar and
-         any software keyboard resize the dvh unit itself, so this container never needs JS to
-         react to either. Only `main` below scrolls; header and footer stay put via flex-none.
+    <!-- h-dvh keeps the page bound to the dynamic viewport as browser chrome (address bar, etc.)
+         expands or collapses, and overflow-hidden stops the page itself from growing past it.
+         On supporting Android browsers, index.html's interactive-widget=resizes-content also
+         makes the layout viewport — and with it, this h-dvh — shrink when the on-screen keyboard
+         opens, so the footer below stays above the keyboard instead of behind it. No
+         VisualViewport or window.innerHeight JavaScript is used here; iOS and other browsers'
+         keyboard behavior can still differ and needs real-device verification. Only `main` below
+         scrolls; header and footer stay put via flex-none.
          (Kept as the first child rather than above the root <div>: a comment before a template's
          single root element makes Vue treat it as a multi-root fragment, and @vue/test-utils'
          wrapper.element/.classes() then resolve to that comment node instead of the div.) -->
