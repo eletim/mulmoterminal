@@ -36,6 +36,14 @@ export interface HookDeps extends SessionActivityDeps {
 
 const activeWaitingMobileWebPushSent = new Set<string>();
 
+function notifyMobileWebPushActivity(deps: HookDeps, notification: MobileWebPushActivityNotification) {
+  try {
+    deps.notifyMobileWebPushActivity?.(notification);
+  } catch (err) {
+    console.warn(`[mobile-web-push] activity notification dropped for ${notification.sessionId}: ${messageOf(err)}`);
+  }
+}
+
 // Activity hooks update a session's working / needs-attention flags. `active` (this
 // session is the user's actively-viewed pane) suppresses the attention flag — see
 // activityHookEffects for why a mere attached socket doesn't count in the grid.
@@ -54,7 +62,7 @@ function handleActivityHook(deps: HookDeps, sessionId: string, event: string, ac
   const currentActivity = activity.get(sessionId);
   if (active && kind === "waiting" && currentActivity?.working === true && currentActivity.waiting !== true && !activeWaitingMobileWebPushSent.has(sessionId)) {
     activeWaitingMobileWebPushSent.add(sessionId);
-    deps.notifyMobileWebPushActivity?.({ kind, sessionId, agent: ptys.get(sessionId)?.agent ?? null });
+    notifyMobileWebPushActivity(deps, { kind, sessionId, agent: ptys.get(sessionId)?.agent ?? null });
   }
   // A finished turn is the ONLY success signal a PTY-hosted agent gives us (#1070). It is not
   // a process exit — `claude` sits at its prompt afterwards — so a worker that never reaches

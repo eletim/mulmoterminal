@@ -88,4 +88,16 @@ describe("local mobile Web Push from Claude hooks", () => {
     expect(deps.setWaiting).toHaveBeenCalledWith(ID, true, "Notification");
     expect(deps.notifyMobileWebPushActivity).not.toHaveBeenCalled();
   });
+
+  it("keeps hook handling isolated from local mobile Web Push dispatch failures", async () => {
+    deps.notifyMobileWebPushActivity.mockImplementationOnce(() => {
+      throw new Error("push failed");
+    });
+
+    const response = await postHook({ hook_event_name: "Notification", notification_type: "permission_prompt" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true });
+    expect(deps.notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+  });
 });
