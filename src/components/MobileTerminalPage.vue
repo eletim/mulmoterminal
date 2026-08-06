@@ -7,16 +7,26 @@
 // of input (POST /api/mobile/terminal-sessions/:id/input). Launching a terminal is still a
 // follow-up change.
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
+import {
+  MOBILE_WEB_PUSH_PUBLIC_KEY,
+  mobileTerminalNotificationUrl,
+  mobileWebPushSupport,
+  readSessionIdQuery,
+  registerMobileWebPushServiceWorker,
+  urlBase64ToUint8Array,
+} from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 
 const router = useRouter();
+const route = useRoute();
+const notificationRequestedSessionId = ref(readSessionIdQuery(route.query.sessionId));
 
 function backToDesktop(): void {
   void router.push("/terminals");
@@ -68,6 +78,34 @@ const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
+
+type PushStatus = "checking" | "ready" | "unsupported" | "error";
+type PushBusy = "enable" | "disable" | "test" | null;
+
+const pushSupport = mobileWebPushSupport();
+const pushStatus = ref<PushStatus>(pushSupport.supported ? "checking" : "unsupported");
+const pushBusy = ref<PushBusy>(null);
+const pushPermission = ref<NotificationPermission | "unknown">(pushSupport.supported ? Notification.permission : "unknown");
+const pushSubscribed = ref(false);
+const pushSubscriptionJson = ref<PushSubscriptionJSON | null>(null);
+const pushError = ref<string | null>(pushSupport.supported ? null : pushSupport.reason);
+
+const permissionLabel = computed(() => {
+  if (pushPermission.value === "granted") return "Allowed";
+  if (pushPermission.value === "denied") return "Blocked";
+  if (pushPermission.value === "default") return "Not asked";
+  return "Unknown";
+});
+const subscriptionLabel = computed(() => (pushSubscribed.value ? "Active" : "Off"));
+const pushSummaryLabel = computed(() => {
+  if (pushBusy.value) return "Working";
+  if (pushStatus.value === "unsupported") return "Unsupported";
+  if (pushStatus.value === "error") return "Needs attention";
+  return pushSubscribed.value ? "On" : "Off";
+});
+const canEnablePush = computed(() => pushSupport.supported && !pushBusy.value && !pushSubscribed.value && pushPermission.value !== "denied");
+const canDisablePush = computed(() => pushSupport.supported && !pushBusy.value && pushSubscribed.value);
+const canTestPush = computed(() => pushSupport.supported && !pushBusy.value && pushPermission.value !== "denied");
 
 // The two fields this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
 // SessionScreen also carries suggestion, quickCommands and meta (cwd, branch, memo, summary,
@@ -180,10 +218,124 @@ function changeSelectedSession(next: string | null): void {
 // choice `load()` made before this was split out.
 function applySessionList(parsed: MobileSession[]): void {
   sessions.value = parsed;
+  if (notificationRequestedSessionId.value !== null && parsed.some((session) => session.id === notificationRequestedSessionId.value)) {
+    const requested = notificationRequestedSessionId.value;
+    notificationRequestedSessionId.value = null;
+    changeSelectedSession(requested);
+    return;
+  }
+
   if (selectedSessionId.value !== null && parsed.some((session) => session.id === selectedSessionId.value)) return;
 
   const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
   changeSelectedSession(next);
+}
+
+function syncPushPermission(): void {
+  if (!pushSupport.supported) return;
+  pushPermission.value = Notification.permission;
+}
+
+function reflectSubscription(subscription: PushSubscription | null): void {
+  pushSubscribed.value = subscription !== null;
+  pushSubscriptionJson.value = subscription?.toJSON() ?? null;
+}
+
+async function refreshPushState(): Promise<void> {
+  if (!pushSupport.supported) return;
+
+  pushStatus.value = "checking";
+  pushError.value = null;
+  syncPushPermission();
+
+  try {
+    const registration = await registerMobileWebPushServiceWorker();
+    reflectSubscription(await registration.pushManager.getSubscription());
+    syncPushPermission();
+    pushStatus.value = "ready";
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to register notifications.";
+  }
+}
+
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (!pushSupport.supported) return false;
+  if (Notification.permission === "default") await Notification.requestPermission();
+  syncPushPermission();
+
+  if (Notification.permission === "granted") return true;
+  pushError.value = Notification.permission === "denied" ? "Notifications are blocked in this browser." : "Notification permission was not granted.";
+  return false;
+}
+
+async function enablePushNotifications(): Promise<void> {
+  if (!pushSupport.supported || pushBusy.value) return;
+
+  pushBusy.value = "enable";
+  pushError.value = null;
+  try {
+    if (!(await ensureNotificationPermission())) return;
+
+    const registration = await registerMobileWebPushServiceWorker();
+    const existing = await registration.pushManager.getSubscription();
+    const subscription =
+      existing ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(MOBILE_WEB_PUSH_PUBLIC_KEY),
+      }));
+    reflectSubscription(subscription);
+    pushStatus.value = "ready";
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to subscribe to notifications.";
+  } finally {
+    pushBusy.value = null;
+    syncPushPermission();
+  }
+}
+
+async function disablePushNotifications(): Promise<void> {
+  if (!pushSupport.supported || pushBusy.value) return;
+
+  pushBusy.value = "disable";
+  pushError.value = null;
+  try {
+    const registration = await registerMobileWebPushServiceWorker();
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) await subscription.unsubscribe();
+    reflectSubscription(null);
+    pushStatus.value = "ready";
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to unsubscribe from notifications.";
+  } finally {
+    pushBusy.value = null;
+    syncPushPermission();
+  }
+}
+
+async function showLocalTestNotification(): Promise<void> {
+  if (!pushSupport.supported || pushBusy.value) return;
+
+  pushBusy.value = "test";
+  pushError.value = null;
+  try {
+    if (!(await ensureNotificationPermission())) return;
+    const registration = await registerMobileWebPushServiceWorker();
+    await registration.showNotification("MulmoTerminal test", {
+      body: "Mobile notifications are working.",
+      tag: "mulmoterminal-mobile-test",
+      data: { url: mobileTerminalNotificationUrl(selectedSessionId.value) },
+    });
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to show the test notification.";
+  } finally {
+    pushBusy.value = null;
+    syncPushPermission();
+  }
 }
 
 // Parses a GET /api/mobile/terminal-sessions response, throwing on anything malformed. Shared by
@@ -370,6 +522,7 @@ function handleVisibilityChange(): void {
 
 onMounted(() => {
   void load();
+  void refreshPushState();
   document.addEventListener("visibilitychange", handleVisibilityChange);
   // Keeps activity (working/waiting/workPhase) and live/detached current while the list is on
   // screen. Runs for the lifetime of the component regardless of `status` — refreshSessionList
@@ -428,60 +581,105 @@ onUnmounted(() => {
         <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="load">Retry</button>
       </div>
 
-      <p v-else-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
-
       <template v-else>
-        <ul class="flex flex-col gap-2">
-          <li v-for="session in sessions" :key="session.id">
-            <button
-              type="button"
-              class="w-full rounded-md border px-3 py-2 text-left"
-              :class="session.id === selectedSessionId ? 'border-accent bg-accent-bg text-on-accent' : 'border-border bg-elevated text-fg hover:bg-hover'"
-              @click="selectSession(session.id)"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
-                <!-- Activity (running/planning/…/idle) alongside the connection state (live/detached) —
-                     two different concepts (docs/grid-view-modes.md's desktop equivalent keeps them
-                     as separate signals too), shown together since the phone has one line of room. -->
-                <span class="flex-none text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : activityClassOf(session)">
-                  {{ activityStatusOf(session) }} · {{ session.live ? "live" : "detached" }}
-                </span>
-              </div>
-              <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
-              <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
-            </button>
-          </li>
-        </ul>
-
-        <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
-            <button
-              type="button"
-              class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-              :disabled="screenStatus === 'loading' || manualRefreshCoolingDown"
-              @click="manualRefreshScreen"
-            >
-              Refresh
-            </button>
+        <section class="mb-4 rounded-md border border-border bg-panel p-3 text-[12px]" data-testid="mobile-web-push-panel">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <h2 class="text-[13px] font-medium text-fg">Notifications</h2>
+            <span class="flex-none text-secondary">{{ pushSummaryLabel }}</span>
           </div>
 
-          <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
-
-          <div v-else-if="screenStatus === 'error'" class="flex flex-col gap-2 text-[13px]">
-            <p class="text-err-text">Failed to load terminal screen.</p>
-            <button
-              type="button"
-              class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-              :disabled="manualRefreshCoolingDown"
-              @click="manualRefreshScreen"
-            >
-              Retry
-            </button>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+            <span class="text-muted">Permission</span>
+            <span class="text-fg">{{ permissionLabel }}</span>
+            <span class="text-muted">Subscription</span>
+            <span class="text-fg">{{ subscriptionLabel }}</span>
           </div>
 
-          <!--
+          <p v-if="pushSubscriptionJson" class="mt-2 text-muted">Subscription ready for server storage.</p>
+          <p v-if="pushError" class="mt-2 text-err-text">{{ pushError }}</p>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
+              :disabled="!canEnablePush"
+              @click="enablePushNotifications"
+            >
+              Enable
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
+              :disabled="!canDisablePush"
+              @click="disablePushNotifications"
+            >
+              Disable
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
+              :disabled="!canTestPush"
+              @click="showLocalTestNotification"
+            >
+              Test notification
+            </button>
+          </div>
+        </section>
+
+        <p v-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
+
+        <template v-else>
+          <ul class="flex flex-col gap-2">
+            <li v-for="session in sessions" :key="session.id">
+              <button
+                type="button"
+                class="w-full rounded-md border px-3 py-2 text-left"
+                :class="session.id === selectedSessionId ? 'border-accent bg-accent-bg text-on-accent' : 'border-border bg-elevated text-fg hover:bg-hover'"
+                @click="selectSession(session.id)"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
+                  <!-- Activity (running/planning/…/idle) alongside the connection state (live/detached) —
+                       two different concepts (docs/grid-view-modes.md's desktop equivalent keeps them
+                       as separate signals too), shown together since the phone has one line of room. -->
+                  <span class="flex-none text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : activityClassOf(session)">
+                    {{ activityStatusOf(session) }} · {{ session.live ? "live" : "detached" }}
+                  </span>
+                </div>
+                <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
+                <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
+              </button>
+            </li>
+          </ul>
+
+          <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
+              <button
+                type="button"
+                class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+                :disabled="screenStatus === 'loading' || manualRefreshCoolingDown"
+                @click="manualRefreshScreen"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
+
+            <div v-else-if="screenStatus === 'error'" class="flex flex-col gap-2 text-[13px]">
+              <p class="text-err-text">Failed to load terminal screen.</p>
+              <button
+                type="button"
+                class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+                :disabled="manualRefreshCoolingDown"
+                @click="manualRefreshScreen"
+              >
+                Retry
+              </button>
+            </div>
+
+            <!--
             Two renderings of the same "loaded" state, never both at once. Styled rows are
             preferred whenever the server sent a valid one (isMobileScreen already checked its
             shape); a row's OWN text still reaches the DOM only through `{{ }}` interpolation,
@@ -494,18 +692,19 @@ onUnmounted(() => {
             palette's own comment. A row with no segments (a blank terminal line) falls back to
             BLANK_ROW_FILLER so its <div> still has a line box — see that constant's comment.
           -->
-          <pre
-            v-else-if="screenStatus === 'loaded' && screenStyledRows"
-            class="overflow-x-auto whitespace-pre rounded-md border border-border p-2 font-mono text-[12px]"
-            style="background-color: #1e1e1e; color: #d4d4d4"
-          ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-if="row.length === 0">{{ BLANK_ROW_FILLER }}</span><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
-          <pre
-            v-else-if="screenStatus === 'loaded'"
-            class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
-            >{{ screenText }}</pre>
+            <pre
+              v-else-if="screenStatus === 'loaded' && screenStyledRows"
+              class="overflow-x-auto whitespace-pre rounded-md border border-border p-2 font-mono text-[12px]"
+              style="background-color: #1e1e1e; color: #d4d4d4"
+            ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-if="row.length === 0">{{ BLANK_ROW_FILLER }}</span><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
+            <pre
+              v-else-if="screenStatus === 'loaded'"
+              class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
+              >{{ screenText }}</pre>
 
-          <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
-        </div>
+            <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
+          </div>
+        </template>
       </template>
     </main>
 

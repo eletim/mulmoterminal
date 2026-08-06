@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import MobileTerminalPage from "../../../src/components/MobileTerminalPage.vue";
@@ -21,6 +21,28 @@ const inputBadBody = (body: unknown): InputResult => ({ ok: true, body });
 const inputFail = (status = 500): InputResult => ({ ok: false, status });
 
 type MockFetchResponse = { ok: boolean; status?: number; json: () => Promise<unknown> };
+type MockNotificationGlobal = {
+  permission: NotificationPermission;
+  requestPermission: ReturnType<typeof vi.fn<() => Promise<NotificationPermission>>>;
+};
+
+const originalNotificationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Notification");
+const originalPushManagerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "PushManager");
+const originalServiceWorkerDescriptor = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+
+function restoreDescriptor(target: object, key: string, descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor) Object.defineProperty(target, key, descriptor);
+  else Reflect.deleteProperty(target, key);
+}
+
+afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  restoreDescriptor(globalThis, "Notification", originalNotificationDescriptor);
+  restoreDescriptor(globalThis, "PushManager", originalPushManagerDescriptor);
+  restoreDescriptor(navigator, "serviceWorker", originalServiceWorkerDescriptor);
+  await router.push("/");
+});
 
 // Split out of mockFetch's routing so that function stays a flat list of if-checks — each
 // helper owns one endpoint's own "not this URL" / "unmapped id" / "ok vs. fail" branching.
@@ -67,6 +89,51 @@ function mockFetch(opts: {
     if (screen) return screen;
     throw new Error(`unexpected fetch: ${url}`);
   }) as unknown as typeof fetch;
+}
+
+function mockWebPush(opts: {
+  permission?: NotificationPermission;
+  requestPermission?: NotificationPermission;
+  existingSubscription?: PushSubscription | null;
+  subscribeFails?: boolean;
+}) {
+  const notification: MockNotificationGlobal = {
+    permission: opts.permission ?? "default",
+    requestPermission: vi.fn(async () => {
+      notification.permission = opts.requestPermission ?? "granted";
+      return notification.permission;
+    }),
+  };
+
+  const subscription =
+    opts.existingSubscription ??
+    ({
+      endpoint: "https://push.example/subscription",
+      toJSON: () => ({ endpoint: "https://push.example/subscription", keys: { p256dh: "p256dh", auth: "auth" } }),
+      unsubscribe: vi.fn(async () => true),
+    } as unknown as PushSubscription);
+
+  let currentSubscription: PushSubscription | null = opts.existingSubscription === null ? null : subscription;
+  const registration = {
+    pushManager: {
+      getSubscription: vi.fn(async () => currentSubscription),
+      subscribe: vi.fn(async () => {
+        if (opts.subscribeFails) throw new Error("subscribe failed");
+        currentSubscription = subscription;
+        return subscription;
+      }),
+    },
+    showNotification: vi.fn(async () => undefined),
+  };
+
+  Object.defineProperty(globalThis, "Notification", { configurable: true, value: notification });
+  Object.defineProperty(globalThis, "PushManager", { configurable: true, value: {} });
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: { register: vi.fn(async () => registration) },
+  });
+
+  return { notification, registration, subscription };
 }
 
 const IDLE_ACTIVITY: MockActivity = { working: false, waiting: false, event: null, workPhase: null };
@@ -595,6 +662,102 @@ describe("MobileTerminalPage", () => {
     });
     const wrapper = await mountPage();
     expect(wrapper.text()).toContain("Failed to load");
+  });
+
+  describe("mobile web push", () => {
+    it("shows unsupported notification state without hiding the local empty state", async () => {
+      mockFetch({ mode: "local", sessions: [] });
+      const wrapper = await mountPage();
+
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Unsupported");
+      expect(wrapper.text()).toContain("Service Worker is not available");
+      expect(wrapper.text()).toContain("No terminal sessions.");
+    });
+
+    it("requests permission from the Enable button and creates a subscription", async () => {
+      const webPush = mockWebPush({ permission: "default", requestPermission: "granted", existingSubscription: null });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(webPush.notification.requestPermission).toHaveBeenCalledTimes(1);
+      expect(navigator.serviceWorker.register).toHaveBeenCalledWith("/mobile-web-push-sw.js", { scope: "/" });
+      expect(webPush.registration.pushManager.subscribe).toHaveBeenCalledWith({
+        userVisibleOnly: true,
+        applicationServerKey: expect.any(Uint8Array),
+      });
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Allowed");
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Active");
+      expect(wrapper.text()).toContain("Subscription ready for server storage.");
+    });
+
+    it("does not subscribe when notification permission is denied", async () => {
+      const webPush = mockWebPush({ permission: "default", requestPermission: "denied", existingSubscription: null });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(webPush.registration.pushManager.subscribe).not.toHaveBeenCalled();
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Blocked");
+      expect(wrapper.text()).toContain("Notifications are blocked in this browser.");
+    });
+
+    it("shows a safe error when Push API subscription fails", async () => {
+      mockWebPush({ permission: "granted", existingSubscription: null, subscribeFails: true });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Needs attention");
+      expect(wrapper.text()).toContain("Failed to subscribe to notifications.");
+    });
+
+    it("unsubscribes an existing PushSubscription", async () => {
+      const webPush = mockWebPush({ permission: "granted" });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Disable").trigger("click");
+      await flushPromises();
+
+      expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Off");
+    });
+
+    it("shows a local test notification that opens the selected mobile session URL", async () => {
+      const webPush = mockWebPush({ permission: "granted" });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Test notification").trigger("click");
+      await flushPromises();
+
+      expect(webPush.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal test", {
+        body: "Mobile notifications are working.",
+        tag: "mulmoterminal-mobile-test",
+        data: { url: "/mobile/terminals?sessionId=a" },
+      });
+    });
+
+    it("selects a session from the sessionId query parameter", async () => {
+      await router.push("/mobile/terminals?sessionId=b");
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+        screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+      });
+
+      const wrapper = await mountPage();
+
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("b");
+      expect(wrapper.text()).toContain("screen-b");
+    });
   });
 
   it("does not treat a response with only invalid rows as an empty session list", async () => {
