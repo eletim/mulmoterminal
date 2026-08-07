@@ -23,9 +23,8 @@ export function soundVolumeScale(percent: unknown): number {
 }
 
 function readStoredVolume(): number {
-  if (typeof localStorage === "undefined") return DEFAULT_SOUND_VOLUME_PERCENT;
   try {
-    return readSoundVolumePercent(localStorage.getItem(STORAGE_KEY));
+    return readSoundVolumePercent(globalThis.localStorage?.getItem(STORAGE_KEY));
   } catch {
     return DEFAULT_SOUND_VOLUME_PERCENT;
   }
@@ -34,9 +33,8 @@ function readStoredVolume(): number {
 const volume = ref(readStoredVolume());
 
 watch(volume, (v) => {
-  if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, String(clampSoundVolumePercent(v)));
+    globalThis.localStorage?.setItem(STORAGE_KEY, String(clampSoundVolumePercent(v)));
   } catch {
     // Storage can be unavailable in hardened browser contexts; the in-memory value still works.
   }
