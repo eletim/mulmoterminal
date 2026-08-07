@@ -15,6 +15,7 @@ import {
 } from "../../../../server/backends/remoteHost/terminalScreen.js";
 import type { ScreenRow } from "../../../../server/session/screen-rows.js";
 import { undefinedPaths } from "@mulmoclaude/core/remote-host/server";
+import { sessionDisplayName } from "../../../../common/sessionMemo.js";
 
 const ESC = String.fromCharCode(0x1b);
 
@@ -142,6 +143,17 @@ describe("buildSessionList", () => {
   it("keeps a nameless session while it is live, labelled by its id", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["abc"], detailOf: () => ({ title: "", cwd: "/w", agent: "shell" }) }));
     expect(sessions).toEqual([{ id: "abc", title: "abc", cwd: "/w", live: true, agent: "shell" }]);
+  });
+
+  it("uses a last prompt title for a live session instead of falling back to its id", () => {
+    const id = "11111111-1111-1111-1111-111111111111";
+    const sessions = buildSessionList(
+      listInput({
+        liveIds: [id],
+        detailOf: () => ({ title: sessionDisplayName(null, null, "fix the login bug", undefined), cwd: "/repo", agent: "claude" }),
+      }),
+    );
+    expect(sessions[0]).toMatchObject({ id, title: "fix the login bug" });
   });
 
   // A session that outlived a host restart keeps its recorded title, so it stays offerable.
