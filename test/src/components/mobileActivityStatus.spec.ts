@@ -20,8 +20,8 @@ describe("mobileActivityStatus", () => {
     expect(mobileActivityStatus(true, true, "Notification", null)).toBe("needs input");
   });
 
-  it("a Stop wait mid-turn reads as done, not running", () => {
-    expect(mobileActivityStatus(true, true, "Stop", null)).toBe("done");
+  it("a Stop wait with working still true reads as running, not done", () => {
+    expect(mobileActivityStatus(true, true, "Stop", null)).toBe("running");
   });
 
   it("splits waiting into needs input (Notification) vs done (Stop)", () => {
@@ -44,7 +44,7 @@ describe("mobileActivityStatus", () => {
   // The required cases from the PR review, gathered in one place.
   it.each([
     [true, true, "Notification", null, "needs input"],
-    [true, true, "Stop", null, "done"],
+    [true, true, "Stop", null, "running"],
     [true, false, null, "planning", "planning"],
     [true, false, null, "implementing", "implementing"],
     [true, false, null, null, "running"],

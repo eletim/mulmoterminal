@@ -10,9 +10,14 @@ import { createSessionLifecycle, type SessionLifecycleDeps } from "../../../serv
 import type { WorkPhase } from "../../../server/session/workPhase.js";
 import { activity, aiTitles, hiddenSessions, knownSessions, lastPrompts, lastResponses, launchChoices, ptys } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
+import { hasNewSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
 
 vi.mock("../../../server/infra/tmux.js", () => ({ tmuxKillSession: vi.fn() }));
 vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSettings: vi.fn() }));
+vi.mock("../../../server/session/child-processes.js", () => ({
+  hasNewSessionChildProcess: vi.fn(() => false),
+  sessionChildProcessPids: vi.fn(() => new Set<number>()),
+}));
 // The reply the roster shows is re-read from the transcript at the end of a turn; the tests
 // stand in for that file so the refresh can be observed without writing one.
 vi.mock("../../../server/session/session-reads.js", () => ({ readLatestResponse: vi.fn(() => "the reply on disk") }));
@@ -39,7 +44,11 @@ const clearRegistry = () => {
   clearedTranscripts.clear();
 };
 
-beforeEach(clearRegistry);
+beforeEach(() => {
+  clearRegistry();
+  vi.mocked(hasNewSessionChildProcess).mockReset().mockReturnValue(false);
+  vi.mocked(sessionChildProcessPids).mockReset().mockReturnValue(new Set());
+});
 afterEach(() => {
   vi.useRealTimers();
   clearRegistry();
@@ -262,6 +271,74 @@ describe("setWorking / setWaiting", () => {
 
     expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" });
+  });
+
+  it("keeps working while a Stop leaves reviewer child processes alive", () => {
+    vi.useFakeTimers();
+    const hasNewChildren = vi.mocked(hasNewSessionChildProcess);
+    vi.mocked(sessionChildProcessPids).mockReturnValue(new Set([200]));
+    hasNewChildren.mockReturnValue(true);
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, term: { pid: 100, kill: vi.fn() } }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    notifyMobileWebPushActivity.mockClear();
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+
+    expect(activity.get(ID)).toMatchObject({ working: true });
+    expect(activity.get(ID)?.waiting).not.toBe(true);
+    expect(notifyMobileWebPushActivity).not.toHaveBeenCalled();
+    expect(hasNewChildren).toHaveBeenCalledWith(ID, expect.anything(), new Set([200]));
+
+    hasNewChildren.mockReturnValue(false);
+    vi.advanceTimersByTime(1000);
+
+    expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
+    expect(deps.sessionActivityPublisher.publish).toHaveBeenLastCalledWith(ID, expect.objectContaining({ working: false, waiting: true, event: "Stop" }));
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
+  });
+
+  it("cancels a deferred Stop clear when a later turn starts", () => {
+    vi.useFakeTimers();
+    const hasNewChildren = vi.mocked(hasNewSessionChildProcess);
+    hasNewChildren.mockReturnValue(true);
+    const deps = makeDeps();
+    ptys.set(ID, fakeEntry({ ws: {}, term: { pid: 100, kill: vi.fn() } }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    hasNewChildren.mockReturnValue(false);
+    vi.advanceTimersByTime(1000);
+
+    expect(activity.get(ID)).toMatchObject({ working: true });
+    expect(activity.get(ID)?.waiting).not.toBe(true);
+  });
+
+  it("does not keep working for child processes that were already present at turn start", () => {
+    vi.useFakeTimers();
+    vi.mocked(sessionChildProcessPids).mockReturnValue(new Set([200]));
+    vi.mocked(hasNewSessionChildProcess).mockReturnValue(false);
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, term: { pid: 100, kill: vi.fn() } }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    notifyMobileWebPushActivity.mockClear();
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+
+    expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
+    expect(deps.sessionActivityPublisher.publish).toHaveBeenLastCalledWith(ID, expect.objectContaining({ working: false, waiting: true, event: "Stop" }));
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
+    vi.advanceTimersByTime(1000);
+    expect(vi.mocked(hasNewSessionChildProcess)).toHaveBeenCalledTimes(2);
   });
 
   it("keeps activity updates working when a local mobile Web Push notification throws", () => {

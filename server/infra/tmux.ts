@@ -301,6 +301,18 @@ export function tmuxPaneCommand(id: string): string | null {
   return name === "" ? null : name;
 }
 
+export function parseTmuxPanePid(stdout: string): number | null {
+  const pid = Number(stdout.trim());
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+// The process running inside the persistent pane. This is the agent's pid, not the tmux
+// client pid node-pty gives us for the attached client.
+export function tmuxPanePid(id: string): number | null {
+  const r = tmux(["display-message", "-p", "-t", tmuxSessionName(id), "#{pane_pid}"]);
+  return r.status === 0 ? parseTmuxPanePid(r.stdout) : null;
+}
+
 // The pane state that an application SETS ONCE and then relies on forever: which screen buffer
 // it owns, and which mouse reports it asked for. Read back as the DEC private modes that would
 // re-establish it (#1073).

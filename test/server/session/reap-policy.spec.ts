@@ -10,7 +10,7 @@ describe("reapDecisionFor", () => {
   });
 
   it("arms the long grace for one that needs the user", () => {
-    expect(reapDecisionFor({ waiting: true }, graces)).toEqual({ kind: "arm", delayMs: 1_800_000 });
+    expect(reapDecisionFor({ waiting: true, event: "Notification" }, graces)).toEqual({ kind: "arm", delayMs: 1_800_000 });
   });
 
   it("keeps a session that is still working", () => {
@@ -20,7 +20,11 @@ describe("reapDecisionFor", () => {
   // #541: Notification never clears `working`, so a background session blocked on a
   // permission prompt sits at working+waiting forever — it must still get the long grace.
   it("arms the long grace when a working session is blocked on the user", () => {
-    expect(reapDecisionFor({ working: true, waiting: true }, graces)).toEqual({ kind: "arm", delayMs: 1_800_000 });
+    expect(reapDecisionFor({ working: true, waiting: true, event: "Notification" }, graces)).toEqual({ kind: "arm", delayMs: 1_800_000 });
+  });
+
+  it("keeps a working session whose done flag is waiting for child workflow processes", () => {
+    expect(reapDecisionFor({ working: true, waiting: true, event: "Stop" }, graces)).toEqual({ kind: "keep" });
   });
 
   it("treats a session with no activity record as idle", () => {

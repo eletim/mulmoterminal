@@ -10,6 +10,7 @@ import {
   parseTmuxClientSessions,
   parseTmuxTerminalModes,
   parseTmuxWindowSize,
+  parseTmuxPanePid,
   redrawTargets,
   planMsOverride,
   MS_OVERRIDE_ENTRY,
@@ -216,6 +217,19 @@ describe("parseTmuxEnvironment", () => {
   it("keeps an empty value, and tolerates empty output", () => {
     expect(parseTmuxEnvironment("EMPTY=\n").get("EMPTY")).toBe("");
     expect(parseTmuxEnvironment("").size).toBe(0);
+  });
+});
+
+describe("parseTmuxPanePid", () => {
+  it("reads a positive integer pid", () => {
+    expect(parseTmuxPanePid("12345\n")).toBe(12345);
+  });
+
+  it("returns null for anything that is not a usable pid", () => {
+    expect(parseTmuxPanePid("")).toBeNull();
+    expect(parseTmuxPanePid("0")).toBeNull();
+    expect(parseTmuxPanePid("1.5")).toBeNull();
+    expect(parseTmuxPanePid("no pane")).toBeNull();
   });
 });
 

@@ -42,6 +42,7 @@ import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
+import { hasNewSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
 import {
   forgetMobileWebPushActivitySession,
   mobileWebPushKindForActivityTransition,
@@ -74,6 +75,16 @@ export interface SessionLifecycleDeps {
 
 // Timers live per process, not per factory call — there is one server.
 const reapTimers = new Map<string, ReturnType<typeof setTimeout>>();
+interface DeferredStop {
+  timer: ReturnType<typeof setTimeout>;
+  waiting: boolean;
+  workingClear: boolean;
+  event: string | undefined;
+}
+
+const deferredStops = new Map<string, DeferredStop>();
+const childProcessBaselines = new Map<string, Set<number> | null>();
+const CHILD_WORK_POLL_MS = 1000;
 
 function refreshLastResponse(id: string, cwd: string): void {
   const text = readLatestResponse(id, cwd);
@@ -102,6 +113,13 @@ function cancelReap(id: string) {
     clearTimeout(t);
     reapTimers.delete(id);
   }
+}
+
+function cancelDeferredStop(id: string): void {
+  const pending = deferredStops.get(id);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  deferredStops.delete(id);
 }
 
 function scheduleReap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string, delayMs: number = REAP_GRACE_MS) {
@@ -143,6 +161,8 @@ function armReapForDetached(deps: SessionLifecycleDeps, mobileWebPushActivitySta
 
 function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string) {
   cancelReap(id);
+  cancelDeferredStop(id);
+  childProcessBaselines.delete(id);
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
@@ -196,6 +216,37 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
 }
 
+function shouldDeferStop(id: string, event: string | undefined): boolean {
+  return event === "Stop" && hasNewSessionChildProcess(id, ptys.get(id), childProcessBaselines.get(id) ?? null);
+}
+
+function deferStopFlag(
+  deps: SessionLifecycleDeps,
+  mobileWebPushActivityState: MobileWebPushActivityState,
+  id: string,
+  event: string | undefined,
+  flag: "waiting" | "workingClear",
+): void {
+  const existing = deferredStops.get(id);
+  if (existing) {
+    existing[flag] = true;
+    return;
+  }
+  const poll = () => {
+    if (shouldDeferStop(id, event)) {
+      const pending = deferredStops.get(id);
+      if (pending) pending.timer = setTimeout(poll, CHILD_WORK_POLL_MS);
+      return;
+    }
+    const pending = deferredStops.get(id);
+    if (!pending) return;
+    deferredStops.delete(id);
+    if (pending.waiting) setFlag(deps, mobileWebPushActivityState, id, "waiting", true, event);
+    if (pending.workingClear) setFlag(deps, mobileWebPushActivityState, id, "working", false, event);
+  };
+  deferredStops.set(id, { timer: setTimeout(poll, CHILD_WORK_POLL_MS), waiting: flag === "waiting", workingClear: flag === "workingClear", event });
+}
+
 // Publish a session's current activity (working + waiting) to subscribers.
 function publishActivity(deps: SessionLifecycleDeps, id: string) {
   const a = activity.get(id);
@@ -225,10 +276,23 @@ function setFlag(
   value: boolean,
   event?: string,
 ) {
+  if (flag === "working" && value) {
+    cancelDeferredStop(id);
+    if (event === "UserPromptSubmit") childProcessBaselines.set(id, sessionChildProcessPids(id, ptys.get(id)));
+  }
+  if (flag === "waiting" && value && shouldDeferStop(id, event)) {
+    deferStopFlag(deps, mobileWebPushActivityState, id, event, "waiting");
+    return;
+  }
+  if (flag === "working" && !value && shouldDeferStop(id, event)) {
+    deferStopFlag(deps, mobileWebPushActivityState, id, event, "workingClear");
+    return;
+  }
   const prev = activity.get(id);
   const effect = flagEffect(prev, flag, value, event, Date.now());
   if (!effect.next) return;
   activity.set(id, effect.next);
+  if (flag === "working" && !value) childProcessBaselines.delete(id);
   claimActivityOwnership(id); // this instance drives this session — persist may write/remove it
   publishActivity(deps, id);
   // Persist so an in-progress turn / the blocked-or-done set survives a restart (ACTIVITY_STATE_FILE).
