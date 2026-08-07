@@ -51,6 +51,17 @@ describe("GitBranchChip", () => {
     expect(w.find('[data-testid="git-branch"]').text()).toContain("detached");
   });
 
+  // `--amber`'s light-appearance variant (#b8860b) still reads under 3:1 against bg-elevated on
+  // Daylight/Solarized (measured, not assumed) — `--warn`'s (#8a4b00) is darker and clears AA on
+  // every built-in theme, so detached moved to that token instead.
+  it("colors a detached HEAD with the warn token, not amber", () => {
+    const classes = render({ ...base, branch: null, detached: true })
+      .find('[data-testid="git-chip"]')
+      .classes();
+    expect(classes).toContain("text-warn");
+    expect(classes).not.toContain("text-amber");
+  });
+
   // #921: the chip sits in a `flex ... overflow-hidden` header row, where a flex item shrinks by
   // default. Without this it collapsed in a narrow grid cell and the clipped text left just the
   // padded, rounded background — reported as "an empty badge", which is a much harder thing to
@@ -60,5 +71,46 @@ describe("GitBranchChip", () => {
   // fix. Width capping stays `max-w-[16ch]` + the inner ellipsis, so a long branch still truncates.
   it("does not shrink in a tight header row", () => {
     expect(render(base).find('[data-testid="git-chip"]').classes()).toContain("flex-none");
+  });
+
+  // The chip used to inherit its text color from the header (`text-inherit`) and derive its
+  // background from that same inherited color (`color-mix(in srgb, currentColor 12%, transparent)`).
+  // A directory with `headerTextColor: "#ffffff"` made the chip's text white AND its background a
+  // white-derived wash — near-white on near-white. Both must now come from theme tokens instead,
+  // so a white header text color can no longer erase the chip sitting on top of it.
+  describe("colors do not depend on the parent's inherited text color", () => {
+    it("does not use text-inherit for a normal branch", () => {
+      expect(render(base).find('[data-testid="git-chip"]').classes()).not.toContain("text-inherit");
+    });
+
+    it("does not derive its background from currentColor", () => {
+      const classes = render(base).find('[data-testid="git-chip"]').classes();
+      expect(classes.some((c) => c.includes("currentColor"))).toBe(false);
+    });
+
+    it("carries theme-token background and text classes for a normal branch", () => {
+      const classes = render(base).find('[data-testid="git-chip"]').classes();
+      expect(classes).toContain("bg-elevated");
+      expect(classes).toContain("text-fg");
+    });
+
+    // jsdom does no layout or color resolution, so this can only assert the classes are present
+    // regardless of what the (irrelevant, in this mount) parent would have set on `color` — the
+    // fix is precisely that the chip no longer reads that value at all.
+    it("still carries its own contrast classes when the parent sets a white text color", () => {
+      const w = mount(GitBranchChip, {
+        props: { status: base, hideDirty: false },
+        attachTo: (() => {
+          const host = document.createElement("div");
+          host.style.color = "#ffffff";
+          document.body.appendChild(host);
+          return host;
+        })(),
+      });
+      const classes = w.find('[data-testid="git-chip"]').classes();
+      expect(classes).toContain("bg-elevated");
+      expect(classes).toContain("text-fg");
+      expect(classes).not.toContain("text-inherit");
+    });
   });
 });

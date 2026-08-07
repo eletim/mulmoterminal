@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isMobileMode, MOBILE_MODES, type MobileMode } from "../../common/mobileMode.js";
 
 export const PORT = process.env.PORT || 34567;
 
@@ -74,3 +75,19 @@ export const MULMOTERMINAL_HOME = path.join(os.homedir(), ".mulmoterminal");
 // else so a client can't smuggle CLI flags (e.g. "--resume" followed by a value that claude
 // re-parses as a flag) into the spawned process.
 export const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Which mobile terminal transport this process runs — the Firestore-backed remote host
+// (unset, the existing behaviour) or the local-network HTTP API (server/routes/local-mobile-
+// terminal-routes.ts). The two are mutually exclusive (server/index.ts switches on this), so an
+// unrecognised value fails startup loudly rather than silently falling back to "remote" — a typo
+// here must not look like the feature working.
+function parseMobileMode(raw: string | undefined): MobileMode {
+  if (raw === undefined) return "remote";
+  if (!isMobileMode(raw)) {
+    const expected = MOBILE_MODES.map((mode) => JSON.stringify(mode)).join(" or ");
+    throw new Error(`Invalid MULMOTERMINAL_MOBILE_MODE: "${raw}". Expected ${expected}.`);
+  }
+  return raw;
+}
+
+export const MOBILE_MODE: MobileMode = parseMobileMode(process.env.MULMOTERMINAL_MOBILE_MODE);

@@ -25,10 +25,17 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => work
 </script>
 
 <template>
+  <!-- Same fix as GitBranchChip beside it (and the same root cause): the root used to derive its
+       background from `color-mix(in srgb, currentColor 12%, transparent)` while the PR/issue links
+       read `text-inherit` — both fed by the header's inherited `--cell-header-fg`. A white
+       `headerTextColor` made the links AND the background wash toward the same white. The root now
+       carries `text-fg` itself (bg-elevated / text-fg / border-border, the pairing GitBranchChip
+       also uses), so `text-inherit` on the links resolves to THIS element's own text-fg — not
+       whatever color the header happens to set — and stays legible regardless of headerTextColor. -->
   <span
     v-if="show"
     data-testid="work-chip"
-    class="inline-flex h-[1.5em] max-w-[18ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] bg-[color-mix(in_srgb,currentColor_12%,transparent)] px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] opacity-85"
+    class="inline-flex h-[1.5em] max-w-[18ch] flex-none items-center gap-[0.25em] overflow-hidden whitespace-nowrap rounded-[0.75em] border border-border bg-elevated px-[0.4em] font-sans text-[0.72rem] leading-[1.5em] text-fg"
     :aria-describedby="described ? HOVER_TIP_ID : undefined"
     @pointerenter="showTip"
     @pointerleave="hideTip"
@@ -44,7 +51,7 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => work
       class="text-inherit no-underline hover:underline"
       >#{{ item.pr }}</a
     >
-    <span v-if="item.pr !== null && item.issue !== null" data-testid="work-arrow" class="opacity-60">→</span>
+    <span v-if="item.pr !== null && item.issue !== null" data-testid="work-arrow" class="text-secondary">→</span>
     <a
       v-if="item.issue !== null"
       data-testid="work-issue"
@@ -54,6 +61,6 @@ const { described, show: showTip, hide: hideTip } = useHoverTipAnchor(() => work
       class="text-inherit no-underline hover:underline"
       >#{{ item.issue }}</a
     >
-    <span v-if="phase" data-testid="work-phase" class="opacity-70">{{ phase.label }}</span>
+    <span v-if="phase" data-testid="work-phase" class="text-secondary">{{ phase.label }}</span>
   </span>
 </template>

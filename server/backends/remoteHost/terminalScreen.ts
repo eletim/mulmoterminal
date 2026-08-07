@@ -140,7 +140,10 @@ export const SCREEN_HISTORY_ROWS = 300;
 // screen small (see the note at the top of handlers/terminalSession.ts); it no longer does.
 // 300 rows of a 200-column pane in Japanese is ~180 KB, so this only bites on a pane far
 // wider than any phone will ever read comfortably — it is a ceiling, not a budget.
-const SCREEN_MAX_BYTES = 256 * 1024;
+// Exported so ansiSegments.ts's local-mobile-only styled window (#7) applies the SAME ceiling
+// rather than growing unboundedly on a wide pane just because it isn't Firestore-constrained —
+// a large local HTTP response is still a real cost on a phone's connection.
+export const SCREEN_MAX_BYTES = 256 * 1024;
 
 // Newline, counted alongside each row so the cap measures the string the phone receives.
 const ROW_SEPARATOR_BYTES = 1;
@@ -242,6 +245,15 @@ export async function buildScreenMeta(id: string, sources: ScreenMetaSources): P
   });
 }
 
+// Distinguishes "no such session" from any other capture failure, so a caller (e.g. the local
+// mobile terminal API's GET screen route) can answer 404 without comparing error text.
+export class TerminalSessionNotFoundError extends Error {
+  constructor(id: string) {
+    super(`terminal session '${id}' not found`);
+    this.name = "TerminalSessionNotFoundError";
+  }
+}
+
 // tmux first: it renders the real screen, works while detached, and survives a restart.
 // Falling back to the in-process buffer covers the tmux-less host, the non-persistent
 // spawn, AND the race where the session ends between listing and reading.
@@ -249,7 +261,7 @@ const screenRowsOf = async (id: string, { captureStyledPane, sourceOf, render }:
   const captured = captureStyledPane(id);
   if (captured !== null) return parseStyledRows(captured);
   const source = sourceOf(id);
-  if (!source) throw new Error(`terminal session '${id}' not found`);
+  if (!source) throw new TerminalSessionNotFoundError(id);
   return render(source);
 };
 

@@ -23,6 +23,22 @@ export function nextActivity(
   return { ...current, [key]: value, event: event ?? current.event ?? null, at: now };
 }
 
+/** The working/waiting/event triple, defaulted the same way everywhere it is read: a session
+ *  with no activity record yet (new, or a tmux-only survivor of a restart) reads as idle rather
+ *  than arriving with holes. Split out of sessionRow so a reader that wants ONLY this triple —
+ *  the local mobile route's `activity` field (#see local-mobile-terminal-routes.ts) — doesn't
+ *  have to build a full SessionRow (lastPrompt/aiTitle/… it has no use for) to get it. */
+export interface ActivityTriple {
+  working: boolean;
+  waiting: boolean;
+  event: string | null;
+}
+
+export function normalizeActivity(activity: Activity | undefined): ActivityTriple {
+  const a = activity ?? {};
+  return { working: a.working ?? false, waiting: a.waiting ?? false, event: a.event ?? null };
+}
+
 /** The session row published to subscribers. Every field is defaulted here rather than at
  *  the receiving end, so a session with no activity yet still reads as idle instead of
  *  arriving with holes. */
@@ -44,13 +60,10 @@ export function sessionRow(
   cwd: string | null,
   texts: { lastPrompt?: string | undefined; aiTitle?: string | undefined; lastResponse?: string | undefined; memo?: string | undefined },
 ): SessionRow {
-  const a = activity ?? {};
   return {
     id,
     cwd,
-    working: a.working ?? false,
-    waiting: a.waiting ?? false,
-    event: a.event ?? null,
+    ...normalizeActivity(activity),
     lastPrompt: texts.lastPrompt ?? null,
     aiTitle: texts.aiTitle ?? null,
     lastResponse: texts.lastResponse ?? null,

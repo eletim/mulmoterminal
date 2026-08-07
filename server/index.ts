@@ -30,7 +30,7 @@ import {
 } from "./infra/tmux.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
-import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE } from "./config/env.js";
+import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE, MOBILE_MODE } from "./config/env.js";
 import { isLoopbackBinding } from "./infra/loopback.js";
 import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
@@ -83,7 +83,9 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { antigravityAdapter } from "./agents/antigravity.js";
 import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
-import { renderScreen } from "./session/headlessScreen.js";
+import { renderScreen, renderAnsiRows } from "./session/headlessScreen.js";
+import { ansiScreenWindow, parseAnsiRows } from "./session/ansiSegments.js";
+import type { AnsiRow } from "../common/ansiStyle.js";
 import {
   agentFromPaneCommand,
   SCREEN_HISTORY_ROWS,
@@ -91,13 +93,14 @@ import {
   buildSessionList,
   captureSessionScreen,
   sessionWorkSummary,
+  TerminalSessionNotFoundError,
   type SessionScreenMeta,
   type SessionWorkSummary,
 } from "./backends/remoteHost/terminalScreen.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
-import { decideLaunchTerminal, NO_BROWSER_ERROR } from "./backends/remoteHost/launchTerminal.js";
-import { LAUNCH_TERMINAL_CHANNEL } from "../common/launchAgent.js";
+import { createLaunchTerminalPublisher } from "./backends/remoteHost/launchTerminalPublisher.js";
+import { createLocalMobileTerminalCreator } from "./backends/remoteHost/localMobileTerminalLauncher.js";
 import { currentBranch, gitStatus } from "./git/git-status.js";
 import { phaseForRepoBranch } from "./git/prPhase.js";
 import { repoForDir } from "./git/forge-support.js";
@@ -108,7 +111,11 @@ import { initGoogleBackend } from "./backends/google.js";
 import { initPluginRuntime } from "./infra/pluginRuntime.js";
 import { initAccountingBackend } from "./backends/accounting.js";
 import { initFeedsBackend } from "./backends/feeds.js";
-import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend } from "./backends/remoteHost/index.js";
+import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend, mountRemoteHostRoutes } from "./backends/remoteHost/index.js";
+import { mountLocalMobileTerminalRoutes } from "./routes/local-mobile-terminal-routes.js";
+import { createMobileWebPushFeature, mobileWebPushActivityLifecycleDeps } from "./mobile-web-push/feature.js";
+import { normalizeActivity } from "./session/activity-transition.js";
+import { mountMobileTransport } from "./mobileTransportMount.js";
 import { createSessionActivityPublisher, firestoreSessionActivityStore } from "./backends/remoteHost/sessionActivity.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
 import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
@@ -265,6 +272,8 @@ const sessionActivityPublisher = createSessionActivityPublisher({
   store: firestoreSessionActivityStore(currentFirestore),
   onError: (err) => console.warn("[remote-host] session activity publish failed:", err),
 });
+const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
+const mobileWebPushActivityDeps = mobileWebPushActivityLifecycleDeps({ mode: MOBILE_MODE, sender: mobileWebPush.sender });
 
 // Session teardown + activity publishing (session/lifecycle.ts). `forgetTitle` is bound
 // lazily because the title manager below needs publishActivity — the cycle is real.
@@ -280,6 +289,7 @@ const lifecycle = createSessionLifecycle({
   workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
+  ...mobileWebPushActivityDeps,
 });
 const { cancelReap, reap, armReapForDetached, publishActivity, setWorking, setWaiting } = lifecycle;
 
@@ -488,6 +498,7 @@ mountAppRoutes(app, {
   setWorking,
   setWaiting,
   publishActivity,
+  ...(mobileWebPushActivityDeps.notifyMobileWebPushActivity ? { notifyMobileWebPushActivity: mobileWebPushActivityDeps.notifyMobileWebPushActivity } : {}),
 });
 
 const server = http.createServer(app);
@@ -724,42 +735,89 @@ const remoteHostCaptureTerminalScreen = (sessionId: string) =>
     quickCommandsOf: (id) => quickCommandsForAgent(getQuickCommands(), agentOfSession(id)),
   });
 
-// The phone asked for a new terminal in the directory of the session it was viewing (#831).
-// The grid lives in the browser — markDevTerminalSession is only ever reached through the
-// terminal WebSocket — so the host cannot open the cell, and publishes the request to
-// whichever tab is connected instead. The phone sends a session id, never a path.
-const remoteHostLaunchTerminal = (agent: unknown, sessionId: unknown) => {
-  const decision = decideLaunchTerminal({
-    agent,
-    sessionId,
-    cwdOf: (id) => ptys.get(id)?.cwd ?? null,
-    listenerCount: pubsub?.subscriberCount(LAUNCH_TERMINAL_CHANNEL) ?? 0,
-  });
-  if (!decision.ok) return decision;
-  // ONE tab, not every tab: this asks for a terminal to be opened, so a broadcast would open
-  // one per connected browser. Delivery is also the authority on whether anyone was there —
-  // the count above was read a moment earlier and that tab may have closed since.
-  const delivered = pubsub?.publishToOne(LAUNCH_TERMINAL_CHANNEL, decision.request) ?? false;
-  return delivered ? { ok: true as const } : { ok: false as const, error: NO_BROWSER_ERROR };
+// The LOCAL mobile route's colour layer (#7) — never wired into remoteHostCaptureTerminalScreen
+// above, so the Firestore doc remote mode writes (1 MiB ceiling, see SessionScreen's own note)
+// never grows by this. Deliberately its own capture rather than a field added to SessionScreen:
+// that type is BOTH transports' wire shape (createTerminalSessionHandlers's own comment — "the
+// whole SessionScreen is the wire shape"), and remote mode has no reader for styled rows.
+//
+// Same two capture paths as remoteHostCaptureTerminalScreen, in the same order (tmux first),
+// so a session picks the same source for both its plain and its styled screen — just read for
+// colour (ansiSegments.ts / headlessScreen.ts's renderAnsiRows) instead of for plain text.
+// ansiScreenWindow applies the SAME row cap AND byte cap terminalScreen.ts's own screenWindow
+// applies to the plain screen, so the two never disagree on how much of the pane is shown.
+const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRow[]> => {
+  const captured = tmuxCaptureStyledPane(sessionId, SCREEN_HISTORY_ROWS);
+  if (captured !== null) return ansiScreenWindow(parseAnsiRows(captured));
+  const entry = ptys.get(sessionId);
+  if (!entry) throw new TerminalSessionNotFoundError(sessionId);
+  const rows = await renderAnsiRows({ buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows, historyLines: SCREEN_HISTORY_ROWS });
+  return ansiScreenWindow(rows);
 };
 
-initRemoteHostBackend({
-  workspace: CLAUDE_CWD,
-  spawnChat: remoteHostSpawnChat,
-  spawnIssueSeed: remoteHostSpawnIssueSeed,
-  launchTerminal: remoteHostLaunchTerminal,
-  listTerminalSessions: remoteHostListTerminalSessions,
-  captureTerminalScreen: remoteHostCaptureTerminalScreen,
-  writeToSession: remoteHostWriteToSession,
-  canClearBox: remoteHostCanClearBox,
-  // The byte(s) that submit for this session (#772), resolved live from config so the
-  // phone's "send" commits the paste the same way the keyboard does. Scoped to the
-  // session's agent — the mapping is Claude's binding, so a shell/codex session in the
-  // picker keeps plain CR (same agent lookup as canClearBox above).
-  submitSequence: (sessionId) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit()),
-  // Which agent the typed text is going to, for the completion-menu guard (#1142) — same lookup
-  // again, because that guard is Claude Code's behaviour and nobody else's.
-  sessionAgent: (sessionId) => ptys.get(sessionId)?.agent,
+const mobileTerminalLauncher = createLaunchTerminalPublisher({ pubsub, cwdOfSession: (id) => ptys.get(id)?.cwd ?? null });
+const localMobileTerminalCreator = createLocalMobileTerminalCreator({ spawnClaudePty, spawnCodexPty, spawnAntigravityPty, spawnLauncherPty });
+
+// The byte(s) that submit for a given session (#772), resolved live from config per agent.
+const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit());
+// Which agent the typed text is going to, for the completion-menu guard (#1142) — only Claude
+// Code has the menu that eats a submit, and only there is the guard's trailing space not real
+// input. Same lookup as sessionSubmitSequence above; shared for the same reason.
+const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
+
+// What the LOCAL mobile route's `activity` field reads (server/routes/local-mobile-terminal-
+// routes.ts) — the same `activity` map and work-phase tracker the desktop roster and the remote
+// host's Firestore mirror read (publishActivity in session/lifecycle.ts), joined by session id
+// rather than added to buildSessionList/TerminalSessionSummary (remote mobile's own wire shape).
+// Only wired into mountLocal below: remote mode has no use for it, since the Firestore doc
+// already carries the same fields per session.
+const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
+const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
+
+// The phone's terminal transport is exclusively one of two adapters over the SAME PTY access
+// above — never both, so a build never has to reconcile a Firestore command doc and an HTTP
+// request racing the same session. MOBILE_MODE is decided once at boot (server/config/env.ts);
+// switching which one runs needs a restart. The dispatch itself is mobileTransportMount.ts's
+// job, so its exclusivity is a fact a test can assert on rather than only readable here.
+mountMobileTransport({
+  mode: MOBILE_MODE,
+  mountRemote: () => {
+    initRemoteHostBackend({
+      workspace: CLAUDE_CWD,
+      spawnChat: remoteHostSpawnChat,
+      spawnIssueSeed: remoteHostSpawnIssueSeed,
+      launchTerminal: mobileTerminalLauncher.fromSession,
+      listTerminalSessions: remoteHostListTerminalSessions,
+      captureTerminalScreen: remoteHostCaptureTerminalScreen,
+      writeToSession: remoteHostWriteToSession,
+      canClearBox: remoteHostCanClearBox,
+      submitSequence: sessionSubmitSequence,
+      sessionAgent: sessionAgentFor,
+    });
+    // POST /api/remote-host/connect|disconnect + GET /status — start/stop the Firestore host
+    // loop from the toolbar Connect control. Same-origin guarded internally.
+    mountRemoteHostRoutes(app, { isAllowedOrigin });
+  },
+  mountLocal: () => {
+    // GET the session list/screen + POST input/launch, over plain same-origin HTTP instead of
+    // the Firestore command channel. No Firebase connect/status/disconnect API in this mode.
+    mountLocalMobileTerminalRoutes(app, {
+      isAllowedOrigin,
+      listTerminalSessions: remoteHostListTerminalSessions,
+      captureTerminalScreen: remoteHostCaptureTerminalScreen,
+      captureStyledScreen: localMobileCaptureStyledScreen,
+      writeToSession: remoteHostWriteToSession,
+      canClearBox: remoteHostCanClearBox,
+      submitSequence: sessionSubmitSequence,
+      sessionAgent: sessionAgentFor,
+      launchTerminal: mobileTerminalLauncher.fromSession,
+      createTerminalAtCwd: localMobileTerminalCreator,
+      activityOf: localMobileActivityOf,
+      workPhaseOf: localMobileWorkPhaseOf,
+      setWaiting,
+      mobileWebPush,
+    });
+  },
 });
 
 // Mount per-collection fs.watchers → completion bells via the notifier. After the

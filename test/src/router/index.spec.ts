@@ -10,6 +10,12 @@ describe("router route table", () => {
     expect(router.resolve("/accounting").name).toBe("accounting");
   });
 
+  // The mobile entry point is its own route, distinct from /terminals, so App.vue can
+  // tell which page to mount from the route name alone.
+  it("resolves /mobile/terminals to mobileTerminals", () => {
+    expect(router.resolve("/mobile/terminals").name).toBe("mobileTerminals");
+  });
+
   it("parses :slug for the detail routes", () => {
     const c = router.resolve("/collections/todos");
     expect(c.name).toBe("collectionDetail");
