@@ -38,6 +38,7 @@ class FakeAudioContext {
   currentTime = 0;
   destination = {};
   started = 0;
+  gainPeaks: number[] = [];
   private listeners: (() => void)[] = [];
 
   constructor() {
@@ -58,7 +59,16 @@ class FakeAudioContext {
     this.listeners.forEach((listener) => listener());
   }
   createGain() {
-    return { gain: { value: 0, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, connect: (node: unknown) => node };
+    return {
+      gain: {
+        value: 0,
+        setValueAtTime: () => {},
+        exponentialRampToValueAtTime: (value: number) => {
+          if (value > 0.0001) this.gainPeaks.push(value);
+        },
+      },
+      connect: (node: unknown) => node,
+    };
   }
   createOscillator() {
     return {
@@ -76,8 +86,9 @@ class FakeAudioContext {
 
 const ALL_KINDS: NotifyKind[] = ["finished", "waiting"];
 
-async function mountPlayer(enabled = true) {
+async function mountPlayer(enabled = true, volume = 100) {
   vi.resetModules();
+  localStorage.setItem("sound_volume_percent", String(volume));
   const { useAttentionSound } = await import("../../../src/composables/useAttentionSound");
   const { useMissedAttention } = await import("../../../src/composables/useMissedAttention");
   const { audioBlocked } = await import("../../../src/composables/audioUnlockState");
@@ -103,6 +114,7 @@ const push = (data: Record<string, unknown>) => subscribers.get("sessions")?.(da
 beforeEach(() => {
   subscribers.clear();
   created = null;
+  localStorage.clear();
   vi.stubGlobal("AudioContext", FakeAudioContext);
 });
 
@@ -225,6 +237,25 @@ describe("useAttentionSound once audio plays", () => {
     push({ id: "c", working: false, event: "Stop", waiting: true });
     expect(ctx.started).toBe(2);
     expect(isMissed("c")).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("applies the browser volume to the synthesized chime", async () => {
+    const { wrapper, ctx } = await mountPlayer(true, 40);
+    await ctx.resume();
+    push({ id: "vol", working: true, event: "UserPromptSubmit" });
+    push({ id: "vol", working: false, event: "Stop", waiting: true });
+    expect(ctx.gainPeaks).toEqual([0.1, 0.1]);
+    wrapper.unmount();
+  });
+
+  it("treats zero volume as muted without marking the notification as missed", async () => {
+    const { wrapper, ctx, isMissed } = await mountPlayer(true, 0);
+    await ctx.resume();
+    push({ id: "muted", working: true, event: "UserPromptSubmit" });
+    push({ id: "muted", working: false, event: "Stop", waiting: true });
+    expect(ctx.started).toBe(0);
+    expect(isMissed("muted")).toBe(false);
     wrapper.unmount();
   });
 

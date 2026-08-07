@@ -4,6 +4,7 @@ import SettingsModal from "../../../src/components/SettingsModal.vue";
 import SkillLaunchButton from "../../../src/components/SkillLaunchButton.vue";
 import { VOICE_LANGUAGES } from "../../../src/composables/voiceLanguage";
 import { useTheme } from "../../../src/composables/useTheme";
+import { useSoundVolume } from "../../../src/composables/useSoundVolume";
 import { BUNDLED_SKILL_NAMES } from "../../../common/bundledSkills";
 
 const mountModal = (props: Record<string, unknown> = {}) => mount(SettingsModal, { props });
@@ -40,6 +41,11 @@ describe("SettingsModal theme picker", () => {
 });
 
 describe("SettingsModal", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSoundVolume().setVolume(100);
+  });
+
   it("no longer renders the directory-presets editor (presets are auto-managed)", () => {
     const w = mountModal();
     expect(w.find(".label-field").exists()).toBe(false);
@@ -72,6 +78,17 @@ describe("SettingsModal", () => {
 
     await clickBtn(w, (t) => t.includes("chime"));
     expect(w.emitted("update-sound")?.at(-1)?.[0]).toBeNull(); // back to the chime
+  });
+
+  it("stores the browser notification volume and shows the current value", async () => {
+    const w = mountModal();
+    const slider = w.find<HTMLInputElement>('input[type="range"][aria-label="Notification sound volume"]');
+    expect(slider.element.value).toBe("100");
+    expect(w.find('[aria-label="Current notification sound volume"]').text()).toBe("100%");
+
+    await slider.setValue("37");
+    expect(w.find('[aria-label="Current notification sound volume"]').text()).toBe("37%");
+    expect(localStorage.getItem("sound_volume_percent")).toBe("37");
   });
 
   it("reflects pushEnabled and emits update-push-enabled on toggle", async () => {

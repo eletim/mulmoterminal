@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { previewNotify } from "../../composables/useAttentionSound";
+import { useSoundVolume } from "../../composables/useSoundVolume";
 import { customSoundLabel, isCustomSound, toggledKinds, withKindSound, type SoundMap } from "../../composables/soundSettings";
 import SettingsButton from "../SettingsButton.vue";
 import SettingsField from "../SettingsField.vue";
@@ -15,6 +16,8 @@ import { isRecord } from "../../../common/isRecord";
 
 const props = defineProps<{ soundFile?: string | null | undefined; soundKinds?: NotifyKind[] | undefined; sounds?: SoundMap | undefined }>();
 const emit = defineEmits<SoundEmits & { (e: "launch-skill", skill: BundledSkillName): void }>();
+const { volume: soundVolume, setVolume: setSoundVolume } = useSoundVolume();
+const volumeLabel = computed(() => `${soundVolume.value}%`);
 
 // Which moments beep, and what each one plays (#873). The toolbar's speaker icon says whether to
 // beep at all, this says which moments qualify.
@@ -76,6 +79,10 @@ function testKindSound(kind: NotifyKind) {
   void previewNotify(kind, { kinds: soundKindList.value, sounds: soundMap.value, soundFile: props.soundFile ?? null });
 }
 
+function onVolumeInput(e: Event) {
+  if (e.target instanceof HTMLInputElement) setSoundVolume(e.target.value);
+}
+
 // Custom attention sound, applied immediately (like the theme) — empty => the
 // built-in chime. The text box mirrors the saved value; Browse / typing apply it.
 const soundPath = ref(props.soundFile ?? "");
@@ -113,6 +120,25 @@ async function browseSound() {
     Which moments beep, and what each one plays. Running many agents at once is what turns notifications into noise — untick the ones you don't need. The
     speaker button in the toolbar silences all of them at once.
   </p>
+  <div class="mb-3 flex items-center gap-3 rounded-md border border-border bg-elevated px-3 py-2">
+    <span class="material-symbols-outlined text-[18px] text-muted" aria-hidden="true">volume_up</span>
+    <label class="min-w-0 flex-1">
+      <span class="mb-1 flex items-center justify-between gap-3 text-[12px]">
+        <strong>Browser volume</strong>
+        <output class="font-mono text-muted" aria-label="Current notification sound volume">{{ volumeLabel }}</output>
+      </span>
+      <input
+        class="w-full accent-[var(--accent)]"
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        :value="soundVolume"
+        aria-label="Notification sound volume"
+        @input="onVolumeInput"
+      />
+    </label>
+  </div>
   <div v-for="kind in NOTIFY_KINDS" :key="kind" class="py-0.5">
     <div class="flex items-center gap-2">
       <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
