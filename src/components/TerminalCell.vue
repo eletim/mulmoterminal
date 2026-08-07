@@ -610,6 +610,7 @@ function teardown() {
   diff.value = null;
   diffOpen.value = false;
   closeConfirm.value = false;
+  runningCloseConfirm.value = false;
   prMsg.value = null;
   emit("close");
   // The launch form is mounted fresh by the `v-else` this just switched back to, and reads its
@@ -627,6 +628,7 @@ const promptTidy = computed(() =>
 const dismissTidy = () => (dismissedTidyPr.value = workItem.value.pr);
 
 const closeConfirm = ref(false);
+const runningCloseConfirm = ref(false);
 const closeChecking = ref(false); // refreshing dirty/ahead — the destructive action is held until it's accurate
 const closeError = ref<string | null>(null);
 const unsaved = computed(() => unsavedWork(diff.value));
@@ -635,6 +637,10 @@ const unsavedSummary = computed(() => unsaved.value.summary);
 
 async function close() {
   if (!isWorktreeCell.value) {
+    if (working.value) {
+      runningCloseConfirm.value = true;
+      return;
+    }
     teardown();
     return;
   }
@@ -648,8 +654,14 @@ async function close() {
 }
 function cancelClose() {
   closeConfirm.value = false;
+  runningCloseConfirm.value = false;
   closeChecking.value = false;
   closeError.value = null;
+}
+
+function stopAndClose() {
+  runningCloseConfirm.value = false;
+  teardown();
 }
 
 async function removeAndClose() {
@@ -678,7 +690,8 @@ async function removeAndClose() {
 function onCloseKey(e: KeyboardEvent) {
   if (e.key === "Escape") cancelClose();
 }
-watch(closeConfirm, (open) => {
+const anyCloseConfirm = computed(() => closeConfirm.value || runningCloseConfirm.value);
+watch(anyCloseConfirm, (open) => {
   if (open) document.addEventListener("keydown", onCloseKey);
   else document.removeEventListener("keydown", onCloseKey);
 });
@@ -1333,6 +1346,35 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           </div>
         </div>
         <div
+          v-if="runningCloseConfirm"
+          data-testid="cell-running-close-confirm"
+          class="absolute inset-0 z-[25] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_82%,transparent)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Stop and close terminal"
+        >
+          <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
+            <p class="m-0 font-sans text-[13px] font-semibold text-fg">This terminal is still running.</p>
+            <p class="m-0 font-sans text-[12px] text-dim">Closing it will stop the running process.</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                data-testid="rcx-cancel"
+                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                @click="cancelClose"
+              >
+                Cancel
+              </button>
+              <button
+                data-testid="rcx-stop"
+                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+                @click="stopAndClose"
+              >
+                Stop and close
+              </button>
+            </div>
+          </div>
+        </div>
+        <div
           v-if="closeConfirm"
           data-testid="cell-close-confirm"
           class="absolute inset-0 z-[25] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_82%,transparent)] p-4"
@@ -1343,6 +1385,9 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
             <p class="m-0 font-sans text-[13px] font-semibold text-fg">Close {{ headerDir }}</p>
             <template v-if="!closeError">
+              <p v-if="working" data-testid="ccx-running-warn" class="m-0 font-sans text-[12px] text-dim">
+                This terminal is still running. Closing it will stop the running process.
+              </p>
               <p v-if="hasUnsaved" data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">
                 {{ unsavedSummary }} will be discarded if you remove the worktree.
               </p>

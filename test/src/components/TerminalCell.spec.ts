@@ -8,6 +8,7 @@ import { TOOL_GROUPS } from "../../../common/toolGroups";
 // activity and simulate a dropped-then-restored socket directly.
 let captured: ((data: unknown) => void) | null = null;
 let reconnect: (() => void) | null = null;
+let terminalTerminate = vi.fn();
 vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({
     subscribe: (_channel: string, cb: (data: unknown) => void) => {
@@ -33,7 +34,9 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
     // is shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
     template: '<div class="stub-term"><slot v-if="!hideHeader" name="header-actions" /></div>',
     methods: {
-      terminate() {},
+      terminate() {
+        terminalTerminate();
+      },
       submitText() {
         return true;
       },
@@ -67,6 +70,7 @@ function deferred<T>() {
 beforeEach(() => {
   captured = null;
   reconnect = null;
+  terminalTerminate = vi.fn();
   mockFetch();
 });
 
@@ -1522,13 +1526,119 @@ describe("TerminalCell", () => {
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true); // session not torn down yet
   });
 
-  it("a NON-worktree cell still closes immediately (no confirm)", async () => {
+  it("a running NON-worktree cell asks before stopping the process", async () => {
+    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    await nextTick();
+
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-running-close-confirm"]').text()).toContain("Closing it will stop the running process.");
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    expect(terminalTerminate).not.toHaveBeenCalled();
+    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
+  });
+
+  it("Cancel on the running close prompt keeps the session alive", async () => {
+    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    await w.find('[data-testid="rcx-cancel"]').trigger("click");
+    await nextTick();
+
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    expect(terminalTerminate).not.toHaveBeenCalled();
+    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
+  });
+
+  it("Stop and close on the running prompt tears down the session", async () => {
+    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    await w.find('[data-testid="rcx-stop"]').trigger("click");
+    await flushPromises();
+
+    expect(terminalTerminate).toHaveBeenCalledTimes(1);
+    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("does not auto-close if the session goes idle while the running close prompt is open", async () => {
+    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    captured?.({ id, working: false, waiting: false, event: "Stop" });
+    await nextTick();
+
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    expect(terminalTerminate).not.toHaveBeenCalled();
+    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
+  });
+
+  it("a NON-worktree cell closes immediately after working changes to false", async () => {
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    captured?.({ id, working: false, waiting: false, event: "Stop" });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    await nextTick();
+
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("a NON-worktree idle cell still closes immediately (no confirm)", async () => {
     const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
     await w.find(".cell-close").trigger("click");
     await nextTick();
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true); // torn down to the launcher
+  });
+
+  it("a running worktree cell keeps the existing keep/remove close confirmation", async () => {
+    mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: WT_CWD });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    await nextTick();
+
+    expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
+    expect(w.find('[data-testid="ccx-running-warn"]').text()).toContain("Closing it will stop the running process.");
+    expect(w.find('[data-testid="ccx-keep"]').exists()).toBe(true);
+    expect(w.find('[data-testid="ccx-remove"]').exists()).toBe(true);
   });
 
   it("Keep worktree tears the cell down WITHOUT removing the room", async () => {
