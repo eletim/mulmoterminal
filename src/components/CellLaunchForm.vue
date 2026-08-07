@@ -18,7 +18,7 @@ import type { LaunchChoice } from "./wsUrl";
 import type { RunCommand } from "./runCommand";
 import LaunchChipList from "./LaunchChipList.vue";
 import ModelPicker from "./ModelPicker.vue";
-import { isUnknownArray } from "../../common/isUnknownArray";
+import FolderPickerModal from "./FolderPickerModal.vue";
 import { jsonBody } from "../jsonBody";
 
 // What an EMPTY grid cell shows: pick a directory, pick what to run in it, and start — or resume
@@ -187,18 +187,15 @@ function fillDir(path: string): void {
   loadForDir(dirFor(path));
 }
 
-// The folder button: the browser can't open a native folder chooser, so the local server does
-// (POST /api/pick-file { directory: true }). Fill the Working-directory field with the pick.
-async function pickDir(): Promise<void> {
-  try {
-    const res = await fetch("/api/pick-file", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ directory: true }) });
-    if (!res.ok) return;
-    const data = await jsonBody(res);
-    const dir = isUnknownArray(data.paths) ? data.paths.find((p): p is string => typeof p === "string") : undefined;
-    if (dir) fillDir(dir);
-  } catch {
-    // best-effort — the native dialog is unavailable or the user canceled
-  }
+const folderPickerOpen = ref(false);
+
+function pickDir(): void {
+  folderPickerOpen.value = true;
+}
+
+function selectPickedDir(path: string): void {
+  folderPickerOpen.value = false;
+  fillDir(path);
 }
 
 // The chip's launch button: a one-click quick launch — fill the field and jump straight into a
@@ -565,6 +562,7 @@ async function removeWorktree(w: Worktree): Promise<void> {
     </div>
     <LaunchChipList heading="or run a script" icon="play_arrow" :chips="scriptChips" @pick="runScript" />
     <LaunchChipList heading="or launch" icon="rocket_launch" :chips="launcherChips" @pick="launchProgram" />
+    <FolderPickerModal :open="folderPickerOpen" :initial-path="targetDir" @close="folderPickerOpen = false" @select="selectPickedDir" />
     <div v-if="resumable.sessions.length" data-testid="cell-resume" class="flex min-h-0 w-full max-w-[360px] flex-col items-center gap-1.5">
       <span class="font-sans text-[11px] uppercase tracking-[0.05em] text-dim">or resume here</span>
       <div class="flex w-full flex-col gap-1">

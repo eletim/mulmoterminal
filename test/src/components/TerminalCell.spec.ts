@@ -177,22 +177,35 @@ describe("TerminalCell", () => {
     expect((w.find('[data-testid="cell-dir-go"]').element as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("the folder button opens the OS folder picker and fills the working directory", async () => {
+  it("the folder button opens the browser directory picker and fills the working directory", async () => {
     const w = mountCell(null, { defaultCwd: "/home/me/default" });
     await flushPromises();
-    let body: string | undefined;
-    globalThis.fetch = vi.fn((url: string, init?: { body?: string }) => {
+    const urls: string[] = [];
+    globalThis.fetch = vi.fn((url: string) => {
       const u = String(url);
-      if (u.includes("/api/pick-file")) {
-        body = init?.body;
-        return Promise.resolve({ ok: true, json: async () => ({ paths: ["/picked/dir"] }) });
+      urls.push(u);
+      if (u.includes("/api/directories")) {
+        const requested = new URL(u, "http://localhost").searchParams.get("path");
+        if (requested === "/home/me/picked") {
+          return Promise.resolve({ ok: true, json: async () => ({ path: "/home/me/picked", parent: "/home/me", directories: [] }) });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ path: "/home/me/default", parent: "/home/me", directories: [{ name: "picked", path: "/home/me/picked" }] }),
+        });
       }
       return Promise.resolve({ ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) });
     }) as unknown as typeof fetch;
     await w.find('[aria-label="Choose the working directory"]').trigger("click");
     await flushPromises();
-    expect(body).toContain('"directory":true');
-    expect((w.find('[data-testid="cell-dir-input"]').element as HTMLInputElement).value).toBe("/picked/dir");
+    expect(urls.some((u) => u.includes("/api/directories") && u.includes("path=%2Fhome%2Fme%2Fdefault"))).toBe(true);
+    document.body.querySelector<HTMLButtonElement>('[data-testid="folder-picker-dir"]')?.click();
+    await flushPromises();
+    document.body.querySelector<HTMLButtonElement>('[data-testid="folder-picker-select"]')?.click();
+    await flushPromises();
+    expect((w.find('[data-testid="cell-dir-input"]').element as HTMLInputElement).value).toBe("/home/me/picked");
+    w.unmount();
+    document.body.innerHTML = "";
   });
 
   it("shows a cancel ✕ on a cancellable launcher that emits close, but not otherwise", async () => {
