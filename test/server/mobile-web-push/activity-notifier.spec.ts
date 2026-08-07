@@ -23,6 +23,12 @@ describe("mobileWebPushKindForActivityTransition", () => {
     expect(mobileWebPushKindForActivityTransition(state, "a", running, { ...running, working: false, event: "Stop", at: 2 }, "Stop")).toBe("finished");
   });
 
+  it("does not report a mid-turn process exit as a finished task", () => {
+    const state = fresh();
+    expect(mobileWebPushKindForActivityTransition(state, "a", undefined, running, "UserPromptSubmit")).toBeNull();
+    expect(mobileWebPushKindForActivityTransition(state, "a", running, { ...running, working: false, event: "UserPromptSubmit", at: 2 }, undefined)).toBeNull();
+  });
+
   it("uses the desktop sound baseline for a Stop even when idle had no activity record", () => {
     const state = fresh();
     expect(mobileWebPushKindForActivityTransition(state, "a", undefined, { waiting: true, event: "Stop", at: 2 }, "Stop")).toBe("finished");

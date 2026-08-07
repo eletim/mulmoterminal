@@ -179,6 +179,19 @@ describe("setWorking / setWaiting", () => {
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
   });
 
+  it("does not notify local mobile Web Push when a PTY exits before Stop", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    notifyMobileWebPushActivity.mockClear();
+    lifecycle.setWorking(ID, false);
+
+    expect(notifyMobileWebPushActivity).not.toHaveBeenCalled();
+  });
+
   it("notifies local mobile Web Push for the Stop row that makes the desktop sound beep without a working flag", () => {
     const notifyMobileWebPushActivity = vi.fn();
     const deps = makeDeps(null, { notifyMobileWebPushActivity });

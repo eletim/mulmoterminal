@@ -24,6 +24,7 @@ export function mobileWebPushKindForActivityTransition(
   // plays. Other first observations remain baseline-only.
   if (!state.has(sessionId) && (prev || event === "Stop")) state.set(sessionId, activityNotifyStateOf(prev ?? {}));
   const kind = notifyKindOf(state, { id: sessionId, working: next.working ?? false, waiting: next.waiting ?? false, event: next.event ?? event ?? null });
+  if (kind === "finished" && (next.event ?? event ?? null) !== "Stop") return null;
   return isPushKind(kind) ? kind : null;
 }
 
