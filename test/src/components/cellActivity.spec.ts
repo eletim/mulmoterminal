@@ -59,6 +59,12 @@ describe("cellHeaderText", () => {
     expect(cellHeaderText(null, null, "fix the login bug", "abcdef12-3456")).toBe("fix the login bug");
   });
 
+  it("uses a Codex-tracked last prompt before the UUID fallback without outranking memo or summary", () => {
+    expect(cellHeaderText(null, null, "implement issue #33", "abcdef12-3456")).toBe("implement issue #33");
+    expect(cellHeaderText(null, "Codex title", "implement issue #33", "abcdef12-3456")).toBe("Codex title");
+    expect(cellHeaderText("phone check", "Codex title", "implement issue #33", "abcdef12-3456")).toBe("phone check");
+  });
+
   // Enough of the id to tell two untitled cells apart.
   it("falls back to a short session id", () => {
     expect(cellHeaderText(null, null, null, "abcdef12-3456")).toBe("abcdef12");

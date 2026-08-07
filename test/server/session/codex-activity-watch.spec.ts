@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { watchCodexActivity, type CodexActivityDeps } from "../../../server/session/codex-activity-watch.js";
 import type { CodexTurnBoundary } from "../../../server/agents/codex-activity.js";
 
 const line = (o: unknown) => JSON.stringify(o);
 const started = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_started", turn_id: turnId } }) + "\n";
+const userMessage = (message = "fix the parser") => line({ type: "event_msg", payload: { type: "user_message", message } }) + "\n";
 const complete = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: "done" } }) + "\n";
 
 // A fake rollout the test appends to, driving the loop one tick at a time. `sleep`
@@ -14,13 +15,22 @@ function harness(initial: string, startAtEnd: boolean) {
   let ticks = 0;
   const maxTicks = 12;
   const boundaries: CodexTurnBoundary[] = [];
+  const prompts: string[] = [];
+  const events: string[] = [];
   const appendAtTick: Map<number, string> = new Map();
   let missing = false;
 
   const deps: CodexActivityDeps = {
     fileSize: async () => (missing ? null : Buffer.byteLength(content)),
     readSlice: async (from, to) => Buffer.from(content).subarray(from, to).toString(),
-    onBoundary: (b) => boundaries.push(b),
+    onBoundary: (b) => {
+      boundaries.push(b);
+      events.push(`boundary:${b}`);
+    },
+    onPrompt: (prompt) => {
+      prompts.push(prompt);
+      events.push(`prompt:${prompt}`);
+    },
     isAlive: () => ticks < maxTicks,
     startAtEnd,
     sleep: async () => {
@@ -32,6 +42,8 @@ function harness(initial: string, startAtEnd: boolean) {
   return {
     deps,
     boundaries,
+    prompts,
+    events,
     appendAt: (tick: number, text: string) => appendAtTick.set(tick, text),
     setMissing: (v: boolean) => (missing = v),
     run: () => watchCodexActivity(deps),
@@ -47,6 +59,13 @@ describe("watchCodexActivity", () => {
     expect(h.boundaries).toEqual(["started", "completed"]);
   });
 
+  it("reports user prompts appended while it runs", async () => {
+    const h = harness("", false);
+    h.appendAt(1, started() + userMessage("  investigate title fallback  "));
+    await h.run();
+    expect(h.prompts).toEqual(["investigate title fallback"]);
+  });
+
   it("reads a fresh session's existing content, so its first turn isn't missed", async () => {
     const h = harness(started(), false);
     await h.run();
@@ -56,17 +75,35 @@ describe("watchCodexActivity", () => {
   it("does NOT replay a resumed rollout's history", async () => {
     // The regression this guards: starting a resumed session at offset 0 would re-report
     // every past turn and leave the cell flagged from history rather than from now.
-    const h = harness(started("old") + complete("old"), true);
+    const h = harness(started("old") + userMessage("old prompt") + complete("old"), true);
     await h.run();
     expect(h.boundaries).toEqual([]);
+    expect(h.prompts).toEqual([]);
+  });
+
+  it("offers resumed history as a baseline without replaying its prompts", async () => {
+    const h = harness(started("old") + userMessage("old prompt") + complete("old"), true);
+    const baseline = vi.fn(async () => {});
+    h.deps.onResumeBaseline = baseline;
+    await h.run();
+    expect(baseline).toHaveBeenCalledTimes(1);
+    expect(h.prompts).toEqual([]);
   });
 
   it("still reports a resumed session's NEW turns", async () => {
     const h = harness(started("old") + complete("old"), true);
-    h.appendAt(2, started("new"));
+    h.appendAt(2, started("new") + userMessage("new prompt"));
     h.appendAt(4, complete("new"));
     await h.run();
     expect(h.boundaries).toEqual(["started", "completed"]);
+    expect(h.prompts).toEqual(["new prompt"]);
+  });
+
+  it("keeps prompts and boundaries in rollout order within one poll", async () => {
+    const h = harness("", false);
+    h.appendAt(1, started("old") + userMessage("old prompt") + complete("old") + started("new") + userMessage("new prompt"));
+    await h.run();
+    expect(h.events).toEqual(["boundary:started", "prompt:old prompt", "boundary:completed", "boundary:started", "prompt:new prompt"]);
   });
 
   it("joins a record split across two polls", async () => {

@@ -9,7 +9,7 @@
 // Every dependency is injected so the loop can be driven with fakes: the real one reads
 // the filesystem and mutates session flags, neither of which a test should need.
 
-import { nextReadRange, takeCompleteLines, turnBoundaries, type CodexTurnBoundary } from "../agents/codex-activity.js";
+import { codexUserPrompts, nextReadRange, takeCompleteLines, turnBoundaries, type CodexTurnBoundary } from "../agents/codex-activity.js";
 
 export const CODEX_ACTIVITY_POLL_MS = 1000;
 
@@ -19,6 +19,8 @@ export interface CodexActivityDeps {
   /** The rollout's bytes in [from, to). */
   readSlice: (from: number, to: number) => Promise<string>;
   onBoundary: (boundary: CodexTurnBoundary) => void;
+  onPrompt?: (prompt: string) => void;
+  onResumeBaseline?: () => Promise<void>;
   /** False once the session's pty is gone — the loop stops on the next tick. */
   isAlive: () => boolean;
   /** Resume only: skip what the rollout already holds. A fresh session starts at 0 so its
@@ -30,6 +32,7 @@ export interface CodexActivityDeps {
 
 export async function watchCodexActivity(deps: CodexActivityDeps): Promise<void> {
   let offset = deps.startAtEnd ? await startingOffset(deps) : 0;
+  if (deps.startAtEnd && offset > 0) await deps.onResumeBaseline?.();
   let pending = "";
   while (deps.isAlive()) {
     await deps.sleep(CODEX_ACTIVITY_POLL_MS);
@@ -42,7 +45,10 @@ export async function watchCodexActivity(deps: CodexActivityDeps): Promise<void>
     const taken = takeCompleteLines(pending, await deps.readSlice(range.from, range.to));
     pending = taken.pending;
     offset = range.to;
-    turnBoundaries(taken.lines).forEach(deps.onBoundary);
+    for (const line of taken.lines) {
+      codexUserPrompts([line]).forEach((prompt) => deps.onPrompt?.(prompt));
+      turnBoundaries([line]).forEach(deps.onBoundary);
+    }
   }
 }
 

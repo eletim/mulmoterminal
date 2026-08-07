@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { nextReadRange, takeCompleteLines, turnBoundaries, boundaryOutcome, HOOK_EVENT_FOR } from "../../../server/agents/codex-activity.js";
+import { nextReadRange, takeCompleteLines, turnBoundaries, boundaryOutcome, codexUserPrompts, HOOK_EVENT_FOR } from "../../../server/agents/codex-activity.js";
 
 const line = (o: unknown) => JSON.stringify(o);
 const started = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_started", turn_id: turnId } });
 const complete = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: "done" } });
 const aborted = (turnId = "t1") => line({ type: "event_msg", payload: { type: "turn_aborted", turn_id: turnId, reason: "interrupted" } });
+const userMessage = (message: unknown) => line({ type: "event_msg", payload: { type: "user_message", message } });
 const agentMessage = () => line({ type: "event_msg", payload: { type: "agent_message", message: "thinking" } });
 // A turn_context row carries a turn_id but no payload.type — the shape most likely to be
 // misread as a boundary.
@@ -99,6 +100,20 @@ describe("turnBoundaries", () => {
 
   it("is empty for no lines", () => {
     expect(turnBoundaries([])).toEqual([]);
+  });
+});
+
+describe("codexUserPrompts", () => {
+  it("extracts user prompts from rollout user_message rows", () => {
+    expect(codexUserPrompts([started(), userMessage("  implement issue #33  "), agentMessage()])).toEqual(["implement issue #33"]);
+  });
+
+  it("ignores blank, non-string, malformed, and non-event rows", () => {
+    expect(codexUserPrompts([userMessage(""), userMessage(42), turnContext(), '{"type":"event_msg", "payl'])).toEqual([]);
+  });
+
+  it("keeps several prompts from one appended slice in order", () => {
+    expect(codexUserPrompts([userMessage("first"), complete("t1"), userMessage("second")])).toEqual(["first", "second"]);
   });
 });
 
