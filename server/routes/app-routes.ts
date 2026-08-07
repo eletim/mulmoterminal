@@ -14,6 +14,7 @@ import express, { type Express } from "express";
 import { mountAllRoutes } from "../infra/plugins-registry.js";
 import { mountConfigRoutes } from "../config/config-routes.js";
 import { mountFilesBrowseRoutes } from "../files/files-browse.js";
+import { mountDirectoryPickerRoutes } from "../files/directories.js";
 import { mountTmuxRoutes } from "../infra/tmux-routes.js";
 import { mountHookRoute } from "../routes/hook-routes.js";
 import { mountPluginRoutes } from "../routes/plugin-routes.js";
@@ -315,6 +316,10 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // (GET /api/files/browse/{list,text,md}, PUT .../write — all ?cwd=&path=). Each
   // terminal browses its own session's project dir; paths are contained within it.
   mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD, backupRoot: path.join(MULMOTERMINAL_HOME, "backups") });
+
+  // Browser-native working-directory picker. It lists directories only, and the server keeps
+  // navigation inside the user's home or the configured workspace root.
+  mountDirectoryPickerRoutes(app, { defaultCwd: CLAUDE_CWD });
 
   // Directory-scoped reads for a terminal cell: scripts, skills, dir config, git status,
   // PR phase, resolved header, custom sound. All keyed by ?cwd= (see routes/dir-routes.ts).
