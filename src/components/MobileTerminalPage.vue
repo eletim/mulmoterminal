@@ -7,27 +7,27 @@
 // /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
 // (POST /api/mobile/terminal-sessions/:id/input).
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
-import { LAUNCH_AGENTS, type LaunchAgent } from "../../common/launchAgent";
+import type { LaunchAgent } from "../../common/launchAgent";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
+import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
+import MobileNewTerminalPanel from "./MobileNewTerminalPanel.vue";
+import MobileWebPushPanel from "./MobileWebPushPanel.vue";
 
 const router = useRouter();
+const route = useRoute();
+const notificationRequestedSessionId = ref(readSessionIdQuery(route.query.sessionId));
 
 function backToDesktop(): void {
   void router.push("/terminals");
 }
 
-// The activity local mode alone adds to a session row (server/routes/local-mobile-terminal-
-// routes.ts's LocalSessionActivity) — never present on remote mobile's Firestore-backed rows,
-// but this page only ever talks to the local route, so it is required here rather than optional.
-// Present-but-idle (false/false/null/null) for a session activity has never observed — a fresh
-// launch, a shell, a tmux-only survivor of a restart — never an absent field.
 interface MobileActivity {
   working: boolean;
   waiting: boolean;
@@ -42,9 +42,6 @@ const isMobileActivity = (value: unknown): value is MobileActivity =>
   (value.event === null || typeof value.event === "string") &&
   (value.workPhase === null || isWorkPhase(value.workPhase));
 
-// The fields this page reads off a GET /api/mobile/terminal-sessions row. The backend's
-// TerminalSessionSummary (server/backends/remoteHost/terminalScreen.ts) carries more
-// (work, …) — nothing here needs it yet, so it stays off this shape rather than pulled in.
 interface MobileSession {
   id: string;
   title: string;
@@ -77,14 +74,6 @@ type CreateStatus = "idle" | "creating" | "error";
 const createStatus = ref<CreateStatus>("idle");
 const createError = ref("");
 
-// The two fields this page reads off GET /api/mobile/terminal-sessions/:id/screen. The backend's
-// SessionScreen also carries suggestion, quickCommands and meta (cwd, branch, memo, summary,
-// prompt, githubUrl) — none of it is used or shown here yet, so it stays off this shape.
-//
-// styledScreen is optional on the wire (server/routes/local-mobile-terminal-routes.ts): an
-// older server, or a session the styling step itself failed for, sends `screen` alone, and this
-// page falls back to the plain-text display it has always had (see the template below) rather
-// than showing nothing.
 interface MobileScreen {
   screen: string;
   styledScreen: AnsiRow[] | undefined;
@@ -97,16 +86,8 @@ type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
-// null covers both "no styled rows on this response" and "reset because the session changed" —
-// either way the template's v-else-if falls back to the plain-text screen below.
 const screenStyledRows = ref<AnsiRow[] | null>(null);
 
-// segment.fg/bg are pre-resolved "#rrggbb" strings or null (never raw terminal bytes — see
-// common/ansiStyle.ts) and are applied here as a `:style` OBJECT, which Vue sets via direct
-// CSSStyleDeclaration property assignment. That is what keeps this safe without a sanitizer: a
-// value that isn't a valid CSS colour is simply dropped by the browser, never parsed as markup,
-// and the segment's actual text only ever reaches the DOM through `{{ }}` interpolation below,
-// which HTML-escapes it the same way the plain-text screen always has.
 function segmentStyle(segment: AnsiSegment): Record<string, string> {
   const style: Record<string, string> = {};
   if (segment.fg) style.color = segment.fg;
@@ -115,11 +96,6 @@ function segmentStyle(segment: AnsiSegment): Record<string, string> {
   return style;
 }
 
-// An empty AnsiRow (a genuinely blank terminal line) renders as a `<div>` with no text content
-// at all — and an empty block element has no line box, so the row collapses to zero height and
-// the blank line disappears from the styled view (unlike the plain-text <pre> below, where the
-// same blank line is a real "\n" and keeps its height for free). A no-break space gives the div
-// content to lay out without being visible or copy-pasted as a stray glyph.
 const BLANK_ROW_FILLER = "\u00A0";
 
 // Rate limit for the manual Refresh/Retry button alone — session switches bypass it entirely
@@ -129,9 +105,6 @@ const MANUAL_REFRESH_COOLDOWN_MS = 5000;
 const manualRefreshCoolingDown = ref(false);
 let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-// One line of input, sent to a live session's PTY as-is. Sanitization, control-character
-// stripping, bracketed paste and Enter handling are all the existing POST /input route's job
-// (server/backends/remoteHost/terminalInput.ts) — this page only forwards what was typed.
 const inputText = ref("");
 type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
@@ -200,6 +173,13 @@ watch(selectedSession, (session) => {
 // choice `load()` made before this was split out.
 function applySessionList(parsed: MobileSession[]): void {
   sessions.value = parsed;
+  if (notificationRequestedSessionId.value !== null && parsed.some((session) => session.id === notificationRequestedSessionId.value)) {
+    const requested = notificationRequestedSessionId.value;
+    notificationRequestedSessionId.value = null;
+    changeSelectedSession(requested);
+    return;
+  }
+
   if (selectedSessionId.value !== null && parsed.some((session) => session.id === selectedSessionId.value)) return;
 
   const next = parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null;
@@ -490,98 +470,74 @@ onUnmounted(() => {
         <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="load">Retry</button>
       </div>
 
-      <p v-else-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
+      <template v-else>
+        <MobileWebPushPanel :session-id="selectedSessionId" />
 
-      <template v-if="status === 'local'">
-        <section class="mb-4 flex flex-col gap-2 rounded-md border border-border bg-elevated p-3">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="text-[13px] font-medium text-fg">New terminal</h2>
-            <button
-              type="button"
-              class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-              :disabled="createStatus === 'creating'"
-              @click="createTerminal"
-            >
-              {{ createStatus === "creating" ? "Starting…" : "Start" }}
-            </button>
-          </div>
-          <label class="flex flex-col gap-1 text-[12px] text-secondary">
-            <span>Working directory</span>
-            <input
-              v-model="newTerminalCwd"
-              type="text"
-              class="rounded-md border border-border bg-base px-2.5 py-2 font-mono text-[13px] text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder="/path/to/project"
-              :disabled="createStatus === 'creating'"
-              @input="newTerminalCwdTouched = true"
-            />
-          </label>
-          <label class="flex flex-col gap-1 text-[12px] text-secondary">
-            <span>Agent</span>
-            <select
-              v-model="newTerminalAgent"
-              class="rounded-md border border-border bg-base px-2.5 py-2 text-[13px] text-fg disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="createStatus === 'creating'"
-            >
-              <option v-for="agent in LAUNCH_AGENTS" :key="agent" :value="agent">{{ agent }}</option>
-            </select>
-          </label>
-          <p v-if="createStatus === 'error'" class="text-[12px] text-err-text">{{ createError || "Failed to create terminal." }}</p>
-        </section>
-      </template>
+        <MobileNewTerminalPanel
+          :agent="newTerminalAgent"
+          :cwd="newTerminalCwd"
+          :error="createError"
+          :status="createStatus"
+          @create="createTerminal"
+          @cwd-touched="newTerminalCwdTouched = true"
+          @update:agent="newTerminalAgent = $event"
+          @update:cwd="newTerminalCwd = $event"
+        />
 
-      <template v-if="status === 'local' && sessions.length > 0">
-        <ul class="flex flex-col gap-2">
-          <li v-for="session in sessions" :key="session.id">
-            <button
-              type="button"
-              class="w-full rounded-md border px-3 py-2 text-left"
-              :class="session.id === selectedSessionId ? 'border-accent bg-accent-bg text-on-accent' : 'border-border bg-elevated text-fg hover:bg-hover'"
-              @click="selectSession(session.id)"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
-                <!-- Activity (running/planning/…/idle) alongside the connection state (live/detached) —
-                     two different concepts (docs/grid-view-modes.md's desktop equivalent keeps them
-                     as separate signals too), shown together since the phone has one line of room. -->
-                <span class="flex-none text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : activityClassOf(session)">
-                  {{ activityStatusOf(session) }} · {{ session.live ? "live" : "detached" }}
-                </span>
-              </div>
-              <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
-              <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
-            </button>
-          </li>
-        </ul>
+        <p v-if="sessions.length === 0" class="text-[13px] text-secondary">No terminal sessions.</p>
 
-        <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
-            <button
-              type="button"
-              class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-              :disabled="screenStatus === 'loading' || manualRefreshCoolingDown"
-              @click="manualRefreshScreen"
-            >
-              Refresh
-            </button>
-          </div>
+        <template v-else>
+          <ul class="flex flex-col gap-2">
+            <li v-for="session in sessions" :key="session.id">
+              <button
+                type="button"
+                class="w-full rounded-md border px-3 py-2 text-left"
+                :class="session.id === selectedSessionId ? 'border-accent bg-accent-bg text-on-accent' : 'border-border bg-elevated text-fg hover:bg-hover'"
+                @click="selectSession(session.id)"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="truncate text-[13px] font-medium">{{ session.title }}</span>
+                  <!-- Activity (running/planning/…/idle) alongside the connection state (live/detached) —
+                       two different concepts (docs/grid-view-modes.md's desktop equivalent keeps them
+                       as separate signals too), shown together since the phone has one line of room. -->
+                  <span class="flex-none text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : activityClassOf(session)">
+                    {{ activityStatusOf(session) }} · {{ session.live ? "live" : "detached" }}
+                  </span>
+                </div>
+                <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
+                <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
+              </button>
+            </li>
+          </ul>
 
-          <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
+          <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
+              <button
+                type="button"
+                class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+                :disabled="screenStatus === 'loading' || manualRefreshCoolingDown"
+                @click="manualRefreshScreen"
+              >
+                Refresh
+              </button>
+            </div>
 
-          <div v-else-if="screenStatus === 'error'" class="flex flex-col gap-2 text-[13px]">
-            <p class="text-err-text">Failed to load terminal screen.</p>
-            <button
-              type="button"
-              class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-              :disabled="manualRefreshCoolingDown"
-              @click="manualRefreshScreen"
-            >
-              Retry
-            </button>
-          </div>
+            <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
 
-          <!--
+            <div v-else-if="screenStatus === 'error'" class="flex flex-col gap-2 text-[13px]">
+              <p class="text-err-text">Failed to load terminal screen.</p>
+              <button
+                type="button"
+                class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+                :disabled="manualRefreshCoolingDown"
+                @click="manualRefreshScreen"
+              >
+                Retry
+              </button>
+            </div>
+
+            <!--
             Two renderings of the same "loaded" state, never both at once. Styled rows are
             preferred whenever the server sent a valid one (isMobileScreen already checked its
             shape); a row's OWN text still reaches the DOM only through `{{ }}` interpolation,
@@ -594,18 +550,19 @@ onUnmounted(() => {
             palette's own comment. A row with no segments (a blank terminal line) falls back to
             BLANK_ROW_FILLER so its <div> still has a line box — see that constant's comment.
           -->
-          <pre
-            v-else-if="screenStatus === 'loaded' && screenStyledRows"
-            class="overflow-x-auto whitespace-pre rounded-md border border-border p-2 font-mono text-[12px]"
-            style="background-color: #1e1e1e; color: #d4d4d4"
-          ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-if="row.length === 0">{{ BLANK_ROW_FILLER }}</span><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
-          <pre
-            v-else-if="screenStatus === 'loaded'"
-            class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
-            >{{ screenText }}</pre>
+            <pre
+              v-else-if="screenStatus === 'loaded' && screenStyledRows"
+              class="overflow-x-auto whitespace-pre rounded-md border border-border p-2 font-mono text-[12px]"
+              style="background-color: #1e1e1e; color: #d4d4d4"
+            ><div v-for="(row, rowIndex) in screenStyledRows" :key="rowIndex"><span v-if="row.length === 0">{{ BLANK_ROW_FILLER }}</span><span v-for="(segment, segIndex) in row" :key="segIndex" :style="segmentStyle(segment)">{{ segment.text }}</span></div></pre>
+            <pre
+              v-else-if="screenStatus === 'loaded'"
+              class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
+              >{{ screenText }}</pre>
 
-          <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
-        </div>
+            <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
+          </div>
+        </template>
       </template>
     </main>
 

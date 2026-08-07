@@ -1,0 +1,228 @@
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import {
+  fetchMobileWebPushConfig,
+  mobileWebPushSupport,
+  registerMobileWebPushSubscription,
+  registerMobileWebPushServiceWorker,
+  sendMobileWebPushTest,
+  unregisterMobileWebPushSubscription,
+  urlBase64ToUint8Array,
+  type MobileWebPushServerConfig,
+} from "../mobileWebPushClient";
+
+const props = defineProps<{ sessionId: string | null }>();
+
+type PushStatus = "checking" | "ready" | "unsupported" | "error";
+type PushBusy = "enable" | "disable" | "test" | null;
+
+const pushSupport = mobileWebPushSupport();
+const pushStatus = ref<PushStatus>(pushSupport.supported ? "checking" : "unsupported");
+const pushBusy = ref<PushBusy>(null);
+const pushPermission = ref<NotificationPermission | "unknown">(pushSupport.supported ? Notification.permission : "unknown");
+const pushSubscribed = ref(false);
+const pushServerRegistered = ref(false);
+const pushSubscriptionJson = ref<PushSubscriptionJSON | null>(null);
+const pushError = ref<string | null>(pushSupport.supported ? null : pushSupport.reason);
+const serverConfig = ref<MobileWebPushServerConfig | null>(null);
+
+const permissionLabel = computed(() => {
+  if (pushPermission.value === "granted") return "Allowed";
+  if (pushPermission.value === "denied") return "Blocked";
+  if (pushPermission.value === "default") return "Not asked";
+  return "Unknown";
+});
+const subscriptionLabel = computed(() => (pushSubscribed.value ? "Active" : "Off"));
+const pushSummaryLabel = computed(() => {
+  if (pushBusy.value) return "Working";
+  if (pushStatus.value === "unsupported") return "Unsupported";
+  if (pushStatus.value === "error") return "Needs attention";
+  if (!serverConfig.value?.enabled) return "Server off";
+  return pushSubscribed.value ? "On" : "Off";
+});
+const canUseServerPush = computed(() => pushSupport.supported && serverConfig.value?.enabled === true && !pushBusy.value);
+const canEnablePush = computed(() => canUseServerPush.value && pushPermission.value !== "denied");
+const canDisablePush = computed(() => pushSupport.supported && !pushBusy.value && pushSubscribed.value);
+const canTestPush = computed(() => canUseServerPush.value && pushSubscribed.value && pushPermission.value !== "denied");
+
+function syncPushPermission(): void {
+  if (!pushSupport.supported) return;
+  pushPermission.value = Notification.permission;
+}
+
+function reflectSubscription(subscription: PushSubscription | null): void {
+  pushSubscribed.value = subscription !== null;
+  pushSubscriptionJson.value = subscription?.toJSON() ?? null;
+  if (!subscription) pushServerRegistered.value = false;
+}
+
+async function refreshPushState(): Promise<void> {
+  if (!pushSupport.supported) return;
+
+  pushStatus.value = "checking";
+  pushError.value = null;
+  syncPushPermission();
+
+  try {
+    serverConfig.value = await fetchMobileWebPushConfig();
+    const registration = await registerMobileWebPushServiceWorker();
+    reflectSubscription(await registration.pushManager.getSubscription());
+    syncPushPermission();
+
+    if (!serverConfig.value.enabled) {
+      pushStatus.value = "unsupported";
+      pushError.value = serverConfig.value.reason ?? "Mobile Web Push is not configured on this server.";
+      return;
+    }
+
+    pushStatus.value = "ready";
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to register notifications.";
+  }
+}
+
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (!pushSupport.supported) return false;
+  if (Notification.permission === "default") await Notification.requestPermission();
+  syncPushPermission();
+
+  if (Notification.permission === "granted") return true;
+  pushError.value = Notification.permission === "denied" ? "Notifications are blocked in this browser." : "Notification permission was not granted.";
+  return false;
+}
+
+async function enablePushNotifications(): Promise<void> {
+  if (!pushSupport.supported || pushBusy.value) return;
+
+  pushBusy.value = "enable";
+  pushError.value = null;
+  try {
+    if (!(await ensureNotificationPermission())) return;
+    if (!serverConfig.value?.enabled || !serverConfig.value.publicKey) {
+      pushStatus.value = "unsupported";
+      pushError.value = serverConfig.value?.reason ?? "Mobile Web Push is not configured on this server.";
+      return;
+    }
+
+    const registration = await registerMobileWebPushServiceWorker();
+    const existing = await registration.pushManager.getSubscription();
+    let createdSubscription: PushSubscription | null = null;
+    const subscription =
+      existing ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(serverConfig.value.publicKey),
+      }));
+    if (!existing) createdSubscription = subscription;
+    try {
+      await registerMobileWebPushSubscription(subscription.toJSON());
+      pushServerRegistered.value = true;
+    } catch (err) {
+      if (createdSubscription) {
+        await createdSubscription.unsubscribe().catch(() => undefined);
+        reflectSubscription(null);
+      }
+      throw err;
+    }
+    reflectSubscription(subscription);
+    pushStatus.value = "ready";
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to register notifications with the server.";
+  } finally {
+    pushBusy.value = null;
+    syncPushPermission();
+  }
+}
+
+async function disablePushNotifications(): Promise<void> {
+  if (!pushSupport.supported || pushBusy.value) return;
+
+  pushBusy.value = "disable";
+  pushError.value = null;
+  try {
+    const registration = await registerMobileWebPushServiceWorker();
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      await unregisterMobileWebPushSubscription(subscription.toJSON());
+      await subscription.unsubscribe();
+    }
+    reflectSubscription(null);
+    pushServerRegistered.value = false;
+    pushStatus.value = "ready";
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to unregister notifications from the server.";
+  } finally {
+    pushBusy.value = null;
+    syncPushPermission();
+  }
+}
+
+async function showLocalTestNotification(): Promise<void> {
+  if (!pushSupport.supported || pushBusy.value) return;
+
+  pushBusy.value = "test";
+  pushError.value = null;
+  try {
+    if (!(await ensureNotificationPermission())) return;
+    await sendMobileWebPushTest(props.sessionId);
+  } catch {
+    pushStatus.value = "error";
+    pushError.value = "Failed to send the test notification.";
+  } finally {
+    pushBusy.value = null;
+    syncPushPermission();
+  }
+}
+
+void refreshPushState();
+</script>
+
+<template>
+  <section class="mb-4 rounded-md border border-border bg-panel p-3 text-[12px]" data-testid="mobile-web-push-panel">
+    <div class="mb-2 flex items-center justify-between gap-2">
+      <h2 class="text-[13px] font-medium text-fg">Notifications</h2>
+      <span class="flex-none text-secondary">{{ pushSummaryLabel }}</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+      <span class="text-muted">Permission</span>
+      <span class="text-fg">{{ permissionLabel }}</span>
+      <span class="text-muted">Subscription</span>
+      <span class="text-fg">{{ subscriptionLabel }}</span>
+    </div>
+
+    <p v-if="pushServerRegistered" class="mt-2 text-muted">Subscription registered for server push.</p>
+    <p v-else-if="pushSubscriptionJson" class="mt-2 text-muted">Browser subscription is active.</p>
+    <p v-if="pushError" class="mt-2 text-err-text">{{ pushError }}</p>
+
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button
+        type="button"
+        class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
+        :disabled="!canEnablePush"
+        @click="enablePushNotifications"
+      >
+        Enable
+      </button>
+      <button
+        type="button"
+        class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
+        :disabled="!canDisablePush"
+        @click="disablePushNotifications"
+      >
+        Disable
+      </button>
+      <button
+        type="button"
+        class="rounded-md border border-border bg-elevated px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated"
+        :disabled="!canTestPush"
+        @click="showLocalTestNotification"
+      >
+        Test notification
+      </button>
+    </div>
+  </section>
+</template>

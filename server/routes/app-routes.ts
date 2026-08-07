@@ -75,6 +75,7 @@ import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountSpaFallback } from "../infra/spa-fallback.js";
 import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
 import { workspaceForRoute } from "./routeParams.js";
+import type { MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
@@ -94,6 +95,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
   reap: (id: string) => void;
   registerBackgroundSession: (id: string) => void;
+  notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
 
 // The channel a directory-config change is announced on.
@@ -276,6 +278,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     // Express serves the built SPA on PORT; under `yarn dev` the UI is Vite's own server,
     // whose port the backend only knows when CLIENT_PORT is set in its environment.
     uiPort: String(process.env.CLIENT_PORT || PORT),
+    ...(deps.notifyMobileWebPushActivity ? { notifyMobileWebPushActivity: deps.notifyMobileWebPushActivity } : {}),
   });
 
   // The tools pane: the toolResult sink, its replay, the available-tool list and the
