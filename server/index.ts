@@ -669,7 +669,7 @@ const remoteHostListTerminalSessions = async () => {
         // phone is where "which of these is which" is hardest, and it renders `title` and nothing
         // else — so riding in that field is also what puts a memo on a phone with no core release
         // and no schema change.
-        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), knownSessions.get(id)?.title),
+        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title),
         cwd: cwdOfSession(id),
         agent: agentOfSession(id),
         ...(summary ? { work: summary } : {}),

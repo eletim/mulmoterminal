@@ -75,6 +75,13 @@ describe("sessionDisplayName", () => {
     expect(sessionDisplayName(null, null, "fix the login bug")).toBe("fix the login bug");
   });
 
+  it("keeps the phone row order at memo, AI title, last prompt, then recorded title", () => {
+    expect(sessionDisplayName("release check", "Login fix", "fix the login bug", "New session")).toBe("release check");
+    expect(sessionDisplayName(null, "Login fix", "fix the login bug", "New session")).toBe("Login fix");
+    expect(sessionDisplayName(null, null, "fix the login bug", "New session")).toBe("fix the login bug");
+    expect(sessionDisplayName(null, null, null, "New session")).toBe("New session");
+  });
+
   // Truthiness, not nullishness: every tier is a string that must be SKIPPED when empty. Pinning
   // "" as the answer would hide the real title sitting in the tier below it.
   it("skips an empty tier rather than showing blank", () => {
