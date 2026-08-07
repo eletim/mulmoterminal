@@ -3,6 +3,7 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
 import { TOOL_GROUPS } from "../../../common/toolGroups";
+import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/rememberedLaunchAgent";
 
 // Capture the "sessions" pub/sub callback and the reconnect handler so tests can push
 // activity and simulate a dropped-then-restored socket directly.
@@ -71,6 +72,7 @@ beforeEach(() => {
   captured = null;
   reconnect = null;
   terminalTerminate = vi.fn();
+  localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
   mockFetch();
 });
 
@@ -78,6 +80,7 @@ function mountCell(
   initialSessionId: string | null,
   opts: {
     initialCwd?: string | null;
+    initialAgent?: "codex" | "antigravity" | null;
     defaultCwd?: string | null;
     presets?: { label: string; path: string }[];
     home?: string | null;
@@ -95,6 +98,7 @@ function mountCell(
       zoomed: opts.zoomed ?? false,
       initialSessionId,
       initialCwd: opts.initialCwd ?? null,
+      initialAgent: opts.initialAgent,
       defaultCwd: opts.defaultCwd ?? "/home/me/my-project",
       presets: opts.presets ?? [],
       home: opts.home ?? "/home/me",
@@ -2401,6 +2405,34 @@ describe("TerminalCell launch target — the OS default shell (#1114)", () => {
     expect(row.findAll('[role="radio"]').map((b) => b.text())).toEqual(["Claude", "Codex", "Antigravity", "Shell"]);
     expect(w.find('[data-testid="cell-target-claude"]').attributes("aria-checked")).toBe("true");
     expect(w.find('[data-testid="cell-target-shell"]').attributes("aria-checked")).toBe("false");
+  });
+
+  it("uses the last new-terminal agent saved in this browser for a fresh launch cell", async () => {
+    localStorage.setItem(REMEMBERED_LAUNCH_AGENT_KEY, "codex");
+    const w = mountCell(null);
+    await flushPromises();
+    expect(w.find('[data-testid="cell-target-codex"]').attributes("aria-checked")).toBe("true");
+  });
+
+  it("falls back to Claude when the saved new-terminal agent is stale", async () => {
+    localStorage.setItem(REMEMBERED_LAUNCH_AGENT_KEY, "unknown-agent");
+    const w = mountCell(null);
+    await flushPromises();
+    expect(w.find('[data-testid="cell-target-claude"]').attributes("aria-checked")).toBe("true");
+  });
+
+  it("keeps a persisted cell's own agent ahead of the browser default", async () => {
+    localStorage.setItem(REMEMBERED_LAUNCH_AGENT_KEY, "shell");
+    const w = mountCell(null, { initialAgent: "codex" });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-target-codex"]').attributes("aria-checked")).toBe("true");
+  });
+
+  it("saves the selected launch target for the next new terminal form", async () => {
+    const w = mountCell(null);
+    await flushPromises();
+    await pick(w, "shell");
+    expect(localStorage.getItem(REMEMBERED_LAUNCH_AGENT_KEY)).toBe("shell");
   });
 
   it("starts the OS default shell in the typed dir — no configured launcher needed", async () => {

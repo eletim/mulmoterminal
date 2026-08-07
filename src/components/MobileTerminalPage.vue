@@ -15,6 +15,7 @@ import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
+import { readRememberedLaunchAgent } from "../composables/rememberedLaunchAgent";
 import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 import MobileNewTerminalPanel from "./MobileNewTerminalPanel.vue";
@@ -67,7 +68,7 @@ const sessions = ref<MobileSession[]>([]);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
 const newTerminalCwd = ref("");
-const newTerminalAgent = ref<LaunchAgent>("shell");
+const newTerminalAgent = ref<LaunchAgent>(readRememberedLaunchAgent("shell"));
 const newTerminalCwdTouched = ref(false);
 
 type CreateStatus = "idle" | "creating" | "error";

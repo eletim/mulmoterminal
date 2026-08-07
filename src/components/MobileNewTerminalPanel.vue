@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { LAUNCH_AGENTS, type LaunchAgent } from "../../common/launchAgent";
+import { rememberLaunchAgent } from "../composables/rememberedLaunchAgent";
 
 defineProps<{
   agent: LaunchAgent;
@@ -24,7 +25,10 @@ function onAgentChange(event: Event): void {
   if (!(event.target instanceof HTMLSelectElement)) return;
   const target = event.target;
   const next = LAUNCH_AGENTS.find((agent) => agent === target.value);
-  if (next) emit("update:agent", next);
+  if (next) {
+    rememberLaunchAgent(next);
+    emit("update:agent", next);
+  }
 }
 </script>
 
