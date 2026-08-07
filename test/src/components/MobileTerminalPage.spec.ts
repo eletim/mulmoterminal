@@ -1,8 +1,9 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import MobileTerminalPage from "../../../src/components/MobileTerminalPage.vue";
 import { router } from "../../../src/router/index";
+import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/rememberedLaunchAgent";
 
 // The page fetches GET /api/mobile-mode on mount, and — only when it answers "local" —
 // GET /api/mobile/terminal-sessions, followed by GET /api/mobile/terminal-sessions/:id/screen
@@ -47,6 +48,10 @@ afterEach(async () => {
   restoreDescriptor(globalThis, "PushManager", originalPushManagerDescriptor);
   restoreDescriptor(navigator, "serviceWorker", originalServiceWorkerDescriptor);
   await router.push("/");
+});
+
+beforeEach(() => {
+  localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
 });
 
 // Split out of mockFetch's routing so that function stays a flat list of if-checks — each
@@ -687,6 +692,27 @@ describe("MobileTerminalPage", () => {
       expect((cwdInput(wrapper).element as HTMLInputElement).value).toBe("/repo/a");
       expect(agentSelect(wrapper).text()).toContain("shell");
       expect(agentSelect(wrapper).text()).toContain("codex");
+    });
+
+    it("starts with the last saved new-terminal agent in this browser", async () => {
+      localStorage.setItem(REMEMBERED_LAUNCH_AGENT_KEY, "codex");
+      mockFetch({ mode: "local", sessions: [] });
+      const wrapper = await mountPage();
+      expect((agentSelect(wrapper).element as HTMLSelectElement).value).toBe("codex");
+    });
+
+    it("falls back to the existing shell default when the saved new-terminal agent is stale", async () => {
+      localStorage.setItem(REMEMBERED_LAUNCH_AGENT_KEY, "unknown-agent");
+      mockFetch({ mode: "local", sessions: [] });
+      const wrapper = await mountPage();
+      expect((agentSelect(wrapper).element as HTMLSelectElement).value).toBe("shell");
+    });
+
+    it("saves a changed new-terminal agent selection", async () => {
+      mockFetch({ mode: "local", sessions: [] });
+      const wrapper = await mountPage();
+      await agentSelect(wrapper).setValue("codex");
+      expect(localStorage.getItem(REMEMBERED_LAUNCH_AGENT_KEY)).toBe("codex");
     });
 
     it("keeps the launcher visible even when there are no sessions", async () => {

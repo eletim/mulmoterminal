@@ -46,6 +46,7 @@ import { worktreeFailureMessage } from "./cellChromeRules";
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
+import { readRememberedLaunchAgent, rememberLaunchAgent } from "../composables/rememberedLaunchAgent";
 
 // How long a handoff failure stays on the cell before it clears itself.
 const ASK_MSG_MS = 4000;
@@ -118,7 +119,9 @@ const sessionId = ref<string | null>(props.initialSessionId);
 // What the launch form's selector will start here. "shell" is the OS default shell, which is a
 // LAUNCHER, not an agent: the parent replaces this cell with a launcher cell, so it never becomes
 // the `agent` below.
-const launchTarget = ref<LaunchAgent>(asTerminalAgent(props.initialAgent));
+const initialLaunchTarget = (): LaunchAgent =>
+  props.initialSessionId === null && props.initialAgent == null ? readRememberedLaunchAgent() : asTerminalAgent(props.initialAgent);
+const launchTarget = ref<LaunchAgent>(initialLaunchTarget());
 // The agent this cell runs (Claude by default). Fixed once launched; restored from the
 // persisted cell on reload so a codex / antigravity cell reconnects to its WS endpoint.
 // Derived from the selector so ONE pick drives both — two refs holding the same choice is the
@@ -1450,7 +1453,12 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         :open-cwds="openCwds"
         :cancellable="cancellable"
         @update:dir="onLaunchDir"
-        @update:target="(value) => (launchTarget = value)"
+        @update:target="
+          (value) => {
+            rememberLaunchAgent(value);
+            launchTarget = value;
+          }
+        "
         @update:choice="(value) => (launchChoice = value)"
         @start="startTarget"
         @resume="resumeSession"
