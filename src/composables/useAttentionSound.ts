@@ -7,6 +7,7 @@ import { setAudioContextState } from "./audioUnlockState";
 import { createBeepQueue, shouldHoldBeep } from "./pendingBeep";
 import { missedMarkFor } from "./missedAttention";
 import { applyMissedMark } from "./useMissedAttention";
+import { currentSoundVolumeScale } from "./useSoundVolume";
 
 // What the player needs from the user's config: which moments beep, and what each plays.
 // `soundFile` is the all-kind fallback a `sounds` entry overrides.
@@ -99,7 +100,8 @@ const CHIME_NOTES: Record<NotifyKind, readonly [number, number]> = {
   "pr-ci-failed": [415, 311], // G#4→D#4
 };
 
-function playChime(kind: NotifyKind) {
+function playChime(kind: NotifyKind, volume = currentSoundVolumeScale()) {
+  if (volume <= 0) return;
   const ctx = getCtx();
   if (!ctx) return;
   const tone = (freq: number, start: number, dur: number) => {
@@ -109,7 +111,7 @@ function playChime(kind: NotifyKind) {
     osc.frequency.value = freq;
     const t = ctx.currentTime + start;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.25 * volume, t + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(gain).connect(ctx.destination);
     osc.start(t);
@@ -169,12 +171,13 @@ function loadBuffer(key: string, url: string): Promise<void> {
   return pending;
 }
 
-function playBuffer(buf: AudioBuffer) {
+function playBuffer(buf: AudioBuffer, volume = currentSoundVolumeScale()) {
+  if (volume <= 0) return;
   const ctx = getCtx();
   if (!ctx) return;
   const src = ctx.createBufferSource();
   const gain = ctx.createGain();
-  gain.gain.value = 0.6;
+  gain.gain.value = 0.6 * volume;
   src.buffer = buf;
   src.connect(gain).connect(ctx.destination);
   src.start();
@@ -221,12 +224,13 @@ export function soundSources(kind: NotifyKind, cwd: string | null, config: Sound
 }
 
 function playResolved(kind: NotifyKind, cwd: string | null, config: SoundConfig) {
+  const volume = currentSoundVolumeScale();
   for (const { key, url } of soundSources(kind, cwd, config)) {
     const buf = buffers.get(key);
-    if (buf) return playBuffer(buf);
+    if (buf) return playBuffer(buf, volume);
     if (buf === undefined) void loadBuffer(key, url);
   }
-  playChime(kind);
+  playChime(kind, volume);
 }
 
 const beepQueue = createBeepQueue();
