@@ -59,7 +59,12 @@ describe("repoRootSync", () => {
 
   it("returns null outside a repository", () => {
     const plain = makeTempDir("mt-norepo-");
-    expect(repoRootSync(plain)).toBeNull();
+    // Some local runners have a `.git` at the temp root. Put an invalid repo marker at the
+    // fixture boundary so this case stays about a directory that is not inside a usable repo.
+    writeFileSync(path.join(plain, ".git"), "not a gitdir line");
+    const nested = path.join(plain, "nested");
+    mkdirSync(nested);
+    expect(repoRootSync(nested)).toBeNull();
     rmSync(plain, { recursive: true, force: true });
   });
 

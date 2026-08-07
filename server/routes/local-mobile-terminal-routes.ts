@@ -57,6 +57,7 @@ export type LocalMobileTerminalRouteDeps = Pick<
   // answers false/false/null/null rather than the route reaching for globals of its own.
   activityOf: (sessionId: string) => ActivityTriple;
   workPhaseOf: (sessionId: string) => WorkPhase | null;
+  setWaiting: (sessionId: string, waiting: boolean, event?: string) => void;
   // The colour layer (#7), local-only — see its definition in server/index.ts for why this is
   // a separate capture rather than a field on captureTerminalScreen's SessionScreen (that type
   // is remote mobile's Firestore wire shape too, which has no reader for this and a byte
@@ -165,6 +166,32 @@ function mountMobileWebPushRoutes(
   });
 }
 
+function mountInputRoute(
+  app: Express,
+  isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
+  sendInput: ReturnType<typeof createTerminalInputSender>,
+  setWaiting: LocalMobileTerminalRouteDeps["setWaiting"],
+) {
+  app.post("/api/mobile/terminal-sessions/:id/input", async (req: Request<{ id: string }>, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const { id } = req.params;
+    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
+    const { text } = requestBody(req.body);
+    // Checked here, against the SAME sanitizer sendInput uses internally, so an empty-after-
+    // sanitize text is a 400 the caller can act on rather than a generic 500 — and so the only
+    // way sendInput can still reject below is "no live terminal" (see the catch).
+    if (typeof text !== "string" || !sanitizeTerminalInput(text)) return res.status(400).json({ error: "text is required" });
+    try {
+      const result = await sendInput(id, text);
+      setWaiting(id, false);
+      res.json(result);
+    } catch (err) {
+      // tmux-only session, no PTY attached in this process (terminalInput.ts's typeAndSubmit).
+      res.status(409).json({ error: messageOf(err) });
+    }
+  });
+}
+
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
   const {
     isAllowedOrigin,
@@ -178,6 +205,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     createTerminalAtCwd,
     activityOf,
     workPhaseOf,
+    setWaiting,
     captureStyledScreen,
     mobileWebPush,
   } = deps;
@@ -198,6 +226,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
 
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
   mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
+  mountInputRoute(app, isAllowedOrigin, sendInput, setWaiting);
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
     const { id } = req.params;
@@ -214,23 +243,6 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
       if (err instanceof TerminalSessionNotFoundError) return res.status(404).json({ error: "session not found" });
       console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed:", err);
       res.status(500).json({ error: "failed to read terminal screen" });
-    }
-  });
-
-  app.post("/api/mobile/terminal-sessions/:id/input", async (req: Request<{ id: string }>, res: Response) => {
-    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
-    const { id } = req.params;
-    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-    const { text } = requestBody(req.body);
-    // Checked here, against the SAME sanitizer sendInput uses internally, so an empty-after-
-    // sanitize text is a 400 the caller can act on rather than a generic 500 — and so the only
-    // way sendInput can still reject below is "no live terminal" (see the catch).
-    if (typeof text !== "string" || !sanitizeTerminalInput(text)) return res.status(400).json({ error: "text is required" });
-    try {
-      res.json(await sendInput(id, text));
-    } catch (err) {
-      // tmux-only session, no PTY attached in this process (terminalInput.ts's typeAndSubmit).
-      res.status(409).json({ error: messageOf(err) });
     }
   });
 
