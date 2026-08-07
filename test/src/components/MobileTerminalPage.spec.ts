@@ -13,6 +13,7 @@ type MockSession = { id: string; title: string; cwd: string; live: boolean; agen
 type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 type CreateResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
+type WebPushResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
 
 const screenOk = (screen: unknown): ScreenResult => ({ ok: true, screen });
 const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
@@ -22,6 +23,7 @@ const inputBadBody = (body: unknown): InputResult => ({ ok: true, body });
 const inputFail = (status = 500): InputResult => ({ ok: false, status });
 const createOk = (body: unknown = { ok: true, sessionId: "created" }): CreateResult => ({ ok: true, body });
 const createFail = (status = 500, body: unknown = {}): CreateResult => ({ ok: false, status, body });
+const webPushOk = (body: unknown = { ok: true }): WebPushResult => ({ ok: true, body });
 
 type MockFetchResponse = { ok: boolean; status?: number; json: () => Promise<unknown> };
 type MockNotificationGlobal = {
@@ -67,6 +69,16 @@ function inputResponse(url: string, inputs: Record<string, InputResult>): MockFe
   return { ok: true, json: async () => result.body };
 }
 
+function webPushResponse(result: WebPushResult): MockFetchResponse {
+  if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => result.body ?? {} };
+  return { ok: true, json: async () => result.body ?? {} };
+}
+
+function webPushRouteResponse(url: string, init: RequestInit | undefined, routes: Record<string, WebPushResult>): MockFetchResponse | null {
+  const result = routes[`${init?.method ?? "GET"} ${url}`];
+  return result ? webPushResponse(result) : null;
+}
+
 function mockFetch(opts: {
   mode?: "local" | "remote";
   sessions?: MockSession[];
@@ -75,8 +87,30 @@ function mockFetch(opts: {
   screens?: Record<string, ScreenResult>;
   inputs?: Record<string, InputResult>;
   create?: CreateResult;
+  webPushConfig?: WebPushResult;
+  webPushRegister?: WebPushResult;
+  webPushUnregister?: WebPushResult;
+  webPushTest?: WebPushResult;
 }) {
-  const { mode = "local", sessions = [], modeOk = true, sessionsOk = true, screens = {}, inputs = {}, create = createOk() } = opts;
+  const {
+    mode = "local",
+    sessions = [],
+    modeOk = true,
+    sessionsOk = true,
+    screens = {},
+    inputs = {},
+    create = createOk(),
+    webPushConfig = webPushOk({ enabled: true, publicKey: "AQID" }),
+    webPushRegister = webPushOk({ ok: true, created: true, subscriptions: 1 }),
+    webPushUnregister = webPushOk({ ok: true, removed: true, subscriptions: 0 }),
+    webPushTest = webPushOk({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
+  } = opts;
+  const webPushRoutes: Record<string, WebPushResult> = {
+    "GET /api/mobile/web-push/config": webPushConfig,
+    "POST /api/mobile/web-push/subscriptions": webPushRegister,
+    "DELETE /api/mobile/web-push/subscriptions": webPushUnregister,
+    "POST /api/mobile/web-push/test": webPushTest,
+  };
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url === "/api/mobile-mode") {
@@ -91,6 +125,8 @@ function mockFetch(opts: {
       if (!sessionsOk) return { ok: false, status: 500, json: async () => ({}) };
       return { ok: true, json: async () => ({ sessions }) };
     }
+    const webPush = webPushRouteResponse(url, init, webPushRoutes);
+    if (webPush) return webPush;
     const input_ = inputResponse(url, inputs);
     if (input_) return input_;
     const screen = screenResponse(url, screens);
@@ -901,9 +937,16 @@ describe("MobileTerminalPage", () => {
         userVisibleOnly: true,
         applicationServerKey: expect.any(Uint8Array),
       });
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ subscription: { endpoint: "https://push.example/subscription", keys: { p256dh: "p256dh", auth: "auth" } } }),
+        }),
+      );
       expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Allowed");
       expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Active");
-      expect(wrapper.text()).toContain("Subscription ready for server storage.");
+      expect(wrapper.text()).toContain("Subscription registered for server push.");
     });
 
     it("does not subscribe when notification permission is denied", async () => {
@@ -928,7 +971,26 @@ describe("MobileTerminalPage", () => {
       await flushPromises();
 
       expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Needs attention");
-      expect(wrapper.text()).toContain("Failed to subscribe to notifications.");
+      expect(wrapper.text()).toContain("Failed to register notifications with the server.");
+    });
+
+    it("rolls back a newly-created browser subscription when server registration fails", async () => {
+      const webPush = mockWebPush({ permission: "granted", existingSubscription: null });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk("screen-a") },
+        webPushRegister: { ok: false, status: 500, body: { error: "store failed" } },
+      });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(webPush.registration.pushManager.subscribe).toHaveBeenCalled();
+      expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Off");
+      expect(wrapper.text()).toContain("Failed to register notifications with the server.");
     });
 
     it("unsubscribes an existing PushSubscription", async () => {
@@ -939,11 +1001,15 @@ describe("MobileTerminalPage", () => {
       await findButton(wrapper, "Disable").trigger("click");
       await flushPromises();
 
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({ method: "DELETE", body: JSON.stringify({ endpoint: "https://push.example/subscription" }) }),
+      );
       expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
       expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Off");
     });
 
-    it("shows a local test notification that opens the selected mobile session URL", async () => {
+    it("sends a server-side test notification for the selected mobile session", async () => {
       const webPush = mockWebPush({ permission: "granted" });
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
       const wrapper = await mountPage();
@@ -951,11 +1017,45 @@ describe("MobileTerminalPage", () => {
       await findButton(wrapper, "Test notification").trigger("click");
       await flushPromises();
 
-      expect(webPush.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal test", {
-        body: "Mobile notifications are working.",
-        tag: "mulmoterminal-mobile-test",
-        data: { url: "/mobile/terminals?sessionId=a" },
+      expect(webPush.registration.showNotification).not.toHaveBeenCalled();
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/test",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ sessionId: "a" }) }),
+      );
+    });
+
+    it("disables server push controls when the server has no VAPID config", async () => {
+      mockWebPush({ permission: "granted", existingSubscription: null });
+      mockFetch({
+        mode: "local",
+        sessions: [],
+        webPushConfig: webPushOk({ enabled: false, publicKey: null, reason: "missing VAPID config" }),
       });
+      const wrapper = await mountPage();
+
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Unsupported");
+      expect(wrapper.text()).toContain("missing VAPID config");
+      expect(findButton(wrapper, "Enable").attributes("disabled")).toBeDefined();
+    });
+
+    it("still allows disabling an existing subscription when server VAPID config is missing", async () => {
+      const webPush = mockWebPush({ permission: "granted" });
+      mockFetch({
+        mode: "local",
+        sessions: [],
+        webPushConfig: webPushOk({ enabled: false, publicKey: null, reason: "missing VAPID config" }),
+      });
+      const wrapper = await mountPage();
+
+      expect(findButton(wrapper, "Disable").attributes("disabled")).toBeUndefined();
+      await findButton(wrapper, "Disable").trigger("click");
+      await flushPromises();
+
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({ method: "DELETE", body: JSON.stringify({ endpoint: "https://push.example/subscription" }) }),
+      );
+      expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
     });
 
     it("selects a session from the sessionId query parameter", async () => {

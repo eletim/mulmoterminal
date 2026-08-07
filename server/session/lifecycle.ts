@@ -42,6 +42,12 @@ import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
+import {
+  forgetMobileWebPushActivitySession,
+  mobileWebPushKindForActivityTransition,
+  type MobileWebPushActivityNotification,
+  type MobileWebPushActivityState,
+} from "../mobile-web-push/activity-notifier.js";
 
 // The channel every session row is published on.
 export const SESSIONS_CHANNEL = "sessions";
@@ -63,6 +69,7 @@ export interface SessionLifecycleDeps {
   /** Free the tmux window/client size bookkeeping. Unlike a socket close — which a reattach
    *  undoes — a reap means this id will never be nudged again (#957). */
   forgetTerminalSize: (id: string) => void;
+  notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
 
 // Timers live per process, not per factory call — there is one server.
@@ -97,7 +104,7 @@ function cancelReap(id: string) {
   }
 }
 
-function scheduleReap(deps: SessionLifecycleDeps, id: string, delayMs: number = REAP_GRACE_MS) {
+function scheduleReap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string, delayMs: number = REAP_GRACE_MS) {
   // null => never auto-reap; the session stays until reattached or explicitly
   // terminated (see reapTimerDelay for why a bad value must not reach setTimeout).
   const delay = reapTimerDelay(delayMs);
@@ -108,7 +115,7 @@ function scheduleReap(deps: SessionLifecycleDeps, id: string, delayMs: number = 
     setTimeout(() => {
       reapTimers.delete(id);
       const entry = ptys.get(id);
-      if (entry && !entry.ws) reap(deps, id); // still detached after the grace window
+      if (entry && !entry.ws) reap(deps, mobileWebPushActivityState, id); // still detached after the grace window
     }, delay),
   );
 }
@@ -119,7 +126,7 @@ function scheduleReap(deps: SessionLifecycleDeps, id: string, delayMs: number = 
 // genuinely idle session (finished AND already viewed, so neither flag) gets the
 // short grace — that's the "auto-close inactive ones" behaviour. The ordering rule
 // lives in reapDecisionFor (pure/tested).
-function armReapForDetached(deps: SessionLifecycleDeps, id: string) {
+function armReapForDetached(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string) {
   const entry = ptys.get(id);
   if (!entry || entry.ws) return; // still attached: nothing to reap
   // Recompute from scratch: state may have escalated (idle -> waiting) since the
@@ -131,10 +138,10 @@ function armReapForDetached(deps: SessionLifecycleDeps, id: string) {
     console.log(`[pty] keeping working session ${id} alive (detached)`);
     return;
   }
-  scheduleReap(deps, id, decision.delayMs);
+  scheduleReap(deps, mobileWebPushActivityState, id, decision.delayMs);
 }
 
-function reap(deps: SessionLifecycleDeps, id: string) {
+function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string) {
   cancelReap(id);
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
@@ -186,6 +193,7 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   // field. Publishing a second "worker-failed" message instead let the generic teardown
   // notification race ahead of the specific one, and beeped twice for one event (Codex, #1188).
   deps.publish(SESSIONS_CHANNEL, { id, working: false, event: "closed", failed: isFailedWorker(id) });
+  forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
 }
 
 // Publish a session's current activity (working + waiting) to subscribers.
@@ -209,26 +217,43 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
 // flag, publish the change, persist it, and re-arm the reap on the edge that calls for it.
 // A no-op when the flag's value did not actually move — flagEffect returns null and every
 // hook calls through here, so an unchanged publish would flood the socket.
-function setFlag(deps: SessionLifecycleDeps, id: string, flag: ActivityFlag, value: boolean, event?: string) {
-  const effect = flagEffect(activity.get(id), flag, value, event, Date.now());
+function setFlag(
+  deps: SessionLifecycleDeps,
+  mobileWebPushActivityState: MobileWebPushActivityState,
+  id: string,
+  flag: ActivityFlag,
+  value: boolean,
+  event?: string,
+) {
+  const prev = activity.get(id);
+  const effect = flagEffect(prev, flag, value, event, Date.now());
   if (!effect.next) return;
   activity.set(id, effect.next);
   claimActivityOwnership(id); // this instance drives this session — persist may write/remove it
   publishActivity(deps, id);
   // Persist so an in-progress turn / the blocked-or-done set survives a restart (ACTIVITY_STATE_FILE).
   persistActivityState((id) => hiddenSessions.has(id));
-  if (effect.rearmReap) armReapForDetached(deps, id);
+  const kind = mobileWebPushKindForActivityTransition(mobileWebPushActivityState, id, prev, effect.next, event);
+  if (kind) {
+    try {
+      deps.notifyMobileWebPushActivity?.({ kind, sessionId: id, agent: ptys.get(id)?.agent ?? null });
+    } catch (err) {
+      console.warn(`[mobile-web-push] activity notification dropped for ${id}: ${messageOf(err)}`);
+    }
+  }
+  if (effect.rearmReap) armReapForDetached(deps, mobileWebPushActivityState, id);
 }
 
 export function createSessionLifecycle(deps: SessionLifecycleDeps) {
+  const mobileWebPushActivityState: MobileWebPushActivityState = new Map();
   return {
     refreshLastResponse,
     cancelReap,
-    scheduleReap: (id: string, delayMs?: number) => scheduleReap(deps, id, delayMs),
-    armReapForDetached: (id: string) => armReapForDetached(deps, id),
-    reap: (id: string) => reap(deps, id),
+    scheduleReap: (id: string, delayMs?: number) => scheduleReap(deps, mobileWebPushActivityState, id, delayMs),
+    armReapForDetached: (id: string) => armReapForDetached(deps, mobileWebPushActivityState, id),
+    reap: (id: string) => reap(deps, mobileWebPushActivityState, id),
     publishActivity: (id: string) => publishActivity(deps, id),
-    setWorking: (id: string, working: boolean, event?: string) => setFlag(deps, id, "working", working, event),
-    setWaiting: (id: string, waiting: boolean, event?: string) => setFlag(deps, id, "waiting", waiting, event),
+    setWorking: (id: string, working: boolean, event?: string) => setFlag(deps, mobileWebPushActivityState, id, "working", working, event),
+    setWaiting: (id: string, waiting: boolean, event?: string) => setFlag(deps, mobileWebPushActivityState, id, "waiting", waiting, event),
   };
 }

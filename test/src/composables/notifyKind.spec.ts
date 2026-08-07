@@ -89,6 +89,14 @@ describe("notifyKindOf", () => {
     expect(notifyKindOf(prev, msg("a", true, true, "Notification"))).toBeNull();
   });
 
+  it("reports a later input wait after the previous wait was cleared", () => {
+    const prev = fresh();
+    notifyKindOf(prev, msg("a", true, false));
+    expect(notifyKindOf(prev, msg("a", true, true, "Notification"))).toBe("waiting");
+    expect(notifyKindOf(prev, msg("a", true, false, "Notification"))).toBeNull();
+    expect(notifyKindOf(prev, msg("a", true, true, "Notification"))).toBe("waiting");
+  });
+
   it("treats missing fields as not-working / not-waiting", () => {
     const prev = fresh();
     notifyKindOf(prev, msg("a", true));

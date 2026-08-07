@@ -37,16 +37,49 @@ function notificationUrlFrom(payload) {
   return mobileTerminalsUrl(payload.sessionId);
 }
 
+function agentLabel(agent) {
+  if (agent === "codex") return "Codex";
+  if (agent === "antigravity") return "Antigravity";
+  if (agent === "shell") return "Terminal";
+  return "Claude Code";
+}
+
+function notificationTitle(payload) {
+  if (typeof payload.title === "string" && payload.title.trim() !== "") return payload.title;
+  if (payload.kind === "waiting") return "MulmoTerminal needs input";
+  if (payload.kind === "finished") return "MulmoTerminal done";
+  if (payload.kind === "test") return "MulmoTerminal test";
+  return "MulmoTerminal";
+}
+
+function notificationBody(payload) {
+  if (typeof payload.body === "string" && payload.body.trim() !== "") return payload.body;
+  if (payload.kind === "waiting") return `${agentLabel(payload.agent)} is waiting.`;
+  if (payload.kind === "finished") return `${agentLabel(payload.agent)} finished.`;
+  if (payload.kind === "test") return "Mobile notifications are working.";
+  return "A mobile terminal session needs attention.";
+}
+
+function notificationTag(payload, kind) {
+  if (kind !== "test" && kind !== "mobile") return undefined;
+  return typeof payload.sessionId === "string" ? `mulmoterminal-mobile-${kind}-${payload.sessionId}` : `mulmoterminal-mobile-${kind}`;
+}
+
 self.addEventListener("push", (event) => {
   const payload = pushPayload(event);
   const url = notificationUrlFrom(payload);
+  const kind = typeof payload.kind === "string" && payload.kind.trim() !== "" ? payload.kind : "mobile";
 
   event.waitUntil(
-    self.registration.showNotification("MulmoTerminal", {
-      body: "A mobile terminal session needs attention.",
-      tag: typeof payload.sessionId === "string" ? `mulmoterminal-mobile-${payload.sessionId}` : "mulmoterminal-mobile",
-      data: { url },
-    }),
+    (() => {
+      const options = {
+        body: notificationBody(payload),
+        data: { url },
+      };
+      const tag = notificationTag(payload, kind);
+      if (tag) options.tag = tag;
+      return self.registration.showNotification(notificationTitle(payload), options);
+    })(),
   );
 });
 

@@ -51,22 +51,37 @@ function loadServiceWorker() {
 }
 
 describe("mobile web push service worker", () => {
-  it("shows a generic notification for push events and carries a session URL", async () => {
+  it("shows the server-provided notification text and carries a session URL", async () => {
     const { self, listener } = loadServiceWorker();
     const waits: Promise<unknown>[] = [];
 
     listener("push")({
-      data: { json: () => ({ sessionId: "session a", body: "SECRET TERMINAL OUTPUT" }) },
+      data: { json: () => ({ kind: "test", sessionId: "session a" }) },
       waitUntil: (promise) => waits.push(promise),
     });
     await Promise.all(waits);
 
-    expect(self.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal", {
-      body: "A mobile terminal session needs attention.",
-      tag: "mulmoterminal-mobile-session a",
+    expect(self.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal test", {
+      body: "Mobile notifications are working.",
+      tag: "mulmoterminal-mobile-test-session a",
       data: { url: "/mobile/terminals?sessionId=session+a" },
     });
-    expect(JSON.stringify(self.registration.showNotification.mock.calls)).not.toContain("SECRET TERMINAL OUTPUT");
+  });
+
+  it("derives activity notification text from kind and agent without server-provided body text", async () => {
+    const { self, listener } = loadServiceWorker();
+    const waits: Promise<unknown>[] = [];
+
+    listener("push")({
+      data: { json: () => ({ kind: "waiting", sessionId: "session-a", agent: "codex", url: "/mobile/terminals?sessionId=session-a" }) },
+      waitUntil: (promise) => waits.push(promise),
+    });
+    await Promise.all(waits);
+
+    expect(self.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal needs input", {
+      body: "Codex is waiting.",
+      data: { url: "/mobile/terminals?sessionId=session-a" },
+    });
   });
 
   it("ignores cross-origin notification URLs", async () => {

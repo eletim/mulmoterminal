@@ -15,6 +15,9 @@ import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionS
 import { NO_BROWSER_ERROR } from "../../../server/backends/remoteHost/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";
 import type { AnsiRow } from "../../../common/ansiStyle";
+import type { MobileWebPushConfig } from "../../../server/mobile-web-push/config";
+import type { MobileWebPushSubscriptionInput, MobileWebPushSubscriptionStore } from "../../../server/mobile-web-push/subscription-store";
+import type { MobileWebPushSender } from "../../../server/mobile-web-push/sender";
 
 const LIVE = randomUUID();
 const TMUX_ONLY = randomUUID();
@@ -28,9 +31,33 @@ const SCREEN: SessionScreen = { screen: "$ echo", suggestion: "", quickCommands:
 const STYLED_ROWS: AnsiRow[] = [[{ text: "$ echo", fg: null, bg: null, bold: false }]];
 const SESSIONS: TerminalSessionSummary[] = [{ id: LIVE, title: "one", cwd: "/home/user/project", live: true, agent: "claude" }];
 const IDLE_ACTIVITY = { working: false, waiting: false, event: null, workPhase: null };
+const WEB_PUSH_CONFIG: MobileWebPushConfig = {
+  enabled: true,
+  vapid: { subject: "mailto:push@example.test", publicKey: "public-key", privateKey: "private-key" },
+};
+const WEB_PUSH_SUBSCRIPTION: MobileWebPushSubscriptionInput = {
+  endpoint: "https://push.example/subscription",
+  expirationTime: null,
+  keys: { p256dh: "p256dh", auth: "auth" },
+};
+
+function mobileWebPushDeps(overrides: Partial<LocalMobileTerminalRouteDeps["mobileWebPush"]> = {}): LocalMobileTerminalRouteDeps["mobileWebPush"] {
+  const subscriptions: MobileWebPushSubscriptionStore = {
+    list: async () => [],
+    upsert: async () => ({ created: true, count: 1 }),
+    removeEndpoint: async () => ({ removed: true, count: 0 }),
+    removeEndpoints: async (endpoints) => ({ removed: endpoints.length, count: 0 }),
+  };
+  const sender: MobileWebPushSender = {
+    sendTest: async () => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
+    sendActivity: async () => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
+  };
+  return { config: () => WEB_PUSH_CONFIG, subscriptions, sender, ...overrides };
+}
 
 function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"] = () => true) {
   const writes: Array<{ id: string; chunk: string }> = [];
+  const waitingUpdates: Array<{ id: string; waiting: boolean; event: string | undefined }> = [];
   const deps: LocalMobileTerminalRouteDeps = {
     isAllowedOrigin,
     listTerminalSessions: async () => SESSIONS,
@@ -60,13 +87,17 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
     // Every session reads idle by default — the interesting cases override this per test.
     activityOf: () => ({ working: false, waiting: false, event: null }),
     workPhaseOf: () => null,
+    setWaiting: (id, waiting, event) => {
+      waitingUpdates.push({ id, waiting, event });
+    },
     captureStyledScreen: async () => STYLED_ROWS,
+    mobileWebPush: mobileWebPushDeps(),
     ...overrides,
   };
   const app = express();
   app.use(express.json());
   mountLocalMobileTerminalRoutes(app, deps);
-  return { app, writes };
+  return { app, writes, waitingUpdates };
 }
 
 describe("localSessionActivity", () => {
@@ -195,6 +226,130 @@ describe("GET /api/mobile/terminal-sessions", () => {
   });
 });
 
+describe("local mobile Web Push routes", () => {
+  it("returns only public Web Push config to the mobile client", async () => {
+    const { app } = appFor();
+    const res = await request(app).get("/api/mobile/web-push/config");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ enabled: true, publicKey: "public-key" });
+    expect(JSON.stringify(res.body)).not.toContain("private-key");
+  });
+
+  it("reports disabled Web Push without breaking terminal routes", async () => {
+    const { app } = appFor({
+      mobileWebPush: mobileWebPushDeps({
+        config: () => ({ enabled: false, reason: "missing VAPID config" }),
+      }),
+    });
+    const config = await request(app).get("/api/mobile/web-push/config");
+    const sessions = await request(app).get("/api/mobile/terminal-sessions");
+    expect(config.body).toEqual({ enabled: false, publicKey: null, reason: "missing VAPID config" });
+    expect(sessions.status).toBe(200);
+  });
+
+  it("registers a valid PushSubscription without accepting a caller payload", async () => {
+    const calls: MobileWebPushSubscriptionInput[] = [];
+    const { app } = appFor({
+      mobileWebPush: mobileWebPushDeps({
+        subscriptions: {
+          ...mobileWebPushDeps().subscriptions,
+          upsert: async (subscription) => {
+            calls.push(subscription);
+            return { created: true, count: 1 };
+          },
+        },
+      }),
+    });
+    const res = await request(app)
+      .post("/api/mobile/web-push/subscriptions")
+      .send({ subscription: WEB_PUSH_SUBSCRIPTION, title: "caller controlled", body: "not accepted" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, created: true, subscriptions: 1 });
+    expect(calls).toEqual([WEB_PUSH_SUBSCRIPTION]);
+  });
+
+  it("updates a duplicate subscription endpoint", async () => {
+    const { app } = appFor({
+      mobileWebPush: mobileWebPushDeps({
+        subscriptions: {
+          ...mobileWebPushDeps().subscriptions,
+          upsert: async () => ({ created: false, count: 1 }),
+        },
+      }),
+    });
+    const res = await request(app).post("/api/mobile/web-push/subscriptions").send({ subscription: WEB_PUSH_SUBSCRIPTION });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, created: false, subscriptions: 1 });
+  });
+
+  it("rejects malformed subscriptions before storing them", async () => {
+    let called = false;
+    const { app } = appFor({
+      mobileWebPush: mobileWebPushDeps({
+        subscriptions: {
+          ...mobileWebPushDeps().subscriptions,
+          upsert: async () => {
+            called = true;
+            return { created: true, count: 1 };
+          },
+        },
+      }),
+    });
+    const res = await request(app)
+      .post("/api/mobile/web-push/subscriptions")
+      .send({ subscription: { endpoint: "http://push.example/not-https" } });
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it("unregisters by endpoint only", async () => {
+    const calls: string[] = [];
+    const { app } = appFor({
+      mobileWebPush: mobileWebPushDeps({
+        subscriptions: {
+          ...mobileWebPushDeps().subscriptions,
+          removeEndpoint: async (endpoint) => {
+            calls.push(endpoint);
+            return { removed: true, count: 0 };
+          },
+        },
+      }),
+    });
+    const res = await request(app).delete("/api/mobile/web-push/subscriptions").send({ endpoint: WEB_PUSH_SUBSCRIPTION.endpoint, body: "ignored" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: true, subscriptions: 0 });
+    expect(calls).toEqual([WEB_PUSH_SUBSCRIPTION.endpoint]);
+  });
+
+  it("sends a fixed server-side test notification for the selected session", async () => {
+    const calls: Array<string | null> = [];
+    const { app } = appFor({
+      mobileWebPush: mobileWebPushDeps({
+        sender: {
+          sendTest: async (sessionId) => {
+            calls.push(sessionId);
+            return { ok: true, sent: 1, failed: 0, targets: 2, removed: 1 };
+          },
+          sendActivity: async () => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 }),
+        },
+      }),
+    });
+    const res = await request(app).post("/api/mobile/web-push/test").send({ sessionId: LIVE, title: "ignored" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, sent: 1, failed: 0, targets: 2, removed: 1 });
+    expect(calls).toEqual([LIVE]);
+  });
+
+  it("403s Web Push writes from a disallowed Origin", async () => {
+    const { app } = appFor({}, () => false);
+    const res = await request(app)
+      .post("/api/mobile/web-push/subscriptions")
+      .set("Origin", "https://evil.example")
+      .send({ subscription: WEB_PUSH_SUBSCRIPTION });
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
   it("returns the existing SessionScreen shape plus styledScreen (#7)", async () => {
     const { app } = appFor();
@@ -273,12 +428,13 @@ describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
 
 describe("POST /api/mobile/terminal-sessions/:id/input", () => {
   it("sends through createTerminalInputSender — bracketed paste, not a raw PTY write", async () => {
-    const { app, writes } = appFor();
+    const { app, writes, waitingUpdates } = appFor();
     const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/input`).send({ text: "git status" });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ sent: true });
     expect(writes.map((w) => w.chunk)).toEqual([expect.stringContaining("git status"), "\r"]);
     expect(writes[0].chunk.startsWith("\x1b[200~")).toBe(true);
+    expect(waitingUpdates).toEqual([{ id: LIVE, waiting: false, event: undefined }]);
   });
 
   it("400s an id that is not a session id", async () => {
@@ -301,9 +457,10 @@ describe("POST /api/mobile/terminal-sessions/:id/input", () => {
   });
 
   it("409s a tmux-only session with no live PTY to write to", async () => {
-    const { app } = appFor();
+    const { app, waitingUpdates } = appFor();
     const res = await request(app).post(`/api/mobile/terminal-sessions/${TMUX_ONLY}/input`).send({ text: "ls" });
     expect(res.status).toBe(409);
+    expect(waitingUpdates).toEqual([]);
   });
 
   it("403s a disallowed Origin without calling the sender", async () => {
