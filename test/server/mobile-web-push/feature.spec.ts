@@ -37,8 +37,8 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
     expect(mobileWebPushActivityLifecycleDeps({ mode: "remote", sender: sender() })).toEqual({});
   });
 
-  it("sends only enabled and selected local Web Push activity kinds", async () => {
-    pushEnabled = true;
+  it("sends selected local Web Push activity kinds without the legacy pushEnabled master switch", async () => {
+    pushEnabled = false;
     pushKinds = ["waiting"];
     const mobileWebPush = sender();
     const deps = mobileWebPushActivityLifecycleDeps({ mode: "local", sender: mobileWebPush });
@@ -49,6 +49,19 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
 
     expect(mobileWebPush.sendActivity).toHaveBeenCalledTimes(1);
     expect(mobileWebPush.sendActivity).toHaveBeenCalledWith("waiting", { kind: "waiting", sessionId: "session-a", agent: "codex" });
+  });
+
+  it("sends no local Web Push activity when no kinds are selected", async () => {
+    pushEnabled = true;
+    pushKinds = [];
+    const mobileWebPush = sender();
+    const deps = mobileWebPushActivityLifecycleDeps({ mode: "local", sender: mobileWebPush });
+
+    deps.notifyMobileWebPushActivity?.({ kind: "waiting", sessionId: "session-a", agent: "codex" });
+    deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "session-a", agent: "codex" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mobileWebPush.sendActivity).not.toHaveBeenCalled();
   });
 
   it("uses the same background and translation-worker suppression as existing task push", async () => {
