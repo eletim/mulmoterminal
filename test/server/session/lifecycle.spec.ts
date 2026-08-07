@@ -179,6 +179,17 @@ describe("setWorking / setWaiting", () => {
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
   });
 
+  it("notifies local mobile Web Push for the Stop row that makes the desktop sound beep without a working flag", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
+
+    createSessionLifecycle(deps).setWaiting(ID, true, "Stop");
+
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
+  });
+
   it("does not notify local mobile Web Push on first observation of waiting", () => {
     const notifyMobileWebPushActivity = vi.fn();
     ptys.set(ID, fakeEntry({ ws: {} }));
@@ -217,6 +228,23 @@ describe("setWorking / setWaiting", () => {
     notifyMobileWebPushActivity.mockClear();
 
     lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Notification");
+
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" });
+  });
+
+  it("notifies again after the previous input wait is answered in the same turn", () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Notification");
+    lifecycle.setWaiting(ID, false);
+    notifyMobileWebPushActivity.mockClear();
+
     lifecycle.setWaiting(ID, true, "Notification");
 
     expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
