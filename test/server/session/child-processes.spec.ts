@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 
-import { hasDescendantProcess, parsePsPidPpid, sessionRootPid } from "../../../server/session/child-processes.js";
+import { childProcessPids, hasDescendantProcess, hasNewChildProcess, parsePsPidPpid, sessionRootPid } from "../../../server/session/child-processes.js";
 import { tmuxPanePid } from "../../../server/infra/tmux.js";
 
 vi.mock("../../../server/infra/tmux.js", () => ({ tmuxPanePid: vi.fn(() => null) }));
@@ -32,6 +32,37 @@ describe("hasDescendantProcess", () => {
 
   it("does not count the root process itself as child work", () => {
     expect(hasDescendantProcess(10, [{ pid: 10, ppid: 1 }])).toBe(false);
+  });
+});
+
+describe("childProcessPids", () => {
+  it("returns the direct children of the root", () => {
+    const rows = [
+      { pid: 10, ppid: 1 },
+      { pid: 20, ppid: 10 },
+      { pid: 30, ppid: 20 },
+      { pid: 40, ppid: 10 },
+    ];
+    expect([...childProcessPids(10, rows)].sort((a, b) => a - b)).toEqual([20, 40]);
+  });
+});
+
+describe("hasNewChildProcess", () => {
+  it("ignores children that were already present at turn start", () => {
+    const rows = [
+      { pid: 10, ppid: 1 },
+      { pid: 20, ppid: 10 },
+    ];
+    expect(hasNewChildProcess(10, rows, new Set([20]))).toBe(false);
+  });
+
+  it("detects a child that appeared after the baseline", () => {
+    const rows = [
+      { pid: 10, ppid: 1 },
+      { pid: 20, ppid: 10 },
+      { pid: 30, ppid: 10 },
+    ];
+    expect(hasNewChildProcess(10, rows, new Set([20]))).toBe(true);
   });
 });
 

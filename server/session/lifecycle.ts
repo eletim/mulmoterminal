@@ -42,7 +42,7 @@ import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
-import { hasSessionChildProcess } from "./child-processes.js";
+import { hasNewSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
 import {
   forgetMobileWebPushActivitySession,
   mobileWebPushKindForActivityTransition,
@@ -83,6 +83,7 @@ interface DeferredStop {
 }
 
 const deferredStops = new Map<string, DeferredStop>();
+const childProcessBaselines = new Map<string, Set<number> | null>();
 const CHILD_WORK_POLL_MS = 1000;
 
 function refreshLastResponse(id: string, cwd: string): void {
@@ -161,6 +162,7 @@ function armReapForDetached(deps: SessionLifecycleDeps, mobileWebPushActivitySta
 function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string) {
   cancelReap(id);
   cancelDeferredStop(id);
+  childProcessBaselines.delete(id);
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
@@ -215,7 +217,7 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
 }
 
 function shouldDeferStop(id: string, event: string | undefined): boolean {
-  return event === "Stop" && hasSessionChildProcess(id, ptys.get(id));
+  return event === "Stop" && hasNewSessionChildProcess(id, ptys.get(id), childProcessBaselines.get(id) ?? null);
 }
 
 function deferStopFlag(
@@ -274,7 +276,10 @@ function setFlag(
   value: boolean,
   event?: string,
 ) {
-  if (flag === "working" && value) cancelDeferredStop(id);
+  if (flag === "working" && value) {
+    cancelDeferredStop(id);
+    if (event === "UserPromptSubmit") childProcessBaselines.set(id, sessionChildProcessPids(id, ptys.get(id)));
+  }
   if (flag === "waiting" && value && shouldDeferStop(id, event)) {
     deferStopFlag(deps, mobileWebPushActivityState, id, event, "waiting");
     return;
@@ -287,6 +292,7 @@ function setFlag(
   const effect = flagEffect(prev, flag, value, event, Date.now());
   if (!effect.next) return;
   activity.set(id, effect.next);
+  if (flag === "working" && !value) childProcessBaselines.delete(id);
   claimActivityOwnership(id); // this instance drives this session — persist may write/remove it
   publishActivity(deps, id);
   // Persist so an in-progress turn / the blocked-or-done set survives a restart (ACTIVITY_STATE_FILE).

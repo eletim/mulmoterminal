@@ -20,13 +20,24 @@ export function parsePsPidPpid(stdout: string): ProcessRow[] {
 }
 
 export function hasDescendantProcess(rootPid: number, rows: readonly ProcessRow[]): boolean {
+  return childProcessPids(rootPid, rows).size > 0;
+}
+
+export function childProcessPids(rootPid: number, rows: readonly ProcessRow[]): Set<number> {
   const children = new Map<number, number[]>();
   for (const { pid, ppid } of rows) {
     const siblings = children.get(ppid);
     if (siblings) siblings.push(pid);
     else children.set(ppid, [pid]);
   }
-  return (children.get(rootPid)?.length ?? 0) > 0;
+  return new Set(children.get(rootPid) ?? []);
+}
+
+export function hasNewChildProcess(rootPid: number, rows: readonly ProcessRow[], baseline: ReadonlySet<number>): boolean {
+  for (const pid of childProcessPids(rootPid, rows)) {
+    if (!baseline.has(pid)) return true;
+  }
+  return false;
 }
 
 export function sessionRootPid(sessionId: string, entry: PtyEntry | undefined): number | null {
@@ -46,4 +57,19 @@ export function hasSessionChildProcess(sessionId: string, entry: PtyEntry | unde
   if (rootPid === null) return false;
   const rows = processRows();
   return rows ? hasDescendantProcess(rootPid, rows) : false;
+}
+
+export function sessionChildProcessPids(sessionId: string, entry: PtyEntry | undefined): Set<number> | null {
+  const rootPid = sessionRootPid(sessionId, entry);
+  if (rootPid === null) return null;
+  const rows = processRows();
+  return rows ? childProcessPids(rootPid, rows) : null;
+}
+
+export function hasNewSessionChildProcess(sessionId: string, entry: PtyEntry | undefined, baseline: ReadonlySet<number> | null): boolean {
+  if (baseline === null) return hasSessionChildProcess(sessionId, entry);
+  const rootPid = sessionRootPid(sessionId, entry);
+  if (rootPid === null) return false;
+  const rows = processRows();
+  return rows ? hasNewChildProcess(rootPid, rows, baseline) : false;
 }
