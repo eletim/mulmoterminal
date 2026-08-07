@@ -13,8 +13,12 @@ describe("activityStatus", () => {
     expect(activityStatus(true, false, "UserPromptSubmit")).toBe("working");
     expect(activityStatus(false, false, null)).toBe("idle");
   });
-  it("waiting wins over working (a permission pause mid-turn is blocked)", () => {
+  it("a permission pause mid-turn is blocked", () => {
     expect(activityStatus(true, true, "Notification")).toBe("blocked");
+  });
+  it("working wins over done, so deferred workflow children do not look complete", () => {
+    expect(activityStatus(true, true, "Stop")).toBe("working");
+    expect(activityStatus(true, true, null)).toBe("working");
   });
   // An agent too old to send an event, or a hook we do not model, must not read as "stuck": done is
   // the claim that costs less when wrong.

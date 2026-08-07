@@ -16,7 +16,8 @@ export type AttentionStatus = "blocked" | "done" | "working" | "idle";
 // ("Stop" → done). Anything else waiting — an older agent that sends no event, a hook we do not
 // model — reads as done: it is the safer of the two, since it does not claim the session is stuck.
 export function activityStatus(working: boolean, waiting: boolean, event: string | null | undefined): AttentionStatus {
-  if (waiting) return event === "Notification" ? "blocked" : "done";
+  if (waiting && event === "Notification") return "blocked";
   if (working) return "working";
+  if (waiting) return "done";
   return "idle";
 }
