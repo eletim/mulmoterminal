@@ -23,6 +23,7 @@ import type { SpawnDeps } from "./spawn-deps.js";
 const activityDepsFor = (sessionId: string, entry: PtyEntry, deps: SpawnDeps) => ({
   setWorking: deps.setWorking,
   setWaiting: deps.setWaiting,
+  publishActivity: deps.publishActivity,
   isActive: () => ptys.get(sessionId)?.active ?? false,
   uiPort: deps.uiPort,
   isAlive: () => ptys.get(sessionId) === entry,

@@ -4,13 +4,18 @@
 // a PTY.
 
 import { promises as fs } from "node:fs";
-import { HOOK_EVENT_FOR, boundaryOutcome, type CodexTurnBoundary } from "../agents/codex-activity.js";
+import { HOOK_EVENT_FOR, boundaryOutcome, codexUserPrompts, type CodexTurnBoundary } from "../agents/codex-activity.js";
+import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { notifyTaskFinished } from "./task-push.js";
 import { watchCodexActivity } from "./codex-activity-watch.js";
+import { LAST_PROMPT_CAP } from "./header-hook.js";
+import { lastPrompts } from "./registry.js";
+import { preferredHeaderPrompt } from "./transcript.js";
 
 export interface CodexActivityTrackDeps {
   setWorking: (id: string, working: boolean, event?: string) => void;
   setWaiting: (id: string, waiting: boolean, event?: string) => void;
+  publishActivity: (id: string) => void;
   /** Is this session the user's actively-viewed pane? Suppresses the attention flag. */
   isActive: () => boolean;
   /** Which port this host's UI answers on, so a notification can open it. */
@@ -54,13 +59,42 @@ function applyBoundary(sessionId: string, boundary: CodexTurnBoundary, deps: Cod
   if (push) void notifyTaskFinished(sessionId, push, "", deps.uiPort);
 }
 
+const capPrompt = (prompt: string): string => prompt.trim().slice(0, LAST_PROMPT_CAP);
+
+async function codexPromptBaseline(file: string): Promise<string | null> {
+  let current: string | null = null;
+  await forEachJsonlRecord(file, (record) => {
+    for (const prompt of codexUserPrompts([JSON.stringify(record)])) {
+      current = preferredHeaderPrompt(current, capPrompt(prompt));
+    }
+  }).catch(() => {});
+  return current;
+}
+
+export function recordCodexPromptForHeader(
+  sessionId: string,
+  prompt: string,
+  deps: Pick<CodexActivityTrackDeps, "publishActivity">,
+  baseline: string | null = null,
+): void {
+  const text = capPrompt(prompt);
+  if (!text) return;
+  lastPrompts.set(sessionId, preferredHeaderPrompt(lastPrompts.get(sessionId) ?? baseline, text));
+  deps.publishActivity(sessionId);
+}
+
 // Start tailing; it stops on its own once the session is gone. `startAtEnd` skips a
 // resumed rollout's history — replaying it would flag the cell from turns that finished
 // days ago.
 export function trackCodexActivity(sessionId: string, file: string, startAtEnd: boolean, deps: CodexActivityTrackDeps): void {
+  let baseline: string | null = null;
   watchCodexActivity({
     fileSize: sizeOf(file),
     readSlice: readSliceOf(file),
+    onResumeBaseline: async () => {
+      baseline = await codexPromptBaseline(file);
+    },
+    onPrompt: (prompt) => recordCodexPromptForHeader(sessionId, prompt, deps, baseline),
     onBoundary: (boundary) => applyBoundary(sessionId, boundary, deps),
     isAlive: deps.isAlive,
     startAtEnd,

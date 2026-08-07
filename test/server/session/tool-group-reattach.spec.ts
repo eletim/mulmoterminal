@@ -65,6 +65,7 @@ const deps = {
   reap: vi.fn(),
   setWorking: vi.fn(),
   setWaiting: vi.fn(),
+  publishActivity: vi.fn(),
   uiPort: "3000",
   publishSessionCreated: vi.fn(),
 };

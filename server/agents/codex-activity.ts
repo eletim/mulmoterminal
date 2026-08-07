@@ -47,6 +47,30 @@ function eventType(line: string): string | null {
   }
 }
 
+const eventPayload = (line: string): Record<string, unknown> | null => {
+  try {
+    const doc: unknown = JSON.parse(line);
+    if (!isRecord(doc) || doc.type !== "event_msg" || !isRecord(doc.payload)) return null;
+    return doc.payload;
+  } catch {
+    return null;
+  }
+};
+
+const trimmedString = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
+
+// User prompts appended to a codex rollout tail. They are not turn boundaries, so the
+// watcher must surface them separately from task_started/task_complete or a prompt-only
+// poll would never update the header.
+export function codexUserPrompts(lines: string[]): string[] {
+  return lines.flatMap((line) => {
+    const payload = eventPayload(line);
+    if (payload?.type !== "user_message") return [];
+    const message = trimmedString(payload.message);
+    return message ? [message] : [];
+  });
+}
+
 // The event_msg payload types that END a turn. `task_complete` is the normal finish;
 // `turn_aborted` is what an INTERRUPTED turn writes (Esc / steer) — verified against real
 // rollouts, where an aborted turn logs task_started … turn_aborted with NO task_complete.
