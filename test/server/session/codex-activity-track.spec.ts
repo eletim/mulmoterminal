@@ -9,11 +9,23 @@ import { recordCodexPromptForHeader, restoreCodexPromptBaselineForHeader, trackC
 import { LAST_PROMPT_CAP } from "../../../server/session/header-hook.js";
 import { lastPrompts } from "../../../server/session/registry.js";
 import { sessionDisplayName } from "../../../common/sessionMemo.js";
+import { cellHeaderText } from "../../../src/components/cellActivity.js";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const line = (o: unknown) => JSON.stringify(o);
 const started = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_started", turn_id: turnId } }) + "\n";
 const userMessage = (message: string) => line({ type: "event_msg", payload: { type: "user_message", message } }) + "\n";
+const responseUserMessage = (message: string) =>
+  line({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: message }] } }) + "\n";
+const environmentContext = () =>
+  line({
+    type: "response_item",
+    payload: {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: "<environment_context>\n<context>auto</context>\n</environment_context>" }],
+    },
+  }) + "\n";
 const complete = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: "done" } }) + "\n";
 
 async function rolloutFile(content: string): Promise<string> {
@@ -144,6 +156,55 @@ describe("trackCodexActivity resume baseline", () => {
       }),
     });
     expect(sessions[0]).toMatchObject({ id: SESSION, title: "restore the Codex resume title" });
+  });
+
+  it("restores a resumed current rollout baseline while ignoring environment_context", async () => {
+    const file = await rolloutFile(started("old") + environmentContext() + responseUserMessage("restore the current Codex resume title") + complete("old"));
+    const publishActivity = vi.fn();
+
+    trackCodexActivity(SESSION, file, true, {
+      setWorking: vi.fn(),
+      setWaiting: vi.fn(),
+      publishActivity,
+      isActive: () => false,
+      uiPort: "5173",
+      isAlive: () => publishActivity.mock.calls.length === 0,
+    });
+
+    await vi.waitFor(() => expect(lastPrompts.get(SESSION)).toBe("restore the current Codex resume title"));
+    expect(publishActivity).toHaveBeenCalledWith(SESSION);
+  });
+
+  it("tracks a fresh current rollout prompt through lastPrompts, desktop header, and mobile list title", async () => {
+    const file = await rolloutFile(started("fresh") + environmentContext() + responseUserMessage("fix the fresh Codex title") + complete("fresh"));
+    const publishActivity = vi.fn();
+    const deps = {
+      setWorking: vi.fn(),
+      setWaiting: vi.fn(),
+      publishActivity,
+      isActive: () => false,
+      uiPort: "5173",
+      isAlive: () => publishActivity.mock.calls.length === 0,
+    };
+
+    trackCodexActivity(SESSION, file, false, deps);
+
+    await vi.waitFor(() => expect(lastPrompts.get(SESSION)).toBe("fix the fresh Codex title"), { timeout: 2500 });
+    expect(publishActivity).toHaveBeenCalledWith(SESSION);
+    expect(cellHeaderText(null, null, lastPrompts.get(SESSION) ?? null, SESSION)).toBe("fix the fresh Codex title");
+
+    const sessions = buildSessionList({
+      liveIds: [SESSION],
+      tmuxIds: [],
+      isResumable: () => true,
+      isGridSession: () => true,
+      detailOf: (id) => ({
+        title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
+        cwd: "/repo",
+        agent: "codex",
+      }),
+    });
+    expect(sessions[0]).toMatchObject({ id: SESSION, title: "fix the fresh Codex title" });
   });
 
   it("does not seed lastPrompts from existing rollout content for a fresh session", async () => {
