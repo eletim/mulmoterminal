@@ -8,12 +8,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { createSessionLifecycle, type SessionLifecycleDeps } from "../../../server/session/lifecycle.js";
 import type { WorkPhase } from "../../../server/session/workPhase.js";
-import { activity, aiTitles, hiddenSessions, knownSessions, lastPrompts, lastResponses, launchChoices, ptys } from "../../../server/session/registry.js";
+import {
+  activity,
+  aiTitles,
+  antigravityConversations,
+  codexRolloutIds,
+  hiddenSessions,
+  knownSessions,
+  lastPrompts,
+  lastResponses,
+  launchChoices,
+  ptys,
+  sessionMemos,
+} from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
+import { tmuxKillSession } from "../../../server/infra/tmux.js";
 
 vi.mock("../../../server/infra/tmux.js", () => ({ tmuxKillSession: vi.fn() }));
 vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSettings: vi.fn() }));
+vi.mock("../../../server/session/session-drops.js", () => ({ cleanupSessionDrops: vi.fn() }));
 vi.mock("../../../server/session/child-processes.js", () => ({
   hasNewSessionChildProcess: vi.fn(() => false),
   sessionChildProcessPids: vi.fn(() => new Set<number>()),
@@ -24,6 +38,7 @@ vi.mock("../../../server/session/session-reads.js", () => ({ readLatestResponse:
 
 const ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_ID = "22222222-3333-4444-8555-666666666666";
+const THIRD_ID = "33333333-4444-4555-8666-777777777777";
 
 const makeDeps = (workPhase: WorkPhase | null = null, overrides: Partial<SessionLifecycleDeps> = {}) => ({
   publish: vi.fn(),
@@ -39,13 +54,27 @@ const makeDeps = (workPhase: WorkPhase | null = null, overrides: Partial<Session
 const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: null, cwd: "/work", tmux: false, agent: "claude", ...over }) as never;
 
 const clearRegistry = () => {
-  for (const map of [ptys, activity, knownSessions, lastPrompts, lastResponses, aiTitles, launchChoices]) map.clear();
+  for (const map of [
+    ptys,
+    activity,
+    knownSessions,
+    lastPrompts,
+    lastResponses,
+    aiTitles,
+    launchChoices,
+    codexRolloutIds,
+    antigravityConversations,
+    sessionMemos,
+  ]) {
+    map.clear();
+  }
   hiddenSessions.clear();
   clearedTranscripts.clear();
 };
 
 beforeEach(() => {
   clearRegistry();
+  vi.mocked(tmuxKillSession).mockReset();
   vi.mocked(hasNewSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(sessionChildProcessPids).mockReset().mockReturnValue(new Set());
 });
@@ -120,6 +149,82 @@ describe("reap", () => {
     ptys.set(ID, fakeEntry());
     lifecycle.reap(ID);
     expect(activity.has(ID)).toBe(false);
+  });
+});
+
+describe("cleanupManagedLiveSessions", () => {
+  it("cleans up every managed live session", () => {
+    const deps = makeDeps();
+    const claude = fakeEntry({ agent: "claude", tmux: true });
+    const codex = fakeEntry({ agent: "codex", tmux: true });
+    const shell = fakeEntry({ agent: "shell", tmux: false });
+    ptys.set(ID, claude);
+    ptys.set(OTHER_ID, codex);
+    ptys.set(THIRD_ID, shell);
+
+    const cleaned = createSessionLifecycle(deps).cleanupManagedLiveSessions();
+
+    expect(cleaned).toEqual([ID, OTHER_ID, THIRD_ID]);
+    expect(ptys.size).toBe(0);
+    expect((claude as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
+    expect((codex as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
+    expect((shell as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
+    expect(tmuxKillSession).toHaveBeenCalledWith(ID);
+    expect(tmuxKillSession).toHaveBeenCalledWith(OTHER_ID);
+    expect(tmuxKillSession).not.toHaveBeenCalledWith(THIRD_ID);
+  });
+
+  it("continues cleanup when one session fails", () => {
+    const first = fakeEntry({ tmux: true });
+    const second = fakeEntry({ tmux: true });
+    ptys.set(ID, first);
+    ptys.set(OTHER_ID, second);
+    vi.mocked(tmuxKillSession).mockImplementation((id: string) => {
+      if (id === ID) throw new Error("tmux refused");
+    });
+
+    createSessionLifecycle(makeDeps()).cleanupManagedLiveSessions();
+
+    expect(ptys.size).toBe(0);
+    expect((first as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
+    expect((second as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
+    expect(tmuxKillSession).toHaveBeenCalledWith(ID);
+    expect(tmuxKillSession).toHaveBeenCalledWith(OTHER_ID);
+  });
+
+  it("does not kill unmanaged tmux sessions", () => {
+    ptys.set(ID, fakeEntry({ tmux: true }));
+
+    createSessionLifecycle(makeDeps()).cleanupManagedLiveSessions();
+
+    expect(tmuxKillSession).toHaveBeenCalledTimes(1);
+    expect(tmuxKillSession).toHaveBeenCalledWith(ID);
+    expect(tmuxKillSession).not.toHaveBeenCalledWith(OTHER_ID);
+  });
+
+  it("does not delete persistent conversation history state", () => {
+    ptys.set(ID, fakeEntry({ tmux: true }));
+    sessionMemos.set(ID, "keep this note");
+    codexRolloutIds.set(ID, "rollout-1");
+    antigravityConversations.set(ID, { sessionId: ID, conversationId: OTHER_ID, cwd: "/work", startedAt: 123 });
+
+    createSessionLifecycle(makeDeps()).cleanupManagedLiveSessions();
+
+    expect(sessionMemos.get(ID)).toBe("keep this note");
+    expect(codexRolloutIds.get(ID)).toBe("rollout-1");
+    expect(antigravityConversations.get(ID)).toEqual({ sessionId: ID, conversationId: OTHER_ID, cwd: "/work", startedAt: 123 });
+  });
+
+  it("is safe to call more than once", () => {
+    const entry = fakeEntry({ tmux: true });
+    ptys.set(ID, entry);
+    const lifecycle = createSessionLifecycle(makeDeps());
+
+    expect(lifecycle.cleanupManagedLiveSessions()).toEqual([ID]);
+    expect(lifecycle.cleanupManagedLiveSessions()).toEqual([]);
+
+    expect((entry as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalledTimes(1);
+    expect(tmuxKillSession).toHaveBeenCalledTimes(1);
   });
 });
 

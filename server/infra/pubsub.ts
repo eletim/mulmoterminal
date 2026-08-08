@@ -62,5 +62,8 @@ export function createPubSub(server: HttpServer, isAllowedOrigin: (origin: strin
       io.to(first).emit("data", { channel, data });
       return true;
     },
+    close() {
+      void io.close();
+    },
   };
 }

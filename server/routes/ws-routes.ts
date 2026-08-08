@@ -688,4 +688,13 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
   runLaunchWss.on("connection", (ws, req) => void handleLaunchConnection(deps, ws, req));
   runCodexWss.on("connection", (ws, req) => void handleCodexConnection(deps, ws, req));
   runAntigravityWss.on("connection", (ws, req) => void handleAntigravityConnection(deps, ws, req));
+
+  return {
+    close() {
+      for (const server of Object.values(serverFor)) {
+        for (const client of server.clients) client.close(1001, "server shutdown");
+        server.close();
+      }
+    },
+  };
 }
