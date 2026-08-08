@@ -61,6 +61,12 @@ function applyBoundary(sessionId: string, boundary: CodexTurnBoundary, deps: Cod
 
 const capPrompt = (prompt: string): string => prompt.trim().slice(0, LAST_PROMPT_CAP);
 
+const codexHeaderPrompt = (sessionId: string, prompt: string, baseline: string | null = null): string | null => {
+  const text = capPrompt(prompt);
+  if (!text) return null;
+  return preferredHeaderPrompt(lastPrompts.get(sessionId) ?? baseline, text);
+};
+
 async function codexPromptBaseline(file: string): Promise<string | null> {
   let current: string | null = null;
   await forEachJsonlRecord(file, (record) => {
@@ -77,9 +83,17 @@ export function recordCodexPromptForHeader(
   deps: Pick<CodexActivityTrackDeps, "publishActivity">,
   baseline: string | null = null,
 ): void {
-  const text = capPrompt(prompt);
-  if (!text) return;
-  lastPrompts.set(sessionId, preferredHeaderPrompt(lastPrompts.get(sessionId) ?? baseline, text));
+  const next = codexHeaderPrompt(sessionId, prompt, baseline);
+  if (next === null) return;
+  lastPrompts.set(sessionId, next);
+  deps.publishActivity(sessionId);
+}
+
+export function restoreCodexPromptBaselineForHeader(sessionId: string, baseline: string | null, deps: Pick<CodexActivityTrackDeps, "publishActivity">): void {
+  if (baseline === null) return;
+  const next = codexHeaderPrompt(sessionId, baseline);
+  if (next === null || lastPrompts.get(sessionId) === next) return;
+  lastPrompts.set(sessionId, next);
   deps.publishActivity(sessionId);
 }
 
@@ -93,6 +107,7 @@ export function trackCodexActivity(sessionId: string, file: string, startAtEnd: 
     readSlice: readSliceOf(file),
     onResumeBaseline: async () => {
       baseline = await codexPromptBaseline(file);
+      restoreCodexPromptBaselineForHeader(sessionId, baseline, deps);
     },
     onPrompt: (prompt) => recordCodexPromptForHeader(sessionId, prompt, deps, baseline),
     onBoundary: (boundary) => applyBoundary(sessionId, boundary, deps),
