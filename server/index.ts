@@ -138,6 +138,7 @@ import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
+import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
 
 // Per-session activity flags, driven by Claude hooks (see /api/hook).
 
@@ -902,7 +903,7 @@ try {
 }
 
 // The terminal WebSocket endpoints (routes/ws-routes.ts).
-mountTerminalWebSockets({
+const terminalWebSockets = mountTerminalWebSockets({
   server,
   isAllowedOrigin,
   claudeBin: CLAUDE_BIN,
@@ -972,13 +973,10 @@ server.listen(Number(PORT), BIND_HOST, () => {
   void refreshUpdateStatus();
 });
 
-// The whisper sidecar is a spawned child that won't die with the parent on a
-// signal. Adding a signal listener suppresses Node's default termination, so we
-// kill the sidecar and exit explicitly. `exit` covers the normal-return path.
-process.once("exit", stopWhisperSidecar);
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => {
-    stopWhisperSidecar();
-    process.exit(0);
-  });
-}
+installGracefulShutdown({
+  server,
+  stopSidecars: stopWhisperSidecar,
+  cleanupManagedLiveSessions: lifecycle.cleanupManagedLiveSessions,
+  closeRealtime: () => void (terminalWebSockets.close(), pubsub?.close()),
+  exit: (code) => process.exit(code),
+});

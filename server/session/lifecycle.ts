@@ -216,6 +216,18 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
 }
 
+function cleanupManagedLiveSessions(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState): string[] {
+  const ids = [...ptys.keys()];
+  for (const id of ids) {
+    try {
+      reap(deps, mobileWebPushActivityState, id);
+    } catch (err) {
+      console.error(`[shutdown] failed to cleanup session ${id}: ${messageOf(err)}`);
+    }
+  }
+  return ids;
+}
+
 function shouldDeferStop(id: string, event: string | undefined): boolean {
   return event === "Stop" && hasNewSessionChildProcess(id, ptys.get(id), childProcessBaselines.get(id) ?? null);
 }
@@ -316,6 +328,7 @@ export function createSessionLifecycle(deps: SessionLifecycleDeps) {
     scheduleReap: (id: string, delayMs?: number) => scheduleReap(deps, mobileWebPushActivityState, id, delayMs),
     armReapForDetached: (id: string) => armReapForDetached(deps, mobileWebPushActivityState, id),
     reap: (id: string) => reap(deps, mobileWebPushActivityState, id),
+    cleanupManagedLiveSessions: () => cleanupManagedLiveSessions(deps, mobileWebPushActivityState),
     publishActivity: (id: string) => publishActivity(deps, id),
     setWorking: (id: string, working: boolean, event?: string) => setFlag(deps, mobileWebPushActivityState, id, "working", working, event),
     setWaiting: (id: string, waiting: boolean, event?: string) => setFlag(deps, mobileWebPushActivityState, id, "waiting", waiting, event),
