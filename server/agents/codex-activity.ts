@@ -35,40 +35,79 @@ export function takeCompleteLines(pending: string, chunk: string): { lines: stri
   return { lines: parts.slice(0, -1).filter((line) => line.trim()), pending: parts[parts.length - 1] ?? "" };
 }
 
-// The `event_msg` payload type of a line, or null for anything else. A `turn_context` row
-// carries a turn_id but no payload.type, so matching on the payload alone would misread it.
-function eventType(line: string): string | null {
+// A rollout record, or null for malformed JSON / non-object rows.
+function parseLine(line: string): Record<string, unknown> | null {
   try {
     const doc: unknown = JSON.parse(line);
-    if (!isRecord(doc) || doc.type !== "event_msg" || !isRecord(doc.payload)) return null;
-    return typeof doc.payload.type === "string" ? doc.payload.type : null;
+    return isRecord(doc) ? doc : null;
   } catch {
     return null; // a row that isn't JSON — codex writes none, but a torn file could
   }
 }
 
-const eventPayload = (line: string): Record<string, unknown> | null => {
-  try {
-    const doc: unknown = JSON.parse(line);
-    if (!isRecord(doc) || doc.type !== "event_msg" || !isRecord(doc.payload)) return null;
-    return doc.payload;
-  } catch {
-    return null;
-  }
-};
+// The `event_msg` payload type of a line, or null for anything else. A `turn_context` row
+// carries a turn_id but no payload.type, so matching on the payload alone would misread it.
+function eventType(line: string): string | null {
+  const doc = parseLine(line);
+  if (!doc || doc.type !== "event_msg" || !isRecord(doc.payload)) return null;
+  return typeof doc.payload.type === "string" ? doc.payload.type : null;
+}
 
 const trimmedString = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
+
+const INPUT_TEXT_JOINER = "\n\n";
+const ENVIRONMENT_CONTEXT_RE = /^<environment_context>[\s\S]*<\/environment_context>$/;
+
+function isCodexGeneratedUserText(text: string): boolean {
+  return ENVIRONMENT_CONTEXT_RE.test(text.trim());
+}
+
+function legacyUserPrompt(doc: Record<string, unknown>): string | null {
+  if (doc.type !== "event_msg" || !isRecord(doc.payload) || doc.payload.type !== "user_message") return null;
+  const message = trimmedString(doc.payload.message);
+  return message && !isCodexGeneratedUserText(message) ? message : null;
+}
+
+function responseItemUserPrompt(doc: Record<string, unknown>): string | null {
+  if (doc.type !== "response_item" || !isRecord(doc.payload)) return null;
+  if (doc.payload.type !== "message" || doc.payload.role !== "user" || !Array.isArray(doc.payload.content)) return null;
+
+  const texts = doc.payload.content.flatMap((item): string[] => {
+    if (!isRecord(item) || item.type !== "input_text") return [];
+    const text = trimmedString(item.text);
+    return text ? [text] : [];
+  });
+  if (texts.length === 0 || isCodexGeneratedUserText(texts.join(INPUT_TEXT_JOINER))) return null;
+
+  const prompt = texts
+    .filter((text) => !isCodexGeneratedUserText(text))
+    .join(INPUT_TEXT_JOINER)
+    .trim();
+  return prompt && !isCodexGeneratedUserText(prompt) ? prompt : null;
+}
+
+function userPrompt(line: string): string | null {
+  const doc = parseLine(line);
+  if (!doc) return null;
+  return legacyUserPrompt(doc) ?? responseItemUserPrompt(doc);
+}
 
 // User prompts appended to a codex rollout tail. They are not turn boundaries, so the
 // watcher must surface them separately from task_started/task_complete or a prompt-only
 // poll would never update the header.
 export function codexUserPrompts(lines: string[]): string[] {
-  return lines.flatMap((line) => {
-    const payload = eventPayload(line);
-    if (payload?.type !== "user_message") return [];
-    const message = trimmedString(payload.message);
-    return message ? [message] : [];
-  });
+  const prompts: string[] = [];
+  let previousPrompt: string | null = null;
+  for (const line of lines) {
+    const prompt = userPrompt(line);
+    if (!prompt) {
+      previousPrompt = null;
+      continue;
+    }
+    if (prompt !== previousPrompt) prompts.push(prompt);
+    previousPrompt = prompt;
+  }
+  return prompts;
 }
 
 // The event_msg payload types that END a turn. `task_complete` is the normal finish;

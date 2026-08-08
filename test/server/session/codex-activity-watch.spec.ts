@@ -6,6 +6,8 @@ import type { CodexTurnBoundary } from "../../../server/agents/codex-activity.js
 const line = (o: unknown) => JSON.stringify(o);
 const started = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_started", turn_id: turnId } }) + "\n";
 const userMessage = (message = "fix the parser") => line({ type: "event_msg", payload: { type: "user_message", message } }) + "\n";
+const responseUserMessage = (message = "fix the parser") =>
+  line({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: message }] } }) + "\n";
 const complete = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: "done" } }) + "\n";
 
 // A fake rollout the test appends to, driving the loop one tick at a time. `sleep`
@@ -64,6 +66,13 @@ describe("watchCodexActivity", () => {
     h.appendAt(1, started() + userMessage("  investigate title fallback  "));
     await h.run();
     expect(h.prompts).toEqual(["investigate title fallback"]);
+  });
+
+  it("reports current response_item user prompts appended while it runs", async () => {
+    const h = harness("", false);
+    h.appendAt(1, started() + responseUserMessage("  investigate current rollout title  "));
+    await h.run();
+    expect(h.prompts).toEqual(["investigate current rollout title"]);
   });
 
   it("reads a fresh session's existing content, so its first turn isn't missed", async () => {

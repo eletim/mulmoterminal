@@ -7,6 +7,7 @@ const started = (turnId = "t1") => line({ type: "event_msg", payload: { type: "t
 const complete = (turnId = "t1") => line({ type: "event_msg", payload: { type: "task_complete", turn_id: turnId, last_agent_message: "done" } });
 const aborted = (turnId = "t1") => line({ type: "event_msg", payload: { type: "turn_aborted", turn_id: turnId, reason: "interrupted" } });
 const userMessage = (message: unknown) => line({ type: "event_msg", payload: { type: "user_message", message } });
+const responseUserMessage = (content: unknown) => line({ type: "response_item", payload: { type: "message", role: "user", content } });
 const agentMessage = () => line({ type: "event_msg", payload: { type: "agent_message", message: "thinking" } });
 // A turn_context row carries a turn_id but no payload.type — the shape most likely to be
 // misread as a boundary.
@@ -104,8 +105,56 @@ describe("turnBoundaries", () => {
 });
 
 describe("codexUserPrompts", () => {
-  it("extracts user prompts from rollout user_message rows", () => {
+  it("extracts user prompts from current rollout response_item message rows", () => {
+    expect(codexUserPrompts([responseUserMessage([{ type: "input_text", text: "  fix title  " }])])).toEqual(["fix title"]);
+  });
+
+  it("ignores codex-injected environment_context user records", () => {
+    expect(
+      codexUserPrompts([responseUserMessage([{ type: "input_text", text: "<environment_context>\n<context>auto</context>\n</environment_context>" }])]),
+    ).toEqual([]);
+  });
+
+  it("keeps the real prompt after an environment_context record", () => {
+    expect(
+      codexUserPrompts([
+        responseUserMessage([{ type: "input_text", text: "<environment_context>\n<context>auto</context>\n</environment_context>" }]),
+        responseUserMessage([{ type: "input_text", text: "fix the mobile title" }]),
+      ]),
+    ).toEqual(["fix the mobile title"]);
+  });
+
+  it("ignores blank, malformed, non-user, and non-input_text response_item rows", () => {
+    expect(
+      codexUserPrompts([
+        responseUserMessage([{ type: "input_text", text: "  " }]),
+        line({ type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "input_text", text: "no" }] } }),
+        line({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "output_text", text: "no" }] } }),
+        line({ type: "response_item", payload: { type: "message", role: "user", content: "no" } }),
+        '{"type":"response_item", "payl',
+      ]),
+    ).toEqual([]);
+  });
+
+  it("joins multiple input_text blocks with paragraph breaks", () => {
+    expect(
+      codexUserPrompts([
+        responseUserMessage([
+          { type: "input_text", text: "fix title" },
+          { type: "input_text", text: "preserve mobile fallback" },
+        ]),
+      ]),
+    ).toEqual(["fix title\n\npreserve mobile fallback"]);
+  });
+
+  it("still extracts user prompts from legacy rollout user_message rows", () => {
     expect(codexUserPrompts([started(), userMessage("  implement issue #33  "), agentMessage()])).toEqual(["implement issue #33"]);
+  });
+
+  it("does not emit adjacent duplicate prompts when a rollout records both old and current formats", () => {
+    expect(codexUserPrompts([userMessage("fix duplicate title"), responseUserMessage([{ type: "input_text", text: "fix duplicate title" }])])).toEqual([
+      "fix duplicate title",
+    ]);
   });
 
   it("ignores blank, non-string, malformed, and non-event rows", () => {
