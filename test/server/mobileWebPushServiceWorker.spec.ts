@@ -84,6 +84,23 @@ describe("mobile web push service worker", () => {
     });
   });
 
+  it("marks finished notifications as audible through the OS notification settings", async () => {
+    const { self, listener } = loadServiceWorker();
+    const waits: Promise<unknown>[] = [];
+
+    listener("push")({
+      data: { json: () => ({ kind: "finished", sessionId: "session-a", agent: "codex", url: "/mobile/terminals?sessionId=session-a" }) },
+      waitUntil: (promise) => waits.push(promise),
+    });
+    await Promise.all(waits);
+
+    expect(self.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal done", {
+      body: "Codex finished.",
+      data: { url: "/mobile/terminals?sessionId=session-a" },
+      silent: false,
+    });
+  });
+
   it("ignores cross-origin notification URLs", async () => {
     const { self, listener } = loadServiceWorker();
     const waits: Promise<unknown>[] = [];
