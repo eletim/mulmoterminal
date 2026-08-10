@@ -7,7 +7,7 @@
 // /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
 // (POST /api/mobile/terminal-sessions/:id/input).
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
 import type { LaunchAgent } from "../../common/launchAgent";
@@ -18,16 +18,12 @@ import { jsonBody } from "../jsonBody";
 import { readRememberedLaunchAgent } from "../composables/rememberedLaunchAgent";
 import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
+import { homeRelative } from "./cwdDisplay";
 import MobileNewTerminalPanel from "./MobileNewTerminalPanel.vue";
 import MobileWebPushPanel from "./MobileWebPushPanel.vue";
 
-const router = useRouter();
 const route = useRoute();
 const notificationRequestedSessionId = ref(readSessionIdQuery(route.query.sessionId));
-
-function backToDesktop(): void {
-  void router.push("/terminals");
-}
 
 interface MobileActivity {
   working: boolean;
@@ -65,6 +61,7 @@ type Status = "loading" | "remote-disabled" | "local" | "error";
 
 const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
+const mobileHome = ref<string | null>(null);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
 const newTerminalCwd = ref("");
@@ -88,6 +85,7 @@ type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
 const screenStyledRows = ref<AnsiRow[] | null>(null);
+const screenIsLoading = () => screenStatus.value === "loading";
 
 function segmentStyle(segment: AnsiSegment): Record<string, string> {
   const style: Record<string, string> = {};
@@ -99,9 +97,9 @@ function segmentStyle(segment: AnsiSegment): Record<string, string> {
 
 const BLANK_ROW_FILLER = "\u00A0";
 
-// Rate limit for the manual Refresh/Retry button alone — session switches bypass it entirely
-// (section 9 of the spec this implements). Counted from when a refresh STARTS, not when its
-// request resolves, so a slow or failing request doesn't extend the cooldown.
+// Rate limit for the screen error Retry button alone — session switches and the header Refresh
+// bypass it entirely. Counted from when a retry STARTS, not when its request resolves, so a slow
+// or failing request doesn't extend the cooldown.
 const MANUAL_REFRESH_COOLDOWN_MS = 5000;
 const manualRefreshCoolingDown = ref(false);
 let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -155,6 +153,7 @@ const ACTIVITY_CLASS: Record<ReturnType<typeof mobileActivityStatus>, string> = 
 const activityStatusOf = (session: MobileSession) =>
   mobileActivityStatus(session.activity.working, session.activity.waiting, session.activity.event, session.activity.workPhase);
 const activityClassOf = (session: MobileSession) => ACTIVITY_CLASS[activityStatusOf(session)];
+const displayCwd = (cwd: string) => homeRelative(cwd, mobileHome.value);
 
 // The one place selection ever changes — a manual click (selectSession) and a poll's fallback
 // (applySessionList, when the selected session has disappeared) both go through this. Whichever
@@ -209,7 +208,12 @@ function applySessionList(parsed: MobileSession[]): void {
 // Parses a GET /api/mobile/terminal-sessions response, throwing on anything malformed. Shared by
 // the initial load (a bad response fails the whole page) and the poll (a bad response is caught
 // by the caller and simply skipped, leaving the list as it was).
-async function fetchSessionList(): Promise<MobileSession[]> {
+interface MobileSessionListResult {
+  sessions: MobileSession[];
+  home: string | null;
+}
+
+async function fetchSessionList(): Promise<MobileSessionListResult> {
   const sessionsRes = await fetch("/api/mobile/terminal-sessions");
   if (!sessionsRes.ok) throw new Error(`HTTP ${sessionsRes.status}`);
   const sessionsBody = await jsonBody(sessionsRes);
@@ -218,7 +222,12 @@ async function fetchSessionList(): Promise<MobileSession[]> {
   // state and the first-live/first-session selection all quietly disagree with what the server
   // actually reported, so one invalid row fails the whole load instead.
   if (!sessionsBody.sessions.every(isMobileSession)) throw new Error("invalid session row in /api/mobile/terminal-sessions response");
-  return sessionsBody.sessions;
+  return { sessions: sessionsBody.sessions, home: typeof sessionsBody.home === "string" ? sessionsBody.home : null };
+}
+
+function applySessionListResult(result: MobileSessionListResult): void {
+  mobileHome.value = result.home;
+  applySessionList(result.sessions);
 }
 
 // Guards every call to fetchSessionList() — the initial load and every poll tick (interval or
@@ -227,14 +236,17 @@ async function fetchSessionList(): Promise<MobileSession[]> {
 // interval firing at the same moment as a tab-resume refresh) can resolve out of order and the
 // older one's applySessionList() call would overwrite the newer one's state with stale data.
 let sessionListRefreshInFlight = false;
+const sessionListRefreshBusy = ref(false);
 
 async function withSessionListGuard(fetchAndApply: () => Promise<void>): Promise<void> {
   if (sessionListRefreshInFlight) return;
   sessionListRefreshInFlight = true;
+  sessionListRefreshBusy.value = true;
   try {
     await fetchAndApply();
   } finally {
     sessionListRefreshInFlight = false;
+    sessionListRefreshBusy.value = false;
   }
 }
 
@@ -258,7 +270,7 @@ async function load(): Promise<void> {
       return;
     }
 
-    await withSessionListGuard(async () => applySessionList(await fetchSessionList()));
+    await withSessionListGuard(async () => applySessionListResult(await fetchSessionList()));
     status.value = "local";
   } catch {
     status.value = "error";
@@ -275,7 +287,7 @@ async function refreshSessionList(): Promise<void> {
   if (status.value !== "local") return;
   await withSessionListGuard(async () => {
     try {
-      applySessionList(await fetchSessionList());
+      applySessionListResult(await fetchSessionList());
     } catch {
       // leave the current list showing; the next poll retries
     }
@@ -314,12 +326,11 @@ async function loadScreen(id: string): Promise<void> {
   }
 }
 
-// The manual Refresh button and the screen error's Retry button are the same action: re-fetch
-// only the currently selected session's screen — never the mode check or the session list,
-// which have their own Retry — rate-limited to one call per MANUAL_REFRESH_COOLDOWN_MS.
+// The screen error's Retry button re-fetches only the currently selected session's screen — never
+// the mode check or the session list, which the header Refresh owns.
 function manualRefreshScreen(): void {
   if (!selectedSessionId.value) return;
-  if (screenStatus.value === "loading") return;
+  if (screenIsLoading()) return;
   if (manualRefreshCoolingDown.value) return;
 
   manualRefreshCoolingDown.value = true;
@@ -397,9 +408,12 @@ async function createTerminal(): Promise<void> {
     if (!isMobileCreateResult(body)) throw new Error("invalid /api/mobile/terminal-sessions response");
 
     const parsed = await fetchSessionList();
-    sessions.value = parsed;
+    mobileHome.value = parsed.home;
+    sessions.value = parsed.sessions;
     changeSelectedSession(
-      parsed.some((session) => session.id === body.sessionId) ? body.sessionId : (parsed.find((session) => session.live)?.id ?? parsed[0]?.id ?? null),
+      parsed.sessions.some((session) => session.id === body.sessionId)
+        ? body.sessionId
+        : (parsed.sessions.find((session) => session.live)?.id ?? parsed.sessions[0]?.id ?? null),
     );
     createStatus.value = "idle";
   } catch (err) {
@@ -410,11 +424,33 @@ async function createTerminal(): Promise<void> {
   }
 }
 
+const manualMobileRefreshInFlight = ref(false);
+
+async function refreshMobileData(): Promise<void> {
+  if (manualMobileRefreshInFlight.value) return;
+  if (status.value === "loading") return;
+  if (sessionListRefreshInFlight) return;
+  if (screenIsLoading()) return;
+
+  manualMobileRefreshInFlight.value = true;
+  try {
+    if (status.value !== "local") {
+      await load();
+      return;
+    }
+
+    await refreshSessionList();
+    if (selectedSessionId.value && !screenIsLoading()) await loadScreen(selectedSessionId.value);
+  } finally {
+    manualMobileRefreshInFlight.value = false;
+  }
+}
+
 // Refetches the session list and the selected session's screen whenever the tab comes back from
 // the background — covering the phone-locked-then-unlocked case, where both would otherwise be
 // however old they were when the tab went away. The session list refresh runs unconditionally
 // (subject only to the `status === "local"` guard inside refreshSessionList itself); the screen
-// refresh keeps its own independent guards below. Independent of the manual Refresh cooldown in
+// refresh keeps its own independent guards below. Independent of the screen Retry cooldown in
 // both directions: it fires even while that cooldown is running, and it never starts or resets
 // it. Only the existing stale-response guard inside loadScreen applies; hidden itself changes
 // nothing.
@@ -465,8 +501,16 @@ onUnmounted(() => {
         <span class="font-sans text-[14px] font-semibold tracking-[0.02em]">MulmoTerminal</span>
         <span class="truncate text-[12px] text-secondary">Local mobile terminal</span>
       </div>
-      <button type="button" class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="backToDesktop">
-        Back to desktop
+      <button
+        type="button"
+        class="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-border bg-panel text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+        aria-label="Refresh mobile terminal data"
+        title="Refresh"
+        data-testid="mobile-refresh-button"
+        :disabled="status === 'loading' || sessionListRefreshBusy || screenStatus === 'loading' || manualMobileRefreshInFlight"
+        @click="refreshMobileData"
+      >
+        <span class="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">refresh</span>
       </button>
     </header>
 
@@ -524,7 +568,9 @@ onUnmounted(() => {
                     {{ activityStatusOf(session) }} · {{ session.live ? "live" : "detached" }}
                   </span>
                 </div>
-                <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'">{{ session.cwd }}</div>
+                <div class="truncate text-[11px]" :class="session.id === selectedSessionId ? 'text-on-accent' : 'text-secondary'" :title="session.cwd">
+                  {{ displayCwd(session.cwd) }}
+                </div>
                 <div v-if="session.agent" class="text-[11px] text-muted">{{ session.agent }}</div>
               </button>
             </li>
@@ -533,14 +579,6 @@ onUnmounted(() => {
           <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
             <div class="flex items-center justify-between gap-2">
               <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
-              <button
-                type="button"
-                class="flex-none rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-                :disabled="screenStatus === 'loading' || manualRefreshCoolingDown"
-                @click="manualRefreshScreen"
-              >
-                Refresh
-              </button>
             </div>
 
             <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>

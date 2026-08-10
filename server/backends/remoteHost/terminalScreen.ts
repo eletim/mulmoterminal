@@ -7,8 +7,10 @@ import { TERMINAL_AGENTS, type SessionAgent } from "../../../common/sessionAgent
 import { workItemHeadline, type PrPhase, type WorkItem } from "../../../common/prPhase.js";
 import type { QuickCommandChip } from "./quickCommands.js";
 import { basename } from "node:path";
+import { homedir } from "node:os";
 import { getAgentAdapter } from "../../agents/registry.js";
 import type { AgentKind } from "../../agents/types.js";
+import { homeRelative, truncateFront } from "../../../common/pathDisplay.js";
 
 // Map a tmux pane's current command onto the kinds the phone knows. Anything else is a
 // shell or a one-off program the phone has no special input for — "shell" is the right
@@ -107,6 +109,26 @@ export interface SessionListInput {
 const byLiveThenTitle = (a: TerminalSessionSummary, b: TerminalSessionSummary): number =>
   a.live === b.live ? a.title.localeCompare(b.title) : Number(b.live) - Number(a.live);
 
+const FALLBACK_TITLE_MAX = 48;
+
+function pathNameForFallback(cwd: string, home: string): string {
+  if (!cwd) return "session";
+  const display = homeRelative(cwd, home);
+  if (display === "~") return "~";
+  if (display.startsWith("~/") || display.startsWith("~\\")) {
+    const first = display.slice(2).split(/[/\\]/).find(Boolean);
+    return first ?? "~";
+  }
+  return display;
+}
+
+export function sessionFallbackTitle(agent: SessionAgent | null, cwd: string, home = homedir(), max = FALLBACK_TITLE_MAX): string {
+  const agentName = agent ?? "terminal";
+  const pathName = pathNameForFallback(cwd, home);
+  const pathMax = Math.max(12, max - agentName.length - 1);
+  return `${agentName} ${truncateFront(pathName, pathMax)}`;
+}
+
 // Resumable is the right rule for "don't reap this", but too weak for "offer this":
 // it keeps every session with a transcript on disk, which on a working machine is
 // dozens of long-finished ones the host can no longer name. A row showing nothing but
@@ -119,7 +141,7 @@ export function buildSessionList({ liveIds, tmuxIds, isResumable, isGridSession,
     ids
       .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
       .filter((session) => session.title !== "" || session.live)
-      .map((session) => ({ ...session, title: session.title || session.id }))
+      .map((session) => ({ ...session, title: session.title || sessionFallbackTitle(session.agent, session.cwd) }))
       // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding
       // `undefined`. A caller writing `work: map.get(cwd)` leaves the key behind, the spreads above
       // carry it through, and Firestore then refuses the entire reply: every session vanishes from

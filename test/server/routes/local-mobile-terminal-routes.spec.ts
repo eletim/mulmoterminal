@@ -205,7 +205,7 @@ describe("GET /api/mobile/terminal-sessions", () => {
     const { app } = appFor();
     const res = await request(app).get("/api/mobile/terminal-sessions");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessions: [{ ...SESSIONS[0], activity: IDLE_ACTIVITY }] });
+    expect(res.body).toEqual({ home: expect.any(String), sessions: [{ ...SESSIONS[0], activity: IDLE_ACTIVITY }] });
   });
 
   it("joins working/waiting/event/workPhase from the injected readers, by session id", async () => {
@@ -223,6 +223,7 @@ describe("GET /api/mobile/terminal-sessions", () => {
     const res = await request(app).get("/api/mobile/terminal-sessions");
     const { activity, ...rest } = res.body.sessions[0];
     expect(rest).toEqual(SESSIONS[0]);
+    expect(res.body.home).toEqual(expect.any(String));
   });
 });
 
