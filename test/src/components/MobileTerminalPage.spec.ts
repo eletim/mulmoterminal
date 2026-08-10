@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { nextTick } from "vue";
 import MobileTerminalPage from "../../../src/components/MobileTerminalPage.vue";
+import mobileTerminalPageSource from "../../../src/components/MobileTerminalPage.vue?raw";
 import { router } from "../../../src/router/index";
 import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/rememberedLaunchAgent";
 
@@ -1450,6 +1451,23 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("v2");
     });
 
+    it("does not implement header Refresh with a page reload or navigation", async () => {
+      expect(mobileTerminalPageSource).not.toContain("location.reload");
+      expect(mobileTerminalPageSource).not.toContain("location.href");
+      expect(mobileTerminalPageSource).not.toContain("location.assign");
+      expect(mobileTerminalPageSource).not.toContain("location.replace");
+      const hrefBeforeRefresh = window.location.href;
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      const wrapper = await mountPage();
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v2") } });
+      await refreshButton(wrapper).trigger("click");
+      await flushPromises();
+
+      expect(window.location.href).toBe(hrefBeforeRefresh);
+    });
+
     it("does not refetch the mode check when Refresh is clicked", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
       const wrapper = await mountPage();
@@ -1459,6 +1477,66 @@ describe("MobileTerminalPage", () => {
       await flushPromises();
 
       expect(globalThis.fetch).not.toHaveBeenCalledWith("/api/mobile-mode");
+    });
+
+    it("preserves the scroll position of the scrollable main element after Refresh", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      const wrapper = await mountPage();
+      const main = wrapper.get("main").element as HTMLElement;
+      main.scrollTop = 240;
+
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk(`${"line\n".repeat(80)}v2`) },
+      });
+      await refreshButton(wrapper).trigger("click");
+      await flushPromises();
+
+      expect(main.scrollTop).toBe(240);
+      expect(wrapper.text()).toContain("v2");
+    });
+
+    it("keeps the selected session when it still exists after Refresh", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+        screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+      });
+      const wrapper = await mountPage();
+      await wrapper.findAll("main li button")[1].trigger("click");
+      await flushPromises();
+
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "b", live: true }), session({ id: "a", live: true })],
+        screens: { a: screenOk("screen-a-refresh"), b: screenOk("screen-b-refresh") },
+      });
+      await refreshButton(wrapper).trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("b");
+      expect(wrapper.text()).toContain("screen-b-refresh");
+      expect(wrapper.text()).not.toContain("screen-a-refresh");
+    });
+
+    it("falls back only when the selected session disappears after Refresh", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true }), session({ id: "b", live: true })],
+        screens: { a: screenOk("screen-a"), b: screenOk("screen-b") },
+      });
+      const wrapper = await mountPage();
+      await wrapper.findAll("main li button")[1].trigger("click");
+      await flushPromises();
+
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a-refresh") } });
+      await refreshButton(wrapper).trigger("click");
+      await flushPromises();
+
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
+      expect(wrapper.text()).toContain("screen-a-refresh");
+      expect(vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === "/api/mobile/terminal-sessions/a/screen")).toHaveLength(1);
     });
 
     it("disables Refresh while the screen is loading", async () => {
