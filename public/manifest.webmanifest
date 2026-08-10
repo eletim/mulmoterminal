@@ -1,0 +1,26 @@
+{
+  "name": "MulmoTerminal Mobile",
+  "short_name": "MulmoTerm",
+  "description": "Mobile terminal sessions for MulmoTerminal.",
+  "id": "/mobile/terminals",
+  "start_url": "/mobile/terminals",
+  "scope": "/mobile/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1a1a2e",
+  "background_color": "#1a1a2e",
+  "icons": [
+    {
+      "src": "/icons/mulmoterminal-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/mulmoterminal-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
