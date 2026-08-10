@@ -80,7 +80,6 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   private activeDocument: Document | null = null;
   private activeWindow: Window | null = null;
   private pendingFrame: number | null = null;
-  private pendingStart: number | null = null;
   private lastMove: MouseEvent | null = null;
 
   constructor(term: SelectionAutoScrollTerminal, screen: HTMLElement) {
@@ -95,13 +94,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.lastMove = null;
   }
 
-  private clearPendingStart(): void {
-    if (this.pendingStart !== null) (this.activeWindow ?? window).clearTimeout(this.pendingStart);
-    this.pendingStart = null;
-  }
-
   cancel(): void {
-    this.clearPendingStart();
     this.clearPendingFrame();
     if (this.activeDocument) {
       this.activeDocument.removeEventListener("mousemove", this.onDocumentMouseMove, true);
@@ -162,11 +155,10 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.cancel();
     this.activeDocument = this.screen.ownerDocument;
     this.activeWindow = this.activeDocument.defaultView;
-    this.pendingStart = (this.activeWindow ?? window).setTimeout(this.startDocumentListeners, 0);
+    this.startDocumentListeners();
   };
 
   private readonly startDocumentListeners = (): void => {
-    this.pendingStart = null;
     if (!this.activeDocument) return;
     this.activeDocument.addEventListener("mousemove", this.onDocumentMouseMove, true);
     this.activeDocument.addEventListener("mouseup", this.onDocumentMouseUp, true);

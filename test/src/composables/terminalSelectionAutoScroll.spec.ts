@@ -130,6 +130,20 @@ describe("wireSelectionEdgeAutoScroll", () => {
     handle?.dispose();
   });
 
+  it("does not arm stale listeners when mouseup follows mousedown immediately", () => {
+    const { term, screen } = makeTerminal();
+    const handle = wireSelectionEdgeAutoScroll(term);
+
+    screen.dispatchEvent(mouse("mousedown", 140));
+    document.dispatchEvent(mouse("mouseup", 140));
+    vi.runOnlyPendingTimers();
+    document.dispatchEvent(mouse("mousemove", 104));
+    flushRaf();
+
+    expect(syntheticMoves).toEqual([]);
+    handle?.dispose();
+  });
+
   it("does not queue duplicate animation frames for repeated edge moves", () => {
     const requestAnimationFrame = vi.mocked(window.requestAnimationFrame);
     const { term, screen } = makeTerminal();
