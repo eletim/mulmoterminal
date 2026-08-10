@@ -32,6 +32,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
+import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
@@ -206,6 +207,7 @@ interface Conn {
   // -Infinity rather than 0 so "never notified" outlasts any cooldown: a spec that stubs Date.now
   // to a small number would otherwise lose the FIRST banner and still read as passing.
   lastDroppedInputNoticeMs: number;
+  selectionEdgeAutoScroll: SelectionEdgeAutoScrollHandle | null;
 }
 
 // The banner is re-armed on a timer rather than shown once per stretch, because a stretch has no
@@ -452,6 +454,7 @@ interface TerminalRuntime {
   term: Terminal;
   fitAddon: FitAddon;
   host: HTMLDivElement;
+  selectionEdgeAutoScroll: SelectionEdgeAutoScrollHandle | null;
 }
 
 // Everything a slot's xterm is made of. Built here rather than inline in ensure() because a
@@ -497,6 +500,7 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   host.style.width = "100%";
   host.style.height = "100%";
   term.open(host);
+  const selectionEdgeAutoScroll = wireSelectionEdgeAutoScroll(term, swallowedMouseModes);
   guardMouseClicks(term, swallowedMouseModes);
   // After open(), so the helper textarea the clipboard fallback looks for exists in `host`.
   wireCopyOnSelect(term, host);
@@ -522,7 +526,7 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   } catch (err) {
     console.warn("[terminal] canvas renderer unavailable — falling back to the DOM renderer", err);
   }
-  return { term, fitAddon, host };
+  return { term, fitAddon, host, selectionEdgeAutoScroll };
 }
 
 // The wiring that needs the connection itself, so it is re-applied to every terminal a slot owns.
@@ -539,7 +543,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     return existing;
   }
   const swallowedMouseModes = new Set<number>();
-  const { term, fitAddon, host } = buildTerminal(swallowedMouseModes, font);
+  const { term, fitAddon, host, selectionEdgeAutoScroll } = buildTerminal(swallowedMouseModes, font);
   const c: Conn = {
     key,
     term,
@@ -561,6 +565,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     lastRebuildMs: 0,
     warnedDroppedInput: false,
     lastDroppedInputNoticeMs: Number.NEGATIVE_INFINITY,
+    selectionEdgeAutoScroll,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd });
@@ -576,16 +581,19 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
 function rebuildTerminal(c: Conn): void {
   const deadTerm = c.term;
   const deadHost = c.host;
+  const deadSelectionEdgeAutoScroll = c.selectionEdgeAutoScroll;
   const hadFocus = deadHost.contains(document.activeElement);
   console.warn(`[terminal] slot ${c.key}: xterm buffer corrupted (xtermjs/xterm.js#6063) — rebuilding the terminal and re-attaching`);
-  const { term, fitAddon, host } = buildTerminal(c.swallowedMouseModes, c.font);
+  const { term, fitAddon, host, selectionEdgeAutoScroll } = buildTerminal(c.swallowedMouseModes, c.font);
   c.term = term;
   c.fitAddon = fitAddon;
   c.host = host;
+  c.selectionEdgeAutoScroll = selectionEdgeAutoScroll;
   c.lastRebuildMs = Date.now();
   wireTerminalToConn(term, c);
   c.attachedEl?.appendChild(host);
   deadHost.remove();
+  deadSelectionEdgeAutoScroll?.dispose();
   deadTerm.dispose();
   connect(c);
   fitAndSyncSize(c);
@@ -625,6 +633,7 @@ function connect(c: Conn) {
   // Neutralise the old socket's late events via the `sock !== c.ws` guards below.
   if (c.ws) c.ws.close();
   c.term.reset();
+  c.selectionEdgeAutoScroll?.cancel();
   // The mouse modes belonged to the session being replaced. Keeping them would make the next
   // app inherit "wants wheel reports" it never asked for, and its wheel would deliver escape
   // bytes instead of scrolling (#737).
@@ -761,6 +770,7 @@ export function detach(key: string, el: HTMLElement | null) {
   if (!c) return;
   if (el && c.attachedEl !== el) return; // a newer attach already took over this slot
   c.handlers = {};
+  c.selectionEdgeAutoScroll?.cancel();
   if (c.host.parentElement) c.host.remove();
   c.attachedEl = null;
 }
@@ -777,6 +787,7 @@ export function retarget(key: string, target: ConnTarget) {
   c.reconnectAttempts = 0;
   c.sawExit = false;
   c.released = false;
+  c.selectionEdgeAutoScroll?.cancel();
   connect(c);
 }
 
@@ -801,6 +812,7 @@ export function release(key: string) {
   } catch {
     // not in the DOM
   }
+  c.selectionEdgeAutoScroll?.dispose();
   try {
     c.term.dispose();
   } catch {
