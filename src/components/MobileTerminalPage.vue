@@ -86,6 +86,7 @@ const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
 const screenStyledRows = ref<AnsiRow[] | null>(null);
 const screenIsLoading = () => screenStatus.value === "loading";
+const mainScrollEl = ref<HTMLElement | null>(null);
 
 function segmentStyle(segment: AnsiSegment): Record<string, string> {
   const style: Record<string, string> = {};
@@ -170,7 +171,7 @@ function changeSelectedSession(next: string | null): void {
   inputStatus.value = "idle";
 
   if (next) {
-    void loadScreen(next);
+    trackSelectionScreenLoad(loadScreen(next));
   } else {
     screenStatus.value = "idle";
     screenText.value = "";
@@ -326,6 +327,15 @@ async function loadScreen(id: string): Promise<void> {
   }
 }
 
+let selectionScreenLoadPromise: Promise<void> | null = null;
+
+function trackSelectionScreenLoad(loadPromise: Promise<void>): void {
+  selectionScreenLoadPromise = loadPromise;
+  void loadPromise.finally(() => {
+    if (selectionScreenLoadPromise === loadPromise) selectionScreenLoadPromise = null;
+  });
+}
+
 // The screen error's Retry button re-fetches only the currently selected session's screen — never
 // the mode check or the session list, which the header Refresh owns.
 function manualRefreshScreen(): void {
@@ -426,6 +436,22 @@ async function createTerminal(): Promise<void> {
 
 const manualMobileRefreshInFlight = ref(false);
 
+async function preserveMainScrollDuring(refresh: () => Promise<void>): Promise<void> {
+  const scrollEl = mainScrollEl.value;
+  const scrollTop = scrollEl?.scrollTop ?? 0;
+  const scrollLeft = scrollEl?.scrollLeft ?? 0;
+
+  try {
+    await refresh();
+  } finally {
+    await nextTick();
+    if (scrollEl) {
+      scrollEl.scrollTop = scrollTop;
+      scrollEl.scrollLeft = scrollLeft;
+    }
+  }
+}
+
 async function refreshMobileData(): Promise<void> {
   if (manualMobileRefreshInFlight.value) return;
   if (status.value === "loading") return;
@@ -434,13 +460,23 @@ async function refreshMobileData(): Promise<void> {
 
   manualMobileRefreshInFlight.value = true;
   try {
-    if (status.value !== "local") {
-      await load();
-      return;
-    }
+    await preserveMainScrollDuring(async () => {
+      if (status.value !== "local") {
+        await load();
+        return;
+      }
 
-    await refreshSessionList();
-    if (selectedSessionId.value && !screenIsLoading()) await loadScreen(selectedSessionId.value);
+      const selectedBeforeRefresh = selectedSessionId.value;
+      await refreshSessionList();
+      if (!selectedSessionId.value) return;
+
+      if (selectedSessionId.value !== selectedBeforeRefresh) {
+        await selectionScreenLoadPromise;
+        return;
+      }
+
+      if (!screenIsLoading()) await loadScreen(selectedSessionId.value);
+    });
   } finally {
     manualMobileRefreshInFlight.value = false;
   }
@@ -519,7 +555,7 @@ onUnmounted(() => {
          overflow-y-auto never kicks in and the page grows past the viewport instead of scrolling.
          overscroll-contain stops a scroll-past-the-end here from dragging the whole page (and,
          with it, the fixed footer) along with it. -->
-    <main class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+    <main ref="mainScrollEl" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
       <p v-if="status === 'loading'" class="text-[13px] text-secondary">Loading…</p>
 
       <div v-else-if="status === 'remote-disabled'" class="flex flex-col gap-2 text-[13px]">
