@@ -24,6 +24,13 @@ export interface RemoteHostHandlerDeps {
   // in this process — a tmux session that outlived a restart stays viewable but not
   // writable from here.
   writeToSession: (sessionId: string, chunk: string) => boolean;
+  // Raw terminal control operation for the phone's Interrupt action (#48). Unlike
+  // sendTerminalInput, this deliberately does not sanitize or bracket-paste: it is the
+  // same terminal byte a physical Ctrl+C would generate.
+  interruptSession: (sessionId: string) => boolean;
+  // Explicitly stop a session using the desktop close/terminate lifecycle (#48): live PTY
+  // reap, tmux cleanup when present, registry cleanup, and no transcript deletion.
+  stopSession: (sessionId: string) => void;
   // Whether typing may empty the session's input box first, so only the phone's text
   // is submitted (#572). Answered in server/index.ts, where the agent kind and the
   // turn state live.

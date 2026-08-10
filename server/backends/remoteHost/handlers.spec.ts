@@ -13,6 +13,8 @@ const unusedTerminalDeps = {
   listTerminalSessions: async () => [],
   captureTerminalScreen: async () => ({ screen: "", suggestion: "", quickCommands: [] }),
   writeToSession: () => false,
+  interruptSession: () => false,
+  stopSession: () => {},
   canClearBox: () => false,
   submitSequence: () => "\r",
   sessionAgent: () => "claude" as const,
@@ -256,5 +258,70 @@ describe("getTerminalScreen", () => {
 
   it("rejects a request with no session id", async () => {
     await expect(handlersFor({ screen: "", suggestion: "", quickCommands: [] }).getTerminalScreen({})).rejects.toThrow(/sessionId is required/);
+  });
+});
+
+describe("mobile terminal session operations", () => {
+  it("interrupts through the host's raw interrupt path", async () => {
+    const interrupted: string[] = [];
+    const stopped: string[] = [];
+    const handlers = createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+      interruptSession: (id) => {
+        interrupted.push(id);
+        return true;
+      },
+      stopSession: (id) => {
+        stopped.push(id);
+      },
+    });
+    await expect(handlers.interruptTerminalSession({ sessionId: "s1" })).resolves.toEqual({ interrupted: true });
+    expect(interrupted).toEqual(["s1"]);
+    expect(stopped).toEqual([]);
+  });
+
+  it("reports a non-live session without falling back to stop", async () => {
+    const stopped: string[] = [];
+    const handlers = createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+      interruptSession: () => false,
+      stopSession: (id) => {
+        stopped.push(id);
+      },
+    });
+    await expect(handlers.interruptTerminalSession({ sessionId: "s1" })).rejects.toThrow(/session is not live/);
+    expect(stopped).toEqual([]);
+  });
+
+  it("stops through the host's terminate lifecycle", async () => {
+    const stopped: string[] = [];
+    const handlers = createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+      stopSession: (id) => {
+        stopped.push(id);
+      },
+    });
+    await expect(handlers.stopTerminalSession({ sessionId: "s1" })).resolves.toEqual({ stopped: true });
+    expect(stopped).toEqual(["s1"]);
+  });
+
+  it("requires a session id for interrupt and stop commands", async () => {
+    const handlers = createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+    });
+    await expect(handlers.interruptTerminalSession({})).rejects.toThrow(/sessionId is required/);
+    await expect(handlers.stopTerminalSession({})).rejects.toThrow(/sessionId is required/);
   });
 });

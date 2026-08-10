@@ -10,13 +10,23 @@ import type { RemoteHostHandlerDeps } from "./deps.js";
 
 type TerminalSessionDeps = Pick<
   RemoteHostHandlerDeps,
-  "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "sessionAgent" | "launchTerminal"
+  | "listTerminalSessions"
+  | "captureTerminalScreen"
+  | "writeToSession"
+  | "interruptSession"
+  | "stopSession"
+  | "canClearBox"
+  | "submitSequence"
+  | "sessionAgent"
+  | "launchTerminal"
 >;
 
 export const createTerminalSessionHandlers = ({
   listTerminalSessions,
   captureTerminalScreen,
   writeToSession,
+  interruptSession,
+  stopSession,
   canClearBox,
   submitSequence,
   sessionAgent,
@@ -46,6 +56,24 @@ export const createTerminalSessionHandlers = ({
       if (!sessionId) throw new Error("sessionId is required");
       const text = typeof params.text === "string" ? params.text : "";
       return toJsonObject(await sendInput(sessionId, text));
+    },
+
+    // Interrupt the foreground program only. This is a raw terminal Ctrl+C write and does
+    // not enter the reap/terminate lifecycle.
+    interruptTerminalSession: async (params: JsonObject) => {
+      const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
+      if (!sessionId) throw new Error("sessionId is required");
+      if (!interruptSession(sessionId)) throw new Error("session is not live");
+      return toJsonObject({ interrupted: true });
+    },
+
+    // Stop the session itself. Confirmation is owned by the mobile client; this command is
+    // intentionally the same lifecycle endpoint the desktop close button relies on.
+    stopTerminalSession: async (params: JsonObject) => {
+      const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
+      if (!sessionId) throw new Error("sessionId is required");
+      stopSession(sessionId);
+      return toJsonObject({ stopped: true });
     },
 
     // Open a NEW grid terminal in the directory of the session the phone is viewing (#831).
