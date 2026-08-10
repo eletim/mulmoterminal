@@ -26,7 +26,7 @@ const TOP_LEFT_CELL: GridCell = { col: 1, row: 1 };
 
 // The app hears the mouse only while it is the full-screen owner of the terminal AND asked for
 // tracking it never got (#729). Both halves below answer to this one gate.
-const reportsMouseToApp = (term: Terminal, swallowedMouseModes: ReadonlySet<number>): boolean =>
+export const reportsMouseToApp = (term: Terminal, swallowedMouseModes: ReadonlySet<number>): boolean =>
   term.buffer.active.type === "alternate" && wantsMouseReports(swallowedMouseModes);
 
 const screenElementOf = (term: Terminal): HTMLElement | null => term.element?.querySelector(".xterm-screen") ?? null;
@@ -38,6 +38,14 @@ function cellUnderPointer(term: Terminal, pointer: PointerPosition): GridCell {
   const screen = screenElementOf(term);
   if (!screen) return TOP_LEFT_CELL;
   return cellFromPoint(screen.getBoundingClientRect(), term.cols, term.rows, pointer);
+}
+
+export function sendWheelReportsToApp(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, notches: number): boolean {
+  if (!reportsMouseToApp(term, swallowedMouseModes)) return false;
+  const cell = cellUnderPointer(term, pointer);
+  const seq = wheelReportSequence(notches, cell.col, cell.row);
+  if (seq) for (let i = 0; i < Math.abs(notches); i++) term.input(seq, false);
+  return true;
 }
 
 // xterm exposes no cell height, so it comes off the screen element's own box — the same
@@ -73,9 +81,7 @@ export function guardMouseWheel(term: Terminal, swallowedMouseModes: ReadonlySet
     // Consumed even at zero notches: this event's motion is banked, and handing the leftover
     // back to xterm would resurrect the ↑/↓ fallback #737 exists to replace.
     ev.preventDefault();
-    const cell = cellUnderPointer(term, ev);
-    const seq = wheelReportSequence(notches, cell.col, cell.row);
-    if (seq) for (let i = 0; i < Math.abs(notches); i++) term.input(seq, false);
+    sendWheelReportsToApp(term, swallowedMouseModes, ev, notches);
     return false;
   });
 }
