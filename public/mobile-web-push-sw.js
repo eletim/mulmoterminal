@@ -65,6 +65,10 @@ function notificationTag(payload, kind) {
   return typeof payload.sessionId === "string" ? `mulmoterminal-mobile-${kind}-${payload.sessionId}` : `mulmoterminal-mobile-${kind}`;
 }
 
+function shouldUseNotificationSound(kind) {
+  return kind === "finished";
+}
+
 self.addEventListener("push", (event) => {
   const payload = pushPayload(event);
   const url = notificationUrlFrom(payload);
@@ -78,6 +82,7 @@ self.addEventListener("push", (event) => {
       };
       const tag = notificationTag(payload, kind);
       if (tag) options.tag = tag;
+      if (shouldUseNotificationSound(kind)) options.silent = false;
       return self.registration.showNotification(notificationTitle(payload), options);
     })(),
   );
