@@ -1959,6 +1959,50 @@ describe("MobileTerminalPage", () => {
       resolveStop({ ok: true, json: async () => ({ stopped: true }) });
       await flushPromises();
     });
+
+    it("keeps Stop duplicate prevention active if selection changes while Stop is in flight", async () => {
+      let resolveStop: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+      const deferredStop = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+        resolveStop = resolve;
+      });
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          return {
+            ok: true,
+            json: async () => ({ sessions: [session({ id: "a", title: "session-a", live: true }), session({ id: "b", title: "session-b", live: true })] }),
+          };
+        }
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/b/screen") return { ok: true, json: async () => ({ screen: "screen-b" }) };
+        if (url === "/api/mobile/terminal-sessions/a/stop") return deferredStop;
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      const sessionButton = (title: string) => {
+        const button = wrapper.findAll("button").find((candidate) => candidate.text().includes(title));
+        if (!button) throw new Error(`session button not found: ${title}`);
+        return button;
+      };
+
+      await findButton(wrapper, "Stop").trigger("click");
+      await findButton(wrapper, "停止").trigger("click");
+      await flushPromises();
+
+      await sessionButton("session-b").trigger("click");
+      await flushPromises();
+      await sessionButton("session-a").trigger("click");
+      await flushPromises();
+
+      expect(findButton(wrapper, "Stop").attributes("disabled")).toBeDefined();
+      await findButton(wrapper, "Stop").trigger("click");
+      expect(operationCallCount("a", "stop")).toBe(1);
+
+      resolveStop({ ok: true, json: async () => ({ stopped: true }) });
+      await flushPromises();
+    });
   });
 
   describe("terminal input", () => {

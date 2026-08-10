@@ -187,7 +187,7 @@ function changeSelectedSession(next: string | null): void {
   inputText.value = "";
   inputStatus.value = "idle";
   interruptStatus.value = "idle";
-  stopStatus.value = "idle";
+  if (stopStatus.value !== "sending") stopStatus.value = "idle";
 
   if (next) {
     trackSelectionScreenLoad(loadScreen(next));
@@ -448,7 +448,11 @@ async function stopConfirmedSession(requestedId: string): Promise<void> {
     await refreshSessionList();
     stopStatus.value = "idle";
   } catch {
-    if (selectedSessionId.value !== requestedId) return;
+    if (selectedSessionId.value !== requestedId) {
+      stopStatus.value = "idle";
+      await refreshSessionList();
+      return;
+    }
     stopStatus.value = "error";
     await refreshSessionList();
   }
