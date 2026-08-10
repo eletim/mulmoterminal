@@ -5,6 +5,7 @@
 //
 // No MulmoClaude counterpart: that host has no PTY table to look at.
 import { toJsonObject, type CommandHandlers, type JsonObject } from "@mulmoclaude/core/remote-host";
+import { SESSION_ID_RE } from "../../../config/env.js";
 import { createTerminalInputSender } from "../terminalInput.js";
 import type { RemoteHostHandlerDeps } from "./deps.js";
 
@@ -63,6 +64,7 @@ export const createTerminalSessionHandlers = ({
     interruptTerminalSession: async (params: JsonObject) => {
       const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
       if (!sessionId) throw new Error("sessionId is required");
+      if (!SESSION_ID_RE.test(sessionId)) throw new Error("invalid session id");
       if (!interruptSession(sessionId)) throw new Error("session is not live");
       return toJsonObject({ interrupted: true });
     },
@@ -72,6 +74,7 @@ export const createTerminalSessionHandlers = ({
     stopTerminalSession: async (params: JsonObject) => {
       const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
       if (!sessionId) throw new Error("sessionId is required");
+      if (!SESSION_ID_RE.test(sessionId)) throw new Error("invalid session id");
       stopSession(sessionId);
       return toJsonObject({ stopped: true });
     },

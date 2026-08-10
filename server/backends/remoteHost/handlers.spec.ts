@@ -20,6 +20,7 @@ const unusedTerminalDeps = {
   sessionAgent: () => "claude" as const,
   launchTerminal: () => ({ ok: true }) as const,
 };
+const TERMINAL_SESSION_ID = "01234567-89ab-cdef-0123-456789abcdef";
 
 describe("createRemoteHostHandlers", () => {
   let ws: string;
@@ -278,8 +279,8 @@ describe("mobile terminal session operations", () => {
         stopped.push(id);
       },
     });
-    await expect(handlers.interruptTerminalSession({ sessionId: "s1" })).resolves.toEqual({ interrupted: true });
-    expect(interrupted).toEqual(["s1"]);
+    await expect(handlers.interruptTerminalSession({ sessionId: TERMINAL_SESSION_ID })).resolves.toEqual({ interrupted: true });
+    expect(interrupted).toEqual([TERMINAL_SESSION_ID]);
     expect(stopped).toEqual([]);
   });
 
@@ -295,7 +296,7 @@ describe("mobile terminal session operations", () => {
         stopped.push(id);
       },
     });
-    await expect(handlers.interruptTerminalSession({ sessionId: "s1" })).rejects.toThrow(/session is not live/);
+    await expect(handlers.interruptTerminalSession({ sessionId: TERMINAL_SESSION_ID })).rejects.toThrow(/session is not live/);
     expect(stopped).toEqual([]);
   });
 
@@ -310,8 +311,8 @@ describe("mobile terminal session operations", () => {
         stopped.push(id);
       },
     });
-    await expect(handlers.stopTerminalSession({ sessionId: "s1" })).resolves.toEqual({ stopped: true });
-    expect(stopped).toEqual(["s1"]);
+    await expect(handlers.stopTerminalSession({ sessionId: TERMINAL_SESSION_ID })).resolves.toEqual({ stopped: true });
+    expect(stopped).toEqual([TERMINAL_SESSION_ID]);
   });
 
   it("requires a session id for interrupt and stop commands", async () => {
@@ -323,5 +324,28 @@ describe("mobile terminal session operations", () => {
     });
     await expect(handlers.interruptTerminalSession({})).rejects.toThrow(/sessionId is required/);
     await expect(handlers.stopTerminalSession({})).rejects.toThrow(/sessionId is required/);
+  });
+
+  it("rejects malformed operation session ids before touching PTY or lifecycle deps", async () => {
+    const interrupted: string[] = [];
+    const stopped: string[] = [];
+    const handlers = createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+      interruptSession: (id) => {
+        interrupted.push(id);
+        return true;
+      },
+      stopSession: (id) => {
+        stopped.push(id);
+      },
+    });
+
+    await expect(handlers.interruptTerminalSession({ sessionId: `${TERMINAL_SESSION_ID}:0` })).rejects.toThrow(/invalid session id/);
+    await expect(handlers.stopTerminalSession({ sessionId: `${TERMINAL_SESSION_ID}:0` })).rejects.toThrow(/invalid session id/);
+    expect(interrupted).toEqual([]);
+    expect(stopped).toEqual([]);
   });
 });
