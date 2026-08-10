@@ -11,6 +11,7 @@ function makeTerminal(mouseTrackingMode = "none") {
   const term = {
     element: host,
     modes: { mouseTrackingMode },
+    options: { macOptionClickForcesSelection: true },
   };
   return { term, screen };
 }
@@ -172,6 +173,39 @@ describe("wireSelectionEdgeAutoScroll", () => {
     screen.dispatchEvent(mouse("mousedown", 140, { shiftKey: true }));
     vi.runOnlyPendingTimers();
     document.dispatchEvent(mouse("mousemove", 104, { shiftKey: true }));
+    flushRaf();
+    expect(syntheticMoves).toHaveLength(1);
+    handle?.dispose();
+  });
+
+  it("does not treat Alt as forced selection outside macOS", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    const { term, screen } = makeTerminal("drag");
+    const handle = wireSelectionEdgeAutoScroll(term);
+
+    screen.dispatchEvent(mouse("mousedown", 140, { altKey: true }));
+    vi.runOnlyPendingTimers();
+    document.dispatchEvent(mouse("mousemove", 104, { altKey: true }));
+    flushRaf();
+
+    expect(syntheticMoves).toEqual([]);
+    handle?.dispose();
+  });
+
+  it("uses Option, not Shift, as forced selection on macOS", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
+    const { term, screen } = makeTerminal("drag");
+    const handle = wireSelectionEdgeAutoScroll(term);
+
+    screen.dispatchEvent(mouse("mousedown", 140, { shiftKey: true }));
+    vi.runOnlyPendingTimers();
+    document.dispatchEvent(mouse("mousemove", 104, { shiftKey: true }));
+    flushRaf();
+    expect(syntheticMoves).toEqual([]);
+
+    screen.dispatchEvent(mouse("mousedown", 140, { altKey: true }));
+    vi.runOnlyPendingTimers();
+    document.dispatchEvent(mouse("mousemove", 104, { altKey: true }));
     flushRaf();
     expect(syntheticMoves).toHaveLength(1);
     handle?.dispose();

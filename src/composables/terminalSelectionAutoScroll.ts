@@ -7,6 +7,7 @@ const syntheticMoves = new WeakSet<MouseEvent>();
 interface SelectionAutoScrollTerminal {
   readonly element: HTMLElement | undefined;
   readonly modes: { readonly mouseTrackingMode: string };
+  readonly options?: { readonly macOptionClickForcesSelection?: boolean };
 }
 
 export interface SelectionEdgeAutoScrollHandle {
@@ -22,8 +23,13 @@ function mouseTrackingActive(term: SelectionAutoScrollTerminal): boolean {
   return term.modes.mouseTrackingMode !== "none";
 }
 
-function forcesSelection(event: MouseEvent): boolean {
-  return event.shiftKey || event.altKey;
+function isMacPlatform(): boolean {
+  return navigator.userAgent.includes("Macintosh");
+}
+
+function forcesSelection(term: SelectionAutoScrollTerminal, event: MouseEvent): boolean {
+  if (isMacPlatform()) return event.altKey && term.options?.macOptionClickForcesSelection !== false;
+  return event.shiftKey;
 }
 
 function syntheticYForEdge(event: MouseEvent, screen: HTMLElement): number | null {
@@ -152,7 +158,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
 
   readonly onMouseDown = (event: MouseEvent): void => {
     if (event.button !== MAIN_BUTTON) return;
-    if (mouseTrackingActive(this.term) && !forcesSelection(event)) return;
+    if (mouseTrackingActive(this.term) && !forcesSelection(this.term, event)) return;
     this.cancel();
     this.activeDocument = this.screen.ownerDocument;
     this.activeWindow = this.activeDocument.defaultView;
