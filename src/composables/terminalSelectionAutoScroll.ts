@@ -78,6 +78,11 @@ function cloneSelectionMove(event: MouseEvent, pointer: PointerPosition): MouseE
   return synthetic;
 }
 
+function dispatchSelectionMove(target: Document, event: MouseEvent, pointer: PointerPosition): void {
+  // xterm's SelectionService listens for drag moves on ownerDocument after mousedown.
+  target.dispatchEvent(cloneSelectionMove(event, pointer));
+}
+
 function scrollbackCanMove(term: Terminal, lines: number): boolean {
   const buffer = term.buffer.active;
   if (lines < 0) return buffer.viewportY > 0;
@@ -174,7 +179,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
         this.stopFrame();
         return;
       }
-      this.screen.dispatchEvent(cloneSelectionMove(event, pointer));
+      dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
     }
     this.ensureFrame();
   };

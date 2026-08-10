@@ -55,35 +55,49 @@ function mouse(type: "mousedown" | "mousemove" | "mouseup", clientY: number, opt
 const MAIN_BUTTON = 0;
 const TRACKING_MODES = new Set([1002, 1006]);
 const wire = (term: FakeTerm, modes: ReadonlySet<number>) => wireSelectionEdgeAutoScroll(term as unknown as Terminal, modes);
+let frameId = 0;
+const frames = new Map<number, FrameRequestCallback>();
+
+function installFrameMocks(): void {
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    frameId += 1;
+    frames.set(frameId, cb);
+    return frameId;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+}
+
+function clearFrameMocks(): void {
+  frames.clear();
+  frameId = 0;
+  vi.restoreAllMocks();
+}
+
+function flushFrame(now = 80): void {
+  const [id, cb] = frames.entries().next().value ?? [];
+  if (id === undefined || !cb) return;
+  frames.delete(id);
+  cb(now);
+}
+
+function selectionRowFor(event: MouseEvent, term: FakeTerm, screen: HTMLElement): number {
+  const rect = screen.getBoundingClientRect();
+  const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height - 1);
+  const row = Math.floor((y / rect.height) * term.rows);
+  return term.buffer.active.viewportY + row;
+}
 
 describe("wireSelectionEdgeAutoScroll", () => {
-  let frameId = 0;
-  const frames = new Map<number, FrameRequestCallback>();
-
   beforeEach(() => {
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
-      frameId += 1;
-      frames.set(frameId, cb);
-      return frameId;
-    });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
-      frames.delete(id);
-    });
+    installFrameMocks();
   });
 
   afterEach(() => {
-    frames.clear();
-    frameId = 0;
-    vi.restoreAllMocks();
+    clearFrameMocks();
     document.body.replaceChildren();
   });
-
-  function flushFrame(now = 80): void {
-    const [id, cb] = frames.entries().next().value ?? [];
-    if (id === undefined || !cb) return;
-    frames.delete(id);
-    cb(now);
-  }
 
   function dragToEdge(screen: HTMLElement, clientY: number): void {
     screen.dispatchEvent(mouse("mousedown", 180));
@@ -116,17 +130,55 @@ describe("wireSelectionEdgeAutoScroll", () => {
     handle?.dispose();
   });
 
-  it("updates xterm's in-viewport selection endpoint after an auto-scroll tick", () => {
+  it("replays the drag move through xterm's document-level selection listener after an auto-scroll tick", () => {
     const { term, screen } = makeTerminal({ viewportY: 50 });
     const handle = wire(term, new Set());
     const moves: number[] = [];
-    screen.addEventListener("mousemove", (event) => moves.push(event.clientY));
 
     dragToEdge(screen, RECT.top + 4);
+    document.addEventListener("mousemove", (event) => moves.push(event.clientY));
     flushFrame(0);
     flushFrame(80);
 
     expect(moves).toEqual([RECT.top + 4]);
+    handle?.dispose();
+  });
+
+  it("extends a document-tracked selection endpoint into newly revealed rows after scrolling upward", () => {
+    const { term, screen } = makeTerminal({ viewportY: 50 });
+    const handle = wire(term, new Set());
+    let selectionEnd: number | null = null;
+    document.addEventListener("mousemove", (event) => {
+      selectionEnd = selectionRowFor(event, term, screen);
+    });
+
+    dragToEdge(screen, RECT.top + 4);
+    const before = selectionEnd;
+    flushFrame(0);
+    flushFrame(80);
+
+    expect(term.scrollLines).toHaveBeenCalledWith(-1);
+    expect(before).toBe(50);
+    expect(selectionEnd).toBe(49);
+    handle?.dispose();
+  });
+
+  it("extends a document-tracked selection endpoint into newly revealed rows after scrolling downward", () => {
+    const { term, screen } = makeTerminal({ viewportY: 50 });
+    const handle = wire(term, new Set());
+    let selectionEnd: number | null = null;
+    document.addEventListener("mousemove", (event) => {
+      selectionEnd = selectionRowFor(event, term, screen);
+    });
+
+    dragToEdge(screen, RECT.bottom - 4);
+    const before = selectionEnd;
+    flushFrame(0);
+    flushFrame(80);
+
+    expect(term.scrollLines).toHaveBeenCalledWith(1);
+    expect(before).toBe(73);
+    expect(selectionEnd).toBe(74);
     handle?.dispose();
   });
 
