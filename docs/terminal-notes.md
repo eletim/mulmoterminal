@@ -105,6 +105,21 @@ change one and change the other (#834).
 
 - SET of a mouse-tracking mode (`CSI ? … h`, e.g. 1000/1002/1003/1006) is **swallowed** so a drag
   stays a text selection instead of the app's coordinate reports landing in the prompt (#729).
+- **Selection auto-scroll at the viewport edge** (#53) is a shim over xterm's own selection
+  drag-scroll, not a replacement selection model. xterm already scrolls and extends the selection
+  when a drag moves outside `.xterm-screen` (`SelectionService`'s drag-scroll timer). The browser
+  grid makes "outside" hard to reach, so `terminalSelectionAutoScroll.ts` listens only while the
+  primary button is down from the terminal screen; when the pointer is inside the top or bottom
+  24px band, it dispatches a synthetic `mousemove` just outside the screen. xterm then does the
+  actual `scrollLines`, selection-end updates, scrollback clamping, mouseup cleanup and selection
+  redraw. Leaving the edge band sends no synthetic event, so xterm's real in-viewport mousemove
+  sets its drag-scroll amount back to zero. The shim does not start its own scroll loop.
+- The edge-scroll shim backs off when xterm is in a real mouse-reporting mode, except for modifier
+  gestures xterm itself treats as forced selection (Shift, or Option on macOS). This keeps
+  mixed/un-swallowed TUI mouse semantics owned by xterm instead of adding a second
+  interpretation. Disposing or rebuilding a terminal removes the screen listener and any active
+  document listeners; detaching a persistent slot cancels any in-flight drag listener without
+  disposing the reusable screen listener.
 - The swallow takes the whole mouse away from the app, so **the wheel and clicks are synthesized
   back** (`src/composables/terminalMouseInput.ts`; the rules are pure in `mouseReports.ts`). Both
   fire only in the alternate buffer, and only for an app that asked for tracking + SGR (1006):
@@ -323,12 +338,14 @@ or `terminal-overrides` capability. The isolation test: write the sequence **dir
   same xterm keeps 305 lines and the scrollbar tracks; with the canvas addon off, nothing changes.
   A fix is a design decision about handing the wheel to tmux copy-mode (see #782), which collides
   with the #729/#737 mouse swallow. **Do not reach for a renderer swap** — that hypothesis is dead,
-  and this entry said otherwise until it was corrected.
+  and this entry said otherwise until it was corrected. Separate from that, #53 lets a
+  normal-buffer selection keep scrolling when the pointer is dragged to the visible terminal edge
+  by feeding xterm's own drag-scroll path.
 - **Selection & copy/paste** — several sharp edges:
   - macOS: selection is **Option+drag** (`macOptionClickForcesSelection`), not plain drag.
-  - You can only select what's on screen: a Claude/Codex TUI runs in the **alternate buffer**,
-    which has no xterm scrollback, and the normal-buffer selection **auto-scroll is broken** (#782)
-    — so copying more than the visible screen isn't possible today.
+  - You can only select what's on screen in a Claude/Codex TUI: it runs in the **alternate buffer**,
+    which has no xterm scrollback. Normal-buffer selection can auto-scroll at the visible edge
+    (#53), but the alternate-buffer/tmux copy-mode design problem remains #782.
   - Copy (auto): Claude's OSC 52 auto-copy works only via the tmux `Ms` override + `set-clipboard
     on` (#206). Paste uses the browser's native Cmd+V into xterm (there is no app paste button).
 - **Phone submit** — the submit byte is env-dependent (`terminalSubmit`, #445/#772); the sanitizer
@@ -343,7 +360,7 @@ looking) — flag them for QA on the release.
 | Area | Check in code | Needs user QA |
 |---|---|---|
 | Renderer / CJK | canvas addon still **loads** (the console warns when it falls back to DOM). The peer-major mismatch is expected and is not the check — a silent fallback is, because the CJK grid goes with it | long Japanese line doesn't drift off the right edge |
-| Scrollbar / selection | — (no unit coverage) | scrollbar visible + synced; Option+drag selects; selection auto-scrolls past the visible screen (#782) |
+| Scrollbar / selection | `terminalSelectionAutoScroll` active listener cleanup + no duplicate rAF; xterm still owns selection state | scrollbar visible + synced; Option+drag selects; selection auto-scrolls past the visible screen in normal scrollback (#53); long TUI scrollback remains governed by #782 |
 | OSC 8 links | tmux `terminal-features '*:hyperlinks'` present; xterm `linkHandler` set | click Claude statusline `PR #NNNN` → opens the PR (no confirm dialog) |
 | OSC 52 clipboard | tmux `Ms` override + `set-clipboard on` present (`planMsOverride`) | Claude auto-copy reaches the browser clipboard |
 | File-path links | `registerFilePathLinks` order vs WebLinks; `/api/files/raw` cwd containment | click a generated file path → previews the file |

@@ -1126,6 +1126,8 @@ Favorited collections get their own toolbar buttons.
   **Option** is treated as Meta so Claude's Alt-key bindings work. If your Claude Code is
   rebound so Enter and Shift+Enter behave backwards, flip them with
   [`terminalSubmit`](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit).
+- **Selection** — on desktop, drag a mouse selection to the terminal's top or bottom edge to keep
+  scrolling while the selection stays active.
 - **Scroll speed** — one wheel notch or trackpad swipe moves the terminal the same distance
   whether you're reading a shell's scrollback or a full-screen app like Claude Code. If a
   two-finger scroll on a Mac trackpad flies past what you were reading, turn **terminal scroll

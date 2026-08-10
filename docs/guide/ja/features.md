@@ -96,7 +96,7 @@ Go・Java/Kotlin・C/C++/Objective-C・PHP・SQL は、その種類を最初に�
 | スクリプト実行 | そのディレクトリの `script.json` のコマンドを実行。稼働中セッションの **Run**（再生アイコン）からは**隣の空きセル**で走らせ、対話を止めない（空セルのランチャからはそのセル内） |
 | Skill メニュー（**Run a skill in the current session**）| そのディレクトリで使えるスキル（`.claude/skills`）を一覧し、選ぶと**今のセッション**で `/<slug>` を実行。working dir のスキルを優先表示。`.mulmoterminal.json` の `skills` で絞り込み可 |
 | git 操作 | worktree セルから**コミット（Claude に依頼）/ Push / Open PR** をワンクリック |
-| コピー & ペースト | 選択して離した瞬間にコピーする **`copyOnSelect`**（既定 OFF）と、キーに割り当てる copy / paste（`keymap`）。ターミナル内のプログラムからキーを奪う設定なので、どちらも opt-in（[設定](config.html#copy-on-select)） |
+| コピー & ペースト | PCブラウザでは、マウス選択中にターミナルの上端 / 下端へドラッグすると選択を伸ばしながらスクロール。選択して離した瞬間にコピーする **`copyOnSelect`**（既定 OFF）と、キーに割り当てる copy / paste（`keymap`）。ターミナル内のプログラムからキーを奪う設定なので、どちらも opt-in（[設定](config.html#copy-on-select)） |
 | 出力の要約（**Summarize output (AI)**）| 端末出力を `claude -p` に渡し、**エラー / 警告 / 原因 / 直し方**を短く要約 |
 | プロンプトとしてコピー（**Copy as prompt**）| コマンド + ディレクトリ + 要約 + フォローアップをコピーして任意セッションに貼付 |
 | ターミナル間のやり取り | **Bring another terminal's last turn**（吹き出し）で別セルの直近ターンをこのセルへ取り込み。**Exchange**（左右の矢印）は送信 → 相手の回答 → 自動で持ち帰りの**自動 1 往復**（Claude ↔ Codex の相互レビューに） |
