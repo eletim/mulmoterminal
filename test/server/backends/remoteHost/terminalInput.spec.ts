@@ -4,17 +4,18 @@ import type { SessionAgent } from "../../../../common/sessionAgent.js";
 
 import { sanitizeTerminalInput, canClearInputBox } from "../../../../server/backends/remoteHost/terminalInput.js";
 
-// Any byte in these ranges, if it survived, could break out of the bracketed paste and run as
-// control input on the host's terminal — the exact thing the sanitizer exists to prevent.
+// Any byte in these ranges, except LF, could break out of the bracketed paste and run as control
+// input on the host's terminal — the exact thing the sanitizer exists to prevent. LF is kept so
+// multiline paste can remain multiline inside the bracketed paste.
 // eslint-disable-next-line no-control-regex -- intentional: assert the sanitizer strips C0/C1 control bytes
-const CONTROL_BYTE = /[\u0000-\u001F\u007F-\u009F]/;
+const UNSAFE_CONTROL_BYTE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/;
 
 describe("sanitizeTerminalInput", () => {
   it("leaves ordinary text alone", () => {
     expect(sanitizeTerminalInput("hello world")).toBe("hello world");
   });
 
-  it("trims and collapses whitespace runs", () => {
+  it("trims and collapses horizontal whitespace runs", () => {
     expect(sanitizeTerminalInput("  a    b  ")).toBe("a b");
   });
 
@@ -25,10 +26,17 @@ describe("sanitizeTerminalInput", () => {
     ["a\x03b", "a b"],
     ["a\x7fb", "a b"],
     ["a\x85b", "a b"],
-    ["line1\nline2", "line1 line2"],
-    ["a\r\nb", "a b"],
     ["a\tb", "a b"],
   ])("replaces the control byte in %j with a space", (raw, expected) => {
+    expect(sanitizeTerminalInput(raw)).toBe(expected);
+  });
+
+  it.each([
+    ["line1\nline2", "line1\nline2"],
+    ["a\r\nb", "a\nb"],
+    ["a\rb", "a\nb"],
+    ["a\n\nb", "a\n\nb"],
+  ])("keeps line breaks in %j", (raw, expected) => {
     expect(sanitizeTerminalInput(raw)).toBe(expected);
   });
 
@@ -37,11 +45,11 @@ describe("sanitizeTerminalInput", () => {
   it("defuses an embedded bracketed-paste terminator", () => {
     const out = sanitizeTerminalInput("safe\x1b[201~evil");
     expect(out).toBe("safe [201~evil");
-    expect(CONTROL_BYTE.test(out)).toBe(false);
+    expect(UNSAFE_CONTROL_BYTE.test(out)).toBe(false);
   });
 
   it("collapses a run of adjacent control bytes to a single space", () => {
-    expect(sanitizeTerminalInput("a\x1b\x03\r\nb")).toBe("a b");
+    expect(sanitizeTerminalInput("a\x1b\x03\r\nb")).toBe("a \nb");
   });
 
   it.each(["", "   ", "\x1b\x03\r\n", "\t\t"])("is empty for input with no printable content (%j)", (raw) => {
@@ -65,9 +73,9 @@ describe("sanitizeTerminalInput", () => {
     expect(sanitizeTerminalInput("café 😀")).toBe("café 😀");
   });
 
-  // The invariant that matters: whatever comes in, no control byte comes out.
-  it.each(["plain", "a\x1b[201~b", "\x00\x01\x02mixed\x1b\x7f", "emoji 😀 and\ttabs", "edge"])("never lets a control byte through (%j)", (raw) => {
-    expect(CONTROL_BYTE.test(sanitizeTerminalInput(raw))).toBe(false);
+  // The invariant that matters: whatever comes in, no unsafe control byte comes out.
+  it.each(["plain", "a\x1b[201~b", "\x00\x01\x02mixed\x1b\x7f", "emoji 😀 and\ttabs", "edge"])("never lets an unsafe control byte through (%j)", (raw) => {
+    expect(UNSAFE_CONTROL_BYTE.test(sanitizeTerminalInput(raw))).toBe(false);
   });
 });
 

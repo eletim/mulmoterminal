@@ -68,8 +68,12 @@ describe("sanitizeTerminalInput", () => {
     expect(hasSequenceIntroducer(sanitizeTerminalInput("ls\u009B201~whoami"))).toBe(false);
   });
 
-  it("strips ESC, Ctrl-C and newlines", () => {
-    expect(sanitizeTerminalInput("a\x1bb\x03c\r\nd")).toBe("a b c d");
+  it("strips ESC and Ctrl-C while normalizing newlines", () => {
+    expect(sanitizeTerminalInput("a\x1bb\x03c\r\nd")).toBe("a b c\nd");
+  });
+
+  it("keeps multiline pasted text multiline", () => {
+    expect(sanitizeTerminalInput("one\r\ntwo\n\nthree")).toBe("one\ntwo\n\nthree");
   });
 
   it("is empty when nothing printable survives", () => {
