@@ -20,6 +20,7 @@ import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 import { homeRelative } from "./cwdDisplay";
 import MobileNewTerminalPanel from "./MobileNewTerminalPanel.vue";
+import MobileSessionActions from "./MobileSessionActions.vue";
 import MobileWebPushPanel from "./MobileWebPushPanel.vue";
 
 const route = useRoute();
@@ -132,12 +133,28 @@ interface MobileInputResult {
 
 const isMobileInputResult = (value: unknown): value is MobileInputResult => isRecord(value) && value.sent === true;
 
+interface MobileInterruptResult {
+  interrupted: true;
+}
+
+const isMobileInterruptResult = (value: unknown): value is MobileInterruptResult => isRecord(value) && value.interrupted === true;
+
+interface MobileStopResult {
+  stopped: true;
+}
+
+const isMobileStopResult = (value: unknown): value is MobileStopResult => isRecord(value) && value.stopped === true;
+
 interface MobileCreateResult {
   ok: true;
   sessionId: string;
 }
 
 const isMobileCreateResult = (value: unknown): value is MobileCreateResult => isRecord(value) && value.ok === true && typeof value.sessionId === "string";
+
+type SessionOperationStatus = "idle" | "sending" | "error";
+const interruptStatus = ref<SessionOperationStatus>("idle");
+const stopStatus = ref<SessionOperationStatus>("idle");
 
 // Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
 // DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
@@ -169,6 +186,8 @@ function changeSelectedSession(next: string | null): void {
   selectedSessionId.value = next;
   inputText.value = "";
   inputStatus.value = "idle";
+  interruptStatus.value = "idle";
+  if (stopStatus.value !== "sending") stopStatus.value = "idle";
 
   if (next) {
     trackSelectionScreenLoad(loadScreen(next));
@@ -390,6 +409,52 @@ async function sendTerminalInput(): Promise<void> {
   } catch {
     if (selectedSessionId.value !== requestedId) return;
     inputStatus.value = "error";
+  }
+}
+
+async function interruptSelectedSession(): Promise<void> {
+  if (!selectedSessionId.value) return;
+  if (!selectedSession.value?.live) return;
+  if (interruptStatus.value === "sending") return;
+
+  const requestedId = selectedSessionId.value;
+  interruptStatus.value = "sending";
+
+  try {
+    const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(requestedId)}/interrupt`, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await jsonBody(res);
+    if (!isMobileInterruptResult(body)) throw new Error("invalid /api/mobile/terminal-sessions/:id/interrupt response");
+    if (selectedSessionId.value !== requestedId) return;
+    interruptStatus.value = "idle";
+    await loadScreen(requestedId);
+  } catch {
+    if (selectedSessionId.value !== requestedId) return;
+    interruptStatus.value = "error";
+    await refreshSessionList();
+  }
+}
+
+async function stopConfirmedSession(requestedId: string): Promise<void> {
+  if (stopStatus.value === "sending") return;
+
+  stopStatus.value = "sending";
+
+  try {
+    const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(requestedId)}/stop`, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await jsonBody(res);
+    if (!isMobileStopResult(body)) throw new Error("invalid /api/mobile/terminal-sessions/:id/stop response");
+    await refreshSessionList();
+    stopStatus.value = "idle";
+  } catch {
+    if (selectedSessionId.value !== requestedId) {
+      stopStatus.value = "idle";
+      await refreshSessionList();
+      return;
+    }
+    stopStatus.value = "error";
+    await refreshSessionList();
   }
 }
 
@@ -616,6 +681,14 @@ onUnmounted(() => {
             <div class="flex items-center justify-between gap-2">
               <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
             </div>
+
+            <MobileSessionActions
+              :session="selectedSession"
+              :interrupt-status="interruptStatus"
+              :stop-status="stopStatus"
+              @interrupt="interruptSelectedSession"
+              @stop="stopConfirmedSession"
+            />
 
             <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
 

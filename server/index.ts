@@ -106,16 +106,16 @@ import { phaseForRepoBranch } from "./git/prPhase.js";
 import { repoForDir } from "./git/forge-support.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./backends/remoteHost/terminalInput.js";
+import { createTerminalSessionOperations } from "./backends/remoteHost/sessionOperations.js";
 import { initCollectionsBackend } from "./backends/collections.js";
 import { initGoogleBackend } from "./backends/google.js";
 import { initPluginRuntime } from "./infra/pluginRuntime.js";
 import { initAccountingBackend } from "./backends/accounting.js";
 import { initFeedsBackend } from "./backends/feeds.js";
 import { HOST_ID as REMOTE_HOST_ID, initRemoteHostBackend, mountRemoteHostRoutes } from "./backends/remoteHost/index.js";
-import { mountLocalMobileTerminalRoutes } from "./routes/local-mobile-terminal-routes.js";
 import { createMobileWebPushFeature, mobileWebPushActivityLifecycleDeps } from "./mobile-web-push/feature.js";
 import { normalizeActivity } from "./session/activity-transition.js";
-import { mountMobileTransport } from "./mobileTransportMount.js";
+import { mountConfiguredMobileTransport } from "./mobileTerminalTransport.js";
 import { createSessionActivityPublisher, firestoreSessionActivityStore } from "./backends/remoteHost/sessionActivity.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
 import { currentFirestore, currentUid } from "./backends/remoteHost/session.js";
@@ -695,6 +695,13 @@ const remoteHostWriteToSession = (sessionId: string, chunk: string): boolean => 
   }
 };
 
+const remoteHostSessionOperations = createTerminalSessionOperations({
+  writeToSession: remoteHostWriteToSession,
+  reapSession: reap,
+  hasTmux: tmuxHasSession,
+  killTmux: tmuxKillSession,
+});
+
 // Whether the phone's typing may empty the input box before pasting, so only the
 // phone's text is submitted (#572). The rule itself lives with the sender.
 const remoteHostCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.get(sessionId)?.agent, activity.get(sessionId)?.working);
@@ -766,6 +773,16 @@ const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys
 // Code has the menu that eats a submit, and only there is the guard's trailing space not real
 // input. Same lookup as sessionSubmitSequence above; shared for the same reason.
 const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
+const sharedMobileTerminalDeps = {
+  listTerminalSessions: remoteHostListTerminalSessions,
+  captureTerminalScreen: remoteHostCaptureTerminalScreen,
+  writeToSession: remoteHostWriteToSession,
+  ...remoteHostSessionOperations,
+  canClearBox: remoteHostCanClearBox,
+  submitSequence: sessionSubmitSequence,
+  sessionAgent: sessionAgentFor,
+  launchTerminal: mobileTerminalLauncher.fromSession,
+};
 
 // What the LOCAL mobile route's `activity` field reads (server/routes/local-mobile-terminal-
 // routes.ts) — the same `activity` map and work-phase tracker the desktop roster and the remote
@@ -776,49 +793,25 @@ const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
 const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
 const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
 
-// The phone's terminal transport is exclusively one of two adapters over the SAME PTY access
-// above — never both, so a build never has to reconcile a Firestore command doc and an HTTP
-// request racing the same session. MOBILE_MODE is decided once at boot (server/config/env.ts);
-// switching which one runs needs a restart. The dispatch itself is mobileTransportMount.ts's
-// job, so its exclusivity is a fact a test can assert on rather than only readable here.
-mountMobileTransport({
+mountConfiguredMobileTransport({
   mode: MOBILE_MODE,
-  mountRemote: () => {
-    initRemoteHostBackend({
-      workspace: CLAUDE_CWD,
-      spawnChat: remoteHostSpawnChat,
-      spawnIssueSeed: remoteHostSpawnIssueSeed,
-      launchTerminal: mobileTerminalLauncher.fromSession,
-      listTerminalSessions: remoteHostListTerminalSessions,
-      captureTerminalScreen: remoteHostCaptureTerminalScreen,
-      writeToSession: remoteHostWriteToSession,
-      canClearBox: remoteHostCanClearBox,
-      submitSequence: sessionSubmitSequence,
-      sessionAgent: sessionAgentFor,
-    });
-    // POST /api/remote-host/connect|disconnect + GET /status — start/stop the Firestore host
-    // loop from the toolbar Connect control. Same-origin guarded internally.
-    mountRemoteHostRoutes(app, { isAllowedOrigin });
+  app,
+  isAllowedOrigin,
+  initRemote: initRemoteHostBackend,
+  mountRemoteRoutes: mountRemoteHostRoutes,
+  remoteHostDeps: {
+    workspace: CLAUDE_CWD,
+    spawnChat: remoteHostSpawnChat,
+    spawnIssueSeed: remoteHostSpawnIssueSeed,
+    ...sharedMobileTerminalDeps,
   },
-  mountLocal: () => {
-    // GET the session list/screen + POST input/launch, over plain same-origin HTTP instead of
-    // the Firestore command channel. No Firebase connect/status/disconnect API in this mode.
-    mountLocalMobileTerminalRoutes(app, {
-      isAllowedOrigin,
-      listTerminalSessions: remoteHostListTerminalSessions,
-      captureTerminalScreen: remoteHostCaptureTerminalScreen,
-      captureStyledScreen: localMobileCaptureStyledScreen,
-      writeToSession: remoteHostWriteToSession,
-      canClearBox: remoteHostCanClearBox,
-      submitSequence: sessionSubmitSequence,
-      sessionAgent: sessionAgentFor,
-      launchTerminal: mobileTerminalLauncher.fromSession,
-      createTerminalAtCwd: localMobileTerminalCreator,
-      activityOf: localMobileActivityOf,
-      workPhaseOf: localMobileWorkPhaseOf,
-      setWaiting,
-      mobileWebPush,
-    });
+  localExtras: {
+    captureStyledScreen: localMobileCaptureStyledScreen,
+    createTerminalAtCwd: localMobileTerminalCreator,
+    activityOf: localMobileActivityOf,
+    workPhaseOf: localMobileWorkPhaseOf,
+    setWaiting,
+    mobileWebPush,
   },
 });
 

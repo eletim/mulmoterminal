@@ -58,6 +58,7 @@ function mobileWebPushDeps(overrides: Partial<LocalMobileTerminalRouteDeps["mobi
 function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"] = () => true) {
   const writes: Array<{ id: string; chunk: string }> = [];
   const waitingUpdates: Array<{ id: string; waiting: boolean; event: string | undefined }> = [];
+  const stops: string[] = [];
   const deps: LocalMobileTerminalRouteDeps = {
     isAllowedOrigin,
     listTerminalSessions: async () => SESSIONS,
@@ -68,6 +69,13 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
     writeToSession: (id, chunk) => {
       writes.push({ id, chunk });
       return id !== TMUX_ONLY;
+    },
+    interruptSession: (id) => {
+      writes.push({ id, chunk: "\x03" });
+      return id !== TMUX_ONLY;
+    },
+    stopSession: (id) => {
+      stops.push(id);
     },
     canClearBox: () => false,
     submitSequence: () => "\r",
@@ -97,7 +105,7 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
   const app = express();
   app.use(express.json());
   mountLocalMobileTerminalRoutes(app, deps);
-  return { app, writes, waitingUpdates };
+  return { app, writes, waitingUpdates, stops };
 }
 
 describe("localSessionActivity", () => {
@@ -494,6 +502,77 @@ describe("POST /api/mobile/terminal-sessions/:id/input", () => {
     expect(writes).toHaveLength(4);
     expect(writes[1].chunk).toBe("\r");
     expect(writes[3].chunk).toBe("\r");
+  });
+});
+
+describe("POST /api/mobile/terminal-sessions/:id/interrupt", () => {
+  it("sends Ctrl+C through the injected raw interrupt path, without reaping the session", async () => {
+    const { app, writes, stops } = appFor();
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/interrupt`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ interrupted: true });
+    expect(writes).toEqual([{ id: LIVE, chunk: "\x03" }]);
+    expect(stops).toEqual([]);
+  });
+
+  it("interrupts only the targeted session", async () => {
+    const other = randomUUID();
+    const { app, writes } = appFor();
+    await request(app).post(`/api/mobile/terminal-sessions/${other}/interrupt`);
+    expect(writes).toEqual([{ id: other, chunk: "\x03" }]);
+  });
+
+  it("409s a session with no live PTY to interrupt", async () => {
+    const { app } = appFor();
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${TMUX_ONLY}/interrupt`);
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "session is not live" });
+  });
+
+  it("400s an id that is not a session id", async () => {
+    const { app, writes } = appFor();
+    const res = await request(app).post("/api/mobile/terminal-sessions/not-a-uuid/interrupt");
+    expect(res.status).toBe(400);
+    expect(writes).toEqual([]);
+  });
+
+  it("403s a disallowed Origin without interrupting", async () => {
+    const { app, writes } = appFor({}, () => false);
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/interrupt`).set("Origin", "https://evil.example");
+    expect(res.status).toBe(403);
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("POST /api/mobile/terminal-sessions/:id/stop", () => {
+  it("uses the injected stop lifecycle for only the targeted session", async () => {
+    const { app, stops, writes } = appFor();
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/stop`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ stopped: true });
+    expect(stops).toEqual([LIVE]);
+    expect(writes).toEqual([]);
+  });
+
+  it("treats an already stopped valid session id as a safe no-op", async () => {
+    const { app, stops } = appFor();
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${GONE}/stop`);
+    expect(res.status).toBe(200);
+    expect(stops).toEqual([GONE]);
+  });
+
+  it("400s an id that is not a session id", async () => {
+    const { app, stops } = appFor();
+    const res = await request(app).post("/api/mobile/terminal-sessions/not-a-uuid/stop");
+    expect(res.status).toBe(400);
+    expect(stops).toEqual([]);
+  });
+
+  it("403s a disallowed Origin without stopping", async () => {
+    const { app, stops } = appFor({}, () => false);
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/stop`).set("Origin", "https://evil.example");
+    expect(res.status).toBe(403);
+    expect(stops).toEqual([]);
   });
 });
 

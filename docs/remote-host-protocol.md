@@ -37,6 +37,8 @@ grouped in `handlers/terminalSession.ts`.
 | `listTerminalSessions` | — | `{ sessions: TerminalSessionSummary[] }` |
 | `getTerminalScreen` | `sessionId` | `SessionScreen` |
 | `sendTerminalInput` | `sessionId`, `text` | `{ sent: true }` |
+| `interruptTerminalSession` | `sessionId` | `{ interrupted: true }` |
+| `stopTerminalSession` | `sessionId` | `{ stopped: true }` |
 | `launchTerminal` | `agent`, `sessionId` | `{ ok: true }` |
 | `startChat` | `message`, `attachments?` | `{ started: true, chatId }` |
 | `listIssues` | — | `{ repos: RepoIssueRows[] }` |
@@ -160,6 +162,24 @@ because the process that knew what it was launched with is gone.
 The list is filtered to **grid cells, plus the sessions waiting to become one** — a chat or an
 issue the phone started that no browser has adopted yet (`isPhoneListableSession`). A tmux shell
 that was never a cell and that nobody spawned for one is excluded, even while live.
+
+### Terminal session operations (#48)
+
+`sendTerminalInput`, `interruptTerminalSession`, and `stopTerminalSession` all act on the session id
+from `listTerminalSessions`; the phone never sends a process id, pane name, or path.
+
+`interruptTerminalSession` writes the terminal interrupt byte (`\x03`, Ctrl-C) to the live PTY through
+the same input path used for terminal typing. It only interrupts the foreground process; the session
+itself remains present. A detached row (`live: false`) cannot be interrupted, because this process has
+no PTY handle to write to, so the command refuses with an error.
+
+`stopTerminalSession` ends the session itself through the same lifecycle as the desktop terminate
+button: reap the live PTY, clean the live registries, and kill the matching tmux session when one is
+still present. It does not delete transcript, rollout, or conversation history.
+
+Stop is destructive, so the client must confirm before sending `stopTerminalSession`. A first tap may
+open UI, but the command should be sent only after the user chooses the destructive confirmation, and
+duplicate in-flight stop commands for the same session should be suppressed client-side.
 
 ### `SessionScreen`
 

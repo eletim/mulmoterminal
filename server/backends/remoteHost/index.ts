@@ -98,6 +98,8 @@ export function initRemoteHostBackend(deps: RemoteHostBackendDeps): void {
       listTerminalSessions: deps.listTerminalSessions,
       captureTerminalScreen: deps.captureTerminalScreen,
       writeToSession: deps.writeToSession,
+      interruptSession: deps.interruptSession,
+      stopSession: deps.stopSession,
       canClearBox: deps.canClearBox,
       submitSequence: deps.submitSequence,
       sessionAgent: deps.sessionAgent,

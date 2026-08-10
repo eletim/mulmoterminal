@@ -45,7 +45,15 @@ export const localSessionActivity = (activity: ActivityTriple, workPhase: WorkPh
 
 export type LocalMobileTerminalRouteDeps = Pick<
   RemoteHostHandlerDeps,
-  "listTerminalSessions" | "captureTerminalScreen" | "writeToSession" | "canClearBox" | "submitSequence" | "sessionAgent" | "launchTerminal"
+  | "listTerminalSessions"
+  | "captureTerminalScreen"
+  | "writeToSession"
+  | "interruptSession"
+  | "stopSession"
+  | "canClearBox"
+  | "submitSequence"
+  | "sessionAgent"
+  | "launchTerminal"
 > & {
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
@@ -193,12 +201,37 @@ function mountInputRoute(
   });
 }
 
+function mountSessionOperationRoutes(
+  app: Express,
+  isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
+  interruptSession: LocalMobileTerminalRouteDeps["interruptSession"],
+  stopSession: LocalMobileTerminalRouteDeps["stopSession"],
+) {
+  app.post("/api/mobile/terminal-sessions/:id/interrupt", (req: Request<{ id: string }>, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const { id } = req.params;
+    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
+    if (!interruptSession(id)) return res.status(409).json({ error: "session is not live" });
+    res.json({ interrupted: true });
+  });
+
+  app.post("/api/mobile/terminal-sessions/:id/stop", (req: Request<{ id: string }>, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const { id } = req.params;
+    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
+    stopSession(id);
+    res.json({ stopped: true });
+  });
+}
+
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
   const {
     isAllowedOrigin,
     listTerminalSessions,
     captureTerminalScreen,
     writeToSession,
+    interruptSession,
+    stopSession,
     canClearBox,
     submitSequence,
     sessionAgent,
@@ -231,6 +264,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
   mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
   mountInputRoute(app, isAllowedOrigin, sendInput, setWaiting);
+  mountSessionOperationRoutes(app, isAllowedOrigin, interruptSession, stopSession);
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
     const { id } = req.params;
