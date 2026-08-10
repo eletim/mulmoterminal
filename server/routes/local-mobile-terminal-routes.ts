@@ -10,6 +10,7 @@
 // colour layer): it reads the same tmux/PTY sources remoteHostCaptureTerminalScreen does, but is
 // never handed to the Firestore remote-host adapter — see its own doc comment for why.
 import type { Express, Request, Response } from "express";
+import os from "node:os";
 import { SESSION_ID_RE } from "../config/env.js";
 import { requestBody } from "./requestBody.js";
 import { requestOriginAllowed } from "./same-origin-guard.js";
@@ -221,7 +222,10 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     // TerminalSessionSummary — see LocalSessionActivity's comment. remoteHostListTerminalSessions
     // (passed in as listTerminalSessions) is the SAME function the Firestore remote-host adapter
     // calls, and its return shape is remote mobile's wire contract too.
-    res.json({ sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })) });
+    res.json({
+      home: os.homedir(),
+      sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })),
+    });
   });
 
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);

@@ -9,10 +9,12 @@ import {
   captureSessionScreen,
   definedScreenMeta,
   screenWindow,
+  sessionFallbackTitle,
   type CaptureScreenDeps,
   type ScreenMetaSources,
   type SessionListInput,
 } from "../../../../server/backends/remoteHost/terminalScreen.js";
+import { homedir } from "node:os";
 import type { ScreenRow } from "../../../../server/session/screen-rows.js";
 import { undefinedPaths } from "@mulmoclaude/core/remote-host/server";
 import { sessionDisplayName } from "../../../../common/sessionMemo.js";
@@ -139,10 +141,13 @@ describe("buildSessionList", () => {
     expect(sessions.map((session) => session.id)).toEqual(["named"]);
   });
 
-  // Live earns a row regardless: the id at least points at something running now.
-  it("keeps a nameless session while it is live, labelled by its id", () => {
-    const sessions = buildSessionList(listInput({ liveIds: ["abc"], detailOf: () => ({ title: "", cwd: "/w", agent: "shell" }) }));
-    expect(sessions).toEqual([{ id: "abc", title: "abc", cwd: "/w", live: true, agent: "shell" }]);
+  // Live earns a row regardless: the fallback names what is running and where, without exposing
+  // the UUID as the title.
+  it("keeps a nameless live shell labelled by agent and home-derived directory, not by its id", () => {
+    const id = "11111111-1111-1111-1111-111111111111";
+    const cwd = `${homedir()}/DevEnv/dev/mulmoterminal`;
+    const sessions = buildSessionList(listInput({ liveIds: [id], detailOf: () => ({ title: "", cwd, agent: "shell" }) }));
+    expect(sessions).toEqual([{ id, title: "shell DevEnv", cwd, live: true, agent: "shell" }]);
   });
 
   it("uses a last prompt title for a live session instead of falling back to its id", () => {
@@ -154,6 +159,12 @@ describe("buildSessionList", () => {
       }),
     );
     expect(sessions[0]).toMatchObject({ id, title: "fix the login bug" });
+  });
+
+  it("does not replace a known non-empty title with the fallback", () => {
+    const id = "11111111-1111-1111-1111-111111111111";
+    const sessions = buildSessionList(listInput({ liveIds: [id], detailOf: () => ({ title: "Known title", cwd: `${homedir()}/DevEnv/app`, agent: "codex" }) }));
+    expect(sessions[0]).toMatchObject({ id, title: "Known title" });
   });
 
   // A session that outlived a host restart keeps its recorded title, so it stays offerable.
@@ -171,6 +182,32 @@ describe("buildSessionList", () => {
   it("carries the per-session title and cwd through", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["a"], detailOf: () => ({ title: "Fix the parser", cwd: "/repo", agent: "shell" }) }));
     expect(sessions[0]).toMatchObject({ title: "Fix the parser", cwd: "/repo" });
+  });
+});
+
+describe("sessionFallbackTitle", () => {
+  it("uses the first directory under HOME as the fallback path name", () => {
+    expect(sessionFallbackTitle("shell", "/home/eletim/DevEnv/dev/mulmoterminal", "/home/eletim")).toBe("shell DevEnv");
+    expect(sessionFallbackTitle("codex", "/home/eletim/napoleon_ws/worktrees/foo", "/home/eletim")).toBe("codex napoleon_ws");
+  });
+
+  it("uses ~ when the cwd is HOME itself", () => {
+    expect(sessionFallbackTitle("shell", "/home/eletim", "/home/eletim")).toBe("shell ~");
+  });
+
+  it("does not fall back to a UUID-shaped title when cwd is unknown", () => {
+    expect(sessionFallbackTitle("shell", "", "/home/eletim")).toBe("shell session");
+  });
+
+  it("uses and truncates the display path outside HOME", () => {
+    const out = sessionFallbackTitle("codex", "/srv/very/long/customer/workspaces/product/backend/services/auth/handlers", "/home/eletim", 32);
+    expect(out).toMatch(/^codex …/);
+    expect(out).toHaveLength(32);
+    expect(out.endsWith("services/auth/handlers")).toBe(true);
+  });
+
+  it("does not treat a HOME-prefix lookalike as being inside HOME", () => {
+    expect(sessionFallbackTitle("shell", "/home/eletim-other/project", "/home/eletim")).toBe("shell /home/eletim-other/project");
   });
 });
 
