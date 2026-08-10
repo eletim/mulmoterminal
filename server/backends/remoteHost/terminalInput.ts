@@ -22,10 +22,13 @@
 import type { SessionAgent } from "../../../common/sessionAgent.js";
 import { submittableLineForAgent } from "../../../common/terminalSubmit.js";
 
-// Strip ALL control bytes (C0/C1 — ESC, Ctrl-C, CR/LF, and an embedded
-// bracketed-paste terminator). Only printable text survives, whitespace collapsed.
+// Strip terminal control bytes (C0/C1 — ESC, Ctrl-C, and an embedded bracketed-paste
+// terminator) while keeping line breaks as text inside the bracketed paste. CRLF/CR are
+// normalized to LF first so pasted multi-line input survives with one newline spelling.
 // eslint-disable-next-line no-control-regex -- intentional: match terminal control bytes (C0/C1) to strip them
-const CONTROL_BYTES_RE = /[\u0000-\u001F\u007F-\u009F]+/g;
+const CONTROL_BYTES_EXCEPT_LINE_BREAKS_RE = /[\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F]+/g;
+const CRLF_RE = /\r\n?/g;
+const HORIZONTAL_WHITESPACE_RE = /[^\S\n]+/g;
 
 // The closing `.trim()` is load-bearing, not cosmetic: a control byte becomes a SPACE (so `a\nb`
 // cannot become `ab`), which manufactures whitespace the sender never typed — `"\x03"` arrives as
@@ -33,7 +36,8 @@ const CONTROL_BYTES_RE = /[\u0000-\u001F\u007F-\u009F]+/g;
 // nothing printable in it rather than submit an empty turn on the host; a leading space would also
 // reach a shell for real (`HISTCONTROL=ignorespace`). Text that needs to END in a space to submit
 // gets that from submittableLine, AFTER this emptiness decision — never by trimming less (#1142).
-export const sanitizeTerminalInput = (text: string): string => text.replace(CONTROL_BYTES_RE, " ").replace(/\s+/g, " ").trim();
+export const sanitizeTerminalInput = (text: string): string =>
+  text.replace(CRLF_RE, "\n").replace(CONTROL_BYTES_EXCEPT_LINE_BREAKS_RE, " ").replace(HORIZONTAL_WHITESPACE_RE, " ").trim();
 
 export const PASTE_START = "\x1b[200~";
 export const PASTE_END = "\x1b[201~";

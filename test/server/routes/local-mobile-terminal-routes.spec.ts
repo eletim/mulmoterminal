@@ -437,6 +437,13 @@ describe("POST /api/mobile/terminal-sessions/:id/input", () => {
     expect(waitingUpdates).toEqual([{ id: LIVE, waiting: false, event: undefined }]);
   });
 
+  it("keeps multiline input inside the bracketed paste before the submit sequence", async () => {
+    const { app, writes } = appFor();
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/input`).send({ text: "one\ntwo\nthree" });
+    expect(res.status).toBe(200);
+    expect(writes.map((w) => w.chunk)).toEqual(["\x1b[200~one\ntwo\nthree\x1b[201~", "\r"]);
+  });
+
   it("400s an id that is not a session id", async () => {
     const { app } = appFor();
     const res = await request(app).post("/api/mobile/terminal-sessions/not-a-uuid/input").send({ text: "x" });

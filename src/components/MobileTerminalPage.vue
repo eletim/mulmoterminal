@@ -6,7 +6,7 @@
 // (GET /api/mobile/terminal-sessions/:id/screen), creating a new local terminal (POST
 // /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
 // (POST /api/mobile/terminal-sessions/:id/input).
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { isMobileMode } from "../../common/mobileMode";
 import { SESSION_AGENTS } from "../../common/sessionAgent";
@@ -107,8 +107,25 @@ const manualRefreshCoolingDown = ref(false);
 let cooldownTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 const inputText = ref("");
+const inputTextareaEl = ref<HTMLTextAreaElement | null>(null);
 type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
+
+const MOBILE_INPUT_MIN_HEIGHT_PX = 42;
+const MOBILE_INPUT_MAX_HEIGHT_PX = 128;
+
+function resizeInputTextarea(): void {
+  const el = inputTextareaEl.value;
+  if (!el) return;
+  el.style.height = "auto";
+  const nextHeight = Math.min(Math.max(el.scrollHeight, MOBILE_INPUT_MIN_HEIGHT_PX), MOBILE_INPUT_MAX_HEIGHT_PX);
+  el.style.height = `${nextHeight}px`;
+  el.style.overflowY = el.scrollHeight > MOBILE_INPUT_MAX_HEIGHT_PX ? "auto" : "hidden";
+}
+
+function scheduleInputResize(): void {
+  void nextTick(resizeInputTextarea);
+}
 
 interface MobileInputResult {
   sent: true;
@@ -166,6 +183,8 @@ watch(selectedSession, (session) => {
   if (newTerminalCwdTouched.value) return;
   if (session?.cwd) newTerminalCwd.value = session.cwd;
 });
+
+watch([inputText, screenStatus, selectedSessionId], scheduleInputResize);
 
 // Applies a freshly fetched session list, keeping the current selection when it still exists
 // (used by both the initial load and the recurring poll below) and only otherwise falling back
@@ -575,12 +594,14 @@ onUnmounted(() => {
       v-if="status === 'local' && screenStatus === 'loaded' && selectedSession?.live"
       class="flex-none border-t border-border bg-panel px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
-      <form class="flex gap-2" @submit.prevent="sendTerminalInput">
-        <input
+      <form class="flex items-end gap-2" @submit.prevent="sendTerminalInput">
+        <textarea
+          ref="inputTextareaEl"
           v-model="inputText"
-          type="text"
-          placeholder="Type a line…"
-          class="min-w-0 flex-1 rounded-md border border-border bg-elevated px-2.5 py-2 text-[16px] text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="mobile-terminal-input"
+          rows="1"
+          placeholder="Type…"
+          class="min-h-[42px] min-w-0 flex-1 resize-none rounded-md border border-border bg-elevated px-2.5 py-2 text-[16px] leading-6 text-fg placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-50"
           :disabled="inputStatus === 'sending'"
         />
         <button

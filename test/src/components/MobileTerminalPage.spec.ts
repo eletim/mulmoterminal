@@ -44,6 +44,7 @@ function restoreDescriptor(target: object, key: string, descriptor: PropertyDesc
 afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  document.body.innerHTML = "";
   restoreDescriptor(globalThis, "Notification", originalNotificationDescriptor);
   restoreDescriptor(globalThis, "PushManager", originalPushManagerDescriptor);
   restoreDescriptor(navigator, "serviceWorker", originalServiceWorkerDescriptor);
@@ -434,7 +435,7 @@ describe("MobileTerminalPage", () => {
             await buttons[1].trigger("click"); // select "b"
             await flushPromises();
 
-            const inputEl = () => wrapper.find('footer input[type="text"]');
+            const inputEl = () => wrapper.find("footer textarea");
             await inputEl().setValue("leftover for b");
             await wrapper.find("form").trigger("submit");
             await flushPromises();
@@ -447,7 +448,7 @@ describe("MobileTerminalPage", () => {
 
             expect(wrapper.get('[class*="border-accent"]').text()).toContain("a");
             expect(wrapper.text()).not.toContain("Failed to send terminal input.");
-            expect((inputEl().element as HTMLInputElement).value).toBe("");
+            expect((inputEl().element as HTMLTextAreaElement).value).toBe("");
           } finally {
             vi.useRealTimers();
           }
@@ -477,7 +478,7 @@ describe("MobileTerminalPage", () => {
             await buttons[1].trigger("click"); // select "b"
             await flushPromises();
 
-            const inputEl = () => wrapper.find('footer input[type="text"]');
+            const inputEl = () => wrapper.find("footer textarea");
             await inputEl().setValue("echo from b");
             await wrapper.find("form").trigger("submit"); // b's send is now pending
             await flushPromises();
@@ -494,7 +495,7 @@ describe("MobileTerminalPage", () => {
             resolveInputB({ ok: false, json: async () => ({}) });
             await flushPromises();
 
-            expect((inputEl().element as HTMLInputElement).value).toBe("echo from a");
+            expect((inputEl().element as HTMLTextAreaElement).value).toBe("echo from a");
             expect(wrapper.text()).not.toContain("Failed to send terminal input.");
           } finally {
             vi.useRealTimers();
@@ -506,14 +507,14 @@ describe("MobileTerminalPage", () => {
           try {
             mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
             const wrapper = await mountPage();
-            await wrapper.find('footer input[type="text"]').setValue("leftover");
+            await wrapper.find("footer textarea").setValue("leftover");
 
             mockFetch({ mode: "local", sessions: [] });
             vi.advanceTimersByTime(2000);
             await flushPromises();
 
             expect(wrapper.text()).toContain("No terminal sessions.");
-            expect(wrapper.find('footer input[type="text"]').exists()).toBe(false);
+            expect(wrapper.find("footer textarea").exists()).toBe(false);
           } finally {
             vi.useRealTimers();
           }
@@ -899,6 +900,42 @@ describe("MobileTerminalPage", () => {
       expect(vi.mocked(globalThis.fetch).mock.calls.some(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST")).toBe(
         false,
       );
+    });
+
+    it("uses the shared folder picker and POSTs the selected directory as cwd", async () => {
+      let sessionsCall = 0;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/directories") return { ok: true, json: async () => ({ path: "/home/me/picked", parent: "/home/me", directories: [] }) };
+        if (url === "/api/mobile/terminal-sessions" && init?.method === "POST") return { ok: true, json: async () => ({ ok: true, sessionId: "created" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          sessionsCall += 1;
+          return {
+            ok: true,
+            json: async () => ({
+              sessions: sessionsCall === 1 ? [] : [session({ id: "created", title: "created", cwd: "/home/me/picked", live: true, agent: "shell" })],
+            }),
+          };
+        }
+        if (url === "/api/mobile/terminal-sessions/created/screen") return { ok: true, json: async () => ({ screen: "screen-created" }) };
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      await wrapper.get('[data-testid="mobile-folder-picker-button"]').trigger("click");
+      await flushPromises();
+      document.body.querySelector<HTMLButtonElement>('[data-testid="folder-picker-select"]')?.click();
+      await flushPromises();
+
+      expect((cwdInput(wrapper).element as HTMLInputElement).value).toBe("/home/me/picked");
+      await findButton(wrapper, "Start").trigger("click");
+      await flushPromises();
+
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url) === "/api/mobile/terminal-sessions" && init?.method === "POST");
+      if (!post) throw new Error("create POST not found");
+      expect(post[1]?.body).toBe(JSON.stringify({ agent: "shell", cwd: "/home/me/picked" }));
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("created");
     });
   });
 
@@ -1671,17 +1708,18 @@ describe("MobileTerminalPage", () => {
 
   describe("terminal input", () => {
     function inputEl(wrapper: Awaited<ReturnType<typeof mountPage>>) {
-      return wrapper.find('footer input[type="text"]');
+      return wrapper.find("footer textarea");
     }
 
     function inputCallCount(id: string): number {
       return vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => String(url) === `/api/mobile/terminal-sessions/${id}/input`).length;
     }
 
-    it("shows a one-line input and Send button for a live session once its screen has loaded", async () => {
+    it("shows a multiline textarea and Send button for a live session once its screen has loaded", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") } });
       const wrapper = await mountPage();
       expect(inputEl(wrapper).exists()).toBe(true);
+      expect(inputEl(wrapper).attributes("rows")).toBe("1");
       expect(wrapper.findAll("button").some((b) => b.text() === "Send")).toBe(true);
     });
 
@@ -1749,6 +1787,44 @@ describe("MobileTerminalPage", () => {
       expect(init?.body).toBe(JSON.stringify({ text: "  echo hi  " }));
     });
 
+    it("keeps pasted newlines in the textarea and POSTs the multiline text unmodified", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk("hello") },
+        inputs: { a: inputOk() },
+      });
+      const wrapper = await mountPage();
+      const pasted = "line one\nline two\nline three";
+
+      await inputEl(wrapper).setValue(pasted);
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe(pasted);
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      const call = vi.mocked(globalThis.fetch).mock.calls.find(([url]) => String(url) === "/api/mobile/terminal-sessions/a/input");
+      if (!call) throw new Error("input POST not found");
+      expect(call[1]?.body).toBe(JSON.stringify({ text: pasted }));
+    });
+
+    it("auto-expands the textarea for a few lines, then scrolls inside it", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
+      const wrapper = await mountPage();
+      const el = inputEl(wrapper).element as HTMLTextAreaElement;
+
+      Object.defineProperty(el, "scrollHeight", { configurable: true, value: 96 });
+      await inputEl(wrapper).setValue("one\ntwo\nthree");
+      await nextTick();
+      expect(el.style.height).toBe("96px");
+      expect(el.style.overflowY).toBe("hidden");
+
+      Object.defineProperty(el, "scrollHeight", { configurable: true, value: 180 });
+      await inputEl(wrapper).setValue("one\ntwo\nthree\nfour\nfive\nsix\nseven");
+      await nextTick();
+      expect(el.style.height).toBe("128px");
+      expect(el.style.overflowY).toBe("auto");
+    });
+
     it("clears the input after a successful send", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("hello") }, inputs: { a: inputOk() } });
       const wrapper = await mountPage();
@@ -1757,7 +1833,7 @@ describe("MobileTerminalPage", () => {
       await wrapper.find("form").trigger("submit");
       await flushPromises();
 
-      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("");
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("");
     });
 
     it("shows a fixed error message and keeps the input on a non-2xx response", async () => {
@@ -1769,7 +1845,7 @@ describe("MobileTerminalPage", () => {
       await flushPromises();
 
       expect(wrapper.text()).toContain("Failed to send terminal input.");
-      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("echo hi");
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("echo hi");
     });
 
     it("shows the fixed error message and keeps the input when the response's sent field is not true", async () => {
@@ -1786,7 +1862,7 @@ describe("MobileTerminalPage", () => {
       await flushPromises();
 
       expect(wrapper.text()).toContain("Failed to send terminal input.");
-      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("echo hi");
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("echo hi");
     });
 
     it("disables the input and Send button while sending, and ignores an extra submit meanwhile", async () => {
@@ -1844,7 +1920,7 @@ describe("MobileTerminalPage", () => {
       await wrapper.find("form").trigger("submit"); // the box still holds the same text
       await flushPromises();
 
-      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("");
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("");
       expect(wrapper.text()).not.toContain("Failed to send terminal input.");
     });
 
@@ -1891,7 +1967,7 @@ describe("MobileTerminalPage", () => {
       await buttons[1].trigger("click"); // switch to "b"
       await flushPromises();
 
-      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("");
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("");
       expect(wrapper.text()).not.toContain("Failed to send terminal input.");
     });
 
@@ -1931,7 +2007,7 @@ describe("MobileTerminalPage", () => {
       resolveInputA({ ok: false, json: async () => ({}) });
       await flushPromises();
 
-      expect((inputEl(wrapper).element as HTMLInputElement).value).toBe("echo from b");
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("echo from b");
       expect(wrapper.text()).not.toContain("Failed to send terminal input.");
     });
   });
@@ -1969,7 +2045,7 @@ describe("MobileTerminalPage", () => {
       const footer = wrapper.find("footer");
       expect(footer.exists()).toBe(true);
       expect(footer.find("form").exists()).toBe(true);
-      expect(footer.find('input[type="text"]').exists()).toBe(true);
+      expect(footer.find("textarea").exists()).toBe(true);
     });
 
     it("keeps the detached-session read-only notice inside the scrollable main, not the footer", async () => {
