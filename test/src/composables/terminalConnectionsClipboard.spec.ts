@@ -5,12 +5,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // close over one — hence `await import` inside each factory, and `vi.hoisted` for the state they
 // write into (a plain `const` would be in its temporal dead zone when a factory runs).
 const { termState: mockTermState, keyState: mockKeyState } = await vi.hoisted(async () => (await import("../../helpers/xtermDouble")).createXtermState());
+const selectionAutoScrollState = vi.hoisted(() => ({
+  handle: {
+    cancel: vi.fn(),
+    dispose: vi.fn(),
+    selectionTextForCopy: vi.fn<() => string | null>(() => null),
+  },
+}));
 
 vi.mock("@xterm/xterm", async () => (await import("../../helpers/xtermDouble")).xtermModule(mockTermState, mockKeyState));
 vi.mock("@xterm/addon-fit", async () => (await import("../../helpers/xtermDouble")).fitAddonModule());
 vi.mock("@xterm/addon-web-links", async () => (await import("../../helpers/xtermDouble")).webLinksAddonModule());
 vi.mock("@xterm/addon-clipboard", async () => (await import("../../helpers/xtermDouble")).clipboardAddonModule());
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
+vi.mock("../../../src/composables/terminalSelectionAutoScroll", () => ({
+  wireSelectionEdgeAutoScroll: vi.fn(() => selectionAutoScrollState.handle),
+}));
 
 import * as conn from "../../../src/composables/useTerminalConnections";
 import { FakeWebSocket } from "../../helpers/xtermDouble";
@@ -53,6 +63,10 @@ describe("copy-on-select wiring", () => {
     writeText.mockReset();
     writeText.mockResolvedValue(undefined);
     execCommand.mockClear();
+    selectionAutoScrollState.handle.cancel.mockClear();
+    selectionAutoScrollState.handle.dispose.mockClear();
+    selectionAutoScrollState.handle.selectionTextForCopy.mockReset();
+    selectionAutoScrollState.handle.selectionTextForCopy.mockReturnValue(null);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     // jsdom implements no execCommand at all, and the fallback needs a real one to observe.
     Object.defineProperty(document, "execCommand", { value: execCommand, configurable: true, writable: true });
@@ -103,6 +117,18 @@ describe("copy-on-select wiring", () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith("npm run build");
+  });
+
+  it("uses accumulated edge-auto-scroll selection text when copy-on-select writes directly", async () => {
+    setCopyOnSelect(true);
+    attachTerminal();
+    selectionAutoScrollState.handle.selectionTextForCopy.mockReturnValue(["950", "951", "960", "961", "962", "970", "971", "972"].join("\n"));
+
+    select("970\n971\n972");
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(["950", "951", "960", "961", "962", "970", "971", "972"].join("\n"));
   });
 
   // The default. Highlighting must not touch the clipboard for anyone who did not ask for this.

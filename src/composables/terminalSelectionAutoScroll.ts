@@ -9,12 +9,15 @@ const MAIN_BUTTON_MASK = 1;
 const DRAG_SLOP_PX = 3;
 const AUTO_SCROLL_LINES_PER_SECOND = 18;
 const MAX_FRAME_MS = 80;
+const XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX = 50;
+const XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX = 1;
 
 const syntheticSelectionMoves = new WeakSet<MouseEvent>();
 
 export interface SelectionEdgeAutoScrollHandle {
   cancel(): void;
   dispose(): void;
+  selectionTextForCopy(): string | null;
 }
 
 function screenElementOf(term: Terminal): HTMLElement | null {
@@ -56,6 +59,16 @@ function clampPointerToScreen(event: MouseEvent, screen: HTMLElement): PointerPo
   };
 }
 
+function pointerOutsideScreenForXtermDragScroll(event: MouseEvent, screen: HTMLElement, intensity: number): PointerPosition {
+  const rect = screen.getBoundingClientRect();
+  const pointer = clampPointerToScreen(event, screen);
+  const outsidePx = Math.max(XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX, Math.abs(intensity) * XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX);
+  return {
+    clientX: pointer.clientX,
+    clientY: intensity < 0 ? rect.top - outsidePx : rect.bottom + outsidePx,
+  };
+}
+
 function cloneSelectionMove(event: MouseEvent, pointer: PointerPosition): MouseEvent {
   const synthetic = new MouseEvent("mousemove", {
     bubbles: true,
@@ -83,11 +96,69 @@ function dispatchSelectionMove(target: Document, event: MouseEvent, pointer: Poi
   target.dispatchEvent(cloneSelectionMove(event, pointer));
 }
 
+function selectionLines(text: string): string[] {
+  const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
+  while (lines.length > 0 && lines[0]?.trim() === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") lines.pop();
+  return lines;
+}
+
+function isAsciiDigits(value: string): boolean {
+  if (value.length === 0) return false;
+  for (const char of value) {
+    if (char < "0" || char > "9") return false;
+  }
+  return true;
+}
+
+function selectionLineKey(line: string): string {
+  const trimmed = line.trim();
+  const open = trimmed.lastIndexOf("[");
+  if (open <= 0 || !trimmed.endsWith("]")) return trimmed;
+  const position = trimmed.slice(open + 1, -1);
+  const slash = position.indexOf("/");
+  if (slash <= 0 || slash === position.length - 1) return trimmed;
+  const before = position.slice(0, slash);
+  const after = position.slice(slash + 1);
+  if (!isAsciiDigits(before) || !isAsciiDigits(after)) return trimmed;
+  return trimmed.slice(0, open).trimEnd();
+}
+
+function overlapSize(left: readonly string[], right: readonly string[]): number {
+  const max = Math.min(left.length, right.length);
+  for (let size = max; size > 0; size--) {
+    let matches = true;
+    for (let i = 0; i < size; i++) {
+      if (selectionLineKey(left[left.length - size + i] ?? "") !== selectionLineKey(right[i] ?? "")) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return size;
+  }
+  return 0;
+}
+
+function mergeSelectionLines(existing: readonly string[], incoming: readonly string[], direction: number): string[] {
+  if (incoming.length === 0) return [...existing];
+  if (existing.length === 0) return [...incoming];
+  if (direction < 0) {
+    const overlap = overlapSize(incoming, existing);
+    return [...incoming.slice(0, incoming.length - overlap), ...existing];
+  }
+  const overlap = overlapSize(existing, incoming);
+  return [...existing, ...incoming.slice(overlap)];
+}
+
 function scrollbackCanMove(term: Terminal, lines: number): boolean {
   const buffer = term.buffer.active;
   if (lines < 0) return buffer.viewportY > 0;
   if (lines > 0) return buffer.viewportY < buffer.baseY;
   return false;
+}
+
+function normalBufferSelectionCanMove(term: Terminal, intensity: number): boolean {
+  return scrollbackCanMove(term, intensity < 0 ? -1 : 1);
 }
 
 function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, lines: number): boolean {
@@ -111,12 +182,17 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   private pendingFrame: number | null = null;
   private lastFrameMs: number | null = null;
   private lineDebt = 0;
+  private capturedSelectionLines: string[] = [];
+  private captureDirection = 0;
+  private readonly copyTarget: HTMLElement;
 
   constructor(term: Terminal, swallowedMouseModes: ReadonlySet<number>, screen: HTMLElement) {
     this.term = term;
     this.swallowedMouseModes = swallowedMouseModes;
     this.screen = screen;
+    this.copyTarget = term.element ?? screen;
     screen.addEventListener("mousedown", this.onMouseDown);
+    this.copyTarget.addEventListener("copy", this.onCopy);
   }
 
   cancel(): void {
@@ -124,7 +200,6 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (this.activeDocument) {
       this.activeDocument.removeEventListener("mousemove", this.onDocumentMouseMove, true);
       this.activeDocument.removeEventListener("mouseup", this.onDocumentMouseUp, true);
-      this.activeDocument.removeEventListener("mouseleave", this.onDocumentMouseLeave, true);
     }
     this.activeWindow?.removeEventListener("blur", this.onWindowBlur);
     this.activeDocument = null;
@@ -137,7 +212,21 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
 
   dispose(): void {
     this.cancel();
+    this.clearCapturedSelection();
     this.screen.removeEventListener("mousedown", this.onMouseDown);
+    this.copyTarget.removeEventListener("copy", this.onCopy);
+  }
+
+  selectionTextForCopy(): string | null {
+    if (!this.term.hasSelection()) {
+      this.clearCapturedSelection();
+      return null;
+    }
+    if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
+    if (this.capturedSelectionLines.length === 0) return null;
+    const captured = this.capturedSelectionLines.join("\n").trimEnd();
+    const current = this.term.getSelection().trimEnd();
+    return captured.length > current.length ? captured : null;
   }
 
   private stopFrame(): void {
@@ -150,6 +239,31 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (this.pendingFrame !== null) return;
     this.pendingFrame = (this.activeWindow ?? window).requestAnimationFrame(this.onFrame);
   }
+
+  private clearCapturedSelection(): void {
+    this.capturedSelectionLines = [];
+    this.captureDirection = 0;
+  }
+
+  private captureSelectionText(direction: number): void {
+    const nextDirection = Math.sign(direction);
+    if (this.captureDirection !== 0 && nextDirection !== this.captureDirection) this.clearCapturedSelection();
+    if (!this.term.hasSelection()) {
+      this.clearCapturedSelection();
+      return;
+    }
+    const lines = selectionLines(this.term.getSelection());
+    if (lines.length === 0) return;
+    this.captureDirection = nextDirection;
+    this.capturedSelectionLines = mergeSelectionLines(this.capturedSelectionLines, lines, direction);
+  }
+
+  private readonly onCopy = (event: ClipboardEvent): void => {
+    const captured = this.selectionTextForCopy();
+    if (!event.clipboardData || captured === null) return;
+    event.clipboardData.setData("text/plain", captured);
+    event.preventDefault();
+  };
 
   private readonly onFrame = (now: number): void => {
     this.pendingFrame = null;
@@ -166,6 +280,18 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       return;
     }
 
+    if (this.term.buffer.active.type === "normal") {
+      const targetDocument = this.activeDocument ?? this.screen.ownerDocument;
+      if (!normalBufferSelectionCanMove(this.term, intensity)) {
+        dispatchSelectionMove(targetDocument, event, clampPointerToScreen(event, this.screen));
+        this.stopFrame();
+        return;
+      }
+      dispatchSelectionMove(targetDocument, event, pointerOutsideScreenForXtermDragScroll(event, this.screen, intensity));
+      this.ensureFrame();
+      return;
+    }
+
     const lastFrameMs = this.lastFrameMs ?? now;
     this.lastFrameMs = now;
     const elapsedSeconds = Math.min(MAX_FRAME_MS, Math.max(0, now - lastFrameMs)) / 1000;
@@ -174,6 +300,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (lines !== 0) {
       this.lineDebt -= lines;
       const pointer = clampPointerToScreen(event, this.screen);
+      this.captureSelectionText(lines);
       const scrolled = scrollTerminalUi(this.term, this.swallowedMouseModes, pointer, lines);
       if (!scrolled) {
         this.stopFrame();
@@ -198,16 +325,14 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (edgeIntensity(event, this.screen) === 0) {
       this.stopFrame();
       this.lineDebt = 0;
+      this.clearCapturedSelection();
       return;
     }
     this.ensureFrame();
   };
 
   private readonly onDocumentMouseUp = (): void => {
-    this.cancel();
-  };
-
-  private readonly onDocumentMouseLeave = (): void => {
+    if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
     this.cancel();
   };
 
@@ -219,12 +344,12 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (event.button !== MAIN_BUTTON) return;
     if (xtermMouseTrackingOwnsDrag(this.term, event)) return;
     this.cancel();
+    this.clearCapturedSelection();
     this.activeDocument = this.screen.ownerDocument;
     this.activeWindow = this.activeDocument.defaultView;
     this.pressedAt = { clientX: event.clientX, clientY: event.clientY };
     this.activeDocument.addEventListener("mousemove", this.onDocumentMouseMove, true);
     this.activeDocument.addEventListener("mouseup", this.onDocumentMouseUp, true);
-    this.activeDocument.addEventListener("mouseleave", this.onDocumentMouseLeave, true);
     this.activeWindow?.addEventListener("blur", this.onWindowBlur);
   };
 }

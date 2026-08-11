@@ -328,7 +328,7 @@ const SELECTION_SETTLE_MS = 150;
 // This is the app's only clipboard write of its own. The `copy` keymap action looks like the same
 // feature but isn't: there a keystroke had already made the browser copy, and xterm's own listener
 // served it — nothing here had to write anything.
-function wireCopyOnSelect(term: Terminal, host: HTMLDivElement): void {
+function wireCopyOnSelect(term: Terminal, host: HTMLDivElement, selectionEdgeAutoScroll: SelectionEdgeAutoScrollHandle | null): void {
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
   let lastCopied: string | null = null;
   // Writes run one after another rather than the moment each one is due. A settle can land while
@@ -337,7 +337,8 @@ function wireCopyOnSelect(term: Terminal, host: HTMLDivElement): void {
   // whichever order the browser picks, which can leave the clipboard holding the OLDER selection.
   let writes: Promise<void> = Promise.resolve();
   const copySettledSelection = async (): Promise<void> => {
-    const text = selectionToCopy(isCopyOnSelectEnabled(), term.getSelection(), lastCopied);
+    const selection = selectionEdgeAutoScroll?.selectionTextForCopy() ?? term.getSelection();
+    const text = selectionToCopy(isCopyOnSelectEnabled(), selection, lastCopied);
     // Remembered only once it has actually landed, so a write blocked by a lost focus is retried
     // rather than treated as already done.
     if (text !== null && (await writeTerminalSelection(host, text))) lastCopied = text;
@@ -503,7 +504,7 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   const selectionEdgeAutoScroll = wireSelectionEdgeAutoScroll(term, swallowedMouseModes);
   guardMouseClicks(term, swallowedMouseModes);
   // After open(), so the helper textarea the clipboard fallback looks for exists in `host`.
-  wireCopyOnSelect(term, host);
+  wireCopyOnSelect(term, host, selectionEdgeAutoScroll);
   // Render each glyph in its own cell (canvas) instead of the default DOM renderer, which flows text
   // as inline runs: a full-width CJK glyph that isn't exactly 2× the Latin cell lets a long Japanese
   // line drift right and spill its tail past the terminal's edge (the reason this was added, b12cc48).

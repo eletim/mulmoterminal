@@ -11,8 +11,10 @@ interface FakeTerm {
   modes: { mouseTrackingMode: string };
   options: { macOptionClickForcesSelection: boolean };
   buffer: { active: { type: "normal" | "alternate"; viewportY: number; baseY: number } };
-  input: ReturnType<typeof vi.fn>;
-  scrollLines: ReturnType<typeof vi.fn>;
+  input: (data: string, wasUserInput?: boolean) => void;
+  scrollLines: (lines: number) => void;
+  hasSelection: () => boolean;
+  getSelection: () => string;
 }
 
 function makeTerminal(options: { bufferType?: "normal" | "alternate"; viewportY?: number; baseY?: number; mouseTrackingMode?: string } = {}) {
@@ -35,6 +37,8 @@ function makeTerminal(options: { bufferType?: "normal" | "alternate"; viewportY?
       const active = term.buffer.active;
       active.viewportY = Math.min(active.baseY, Math.max(0, active.viewportY + lines));
     }),
+    hasSelection: vi.fn(() => false),
+    getSelection: vi.fn(() => ""),
   };
 
   return { term, screen };
@@ -89,6 +93,45 @@ function selectionRowFor(event: MouseEvent, term: FakeTerm, screen: HTMLElement)
   return term.buffer.active.viewportY + row;
 }
 
+function installXtermSelectionDrag(term: FakeTerm, screen: HTMLElement) {
+  const state = {
+    selectionStart: null as number | null,
+    selectionEnd: null as number | null,
+    documentMoves: [] as number[],
+    dragScrollRequests: [] as number[],
+  };
+  let active = false;
+  const onMove = (event: MouseEvent): void => {
+    if (!active) return;
+    state.documentMoves.push(event.clientY);
+    state.selectionEnd = selectionRowFor(event, term, screen);
+    const rect = screen.getBoundingClientRect();
+    if (event.clientY < rect.top && term.buffer.active.viewportY > 0) {
+      state.dragScrollRequests.push(-1);
+      term.scrollLines(-1);
+      state.selectionEnd = term.buffer.active.viewportY;
+    } else if (event.clientY > rect.bottom && term.buffer.active.viewportY < term.buffer.active.baseY) {
+      state.dragScrollRequests.push(1);
+      term.scrollLines(1);
+      state.selectionEnd = term.buffer.active.viewportY + term.rows;
+    }
+  };
+  const onUp = (): void => {
+    active = false;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+  term.element.addEventListener("mousedown", (event) => {
+    if (event.button !== MAIN_BUTTON) return;
+    active = true;
+    state.selectionStart = selectionRowFor(event, term, screen);
+    state.selectionEnd = state.selectionStart;
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+  return state;
+}
+
 describe("wireSelectionEdgeAutoScroll", () => {
   beforeEach(() => {
     installFrameMocks();
@@ -106,6 +149,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
 
   it("scrolls up through the existing normal-buffer UI scroll path while dragging at the top edge", () => {
     const { term, screen } = makeTerminal({ viewportY: 50 });
+    const selection = installXtermSelectionDrag(term, screen);
     const handle = wire(term, new Set());
 
     dragToEdge(screen, RECT.top + 4);
@@ -113,12 +157,14 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(80);
 
     expect(term.scrollLines).toHaveBeenCalledWith(-1);
-    expect(term.buffer.active.viewportY).toBe(49);
+    expect(selection.dragScrollRequests).toEqual([-1, -1]);
+    expect(term.buffer.active.viewportY).toBe(48);
     handle?.dispose();
   });
 
   it("scrolls down through the existing normal-buffer UI scroll path while dragging at the bottom edge", () => {
     const { term, screen } = makeTerminal({ viewportY: 50 });
+    const selection = installXtermSelectionDrag(term, screen);
     const handle = wire(term, new Set());
 
     dragToEdge(screen, RECT.bottom - 4);
@@ -126,12 +172,14 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(80);
 
     expect(term.scrollLines).toHaveBeenCalledWith(1);
-    expect(term.buffer.active.viewportY).toBe(51);
+    expect(selection.dragScrollRequests).toEqual([1, 1]);
+    expect(term.buffer.active.viewportY).toBe(52);
     handle?.dispose();
   });
 
-  it("replays the drag move through xterm's document-level selection listener after an auto-scroll tick", () => {
+  it("drives xterm's document-level selection listener with an offscreen move in normal buffer", () => {
     const { term, screen } = makeTerminal({ viewportY: 50 });
+    installXtermSelectionDrag(term, screen);
     const handle = wire(term, new Set());
     const moves: number[] = [];
 
@@ -140,45 +188,41 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(0);
     flushFrame(80);
 
-    expect(moves).toEqual([RECT.top + 4]);
+    expect(moves).toHaveLength(2);
+    expect(moves[0]).toBeLessThan(RECT.top);
+    expect(moves[1]).toBeLessThan(RECT.top);
     handle?.dispose();
   });
 
-  it("extends a document-tracked selection endpoint into newly revealed rows after scrolling upward", () => {
+  it("lets xterm extend the selection endpoint into newly revealed rows after scrolling upward", () => {
     const { term, screen } = makeTerminal({ viewportY: 50 });
+    const selection = installXtermSelectionDrag(term, screen);
     const handle = wire(term, new Set());
-    let selectionEnd: number | null = null;
-    document.addEventListener("mousemove", (event) => {
-      selectionEnd = selectionRowFor(event, term, screen);
-    });
 
     dragToEdge(screen, RECT.top + 4);
-    const before = selectionEnd;
+    const before = selection.selectionEnd;
     flushFrame(0);
     flushFrame(80);
 
     expect(term.scrollLines).toHaveBeenCalledWith(-1);
     expect(before).toBe(50);
-    expect(selectionEnd).toBe(49);
+    expect(selection.selectionEnd).toBe(48);
     handle?.dispose();
   });
 
-  it("extends a document-tracked selection endpoint into newly revealed rows after scrolling downward", () => {
+  it("lets xterm extend the selection endpoint into newly revealed rows after scrolling downward", () => {
     const { term, screen } = makeTerminal({ viewportY: 50 });
+    const selection = installXtermSelectionDrag(term, screen);
     const handle = wire(term, new Set());
-    let selectionEnd: number | null = null;
-    document.addEventListener("mousemove", (event) => {
-      selectionEnd = selectionRowFor(event, term, screen);
-    });
 
     dragToEdge(screen, RECT.bottom - 4);
-    const before = selectionEnd;
+    const before = selection.selectionEnd;
     flushFrame(0);
     flushFrame(80);
 
     expect(term.scrollLines).toHaveBeenCalledWith(1);
     expect(before).toBe(73);
-    expect(selectionEnd).toBe(74);
+    expect(selection.selectionEnd).toBe(76);
     handle?.dispose();
   });
 
@@ -203,6 +247,22 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(80);
 
     expect(term.scrollLines).not.toHaveBeenCalled();
+    handle?.dispose();
+  });
+
+  it("keeps auto-scrolling when a descendant mouseleave fires during an outside-edge drag", () => {
+    const { term, screen } = makeTerminal({ viewportY: 50 });
+    const canvas = document.createElement("canvas");
+    screen.appendChild(canvas);
+    installXtermSelectionDrag(term, screen);
+    const handle = wire(term, new Set());
+
+    dragToEdge(screen, RECT.top + 4);
+    canvas.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false, cancelable: true, buttons: 1 }));
+    flushFrame(0);
+    flushFrame(80);
+
+    expect(term.scrollLines).toHaveBeenCalledWith(-1);
     handle?.dispose();
   });
 
@@ -254,7 +314,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(160);
 
     expect(term.scrollLines).not.toHaveBeenCalled();
-    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
     handle?.dispose();
   });
 
@@ -273,6 +333,8 @@ describe("wireSelectionEdgeAutoScroll", () => {
 
   it("reuses the existing alternate-buffer wheel report path instead of scrollLines", () => {
     const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockReturnValue("990");
     const handle = wire(term, TRACKING_MODES);
 
     dragToEdge(screen, RECT.bottom - 4);
@@ -281,6 +343,101 @@ describe("wireSelectionEdgeAutoScroll", () => {
 
     expect(term.scrollLines).not.toHaveBeenCalled();
     expect(term.input).toHaveBeenCalledWith("\x1b[<65;9;24M", false);
+    handle?.dispose();
+  });
+
+  it("copies the accumulated alternate-buffer selection text after app-side scrollback redraws", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n971\n972", "960\n961\n962\n970\n971\n972", "950\n951\n960\n961\n962\n970\n971\n972"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mouseup", RECT.top + 4));
+
+    let copied = term.getSelection();
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(copyEvent, "clipboardData", {
+      value: {
+        setData: (_type: string, value: string) => {
+          copied = value;
+        },
+      },
+    });
+    screen.parentElement?.dispatchEvent(copyEvent);
+
+    expect(copied).toBe(["950", "951", "960", "961", "962", "970", "971", "972"].join("\n"));
+    handle?.dispose();
+  });
+
+  it("preserves blank lines inside accumulated alternate-buffer copied text", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n\n972", "960\n\n962\n970\n\n972", "950\n\n960\n\n962\n970\n\n972"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mouseup", RECT.top + 4));
+
+    let copied = term.getSelection();
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(copyEvent, "clipboardData", {
+      value: {
+        setData: (_type: string, value: string) => {
+          copied = value;
+        },
+      },
+    });
+    screen.parentElement?.dispatchEvent(copyEvent);
+
+    expect(copied).toBe(["950", "", "960", "", "962", "970", "", "972"].join("\n"));
+    handle?.dispose();
+  });
+
+  it("drops accumulated alternate-buffer text once the pointer leaves the edge band", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n971\n972", "960\n961\n962\n970\n971\n972", "950\n951\n960\n961\n962\n970\n971\n972"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mousemove", RECT.top + 80));
+
+    expect(handle?.selectionTextForCopy()).toBeNull();
+    handle?.dispose();
+  });
+
+  it("drops accumulated alternate-buffer text when the drag reverses direction", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n971\n972", "960\n961\n962\n970\n971\n972", "980\n981\n982"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mousemove", RECT.bottom - 4));
+    flushFrame(160);
+
+    expect(handle?.selectionTextForCopy()).toBeNull();
     handle?.dispose();
   });
 
