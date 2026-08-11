@@ -62,9 +62,10 @@ import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } fro
 import { mountPresentPathRoot } from "../backends/presentPathRoot.js";
 import { cwdForSession } from "../session/session-cwd.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
-import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE } from "../config/env.js";
+import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "../config/env.js";
 import { FILE_WRITE_CHANNEL, type FileWriteEvent } from "../../common/fileWriteChannel.js";
 import type { createToolStores } from "../session/tool-store.js";
+import { stripBasePath } from "../../common/basePath.js";
 import type { createClaudeSpawner } from "../session/spawn-claude.js";
 import type { createCodexSpawner } from "../session/spawn-codex.js";
 import type { createAntigravitySpawner } from "../session/spawn-antigravity.js";
@@ -113,6 +114,11 @@ const sessionCallReporting = (deps: AppRouteDeps, sessionId: string) => ({
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   const clientDir = deps.clientDir;
+
+  app.use((req, _res, next) => {
+    req.url = stripBasePath(req.url, MULMOTERMINAL_BASE_PATH);
+    next();
+  });
 
   // Before any route AND before any body parser: one same-origin gate for every state-changing
   // request, so a site the user visits cannot drive this server through their browser. Ahead of

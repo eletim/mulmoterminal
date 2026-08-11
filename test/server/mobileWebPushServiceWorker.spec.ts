@@ -19,13 +19,14 @@ type MockWindowClient = {
   navigate?: (url: string) => Promise<undefined>;
 };
 
-function loadServiceWorker() {
+function loadServiceWorker(scope = "https://app.example/") {
   const listeners = new Map<string, ServiceWorkerListener>();
   const matchAll = vi.fn(async (): Promise<MockWindowClient[]> => []);
   const openWindow = vi.fn(async () => undefined);
   const self = {
     location: { origin: "https://app.example" },
     registration: {
+      scope,
       showNotification: vi.fn(async () => undefined),
     },
     clients: {
@@ -112,6 +113,22 @@ describe("mobile web push service worker", () => {
     await Promise.all(waits);
 
     expect(self.registration.showNotification).toHaveBeenCalledWith("MulmoTerminal", expect.objectContaining({ data: { url: "/mobile/terminals" } }));
+  });
+
+  it("uses the service worker scope as the mobile base path", async () => {
+    const { self, listener } = loadServiceWorker("https://app.example/mulmoterminal/");
+    const waits: Promise<unknown>[] = [];
+
+    listener("push")({
+      data: { json: () => ({ kind: "test", sessionId: "session-a" }) },
+      waitUntil: (promise) => waits.push(promise),
+    });
+    await Promise.all(waits);
+
+    expect(self.registration.showNotification).toHaveBeenCalledWith(
+      "MulmoTerminal test",
+      expect.objectContaining({ data: { url: "/mulmoterminal/mobile/terminals?sessionId=session-a" } }),
+    );
   });
 
   it("focuses an existing mobile terminals tab on notification click", async () => {

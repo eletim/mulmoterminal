@@ -1,11 +1,12 @@
 import { isRecord } from "../common/isRecord";
 import { jsonBody } from "./jsonBody";
+import { withAppBasePath } from "./basePath";
 
-export const MOBILE_WEB_PUSH_SW_URL = "/mobile-web-push-sw.js";
-export const MOBILE_WEB_PUSH_SW_SCOPE = "/";
-export const MOBILE_WEB_PUSH_CONFIG_URL = "/api/mobile/web-push/config";
-export const MOBILE_WEB_PUSH_SUBSCRIPTIONS_URL = "/api/mobile/web-push/subscriptions";
-export const MOBILE_WEB_PUSH_TEST_URL = "/api/mobile/web-push/test";
+export const MOBILE_WEB_PUSH_SW_URL = withAppBasePath("/mobile-web-push-sw.js");
+export const MOBILE_WEB_PUSH_SW_SCOPE = withAppBasePath("/");
+export const MOBILE_WEB_PUSH_CONFIG_URL = withAppBasePath("/api/mobile/web-push/config");
+export const MOBILE_WEB_PUSH_SUBSCRIPTIONS_URL = withAppBasePath("/api/mobile/web-push/subscriptions");
+export const MOBILE_WEB_PUSH_TEST_URL = withAppBasePath("/api/mobile/web-push/test");
 
 export type MobileWebPushSupport =
   | { supported: true }
@@ -22,9 +23,9 @@ export function mobileWebPushSupport(): MobileWebPushSupport {
 }
 
 export function mobileTerminalNotificationUrl(sessionId: string | null | undefined): string {
-  if (!sessionId) return "/mobile/terminals";
+  if (!sessionId) return withAppBasePath("/mobile/terminals");
   const params = new URLSearchParams({ sessionId });
-  return `/mobile/terminals?${params.toString()}`;
+  return `${withAppBasePath("/mobile/terminals")}?${params.toString()}`;
 }
 
 export function readSessionIdQuery(value: unknown): string | null {

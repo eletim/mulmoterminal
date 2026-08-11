@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
-import { CLAUDE_CWD, PORT, SESSION_ID_RE } from "../config/env.js";
+import { CLAUDE_CWD, PORT, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "../config/env.js";
 import { workspaceRequest } from "../config/workspace.js";
 import { getHeaderConfig } from "../config/config-routes.js";
 import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.js";
@@ -48,6 +48,7 @@ import { normalizeAgent, parseIndexParam } from "./routeParams.js";
 import { agentResumeId } from "../agents/agent-resume.js";
 import { claimLaunch, worktreeOccupancy } from "../session/worktree-session-limit.js";
 import { worktreeRefusal } from "../../common/worktreeSession.js";
+import { stripBasePath } from "../../common/basePath.js";
 
 export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
@@ -666,7 +667,7 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
   };
   deps.server.on("upgrade", (req, socket, head) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
-    const kind = terminalWsKind(pathname);
+    const kind = terminalWsKind(stripBasePath(pathname, MULMOTERMINAL_BASE_PATH));
     // Not ours (e.g. /ws/pubsub) — leave it for socket.io's own upgrade handler. This
     // returns BEFORE the origin check on purpose: rejecting here would destroy a socket
     // socket.io is entitled to.

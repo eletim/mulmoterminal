@@ -11,6 +11,8 @@
 // bridge the LLM-authored views throw `__MC_VIEW.openItem is not a function`.
 
 // Curated CDN allowlist the LLM commonly pulls charting/util libs + fonts from.
+import { withAppBasePath } from "../basePath";
+
 const ALLOWED_CDNS: readonly string[] = [
   "https://cdn.jsdelivr.net",
   "https://unpkg.com",
@@ -51,7 +53,7 @@ export interface CustomViewBootstrap {
 }
 
 function absoluteDataUrl(dataUrl: string, origin: string): string {
-  return dataUrl.startsWith("/") ? `${origin}${dataUrl}` : dataUrl;
+  return dataUrl.startsWith("/") ? `${origin}${withAppBasePath(dataUrl)}` : dataUrl;
 }
 
 /** Debounce (ms) for the in-iframe live-refresh helper — collapses a burst of parent

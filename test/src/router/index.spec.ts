@@ -16,6 +16,11 @@ describe("router route table", () => {
     expect(router.resolve("/mobile/terminals").name).toBe("mobileTerminals");
   });
 
+  it("emits base-prefixed hrefs when mounted under a base path", () => {
+    const mem = createRouter({ history: createMemoryHistory("/mulmoterminal/"), routes });
+    expect(mem.resolve({ name: "mobileTerminals" }).href).toBe("/mulmoterminal/mobile/terminals");
+  });
+
   it("parses :slug for the detail routes", () => {
     const c = router.resolve("/collections/todos");
     expect(c.name).toBe("collectionDetail");

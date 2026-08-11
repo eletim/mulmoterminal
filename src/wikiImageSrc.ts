@@ -7,13 +7,23 @@
 // `../sources/fig.png`) resolves against that directory; a root-relative ref (`/x.png`)
 // resolves against the workspace root. Absolute URLs (http(s), protocol-relative, data:,
 // blob:) and already-rewritten `/api/` paths are passed through untouched.
+import { withAppBasePath } from "./basePath";
 
 const PAGES_BASE = ["data", "wiki", "pages"];
 
 /** True for refs that must NOT be rewritten (already absolute / external / inlined). */
 function isExternal(src: string): boolean {
   const lower = src.toLowerCase();
-  return /^https?:\/\//.test(lower) || lower.startsWith("//") || lower.startsWith("data:") || lower.startsWith("blob:") || src.startsWith("/api/");
+  return (
+    /^https?:\/\//.test(lower) ||
+    lower.startsWith("//") ||
+    lower.startsWith("data:") ||
+    lower.startsWith("blob:") ||
+    src === "/api" ||
+    src.startsWith("/api/") ||
+    src === withAppBasePath("/api") ||
+    src.startsWith(withAppBasePath("/api/"))
+  );
 }
 
 /** Map an image ref found in a wiki page body to a URL the browser can load, or return
@@ -35,5 +45,5 @@ export function rewriteWikiImageSrc(src: string): string {
     }
     segs.push(part);
   }
-  return `/api/files/raw?path=${encodeURIComponent(segs.join("/"))}`;
+  return `${withAppBasePath("/api/files/raw")}?path=${encodeURIComponent(segs.join("/"))}`;
 }

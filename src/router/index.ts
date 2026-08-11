@@ -9,6 +9,7 @@
 // `routes` is exported for unit tests that want a throwaway memory-history router.
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import { defineComponent } from "vue";
+import { APP_BASE_PATH } from "../basePath";
 
 const Stub = defineComponent({ name: "RouteStub", render: () => null });
 
@@ -41,4 +42,4 @@ export const routes: RouteRecordRaw[] = [
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 
-export const router = createRouter({ history: createWebHistory(), routes });
+export const router = createRouter({ history: createWebHistory(APP_BASE_PATH), routes });

@@ -30,7 +30,7 @@ import {
 } from "./infra/tmux.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
-import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE, MOBILE_MODE } from "./config/env.js";
+import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE, MOBILE_MODE, MULMOTERMINAL_BASE_PATH } from "./config/env.js";
 import { isLoopbackBinding } from "./infra/loopback.js";
 import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
@@ -132,15 +132,12 @@ import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
-
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
-
-// Per-session activity flags, driven by Claude hooks (see /api/hook).
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -504,7 +501,7 @@ mountAppRoutes(app, {
 });
 
 const server = http.createServer(app);
-pubsub = createPubSub(server, isAllowedOrigin);
+pubsub = createPubSub(server, isAllowedOrigin, MULMOTERMINAL_BASE_PATH);
 
 // Wire the shared file-change publisher (markdown + html live-refresh) against
 // pubsub + the workspace. Must run before any write route fires (publishFileChange

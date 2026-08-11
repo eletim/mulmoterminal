@@ -1,5 +1,6 @@
 import { Server as IOServer } from "socket.io";
 import type { Server as HttpServer } from "node:http";
+import { withBasePath } from "../../common/basePath.js";
 
 // Minimal socket.io pub/sub, modeled on mulmoclaude's server/events/pub-sub.
 // Channel names are socket.io rooms — subscribe/unsubscribe map to
@@ -12,9 +13,13 @@ export interface Publisher {
   publish(channel: string, data: unknown): void;
 }
 
-export function createPubSub(server: HttpServer, isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean = () => true) {
+export function createPubSub(
+  server: HttpServer,
+  isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean = () => true,
+  basePath = "/",
+) {
   const io = new IOServer(server, {
-    path: "/ws/pubsub",
+    path: withBasePath("/ws/pubsub", basePath),
     transports: ["websocket"],
     // Reject cross-origin connections so an untrusted website can't subscribe to
     // session activity. allowRequest covers the websocket handshake; cors covers

@@ -1,6 +1,7 @@
 // Pure decisions extracted from collectionUi.ts so they can be tested without the
 // fetch/DOM host around them. The host keeps the network and configureCollectionUi
 // wiring; these functions only shape strings.
+import { withAppBasePath } from "../basePath";
 
 const HTML_PREVIEW_DIR_PREFIX = "artifacts/html/";
 
@@ -18,7 +19,7 @@ export function htmlPreviewUrl(value: string): string | null {
   if (!value.startsWith(HTML_PREVIEW_DIR_PREFIX)) return null;
   const rest = value.slice(HTML_PREVIEW_DIR_PREFIX.length);
   if (rest.length === 0) return null;
-  return `/artifacts/html/${rest.split("/").map(encodeURIComponent).join("/")}`;
+  return withAppBasePath(`/artifacts/html/${rest.split("/").map(encodeURIComponent).join("/")}`);
 }
 
 // The `?offset=…&limit=…&fields=…` suffix (or "") for a remote-view items page. `offset`
