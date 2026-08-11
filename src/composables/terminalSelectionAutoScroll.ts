@@ -17,6 +17,7 @@ const syntheticSelectionMoves = new WeakSet<MouseEvent>();
 export interface SelectionEdgeAutoScrollHandle {
   cancel(): void;
   dispose(): void;
+  selectionTextForCopy(): string | null;
 }
 
 function screenElementOf(term: Terminal): HTMLElement | null {
@@ -216,6 +217,18 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.copyTarget.removeEventListener("copy", this.onCopy);
   }
 
+  selectionTextForCopy(): string | null {
+    if (!this.term.hasSelection()) {
+      this.clearCapturedSelection();
+      return null;
+    }
+    if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
+    if (this.capturedSelectionLines.length === 0) return null;
+    const captured = this.capturedSelectionLines.join("\n").trimEnd();
+    const current = this.term.getSelection().trimEnd();
+    return captured.length > current.length ? captured : null;
+  }
+
   private stopFrame(): void {
     if (this.pendingFrame !== null) (this.activeWindow ?? window).cancelAnimationFrame(this.pendingFrame);
     this.pendingFrame = null;
@@ -244,15 +257,8 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   }
 
   private readonly onCopy = (event: ClipboardEvent): void => {
-    if (!this.term.hasSelection()) {
-      this.clearCapturedSelection();
-      return;
-    }
-    if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
-    if (!event.clipboardData || this.capturedSelectionLines.length === 0) return;
-    const captured = this.capturedSelectionLines.join("\n").trimEnd();
-    const current = this.term.getSelection().trimEnd();
-    if (captured.length <= current.length) return;
+    const captured = this.selectionTextForCopy();
+    if (!event.clipboardData || captured === null) return;
     event.clipboardData.setData("text/plain", captured);
     event.preventDefault();
   };
