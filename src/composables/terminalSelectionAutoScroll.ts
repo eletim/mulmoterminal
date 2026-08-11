@@ -96,10 +96,10 @@ function dispatchSelectionMove(target: Document, event: MouseEvent, pointer: Poi
 }
 
 function selectionLines(text: string): string[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim() !== "");
+  const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
+  while (lines.length > 0 && lines[0]?.trim() === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") lines.pop();
+  return lines;
 }
 
 function isAsciiDigits(value: string): boolean {
@@ -199,7 +199,6 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (this.activeDocument) {
       this.activeDocument.removeEventListener("mousemove", this.onDocumentMouseMove, true);
       this.activeDocument.removeEventListener("mouseup", this.onDocumentMouseUp, true);
-      this.activeDocument.removeEventListener("mouseleave", this.onDocumentMouseLeave, true);
     }
     this.activeWindow?.removeEventListener("blur", this.onWindowBlur);
     this.activeDocument = null;
@@ -328,10 +327,6 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.cancel();
   };
 
-  private readonly onDocumentMouseLeave = (): void => {
-    this.cancel();
-  };
-
   private readonly onWindowBlur = (): void => {
     this.cancel();
   };
@@ -346,7 +341,6 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.pressedAt = { clientX: event.clientX, clientY: event.clientY };
     this.activeDocument.addEventListener("mousemove", this.onDocumentMouseMove, true);
     this.activeDocument.addEventListener("mouseup", this.onDocumentMouseUp, true);
-    this.activeDocument.addEventListener("mouseleave", this.onDocumentMouseLeave, true);
     this.activeWindow?.addEventListener("blur", this.onWindowBlur);
   };
 }

@@ -250,6 +250,22 @@ describe("wireSelectionEdgeAutoScroll", () => {
     handle?.dispose();
   });
 
+  it("keeps auto-scrolling when a descendant mouseleave fires during an outside-edge drag", () => {
+    const { term, screen } = makeTerminal({ viewportY: 50 });
+    const canvas = document.createElement("canvas");
+    screen.appendChild(canvas);
+    installXtermSelectionDrag(term, screen);
+    const handle = wire(term, new Set());
+
+    dragToEdge(screen, RECT.top + 4);
+    canvas.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false, cancelable: true, buttons: 1 }));
+    flushFrame(0);
+    flushFrame(80);
+
+    expect(term.scrollLines).toHaveBeenCalledWith(-1);
+    handle?.dispose();
+  });
+
   it("does nothing for mousemove when no selection drag is active", () => {
     const { term } = makeTerminal({ viewportY: 50 });
     const handle = wire(term, new Set());
@@ -356,6 +372,35 @@ describe("wireSelectionEdgeAutoScroll", () => {
     screen.parentElement?.dispatchEvent(copyEvent);
 
     expect(copied).toBe(["950", "951", "960", "961", "962", "970", "971", "972"].join("\n"));
+    handle?.dispose();
+  });
+
+  it("preserves blank lines inside accumulated alternate-buffer copied text", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n\n972", "960\n\n962\n970\n\n972", "950\n\n960\n\n962\n970\n\n972"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mouseup", RECT.top + 4));
+
+    let copied = term.getSelection();
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(copyEvent, "clipboardData", {
+      value: {
+        setData: (_type: string, value: string) => {
+          copied = value;
+        },
+      },
+    });
+    screen.parentElement?.dispatchEvent(copyEvent);
+
+    expect(copied).toBe(["950", "", "960", "", "962", "970", "", "972"].join("\n"));
     handle?.dispose();
   });
 
