@@ -404,6 +404,43 @@ describe("wireSelectionEdgeAutoScroll", () => {
     handle?.dispose();
   });
 
+  it("drops accumulated alternate-buffer text once the pointer leaves the edge band", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n971\n972", "960\n961\n962\n970\n971\n972", "950\n951\n960\n961\n962\n970\n971\n972"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mousemove", RECT.top + 80));
+
+    expect(handle?.selectionTextForCopy()).toBeNull();
+    handle?.dispose();
+  });
+
+  it("drops accumulated alternate-buffer text when the drag reverses direction", () => {
+    const { term, screen } = makeTerminal({ bufferType: "alternate" });
+    const selections = ["970\n971\n972", "960\n961\n962\n970\n971\n972", "980\n981\n982"];
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockImplementation(() => selections[0] ?? "");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    selections.shift();
+    flushFrame(80);
+    selections.shift();
+    document.dispatchEvent(mouse("mousemove", RECT.bottom - 4));
+    flushFrame(160);
+
+    expect(handle?.selectionTextForCopy()).toBeNull();
+    handle?.dispose();
+  });
+
   it("does not intervene when xterm owns mouse reporting and the gesture does not force selection", () => {
     const { term, screen } = makeTerminal({ mouseTrackingMode: "drag", viewportY: 50 });
     const handle = wire(term, new Set());

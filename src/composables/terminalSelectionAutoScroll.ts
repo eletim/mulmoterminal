@@ -246,13 +246,15 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   }
 
   private captureSelectionText(direction: number): void {
+    const nextDirection = Math.sign(direction);
+    if (this.captureDirection !== 0 && nextDirection !== this.captureDirection) this.clearCapturedSelection();
     if (!this.term.hasSelection()) {
       this.clearCapturedSelection();
       return;
     }
     const lines = selectionLines(this.term.getSelection());
     if (lines.length === 0) return;
-    this.captureDirection = direction;
+    this.captureDirection = nextDirection;
     this.capturedSelectionLines = mergeSelectionLines(this.capturedSelectionLines, lines, direction);
   }
 
@@ -323,6 +325,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (edgeIntensity(event, this.screen) === 0) {
       this.stopFrame();
       this.lineDebt = 0;
+      this.clearCapturedSelection();
       return;
     }
     this.ensureFrame();
