@@ -28,14 +28,14 @@ describe("mobile PWA static assets", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/manifest+json");
-    expect(await res.json()).toMatchObject({ start_url: "/mobile/terminals", display: "standalone" });
+    expect(await res.json()).toMatchObject({ start_url: "mobile/terminals", display: "standalone" });
   });
 
   it("serves every declared icon without a 404", async () => {
     const request = staticRequest();
 
     for (const icon of manifest.icons ?? []) {
-      const res = await request(icon.src ?? "");
+      const res = await request(new URL(icon.src ?? "", "http://mulmoterminal.test/manifest.webmanifest").pathname);
       expect(res.status, icon.src).toBe(200);
       expect(res.headers.get("content-type"), icon.src).toContain(icon.type ?? "");
     }

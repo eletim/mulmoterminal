@@ -33,9 +33,9 @@ describe("mobile PWA manifest", () => {
     expect(manifest).toMatchObject({
       name: "MulmoTerminal Mobile",
       short_name: "MulmoTerm",
-      id: "/mobile/terminals",
-      start_url: "/mobile/terminals",
-      scope: "/mobile/",
+      id: "mobile/terminals",
+      start_url: "mobile/terminals",
+      scope: "mobile/",
       display: "standalone",
       theme_color: "#1a1a2e",
       background_color: "#1a1a2e",
@@ -46,7 +46,7 @@ describe("mobile PWA manifest", () => {
     const { createRouter, createMemoryHistory } = await import("vue-router");
     const router = createRouter({ history: createMemoryHistory(), routes });
 
-    await router.push(manifest.start_url ?? "");
+    await router.push(`/${manifest.start_url ?? ""}`);
 
     expect(router.currentRoute.value.name).toBe("mobileTerminals");
   });
@@ -56,15 +56,15 @@ describe("mobile PWA manifest", () => {
 
     expect(pngIcons).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ src: "/icons/mulmoterminal-192.png", sizes: "192x192" }),
-        expect.objectContaining({ src: "/icons/mulmoterminal-512.png", sizes: "512x512" }),
+        expect.objectContaining({ src: "icons/mulmoterminal-192.png", sizes: "192x192" }),
+        expect.objectContaining({ src: "icons/mulmoterminal-512.png", sizes: "512x512" }),
       ]),
     );
     expect(manifest.icons?.some((icon) => icon.purpose?.includes("maskable"))).toBe(true);
   });
 
   it("keeps PWA manifest scope separate from the existing Web Push Service Worker scope", () => {
-    expect(manifest.scope).toBe("/mobile/");
+    expect(manifest.scope).toBe("mobile/");
     expect(MOBILE_WEB_PUSH_SW_URL).toBe("/mobile-web-push-sw.js");
     expect(MOBILE_WEB_PUSH_SW_SCOPE).toBe("/");
     expect("serviceworker" in manifest).toBe(false);

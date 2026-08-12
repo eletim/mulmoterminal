@@ -1,6 +1,16 @@
 /* global self, URL, URLSearchParams */
 
-const MOBILE_TERMINALS_PATH = "/mobile/terminals";
+function scopeBasePath() {
+  try {
+    const pathname = new URL(self.registration.scope).pathname;
+    return pathname.endsWith("/") ? pathname : `${pathname}/`;
+  } catch {
+    return "/";
+  }
+}
+
+const BASE_PATH = scopeBasePath();
+const MOBILE_TERMINALS_PATH = `${BASE_PATH}mobile/terminals`;
 
 function mobileTerminalsUrl(sessionId) {
   if (typeof sessionId !== "string" || sessionId.trim() === "") return MOBILE_TERMINALS_PATH;

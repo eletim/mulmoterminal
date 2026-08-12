@@ -10,12 +10,15 @@ import "./composables/accountingUi";
 import { initTheme } from "./composables/useTheme";
 import { installFileDropGuard } from "./composables/useFileDropGuard";
 import { installPageZoomGuard } from "./composables/usePageZoomGuard";
+import { installBasePathDomUrls, installBasePathFetch } from "./basePath";
 import { router } from "./router";
 import App from "./App.vue";
 
 // Apply the persisted theme to <html> before mount so there's no flash of the
 // default palette.
 initTheme();
+installBasePathFetch();
+installBasePathDomUrls();
 
 // Catch a file dropped anywhere in the tab so an imprecise drop can't navigate the
 // page to the file and lose every session. Installed on window, before mount, so it

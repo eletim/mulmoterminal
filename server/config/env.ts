@@ -5,8 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isMobileMode, MOBILE_MODES, type MobileMode } from "../../common/mobileMode.js";
+import { normalizeBasePath } from "../../common/basePath.js";
 
 export const PORT = process.env.PORT || 34567;
+export const MULMOTERMINAL_BASE_PATH = normalizeBasePath(process.env.MULMOTERMINAL_BASE_PATH);
 
 // The interface the HTTP server binds to. LOOPBACK BY DEFAULT — this server has no
 // authentication of its own: every /api route, the terminal WebSockets, and the routes that

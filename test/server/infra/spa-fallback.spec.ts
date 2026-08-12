@@ -5,7 +5,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { appRequest } from "../../helpers/appRequest";
-import { isClientRoute, mountSpaFallback } from "../../../server/infra/spa-fallback";
+import { isClientRoute, mountBasePathAssetCss, mountSpaFallback, renderAssetCss, renderIndexHtml } from "../../../server/infra/spa-fallback";
 
 describe("SPA fallback matcher", () => {
   it("serves the SPA shell for client routes", () => {
@@ -66,5 +66,60 @@ describe("mounting the SPA fallback", () => {
   // path must fail loudly. Asserted on the mounted app, not just the regex.
   it("still leaves /api alone", async () => {
     expect((await serve(path.join(dir, ".npm", "dist"), "/api/nope")).status).toBe(404);
+  });
+});
+
+describe("renderIndexHtml", () => {
+  it("injects the runtime base path and prefixes root-built dist URLs", () => {
+    const html = [
+      '<script>window.__MULMOTERMINAL_BASE_PATH__ = "/";</script>',
+      '<script type="module" src="/assets/index.js"></script>',
+      '<link rel="manifest" href="/manifest.webmanifest" />',
+      '<link rel="apple-touch-icon" href="/icons/mulmoterminal-180.png" />',
+    ].join("");
+
+    expect(renderIndexHtml(html, "/mulmoterminal/")).toBe(
+      [
+        '<script>window.__MULMOTERMINAL_BASE_PATH__ = "/mulmoterminal/";</script>',
+        '<script type="module" src="/mulmoterminal/assets/index.js"></script>',
+        '<link rel="manifest" href="/mulmoterminal/manifest.webmanifest" />',
+        '<link rel="apple-touch-icon" href="/mulmoterminal/icons/mulmoterminal-180.png" />',
+      ].join(""),
+    );
+  });
+});
+
+describe("renderAssetCss", () => {
+  it("prefixes root-built CSS asset URLs for runtime base paths", () => {
+    const css = [
+      "@font-face{src:url(/assets/material-symbols.woff2)}",
+      ".icon{background:url('/assets/icon.svg')}",
+      ".already{background:url(/mulmoterminal/assets/icon.svg)}",
+    ].join("");
+
+    expect(renderAssetCss(css, "/mulmoterminal/")).toBe(
+      [
+        "@font-face{src:url(/mulmoterminal/assets/material-symbols.woff2)}",
+        ".icon{background:url('/mulmoterminal/assets/icon.svg')}",
+        ".already{background:url(/mulmoterminal/assets/icon.svg)}",
+      ].join(""),
+    );
+  });
+
+  it("serves transformed CSS before static assets for non-root base paths", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "spa-css-"));
+    try {
+      await mkdir(path.join(dir, "assets"), { recursive: true });
+      await writeFile(path.join(dir, "assets", "index.css"), "@font-face{src:url(/assets/material-symbols.woff2)}");
+
+      const app = express();
+      mountBasePathAssetCss(app, dir, { basePath: "/mulmoterminal/" });
+
+      const res = await appRequest(app)("/assets/index.css");
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("@font-face{src:url(/mulmoterminal/assets/material-symbols.woff2)}");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

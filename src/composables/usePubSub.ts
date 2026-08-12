@@ -1,4 +1,5 @@
 import { io, type Socket } from "socket.io-client";
+import { withAppBasePath } from "../basePath";
 
 // Minimal pub/sub client, modeled on mulmoclaude's usePubSub. A single shared
 // socket multiplexes every channel; subscriptions are replayed on reconnect.
@@ -21,7 +22,7 @@ let hasConnected = false;
 function connect(): Socket {
   if (socket) return socket;
 
-  const sock = io({ path: "/ws/pubsub", transports: ["websocket"] });
+  const sock = io({ path: withAppBasePath("/ws/pubsub"), transports: ["websocket"] });
 
   // Re-emit every live subscription so rooms survive a reconnect.
   sock.on("connect", () => {

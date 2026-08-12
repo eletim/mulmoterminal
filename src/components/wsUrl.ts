@@ -4,6 +4,7 @@
 import type { RunCommand } from "./runCommand";
 import type { TerminalAgent } from "../../common/sessionAgent";
 import { isUsableTerminalSize, type TerminalSize } from "../../common/terminalSize";
+import { withAppBasePath } from "../basePath";
 
 // The geometry the terminal has ALREADY been fitted to, so the pty is spawned at it instead of the
 // server's 120x30 default and a first `resize` frame that goes missing costs nothing (#1178). Left
@@ -48,7 +49,8 @@ function sessionTerminalWsUrl(path: string, { host, secure, sessionId, cwd, devT
   const qs = params.toString();
   const suffix = qs ? `?${qs}` : "";
   const proto = secure ? "wss:" : "ws:";
-  return `${proto}//${host}/${path}${suffix}`;
+  const endpoint = `/${path}`;
+  return `${proto}//${host}${withAppBasePath(endpoint)}${suffix}`;
 }
 
 export function buildTerminalWsUrl(input: TerminalWsUrlInput): string {
@@ -77,7 +79,7 @@ export function buildRunWsUrl(input: RunWsUrlInput): string {
   if (input.cwd) params.set("cwd", input.cwd);
   appendSize(params, input.size);
   const proto = input.secure ? "wss:" : "ws:";
-  return `${proto}//${input.host}/ws/run?${params.toString()}`;
+  return `${proto}//${input.host}${withAppBasePath("/ws/run")}?${params.toString()}`;
 }
 
 export interface LaunchWsUrlInput {
@@ -101,7 +103,7 @@ export function buildLaunchWsUrl({ host, secure, sessionId, cwd, launcher, shell
   else params.set("launcher", String(launcher));
   appendSize(params, size);
   const proto = secure ? "wss:" : "ws:";
-  return `${proto}//${host}/ws/launch?${params.toString()}`;
+  return `${proto}//${host}${withAppBasePath("/ws/launch")}?${params.toString()}`;
 }
 
 export interface AgentWsUrlInput {

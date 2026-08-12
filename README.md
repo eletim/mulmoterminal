@@ -501,6 +501,7 @@ the `claude` / `codex` sessions themselves.
 | ------------ | -------------- | ----------- |
 | `PORT`        | `34567`        | Backend HTTP/WebSocket port (prod: the URL you open). |
 | `CLIENT_PORT` | `6856`         | Vite dev-server port (dev only: the URL you open with `yarn dev`). |
+| `MULMOTERMINAL_BASE_PATH` | `/` | URL path prefix when serving MulmoTerminal below a subpath, such as `/mulmoterminal/`. Vite assets, router history, browser API/WebSocket URLs, mobile routes, and Web Push service-worker paths use this prefix. |
 | `CLAUDE_BIN` | `claude`       | The Claude Code binary to spawn. On Windows a bare name is resolved on `PATH` before it reaches the PTY layer (which matches file names exactly): to the `.exe` when there is one, otherwise to the `.cmd` shim an npm-global install leaves, run through `cmd.exe`. |
 | `CLAUDE_CWD` | current dir    | Working directory each `claude` PTY runs in; determines which project's sessions are listed. Via `npx mulmoterminal@latest` it defaults to the directory you ran the command from (override with `--cwd <dir>`, relative allowed); when the server is run directly it falls back to `~/mulmoclaude`. A value read from `.env` must be an absolute path (`~` is not expanded). |
 | `CLAUDE_PERMISSION_MODE` | `auto` | Permission mode passed to each `claude` spawn. |
@@ -526,6 +527,31 @@ Example `.env` (gitignored):
 ```
 CLAUDE_CWD=/Users/you/my-project
 ```
+
+Serving from a Tailscale subpath in local dev can look like this:
+
+```
+PORT=34568 CLIENT_PORT=6857 MULMOTERMINAL_BASE_PATH=/mulmoterminal/ MULMOTERMINAL_MOBILE_MODE=local yarn dev
+tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857/mulmoterminal
+```
+
+For that exact local deployment, run the checked-in helper instead:
+
+```
+scripts/start-tailscale-dev.sh
+```
+
+It starts dev mode with `PORT=34568`, `CLIENT_PORT=6857`,
+`MULMOTERMINAL_BASE_PATH=/mulmoterminal/`, and
+`MULMOTERMINAL_MOBILE_MODE=local`, then points Tailscale Serve
+`/mulmoterminal` at `http://localhost:6857/mulmoterminal`. Tailscale Serve's
+path mount forwards the request below that mount to the target, so the target
+includes the Vite base path. Existing shell variables override those defaults.
+The script reads `.env` and `.env.local` from the repo root
+(`.env.local` is gitignored), so user-specific Web Push values such as
+`MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
+`MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
+`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can stay local.
 
 ### UI settings (`~/.mulmoterminal/config.json`)
 

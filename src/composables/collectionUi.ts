@@ -50,6 +50,7 @@ import PinToggle from "../components/PinToggle.vue";
 import { startCollectionChat } from "./useChatLauncher";
 import { browserLocale } from "../utils/browserLocale";
 import { isRecord } from "../../common/isRecord";
+import { withAppBasePath } from "../basePath";
 
 // ── Modal teleport target (Shadow DOM) ──
 // PluginFrame mounts each card inside a per-instance shadow root, but
@@ -124,7 +125,7 @@ const itemUrl = (slug: string, itemId: string) => `/api/collections/${encodeURIC
 
 /** Browser URL for a workspace-relative file path, via the raw-file route. */
 function rawFileUrl(value: unknown): string {
-  return `/api/files/raw?path=${encodeURIComponent(String(value))}`;
+  return `${withAppBasePath("/api/files/raw")}?path=${encodeURIComponent(String(value))}`;
 }
 
 // The preview route (server/backends/html.ts → mountHtmlPreviewRoute) serves

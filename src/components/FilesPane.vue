@@ -16,6 +16,7 @@ import { FILE_WRITE_CHANNEL, isFileWriteEvent } from "../../common/fileWriteChan
 import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
+import { withAppBasePath } from "../basePath";
 
 interface Node {
   name: string;
@@ -82,7 +83,7 @@ function qs(pathRel: string): string {
   p.set("path", pathRel);
   return p.toString();
 }
-const previewSrc = computed(() => (openPath.value ? `/api/files/browse/md?${qs(openPath.value)}` : ""));
+const previewSrc = computed(() => (openPath.value ? `${withAppBasePath("/api/files/browse/md")}?${qs(openPath.value)}` : ""));
 
 function makeNode(e: Entry, parentPath: string): Node {
   return { name: e.name, path: parentPath ? `${parentPath}/${e.name}` : e.name, dir: e.dir, size: e.size, expanded: false, loaded: false, children: [] };
