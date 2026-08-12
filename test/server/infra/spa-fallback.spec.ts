@@ -5,7 +5,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { appRequest } from "../../helpers/appRequest";
-import { isClientRoute, mountSpaFallback } from "../../../server/infra/spa-fallback";
+import { isClientRoute, mountSpaFallback, renderIndexHtml } from "../../../server/infra/spa-fallback";
 
 describe("SPA fallback matcher", () => {
   it("serves the SPA shell for client routes", () => {
@@ -66,5 +66,25 @@ describe("mounting the SPA fallback", () => {
   // path must fail loudly. Asserted on the mounted app, not just the regex.
   it("still leaves /api alone", async () => {
     expect((await serve(path.join(dir, ".npm", "dist"), "/api/nope")).status).toBe(404);
+  });
+});
+
+describe("renderIndexHtml", () => {
+  it("injects the runtime base path and prefixes root-built dist URLs", () => {
+    const html = [
+      '<script>window.__MULMOTERMINAL_BASE_PATH__ = "/";</script>',
+      '<script type="module" src="/assets/index.js"></script>',
+      '<link rel="manifest" href="/manifest.webmanifest" />',
+      '<link rel="apple-touch-icon" href="/icons/mulmoterminal-180.png" />',
+    ].join("");
+
+    expect(renderIndexHtml(html, "/mulmoterminal/")).toBe(
+      [
+        '<script>window.__MULMOTERMINAL_BASE_PATH__ = "/mulmoterminal/";</script>',
+        '<script type="module" src="/mulmoterminal/assets/index.js"></script>',
+        '<link rel="manifest" href="/mulmoterminal/manifest.webmanifest" />',
+        '<link rel="apple-touch-icon" href="/mulmoterminal/icons/mulmoterminal-180.png" />',
+      ].join(""),
+    );
   });
 });

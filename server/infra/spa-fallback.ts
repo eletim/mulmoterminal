@@ -1,4 +1,7 @@
 import type { Express } from "express";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { basePathPrefix, normalizeBasePath } from "../../common/basePath.js";
 
 // The SPA-fallback matcher for vue-router history mode. index.html is served for any
 // client-side route — i.e. everything EXCEPT the /api prefix, which is where every
@@ -30,6 +33,24 @@ export function isClientRoute(pathname: string): boolean {
  *  Mounted as a function so a test can drive the real thing on a bare app: mountAppRoutes wants
  *  a dependency object the size of the server, and the spec that existed checked the route
  *  PATTERN only — it stayed green through the whole bug. */
-export function mountSpaFallback(app: Pick<Express, "get">, distDir: string): void {
-  app.get(SPA_FALLBACK_RE, (_req, res) => res.sendFile("index.html", { root: distDir }));
+const RUNTIME_BASE_RE = /window\.__MULMOTERMINAL_BASE_PATH__\s*=\s*"[^"]*";/;
+const ROOT_DIST_URL_RE = /\b(href|src)="\/(assets|icons|manifest\.webmanifest|mobile-web-push-sw\.js)([^"]*)"/g;
+
+export function renderIndexHtml(html: string, basePath: string | null | undefined): string {
+  const normalized = normalizeBasePath(basePath);
+  const prefix = basePathPrefix(normalized);
+  return html
+    .replace(RUNTIME_BASE_RE, `window.__MULMOTERMINAL_BASE_PATH__ = ${JSON.stringify(normalized)};`)
+    .replace(ROOT_DIST_URL_RE, (_match: string, attr: string, rootPath: string, rest: string) => `${attr}="${prefix}/${rootPath}${rest}"`);
+}
+
+export function mountSpaFallback(app: Pick<Express, "get">, distDir: string, options: { basePath?: string } = {}): void {
+  app.get(SPA_FALLBACK_RE, async (_req, res, next) => {
+    try {
+      const html = await fs.readFile(path.join(distDir, "index.html"), "utf8");
+      res.type("html").send(renderIndexHtml(html, options.basePath));
+    } catch (err) {
+      next(err);
+    }
+  });
 }

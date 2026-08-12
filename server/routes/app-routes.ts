@@ -252,14 +252,14 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   });
 
   // Serve Vite build output
-  app.use(express.static(path.join(clientDir, "../dist")));
+  app.use(express.static(path.join(clientDir, "../dist"), { index: false }));
 
   // SPA fallback for vue-router history mode: a hard reload / deep-link of a client
   // route (e.g. /terminals, /collections/foo) must serve index.html. Mounted AFTER
   // express.static so real asset files win, and after the /artifacts/html preview
   // route (registered above) so it wins too. SPA_FALLBACK_RE reserves the single /api
   // prefix — see server/spa-fallback.ts for why that's sufficient.
-  mountSpaFallback(app, path.join(clientDir, "../dist"));
+  mountSpaFallback(app, path.join(clientDir, "../dist"), { basePath: MULMOTERMINAL_BASE_PATH });
 
   // The Claude hook endpoint (routes/hook-routes.ts). Session lifecycle, the title
   // bookkeeping and the tool stores stay here; the fan-out that reads them moves out.

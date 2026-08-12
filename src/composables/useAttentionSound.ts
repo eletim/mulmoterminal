@@ -8,6 +8,7 @@ import { createBeepQueue, shouldHoldBeep } from "./pendingBeep";
 import { missedMarkFor } from "./missedAttention";
 import { applyMissedMark } from "./useMissedAttention";
 import { currentSoundVolumeScale } from "./useSoundVolume";
+import { withAppBasePath } from "../basePath";
 
 // What the player needs from the user's config: which moments beep, and what each plays.
 // `soundFile` is the all-kind fallback a `sounds` entry overrides.
@@ -201,7 +202,7 @@ const dirKey = (cwd: string, kind: NotifyKind) => `dir${SEP}${cwd}${SEP}${kind}`
 // value, which is what invalidates the cache.
 const globalKey = (value: string) => `app${SEP}${value}`;
 
-const dirUrl = (cwd: string, kind: NotifyKind) => `/api/dir-sound?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`;
+const dirUrl = (cwd: string, kind: NotifyKind) => `${withAppBasePath("/api/dir-sound")}?cwd=${encodeURIComponent(cwd)}&kind=${encodeURIComponent(kind)}`;
 
 // A preset is addressed DIRECTLY rather than through /api/sound?kind=. Same bytes either way,
 // but the preset route answers from the fixed catalog instead of the saved config — which is
@@ -210,7 +211,9 @@ const dirUrl = (cwd: string, kind: NotifyKind) => `/api/dir-sound?cwd=${encodeUR
 // server-side by design and is never put in a request.
 const globalUrl = (kind: NotifyKind, value: string) => {
   const presetId = parsePresetRef(value);
-  return presetId ? `/api/sound-preset/${encodeURIComponent(presetId)}` : `/api/sound?kind=${encodeURIComponent(kind)}&v=${encodeURIComponent(value)}`;
+  return presetId
+    ? withAppBasePath(`/api/sound-preset/${encodeURIComponent(presetId)}`)
+    : `${withAppBasePath("/api/sound")}?kind=${encodeURIComponent(kind)}&v=${encodeURIComponent(value)}`;
 };
 
 // The sources to try for one beep, nearest first: the session directory's own sound, then the

@@ -18,6 +18,7 @@
 import type { Terminal, ILinkProvider, ILink } from "@xterm/xterm";
 import { SOURCE_CODE_EXTENSIONS } from "../../common/sourceExtensions";
 import { findFilePathLinks } from "./terminalFilePathLinks";
+import { withAppBasePath } from "../basePath";
 
 export interface TerminalCell {
   chars: string;
@@ -93,7 +94,7 @@ export function fileExtension(filePath: string): string {
 
 /** The route a path's extension is opened through. */
 export function fileViewerRoute(filePath: string): string {
-  return ROUTE_BY_EXTENSION[fileExtension(filePath)] ?? RAW_ROUTE;
+  return withAppBasePath(ROUTE_BY_EXTENSION[fileExtension(filePath)] ?? RAW_ROUTE);
 }
 
 export function fileLinkTarget(filePath: string, cwd: string): FileLinkTarget {

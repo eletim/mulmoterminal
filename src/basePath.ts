@@ -1,6 +1,14 @@
 import { normalizeBasePath, stripBasePath, withBasePath } from "../common/basePath";
 
-export const APP_BASE_PATH = normalizeBasePath(import.meta.env.BASE_URL);
+declare global {
+  interface Window {
+    __MULMOTERMINAL_BASE_PATH__?: string;
+  }
+}
+
+const runtimeBasePath = typeof window === "undefined" ? undefined : window.__MULMOTERMINAL_BASE_PATH__;
+
+export const APP_BASE_PATH = normalizeBasePath(runtimeBasePath ?? import.meta.env.BASE_URL);
 
 const ROOT_SERVER_PATHS = ["/api", "/artifacts", "/htmlfile", "/mobile-web-push-sw.js", "/manifest.webmanifest", "/icons"];
 const installedFetches = new WeakSet<typeof fetch>();

@@ -6,6 +6,7 @@
 // spawn time, so it inserts and reads exactly like a path the drag had carried itself.
 import { DROP_FILENAME_HEADER, MAX_DROP_BYTES, type DropUploadResponse } from "../../common/dropUpload";
 import { isRecord } from "../../common/isRecord";
+import { withAppBasePath } from "../basePath";
 
 // Generous: this is a real upload of up to MAX_DROP_BYTES, possibly over a phone's connection.
 // Matched to the server's own ceiling for network mutations rather than a UI-scale timeout.
@@ -15,7 +16,7 @@ const FALLBACK_MIME = "application/octet-stream";
 
 export type DropUploadResult = { ok: true; path: string } | { ok: false; status: number | null };
 
-export const dropUploadUrl = (sessionId: string): string => `/api/session/${encodeURIComponent(sessionId)}/drop`;
+export const dropUploadUrl = (sessionId: string): string => withAppBasePath(`/api/session/${encodeURIComponent(sessionId)}/drop`);
 
 /** The sentence to show when an upload did not happen. Keyed on status because the four cases
  *  need different actions from the user, and "it failed" tells them none of them. English —
