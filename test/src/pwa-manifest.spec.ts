@@ -21,12 +21,12 @@ const manifest = JSON.parse(manifestSource) as {
 
 describe("mobile PWA manifest", () => {
   it("is linked from the SPA shell with mobile theme metadata", () => {
-    expect(indexHtml).toContain('<link rel="manifest" href="%BASE_URL%manifest.webmanifest" />');
+    expect(indexHtml).toContain('<link rel="manifest" href="/manifest.webmanifest" />');
     expect(indexHtml).toContain('<meta name="theme-color" content="#1a1a2e" />');
     expect(indexHtml).toContain('<meta name="apple-mobile-web-app-capable" content="yes" />');
     expect(indexHtml).toContain('<meta name="apple-mobile-web-app-title" content="MulmoTerm" />');
     expect(indexHtml).toContain('<meta name="apple-mobile-web-app-status-bar-style" content="black" />');
-    expect(indexHtml).toContain('<link rel="apple-touch-icon" href="%BASE_URL%icons/mulmoterminal-180.png" />');
+    expect(indexHtml).toContain('<link rel="apple-touch-icon" href="/icons/mulmoterminal-180.png" />');
   });
 
   it("has installable mobile app fields without splitting local and remote mobile", () => {

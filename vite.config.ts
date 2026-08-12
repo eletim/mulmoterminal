@@ -27,12 +27,14 @@ const proxy = {
   // presentHtml page serving (the View's iframe src). Without this, the dev
   // Vite catch-all returns index.html instead of the HTML artifact.
   "/artifacts": backendProxy(`http://localhost:${BACKEND_PORT}`),
+  "/htmlfile": backendProxy(`http://localhost:${BACKEND_PORT}`),
   ...(BASE_PREFIX
     ? {
         [`${BASE_PREFIX}/ws/pubsub`]: backendProxy(`ws://localhost:${BACKEND_PORT}`, true),
         [`${BASE_PREFIX}/ws`]: backendProxy(`ws://localhost:${BACKEND_PORT}`, true),
         [`${BASE_PREFIX}/api`]: backendProxy(`http://localhost:${BACKEND_PORT}`),
         [`${BASE_PREFIX}/artifacts`]: backendProxy(`http://localhost:${BACKEND_PORT}`),
+        [`${BASE_PREFIX}/htmlfile`]: backendProxy(`http://localhost:${BACKEND_PORT}`),
       }
     : {}),
 };

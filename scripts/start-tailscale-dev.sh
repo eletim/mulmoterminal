@@ -64,7 +64,8 @@ export MULMOTERMINAL_MOBILE_MODE="${MULMOTERMINAL_MOBILE_MODE:-local}"
 
 tailscale_path="${MULMOTERMINAL_TAILSCALE_PATH:-${MULMOTERMINAL_BASE_PATH%/}}"
 [[ -n "$tailscale_path" ]] || tailscale_path="/"
-tailscale_target="${MULMOTERMINAL_TAILSCALE_TARGET:-http://localhost:${CLIENT_PORT}}"
+tailscale_target_path="${MULMOTERMINAL_BASE_PATH%/}"
+tailscale_target="${MULMOTERMINAL_TAILSCALE_TARGET:-http://localhost:${CLIENT_PORT}${tailscale_target_path}}"
 
 echo "[mulmoterminal] backend PORT=${PORT}"
 echo "[mulmoterminal] vite CLIENT_PORT=${CLIENT_PORT}"

@@ -39,7 +39,7 @@ describe("start-tailscale-dev.sh", () => {
   it("starts the issue #59 target ports, base path, mobile mode, and Tailscale route by default", () => {
     const result = dryRun();
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857");
+    expect(result.stdout).toContain("tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857/mulmoterminal");
     expect(result.stdout).toContain("PORT=34568 CLIENT_PORT=6857 MULMOTERMINAL_BASE_PATH=/mulmoterminal/ MULMOTERMINAL_MOBILE_MODE=local yarn dev");
   });
 
@@ -57,6 +57,7 @@ describe("start-tailscale-dev.sh", () => {
     });
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain("tailscale serve --bg --set-path=/custom http://localhost:44444/custom");
     expect(result.stdout).toContain("PORT=33333 CLIENT_PORT=44444 MULMOTERMINAL_BASE_PATH=/custom/");
     expect(result.stdout).not.toContain("secret-from-env");
     expect(result.stdout).not.toContain("secret-from-shell");

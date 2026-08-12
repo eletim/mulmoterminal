@@ -532,7 +532,7 @@ Serving from a Tailscale subpath in local dev can look like this:
 
 ```
 PORT=34568 CLIENT_PORT=6857 MULMOTERMINAL_BASE_PATH=/mulmoterminal/ MULMOTERMINAL_MOBILE_MODE=local yarn dev
-tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857
+tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857/mulmoterminal
 ```
 
 For that exact local deployment, run the checked-in helper instead:
@@ -544,8 +544,10 @@ scripts/start-tailscale-dev.sh
 It starts dev mode with `PORT=34568`, `CLIENT_PORT=6857`,
 `MULMOTERMINAL_BASE_PATH=/mulmoterminal/`, and
 `MULMOTERMINAL_MOBILE_MODE=local`, then points Tailscale Serve
-`/mulmoterminal` at `http://localhost:6857`. Existing shell variables override
-those defaults. The script reads `.env` and `.env.local` from the repo root
+`/mulmoterminal` at `http://localhost:6857/mulmoterminal`. Tailscale Serve's
+path mount forwards the request below that mount to the target, so the target
+includes the Vite base path. Existing shell variables override those defaults.
+The script reads `.env` and `.env.local` from the repo root
 (`.env.local` is gitignored), so user-specific Web Push values such as
 `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
 `MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
