@@ -11,7 +11,9 @@ const runtimeBasePath = typeof window === "undefined" ? undefined : window.__MUL
 export const APP_BASE_PATH = normalizeBasePath(runtimeBasePath ?? import.meta.env.BASE_URL);
 
 const ROOT_SERVER_PATHS = ["/api", "/artifacts", "/htmlfile", "/mobile-web-push-sw.js", "/manifest.webmanifest", "/icons"];
+const DOM_URL_ATTRIBUTES = new Set(["action", "href", "poster", "src"]);
 const installedFetches = new WeakSet<typeof fetch>();
+const installedDomWindows = new WeakSet<Window>();
 
 function shouldPrefixRootServerPath(pathname: string): boolean {
   return ROOT_SERVER_PATHS.some((root) => pathname === root || pathname.startsWith(`${root}/`));
@@ -37,6 +39,50 @@ function rewriteRootServerUrl(input: string): string {
   } catch {
     return input;
   }
+}
+
+function rewriteAttributeValue(name: string, value: unknown): string {
+  const nextValue = String(value);
+  return DOM_URL_ATTRIBUTES.has(name.toLowerCase()) ? rewriteRootServerUrl(nextValue) : nextValue;
+}
+
+function patchSetAttribute(): void {
+  const original = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function setAttribute(name: string, value: string): void {
+    original.call(this, name, rewriteAttributeValue(name, value));
+  };
+}
+
+function patchUrlProperty<T extends Element>(prototype: object, property: string): void {
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+  if (!descriptor?.set || !descriptor.get || !descriptor.configurable) return;
+  const getter = descriptor.get;
+  const setter = descriptor.set;
+
+  Object.defineProperty(prototype, property, {
+    configurable: true,
+    enumerable: descriptor.enumerable ?? false,
+    get(this: T) {
+      return String(getter.call(this));
+    },
+    set(this: T, value: string) {
+      setter.call(this, rewriteRootServerUrl(String(value)));
+    },
+  });
+}
+
+export function installBasePathDomUrls(): void {
+  if (typeof window === "undefined" || APP_BASE_PATH === "/") return;
+  if (installedDomWindows.has(window)) return;
+  installedDomWindows.add(window);
+
+  patchSetAttribute();
+  patchUrlProperty<HTMLAnchorElement>(HTMLAnchorElement.prototype, "href");
+  patchUrlProperty<HTMLFormElement>(HTMLFormElement.prototype, "action");
+  patchUrlProperty<HTMLIFrameElement>(HTMLIFrameElement.prototype, "src");
+  patchUrlProperty<HTMLImageElement>(HTMLImageElement.prototype, "src");
+  patchUrlProperty<HTMLLinkElement>(HTMLLinkElement.prototype, "href");
+  patchUrlProperty<HTMLScriptElement>(HTMLScriptElement.prototype, "src");
 }
 
 export function installBasePathFetch(): void {

@@ -35,6 +35,28 @@ export function isClientRoute(pathname: string): boolean {
  *  PATTERN only — it stayed green through the whole bug. */
 const RUNTIME_BASE_RE = /window\.__MULMOTERMINAL_BASE_PATH__\s*=\s*"[^"]*";/;
 const ROOT_DIST_URL_RE = /\b(href|src)="\/(assets|icons|manifest\.webmanifest|mobile-web-push-sw\.js)([^"]*)"/g;
+const ROOT_CSS_ASSET_URL_RE = /url\((["']?)\/(assets\/[^)"']+)\1\)/g;
+
+function safeDistFilePath(distDir: string, requestPath: string): string | null {
+  let relative: string;
+  try {
+    relative = decodeURIComponent(requestPath).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+
+  const root = path.resolve(distDir);
+  const target = path.resolve(root, relative);
+  return target.startsWith(`${root}${path.sep}`) ? target : null;
+}
+
+function errorCode(err: unknown): string | undefined {
+  if (err && typeof err === "object" && "code" in err) {
+    const code = err.code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
 
 export function renderIndexHtml(html: string, basePath: string | null | undefined): string {
   const normalized = normalizeBasePath(basePath);
@@ -42,6 +64,28 @@ export function renderIndexHtml(html: string, basePath: string | null | undefine
   return html
     .replace(RUNTIME_BASE_RE, `window.__MULMOTERMINAL_BASE_PATH__ = ${JSON.stringify(normalized)};`)
     .replace(ROOT_DIST_URL_RE, (_match: string, attr: string, rootPath: string, rest: string) => `${attr}="${prefix}/${rootPath}${rest}"`);
+}
+
+export function renderAssetCss(css: string, basePath: string | null | undefined): string {
+  const prefix = basePathPrefix(basePath);
+  if (!prefix) return css;
+  return css.replace(ROOT_CSS_ASSET_URL_RE, (_match: string, quote: string, assetPath: string) => `url(${quote}${prefix}/${assetPath}${quote})`);
+}
+
+export function mountBasePathAssetCss(app: Pick<Express, "get">, distDir: string, options: { basePath?: string } = {}): void {
+  app.get(/^\/assets\/.*\.css$/, async (req, res, next) => {
+    if (basePathPrefix(options.basePath) === "") return next();
+    const filePath = safeDistFilePath(distDir, req.path);
+    if (!filePath) return next();
+
+    try {
+      const css = await fs.readFile(filePath, "utf8");
+      res.type("css").send(renderAssetCss(css, options.basePath));
+    } catch (err) {
+      if (errorCode(err) === "ENOENT") return next();
+      next(err);
+    }
+  });
 }
 
 export function mountSpaFallback(app: Pick<Express, "get">, distDir: string, options: { basePath?: string } = {}): void {

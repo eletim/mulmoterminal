@@ -30,4 +30,19 @@ describe("runtime base path", () => {
     ]);
     expect(dropUploadUrl("session-a")).toBe("/mulmoterminal/api/session/session-a/drop");
   });
+
+  it("prefixes server URLs assigned directly to DOM attributes and properties", async () => {
+    setRuntimeBasePath("/mulmoterminal/");
+    const { installBasePathDomUrls } = await import("../../src/basePath");
+
+    installBasePathDomUrls();
+
+    const iframe = document.createElement("iframe");
+    iframe.src = "/htmlfile/ws/docs/report.html";
+    expect(iframe.getAttribute("src")).toBe("/mulmoterminal/htmlfile/ws/docs/report.html");
+
+    const link = document.createElement("a");
+    link.setAttribute("href", "/artifacts/html/report.html");
+    expect(link.getAttribute("href")).toBe("/mulmoterminal/artifacts/html/report.html");
+  });
 });

@@ -74,7 +74,7 @@ import type { createTitleManager } from "../session/session-title.js";
 import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClientCount } from "../infra/tmux.js";
 import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
-import { mountSpaFallback } from "../infra/spa-fallback.js";
+import { mountBasePathAssetCss, mountSpaFallback } from "../infra/spa-fallback.js";
 import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
 import { workspaceForRoute } from "./routeParams.js";
 import type { MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
@@ -251,15 +251,18 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     guiCallHistory: (sessionId) => guiCallRecorderFor(sessionId, sessionCallReporting(deps, sessionId), deps.toolStores),
   });
 
-  // Serve Vite build output
-  app.use(express.static(path.join(clientDir, "../dist"), { index: false }));
+  // Serve Vite build output. CSS is mounted first so a package built for "/" can
+  // still rewrite embedded font/icon URLs when the runtime base path is non-root.
+  const distDir = path.join(clientDir, "../dist");
+  mountBasePathAssetCss(app, distDir, { basePath: MULMOTERMINAL_BASE_PATH });
+  app.use(express.static(distDir, { index: false }));
 
   // SPA fallback for vue-router history mode: a hard reload / deep-link of a client
   // route (e.g. /terminals, /collections/foo) must serve index.html. Mounted AFTER
   // express.static so real asset files win, and after the /artifacts/html preview
   // route (registered above) so it wins too. SPA_FALLBACK_RE reserves the single /api
   // prefix — see server/spa-fallback.ts for why that's sufficient.
-  mountSpaFallback(app, path.join(clientDir, "../dist"), { basePath: MULMOTERMINAL_BASE_PATH });
+  mountSpaFallback(app, distDir, { basePath: MULMOTERMINAL_BASE_PATH });
 
   // The Claude hook endpoint (routes/hook-routes.ts). Session lifecycle, the title
   // bookkeeping and the tool stores stay here; the fan-out that reads them moves out.
