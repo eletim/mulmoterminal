@@ -535,6 +535,22 @@ PORT=34568 CLIENT_PORT=6857 MULMOTERMINAL_BASE_PATH=/mulmoterminal/ MULMOTERMINA
 tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857
 ```
 
+For that exact local deployment, run the checked-in helper instead:
+
+```
+scripts/start-tailscale-dev.sh
+```
+
+It starts dev mode with `PORT=34568`, `CLIENT_PORT=6857`,
+`MULMOTERMINAL_BASE_PATH=/mulmoterminal/`, and
+`MULMOTERMINAL_MOBILE_MODE=local`, then points Tailscale Serve
+`/mulmoterminal` at `http://localhost:6857`. Existing shell variables override
+those defaults. The script reads `.env` and `.env.local` from the repo root
+(`.env.local` is gitignored), so user-specific Web Push values such as
+`MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
+`MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
+`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can stay local.
+
 ### UI settings (`~/.mulmoterminal/config.json`)
 
 The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/config.json`
