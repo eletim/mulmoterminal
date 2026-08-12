@@ -60,6 +60,15 @@ describe("buildMobileWebPushPayload", () => {
       url: "/mobile/terminals?sessionId=session-b",
     });
   });
+
+  it("uses the configured base path in server-built notification URLs", () => {
+    expect(buildMobileWebPushPayload("test", "session-a", null, "/mulmoterminal/")).toEqual({
+      kind: "test",
+      sessionId: "session-a",
+      agent: null,
+      url: "/mulmoterminal/mobile/terminals?sessionId=session-a",
+    });
+  });
 });
 
 describe("createMobileWebPushSender", () => {

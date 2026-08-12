@@ -1,5 +1,6 @@
 import webPush from "web-push";
 import type { PushSubscription, SendResult, sendNotification as webPushSendNotification } from "web-push";
+import { withBasePath } from "../../common/basePath.js";
 import type { PushKind } from "../../common/pushKinds.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import type { MobileWebPushConfig } from "./config.js";
@@ -39,22 +40,24 @@ export interface MobileWebPushSenderDeps {
   now?: () => number;
 }
 
-export function mobileTerminalNotificationUrl(sessionId: string | null): string {
-  if (!sessionId) return "/mobile/terminals";
+export function mobileTerminalNotificationUrl(sessionId: string | null, basePath = process.env.MULMOTERMINAL_BASE_PATH): string {
+  const path = withBasePath("/mobile/terminals", basePath);
+  if (!sessionId) return path;
   const params = new URLSearchParams({ sessionId });
-  return `/mobile/terminals?${params.toString()}`;
+  return `${path}?${params.toString()}`;
 }
 
 export function buildMobileWebPushPayload(
   kind: MobileWebPushNotificationKind,
   sessionId: string | null,
   agent: SessionAgent | null = null,
+  basePath = process.env.MULMOTERMINAL_BASE_PATH,
 ): MobileWebPushPayload {
   return {
     kind,
     sessionId,
     agent,
-    url: mobileTerminalNotificationUrl(sessionId),
+    url: mobileTerminalNotificationUrl(sessionId, basePath),
   };
 }
 
