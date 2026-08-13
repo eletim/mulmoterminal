@@ -131,7 +131,7 @@ prompt_yes_no() {
     case "${answer,,}" in
       y|yes) return 0 ;;
       n|no) return 1 ;;
-      *) echo "Please answer y or n." ;;
+      *) echo "Please answer y or n." >&2 ;;
     esac
   done
 }
@@ -156,32 +156,93 @@ prompt_required() {
   done
 }
 
-prompt_optional() {
-  local label="$1"
-  local default="${2:-}"
-  local value
-  if [[ -n "$default" ]]; then
-    read -r -p "${label} [${default}]: " value
-    value="${value:-$default}"
-  else
-    read -r -p "${label}: " value
-  fi
-  printf '%s\n' "$value"
+valid_web_push_subject() {
+  local value="${1:-}"
+  [[ "$value" == mailto:* || "$value" == https://* ]]
 }
 
-prompt_secret_optional() {
-  local label="$1"
-  local default="$2"
+prompt_web_push_subject() {
+  local default="$1"
   local value
-  if [[ -n "$default" ]]; then
-    if prompt_yes_no "Use existing shell value for ${label}? [Y/n]: " "y"; then
-      printf '%s\n' "$default"
+  echo "Web Push subject was not found." >&2
+  if [[ -n "$default" ]] && prompt_yes_no "Use ${default}? [Y/n]: " "y"; then
+    printf '%s\n' "$default"
+    return 0
+  fi
+  while true; do
+    read -r -p "Web Push subject (mailto:... or https://...): " value
+    if valid_web_push_subject "$value"; then
+      printf '%s\n' "$value"
       return 0
     fi
+    echo "Web Push subject must start with mailto: or https://." >&2
+  done
+}
+
+generate_vapid_key_pair() {
+  local generated
+  if ! generated="$(
+    node -e '
+      const webPush = require("web-push");
+      const keys = webPush.generateVAPIDKeys();
+      process.stdout.write(`${keys.publicKey}\n${keys.privateKey}\n`);
+    '
+  )"; then
+    echo "[mulmoterminal] Could not generate Web Push keys; Web Push will remain disabled." >&2
+    return 1
   fi
-  read -r -s -p "${label}: " value
-  printf '\n' >&2
-  printf '%s\n' "$value"
+  public_key="${generated%%$'\n'*}"
+  private_key="${generated#*$'\n'}"
+  private_key="${private_key%%$'\n'*}"
+  [[ -n "$public_key" && -n "$private_key" ]]
+}
+
+configure_web_push() {
+  local target_file="$1"
+  local tmp_file="$2"
+  local default_subject="$3"
+  local public_key="${MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY:-}"
+  local private_key="${MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY:-}"
+  local subject="${MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT:-}"
+  local generated_keys=0
+
+  if [[ -n "$public_key" && -n "$private_key" ]]; then
+    if [[ -n "$subject" ]]; then
+      return 0
+    fi
+    subject="$(prompt_web_push_subject "$default_subject")"
+    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT]+x}" ]]; then
+      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT" "$subject"
+    fi
+    return 0
+  fi
+
+  if [[ -n "$public_key" || -n "$private_key" ]]; then
+    echo "[mulmoterminal] Incomplete Web Push key settings were found; leaving Web Push disabled." >&2
+    echo "[mulmoterminal] Set both MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY and MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY to enable it." >&2
+    return 0
+  fi
+
+  echo "Web Push keys were not found."
+  if prompt_yes_no "Generate Web Push keys automatically? [Y/n]: " "y"; then
+    if generate_vapid_key_pair; then
+      generated_keys=1
+      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY" "$public_key"
+      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY" "$private_key"
+    fi
+  else
+    echo "[mulmoterminal] Web Push can be added later in ${target_file}."
+    return 0
+  fi
+
+  [[ "$generated_keys" == "1" ]] || return 0
+
+  if [[ -z "$subject" ]]; then
+    subject="$(prompt_web_push_subject "$default_subject")"
+  fi
+  if [[ "$generated_keys" == "1" || -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT]+x}" ]]; then
+    write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT" "$subject"
+  fi
 }
 
 write_env_assignment() {
@@ -195,7 +256,7 @@ write_env_assignment() {
 setup_env_file() {
   local target_file="$1"
   local detected_host="${2:-}"
-  local host origin public_key private_key subject
+  local host origin
   local tmp_file
 
   echo ".env.local and ${target_file} were not found. Starting first-time setup."
@@ -230,42 +291,7 @@ setup_env_file() {
   echo "  ${origin}"
   echo
 
-  if prompt_yes_no "Configure Web Push now? [Y/n]: " "y"; then
-    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY]+x}" ]]; then
-      public_key="$(prompt_optional "Web Push public key" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY:-}")"
-      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY" "$public_key"
-    else
-      if prompt_yes_no "Save existing shell Web Push public key to ${target_file}? [y/N]: " "n"; then
-        write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY:-}"
-      else
-        echo "[mulmoterminal] MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY is set in the shell; not writing it."
-      fi
-    fi
-
-    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY]+x}" ]]; then
-      private_key="$(prompt_secret_optional "Web Push private key" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY:-}")"
-      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY" "$private_key"
-    else
-      if prompt_yes_no "Save existing shell Web Push private key to ${target_file}? [y/N]: " "n"; then
-        write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY:-}"
-      else
-        echo "[mulmoterminal] MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY is set in the shell; not writing it."
-      fi
-    fi
-
-    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT]+x}" ]]; then
-      subject="$(prompt_optional "Web Push subject" "${MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT:-}")"
-      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT" "$subject"
-    else
-      if prompt_yes_no "Save existing shell Web Push subject to ${target_file}? [y/N]: " "n"; then
-        write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT" "${MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT:-}"
-      else
-        echo "[mulmoterminal] MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT is set in the shell; not writing it."
-      fi
-    fi
-  else
-    echo "[mulmoterminal] Web Push can be added later in ${target_file}."
-  fi
+  configure_web_push "$target_file" "$tmp_file" "$origin"
 
   mkdir -p "$(dirname -- "$target_file")"
   install -m 600 "$tmp_file" "$target_file"

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import webPush from "web-push";
 import { makeTempDir } from "../support/tempDir.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -64,6 +65,33 @@ function writeFakeTailscale(binDir: string, body: string) {
   const executable = path.join(binDir, "tailscale");
   writeFileSync(executable, `#!/usr/bin/env bash\n${body}\n`);
   chmodSync(executable, 0o755);
+}
+
+function parseEnv(contents: string) {
+  return Object.fromEntries(
+    contents
+      .split("\n")
+      .filter((line) => line && !line.startsWith("#"))
+      .map((line) => {
+        const index = line.indexOf("=");
+        return [line.slice(0, index), line.slice(index + 1)];
+      }),
+  );
+}
+
+function expectUsableVapidKeys(env: Record<string, string>, subject: string) {
+  expect(env.MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT).toBe(subject);
+  expect(env.MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY).toMatch(/^B[A-Za-z0-9_-]+$/);
+  expect(env.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY).toMatch(/^[A-Za-z0-9_-]+$/);
+  expect(() =>
+    webPush.getVapidHeaders(
+      "https://push.example/send",
+      env.MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT,
+      env.MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY,
+      env.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY,
+      "aes128gcm",
+    ),
+  ).not.toThrow();
 }
 
 describe("start-tailscale-dev.sh", () => {
@@ -189,7 +217,7 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("PORT=45678");
   });
 
-  it("persists shell-derived host values while keeping Web Push secrets out by default", () => {
+  it("persists shell-derived host values without prompting to save existing Web Push secrets", () => {
     const home = isolatedHome();
     const result = interactiveDryRun("\ny\nn\nn\nn\n", {
       ...home,
@@ -209,24 +237,60 @@ describe("start-tailscale-dev.sh", () => {
     expect(generated).not.toContain("mailto:shell@example.test");
     expect(result.stdout).not.toContain("secret-from-shell");
     expect(result.stderr).not.toContain("secret-from-shell");
+    expect(result.stdout).not.toContain("Web Push keys were not found");
   });
 
-  it("can save Web Push values without echoing the private key", () => {
+  it("generates usable Web Push keys and a default subject without echoing the private key", () => {
     const home = isolatedHome();
     const binDir = path.join(currentTempDir(), "bin");
     writeFakeTailscale(binDir, '[[ "$1 $2" == "status --json" ]] || exit 1\nprintf \'{"Self":{"DNSName":"push.tail.ts.net"}}\\n\'');
 
-    const result = interactiveDryRun("\ny\npublic-from-input\nprivate-from-input\nmailto:push@example.test\n", {
+    const result = interactiveDryRun("\n\n\n", {
       ...home,
       PATH: prependPath(binDir),
     });
     const generated = readFileSync(localEnvPath(home), "utf8");
+    const env = parseEnv(generated);
 
     expect(result.status).toBe(0);
-    expect(generated).toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY=public-from-input");
-    expect(generated).toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY=private-from-input");
-    expect(generated).toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT=mailto:push@example.test");
-    expect(result.stdout).not.toContain("private-from-input");
-    expect(result.stderr).not.toContain("private-from-input");
+    expectUsableVapidKeys(env, "https://push.tail.ts.net");
+    expect(result.stdout).toContain("Web Push keys were not found.");
+    expect(result.stdout).not.toContain(env.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY);
+    expect(result.stderr).not.toContain(env.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY);
+  });
+
+  it("starts without Web Push when automatic key generation is rejected", () => {
+    const home = isolatedHome();
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "status --json" ]] || exit 1\nprintf \'{"Self":{"DNSName":"push-disabled.tail.ts.net"}}\\n\'');
+
+    const result = interactiveDryRun("\nn\n", { ...home, PATH: prependPath(binDir) });
+    const generated = readFileSync(localEnvPath(home), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY");
+    expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY");
+    expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT");
+    expect(result.stdout).toContain("yarn dev");
+  });
+
+  it("reuses generated Web Push keys from the shared config on the next run without prompting", () => {
+    const home = isolatedHome();
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "status --json" ]] || exit 1\nprintf \'{"Self":{"DNSName":"reuse.tail.ts.net"}}\\n\'');
+
+    const first = interactiveDryRun("\n\n\n", { ...home, PATH: prependPath(binDir) });
+    const firstGenerated = readFileSync(localEnvPath(home), "utf8");
+    const firstEnv = parseEnv(firstGenerated);
+    const second = interactiveDryRun("", { ...home, PATH: prependPath(binDir) });
+    const secondGenerated = readFileSync(localEnvPath(home), "utf8");
+    const secondEnv = parseEnv(secondGenerated);
+
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    expect(second.stdout).not.toContain("Starting first-time setup");
+    expect(second.stdout).not.toContain("Web Push keys were not found");
+    expect(secondEnv.MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY).toBe(firstEnv.MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY);
+    expect(secondEnv.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY).toBe(firstEnv.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY);
   });
 });

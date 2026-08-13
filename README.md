@@ -557,8 +557,11 @@ writes the shared file. If Tailscale is unavailable or does not report a DNS
 name, the setup falls back to manual host entry. User-specific Web Push values
 such as `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
 `MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
-`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can also be saved there; private keys
-are not echoed while entered.
+`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can also be saved there. When Web Push
+keys are missing, the setup can generate a VAPID key pair automatically and
+stores it in the shared file with `0600` permissions, so later runs and other
+worktrees reuse the same keys. Existing shell values still win and private keys
+are never printed by the setup.
 
 ### UI settings (`~/.mulmoterminal/config.json`)
 
