@@ -152,6 +152,21 @@ describe("start-tailscale-dev.sh", () => {
     expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=https://manual.tail.ts.net");
   });
 
+  it("keeps manual host validation messages out of generated env values", () => {
+    const home = isolatedHome();
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, "exit 1");
+
+    const result = interactiveDryRun("\nmanual.tail.ts.net\nn\n", { ...home, PATH: prependPath(binDir) });
+    const generated = readFileSync(localEnvPath(home), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("A value is required.");
+    expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=manual.tail.ts.net");
+    expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=https://manual.tail.ts.net");
+    expect(generated).not.toContain("A value is required.");
+  });
+
   it("does not prompt or generate files in non-interactive dry runs", () => {
     const home = isolatedHome();
     const result = dryRun(home);

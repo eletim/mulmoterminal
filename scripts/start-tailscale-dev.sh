@@ -152,7 +152,7 @@ prompt_required() {
       printf '%s\n' "$value"
       return 0
     fi
-    echo "A value is required."
+    echo "A value is required." >&2
   done
 }
 
