@@ -452,6 +452,24 @@ describe("wireSelectionEdgeAutoScroll", () => {
     handle?.dispose();
   });
 
+  it("applies an observed app-side scroll before the final mouseup capture", () => {
+    const { term, screen, visibleLines } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
+    const selection = installXtermSelectionModel(term, [10, 12], [4, 0]);
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockReturnValue("970\n971\n972");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    flushFrame(80);
+    shiftVisibleLines(visibleLines, "down");
+    document.dispatchEvent(mouse("mouseup", RECT.top + 4));
+
+    expect(selection.model.selectionStart).toEqual([10, 13]);
+    expect(selection.refresh).toHaveBeenCalled();
+    handle?.dispose();
+  });
+
   it("copies the accumulated alternate-buffer selection text after app-side scrollback redraws", () => {
     const { term, screen } = makeTerminal({ bufferType: "alternate" });
     const selections = ["970\n971\n972", "960\n961\n962\n970\n971\n972", "950\n951\n960\n961\n962\n970\n971\n972"];

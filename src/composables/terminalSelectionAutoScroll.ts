@@ -375,7 +375,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.capturedSelectionLines = mergeSelectionLines(this.capturedSelectionLines, lines, direction);
   }
 
-  private applyPendingAppScroll(now: number): boolean {
+  private applyPendingAppScroll(now: number, expire = true): boolean {
     const pending = this.pendingAppScroll;
     if (!pending) return false;
     const shift = observedContentShift(this.term, pending.before, pending.lines);
@@ -384,7 +384,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       this.pendingAppScroll = null;
       return true;
     }
-    if (now - pending.createdAtMs >= APP_SCROLL_OBSERVATION_TIMEOUT_MS) this.pendingAppScroll = null;
+    if (expire && now - pending.createdAtMs >= APP_SCROLL_OBSERVATION_TIMEOUT_MS) this.pendingAppScroll = null;
     return false;
   }
 
@@ -479,7 +479,10 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.ensureFrame();
   };
 
-  private readonly onDocumentMouseUp = (): void => {
+  private readonly onDocumentMouseUp = (event: MouseEvent): void => {
+    if (this.applyPendingAppScroll(event.timeStamp, false) && this.lastMove) {
+      dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, this.lastMove, clampPointerToScreen(this.lastMove, this.screen));
+    }
     if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
     this.cancel();
   };
