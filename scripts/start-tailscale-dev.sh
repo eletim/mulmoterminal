@@ -222,16 +222,8 @@ setup_env_file() {
     echo "# Shared by local MulmoTerminal worktrees on this machine."
   } > "$tmp_file"
 
-  if [[ -z "${ORIGINAL_ENV[__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS]+x}" ]]; then
-    write_env_assignment "$tmp_file" "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS" "$host"
-  else
-    echo "[mulmoterminal] __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS is set in the shell; not writing it."
-  fi
-  if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_ALLOWED_ORIGINS]+x}" ]]; then
-    write_env_assignment "$tmp_file" "MULMOTERMINAL_ALLOWED_ORIGINS" "$origin"
-  else
-    echo "[mulmoterminal] MULMOTERMINAL_ALLOWED_ORIGINS is set in the shell; not writing it."
-  fi
+  write_env_assignment "$tmp_file" "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS" "$host"
+  write_env_assignment "$tmp_file" "MULMOTERMINAL_ALLOWED_ORIGINS" "$origin"
 
   echo
   echo "Allowed origin:"

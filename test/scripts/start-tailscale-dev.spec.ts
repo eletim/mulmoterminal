@@ -189,7 +189,7 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("PORT=45678");
   });
 
-  it("keeps explicit shell values authoritative and does not print private Web Push values", () => {
+  it("persists shell-derived host values while keeping Web Push secrets out by default", () => {
     const home = isolatedHome();
     const result = interactiveDryRun("\ny\nn\nn\nn\n", {
       ...home,
@@ -202,8 +202,8 @@ describe("start-tailscale-dev.sh", () => {
     const generated = readFileSync(localEnvPath(home), "utf8");
 
     expect(result.status).toBe(0);
-    expect(generated).not.toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=");
-    expect(generated).not.toContain("MULMOTERMINAL_ALLOWED_ORIGINS=");
+    expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=shell.tail.ts.net");
+    expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=https://shell.tail.ts.net");
     expect(generated).not.toContain("public-from-shell");
     expect(generated).not.toContain("secret-from-shell");
     expect(generated).not.toContain("mailto:shell@example.test");
