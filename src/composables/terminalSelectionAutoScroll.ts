@@ -130,6 +130,7 @@ function stripScrollPositionOverlay(line: string): string {
   const trimmed = line.trim();
   const open = trimmed.lastIndexOf("[");
   if (open < 0 || !trimmed.endsWith("]")) return line.trimEnd();
+  if (open > 0 && !/\s{2,}$/.test(trimmed.slice(0, open))) return line.trimEnd();
   const position = trimmed.slice(open + 1, -1);
   const slash = position.indexOf("/");
   if (slash <= 0 || slash === position.length - 1) return line.trimEnd();
