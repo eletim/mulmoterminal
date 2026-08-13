@@ -13,6 +13,17 @@ const XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX = 50;
 const XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX = 1;
 
 const syntheticSelectionMoves = new WeakSet<MouseEvent>();
+type TerminalUiScrollResult = "none" | "app" | "scrollback";
+type SelectionPoint = [number, number];
+
+interface XtermSelectionModel {
+  selectionStart?: SelectionPoint;
+}
+
+interface XtermSelectionService {
+  _model?: XtermSelectionModel;
+  refresh?: () => void;
+}
 
 export interface SelectionEdgeAutoScrollHandle {
   cancel(): void;
@@ -161,13 +172,63 @@ function normalBufferSelectionCanMove(term: Terminal, intensity: number): boolea
   return scrollbackCanMove(term, intensity < 0 ? -1 : 1);
 }
 
-function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, lines: number): boolean {
-  if (lines === 0) return false;
-  if (sendWheelReportsToApp(term, swallowedMouseModes, pointer, lines)) return true;
-  if (!scrollbackCanMove(term, lines)) return false;
+function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, lines: number): TerminalUiScrollResult {
+  if (lines === 0) return "none";
+  if (sendWheelReportsToApp(term, swallowedMouseModes, pointer, lines)) return "app";
+  if (!scrollbackCanMove(term, lines)) return "none";
   const before = term.buffer.active.viewportY;
   term.scrollLines(lines);
-  return term.buffer.active.viewportY !== before;
+  return term.buffer.active.viewportY !== before ? "scrollback" : "none";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSelectionPoint(value: unknown): value is SelectionPoint {
+  return Array.isArray(value) && value.length === 2 && typeof value[0] === "number" && typeof value[1] === "number";
+}
+
+function isSelectionModel(value: unknown): value is XtermSelectionModel {
+  return isRecord(value) && (value.selectionStart === undefined || isSelectionPoint(value.selectionStart));
+}
+
+function isSelectionService(value: unknown): value is XtermSelectionService {
+  return (
+    isRecord(value) && (value._model === undefined || isSelectionModel(value._model)) && (value.refresh === undefined || typeof value.refresh === "function")
+  );
+}
+
+function xtermSelectionServiceOf(term: Terminal): XtermSelectionService | null {
+  if (!isRecord(term)) return null;
+  const core = term._core;
+  if (!isRecord(core)) return null;
+  const selectionService = core._selectionService;
+  return isSelectionService(selectionService) ? selectionService : null;
+}
+
+function clampVisibleSelectionAnchor(term: Terminal, anchor: SelectionPoint, row: number): void {
+  const firstVisibleRow = term.buffer.active.viewportY;
+  const lastVisibleRow = firstVisibleRow + Math.max(0, term.rows - 1);
+  if (row < firstVisibleRow) {
+    anchor[0] = 0;
+    anchor[1] = firstVisibleRow;
+    return;
+  }
+  if (row > lastVisibleRow) {
+    anchor[0] = term.cols;
+    anchor[1] = lastVisibleRow;
+    return;
+  }
+  anchor[1] = row;
+}
+
+function shiftSelectionAnchorWithAppScroll(term: Terminal, lines: number): void {
+  const selectionService = xtermSelectionServiceOf(term);
+  const anchor = selectionService?._model?.selectionStart;
+  if (!anchor) return;
+  clampVisibleSelectionAnchor(term, anchor, anchor[1] - lines);
+  selectionService?.refresh?.();
 }
 
 class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
@@ -302,10 +363,11 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       const pointer = clampPointerToScreen(event, this.screen);
       this.captureSelectionText(lines);
       const scrolled = scrollTerminalUi(this.term, this.swallowedMouseModes, pointer, lines);
-      if (!scrolled) {
+      if (scrolled === "none") {
         this.stopFrame();
         return;
       }
+      if (scrolled === "app") shiftSelectionAnchorWithAppScroll(this.term, lines);
       dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
     }
     this.ensureFrame();
