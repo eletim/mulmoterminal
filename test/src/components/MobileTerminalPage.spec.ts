@@ -36,6 +36,9 @@ type MockNotificationGlobal = {
   permission: NotificationPermission;
   requestPermission: ReturnType<typeof vi.fn<() => Promise<NotificationPermission>>>;
 };
+type MockPushSubscription = PushSubscription & {
+  unsubscribe: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
+};
 
 const originalNotificationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Notification");
 const originalPushManagerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "PushManager");
@@ -160,10 +163,23 @@ function mockFetch(opts: {
   }) as unknown as typeof fetch;
 }
 
+function mockPushSubscription(endpoint = "https://push.example/subscription", applicationServerKey?: readonly number[]): MockPushSubscription {
+  return {
+    endpoint,
+    options:
+      applicationServerKey === undefined
+        ? { userVisibleOnly: true }
+        : { userVisibleOnly: true, applicationServerKey: new Uint8Array(applicationServerKey).buffer },
+    toJSON: () => ({ endpoint, keys: { p256dh: "p256dh", auth: "auth" } }),
+    unsubscribe: vi.fn(async () => true),
+  } as unknown as MockPushSubscription;
+}
+
 function mockWebPush(opts: {
   permission?: NotificationPermission;
   requestPermission?: NotificationPermission;
   existingSubscription?: PushSubscription | null;
+  createdSubscription?: PushSubscription;
   subscribeFails?: boolean;
 }) {
   const notification: MockNotificationGlobal = {
@@ -174,15 +190,9 @@ function mockWebPush(opts: {
     }),
   };
 
-  const subscription =
-    opts.existingSubscription ??
-    ({
-      endpoint: "https://push.example/subscription",
-      toJSON: () => ({ endpoint: "https://push.example/subscription", keys: { p256dh: "p256dh", auth: "auth" } }),
-      unsubscribe: vi.fn(async () => true),
-    } as unknown as PushSubscription);
+  const subscription = opts.createdSubscription ?? mockPushSubscription("https://push.example/subscription", [1, 2, 3]);
 
-  let currentSubscription: PushSubscription | null = opts.existingSubscription === null ? null : subscription;
+  let currentSubscription: PushSubscription | null = opts.existingSubscription === undefined ? subscription : opts.existingSubscription;
   const registration = {
     pushManager: {
       getSubscription: vi.fn(async () => currentSubscription),
@@ -1069,6 +1079,99 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("Subscription registered for server push.");
     });
 
+    it("shows Disabled without error when there is no browser subscription to remove", async () => {
+      const webPush = mockWebPush({ permission: "granted", existingSubscription: null });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Disabled");
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).not.toContain("Needs attention");
+      expect(findButton(wrapper, "Disable").attributes("disabled")).toBeDefined();
+      expect(webPush.registration.pushManager.getSubscription).toHaveBeenCalled();
+    });
+
+    it("re-registers an existing subscription when the VAPID key still matches", async () => {
+      const webPush = mockWebPush({ permission: "granted" });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(webPush.registration.pushManager.subscribe).not.toHaveBeenCalled();
+      expect(webPush.subscription.unsubscribe).not.toHaveBeenCalled();
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ subscription: { endpoint: "https://push.example/subscription", keys: { p256dh: "p256dh", auth: "auth" } } }),
+        }),
+      );
+    });
+
+    it("replaces an existing subscription when its VAPID key does not match the server", async () => {
+      const oldSubscription = mockPushSubscription("https://push.example/old", [9, 9, 9]);
+      const newSubscription = mockPushSubscription("https://push.example/new", [1, 2, 3]);
+      const webPush = mockWebPush({ permission: "granted", existingSubscription: oldSubscription, createdSubscription: newSubscription });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      expect(oldSubscription.unsubscribe).toHaveBeenCalled();
+      expect(webPush.registration.pushManager.subscribe).toHaveBeenCalledWith({
+        userVisibleOnly: true,
+        applicationServerKey: expect.any(Uint8Array),
+      });
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({ method: "DELETE", body: JSON.stringify({ endpoint: "https://push.example/old" }) }),
+      );
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ subscription: { endpoint: "https://push.example/new", keys: { p256dh: "p256dh", auth: "auth" } } }),
+        }),
+      );
+    });
+
+    it("moves from VAPID key A to B with a plain Disable then Enable", async () => {
+      const oldSubscription = mockPushSubscription("https://push.example/key-a", [1, 2, 3]);
+      const newSubscription = mockPushSubscription("https://push.example/key-b", [4, 5, 6]);
+      const webPush = mockWebPush({ permission: "granted", existingSubscription: oldSubscription, createdSubscription: newSubscription });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk("screen-a") },
+        webPushConfig: webPushOk({ enabled: true, publicKey: "BAUG" }),
+      });
+      const wrapper = await mountPage();
+
+      await findButton(wrapper, "Disable").trigger("click");
+      await flushPromises();
+      vi.mocked(webPush.registration.pushManager.getSubscription).mockResolvedValueOnce(null);
+      await findButton(wrapper, "Enable").trigger("click");
+      await flushPromises();
+
+      const subscribeOptions = (webPush.registration.pushManager.subscribe.mock.calls as unknown as Array<[PushSubscriptionOptionsInit]>).at(-1)?.[0];
+      expect(oldSubscription.unsubscribe).toHaveBeenCalled();
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({ method: "DELETE", body: JSON.stringify({ endpoint: "https://push.example/key-a" }) }),
+      );
+      expect(Array.from(subscribeOptions?.applicationServerKey as Uint8Array)).toEqual([4, 5, 6]);
+      expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+        "/api/mobile/web-push/subscriptions",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ subscription: { endpoint: "https://push.example/key-b", keys: { p256dh: "p256dh", auth: "auth" } } }),
+        }),
+      );
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Active");
+    });
+
     it("does not subscribe when notification permission is denied", async () => {
       const webPush = mockWebPush({ permission: "default", requestPermission: "denied", existingSubscription: null });
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("screen-a") } });
@@ -1109,7 +1212,7 @@ describe("MobileTerminalPage", () => {
 
       expect(webPush.registration.pushManager.subscribe).toHaveBeenCalled();
       expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
-      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Off");
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Disabled");
       expect(wrapper.text()).toContain("Failed to register notifications with the server.");
     });
 
@@ -1126,7 +1229,7 @@ describe("MobileTerminalPage", () => {
         expect.objectContaining({ method: "DELETE", body: JSON.stringify({ endpoint: "https://push.example/subscription" }) }),
       );
       expect(webPush.subscription.unsubscribe).toHaveBeenCalled();
-      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Off");
+      expect(wrapper.get('[data-testid="mobile-web-push-panel"]').text()).toContain("Disabled");
     });
 
     it("sends a server-side test notification for the selected mobile session", async () => {

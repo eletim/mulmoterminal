@@ -31,6 +31,18 @@ describe("runtime base path", () => {
     expect(dropUploadUrl("session-a")).toBe("/mulmoterminal/api/session/session-a/drop");
   });
 
+  it("prefixes mobile Web Push service worker and API URLs", async () => {
+    setRuntimeBasePath("/mulmoterminal/");
+
+    const client = await import("../../src/mobileWebPushClient");
+
+    expect(client.MOBILE_WEB_PUSH_SW_URL).toBe("/mulmoterminal/mobile-web-push-sw.js");
+    expect(client.MOBILE_WEB_PUSH_SW_SCOPE).toBe("/mulmoterminal/");
+    expect(client.MOBILE_WEB_PUSH_CONFIG_URL).toBe("/mulmoterminal/api/mobile/web-push/config");
+    expect(client.MOBILE_WEB_PUSH_SUBSCRIPTIONS_URL).toBe("/mulmoterminal/api/mobile/web-push/subscriptions");
+    expect(client.MOBILE_WEB_PUSH_TEST_URL).toBe("/mulmoterminal/api/mobile/web-push/test");
+  });
+
   it("prefixes server URLs assigned directly to DOM attributes and properties", async () => {
     setRuntimeBasePath("/mulmoterminal/");
     const { installBasePathDomUrls } = await import("../../src/basePath");
