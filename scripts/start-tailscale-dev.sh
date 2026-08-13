@@ -337,6 +337,10 @@ else
   env_files+=("$LOCAL_ENV_FILE")
 fi
 
+if [[ "$using_default_env_files" == "1" ]]; then
+  load_env_file "$ROOT_DIR/.env"
+fi
+
 maybe_first_time_setup "$using_default_env_files"
 
 for env_file in "${env_files[@]}"; do

@@ -12,10 +12,17 @@ const SCRIPT = path.join(ROOT, "scripts", "start-tailscale-dev.sh");
 const BASH = "/usr/bin/bash";
 
 let dir: string | null = null;
+let rootEnvSnapshot: string | null | undefined;
 
 afterEach(() => {
   if (dir && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   dir = null;
+  if (rootEnvSnapshot !== undefined) {
+    const rootEnv = path.join(ROOT, ".env");
+    if (rootEnvSnapshot === null) rmSync(rootEnv, { force: true });
+    else writeFileSync(rootEnv, rootEnvSnapshot);
+    rootEnvSnapshot = undefined;
+  }
 });
 
 function cleanEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -77,6 +84,12 @@ function parseEnv(contents: string) {
         return [line.slice(0, index), line.slice(index + 1)];
       }),
   );
+}
+
+function writeRootEnv(contents: string) {
+  const rootEnv = path.join(ROOT, ".env");
+  if (rootEnvSnapshot === undefined) rootEnvSnapshot = existsSync(rootEnv) ? readFileSync(rootEnv, "utf8") : null;
+  writeFileSync(rootEnv, contents);
 }
 
 function expectUsableVapidKeys(env: Record<string, string>, subject: string) {
@@ -238,6 +251,33 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).not.toContain("secret-from-shell");
     expect(result.stderr).not.toContain("secret-from-shell");
     expect(result.stdout).not.toContain("Web Push keys were not found");
+  });
+
+  it("loads repo .env before first-time setup so existing Web Push keys are not regenerated", () => {
+    const home = isolatedHome();
+    writeRootEnv(
+      [
+        "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=env.tail.ts.net",
+        "MULMOTERMINAL_ALLOWED_ORIGINS=https://env.tail.ts.net",
+        "MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY=public-from-env",
+        "MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY=secret-from-env",
+        "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT=mailto:env@example.test",
+        "",
+      ].join("\n"),
+    );
+
+    const result = interactiveDryRun("\n", home);
+    const generated = readFileSync(localEnvPath(home), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=env.tail.ts.net");
+    expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=https://env.tail.ts.net");
+    expect(generated).not.toContain("public-from-env");
+    expect(generated).not.toContain("secret-from-env");
+    expect(generated).not.toContain("mailto:env@example.test");
+    expect(result.stdout).not.toContain("Web Push keys were not found");
+    expect(result.stdout).not.toContain("secret-from-env");
+    expect(result.stderr).not.toContain("secret-from-env");
   });
 
   it("generates usable Web Push keys and a default subject without echoing the private key", () => {
