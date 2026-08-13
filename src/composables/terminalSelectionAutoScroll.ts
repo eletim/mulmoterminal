@@ -9,10 +9,32 @@ const MAIN_BUTTON_MASK = 1;
 const DRAG_SLOP_PX = 3;
 const AUTO_SCROLL_LINES_PER_SECOND = 18;
 const MAX_FRAME_MS = 80;
+const APP_SCROLL_OBSERVATION_TIMEOUT_MS = 250;
+const APP_SCROLL_MIN_MATCHED_LINES = 3;
 const XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX = 50;
 const XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX = 1;
+const MIN_PARTIAL_OVERLAP_CHARS = 24;
+const MIN_PARTIAL_OVERLAP_RATIO = 0.55;
 
 const syntheticSelectionMoves = new WeakSet<MouseEvent>();
+type TerminalUiScrollResult = "none" | "app" | "scrollback";
+type SelectionPoint = [number, number];
+type VisibleLineSnapshot = readonly string[];
+
+interface PendingAppScroll {
+  before: VisibleLineSnapshot;
+  lines: number;
+  createdAtMs: number;
+}
+
+interface XtermSelectionModel {
+  selectionStart?: SelectionPoint;
+}
+
+interface XtermSelectionService {
+  _model?: XtermSelectionModel;
+  refresh?: () => void;
+}
 
 export interface SelectionEdgeAutoScrollHandle {
   cancel(): void;
@@ -96,13 +118,6 @@ function dispatchSelectionMove(target: Document, event: MouseEvent, pointer: Poi
   target.dispatchEvent(cloneSelectionMove(event, pointer));
 }
 
-function selectionLines(text: string): string[] {
-  const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
-  while (lines.length > 0 && lines[0]?.trim() === "") lines.shift();
-  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") lines.pop();
-  return lines;
-}
-
 function isAsciiDigits(value: string): boolean {
   if (value.length === 0) return false;
   for (const char of value) {
@@ -111,17 +126,39 @@ function isAsciiDigits(value: string): boolean {
   return true;
 }
 
-function selectionLineKey(line: string): string {
+function stripScrollPositionOverlay(line: string): string {
   const trimmed = line.trim();
   const open = trimmed.lastIndexOf("[");
-  if (open <= 0 || !trimmed.endsWith("]")) return trimmed;
+  if (open < 0 || !trimmed.endsWith("]")) return line.trimEnd();
+  if (open > 0 && !/\s{2,}$/.test(trimmed.slice(0, open))) return line.trimEnd();
   const position = trimmed.slice(open + 1, -1);
   const slash = position.indexOf("/");
-  if (slash <= 0 || slash === position.length - 1) return trimmed;
+  if (slash <= 0 || slash === position.length - 1) return line.trimEnd();
   const before = position.slice(0, slash);
   const after = position.slice(slash + 1);
-  if (!isAsciiDigits(before) || !isAsciiDigits(after)) return trimmed;
+  if (!isAsciiDigits(before) || !isAsciiDigits(after)) return line.trimEnd();
   return trimmed.slice(0, open).trimEnd();
+}
+
+function selectionLines(text: string): string[] {
+  const lines = text.split(/\r?\n/).map(stripScrollPositionOverlay);
+  while (lines.length > 0 && lines[0]?.trim() === "") lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") lines.pop();
+  return lines;
+}
+
+function selectionLineKey(line: string): string {
+  return stripScrollPositionOverlay(line).trim();
+}
+
+function selectionLinesMatch(left: string, right: string): boolean {
+  const leftKey = selectionLineKey(left);
+  const rightKey = selectionLineKey(right);
+  if (leftKey === rightKey) return true;
+  const shorter = leftKey.length <= rightKey.length ? leftKey : rightKey;
+  const longer = leftKey.length > rightKey.length ? leftKey : rightKey;
+  if (shorter.length < MIN_PARTIAL_OVERLAP_CHARS || shorter.length / longer.length < MIN_PARTIAL_OVERLAP_RATIO) return false;
+  return longer.startsWith(shorter) || longer.endsWith(shorter);
 }
 
 function overlapSize(left: readonly string[], right: readonly string[]): number {
@@ -129,7 +166,7 @@ function overlapSize(left: readonly string[], right: readonly string[]): number 
   for (let size = max; size > 0; size--) {
     let matches = true;
     for (let i = 0; i < size; i++) {
-      if (selectionLineKey(left[left.length - size + i] ?? "") !== selectionLineKey(right[i] ?? "")) {
+      if (!selectionLinesMatch(left[left.length - size + i] ?? "", right[i] ?? "")) {
         matches = false;
         break;
       }
@@ -139,15 +176,47 @@ function overlapSize(left: readonly string[], right: readonly string[]): number 
   return 0;
 }
 
+function subsequenceStart(haystack: readonly string[], needle: readonly string[]): number {
+  if (needle.length === 0) return 0;
+  if (needle.length > haystack.length) return -1;
+  for (let start = 0; start <= haystack.length - needle.length; start++) {
+    let matches = true;
+    for (let offset = 0; offset < needle.length; offset++) {
+      if (!selectionLinesMatch(haystack[start + offset] ?? "", needle[offset] ?? "")) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return start;
+  }
+  return -1;
+}
+
+function lineWithMoreText(left: string, right: string): string {
+  return selectionLineKey(right).length > selectionLineKey(left).length ? right : left;
+}
+
+function mergeContainedSelectionLines(outer: readonly string[], inner: readonly string[], innerStart: number): string[] {
+  const merged = [...outer];
+  for (let offset = 0; offset < inner.length; offset++) {
+    const index = innerStart + offset;
+    merged[index] = lineWithMoreText(merged[index] ?? "", inner[offset] ?? "");
+  }
+  return merged;
+}
+
 function mergeSelectionLines(existing: readonly string[], incoming: readonly string[], direction: number): string[] {
   if (incoming.length === 0) return [...existing];
   if (existing.length === 0) return [...incoming];
-  if (direction < 0) {
-    const overlap = overlapSize(incoming, existing);
-    return [...incoming.slice(0, incoming.length - overlap), ...existing];
-  }
-  const overlap = overlapSize(existing, incoming);
-  return [...existing, ...incoming.slice(overlap)];
+  const existingInIncoming = subsequenceStart(incoming, existing);
+  if (existingInIncoming >= 0) return mergeContainedSelectionLines(incoming, existing, existingInIncoming);
+  const incomingInExisting = subsequenceStart(existing, incoming);
+  if (incomingInExisting >= 0) return mergeContainedSelectionLines(existing, incoming, incomingInExisting);
+  const appendOverlap = overlapSize(existing, incoming);
+  const prependOverlap = overlapSize(incoming, existing);
+  if (appendOverlap > prependOverlap) return [...existing, ...incoming.slice(appendOverlap)];
+  if (prependOverlap > 0) return [...incoming.slice(0, incoming.length - prependOverlap), ...existing];
+  return direction < 0 ? [...incoming, ...existing] : [...existing, ...incoming];
 }
 
 function scrollbackCanMove(term: Terminal, lines: number): boolean {
@@ -161,13 +230,104 @@ function normalBufferSelectionCanMove(term: Terminal, intensity: number): boolea
   return scrollbackCanMove(term, intensity < 0 ? -1 : 1);
 }
 
-function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, lines: number): boolean {
-  if (lines === 0) return false;
-  if (sendWheelReportsToApp(term, swallowedMouseModes, pointer, lines)) return true;
-  if (!scrollbackCanMove(term, lines)) return false;
+function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, lines: number): TerminalUiScrollResult {
+  if (lines === 0) return "none";
+  if (sendWheelReportsToApp(term, swallowedMouseModes, pointer, lines)) return "app";
+  if (!scrollbackCanMove(term, lines)) return "none";
   const before = term.buffer.active.viewportY;
   term.scrollLines(lines);
-  return term.buffer.active.viewportY !== before;
+  return term.buffer.active.viewportY !== before ? "scrollback" : "none";
+}
+
+function visibleLineSnapshot(term: Terminal): VisibleLineSnapshot {
+  const buffer = term.buffer.active;
+  const lines: string[] = [];
+  for (let row = 0; row < term.rows; row++) {
+    lines.push(buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "");
+  }
+  return lines;
+}
+
+function matchedLineShiftScore(before: VisibleLineSnapshot, after: VisibleLineSnapshot, shift: number): number {
+  let score = 0;
+  for (let beforeRow = 0; beforeRow < before.length; beforeRow++) {
+    const afterRow = beforeRow + shift;
+    if (afterRow < 0 || afterRow >= after.length) continue;
+    const beforeLine = before[beforeRow] ?? "";
+    const afterLine = after[afterRow] ?? "";
+    if (beforeLine.trim() === "" || afterLine.trim() === "") continue;
+    if (beforeLine === afterLine) score++;
+  }
+  return score;
+}
+
+function observedContentShift(term: Terminal, before: VisibleLineSnapshot, requestedLines: number): number {
+  const after = visibleLineSnapshot(term);
+  const expectedDirection = -Math.sign(requestedLines);
+  if (expectedDirection === 0) return 0;
+  const maxShift = Math.min(Math.abs(requestedLines), Math.max(0, term.rows - 1));
+  const noShiftScore = matchedLineShiftScore(before, after, 0);
+  let bestShift = 0;
+  let bestScore = noShiftScore;
+  for (let delta = 1; delta <= maxShift; delta++) {
+    const shift = expectedDirection * delta;
+    const score = matchedLineShiftScore(before, after, shift);
+    if (score > bestScore) {
+      bestShift = shift;
+      bestScore = score;
+    }
+  }
+  return bestScore >= APP_SCROLL_MIN_MATCHED_LINES && bestScore > noShiftScore ? bestShift : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSelectionPoint(value: unknown): value is SelectionPoint {
+  return Array.isArray(value) && value.length === 2 && typeof value[0] === "number" && typeof value[1] === "number";
+}
+
+function isSelectionModel(value: unknown): value is XtermSelectionModel {
+  return isRecord(value) && (value.selectionStart === undefined || isSelectionPoint(value.selectionStart));
+}
+
+function isSelectionService(value: unknown): value is XtermSelectionService {
+  return (
+    isRecord(value) && (value._model === undefined || isSelectionModel(value._model)) && (value.refresh === undefined || typeof value.refresh === "function")
+  );
+}
+
+function xtermSelectionServiceOf(term: Terminal): XtermSelectionService | null {
+  if (!isRecord(term)) return null;
+  const core = term._core;
+  if (!isRecord(core)) return null;
+  const selectionService = core._selectionService;
+  return isSelectionService(selectionService) ? selectionService : null;
+}
+
+function clampVisibleSelectionAnchor(term: Terminal, anchor: SelectionPoint, row: number): void {
+  const firstVisibleRow = term.buffer.active.viewportY;
+  const lastVisibleRow = firstVisibleRow + Math.max(0, term.rows - 1);
+  if (row < firstVisibleRow) {
+    anchor[0] = 0;
+    anchor[1] = firstVisibleRow;
+    return;
+  }
+  if (row > lastVisibleRow) {
+    anchor[0] = term.cols;
+    anchor[1] = lastVisibleRow;
+    return;
+  }
+  anchor[1] = row;
+}
+
+function shiftSelectionAnchorByVisibleRows(term: Terminal, rows: number): void {
+  const selectionService = xtermSelectionServiceOf(term);
+  const anchor = selectionService?._model?.selectionStart;
+  if (!anchor) return;
+  clampVisibleSelectionAnchor(term, anchor, anchor[1] + rows);
+  selectionService?.refresh?.();
 }
 
 class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
@@ -182,6 +342,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   private pendingFrame: number | null = null;
   private lastFrameMs: number | null = null;
   private lineDebt = 0;
+  private pendingAppScroll: PendingAppScroll | null = null;
   private capturedSelectionLines: string[] = [];
   private captureDirection = 0;
   private readonly copyTarget: HTMLElement;
@@ -208,6 +369,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.dragging = false;
     this.lastMove = null;
     this.lineDebt = 0;
+    this.pendingAppScroll = null;
   }
 
   dispose(): void {
@@ -225,7 +387,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
     if (this.capturedSelectionLines.length === 0) return null;
     const captured = this.capturedSelectionLines.join("\n").trimEnd();
-    const current = this.term.getSelection().trimEnd();
+    const current = selectionLines(this.term.getSelection()).join("\n").trimEnd();
     return captured.length > current.length ? captured : null;
   }
 
@@ -245,6 +407,10 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.captureDirection = 0;
   }
 
+  private clearPendingAppScroll(): void {
+    this.pendingAppScroll = null;
+  }
+
   private captureSelectionText(direction: number): void {
     const nextDirection = Math.sign(direction);
     if (this.captureDirection !== 0 && nextDirection !== this.captureDirection) this.clearCapturedSelection();
@@ -256,6 +422,19 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (lines.length === 0) return;
     this.captureDirection = nextDirection;
     this.capturedSelectionLines = mergeSelectionLines(this.capturedSelectionLines, lines, direction);
+  }
+
+  private applyPendingAppScroll(now: number, expire = true): boolean {
+    const pending = this.pendingAppScroll;
+    if (!pending) return false;
+    const shift = observedContentShift(this.term, pending.before, pending.lines);
+    if (shift !== 0) {
+      shiftSelectionAnchorByVisibleRows(this.term, shift);
+      this.pendingAppScroll = null;
+      return true;
+    }
+    if (expire && now - pending.createdAtMs >= APP_SCROLL_OBSERVATION_TIMEOUT_MS) this.pendingAppScroll = null;
+    return false;
   }
 
   private readonly onCopy = (event: ClipboardEvent): void => {
@@ -292,6 +471,17 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       return;
     }
 
+    const pointer = clampPointerToScreen(event, this.screen);
+    if (this.applyPendingAppScroll(now)) {
+      dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
+      this.ensureFrame();
+      return;
+    }
+    if (this.pendingAppScroll) {
+      this.ensureFrame();
+      return;
+    }
+
     const lastFrameMs = this.lastFrameMs ?? now;
     this.lastFrameMs = now;
     const elapsedSeconds = Math.min(MAX_FRAME_MS, Math.max(0, now - lastFrameMs)) / 1000;
@@ -299,13 +489,14 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     const lines = this.lineDebt < 0 ? Math.ceil(this.lineDebt) : Math.floor(this.lineDebt);
     if (lines !== 0) {
       this.lineDebt -= lines;
-      const pointer = clampPointerToScreen(event, this.screen);
+      const beforeAppScroll = visibleLineSnapshot(this.term);
       this.captureSelectionText(lines);
       const scrolled = scrollTerminalUi(this.term, this.swallowedMouseModes, pointer, lines);
-      if (!scrolled) {
+      if (scrolled === "none") {
         this.stopFrame();
         return;
       }
+      if (scrolled === "app") this.pendingAppScroll = { before: beforeAppScroll, lines, createdAtMs: now };
       dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
     }
     this.ensureFrame();
@@ -323,15 +514,23 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     }
     this.lastMove = event;
     if (edgeIntensity(event, this.screen) === 0) {
+      this.applyPendingAppScroll(event.timeStamp, false);
       this.stopFrame();
       this.lineDebt = 0;
-      this.clearCapturedSelection();
       return;
+    }
+    const edgeDirection = Math.sign(edgeIntensity(event, this.screen));
+    if (this.captureDirection !== 0 && edgeDirection !== this.captureDirection) {
+      this.clearCapturedSelection();
+      this.clearPendingAppScroll();
     }
     this.ensureFrame();
   };
 
-  private readonly onDocumentMouseUp = (): void => {
+  private readonly onDocumentMouseUp = (event: MouseEvent): void => {
+    if (this.applyPendingAppScroll(event.timeStamp, false) && this.lastMove) {
+      dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, this.lastMove, clampPointerToScreen(this.lastMove, this.screen));
+    }
     if (this.captureDirection !== 0) this.captureSelectionText(this.captureDirection);
     this.cancel();
   };
