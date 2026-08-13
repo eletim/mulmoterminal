@@ -182,7 +182,7 @@ prompt_web_push_subject() {
 generate_vapid_key_pair() {
   local generated
   if ! generated="$(
-    node -e '
+    cd "$ROOT_DIR" && node -e '
       const webPush = require("web-push");
       const keys = webPush.generateVAPIDKeys();
       process.stdout.write(`${keys.publicKey}\n${keys.privateKey}\n`);

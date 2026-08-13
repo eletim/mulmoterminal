@@ -38,8 +38,12 @@ function dryRun(extra: NodeJS.ProcessEnv = {}) {
 }
 
 function interactiveDryRun(input: string, extra: NodeJS.ProcessEnv = {}) {
+  return interactiveDryRunFrom(ROOT, input, extra);
+}
+
+function interactiveDryRunFrom(cwd: string, input: string, extra: NodeJS.ProcessEnv = {}) {
   return spawnSync(BASH, [SCRIPT], {
-    cwd: ROOT,
+    cwd,
     env: cleanEnv({ MULMOTERMINAL_START_DRY_RUN: "1", MULMOTERMINAL_START_FORCE_INTERACTIVE: "1", ...extra }),
     input,
     encoding: "utf8",
@@ -297,6 +301,25 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("Web Push keys were not found.");
     expect(result.stdout).not.toContain(env.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY);
     expect(result.stderr).not.toContain(env.MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY);
+  });
+
+  it("generates Web Push keys when launched from outside the repository root", () => {
+    const home = isolatedHome();
+    const outside = path.join(currentTempDir(), "outside");
+    const binDir = path.join(currentTempDir(), "bin");
+    mkdirSync(outside);
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "status --json" ]] || exit 1\nprintf \'{"Self":{"DNSName":"outside.tail.ts.net"}}\\n\'');
+
+    const result = interactiveDryRunFrom(outside, "\n\n\n", {
+      ...home,
+      PATH: prependPath(binDir),
+    });
+    const generated = readFileSync(localEnvPath(home), "utf8");
+    const env = parseEnv(generated);
+
+    expect(result.status).toBe(0);
+    expectUsableVapidKeys(env, "https://outside.tail.ts.net");
+    expect(result.stderr).not.toContain("Could not generate Web Push keys");
   });
 
   it("starts without Web Push when automatic key generation is rejected", () => {
