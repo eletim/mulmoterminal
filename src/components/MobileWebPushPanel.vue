@@ -32,13 +32,13 @@ const permissionLabel = computed(() => {
   if (pushPermission.value === "default") return "Not asked";
   return "Unknown";
 });
-const subscriptionLabel = computed(() => (pushSubscribed.value ? "Active" : "Off"));
+const subscriptionLabel = computed(() => (pushSubscribed.value ? "Active" : "Disabled"));
 const pushSummaryLabel = computed(() => {
   if (pushBusy.value) return "Working";
   if (pushStatus.value === "unsupported") return "Unsupported";
   if (pushStatus.value === "error") return "Needs attention";
   if (!serverConfig.value?.enabled) return "Server off";
-  return pushSubscribed.value ? "On" : "Off";
+  return pushSubscribed.value ? "Enabled" : "Disabled";
 });
 const canUseServerPush = computed(() => pushSupport.supported && serverConfig.value?.enabled === true && !pushBusy.value);
 const canEnablePush = computed(() => canUseServerPush.value && pushPermission.value !== "denied");
@@ -54,6 +54,35 @@ function reflectSubscription(subscription: PushSubscription | null): void {
   pushSubscribed.value = subscription !== null;
   pushSubscriptionJson.value = subscription?.toJSON() ?? null;
   if (!subscription) pushServerRegistered.value = false;
+}
+
+function applicationServerKeyBytes(value: unknown): Uint8Array | null {
+  if (!value) return null;
+  if (typeof value === "string") return urlBase64ToUint8Array(value);
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return null;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function subscriptionUsesPublicKey(subscription: PushSubscription, publicKey: string): boolean | null {
+  const existingKey = applicationServerKeyBytes(subscription.options?.applicationServerKey);
+  if (!existingKey) return null;
+  return sameBytes(existingKey, urlBase64ToUint8Array(publicKey));
+}
+
+async function subscribeWithServerKey(registration: ServiceWorkerRegistration, publicKey: string): Promise<PushSubscription> {
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey),
+  });
 }
 
 async function refreshPushState(): Promise<void> {
@@ -99,7 +128,8 @@ async function enablePushNotifications(): Promise<void> {
   pushError.value = null;
   try {
     if (!(await ensureNotificationPermission())) return;
-    if (!serverConfig.value?.enabled || !serverConfig.value.publicKey) {
+    serverConfig.value = await fetchMobileWebPushConfig();
+    if (!serverConfig.value.enabled || !serverConfig.value.publicKey) {
       pushStatus.value = "unsupported";
       pushError.value = serverConfig.value?.reason ?? "Mobile Web Push is not configured on this server.";
       return;
@@ -108,13 +138,21 @@ async function enablePushNotifications(): Promise<void> {
     const registration = await registerMobileWebPushServiceWorker();
     const existing = await registration.pushManager.getSubscription();
     let createdSubscription: PushSubscription | null = null;
-    const subscription =
-      existing ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(serverConfig.value.publicKey),
-      }));
-    if (!existing) createdSubscription = subscription;
+    let subscription = existing;
+    if (subscription) {
+      const keyMatches = subscriptionUsesPublicKey(subscription, serverConfig.value.publicKey);
+      if (keyMatches === false) {
+        const oldSubscriptionJson = subscription.toJSON();
+        await subscription.unsubscribe();
+        reflectSubscription(null);
+        await unregisterMobileWebPushSubscription(oldSubscriptionJson);
+        subscription = null;
+      }
+    }
+    if (!subscription) {
+      subscription = await subscribeWithServerKey(registration, serverConfig.value.publicKey);
+      createdSubscription = subscription;
+    }
     try {
       await registerMobileWebPushSubscription(subscription.toJSON());
       pushServerRegistered.value = true;
@@ -145,8 +183,10 @@ async function disablePushNotifications(): Promise<void> {
     const registration = await registerMobileWebPushServiceWorker();
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) {
-      await unregisterMobileWebPushSubscription(subscription.toJSON());
+      const subscriptionJson = subscription.toJSON();
       await subscription.unsubscribe();
+      reflectSubscription(null);
+      await unregisterMobileWebPushSubscription(subscriptionJson);
     }
     reflectSubscription(null);
     pushServerRegistered.value = false;
