@@ -2,6 +2,16 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCAL_ENV_FILE="${ROOT_DIR}/.env.local"
+if [[ -n "${MULMOTERMINAL_LOCAL_ENV_FILE:-}" ]]; then
+  USER_LOCAL_ENV_FILE="$MULMOTERMINAL_LOCAL_ENV_FILE"
+elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+  USER_LOCAL_ENV_FILE="${XDG_CONFIG_HOME}/mulmoterminal/local.env"
+elif [[ -n "${HOME:-}" ]]; then
+  USER_LOCAL_ENV_FILE="${HOME}/.config/mulmoterminal/local.env"
+else
+  USER_LOCAL_ENV_FILE=""
+fi
 
 declare -A ORIGINAL_ENV=()
 while IFS= read -r name; do
@@ -34,12 +44,282 @@ load_env_file() {
   done < "$file"
 }
 
+is_interactive() {
+  [[ "${MULMOTERMINAL_START_FORCE_INTERACTIVE:-0}" == "1" ]] && return 0
+  [[ -t 0 && -t 1 ]]
+}
+
+first_env_value() {
+  local value="${1:-}"
+  value="${value%%,*}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+host_from_origin() {
+  local value
+  value="$(first_env_value "${1:-}")"
+  value="${value#http://}"
+  value="${value#https://}"
+  value="${value%%/*}"
+  value="${value%%:*}"
+  printf '%s\n' "$value"
+}
+
+normalize_host() {
+  local value="${1:-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value="${value#http://}"
+  value="${value#https://}"
+  value="${value%%/*}"
+  value="${value%%:*}"
+  value="${value%.}"
+  printf '%s\n' "$value"
+}
+
+detect_tailscale_host() {
+  if ! command -v tailscale >/dev/null 2>&1; then
+    echo "[mulmoterminal] Tailscale CLI was not found; enter the host manually." >&2
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[mulmoterminal] Node.js was not found; cannot parse Tailscale status, enter the host manually." >&2
+    return 1
+  fi
+
+  local status_json host
+  if ! status_json="$(tailscale status --json 2>/dev/null)"; then
+    echo "[mulmoterminal] Could not read Tailscale status; make sure Tailscale is running, then enter the host manually." >&2
+    return 1
+  fi
+
+  host="$(
+    node -e '
+      let input = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (chunk) => (input += chunk));
+      process.stdin.on("end", () => {
+        try {
+          const status = JSON.parse(input);
+          const self = status.Self || status.self || status.LocalNode || status.LocalClient || {};
+          const dns = self.DNSName || self.DnsName || self.dnsName || "";
+          process.stdout.write(String(dns).replace(/\.$/, ""));
+        } catch {
+          process.exitCode = 1;
+        }
+      });
+    ' <<< "$status_json"
+  )"
+
+  if [[ -z "$host" ]]; then
+    echo "[mulmoterminal] Tailscale status did not include a local DNS name; enter the host manually." >&2
+    return 1
+  fi
+
+  normalize_host "$host"
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local default="${2:-y}"
+  local answer
+  while true; do
+    read -r -p "$prompt" answer
+    answer="${answer:-$default}"
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      n|no) return 1 ;;
+      *) echo "Please answer y or n." ;;
+    esac
+  done
+}
+
+prompt_required() {
+  local label="$1"
+  local default="${2:-}"
+  local value
+  while true; do
+    if [[ -n "$default" ]]; then
+      read -r -p "${label} [${default}]: " value
+      value="${value:-$default}"
+    else
+      read -r -p "${label}: " value
+    fi
+    value="$(normalize_host "$value")"
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+    echo "A value is required."
+  done
+}
+
+prompt_optional() {
+  local label="$1"
+  local default="${2:-}"
+  local value
+  if [[ -n "$default" ]]; then
+    read -r -p "${label} [${default}]: " value
+    value="${value:-$default}"
+  else
+    read -r -p "${label}: " value
+  fi
+  printf '%s\n' "$value"
+}
+
+prompt_secret_optional() {
+  local label="$1"
+  local default="$2"
+  local value
+  if [[ -n "$default" ]]; then
+    if prompt_yes_no "Use existing shell value for ${label}? [Y/n]: " "y"; then
+      printf '%s\n' "$default"
+      return 0
+    fi
+  fi
+  read -r -s -p "${label}: " value
+  printf '\n' >&2
+  printf '%s\n' "$value"
+}
+
+write_env_assignment() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  [[ -n "$value" ]] || return 0
+  printf '%s=%s\n' "$key" "$value" >> "$file"
+}
+
+setup_env_file() {
+  local target_file="$1"
+  local detected_host="${2:-}"
+  local host origin public_key private_key subject
+  local tmp_file
+
+  echo ".env.local and ${target_file} were not found. Starting first-time setup."
+  echo
+
+  if [[ -n "$detected_host" ]]; then
+    echo "Detected Tailscale host:"
+    echo "  ${detected_host}"
+    echo
+    if prompt_yes_no "Use this host? [Y/n]: " "y"; then
+      host="$detected_host"
+    else
+      host="$(prompt_required "Tailscale host")"
+    fi
+  else
+    host="$(prompt_required "Tailscale host")"
+  fi
+
+  origin="https://${host}"
+
+  tmp_file="$(mktemp)"
+  {
+    echo "# Generated by scripts/start-tailscale-dev.sh"
+    echo "# Shared by local MulmoTerminal worktrees on this machine."
+  } > "$tmp_file"
+
+  if [[ -z "${ORIGINAL_ENV[__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS]+x}" ]]; then
+    write_env_assignment "$tmp_file" "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS" "$host"
+  else
+    echo "[mulmoterminal] __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS is set in the shell; not writing it."
+  fi
+  if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_ALLOWED_ORIGINS]+x}" ]]; then
+    write_env_assignment "$tmp_file" "MULMOTERMINAL_ALLOWED_ORIGINS" "$origin"
+  else
+    echo "[mulmoterminal] MULMOTERMINAL_ALLOWED_ORIGINS is set in the shell; not writing it."
+  fi
+
+  echo
+  echo "Allowed origin:"
+  echo "  ${origin}"
+  echo
+
+  if prompt_yes_no "Configure Web Push now? [Y/n]: " "y"; then
+    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY]+x}" ]]; then
+      public_key="$(prompt_optional "Web Push public key" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY:-}")"
+      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY" "$public_key"
+    else
+      if prompt_yes_no "Save existing shell Web Push public key to ${target_file}? [y/N]: " "n"; then
+        write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY:-}"
+      else
+        echo "[mulmoterminal] MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY is set in the shell; not writing it."
+      fi
+    fi
+
+    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY]+x}" ]]; then
+      private_key="$(prompt_secret_optional "Web Push private key" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY:-}")"
+      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY" "$private_key"
+    else
+      if prompt_yes_no "Save existing shell Web Push private key to ${target_file}? [y/N]: " "n"; then
+        write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY" "${MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY:-}"
+      else
+        echo "[mulmoterminal] MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY is set in the shell; not writing it."
+      fi
+    fi
+
+    if [[ -z "${ORIGINAL_ENV[MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT]+x}" ]]; then
+      subject="$(prompt_optional "Web Push subject" "${MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT:-}")"
+      write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT" "$subject"
+    else
+      if prompt_yes_no "Save existing shell Web Push subject to ${target_file}? [y/N]: " "n"; then
+        write_env_assignment "$tmp_file" "MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT" "${MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT:-}"
+      else
+        echo "[mulmoterminal] MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT is set in the shell; not writing it."
+      fi
+    fi
+  else
+    echo "[mulmoterminal] Web Push can be added later in ${target_file}."
+  fi
+
+  mkdir -p "$(dirname -- "$target_file")"
+  install -m 600 "$tmp_file" "$target_file"
+  rm -f "$tmp_file"
+
+  echo
+  echo "Created:"
+  echo "  ${target_file}"
+  echo
+  echo "Starting MulmoTerminal..."
+  echo
+}
+
+maybe_first_time_setup() {
+  local default_env_files="$1"
+  [[ "$default_env_files" == "1" ]] || return 0
+  [[ ! -f "$LOCAL_ENV_FILE" ]] || return 0
+  [[ -z "$USER_LOCAL_ENV_FILE" || ! -f "$USER_LOCAL_ENV_FILE" ]] || return 0
+
+  if ! is_interactive; then
+    return 0
+  fi
+
+  local target_file detected_host shell_host
+  target_file="${USER_LOCAL_ENV_FILE:-$LOCAL_ENV_FILE}"
+  shell_host="$(first_env_value "${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}")"
+  [[ -n "$shell_host" ]] || shell_host="$(host_from_origin "${MULMOTERMINAL_ALLOWED_ORIGINS:-}")"
+  detected_host="$(normalize_host "$shell_host")"
+  if [[ -z "$detected_host" ]]; then
+    detected_host="$(detect_tailscale_host || true)"
+  fi
+  setup_env_file "$target_file" "$detected_host"
+}
+
 env_files=()
+using_default_env_files=0
 if [[ -n "${MULMOTERMINAL_ENV_FILES:-}" ]]; then
   IFS=':' read -r -a env_files <<< "$MULMOTERMINAL_ENV_FILES"
 else
-  env_files=("$ROOT_DIR/.env" "$ROOT_DIR/.env.local")
+  using_default_env_files=1
+  env_files=("$ROOT_DIR/.env")
+  [[ -n "$USER_LOCAL_ENV_FILE" ]] && env_files+=("$USER_LOCAL_ENV_FILE")
+  env_files+=("$LOCAL_ENV_FILE")
 fi
+
+maybe_first_time_setup "$using_default_env_files"
 
 for env_file in "${env_files[@]}"; do
   [[ -n "$env_file" ]] && load_env_file "$env_file"

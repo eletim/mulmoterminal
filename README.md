@@ -547,11 +547,18 @@ It starts dev mode with `PORT=34568`, `CLIENT_PORT=6857`,
 `/mulmoterminal` at `http://localhost:6857/mulmoterminal`. Tailscale Serve's
 path mount forwards the request below that mount to the target, so the target
 includes the Vite base path. Existing shell variables override those defaults.
-The script reads `.env` and `.env.local` from the repo root
-(`.env.local` is gitignored), so user-specific Web Push values such as
-`MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
+The script reads `.env` from the repo root, then
+`~/.config/mulmoterminal/local.env`, then `.env.local` from the repo root, so a
+shared local Tailscale/Web Push setup can be reused by every worktree while
+worktree-specific `.env.local` values still win. If neither local env file
+exists and the script is running interactively, it starts a first-time setup,
+detects the current Tailscale DNS name from `tailscale status --json`, and
+writes the shared file. If Tailscale is unavailable or does not report a DNS
+name, the setup falls back to manual host entry. User-specific Web Push values
+such as `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
 `MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
-`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can stay local.
+`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can also be saved there; private keys
+are not echoed while entered.
 
 ### UI settings (`~/.mulmoterminal/config.json`)
 
