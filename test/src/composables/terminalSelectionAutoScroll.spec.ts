@@ -10,7 +10,9 @@ interface FakeTerm {
   rows: number;
   modes: { mouseTrackingMode: string };
   options: { macOptionClickForcesSelection: boolean };
-  buffer: { active: { type: "normal" | "alternate"; viewportY: number; baseY: number } };
+  buffer: {
+    active: { type: "normal" | "alternate"; viewportY: number; baseY: number; getLine: (row: number) => { translateToString: () => string } | undefined };
+  };
   input: (data: string, wasUserInput?: boolean) => void;
   scrollLines: (lines: number) => void;
   hasSelection: () => boolean;
@@ -31,13 +33,24 @@ function makeTerminal(options: { bufferType?: "normal" | "alternate"; viewportY?
   document.body.appendChild(host);
   screen.getBoundingClientRect = () => RECT;
 
+  const visibleLines = Array.from({ length: 240 }, (_value, index) => `line-${index}`);
   const term: FakeTerm = {
     element: host,
     cols: 80,
     rows: 24,
     modes: { mouseTrackingMode: options.mouseTrackingMode ?? "none" },
     options: { macOptionClickForcesSelection: true },
-    buffer: { active: { type: options.bufferType ?? "normal", viewportY: options.viewportY ?? 100, baseY: options.baseY ?? 200 } },
+    buffer: {
+      active: {
+        type: options.bufferType ?? "normal",
+        viewportY: options.viewportY ?? 100,
+        baseY: options.baseY ?? 200,
+        getLine: (row: number) => {
+          const text = visibleLines[row];
+          return text === undefined ? undefined : { translateToString: () => text };
+        },
+      },
+    },
     input: vi.fn(),
     scrollLines: vi.fn((lines: number) => {
       const active = term.buffer.active;
@@ -47,7 +60,7 @@ function makeTerminal(options: { bufferType?: "normal" | "alternate"; viewportY?
     getSelection: vi.fn(() => ""),
   };
 
-  return { term, screen };
+  return { term, screen, visibleLines };
 }
 
 function mouse(type: "mousedown" | "mousemove" | "mouseup", clientY: number, options: MouseEventInit = {}): MouseEvent {
@@ -143,6 +156,16 @@ function installXtermSelectionModel(term: FakeTerm, selectionStart: [number, num
   const refresh = vi.fn();
   term._core = { _selectionService: { _model: model, refresh } };
   return { model, refresh };
+}
+
+function shiftVisibleLines(lines: string[], direction: "up" | "down"): void {
+  if (direction === "down") {
+    lines.pop();
+    lines.unshift(`new-top-${Date.now()}`);
+    return;
+  }
+  lines.shift();
+  lines.push(`new-bottom-${Date.now()}`);
 }
 
 describe("wireSelectionEdgeAutoScroll", () => {
@@ -360,6 +383,59 @@ describe("wireSelectionEdgeAutoScroll", () => {
   });
 
   it("moves the alternate-buffer selection anchor with app-side upward scroll redraws", () => {
+    const { term, screen, visibleLines } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
+    const selection = installXtermSelectionModel(term, [10, 12], [4, 0]);
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockReturnValue("970\n971\n972");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    flushFrame(80);
+    shiftVisibleLines(visibleLines, "down");
+    flushFrame(160);
+
+    expect(selection.model.selectionStart).toEqual([10, 13]);
+    expect(selection.refresh).toHaveBeenCalled();
+    handle?.dispose();
+  });
+
+  it("moves the alternate-buffer selection anchor with app-side downward scroll redraws", () => {
+    const { term, screen, visibleLines } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
+    const selection = installXtermSelectionModel(term, [10, 12], [80, 23]);
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockReturnValue("970\n971\n972");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.bottom - 4);
+    flushFrame(0);
+    flushFrame(80);
+    shiftVisibleLines(visibleLines, "up");
+    flushFrame(160);
+
+    expect(selection.model.selectionStart).toEqual([10, 11]);
+    expect(selection.refresh).toHaveBeenCalled();
+    handle?.dispose();
+  });
+
+  it("clips an alternate-buffer selection anchor that scrolls beyond the visible buffer", () => {
+    const { term, screen, visibleLines } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
+    const selection = installXtermSelectionModel(term, [10, 23], [4, 0]);
+    vi.mocked(term.hasSelection).mockReturnValue(true);
+    vi.mocked(term.getSelection).mockReturnValue("970\n971\n972");
+    const handle = wire(term, TRACKING_MODES);
+
+    dragToEdge(screen, RECT.top + 4);
+    flushFrame(0);
+    flushFrame(80);
+    shiftVisibleLines(visibleLines, "down");
+    flushFrame(160);
+
+    expect(selection.model.selectionStart).toEqual([80, 23]);
+    handle?.dispose();
+  });
+
+  it("does not move the alternate-buffer anchor when app-side wheel reports do not move content", () => {
     const { term, screen } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
     const selection = installXtermSelectionModel(term, [10, 12], [4, 0]);
     vi.mocked(term.hasSelection).mockReturnValue(true);
@@ -369,40 +445,10 @@ describe("wireSelectionEdgeAutoScroll", () => {
     dragToEdge(screen, RECT.top + 4);
     flushFrame(0);
     flushFrame(80);
+    flushFrame(160);
 
-    expect(selection.model.selectionStart).toEqual([10, 13]);
-    expect(selection.refresh).toHaveBeenCalled();
-    handle?.dispose();
-  });
-
-  it("moves the alternate-buffer selection anchor with app-side downward scroll redraws", () => {
-    const { term, screen } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
-    const selection = installXtermSelectionModel(term, [10, 12], [80, 23]);
-    vi.mocked(term.hasSelection).mockReturnValue(true);
-    vi.mocked(term.getSelection).mockReturnValue("970\n971\n972");
-    const handle = wire(term, TRACKING_MODES);
-
-    dragToEdge(screen, RECT.bottom - 4);
-    flushFrame(0);
-    flushFrame(80);
-
-    expect(selection.model.selectionStart).toEqual([10, 11]);
-    expect(selection.refresh).toHaveBeenCalled();
-    handle?.dispose();
-  });
-
-  it("clips an alternate-buffer selection anchor that scrolls beyond the visible buffer", () => {
-    const { term, screen } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
-    const selection = installXtermSelectionModel(term, [10, 23], [4, 0]);
-    vi.mocked(term.hasSelection).mockReturnValue(true);
-    vi.mocked(term.getSelection).mockReturnValue("970\n971\n972");
-    const handle = wire(term, TRACKING_MODES);
-
-    dragToEdge(screen, RECT.top + 4);
-    flushFrame(0);
-    flushFrame(80);
-
-    expect(selection.model.selectionStart).toEqual([80, 23]);
+    expect(selection.model.selectionStart).toEqual([10, 12]);
+    expect(selection.refresh).not.toHaveBeenCalled();
     handle?.dispose();
   });
 

@@ -9,12 +9,21 @@ const MAIN_BUTTON_MASK = 1;
 const DRAG_SLOP_PX = 3;
 const AUTO_SCROLL_LINES_PER_SECOND = 18;
 const MAX_FRAME_MS = 80;
+const APP_SCROLL_OBSERVATION_TIMEOUT_MS = 250;
+const APP_SCROLL_MIN_MATCHED_LINES = 3;
 const XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX = 50;
 const XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX = 1;
 
 const syntheticSelectionMoves = new WeakSet<MouseEvent>();
 type TerminalUiScrollResult = "none" | "app" | "scrollback";
 type SelectionPoint = [number, number];
+type VisibleLineSnapshot = readonly string[];
+
+interface PendingAppScroll {
+  before: VisibleLineSnapshot;
+  lines: number;
+  createdAtMs: number;
+}
 
 interface XtermSelectionModel {
   selectionStart?: SelectionPoint;
@@ -181,6 +190,47 @@ function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<numbe
   return term.buffer.active.viewportY !== before ? "scrollback" : "none";
 }
 
+function visibleLineSnapshot(term: Terminal): VisibleLineSnapshot {
+  const buffer = term.buffer.active;
+  const lines: string[] = [];
+  for (let row = 0; row < term.rows; row++) {
+    lines.push(buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "");
+  }
+  return lines;
+}
+
+function matchedLineShiftScore(before: VisibleLineSnapshot, after: VisibleLineSnapshot, shift: number): number {
+  let score = 0;
+  for (let beforeRow = 0; beforeRow < before.length; beforeRow++) {
+    const afterRow = beforeRow + shift;
+    if (afterRow < 0 || afterRow >= after.length) continue;
+    const beforeLine = before[beforeRow] ?? "";
+    const afterLine = after[afterRow] ?? "";
+    if (beforeLine.trim() === "" || afterLine.trim() === "") continue;
+    if (beforeLine === afterLine) score++;
+  }
+  return score;
+}
+
+function observedContentShift(term: Terminal, before: VisibleLineSnapshot, requestedLines: number): number {
+  const after = visibleLineSnapshot(term);
+  const expectedDirection = -Math.sign(requestedLines);
+  if (expectedDirection === 0) return 0;
+  const maxShift = Math.min(Math.abs(requestedLines), Math.max(0, term.rows - 1));
+  const noShiftScore = matchedLineShiftScore(before, after, 0);
+  let bestShift = 0;
+  let bestScore = noShiftScore;
+  for (let delta = 1; delta <= maxShift; delta++) {
+    const shift = expectedDirection * delta;
+    const score = matchedLineShiftScore(before, after, shift);
+    if (score > bestScore) {
+      bestShift = shift;
+      bestScore = score;
+    }
+  }
+  return bestScore >= APP_SCROLL_MIN_MATCHED_LINES && bestScore > noShiftScore ? bestShift : 0;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -223,11 +273,11 @@ function clampVisibleSelectionAnchor(term: Terminal, anchor: SelectionPoint, row
   anchor[1] = row;
 }
 
-function shiftSelectionAnchorWithAppScroll(term: Terminal, lines: number): void {
+function shiftSelectionAnchorByVisibleRows(term: Terminal, rows: number): void {
   const selectionService = xtermSelectionServiceOf(term);
   const anchor = selectionService?._model?.selectionStart;
   if (!anchor) return;
-  clampVisibleSelectionAnchor(term, anchor, anchor[1] - lines);
+  clampVisibleSelectionAnchor(term, anchor, anchor[1] + rows);
   selectionService?.refresh?.();
 }
 
@@ -243,6 +293,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   private pendingFrame: number | null = null;
   private lastFrameMs: number | null = null;
   private lineDebt = 0;
+  private pendingAppScroll: PendingAppScroll | null = null;
   private capturedSelectionLines: string[] = [];
   private captureDirection = 0;
   private readonly copyTarget: HTMLElement;
@@ -269,6 +320,7 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.dragging = false;
     this.lastMove = null;
     this.lineDebt = 0;
+    this.pendingAppScroll = null;
   }
 
   dispose(): void {
@@ -306,6 +358,10 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     this.captureDirection = 0;
   }
 
+  private clearPendingAppScroll(): void {
+    this.pendingAppScroll = null;
+  }
+
   private captureSelectionText(direction: number): void {
     const nextDirection = Math.sign(direction);
     if (this.captureDirection !== 0 && nextDirection !== this.captureDirection) this.clearCapturedSelection();
@@ -317,6 +373,19 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     if (lines.length === 0) return;
     this.captureDirection = nextDirection;
     this.capturedSelectionLines = mergeSelectionLines(this.capturedSelectionLines, lines, direction);
+  }
+
+  private applyPendingAppScroll(now: number): boolean {
+    const pending = this.pendingAppScroll;
+    if (!pending) return false;
+    const shift = observedContentShift(this.term, pending.before, pending.lines);
+    if (shift !== 0) {
+      shiftSelectionAnchorByVisibleRows(this.term, shift);
+      this.pendingAppScroll = null;
+      return true;
+    }
+    if (now - pending.createdAtMs >= APP_SCROLL_OBSERVATION_TIMEOUT_MS) this.pendingAppScroll = null;
+    return false;
   }
 
   private readonly onCopy = (event: ClipboardEvent): void => {
@@ -353,6 +422,17 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       return;
     }
 
+    const pointer = clampPointerToScreen(event, this.screen);
+    if (this.applyPendingAppScroll(now)) {
+      dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
+      this.ensureFrame();
+      return;
+    }
+    if (this.pendingAppScroll) {
+      this.ensureFrame();
+      return;
+    }
+
     const lastFrameMs = this.lastFrameMs ?? now;
     this.lastFrameMs = now;
     const elapsedSeconds = Math.min(MAX_FRAME_MS, Math.max(0, now - lastFrameMs)) / 1000;
@@ -360,14 +440,14 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
     const lines = this.lineDebt < 0 ? Math.ceil(this.lineDebt) : Math.floor(this.lineDebt);
     if (lines !== 0) {
       this.lineDebt -= lines;
-      const pointer = clampPointerToScreen(event, this.screen);
+      const beforeAppScroll = visibleLineSnapshot(this.term);
       this.captureSelectionText(lines);
       const scrolled = scrollTerminalUi(this.term, this.swallowedMouseModes, pointer, lines);
       if (scrolled === "none") {
         this.stopFrame();
         return;
       }
-      if (scrolled === "app") shiftSelectionAnchorWithAppScroll(this.term, lines);
+      if (scrolled === "app") this.pendingAppScroll = { before: beforeAppScroll, lines, createdAtMs: now };
       dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
     }
     this.ensureFrame();
@@ -388,7 +468,13 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       this.stopFrame();
       this.lineDebt = 0;
       this.clearCapturedSelection();
+      this.clearPendingAppScroll();
       return;
+    }
+    const edgeDirection = Math.sign(edgeIntensity(event, this.screen));
+    if (this.captureDirection !== 0 && edgeDirection !== this.captureDirection) {
+      this.clearCapturedSelection();
+      this.clearPendingAppScroll();
     }
     this.ensureFrame();
   };
