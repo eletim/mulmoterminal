@@ -243,6 +243,11 @@ function screenCallCount(id: string): number {
   return vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === `/api/mobile/terminal-sessions/${id}/screen`).length;
 }
 
+function stubScrollMetrics(element: HTMLElement, metrics: { scrollHeight: () => number; clientHeight: number }): void {
+  Object.defineProperty(element, "scrollHeight", { configurable: true, get: metrics.scrollHeight });
+  Object.defineProperty(element, "clientHeight", { configurable: true, value: metrics.clientHeight });
+}
+
 // Sets document.visibilityState, dispatches visibilitychange (which MobileTerminalPage's
 // listener handles synchronously), then restores the original property — so no test leaks a
 // stubbed visibilityState into the next one.
@@ -1598,10 +1603,12 @@ describe("MobileTerminalPage", () => {
       expect(globalThis.fetch).not.toHaveBeenCalledWith("/api/mobile-mode");
     });
 
-    it("preserves the scroll position of the scrollable main element after Refresh", async () => {
+    it("preserves the scroll position after Refresh when reading the middle of the terminal output", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
       const wrapper = await mountPage();
       const main = wrapper.get("main").element as HTMLElement;
+      let scrollHeight = 1000;
+      stubScrollMetrics(main, { scrollHeight: () => scrollHeight, clientHeight: 400 });
       main.scrollTop = 240;
 
       mockFetch({
@@ -1609,10 +1616,34 @@ describe("MobileTerminalPage", () => {
         sessions: [session({ id: "a", live: true })],
         screens: { a: screenOk(`${"line\n".repeat(80)}v2`) },
       });
-      await refreshButton(wrapper).trigger("click");
+      const refresh = refreshButton(wrapper).trigger("click");
+      scrollHeight = 1400;
+      await refresh;
       await flushPromises();
 
       expect(main.scrollTop).toBe(240);
+      expect(wrapper.text()).toContain("v2");
+    });
+
+    it("follows the new bottom after Refresh when the main element was already near bottom", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("v1") } });
+      const wrapper = await mountPage();
+      const main = wrapper.get("main").element as HTMLElement;
+      let scrollHeight = 1000;
+      stubScrollMetrics(main, { scrollHeight: () => scrollHeight, clientHeight: 400 });
+      main.scrollTop = 590;
+
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true })],
+        screens: { a: screenOk(`${"line\n".repeat(120)}v2`) },
+      });
+      const refresh = refreshButton(wrapper).trigger("click");
+      scrollHeight = 1400;
+      await refresh;
+      await flushPromises();
+
+      expect(main.scrollTop).toBe(1000);
       expect(wrapper.text()).toContain("v2");
     });
 
