@@ -62,7 +62,7 @@ export function createShellSpawners(deps: SpawnDeps) {
     // and a draft is submitted the way that agent expects. Anything else stays a shell (#1208).
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: launcherAgent(command) };
     ptys.set(sessionId, entry);
-    startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking });
+    startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking, setWaiting: deps.setWaiting });
 
     term.onData((data) => {
       entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
