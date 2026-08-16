@@ -88,6 +88,7 @@ const screenText = ref("");
 const screenStyledRows = ref<AnsiRow[] | null>(null);
 const screenIsLoading = () => screenStatus.value === "loading";
 const mainScrollEl = ref<HTMLElement | null>(null);
+const MAIN_SCROLL_BOTTOM_TOLERANCE_PX = 24;
 
 function segmentStyle(segment: AnsiSegment): Record<string, string> {
   const style: Record<string, string> = {};
@@ -501,17 +502,22 @@ async function createTerminal(): Promise<void> {
 
 const manualMobileRefreshInFlight = ref(false);
 
+function isNearScrollBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.clientHeight - el.scrollTop <= MAIN_SCROLL_BOTTOM_TOLERANCE_PX;
+}
+
 async function preserveMainScrollDuring(refresh: () => Promise<void>): Promise<void> {
   const scrollEl = mainScrollEl.value;
   const scrollTop = scrollEl?.scrollTop ?? 0;
   const scrollLeft = scrollEl?.scrollLeft ?? 0;
+  const wasNearBottom = scrollEl ? isNearScrollBottom(scrollEl) : false;
 
   try {
     await refresh();
   } finally {
     await nextTick();
     if (scrollEl) {
-      scrollEl.scrollTop = scrollTop;
+      scrollEl.scrollTop = wasNearBottom ? Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight) : scrollTop;
       scrollEl.scrollLeft = scrollLeft;
     }
   }
