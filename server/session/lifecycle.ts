@@ -42,7 +42,7 @@ import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
-import { hasNewSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
+import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
 import {
   forgetMobileWebPushActivitySession,
   mobileWebPushKindForActivityTransition,
@@ -138,6 +138,17 @@ function scheduleReap(deps: SessionLifecycleDeps, mobileWebPushActivityState: Mo
   );
 }
 
+function scheduleDetachedShellTaskCheck(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string): void {
+  if (reapTimers.has(id)) return;
+  reapTimers.set(
+    id,
+    setTimeout(() => {
+      reapTimers.delete(id);
+      armReapForDetached(deps, mobileWebPushActivityState, id);
+    }, REAP_GRACE_MS),
+  );
+}
+
 // Decide whether/when to reap a detached session based on its activity. A session
 // that's actively thinking (`working`) is never reaped — that's "clearly working,
 // don't close it". One that needs the user (`waiting`) gets the long grace. A
@@ -151,6 +162,11 @@ function armReapForDetached(deps: SessionLifecycleDeps, mobileWebPushActivitySta
   // last arm, and a stale short timer must not survive to reap a session that now
   // needs the user. cancelReap clears it so scheduleReap re-arms with the right grace.
   cancelReap(id);
+  if (entry.agent === "shell" && hasSessionChildProcess(id, entry)) {
+    console.log(`[pty] keeping shell session ${id} alive while foreground task runs (detached)`);
+    scheduleDetachedShellTaskCheck(deps, mobileWebPushActivityState, id);
+    return;
+  }
   const decision = reapDecisionFor(activity.get(id), { idleMs: REAP_GRACE_MS, waitingMs: WAIT_REAP_GRACE_MS });
   if (decision.kind === "keep") {
     console.log(`[pty] keeping working session ${id} alive (detached)`);
