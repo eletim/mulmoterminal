@@ -22,7 +22,7 @@ import {
   sessionMemos,
 } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
-import { hasNewSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
+import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
 import { tmuxKillSession } from "../../../server/infra/tmux.js";
 
 vi.mock("../../../server/infra/tmux.js", () => ({ tmuxKillSession: vi.fn() }));
@@ -30,6 +30,7 @@ vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSe
 vi.mock("../../../server/session/session-drops.js", () => ({ cleanupSessionDrops: vi.fn() }));
 vi.mock("../../../server/session/child-processes.js", () => ({
   hasNewSessionChildProcess: vi.fn(() => false),
+  hasSessionChildProcess: vi.fn(() => false),
   sessionChildProcessPids: vi.fn(() => new Set<number>()),
 }));
 // The reply the roster shows is re-read from the transcript at the end of a turn; the tests
@@ -76,6 +77,7 @@ beforeEach(() => {
   clearRegistry();
   vi.mocked(tmuxKillSession).mockReset();
   vi.mocked(hasNewSessionChildProcess).mockReset().mockReturnValue(false);
+  vi.mocked(hasSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(sessionChildProcessPids).mockReset().mockReturnValue(new Set());
 });
 afterEach(() => {
@@ -511,6 +513,33 @@ describe("the reap timer", () => {
     createSessionLifecycle(deps).armReapForDetached(ID);
     vi.advanceTimersByTime(60 * 60_000);
     expect(ptys.has(ID)).toBe(true);
+  });
+
+  it("keeps a detached shell while it still has a foreground child process", () => {
+    vi.useFakeTimers();
+    const deps = makeDeps();
+    vi.mocked(hasSessionChildProcess).mockReturnValue(true);
+    ptys.set(ID, fakeEntry({ agent: "shell" }));
+
+    createSessionLifecycle(deps).armReapForDetached(ID);
+    vi.advanceTimersByTime(5 * 60_000);
+
+    expect(ptys.has(ID)).toBe(true);
+    expect(hasSessionChildProcess).toHaveBeenCalled();
+  });
+
+  it("reaps a detached shell after its foreground child process is gone", () => {
+    vi.useFakeTimers();
+    const deps = makeDeps();
+    vi.mocked(hasSessionChildProcess).mockReturnValueOnce(true).mockReturnValueOnce(false);
+    ptys.set(ID, fakeEntry({ agent: "shell" }));
+
+    createSessionLifecycle(deps).armReapForDetached(ID);
+    vi.advanceTimersByTime(30_000);
+    expect(ptys.has(ID)).toBe(true);
+
+    vi.advanceTimersByTime(30_000);
+    expect(ptys.has(ID)).toBe(false);
   });
 
   it("reaps a detached idle session after the short grace", () => {
