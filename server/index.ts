@@ -50,6 +50,7 @@ import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
+import { createAdoptingTerminalWriter } from "./session/tmux-adopt.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
 import { createTitleManager } from "./session/session-title.js";
 import { generateTitleFromTurns } from "./config/header-title.js";
@@ -677,20 +678,16 @@ const remoteHostListTerminalSessions = async () => {
   });
 };
 
-// Write a chunk to a session's live PTY for the phone's terminal input (#445).
-// Only sessions attached in THIS process are writable: a tmux session that outlived
-// a restart is still viewable through capture-pane, but we hold no pty to type into.
-const remoteHostWriteToSession = (sessionId: string, chunk: string): boolean => {
-  const entry = ptys.get(sessionId);
-  if (!entry) return false;
-  try {
-    entry.term.write(chunk);
-    return true;
-  } catch {
-    // pty died between the lookup and the write
-    return false;
-  }
-};
+// Write a chunk to a session from the phone. A tmux session that outlived this server has no
+// in-process PtyEntry until someone reattaches; adopt it here so mobile can type into the same
+// Shell/task it can already list and capture (#74).
+const remoteHostWriteToSession = createAdoptingTerminalWriter({
+  entryOf: (id) => ptys.get(id),
+  hasTmux: tmuxHasSession,
+  cwdOf: (id) => sessionCwd(id) ?? CLAUDE_CWD,
+  spawnLauncherPty,
+  commandOf: (id) => agentOfSession(id) ?? process.env.SHELL ?? "/bin/sh",
+});
 
 const remoteHostSessionOperations = createTerminalSessionOperations({
   writeToSession: remoteHostWriteToSession,
