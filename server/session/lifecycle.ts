@@ -40,6 +40,7 @@ import { readLatestResponse } from "./session-reads.js";
 import { cleanupSessionSettings } from "./session-settings.js";
 import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
+import { stopShellTaskWatch } from "./shell-task-watch.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
@@ -178,6 +179,7 @@ function armReapForDetached(deps: SessionLifecycleDeps, mobileWebPushActivitySta
 function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string) {
   cancelReap(id);
   cancelDeferredStop(id);
+  stopShellTaskWatch(id);
   childProcessBaselines.delete(id);
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
