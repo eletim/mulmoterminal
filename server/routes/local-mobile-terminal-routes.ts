@@ -47,6 +47,7 @@ export type LocalMobileTerminalRouteDeps = Pick<
   RemoteHostHandlerDeps,
   | "listTerminalSessions"
   | "captureTerminalScreen"
+  | "acknowledgeTerminalView"
   | "writeToSession"
   | "interruptSession"
   | "stopSession"
@@ -240,6 +241,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     activityOf,
     workPhaseOf,
     setWaiting,
+    acknowledgeTerminalView = () => undefined,
     captureStyledScreen,
     mobileWebPush,
   } = deps;
@@ -271,6 +273,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
     try {
       const screen = await captureTerminalScreen(id);
+      acknowledgeTerminalView(id);
       // Styling is additive on top of the plain-text screen above, which already reflects
       // whatever real error there is (session gone, tmux down, …) via the catch below — a
       // failure or a mismatch resolving styled rows must not cost the phone the screen it

@@ -18,6 +18,21 @@ interface ShellTaskWatch {
 
 const watches = new Map<string, ShellTaskWatch>();
 
+function notifyShellTaskChange(sessionId: string, entry: PtyEntry, watch: ShellTaskWatch | undefined, running: boolean, deps: ShellTaskWatchDeps): void {
+  const now = deps.now?.() ?? Date.now();
+  if (running) {
+    if (watch) watch.startedAtMs = now;
+    deps.setWaiting(sessionId, false);
+    deps.setWorking(sessionId, true, "UserPromptSubmit");
+    return;
+  }
+  const durationMs = watch?.startedAtMs === null || watch?.startedAtMs === undefined ? 0 : now - watch.startedAtMs;
+  const shouldNotify = durationMs >= SHELL_TASK_FINISHED_NOTIFY_MS && !entry.active;
+  if (watch) watch.startedAtMs = null;
+  if (shouldNotify) deps.setWaiting(sessionId, true, "Stop");
+  deps.setWorking(sessionId, false, shouldNotify ? "Stop" : undefined);
+}
+
 export function stopShellTaskWatch(sessionId: string): void {
   const watch = watches.get(sessionId);
   if (!watch) return;
@@ -31,18 +46,7 @@ export function pollShellTask(sessionId: string, entry: PtyEntry, deps: ShellTas
   const previous = watch?.running ?? false;
   if (watch) watch.running = running;
   if (running !== previous) {
-    const now = deps.now?.() ?? Date.now();
-    if (running) {
-      if (watch) watch.startedAtMs = now;
-      deps.setWaiting(sessionId, false);
-      deps.setWorking(sessionId, true, "UserPromptSubmit");
-    } else {
-      const durationMs = watch?.startedAtMs === null || watch?.startedAtMs === undefined ? 0 : now - watch.startedAtMs;
-      const shouldNotify = durationMs >= SHELL_TASK_FINISHED_NOTIFY_MS && !entry.active;
-      if (watch) watch.startedAtMs = null;
-      if (shouldNotify) deps.setWaiting(sessionId, true, "Stop");
-      deps.setWorking(sessionId, false, shouldNotify ? "Stop" : undefined);
-    }
+    notifyShellTaskChange(sessionId, entry, watch, running, deps);
   }
   return running;
 }

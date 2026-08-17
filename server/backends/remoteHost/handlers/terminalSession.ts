@@ -13,6 +13,7 @@ type TerminalSessionDeps = Pick<
   RemoteHostHandlerDeps,
   | "listTerminalSessions"
   | "captureTerminalScreen"
+  | "acknowledgeTerminalView"
   | "writeToSession"
   | "interruptSession"
   | "stopSession"
@@ -25,6 +26,7 @@ type TerminalSessionDeps = Pick<
 export const createTerminalSessionHandlers = ({
   listTerminalSessions,
   captureTerminalScreen,
+  acknowledgeTerminalView = () => undefined,
   writeToSession,
   interruptSession,
   stopSession,
@@ -46,7 +48,9 @@ export const createTerminalSessionHandlers = ({
     getTerminalScreen: async (params: JsonObject) => {
       const sessionId = typeof params.sessionId === "string" ? params.sessionId : "";
       if (!sessionId) throw new Error("sessionId is required");
-      return toJsonObject(await captureTerminalScreen(sessionId));
+      const screen = await captureTerminalScreen(sessionId);
+      acknowledgeTerminalView(sessionId);
+      return toJsonObject(screen);
     },
 
     // Type a line into the session and press Enter, as if the user were at the

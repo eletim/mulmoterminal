@@ -85,6 +85,10 @@ interface DeferredStop {
 
 const deferredStops = new Map<string, DeferredStop>();
 const childProcessBaselines = new Map<string, Set<number> | null>();
+// Shell foreground tasks have no Claude/Codex hook stream. A long detached task finishing is
+// represented to the UI as the existing Done row (`waiting=true`, `event="Stop"`), but unlike an
+// agent's finished turn it must not age out until the terminal screen is actually opened.
+const unacknowledgedShellDone = new Set<string>();
 const CHILD_WORK_POLL_MS = 1000;
 
 function refreshLastResponse(id: string, cwd: string): void {
@@ -168,6 +172,10 @@ function armReapForDetached(deps: SessionLifecycleDeps, mobileWebPushActivitySta
     scheduleDetachedShellTaskCheck(deps, mobileWebPushActivityState, id);
     return;
   }
+  if (unacknowledgedShellDone.has(id)) {
+    console.log(`[pty] keeping shell session ${id} alive with unacknowledged finished output`);
+    return;
+  }
   const decision = reapDecisionFor(activity.get(id), { idleMs: REAP_GRACE_MS, waitingMs: WAIT_REAP_GRACE_MS });
   if (decision.kind === "keep") {
     console.log(`[pty] keeping working session ${id} alive (detached)`);
@@ -181,6 +189,7 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   cancelDeferredStop(id);
   stopShellTaskWatch(id);
   childProcessBaselines.delete(id);
+  unacknowledgedShellDone.delete(id);
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
@@ -250,6 +259,25 @@ function shouldDeferStop(id: string, event: string | undefined): boolean {
   return event === "Stop" && hasNewSessionChildProcess(id, ptys.get(id), childProcessBaselines.get(id) ?? null);
 }
 
+function deferFlagIfNeeded(
+  deps: SessionLifecycleDeps,
+  mobileWebPushActivityState: MobileWebPushActivityState,
+  id: string,
+  flag: ActivityFlag,
+  value: boolean,
+  event: string | undefined,
+): boolean {
+  if (flag === "waiting" && value && shouldDeferStop(id, event)) {
+    deferStopFlag(deps, mobileWebPushActivityState, id, event, "waiting");
+    return true;
+  }
+  if (flag === "working" && !value && shouldDeferStop(id, event)) {
+    deferStopFlag(deps, mobileWebPushActivityState, id, event, "workingClear");
+    return true;
+  }
+  return false;
+}
+
 function deferStopFlag(
   deps: SessionLifecycleDeps,
   mobileWebPushActivityState: MobileWebPushActivityState,
@@ -294,6 +322,35 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
   deps.publish(SESSIONS_CHANNEL, row);
 }
 
+function noteWorkingStart(id: string, flag: ActivityFlag, value: boolean, event: string | undefined): void {
+  if (flag !== "working" || !value) return;
+  cancelDeferredStop(id);
+  if (event === "UserPromptSubmit") childProcessBaselines.set(id, sessionChildProcessPids(id, ptys.get(id)));
+}
+
+function noteShellDoneFlag(id: string, flag: ActivityFlag, value: boolean, event: string | undefined): void {
+  if (flag !== "waiting" || ptys.get(id)?.agent !== "shell") return;
+  if (!value) unacknowledgedShellDone.delete(id);
+  else if (event === "Stop") unacknowledgedShellDone.add(id);
+}
+
+function notifyMobileWebPushTransition(
+  deps: SessionLifecycleDeps,
+  mobileWebPushActivityState: MobileWebPushActivityState,
+  id: string,
+  prev: Parameters<typeof mobileWebPushKindForActivityTransition>[2],
+  next: Parameters<typeof mobileWebPushKindForActivityTransition>[3],
+  event: string | undefined,
+): void {
+  const kind = mobileWebPushKindForActivityTransition(mobileWebPushActivityState, id, prev, next, event);
+  if (!kind) return;
+  try {
+    deps.notifyMobileWebPushActivity?.({ kind, sessionId: id, agent: ptys.get(id)?.agent ?? null });
+  } catch (err) {
+    console.warn(`[mobile-web-push] activity notification dropped for ${id}: ${messageOf(err)}`);
+  }
+}
+
 // Set a session's working (thinking, UserPromptSubmit→Stop) or waiting (needs the user)
 // flag, publish the change, persist it, and re-arm the reap on the edge that calls for it.
 // A no-op when the flag's value did not actually move — flagEffect returns null and every
@@ -306,19 +363,10 @@ function setFlag(
   value: boolean,
   event?: string,
 ) {
-  if (flag === "working" && value) {
-    cancelDeferredStop(id);
-    if (event === "UserPromptSubmit") childProcessBaselines.set(id, sessionChildProcessPids(id, ptys.get(id)));
-  }
-  if (flag === "waiting" && value && shouldDeferStop(id, event)) {
-    deferStopFlag(deps, mobileWebPushActivityState, id, event, "waiting");
-    return;
-  }
-  if (flag === "working" && !value && shouldDeferStop(id, event)) {
-    deferStopFlag(deps, mobileWebPushActivityState, id, event, "workingClear");
-    return;
-  }
+  noteWorkingStart(id, flag, value, event);
+  if (deferFlagIfNeeded(deps, mobileWebPushActivityState, id, flag, value, event)) return;
   const prev = activity.get(id);
+  noteShellDoneFlag(id, flag, value, event);
   const effect = flagEffect(prev, flag, value, event, Date.now());
   if (!effect.next) return;
   activity.set(id, effect.next);
@@ -327,15 +375,15 @@ function setFlag(
   publishActivity(deps, id);
   // Persist so an in-progress turn / the blocked-or-done set survives a restart (ACTIVITY_STATE_FILE).
   persistActivityState((id) => hiddenSessions.has(id));
-  const kind = mobileWebPushKindForActivityTransition(mobileWebPushActivityState, id, prev, effect.next, event);
-  if (kind) {
-    try {
-      deps.notifyMobileWebPushActivity?.({ kind, sessionId: id, agent: ptys.get(id)?.agent ?? null });
-    } catch (err) {
-      console.warn(`[mobile-web-push] activity notification dropped for ${id}: ${messageOf(err)}`);
-    }
-  }
+  notifyMobileWebPushTransition(deps, mobileWebPushActivityState, id, prev, effect.next, event);
   if (effect.rearmReap) armReapForDetached(deps, mobileWebPushActivityState, id);
+}
+
+function acknowledgeShellDone(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string): void {
+  if (!unacknowledgedShellDone.has(id)) return;
+  unacknowledgedShellDone.delete(id);
+  setFlag(deps, mobileWebPushActivityState, id, "waiting", false);
+  armReapForDetached(deps, mobileWebPushActivityState, id);
 }
 
 export function createSessionLifecycle(deps: SessionLifecycleDeps) {
@@ -348,6 +396,7 @@ export function createSessionLifecycle(deps: SessionLifecycleDeps) {
     reap: (id: string) => reap(deps, mobileWebPushActivityState, id),
     cleanupManagedLiveSessions: () => cleanupManagedLiveSessions(deps, mobileWebPushActivityState),
     publishActivity: (id: string) => publishActivity(deps, id),
+    acknowledgeShellDone: (id: string) => acknowledgeShellDone(deps, mobileWebPushActivityState, id),
     setWorking: (id: string, working: boolean, event?: string) => setFlag(deps, mobileWebPushActivityState, id, "working", working, event),
     setWaiting: (id: string, waiting: boolean, event?: string) => setFlag(deps, mobileWebPushActivityState, id, "waiting", waiting, event),
   };

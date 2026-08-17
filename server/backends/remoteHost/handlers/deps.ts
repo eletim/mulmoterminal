@@ -20,6 +20,9 @@ export interface RemoteHostHandlerDeps {
   // current screen. Wired in server/index.ts, where the PTY table lives.
   listTerminalSessions: () => Promise<TerminalSessionSummary[]>;
   captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
+  // The user opened a terminal's actual screen, not just the picker/list. Used to acknowledge
+  // shell finished output without letting background list polling mark it read.
+  acknowledgeTerminalView?: (sessionId: string) => void;
   // Type into one session's live PTY (#445). Returns false when no PTY is attached
   // in this process — a tmux session that outlived a restart stays viewable but not
   // writable from here.

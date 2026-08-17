@@ -222,25 +222,32 @@ describe("createRemoteHostHandlers · listSkills", () => {
 // summary and prompt off this response, so the handler has to forward whatever the host
 // could answer instead of trimming the payload back to screen + suggestion.
 describe("getTerminalScreen", () => {
-  const handlersFor = (screen: SessionScreen) =>
+  const handlersFor = (screen: SessionScreen, viewed: string[] = []) =>
     createRemoteHostHandlers({
       workspace: "/nowhere",
       spawnChat: () => ({ chatId: "x" }),
       ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
       ...unusedTerminalDeps,
       captureTerminalScreen: async () => screen,
+      acknowledgeTerminalView: (id) => {
+        viewed.push(id);
+      },
     });
 
   it("forwards the session's cwd, branch, summary and prompt beside the screen", async () => {
-    const handlers = handlersFor({
-      screen: "$ ",
-      suggestion: "",
-      quickCommands: [],
-      cwd: "/repo",
-      branch: "main",
-      summary: "Fix the parser",
-      prompt: "fix it",
-    });
+    const viewed: string[] = [];
+    const handlers = handlersFor(
+      {
+        screen: "$ ",
+        suggestion: "",
+        quickCommands: [],
+        cwd: "/repo",
+        branch: "main",
+        summary: "Fix the parser",
+        prompt: "fix it",
+      },
+      viewed,
+    );
     expect(await handlers.getTerminalScreen({ sessionId: "a" })).toEqual({
       screen: "$ ",
       suggestion: "",
@@ -250,6 +257,25 @@ describe("getTerminalScreen", () => {
       summary: "Fix the parser",
       prompt: "fix it",
     });
+    expect(viewed).toEqual(["a"]);
+  });
+
+  it("does not acknowledge the picker/list command", async () => {
+    const viewed: string[] = [];
+    const handlers = createRemoteHostHandlers({
+      workspace: "/nowhere",
+      spawnChat: () => ({ chatId: "x" }),
+      ingest: async () => ({ attachments: [], cleanupStaging: async () => {} }),
+      ...unusedTerminalDeps,
+      listTerminalSessions: async () => [{ id: TERMINAL_SESSION_ID, title: "one", cwd: "/repo", live: true, agent: "shell" }],
+      acknowledgeTerminalView: (id) => {
+        viewed.push(id);
+      },
+    });
+
+    await handlers.listTerminalSessions({});
+
+    expect(viewed).toEqual([]);
   });
 
   it("forwards a screen the host had no metadata for unchanged", async () => {
