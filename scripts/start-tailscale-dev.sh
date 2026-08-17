@@ -121,6 +121,27 @@ detect_tailscale_host() {
   normalize_host "$host"
 }
 
+detect_tailscale_ip() {
+  if ! command -v tailscale >/dev/null 2>&1; then
+    echo "[mulmoterminal] Tailscale CLI was not found; enter the Tailscale IPv4 address manually." >&2
+    return 1
+  fi
+
+  local ip
+  if ! ip="$(tailscale ip -4 2>/dev/null)"; then
+    echo "[mulmoterminal] Could not read the Tailscale IPv4 address; make sure Tailscale is running, then enter it manually." >&2
+    return 1
+  fi
+
+  ip="${ip%%$'\n'*}"
+  ip="$(normalize_host "$ip")"
+  if [[ ! "$ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    echo "[mulmoterminal] Tailscale did not return a valid IPv4 address; enter it manually." >&2
+    return 1
+  fi
+  printf '%s\n' "$ip"
+}
+
 prompt_yes_no() {
   local prompt="$1"
   local default="${2:-y}"
@@ -275,7 +296,11 @@ setup_env_file() {
     host="$(prompt_required "Tailscale host")"
   fi
 
-  origin="https://${host}"
+  if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
+    origin="http://${host}:${CLIENT_PORT:-6857}"
+  else
+    origin="https://${host}"
+  fi
 
   tmp_file="$(mktemp)"
   {
@@ -291,7 +316,9 @@ setup_env_file() {
   echo "  ${origin}"
   echo
 
-  configure_web_push "$target_file" "$tmp_file" "$origin"
+  if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" != "1" ]]; then
+    configure_web_push "$target_file" "$tmp_file" "$origin"
+  fi
 
   mkdir -p "$(dirname -- "$target_file")"
   install -m 600 "$tmp_file" "$target_file"
@@ -317,11 +344,15 @@ maybe_first_time_setup() {
 
   local target_file detected_host shell_host
   target_file="${USER_LOCAL_ENV_FILE:-$LOCAL_ENV_FILE}"
-  shell_host="$(first_env_value "${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}")"
-  [[ -n "$shell_host" ]] || shell_host="$(host_from_origin "${MULMOTERMINAL_ALLOWED_ORIGINS:-}")"
-  detected_host="$(normalize_host "$shell_host")"
-  if [[ -z "$detected_host" ]]; then
-    detected_host="$(detect_tailscale_host || true)"
+  if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
+    detected_host="$(detect_tailscale_ip || true)"
+  else
+    shell_host="$(first_env_value "${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}")"
+    [[ -n "$shell_host" ]] || shell_host="$(host_from_origin "${MULMOTERMINAL_ALLOWED_ORIGINS:-}")"
+    detected_host="$(normalize_host "$shell_host")"
+    if [[ -z "$detected_host" ]]; then
+      detected_host="$(detect_tailscale_host || true)"
+    fi
   fi
   setup_env_file "$target_file" "$detected_host"
 }
@@ -364,6 +395,15 @@ export MULMOTERMINAL_BASE_PATH
 MULMOTERMINAL_BASE_PATH="$(normalize_base_path "${MULMOTERMINAL_BASE_PATH:-/mulmoterminal/}")"
 export MULMOTERMINAL_MOBILE_MODE="${MULMOTERMINAL_MOBILE_MODE:-local}"
 
+tailscale_ip=""
+if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
+  tailscale_ip="$(detect_tailscale_ip)"
+  export MULMOTERMINAL_TAILSCALE_SERVE=0
+  export MULMOTERMINAL_VITE_HOST="${MULMOTERMINAL_VITE_HOST:-0.0.0.0}"
+  export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="$tailscale_ip"
+  export MULMOTERMINAL_ALLOWED_ORIGINS="http://${tailscale_ip}:${CLIENT_PORT}"
+fi
+
 tailscale_path="${MULMOTERMINAL_TAILSCALE_PATH:-${MULMOTERMINAL_BASE_PATH%/}}"
 [[ -n "$tailscale_path" ]] || tailscale_path="/"
 tailscale_target_path="${MULMOTERMINAL_BASE_PATH%/}"
@@ -387,7 +427,7 @@ if [[ "${MULMOTERMINAL_TAILSCALE_SERVE:-1}" != "0" ]]; then
 fi
 
 if [[ "${MULMOTERMINAL_START_DRY_RUN:-0}" == "1" ]]; then
-  echo "PORT=${PORT} CLIENT_PORT=${CLIENT_PORT} MULMOTERMINAL_BASE_PATH=${MULMOTERMINAL_BASE_PATH} MULMOTERMINAL_MOBILE_MODE=${MULMOTERMINAL_MOBILE_MODE} yarn dev"
+  echo "PORT=${PORT} CLIENT_PORT=${CLIENT_PORT} MULMOTERMINAL_BASE_PATH=${MULMOTERMINAL_BASE_PATH} MULMOTERMINAL_MOBILE_MODE=${MULMOTERMINAL_MOBILE_MODE}${tailscale_ip:+ MULMOTERMINAL_VITE_HOST=${MULMOTERMINAL_VITE_HOST} MULMOTERMINAL_ALLOWED_ORIGINS=${MULMOTERMINAL_ALLOWED_ORIGINS}} yarn dev"
   exit 0
 fi
 

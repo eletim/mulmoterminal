@@ -152,6 +152,40 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("yarn dev");
   });
 
+  it("binds Vite directly on the Tailscale IPv4 address in explicit HTTP mode", () => {
+    dir = makeTempDir("tailscale-http-bin-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf \'100.64.0.23\\n\'');
+
+    const result = dryRun({
+      MULMOTERMINAL_TAILSCALE_HTTP: "1",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("tailscale serve");
+    expect(result.stdout).toContain("MULMOTERMINAL_VITE_HOST=0.0.0.0");
+    expect(result.stdout).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
+  });
+
+  it("uses the Tailscale IPv4 address and skips Web Push setup for HTTP first-time setup", () => {
+    const home = isolatedHome();
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf \'100.64.0.23\\n\'');
+
+    const result = interactiveDryRun("\n", {
+      ...home,
+      PATH: prependPath(binDir),
+      MULMOTERMINAL_TAILSCALE_HTTP: "1",
+    });
+    const generated = readFileSync(localEnvPath(home), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=100.64.0.23");
+    expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
+    expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_");
+  });
+
   it("creates a shared local env with the detected Tailscale DNS name as the default", () => {
     const home = isolatedHome();
     const binDir = path.join(currentTempDir(), "bin");
