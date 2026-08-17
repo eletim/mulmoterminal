@@ -147,9 +147,13 @@ resolve_tailscale_mode() {
   if [[ -z "$mode" ]]; then
     if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
       mode="http"
+      tailscale_mode_source="legacy"
     else
       mode="auto"
+      tailscale_mode_source="default"
     fi
+  else
+    tailscale_mode_source="mode"
   fi
 
   case "$mode" in
@@ -161,7 +165,7 @@ resolve_tailscale_mode() {
       ;;
   esac
 
-  printf '%s\n' "$mode"
+  tailscale_mode="$mode"
 }
 
 prompt_yes_no() {
@@ -300,6 +304,7 @@ setup_env_file() {
   local target_file="$1"
   local detected_host="${2:-}"
   local tailscale_mode="${3:-https}"
+  local persist_mode="${4:-0}"
   local host origin
   local tmp_file
 
@@ -341,6 +346,9 @@ setup_env_file() {
     echo "# Shared by local MulmoTerminal worktrees on this machine."
   } > "$tmp_file"
 
+  if [[ "$persist_mode" == "1" ]]; then
+    write_env_assignment "$tmp_file" "MULMOTERMINAL_TAILSCALE_MODE" "$tailscale_mode"
+  fi
   write_env_assignment "$tmp_file" "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS" "$host"
   write_env_assignment "$tmp_file" "MULMOTERMINAL_ALLOWED_ORIGINS" "$origin"
 
@@ -370,6 +378,7 @@ setup_env_file() {
 maybe_first_time_setup() {
   local default_env_files="$1"
   local tailscale_mode="$2"
+  local persist_mode="$3"
   [[ "$default_env_files" == "1" ]] || return 0
   [[ ! -f "$LOCAL_ENV_FILE" ]] || return 0
   [[ -z "$USER_LOCAL_ENV_FILE" || ! -f "$USER_LOCAL_ENV_FILE" ]] || return 0
@@ -394,7 +403,7 @@ maybe_first_time_setup() {
       detected_host="$(detect_tailscale_host || true)"
     fi
   fi
-  setup_env_file "$target_file" "$detected_host" "$tailscale_mode"
+  setup_env_file "$target_file" "$detected_host" "$tailscale_mode" "$persist_mode"
 }
 
 env_files=()
@@ -434,7 +443,9 @@ MULMOTERMINAL_BASE_PATH="$(normalize_base_path "${MULMOTERMINAL_BASE_PATH:-/mulm
 export MULMOTERMINAL_MOBILE_MODE="${MULMOTERMINAL_MOBILE_MODE:-local}"
 
 tailscale_ip=""
-tailscale_mode="$(resolve_tailscale_mode)"
+tailscale_mode=""
+tailscale_mode_source=""
+resolve_tailscale_mode
 effective_tailscale_mode="$tailscale_mode"
 
 configure_http_mode() {
@@ -518,7 +529,11 @@ select_tailscale_mode() {
 }
 
 select_tailscale_mode
-maybe_first_time_setup "$using_default_env_files" "$effective_tailscale_mode"
+persist_setup_mode=0
+if [[ "$tailscale_mode_source" != "default" || "$effective_tailscale_mode" == "http" ]]; then
+  persist_setup_mode=1
+fi
+maybe_first_time_setup "$using_default_env_files" "$effective_tailscale_mode" "$persist_setup_mode"
 
 for env_file in "${env_files[@]}"; do
   [[ -n "$env_file" ]] && load_env_file "$env_file"

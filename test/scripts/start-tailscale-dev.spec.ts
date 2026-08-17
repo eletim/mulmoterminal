@@ -319,6 +319,7 @@ describe("start-tailscale-dev.sh", () => {
     const generated = readFileSync(localEnvPath(home), "utf8");
 
     expect(result.status).toBe(0);
+    expect(generated).toContain("MULMOTERMINAL_TAILSCALE_MODE=http");
     expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=100.64.0.23");
     expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
     expect(generated).not.toContain("https://100.64.0.23");
@@ -412,6 +413,7 @@ describe("start-tailscale-dev.sh", () => {
     const generated = readFileSync(localEnvPath(home), "utf8");
 
     expect(result.status).toBe(0);
+    expect(generated).toContain("MULMOTERMINAL_TAILSCALE_MODE=http");
     expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=100.64.0.23");
     expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
     expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_");
@@ -430,6 +432,7 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain(".env.local and");
     expect(result.stdout).toContain("Detected Tailscale host:");
     expect(result.stdout).toContain("e-ryzen.tail6bc726.ts.net");
+    expect(generated).not.toContain("MULMOTERMINAL_TAILSCALE_MODE=");
     expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=e-ryzen.tail6bc726.ts.net");
     expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=https://e-ryzen.tail6bc726.ts.net");
   });
