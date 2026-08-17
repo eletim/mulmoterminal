@@ -50,6 +50,28 @@ function interactiveDryRunFrom(cwd: string, input: string, extra: NodeJS.Process
   });
 }
 
+function runScript(extra: NodeJS.ProcessEnv = {}, input?: string) {
+  return spawnSync(BASH, [SCRIPT], {
+    cwd: ROOT,
+    env: cleanEnv({ MULMOTERMINAL_ENV_FILES: "", ...extra }),
+    input,
+    encoding: "utf8",
+  });
+}
+
+function interactiveRunScript(input: string, extra: NodeJS.ProcessEnv = {}) {
+  return runScript({ MULMOTERMINAL_START_FORCE_INTERACTIVE: "1", ...extra }, input);
+}
+
+function interactiveRunScriptWithDefaultEnv(input: string, extra: NodeJS.ProcessEnv = {}) {
+  return spawnSync(BASH, [SCRIPT], {
+    cwd: ROOT,
+    env: cleanEnv({ MULMOTERMINAL_START_FORCE_INTERACTIVE: "1", ...extra }),
+    input,
+    encoding: "utf8",
+  });
+}
+
 function isolatedHome() {
   dir = makeTempDir("tailscale-dev-home-");
   return {
@@ -75,6 +97,21 @@ function writeFakeTailscale(binDir: string, body: string) {
   mkdirSync(binDir, { recursive: true });
   const executable = path.join(binDir, "tailscale");
   writeFileSync(executable, `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(executable, 0o755);
+}
+
+function writeFakeYarn(binDir: string) {
+  mkdirSync(binDir, { recursive: true });
+  const executable = path.join(binDir, "yarn");
+  writeFileSync(
+    executable,
+    [
+      "#!/usr/bin/env bash",
+      "printf 'YARN %s %s\\n' \"$1\" \"$2\"",
+      "printf 'ENV PORT=%s CLIENT_PORT=%s VITE_HOST=%s ORIGINS=%s\\n' \"$PORT\" \"$CLIENT_PORT\" \"${MULMOTERMINAL_VITE_HOST:-}\" \"${MULMOTERMINAL_ALLOWED_ORIGINS:-}\"",
+      "",
+    ].join("\n"),
+  );
   chmodSync(executable, 0o755);
 }
 
@@ -152,10 +189,184 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("yarn dev");
   });
 
-  it("binds Vite directly on the Tailscale IPv4 address in explicit HTTP mode", () => {
+  it("defaults the Tailscale mode to auto", () => {
+    const result = dryRun();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode https");
+  });
+
+  it("uses HTTPS mode when Tailscale Serve succeeds", () => {
+    dir = makeTempDir("tailscale-https-success-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      '[[ "$1 $2" == "serve --bg" ]] || exit 1\nprintf "serve ok\\n"',
+    );
+    writeFakeYarn(binDir);
+
+    const result = runScript({
+      MULMOTERMINAL_TAILSCALE_MODE: "https",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("serve ok");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode https");
+    expect(result.stdout).toContain("YARN dev");
+    expect(result.stdout).not.toContain("VITE_HOST=0.0.0.0");
+  });
+
+  it("does not fall back to HTTP when explicit HTTPS mode cannot configure Serve", () => {
+    dir = makeTempDir("tailscale-https-fail-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve failed" >&2; exit 7; fi\nif [[ "$1 $2" == "ip -4" ]]; then printf "100.64.0.23\\n"; exit 0; fi\nexit 1',
+    );
+    writeFakeYarn(binDir);
+
+    const result = runScript({
+      MULMOTERMINAL_TAILSCALE_MODE: "https",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("serve failed");
+    expect(result.stderr).toContain("Tailscale Serve could not be configured");
+    expect(result.stdout).not.toContain("YARN dev");
+    expect(result.stdout).not.toContain("100.64.0.23");
+  });
+
+  it("does not call Tailscale Serve in explicit HTTP mode", () => {
     dir = makeTempDir("tailscale-http-bin-");
     const binDir = path.join(currentTempDir(), "bin");
-    writeFakeTailscale(binDir, '[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf \'100.64.0.23\\n\'');
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve should not run" >&2; exit 44; fi\n[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf "100.64.0.23\\n"',
+    );
+
+    const result = dryRun({
+      MULMOTERMINAL_TAILSCALE_MODE: "http",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("tailscale serve");
+    expect(result.stderr).not.toContain("serve should not run");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode http");
+    expect(result.stdout).toContain("MULMOTERMINAL_VITE_HOST=0.0.0.0");
+    expect(result.stdout).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
+  });
+
+  it("uses HTTPS in auto mode when Tailscale Serve succeeds", () => {
+    dir = makeTempDir("tailscale-auto-success-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      '[[ "$1 $2" == "serve --bg" ]] || exit 1\nprintf "serve ok\\n"',
+    );
+    writeFakeYarn(binDir);
+
+    const result = runScript({
+      MULMOTERMINAL_TAILSCALE_MODE: "auto",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("serve ok");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode https");
+    expect(result.stdout).toContain("YARN dev");
+    expect(result.stdout).not.toContain("ORIGINS=http://");
+  });
+
+  it("falls back to HTTP in auto mode when Serve fails and the user accepts", () => {
+    dir = makeTempDir("tailscale-auto-yes-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve failed" >&2; exit 7; fi\n[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf "100.64.0.23\\n"',
+    );
+    writeFakeYarn(binDir);
+
+    const result = interactiveRunScript("\n", {
+      MULMOTERMINAL_TAILSCALE_MODE: "auto",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("serve failed");
+    expect(result.stderr).toContain("Direct HTTP access is limited to devices on your Tailscale VPN");
+    expect(result.stderr).toContain("Web Push and other HTTPS-only browser features may be unavailable");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode http");
+    expect(result.stdout).toContain("VITE_HOST=0.0.0.0");
+    expect(result.stdout).toContain("ORIGINS=http://100.64.0.23:6857");
+  });
+
+  it("generates HTTP first-time setup values after accepted auto fallback", () => {
+    const home = isolatedHome();
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve failed" >&2; exit 7; fi\n[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf "100.64.0.23\\n"',
+    );
+    writeFakeYarn(binDir);
+
+    const result = interactiveRunScriptWithDefaultEnv("\n\n", {
+      ...home,
+      MULMOTERMINAL_TAILSCALE_MODE: "auto",
+      PATH: prependPath(binDir),
+    });
+    const generated = readFileSync(localEnvPath(home), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=100.64.0.23");
+    expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
+    expect(generated).not.toContain("https://100.64.0.23");
+    expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_");
+  });
+
+  it("exits in auto mode when Serve fails and the user declines HTTP fallback", () => {
+    dir = makeTempDir("tailscale-auto-no-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve failed" >&2; exit 7; fi\n[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf "100.64.0.23\\n"',
+    );
+    writeFakeYarn(binDir);
+
+    const result = interactiveRunScript("n\n", {
+      MULMOTERMINAL_TAILSCALE_MODE: "auto",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("HTTP fallback was declined");
+    expect(result.stdout).not.toContain("YARN dev");
+  });
+
+  it("refuses auto HTTP fallback without confirmation in non-interactive mode", () => {
+    dir = makeTempDir("tailscale-auto-noninteractive-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve failed" >&2; exit 7; fi\n[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf "100.64.0.23\\n"',
+    );
+    writeFakeYarn(binDir);
+
+    const result = runScript({
+      MULMOTERMINAL_TAILSCALE_MODE: "auto",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Refusing to downgrade from HTTPS to HTTP without confirmation");
+    expect(result.stdout).not.toContain("YARN dev");
+  });
+
+  it("keeps the legacy HTTP env as an alias when the new mode is not set", () => {
+    dir = makeTempDir("tailscale-http-legacy-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "ip -4" ]] || exit 1\nprintf "100.64.0.24\\n"');
 
     const result = dryRun({
       MULMOTERMINAL_TAILSCALE_HTTP: "1",
@@ -163,9 +374,29 @@ describe("start-tailscale-dev.sh", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).not.toContain("tailscale serve");
-    expect(result.stdout).toContain("MULMOTERMINAL_VITE_HOST=0.0.0.0");
-    expect(result.stdout).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode http");
+    expect(result.stdout).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.24:6857");
+  });
+
+  it("prefers the new mode over the legacy HTTP env when both are set", () => {
+    const result = dryRun({
+      MULMOTERMINAL_TAILSCALE_MODE: "https",
+      MULMOTERMINAL_TAILSCALE_HTTP: "1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("tailscale serve --bg");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode https");
+    expect(result.stdout).not.toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://");
+  });
+
+  it("fails fast for invalid Tailscale mode values", () => {
+    const result = dryRun({ MULMOTERMINAL_TAILSCALE_MODE: "maybe" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid MULMOTERMINAL_TAILSCALE_MODE=maybe");
+    expect(result.stderr).toContain("Expected one of: auto, https, http");
+    expect(result.stdout).not.toContain("yarn dev");
   });
 
   it("uses the Tailscale IPv4 address and skips Web Push setup for HTTP first-time setup", () => {
@@ -176,7 +407,7 @@ describe("start-tailscale-dev.sh", () => {
     const result = interactiveDryRun("\n", {
       ...home,
       PATH: prependPath(binDir),
-      MULMOTERMINAL_TAILSCALE_HTTP: "1",
+      MULMOTERMINAL_TAILSCALE_MODE: "http",
     });
     const generated = readFileSync(localEnvPath(home), "utf8");
 
@@ -184,6 +415,7 @@ describe("start-tailscale-dev.sh", () => {
     expect(generated).toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=100.64.0.23");
     expect(generated).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
     expect(generated).not.toContain("MULMOTERMINAL_MOBILE_WEB_PUSH_");
+    expect(result.stdout).not.toContain("Web Push keys were not found");
   });
 
   it("creates a shared local env with the detected Tailscale DNS name as the default", () => {

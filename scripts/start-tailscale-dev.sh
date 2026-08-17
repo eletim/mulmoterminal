@@ -142,6 +142,28 @@ detect_tailscale_ip() {
   printf '%s\n' "$ip"
 }
 
+resolve_tailscale_mode() {
+  local mode="${MULMOTERMINAL_TAILSCALE_MODE:-}"
+  if [[ -z "$mode" ]]; then
+    if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
+      mode="http"
+    else
+      mode="auto"
+    fi
+  fi
+
+  case "$mode" in
+    auto|https|http) ;;
+    *)
+      echo "[mulmoterminal] Invalid MULMOTERMINAL_TAILSCALE_MODE=${mode}" >&2
+      echo "[mulmoterminal] Expected one of: auto, https, http." >&2
+      exit 1
+      ;;
+  esac
+
+  printf '%s\n' "$mode"
+}
+
 prompt_yes_no() {
   local prompt="$1"
   local default="${2:-y}"
@@ -277,6 +299,7 @@ write_env_assignment() {
 setup_env_file() {
   local target_file="$1"
   local detected_host="${2:-}"
+  local tailscale_mode="${3:-https}"
   local host origin
   local tmp_file
 
@@ -284,19 +307,29 @@ setup_env_file() {
   echo
 
   if [[ -n "$detected_host" ]]; then
-    echo "Detected Tailscale host:"
+    if [[ "$tailscale_mode" == "http" ]]; then
+      echo "Detected Tailscale IPv4 address:"
+    else
+      echo "Detected Tailscale host:"
+    fi
     echo "  ${detected_host}"
     echo
-    if prompt_yes_no "Use this host? [Y/n]: " "y"; then
+    if prompt_yes_no "Use this value? [Y/n]: " "y"; then
       host="$detected_host"
     else
-      host="$(prompt_required "Tailscale host")"
+      if [[ "$tailscale_mode" == "http" ]]; then
+        host="$(prompt_required "Tailscale IPv4 address")"
+      else
+        host="$(prompt_required "Tailscale host")"
+      fi
     fi
+  elif [[ "$tailscale_mode" == "http" ]]; then
+    host="$(prompt_required "Tailscale IPv4 address")"
   else
     host="$(prompt_required "Tailscale host")"
   fi
 
-  if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
+  if [[ "$tailscale_mode" == "http" ]]; then
     origin="http://${host}:${CLIENT_PORT:-6857}"
   else
     origin="https://${host}"
@@ -316,7 +349,9 @@ setup_env_file() {
   echo "  ${origin}"
   echo
 
-  if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" != "1" ]]; then
+  if [[ "$tailscale_mode" == "http" ]]; then
+    echo "[mulmoterminal] Web Push setup is skipped in HTTP mode because it requires a secure context." >&2
+  else
     configure_web_push "$target_file" "$tmp_file" "$origin"
   fi
 
@@ -334,6 +369,7 @@ setup_env_file() {
 
 maybe_first_time_setup() {
   local default_env_files="$1"
+  local tailscale_mode="$2"
   [[ "$default_env_files" == "1" ]] || return 0
   [[ ! -f "$LOCAL_ENV_FILE" ]] || return 0
   [[ -z "$USER_LOCAL_ENV_FILE" || ! -f "$USER_LOCAL_ENV_FILE" ]] || return 0
@@ -344,8 +380,12 @@ maybe_first_time_setup() {
 
   local target_file detected_host shell_host
   target_file="${USER_LOCAL_ENV_FILE:-$LOCAL_ENV_FILE}"
-  if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
-    detected_host="$(detect_tailscale_ip || true)"
+  if [[ "$tailscale_mode" == "http" ]]; then
+    if [[ -n "${tailscale_ip:-}" ]]; then
+      detected_host="$tailscale_ip"
+    else
+      detected_host="$(detect_tailscale_ip || true)"
+    fi
   else
     shell_host="$(first_env_value "${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}")"
     [[ -n "$shell_host" ]] || shell_host="$(host_from_origin "${MULMOTERMINAL_ALLOWED_ORIGINS:-}")"
@@ -354,7 +394,7 @@ maybe_first_time_setup() {
       detected_host="$(detect_tailscale_host || true)"
     fi
   fi
-  setup_env_file "$target_file" "$detected_host"
+  setup_env_file "$target_file" "$detected_host" "$tailscale_mode"
 }
 
 env_files=()
@@ -371,8 +411,6 @@ fi
 if [[ "$using_default_env_files" == "1" ]]; then
   load_env_file "$ROOT_DIR/.env"
 fi
-
-maybe_first_time_setup "$using_default_env_files"
 
 for env_file in "${env_files[@]}"; do
   [[ -n "$env_file" ]] && load_env_file "$env_file"
@@ -396,35 +434,107 @@ MULMOTERMINAL_BASE_PATH="$(normalize_base_path "${MULMOTERMINAL_BASE_PATH:-/mulm
 export MULMOTERMINAL_MOBILE_MODE="${MULMOTERMINAL_MOBILE_MODE:-local}"
 
 tailscale_ip=""
-if [[ "${MULMOTERMINAL_TAILSCALE_HTTP:-0}" == "1" ]]; then
-  tailscale_ip="$(detect_tailscale_ip)"
+tailscale_mode="$(resolve_tailscale_mode)"
+effective_tailscale_mode="$tailscale_mode"
+
+configure_http_mode() {
+  [[ -n "$tailscale_ip" ]] || tailscale_ip="$(detect_tailscale_ip)"
   export MULMOTERMINAL_TAILSCALE_SERVE=0
   export MULMOTERMINAL_VITE_HOST="${MULMOTERMINAL_VITE_HOST:-0.0.0.0}"
   export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="$tailscale_ip"
   export MULMOTERMINAL_ALLOWED_ORIGINS="http://${tailscale_ip}:${CLIENT_PORT}"
-fi
+}
 
 tailscale_path="${MULMOTERMINAL_TAILSCALE_PATH:-${MULMOTERMINAL_BASE_PATH%/}}"
 [[ -n "$tailscale_path" ]] || tailscale_path="/"
 tailscale_target_path="${MULMOTERMINAL_BASE_PATH%/}"
 tailscale_target="${MULMOTERMINAL_TAILSCALE_TARGET:-http://localhost:${CLIENT_PORT}${tailscale_target_path}}"
 
+run_tailscale_serve() {
+  if [[ "${MULMOTERMINAL_TAILSCALE_SERVE:-1}" == "0" ]]; then
+    return 0
+  fi
+
+  if [[ "${MULMOTERMINAL_START_DRY_RUN:-0}" == "1" ]]; then
+    echo "tailscale serve --bg --set-path=${tailscale_path} ${tailscale_target}"
+    return 0
+  fi
+
+  if ! command -v tailscale >/dev/null 2>&1; then
+    echo "[mulmoterminal] tailscale CLI not found; install Tailscale or set MULMOTERMINAL_TAILSCALE_MODE=http to use direct VPN HTTP." >&2
+    return 1
+  fi
+
+  local output
+  if ! output="$(tailscale serve --bg --set-path="${tailscale_path}" "$tailscale_target" 2>&1)"; then
+    [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+    return 1
+  fi
+  [[ -z "$output" ]] || printf '%s\n' "$output"
+}
+
+select_tailscale_mode() {
+  case "$tailscale_mode" in
+    http)
+      configure_http_mode
+      effective_tailscale_mode="http"
+      ;;
+    https)
+      if ! run_tailscale_serve; then
+        echo "[mulmoterminal] Tailscale Serve could not be configured." >&2
+        exit 1
+      fi
+      effective_tailscale_mode="https"
+      ;;
+    auto)
+      if run_tailscale_serve; then
+        effective_tailscale_mode="https"
+        return 0
+      fi
+
+      echo "[mulmoterminal] Tailscale Serve could not be configured." >&2
+      if ! tailscale_ip="$(detect_tailscale_ip)"; then
+        echo "[mulmoterminal] No HTTP fallback is available because a Tailscale IPv4 address could not be detected." >&2
+        exit 1
+      fi
+
+      if ! is_interactive; then
+        echo "[mulmoterminal] Refusing to downgrade from HTTPS to HTTP without confirmation." >&2
+        echo "[mulmoterminal] Set MULMOTERMINAL_TAILSCALE_MODE=http to use direct HTTP over the Tailscale VPN." >&2
+        exit 1
+      fi
+
+      echo "[mulmoterminal] Direct HTTP access is limited to devices on your Tailscale VPN." >&2
+      echo "[mulmoterminal] HTTP is not a secure context, so Web Push and other HTTPS-only browser features may be unavailable." >&2
+      if prompt_yes_no "Tailscale Serve could not be configured. Use direct HTTP access over the Tailscale VPN instead? [Y/n]: " "y"; then
+        configure_http_mode
+        effective_tailscale_mode="http"
+      else
+        echo "[mulmoterminal] Aborted because Tailscale Serve could not be configured and HTTP fallback was declined." >&2
+        exit 1
+      fi
+      ;;
+  esac
+}
+
+select_tailscale_mode
+maybe_first_time_setup "$using_default_env_files" "$effective_tailscale_mode"
+
+for env_file in "${env_files[@]}"; do
+  [[ -n "$env_file" ]] && load_env_file "$env_file"
+done
+
+MULMOTERMINAL_BASE_PATH="$(normalize_base_path "$MULMOTERMINAL_BASE_PATH")"
+
+if [[ "$effective_tailscale_mode" == "http" ]]; then
+  configure_http_mode
+fi
+
 echo "[mulmoterminal] backend PORT=${PORT}"
 echo "[mulmoterminal] vite CLIENT_PORT=${CLIENT_PORT}"
 echo "[mulmoterminal] base path ${MULMOTERMINAL_BASE_PATH}"
 echo "[mulmoterminal] mobile mode ${MULMOTERMINAL_MOBILE_MODE}"
-
-if [[ "${MULMOTERMINAL_TAILSCALE_SERVE:-1}" != "0" ]]; then
-  if [[ "${MULMOTERMINAL_START_DRY_RUN:-0}" == "1" ]]; then
-    echo "tailscale serve --bg --set-path=${tailscale_path} ${tailscale_target}"
-  else
-    if ! command -v tailscale >/dev/null 2>&1; then
-      echo "[mulmoterminal] tailscale CLI not found; install Tailscale or set MULMOTERMINAL_TAILSCALE_SERVE=0 to skip route setup." >&2
-      exit 1
-    fi
-    tailscale serve --bg --set-path="${tailscale_path}" "$tailscale_target"
-  fi
-fi
+echo "[mulmoterminal] tailscale mode ${effective_tailscale_mode}"
 
 if [[ "${MULMOTERMINAL_START_DRY_RUN:-0}" == "1" ]]; then
   echo "PORT=${PORT} CLIENT_PORT=${CLIENT_PORT} MULMOTERMINAL_BASE_PATH=${MULMOTERMINAL_BASE_PATH} MULMOTERMINAL_MOBILE_MODE=${MULMOTERMINAL_MOBILE_MODE}${tailscale_ip:+ MULMOTERMINAL_VITE_HOST=${MULMOTERMINAL_VITE_HOST} MULMOTERMINAL_ALLOWED_ORIGINS=${MULMOTERMINAL_ALLOWED_ORIGINS}} yarn dev"
