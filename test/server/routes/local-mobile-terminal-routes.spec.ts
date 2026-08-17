@@ -59,6 +59,7 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
   const writes: Array<{ id: string; chunk: string }> = [];
   const waitingUpdates: Array<{ id: string; waiting: boolean; event: string | undefined }> = [];
   const stops: string[] = [];
+  const viewed: string[] = [];
   const deps: LocalMobileTerminalRouteDeps = {
     isAllowedOrigin,
     listTerminalSessions: async () => SESSIONS,
@@ -98,6 +99,9 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
     setWaiting: (id, waiting, event) => {
       waitingUpdates.push({ id, waiting, event });
     },
+    acknowledgeTerminalView: (id) => {
+      viewed.push(id);
+    },
     captureStyledScreen: async () => STYLED_ROWS,
     mobileWebPush: mobileWebPushDeps(),
     ...overrides,
@@ -105,7 +109,7 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
   const app = express();
   app.use(express.json());
   mountLocalMobileTerminalRoutes(app, deps);
-  return { app, writes, waitingUpdates, stops };
+  return { app, writes, waitingUpdates, stops, viewed };
 }
 
 describe("localSessionActivity", () => {
@@ -210,10 +214,11 @@ describe("POST /api/mobile/terminal-sessions", () => {
 
 describe("GET /api/mobile/terminal-sessions", () => {
   it("adds an `activity` field to each session, normalized to idle when none is tracked", async () => {
-    const { app } = appFor();
+    const { app, viewed } = appFor();
     const res = await request(app).get("/api/mobile/terminal-sessions");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ home: expect.any(String), sessions: [{ ...SESSIONS[0], activity: IDLE_ACTIVITY }] });
+    expect(viewed).toEqual([]);
   });
 
   it("joins working/waiting/event/workPhase from the injected readers, by session id", async () => {
@@ -361,10 +366,11 @@ describe("local mobile Web Push routes", () => {
 
 describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
   it("returns the existing SessionScreen shape plus styledScreen (#7)", async () => {
-    const { app } = appFor();
+    const { app, viewed } = appFor();
     const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ...SCREEN, styledScreen: STYLED_ROWS });
+    expect(viewed).toEqual([LIVE]);
   });
 
   it("400s an id that is not a session id", async () => {
@@ -374,9 +380,10 @@ describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
   });
 
   it("404s a session the host does not know, without comparing error text", async () => {
-    const { app } = appFor();
+    const { app, viewed } = appFor();
     const res = await request(app).get(`/api/mobile/terminal-sessions/${GONE}/screen`);
     expect(res.status).toBe(404);
+    expect(viewed).toEqual([]);
   });
 
   it("never puts an internal stack in the response", async () => {

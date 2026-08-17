@@ -290,7 +290,7 @@ const lifecycle = createSessionLifecycle({
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
   ...mobileWebPushActivityDeps,
 });
-const { cancelReap, reap, armReapForDetached, publishActivity, setWorking, setWaiting } = lifecycle;
+const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
@@ -770,6 +770,7 @@ const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
 const sharedMobileTerminalDeps = {
   listTerminalSessions: remoteHostListTerminalSessions,
   captureTerminalScreen: remoteHostCaptureTerminalScreen,
+  acknowledgeTerminalView: acknowledgeShellDone,
   writeToSession: remoteHostWriteToSession,
   ...remoteHostSessionOperations,
   canClearBox: remoteHostCanClearBox,

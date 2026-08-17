@@ -55,6 +55,10 @@ const makeDeps = (workPhase: WorkPhase | null = null, overrides: Partial<Session
 const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: null, cwd: "/work", tmux: false, agent: "claude", ...over }) as never;
 
 const clearRegistry = () => {
+  const lifecycle = createSessionLifecycle(makeDeps());
+  lifecycle.reap(ID);
+  lifecycle.reap(OTHER_ID);
+  lifecycle.reap(THIRD_ID);
   for (const map of [
     ptys,
     activity,
@@ -539,6 +543,76 @@ describe("the reap timer", () => {
     expect(ptys.has(ID)).toBe(true);
 
     vi.advanceTimersByTime(30_000);
+    expect(ptys.has(ID)).toBe(false);
+  });
+
+  it("keeps an unacknowledged finished shell past the waiting grace, then reaps after acknowledgement", () => {
+    vi.useFakeTimers();
+    const notifyMobileWebPushActivity = vi.fn();
+    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    ptys.set(ID, fakeEntry({ agent: "shell" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+    lifecycle.armReapForDetached(ID);
+    vi.advanceTimersByTime(31 * 60_000);
+
+    expect(ptys.has(ID)).toBe(true);
+    expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "shell" });
+
+    lifecycle.acknowledgeShellDone(ID);
+    expect(activity.get(ID)).toMatchObject({ working: false, waiting: false, event: "Stop" });
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(30_001);
+
+    expect(ptys.has(ID)).toBe(false);
+  });
+
+  it("lets the existing desktop view clear acknowledge shell Done before detached idle reap", () => {
+    vi.useFakeTimers();
+    const deps = makeDeps();
+    const entry = fakeEntry({ agent: "shell" });
+    ptys.set(ID, entry);
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+    (entry as { ws: unknown }).ws = {};
+    lifecycle.setWaiting(ID, false);
+    (entry as { ws: unknown }).ws = null;
+    lifecycle.armReapForDetached(ID);
+    vi.advanceTimersByTime(30_001);
+
+    expect(ptys.has(ID)).toBe(false);
+  });
+
+  it("does not turn Codex or Claude waiting sessions into unacknowledged shell Done", () => {
+    vi.useFakeTimers();
+    const deps = makeDeps();
+    ptys.set(ID, fakeEntry({ agent: "codex" }));
+
+    createSessionLifecycle(deps).setWaiting(ID, true, "Notification");
+    vi.advanceTimersByTime(30 * 60_000 + 1);
+
+    expect(ptys.has(ID)).toBe(false);
+  });
+
+  it("still reaps an unacknowledged finished shell immediately on explicit Stop", () => {
+    vi.useFakeTimers();
+    const deps = makeDeps();
+    ptys.set(ID, fakeEntry({ agent: "shell" }));
+    const lifecycle = createSessionLifecycle(deps);
+
+    lifecycle.setWorking(ID, true, "UserPromptSubmit");
+    lifecycle.setWaiting(ID, true, "Stop");
+    lifecycle.setWorking(ID, false, "Stop");
+    lifecycle.reap(ID);
+
     expect(ptys.has(ID)).toBe(false);
   });
 
