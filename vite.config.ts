@@ -8,6 +8,7 @@ import { normalizeBasePath, basePathPrefix } from "./common/basePath.ts";
 // both run at once under `yarn dev` and can't share one. Both are env-overridable.
 const BACKEND_PORT = process.env.PORT || "34567";
 const CLIENT_PORT = Number(process.env.CLIENT_PORT) || 6856;
+const VITE_HOST = process.env.MULMOTERMINAL_VITE_HOST;
 const BASE_PATH = normalizeBasePath(process.env.MULMOTERMINAL_BASE_PATH);
 const BASE_PREFIX = basePathPrefix(BASE_PATH);
 
@@ -63,6 +64,7 @@ export default defineConfig({
   },
   server: {
     port: CLIENT_PORT,
+    ...(VITE_HOST ? { host: VITE_HOST } : {}),
     // Disable Vite's dev CORS middleware. The app is same-origin in dev (the page
     // and the proxied `/api` both live on the Vite dev port), so it needs no CORS headers from
     // Vite. The one cross-origin consumer is a custom collection view: it renders in
