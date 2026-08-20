@@ -1,5 +1,4 @@
-// Shared mobile custom-view builder, used by BOTH the remote-host command
-// channel (remoteHost/handlers/ → the phone) and the desktop collection routes
+// Shared mobile custom-view builder, used by mobile-facing views and the desktop collection routes
 // (collections.ts → the phone-frame preview), so both render the identical
 // artifact (preview === phone).
 //

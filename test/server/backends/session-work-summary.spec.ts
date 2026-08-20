@@ -2,7 +2,7 @@
 // What the phone is told about a session's work (#1014). The phone has one line of room, so the
 // decisions worth pinning are which title wins and when there is nothing worth sending at all.
 import { describe, it, expect } from "vitest";
-import { sessionWorkSummary } from "../../../server/backends/remoteHost/terminalScreen";
+import { sessionWorkSummary } from "../../../server/mobileTerminal/terminalScreen";
 import { workItemHeadline, EMPTY_WORK_ITEM, type WorkItem } from "../../../common/prPhase";
 
 const item = (over: Partial<WorkItem> = {}): WorkItem => ({ ...EMPTY_WORK_ITEM, ...over });

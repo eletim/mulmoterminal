@@ -14,7 +14,7 @@ import path from "node:path";
 import { removeQuietly } from "../infra/fs-cleanup.js";
 import { hasErrnoCode, messageOf } from "../errors.js";
 import { SESSION_ID_RE } from "../config/env.js";
-import { extensionForMime } from "../backends/remoteHost/attachment-path.js";
+import { extensionForMime } from "./dropAttachmentPath.js";
 
 // One parent for every session's drops, so the sweep reads a directory of ours instead of
 // walking the whole of tmp.

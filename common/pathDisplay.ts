@@ -5,7 +5,9 @@ export function homeRelative(cwd: string, home: string | null): string {
   if (!home) return cwd;
   const windows = home.includes("\\") || /^[a-zA-Z]:/.test(home);
   const trimTrailingSeparators = (value: string) => {
-    const min = windows && /^[a-zA-Z]:[\\/]*$/.test(value) ? 3 : value.startsWith("/") ? 1 : 0;
+    let min = 0;
+    if (windows && /^[a-zA-Z]:[\\/]*$/.test(value)) min = 3;
+    else if (value.startsWith("/")) min = 1;
     let end = value.length;
     while (end > min && (value.charAt(end - 1) === "/" || value.charAt(end - 1) === "\\")) end -= 1;
     return value.slice(0, end);

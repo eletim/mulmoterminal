@@ -5,7 +5,7 @@
 // In `common/` because BOTH hosts decide from it: the phone asks the same question over the remote
 // command channel (#1184) and must reach the same answer — with one difference it makes itself,
 // not one encoded here. It cannot offer the menu (the phone never picks a directory, see
-// docs/remote-host-protocol.md), so it refuses `choose` where the desktop opens it.
+// mobile issue-start requests do not carry a path, so this refuses `choose` where the desktop opens it.
 import type { RepoDirs } from "./repoDirs";
 import { GITHUB_HOST, GITLAB_HOST, parseRepoEntry } from "./repoEntry";
 import { isGitlabHost, unknownForgeReason } from "./gitlabHosts";

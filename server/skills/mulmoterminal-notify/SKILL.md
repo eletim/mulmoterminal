@@ -91,16 +91,16 @@ watcher. It applies immediately.
 Push reaches a phone, so it can only carry what the **server** observes:
 
 ```json
-{ "pushEnabled": true, "pushKinds": ["finished", "waiting"] }
+{ "pushKinds": ["finished", "waiting"] }
 ```
 
 - **Only `finished` and `waiting` can push.** The other four are seen in the browser, not on the
   server, so they cannot be delivered to a phone — if the user asks for a push on CI failure or a
   command exiting, say plainly that it isn't available rather than writing a key that does nothing.
-- `pushEnabled` is the master switch, off by default. Settings has a toggle for it and for the
-  kinds; the subscription itself is set up there, so **send the user to Settings to enable push**
-  rather than writing `pushEnabled: true` into the file — a flag with no subscription behind it
-  delivers nothing.
+- `pushKinds` selects the moments that qualify for devices already registered from the local
+  mobile page. `[]` means none; omitting it keeps `finished` and `waiting`.
+- The subscription itself is set up from `/mobile/terminals`, so send the user there to register a
+  device. Writing config cannot create a browser push subscription.
 
 ## After writing
 

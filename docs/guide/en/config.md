@@ -84,8 +84,8 @@ setups see sixteen.
 | **Directory settings** | What each directory's `.mulmoterminal.json` is **actually doing**. Expand a row for the values in force (colors with a swatch), **which file each came from**, **keys dropped in validation**, and **keys this app never reads**. Read-only — "Explain my settings…" starts the `mulmoterminal-config` skill to say why and fix it (→ [When a setting isn't working](#dir-settings-preview)) |
 | **Notification sounds** | Which moments beep and what each plays — one row per kind, with a preset picker and a play button. "Configure notifications…" starts the `mulmoterminal-notify` skill for a per-project sound and which moments push (→ [Notification sounds](#sounds)) |
 | **Voice input** | The language you **dictate in** (your browser's, per-clip detection, or a fixed one). Shown only on a machine that can transcribe |
-| **Web Push notifications** | The "Notify my devices when a task finishes" toggle (off by default → [Mobile notifications](notifications.html)) |
-| **Google account** | Google sign-in for the Calendar link (not the RemoteHost Connect) |
+| **Web Push notifications** | Which local mobile activity moments notify registered devices (→ [Mobile notifications](notifications.html)) |
+| **Google account** | Google sign-in for the Calendar link |
 | **Pull request repos** | The repos aggregated by the cross-repo PR/Issue view (`owner/repo`) |
 | **Launch commands** | Commands you can launch besides the agents in a grid cell (`{ label, command }`). A plain shell needs no entry — the launcher's **Shell** toggle opens `$SHELL` unconfigured |
 | **Phone quick commands** | Phrases offered as chips on the **phone's** terminal view. Tapping one fills the input box; it is sent when you press send (`quickCommands`) |
@@ -1275,7 +1275,6 @@ What you write here appears in an empty cell's launcher under **OR RUN A SCRIPT*
 | `soundFile` | The fallback notification sound for every kind (absolute path to an audio file; also settable from the modal) |
 | `soundKinds` | Which moments beep. Omit to keep `["finished","waiting"]`; the four added in 2.2 are opt-in, `[]` for silence (→ [Notification sounds](#sounds)) |
 | `sounds` | Per-kind sound, e.g. `{ "waiting": "preset:coin" }` — a `preset:<id>` or an absolute path. A kind with no entry uses `soundFile` (→ [Notification sounds](#sounds)) |
-| `pushEnabled` | The Web Push master switch (default `false` → [Mobile notifications](notifications.html)) |
 | `pushKinds` | Which moments push: `"finished"` (a turn ended) and/or `"waiting"` (the agent stopped to ask). Omit to keep both; `[]` for none (→ [Which moments push](notifications.html#kinds)) |
 | `worklogEnabled` / `worklogIntervalHours` | The periodic dev-work log (default off / 6 hours) |
 | `decisionDigest` | Keep a Markdown digest of what this project already decided, for agents to read before asking again. **Off by default** (→ [What this project already decided](#decision-digest)) |
@@ -1382,12 +1381,10 @@ connects to `localhost` and is allowed for that reason alone.
 Reads are not judged by origin at all. A browser sends no `Origin` on a same-origin `GET`, so the
 check cannot tell one from a cross-site `<img>` load and would only refuse the page you opened
 yourself — what protects a read is the bind, which is why the warning above says a widened bind
-trusts anything that can reach the port. Up to and including 2.7.0 two status routes judged a `GET`
-anyway, so a browser on a named origin loaded the page and then filled the console with `403` from
-`/api/remote-host/status` and `/api/google/status`; if you see that, upgrade.
+trusts anything that can reach the port.
 
-You do **not** need this to use MulmoTerminal from your phone: the phone companion talks to the
-host over Firestore, not over your local network (→ [from your phone](phone.html)).
+You **do** need this when you intentionally open MulmoTerminal from a phone or another machine on
+your network. Bind only to a trusted address and name the exact origin you open (→ [from your phone](phone.html)).
 
 ---
 

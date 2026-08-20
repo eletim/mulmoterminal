@@ -17,13 +17,10 @@ export function createMobileWebPushFeature(home: string) {
 }
 
 export function mobileWebPushActivityLifecycleDeps({
-  mode,
   sender,
 }: {
-  mode: string;
   sender: MobileWebPushSender;
 }): Pick<SessionLifecycleDeps, "notifyMobileWebPushActivity"> | Record<string, never> {
-  if (mode !== "local") return {};
   return {
     notifyMobileWebPushActivity: (notification) => {
       if (!getPushKinds().includes(notification.kind)) return;

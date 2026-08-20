@@ -21,12 +21,8 @@ afterEach(() => {
 });
 
 describe("MOBILE_MODE", () => {
-  it("defaults to remote when unset, so existing installs keep today's behaviour", async () => {
-    expect(await loadMobileMode(undefined)).toBe("remote");
-  });
-
-  it("accepts remote explicitly", async () => {
-    expect(await loadMobileMode("remote")).toBe("remote");
+  it("defaults to local when unset", async () => {
+    expect(await loadMobileMode(undefined)).toBe("local");
   });
 
   it("accepts local", async () => {
@@ -35,6 +31,10 @@ describe("MOBILE_MODE", () => {
 
   it("fails startup on an unrecognised value rather than silently falling back to remote", async () => {
     await expect(loadMobileMode("foo")).rejects.toThrow(/Invalid MULMOTERMINAL_MOBILE_MODE: "foo"/);
+  });
+
+  it("fails on removed remote mode", async () => {
+    await expect(loadMobileMode("remote")).rejects.toThrow(/Invalid MULMOTERMINAL_MOBILE_MODE: "remote"/);
   });
 
   it("fails on an empty string", async () => {

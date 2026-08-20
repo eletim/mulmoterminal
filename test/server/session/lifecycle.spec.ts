@@ -7,7 +7,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { createSessionLifecycle, type SessionLifecycleDeps } from "../../../server/session/lifecycle.js";
-import type { WorkPhase } from "../../../server/session/workPhase.js";
 import {
   activity,
   aiTitles,
@@ -41,11 +40,9 @@ const ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_ID = "22222222-3333-4444-8555-666666666666";
 const THIRD_ID = "33333333-4444-4555-8666-777777777777";
 
-const makeDeps = (workPhase: WorkPhase | null = null, overrides: Partial<SessionLifecycleDeps> = {}) => ({
+const makeDeps = (overrides: Partial<SessionLifecycleDeps> = {}) => ({
   publish: vi.fn(),
   forgetTitle: vi.fn(),
-  sessionActivityPublisher: { publish: vi.fn(), forget: vi.fn() },
-  workPhaseOf: vi.fn(() => workPhase),
   forgetWorkPhase: vi.fn(),
   forgetTerminalSize: vi.fn(),
   ...overrides,
@@ -110,7 +107,6 @@ describe("reap", () => {
       false,
     ]);
     expect(deps.forgetTitle).toHaveBeenCalledWith(ID);
-    expect(deps.sessionActivityPublisher.forget).toHaveBeenCalledWith(ID);
     // A socket close only pauses the tmux size bookkeeping (a detached session can reattach);
     // teardown is the one place that frees it, or it grows for the server's whole life (#957).
     expect(deps.forgetTerminalSize).toHaveBeenCalledWith(ID);
@@ -254,23 +250,18 @@ describe("setWorking / setWaiting", () => {
     expect(deps.publish).not.toHaveBeenCalled();
   });
 
-  // The phone renders the same status vocabulary as the cockpit roster, which needs the event
-  // (blocked vs done) and the live work phase (planning vs editing) alongside the flags (#727).
-  it("mirrors the flags, the event and the work phase to the phone", () => {
-    const deps = makeDeps("implementing");
+  // Subscribers render the same status vocabulary as the cockpit roster, which needs the event
+  // (blocked vs done) alongside the flags.
+  it("mirrors the flags and event to subscribers", () => {
+    const deps = makeDeps();
     ptys.set(ID, fakeEntry({ ws: {} }));
     createSessionLifecycle(deps).setWaiting(ID, true, "Notification");
-    expect(deps.sessionActivityPublisher.publish).toHaveBeenCalledWith(ID, {
-      working: false,
-      waiting: true,
-      event: "Notification",
-      workPhase: "implementing",
-    });
+    expect(deps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Notification" }));
   });
 
   it("notifies local mobile Web Push when a running session starts waiting for input", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -285,7 +276,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies local mobile Web Push once when a running session completes", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -301,7 +292,7 @@ describe("setWorking / setWaiting", () => {
 
   it("does not notify local mobile Web Push when a PTY exits before Stop", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -314,7 +305,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies local mobile Web Push for the Stop row that makes the desktop sound beep without a working flag", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
 
     createSessionLifecycle(deps).setWaiting(ID, true, "Stop");
@@ -326,13 +317,13 @@ describe("setWorking / setWaiting", () => {
   it("does not notify local mobile Web Push on first observation of waiting", () => {
     const notifyMobileWebPushActivity = vi.fn();
     ptys.set(ID, fakeEntry({ ws: {} }));
-    createSessionLifecycle(makeDeps(null, { notifyMobileWebPushActivity })).setWaiting(ID, true, "Notification");
+    createSessionLifecycle(makeDeps({ notifyMobileWebPushActivity })).setWaiting(ID, true, "Notification");
     expect(notifyMobileWebPushActivity).not.toHaveBeenCalled();
   });
 
   it("notifies independently for separate sessions", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
     ptys.set(OTHER_ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
@@ -350,7 +341,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies again after a viewed session starts a later turn and blocks again", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -369,7 +360,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies again after the previous input wait is answered in the same turn", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -390,7 +381,7 @@ describe("setWorking / setWaiting", () => {
     vi.mocked(sessionChildProcessPids).mockReturnValue(new Set([200]));
     hasNewChildren.mockReturnValue(true);
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, term: { pid: 100, kill: vi.fn() } }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -408,7 +399,7 @@ describe("setWorking / setWaiting", () => {
     vi.advanceTimersByTime(1000);
 
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
-    expect(deps.sessionActivityPublisher.publish).toHaveBeenLastCalledWith(ID, expect.objectContaining({ working: false, waiting: true, event: "Stop" }));
+    expect(deps.publish).toHaveBeenLastCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Stop" }));
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
   });
 
@@ -436,7 +427,7 @@ describe("setWorking / setWaiting", () => {
     vi.mocked(sessionChildProcessPids).mockReturnValue(new Set([200]));
     vi.mocked(hasNewSessionChildProcess).mockReturnValue(false);
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, term: { pid: 100, kill: vi.fn() } }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -446,14 +437,14 @@ describe("setWorking / setWaiting", () => {
     lifecycle.setWorking(ID, false, "Stop");
 
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
-    expect(deps.sessionActivityPublisher.publish).toHaveBeenLastCalledWith(ID, expect.objectContaining({ working: false, waiting: true, event: "Stop" }));
+    expect(deps.publish).toHaveBeenLastCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Stop" }));
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
     vi.advanceTimersByTime(1000);
     expect(vi.mocked(hasNewSessionChildProcess)).toHaveBeenCalledTimes(2);
   });
 
   it("keeps activity updates working when a local mobile Web Push notification throws", () => {
-    const deps = makeDeps(null, {
+    const deps = makeDeps({
       notifyMobileWebPushActivity: () => {
         throw new Error("push failed");
       },
@@ -549,7 +540,7 @@ describe("the reap timer", () => {
   it("keeps an unacknowledged finished shell past the waiting grace, then reaps after acknowledgement", () => {
     vi.useFakeTimers();
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps(null, { notifyMobileWebPushActivity });
+    const deps = makeDeps({ notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ agent: "shell" }));
     const lifecycle = createSessionLifecycle(deps);
 

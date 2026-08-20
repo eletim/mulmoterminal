@@ -1,0 +1,120 @@
+// @vitest-environment node
+import { describe, it, expect } from "vitest";
+import type { SessionAgent } from "../../../common/sessionAgent.js";
+
+import { sanitizeTerminalInput, canClearInputBox } from "../../../server/mobileTerminal/terminalInput.js";
+
+// Any byte in these ranges, except LF, could break out of the bracketed paste and run as control
+// input on the host's terminal — the exact thing the sanitizer exists to prevent. LF is kept so
+// multiline paste can remain multiline inside the bracketed paste.
+// eslint-disable-next-line no-control-regex -- intentional: assert the sanitizer strips C0/C1 control bytes
+const UNSAFE_CONTROL_BYTE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/;
+
+describe("sanitizeTerminalInput", () => {
+  it("leaves ordinary text alone", () => {
+    expect(sanitizeTerminalInput("hello world")).toBe("hello world");
+  });
+
+  it("trims and collapses horizontal whitespace runs", () => {
+    expect(sanitizeTerminalInput("  a    b  ")).toBe("a b");
+  });
+
+  // The security cases: each control byte becomes a space, so nothing it introduced can act as
+  // a terminal command. \x1b = ESC, \x03 = Ctrl-C, \x7f = DEL, \x85 = a C1 byte.
+  it.each([
+    ["a\x1bb", "a b"],
+    ["a\x03b", "a b"],
+    ["a\x7fb", "a b"],
+    ["a\x85b", "a b"],
+    ["a\tb", "a b"],
+  ])("replaces the control byte in %j with a space", (raw, expected) => {
+    expect(sanitizeTerminalInput(raw)).toBe(expected);
+  });
+
+  it.each([
+    ["line1\nline2", "line1\nline2"],
+    ["a\r\nb", "a\nb"],
+    ["a\rb", "a\nb"],
+    ["a\n\nb", "a\n\nb"],
+  ])("keeps line breaks in %j", (raw, expected) => {
+    expect(sanitizeTerminalInput(raw)).toBe(expected);
+  });
+
+  // A bracketed-paste terminator is ESC + "[201~"; stripping the ESC is what defuses it — the
+  // leftover "[201~" is inert printable text, and crucially no ESC remains to start a sequence.
+  it("defuses an embedded bracketed-paste terminator", () => {
+    const out = sanitizeTerminalInput("safe\x1b[201~evil");
+    expect(out).toBe("safe [201~evil");
+    expect(UNSAFE_CONTROL_BYTE.test(out)).toBe(false);
+  });
+
+  it("collapses a run of adjacent control bytes to a single space", () => {
+    expect(sanitizeTerminalInput("a\x1b\x03\r\nb")).toBe("a \nb");
+  });
+
+  it.each(["", "   ", "\x1b\x03\r\n", "\t\t"])("is empty for input with no printable content (%j)", (raw) => {
+    expect(sanitizeTerminalInput(raw)).toBe("");
+  });
+
+  // #1142 was "a slash command from the phone never submits", and the trailing space that fixes
+  // it is added by submittableLine at paste time — NOT by trimming less here. The trim is what
+  // turns control-only input into "" so the caller can refuse it (a control byte becomes a space,
+  // so without the trim `"\x03"` would be a truthy `" "` that submits an empty turn). These pin
+  // that the sanitizer still trims, so a later reading of #1142 doesn't loosen it instead.
+  it.each([
+    ["/sync-repos ", "/sync-repos"],
+    ["/design 1536 ", "/design 1536"],
+    [" /help", "/help"],
+  ])("still trims what the phone sent (%j)", (raw, expected) => {
+    expect(sanitizeTerminalInput(raw)).toBe(expected);
+  });
+
+  it("keeps printable non-ASCII (accents, emoji are not control bytes)", () => {
+    expect(sanitizeTerminalInput("café 😀")).toBe("café 😀");
+  });
+
+  // The invariant that matters: whatever comes in, no unsafe control byte comes out.
+  it.each(["plain", "a\x1b[201~b", "\x00\x01\x02mixed\x1b\x7f", "emoji 😀 and\ttabs", "edge"])("never lets an unsafe control byte through (%j)", (raw) => {
+    expect(UNSAFE_CONTROL_BYTE.test(sanitizeTerminalInput(raw))).toBe(false);
+  });
+});
+
+describe("canClearInputBox", () => {
+  // The one and only case that clears the box: a Claude the host has watched finish a turn.
+  it("allows clearing a Claude whose turn is known to be over", () => {
+    expect(canClearInputBox("claude", false)).toBe(true);
+  });
+
+  // Mid-turn Ctrl-C would interrupt the running turn.
+  it("refuses while a Claude turn is in progress", () => {
+    expect(canClearInputBox("claude", true)).toBe(false);
+  });
+
+  // The deliberate asymmetry the code pins with `working === false`, not `working !== true`:
+  // a missing activity record means "nobody has reported yet", which covers a live first turn —
+  // NOT idle. Reading undefined as idle would interrupt that turn.
+  it("refuses a Claude whose turn state is unknown", () => {
+    expect(canClearInputBox("claude", undefined)).toBe(false);
+  });
+
+  // Codex is excluded even when reported idle: nothing calls setWorking for codex, so `working`
+  // is never authoritative there. Shell is excluded because Ctrl-C kills whatever is running.
+  it.each<[SessionAgent, boolean | undefined]>([
+    ["codex", false],
+    ["codex", true],
+    ["codex", undefined],
+    ["shell", false],
+    ["shell", true],
+    ["shell", undefined],
+  ])("refuses a non-Claude agent (%j, working=%j)", (agent, working) => {
+    expect(canClearInputBox(agent, working)).toBe(false);
+  });
+
+  it.each<[null | undefined, boolean | undefined]>([
+    [null, false],
+    [undefined, false],
+    [null, undefined],
+  ])("refuses when the agent is unknown (%j, working=%j)", (agent, working) => {
+    expect(canClearInputBox(agent, working)).toBe(false);
+  });
+});

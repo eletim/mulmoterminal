@@ -25,7 +25,7 @@ describe("parseFaqEntries", () => {
   // The file opens with a fenced example of the entry format. Parsing it would invent an entry
   // whose pointers ("<a global or per-directory config key>") no test could ever satisfy.
   it("ignores fenced code blocks, so the format example is not read as an entry", () => {
-    const entries = parseFaqEntries(["```", "## Example", "configKey: <a key>", "```", "## Real", "configKey: pushEnabled"].join("\n"));
+    const entries = parseFaqEntries(["```", "## Example", "configKey: <a key>", "```", "## Real", "configKey: pushKinds"].join("\n"));
     expect(entries.map((e) => e.symptom)).toEqual(["Real"]);
   });
 

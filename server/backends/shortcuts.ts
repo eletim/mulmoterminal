@@ -52,7 +52,7 @@ function shortcutsFilePath(workspace: string): string {
 }
 
 /** Read the pinned shortcuts. Missing / unreadable / malformed → `[]`.
- *  Exported so the remote-host handler can list shortcuts in-process. */
+ *  Exported so shortcut-listing surfaces can read shortcuts in-process. */
 export async function readShortcuts(workspace: string): Promise<Shortcut[]> {
   let text: string;
   try {

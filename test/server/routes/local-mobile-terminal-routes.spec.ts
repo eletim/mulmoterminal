@@ -1,11 +1,8 @@
 // @vitest-environment node
 //
-// The local-mode counterpart of the phone's remote-host terminal view (server/routes/local-
-// mobile-terminal-routes.ts): same session access, reached over same-origin HTTP instead of a
-// Firestore command channel. Every dependency here is a fake standing in for the SAME functions
-// server/index.ts wires into the Firestore adapter (remoteHostListTerminalSessions & co) — this
-// spec pins the ROUTE's contract (status codes, shapes, origin guard), not that plumbing, which
-// terminalScreen.spec.ts and terminalInput.spec.ts already cover.
+// The local mobile terminal route adapter. Every dependency here is a fake standing in for the
+// same PTY/tmux access functions server/index.ts wires into production; this spec pins the route
+// contract, while terminalScreen.spec.ts and terminalInput.spec.ts cover the lower-level helpers.
 import { describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
 import express from "express";
@@ -16,8 +13,8 @@ import {
   shellCommandCopyFromScreens,
   type LocalMobileTerminalRouteDeps,
 } from "../../../server/routes/local-mobile-terminal-routes";
-import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/backends/remoteHost/terminalScreen";
-import { NO_BROWSER_ERROR } from "../../../server/backends/remoteHost/launchTerminal";
+import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/mobileTerminal/terminalScreen";
+import { NO_BROWSER_ERROR } from "../../../server/mobileTerminal/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";
 import type { AnsiRow } from "../../../common/ansiStyle";
 import type { MobileWebPushConfig } from "../../../server/mobile-web-push/config";
@@ -139,7 +136,9 @@ describe("localSessionActivity", () => {
 
 describe("shellCommandCopyFromScreens", () => {
   it("returns the prompt-bearing command and multiline output while dropping the next prompt", () => {
-    expect(shellCommandCopyFromScreens("older\nuser@host:/repo$ ", "older\nuser@host:/repo$ printf 'a\\nb'\na\nb\nuser@host:/repo$ ", "printf 'a\\nb'")).toEqual({
+    expect(
+      shellCommandCopyFromScreens("older\nuser@host:/repo$ ", "older\nuser@host:/repo$ printf 'a\\nb'\na\nb\nuser@host:/repo$ ", "printf 'a\\nb'"),
+    ).toEqual({
       text: "user@host:/repo$ printf 'a\\nb'\na\nb",
     });
   });
@@ -154,9 +153,9 @@ describe("shellCommandCopyFromScreens", () => {
   });
 
   it("drops a dynamic trailing prompt when it keeps the same prompt marker", () => {
-    expect(
-      shellCommandCopyFromScreens("old\nuser@host:/repo main$ ", "old\nuser@host:/repo main$ false\nfailed\nuser@host:/repo main ✘ $", "false"),
-    ).toEqual({ text: "user@host:/repo main$ false\nfailed" });
+    expect(shellCommandCopyFromScreens("old\nuser@host:/repo main$ ", "old\nuser@host:/repo main$ false\nfailed\nuser@host:/repo main ✘ $", "false")).toEqual({
+      text: "user@host:/repo main$ false\nfailed",
+    });
   });
 
   it("starts at the latest submitted command when a stale boundary spans two mobile sends", () => {

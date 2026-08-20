@@ -22,7 +22,7 @@ import { ensureWorkComment } from "../git/work-comment.js";
 import { workCommentDirLabel } from "../../common/workComment.js";
 import { isRecord } from "../../common/isRecord.js";
 import { prUrlForBranch } from "../git/pr-for-branch.js";
-import { applySkillFilter, discoverSkills } from "../backends/remoteHost/skills.js";
+import { applySkillFilter, discoverSkills } from "../skills/discovery.js";
 
 // "This comment should exist on that issue" (#979 Phase 2). A POST, not a GET, because it writes
 // on GitHub — and idempotent, because the caller is a poll: every tab re-asks on every tick, and
