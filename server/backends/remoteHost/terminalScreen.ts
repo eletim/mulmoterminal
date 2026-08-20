@@ -93,6 +93,7 @@ export function sessionWorkSummary(item: WorkItem): SessionWorkSummary | undefin
 }
 
 export interface SessionListInput {
+  candidateIds?: readonly string[];
   liveIds: readonly string[];
   tmuxIds: readonly string[];
   // Excludes sessions an orphan cleanup would reap — without it the picker fills with
@@ -134,9 +135,9 @@ export function sessionFallbackTitle(agent: SessionAgent | null, cwd: string, ho
 // dozens of long-finished ones the host can no longer name. A row showing nothing but
 // a UUID is not a choice the user can make, so a nameless session earns its place only
 // by being live — where the id at least identifies something currently running.
-export function buildSessionList({ liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
+export function buildSessionList({ candidateIds = [], liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
   const live = new Set(liveIds);
-  const ids = [...new Set([...liveIds, ...tmuxIds])].filter(isResumable).filter(isGridSession);
+  const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])].filter(isResumable).filter(isGridSession);
   return (
     ids
       .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))

@@ -60,8 +60,12 @@ import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
 import {
   activity,
+  activityStateHydrated,
   aiTitles,
   backgroundMarkers,
+  codexRolloutIds,
+  codexRolloutIdsHydrated,
+  devTerminalSessions,
   isPhoneListableSession,
   knownSessions,
   lastPrompts,
@@ -134,6 +138,9 @@ import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
+import { readSessionSummary } from "./session/session-reads.js";
+import { codexSessionsRoot } from "./agents/codex-session.js";
+import { readCodexSessionSummary } from "./agents/codex-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
@@ -615,6 +622,40 @@ const remoteHostSpawnIssueSeed = (cwd: string, seed: string, run: boolean): stri
 // shell and ran an agent inside it. Null when neither can say.
 const agentOfSession = (id: string): SessionAgent | null => ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id));
 
+const MOBILE_ACTIVITY_CANDIDATE_LIMIT = 50;
+
+function mobileActivityCandidateIds(liveIds: readonly string[], tmuxIds: readonly string[]): string[] {
+  const alreadyListed = new Set([...liveIds, ...tmuxIds]);
+  return [...activity.entries()]
+    .filter(([id, a]) => !alreadyListed.has(id) && devTerminalSessions.has(id) && (a.working || a.waiting) && a.event !== "closed")
+    .sort((a, b) => (b[1].at ?? 0) - (a[1].at ?? 0))
+    .slice(0, MOBILE_ACTIVITY_CANDIDATE_LIMIT)
+    .map(([id]) => id);
+}
+
+interface MobilePersistentDetail {
+  title: string;
+  cwd: string | null;
+  agent: SessionAgent | null;
+}
+
+async function persistentMobileDetail(id: string, cwdHint: string): Promise<MobilePersistentDetail | null> {
+  const rolloutId = codexRolloutIds.get(id);
+  if (rolloutId) {
+    const codex = await readCodexSessionSummary(codexSessionsRoot(), rolloutId);
+    if (codex) return { title: codex.title, cwd: codex.cwd ?? (cwdHint || null), agent: "codex" };
+  }
+  if (!cwdHint) return null;
+  const summary = await readSessionSummary(cwdHint, id);
+  const title = sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), summary.aiTitle, summary.lastPrompt);
+  return title ? { title, cwd: cwdHint, agent: "claude" } : null;
+}
+
+async function persistentMobileDetails(ids: readonly string[], cwdOfSession: (id: string) => string): Promise<Map<string, MobilePersistentDetail>> {
+  const entries = await Promise.all(ids.map(async (id) => [id, await persistentMobileDetail(id, cwdOfSession(id))] as const));
+  return new Map(entries.filter((entry): entry is readonly [string, MobilePersistentDetail] => entry[1] !== null));
+}
+
 // What each session's directory is working on, resolved once per DIRECTORY before the list is
 // built: `detailOf` below is synchronous, and cells sharing a checkout share an answer (#1014).
 // phaseForRepoBranch caches per (repo, branch), so a grid of twenty cells costs a handful of gh
@@ -643,15 +684,20 @@ const remoteHostListTerminalSessions = async () => {
   // has none — that is what the remembered cwd is for (#1021), and without it the phone shows the
   // row with no directory and no work item.
   const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
-  const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
+  const liveIds = [...ptys.keys()];
+  const tmuxIds = tmuxListSessionIds();
+  const work = await workByCwd([...new Set([...liveIds, ...tmuxIds])].map(cwdOfSession));
   await sessionMemosHydrated; // the memo IS the phone's row title when there is one
   // Both unplaced logs, because a session waiting for a cell is one the phone may list — and the
   // case that mark exists for is a server that restarted before any tab opened, where the answer
   // lives only on disk.
-  await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated]);
+  await Promise.all([activityStateHydrated, unplacedSessionsHydrated, placedSessionsHydrated, codexRolloutIdsHydrated]);
+  const candidateIds = mobileActivityCandidateIds(liveIds, tmuxIds);
+  const persistentDetails = await persistentMobileDetails([...new Set([...liveIds, ...tmuxIds, ...candidateIds])], cwdOfSession);
   return buildSessionList({
-    liveIds: [...ptys.keys()],
-    tmuxIds: tmuxListSessionIds(),
+    candidateIds,
+    liveIds,
+    tmuxIds,
     isResumable: await resumableSessionPredicate(),
     // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
     // one — never a tmux shell that was never a cell. resumableSessionPredicate() below already
@@ -661,6 +707,7 @@ const remoteHostListTerminalSessions = async () => {
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {
+      const persistent = persistentDetails.get(id);
       // Spread the work item in only when there IS one. `work: map.get(...)` leaves the key behind
       // holding undefined, and Firestore then refuses the entire reply rather than that one field.
       const summary = work.get(cwdOfSession(id));
@@ -669,9 +716,9 @@ const remoteHostListTerminalSessions = async () => {
         // phone is where "which of these is which" is hardest, and it renders `title` and nothing
         // else — so riding in that field is also what puts a memo on a phone with no core release
         // and no schema change.
-        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title),
-        cwd: cwdOfSession(id),
-        agent: agentOfSession(id),
+        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), persistent?.title, knownSessions.get(id)?.title),
+        cwd: persistent?.cwd ?? cwdOfSession(id),
+        agent: agentOfSession(id) ?? persistent?.agent ?? null,
         ...(summary ? { work: summary } : {}),
       };
     },
