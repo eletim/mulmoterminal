@@ -9,11 +9,19 @@ describe("homeRelative", () => {
   it("leaves non-home and home-prefix-lookalike paths untouched", () => {
     expect(homeRelative("/var/data", "/Users/me")).toBe("/var/data");
     expect(homeRelative("/Users/mehmet/x", "/Users/me")).toBe("/Users/mehmet/x"); // not a real segment boundary
+    expect(homeRelative("/home/foo2/project", "/home/foo")).toBe("/home/foo2/project");
     expect(homeRelative("/var/data", null)).toBe("/var/data");
+  });
+
+  it("treats trailing separators on HOME and cwd as display-only noise", () => {
+    expect(homeRelative("/home/foo", "/home/foo/")).toBe("~");
+    expect(homeRelative("/home/foo/", "/home/foo")).toBe("~");
+    expect(homeRelative("/home/foo/project", "/home/foo/")).toBe("~/project");
   });
 
   it("anchors Windows paths (backslashes, case-insensitive drive/segments)", () => {
     expect(homeRelative("C:\\Users\\me\\proj", "C:\\Users\\me")).toBe("~\\proj");
+    expect(homeRelative("C:\\Users\\me\\proj", "C:\\Users\\me\\")).toBe("~\\proj");
     expect(homeRelative("c:\\users\\ME\\proj", "C:\\Users\\me")).toBe("~\\proj"); // case-insensitive
     expect(homeRelative("C:\\Users\\me", "C:\\Users\\me")).toBe("~");
     expect(homeRelative("D:\\other\\x", "C:\\Users\\me")).toBe("D:\\other\\x");
