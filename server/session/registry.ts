@@ -94,6 +94,10 @@ const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
 
 // mulmoterminal session key -> the codex rollout id it maps to. codex mints its own id, so we
 // discover it after spawn and keep it here to `codex resume <id>` once the live PTY is gone.
+// This mapping is NOT a list source: mobile/session pickers still have to start from live/tmux,
+// dev-terminal/activity, or an explicitly cwd-scoped query. That keeps old rollout history from
+// flooding the UI while preserving the one fact needed to title/resume a session the UI already
+// has another reason to care about.
 export const codexRolloutIds = new Map<string, string>();
 const CODEX_ROLLOUT_IDS_FILE = path.join(MULMOTERMINAL_HOME, "codex-rollout-ids.json");
 export const codexRolloutIdsHydrated = (async () => {
