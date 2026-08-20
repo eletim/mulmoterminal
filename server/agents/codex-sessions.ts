@@ -14,6 +14,7 @@ export interface CodexSessionSummary {
   id: string;
   title: string;
   mtime: number;
+  cwd?: string | null;
 }
 
 interface RolloutHead {
@@ -108,6 +109,13 @@ export function codexRolloutPath(root: string, id: string): string | null {
 // Does a rollout with this id exist? Lets a sidebar-listed codex session be resumed by its
 // rollout id (`codex resume <id>`).
 export const codexRolloutExists = (root: string, id: string): boolean => codexRolloutPath(root, id) !== null;
+
+export async function readCodexSessionSummary(root: string, id: string): Promise<CodexSessionSummary | null> {
+  const file = codexRolloutPath(root, id);
+  if (!file) return null;
+  const summary = await readRolloutSummary(file);
+  return summary && { id: summary.id, title: summary.title, mtime: summary.mtime, cwd: summary.cwd };
+}
 
 // codex sessions for a workspace, newest first — the single view's sidebar list. Scans the most
 // recent rollout files, keeps those whose recorded cwd matches, and returns the top `limit`.

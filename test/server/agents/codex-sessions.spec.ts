@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseCodexRolloutHead, listCodexSessions, codexRolloutExists } from "../../../server/agents/codex-sessions.js";
+import { parseCodexRolloutHead, listCodexSessions, codexRolloutExists, readCodexSessionSummary } from "../../../server/agents/codex-sessions.js";
 
 const UUID_A = "019f251d-001c-7542-b13e-9a627effce52";
 const UUID_B = "019db01d-aaa3-7ba2-b597-b29a7fca488f";
@@ -93,5 +93,20 @@ describe("codexRolloutExists", () => {
     expect(codexRolloutExists(root, UUID_A)).toBe(true);
     expect(codexRolloutExists(root, UUID_B)).toBe(false);
     expect(codexRolloutExists(root, "not-a-uuid")).toBe(false);
+  });
+
+  it("reads a mapped rollout title by id for a resumed mobile row", async () => {
+    const dir = path.join(root, "2026", "07", "08");
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `rollout-2026-07-08T00-00-00-${UUID_A}.jsonl`);
+    writeFileSync(file, [metaLine(UUID_A, "/work"), userMsgLine("restore mobile Codex title")].join("\n") + "\n");
+    utimesSync(file, new Date(2026, 6, 8, 12), new Date(2026, 6, 8, 12));
+
+    await expect(readCodexSessionSummary(root, UUID_A)).resolves.toMatchObject({
+      id: UUID_A,
+      cwd: "/work",
+      title: "restore mobile Codex title",
+      mtime: expect.any(Number),
+    });
   });
 });

@@ -90,9 +90,43 @@ export const lastTitledUserTurns = new Map<string, number>();
 // keeps failing backs off instead of re-spawning the summarizer on every 4s roster poll.
 export const lastTitleAttemptMs = new Map<string, number>();
 
+const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
+
 // mulmoterminal session key -> the codex rollout id it maps to. codex mints its own id, so we
 // discover it after spawn and keep it here to `codex resume <id>` once the live PTY is gone.
+// This mapping is NOT a list source: mobile/session pickers still have to start from live/tmux,
+// dev-terminal/activity, or an explicitly cwd-scoped query. That keeps old rollout history from
+// flooding the UI while preserving the one fact needed to title/resume a session the UI already
+// has another reason to care about.
+//
+// Append-only like the other session id logs in this file. It can retain mappings for old sessions,
+// but those do not create mobile rows by themselves; they are consulted only after another bounded
+// source has already selected the MulmoTerminal session id.
 export const codexRolloutIds = new Map<string, string>();
+const CODEX_ROLLOUT_IDS_FILE = path.join(MULMOTERMINAL_HOME, "codex-rollout-ids.log");
+export const codexRolloutIdsHydrated = (async () => {
+  try {
+    for (const line of (await fs.readFile(CODEX_ROLLOUT_IDS_FILE, "utf8")).split("\n")) {
+      const [id, rolloutId] = line.trim().split(/\s+/);
+      if (id && rolloutId && isValidSessionId(id) && isValidSessionId(rolloutId)) codexRolloutIds.set(id, rolloutId);
+    }
+  } catch {
+    // absent on first run / unreadable => no mappings remembered
+  }
+})();
+let codexRolloutPersist: Promise<void> = Promise.resolve();
+function appendCodexRolloutId(id: string, rolloutId: string): void {
+  codexRolloutPersist = codexRolloutPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(CODEX_ROLLOUT_IDS_FILE, `\n${id} ${rolloutId}`))
+    .catch((e) => console.error(`[codex-rollout-ids] failed to persist: ${messageOf(e)}`));
+}
+
+export function rememberCodexRolloutId(id: string, rolloutId: string): void {
+  if (!isValidSessionId(id) || !isValidSessionId(rolloutId) || codexRolloutIds.get(id) === rolloutId) return;
+  codexRolloutIds.set(id, rolloutId);
+  appendCodexRolloutId(id, rolloutId);
+}
 // Rollout files already attributed to a session, so a single rollout is never mapped to two keys
 // (which would let both cold-resume the same conversation). Serialized by the single event loop.
 export const claimedCodexRollouts = new Set<string>();
@@ -120,8 +154,6 @@ export const claimedAntigravityConversations = new Set<string>();
 // are tracked here so they're FILTERED OUT of /api/sessions: a translation worker is
 // a transient internal helper, not a chat the user should see in the sidebar.
 export const translationWorkerIds = new Set<string>();
-
-const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
 
 // Hydrate one id log once at boot (best-effort — absent on first run / unreadable => empty).
 // Exposed as a promise so readers/writers can wait for it: a request served (or a mark

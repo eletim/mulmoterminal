@@ -7,12 +7,12 @@
 import { claudeOnDiskSessionIds } from "./session-reads.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
-import { devTerminalSessions, devTerminalSessionsHydrated, ptys } from "./registry.js";
+import { codexRolloutIds, codexRolloutIdsHydrated, devTerminalSessions, devTerminalSessionsHydrated, ptys } from "./registry.js";
 import { isResumableTmuxSession } from "../infra/tmux.js";
 export const resumableSessionPredicate = async (): Promise<(id: string) => boolean> => {
-  await devTerminalSessionsHydrated;
+  await Promise.all([devTerminalSessionsHydrated, codexRolloutIdsHydrated]);
   const live = new Set(ptys.keys());
   const claudeOnDisk = claudeOnDiskSessionIds();
   const codexRoot = codexSessionsRoot();
-  return (id) => isResumableTmuxSession(id, live, devTerminalSessions, claudeOnDisk, (i) => codexRolloutExists(codexRoot, i));
+  return (id) => isResumableTmuxSession(id, live, devTerminalSessions, claudeOnDisk, (i) => codexRolloutExists(codexRoot, codexRolloutIds.get(i) ?? i));
 };

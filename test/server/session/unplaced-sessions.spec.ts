@@ -179,3 +179,26 @@ describe("unplaced sessions", () => {
     expect(registry.unplacedSessionRows().map((r) => r.id)).toEqual([]);
   });
 });
+
+describe("codex rollout id mappings", () => {
+  it("remembers the rollout id for a browser-facing session and hydrates it after restart", async () => {
+    const registry = await freshRegistry();
+    registry.rememberCodexRolloutId(A, B);
+    expect(registry.codexRolloutIds.get(A)).toBe(B);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loggedTo("codex-rollout-ids.log")).toContain(`${A} ${B}`);
+
+    readBack = { "codex-rollout-ids.log": `${A} ${B}` };
+    const restarted = await freshRegistry();
+    await restarted.codexRolloutIdsHydrated;
+    expect(restarted.codexRolloutIds.get(A)).toBe(B);
+  });
+
+  it("does not persist invalid rollout mappings", async () => {
+    const registry = await freshRegistry();
+    registry.rememberCodexRolloutId(A, "not-a-session");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(registry.codexRolloutIds.has(A)).toBe(false);
+    expect(loggedTo("codex-rollout-ids.log")).toBe("");
+  });
+});

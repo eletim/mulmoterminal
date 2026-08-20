@@ -60,8 +60,11 @@ import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
 import {
   activity,
+  activityStateHydrated,
   aiTitles,
   backgroundMarkers,
+  codexRolloutIds,
+  codexRolloutIdsHydrated,
   isPhoneListableSession,
   knownSessions,
   lastPrompts,
@@ -93,11 +96,13 @@ import {
   buildScreenMeta,
   buildSessionList,
   captureSessionScreen,
+  type SessionDetailDraft,
   sessionWorkSummary,
   TerminalSessionNotFoundError,
   type SessionScreenMeta,
   type SessionWorkSummary,
 } from "./backends/remoteHost/terminalScreen.js";
+import { idsNeedingPersistentDetail, mobileActivityCandidateIds, persistentMobileDetails } from "./backends/remoteHost/mobileSessionList.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./backends/remoteHost/quickCommands.js";
 import { createLaunchTerminalPublisher } from "./backends/remoteHost/launchTerminalPublisher.js";
@@ -134,6 +139,9 @@ import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
+import { readSessionSummary } from "./session/session-reads.js";
+import { codexSessionsRoot } from "./agents/codex-session.js";
+import { readCodexSessionSummary } from "./agents/codex-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
@@ -643,15 +651,31 @@ const remoteHostListTerminalSessions = async () => {
   // has none — that is what the remembered cwd is for (#1021), and without it the phone shows the
   // row with no directory and no work item.
   const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
-  const work = await workByCwd([...new Set([...ptys.keys(), ...tmuxListSessionIds()])].map(cwdOfSession));
+  const liveIds = [...ptys.keys()];
+  const tmuxIds = tmuxListSessionIds();
   await sessionMemosHydrated; // the memo IS the phone's row title when there is one
   // Both unplaced logs, because a session waiting for a cell is one the phone may list — and the
   // case that mark exists for is a server that restarted before any tab opened, where the answer
   // lives only on disk.
-  await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated]);
+  await Promise.all([activityStateHydrated, unplacedSessionsHydrated, placedSessionsHydrated, codexRolloutIdsHydrated]);
+  const candidateIds = mobileActivityCandidateIds({ liveIds, tmuxIds, activityEntries: activity.entries(), isGridSession: isPhoneListableSession });
+  const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])];
+  const memoryTitleOf = (id: string) => sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title);
+  const persistentDetails = await persistentMobileDetails(idsNeedingPersistentDetail(ids, memoryTitleOf), cwdOfSession, {
+    rolloutIdOf: (id) => codexRolloutIds.get(id),
+    readCodex: (rolloutId) => readCodexSessionSummary(codexSessionsRoot(), rolloutId),
+    readClaude: async (id, cwd) => {
+      const summary = await readSessionSummary(cwd, id);
+      const title = sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), summary.aiTitle, summary.lastPrompt);
+      return title ? { title } : null;
+    },
+  });
+  const cwdForDetail = (id: string) => persistentDetails.get(id)?.cwd ?? cwdOfSession(id);
+  const work = await workByCwd(ids.map(cwdForDetail));
   return buildSessionList({
-    liveIds: [...ptys.keys()],
-    tmuxIds: tmuxListSessionIds(),
+    candidateIds,
+    liveIds,
+    tmuxIds,
     isResumable: await resumableSessionPredicate(),
     // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
     // one — never a tmux shell that was never a cell. resumableSessionPredicate() below already
@@ -661,19 +685,22 @@ const remoteHostListTerminalSessions = async () => {
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {
+      const persistent = persistentDetails.get(id);
       // Spread the work item in only when there IS one. `work: map.get(...)` leaves the key behind
       // holding undefined, and Firestore then refuses the entire reply rather than that one field.
-      const summary = work.get(cwdOfSession(id));
-      return {
+      const cwd = cwdForDetail(id);
+      const summary = work.get(cwd);
+      const detail: SessionDetailDraft = {
         // The same precedence as the cell header and the sidebar, through the same helper: the
         // phone is where "which of these is which" is hardest, and it renders `title` and nothing
         // else — so riding in that field is also what puts a memo on a phone with no core release
         // and no schema change.
-        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title),
-        cwd: cwdOfSession(id),
-        agent: agentOfSession(id),
+        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), persistent?.title, knownSessions.get(id)?.title),
+        cwd,
+        agent: agentOfSession(id) ?? persistent?.agent ?? null,
         ...(summary ? { work: summary } : {}),
       };
+      return detail;
     },
   });
 };

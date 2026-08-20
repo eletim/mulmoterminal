@@ -104,6 +104,11 @@ describe("buildSessionList", () => {
     ]);
   });
 
+  it("unions in bounded non-live candidates supplied by the host", () => {
+    const sessions = buildSessionList(listInput({ candidateIds: ["waiting"], detailOf: () => ({ title: "Needs review", cwd: "/w", agent: "claude" }) }));
+    expect(sessions).toEqual([{ id: "waiting", title: "Needs review", cwd: "/w", live: false, agent: "claude" }]);
+  });
+
   // A session is both attached AND in tmux in the normal case — it must appear once.
   it("dedupes a session present in both sources", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["a"], tmuxIds: ["a"] }));
