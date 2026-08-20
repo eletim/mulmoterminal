@@ -50,7 +50,7 @@ import { actionVisible, type ActionWithWhen, type CollectionAction, type Collect
 // Curated-registry engine (Discover tab): merged catalog fetch + bundle import.
 import { listRegistry, importRegistry } from "@mulmoclaude/core/collection/registry/server";
 import { clampLimit as clampViewLimit, clampOffset as clampViewOffset, normalizeFields, normalizeMutate } from "@mulmoclaude/core/remote-view";
-// Mobile custom-view builder — shared with the remote-host channel handlers so
+// Mobile custom-view builder — shared with local mobile-related surfaces so
 // the desktop phone-frame preview renders the EXACT artifact the phone receives.
 import {
   buildRemoteView,
@@ -75,8 +75,8 @@ import { requestBody } from "../routes/requestBody.js";
 const log = hostLogger;
 
 // Skill roots — the single source of truth for where skills live on disk, shared
-// with the collection engine (below) AND the remote-host listSkills scanner
-// (remoteHost/skills.ts) so both scan the exact same directories and stay
+// with the collection engine (below) AND the skill scanner
+// (server/skills/discovery.ts) so both scan the exact same directories and stay
 // consistent about the skill/collection split.
 /** `~/.claude/skills` — user scope (read-only). */
 export const userSkillsDir = (): string => path.join(os.homedir(), ".claude", "skills");
@@ -590,7 +590,7 @@ const viewFileHandler: RequestHandler<{ slug: string }> = async (req, res) => {
 
 // Serve a mobile (`target: "mobile"`) custom view wrapped into its sandboxed
 // srcdoc — the desktop phone-frame preview's data source. Same builder as the
-// remote-host channel's `getRemoteView`, so the preview renders the exact
+// mobile custom view, so the preview renders the exact
 // artifact the phone receives (preview === phone).
 const remoteViewHandler: RequestHandler<{ slug: string }> = async (req, res) => {
   const { slug } = req.params;

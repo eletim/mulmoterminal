@@ -1,7 +1,5 @@
-// GET /api/mobile-mode — read-only, always mounted regardless of MULMOTERMINAL_MOBILE_MODE, so
-// the frontend (a later phase) can tell which mobile transport this server was started with.
-// Deliberately carries nothing about Firebase connection state — that stays behind
-// /api/remote-host/status, which is not even mounted in local mode (server/index.ts).
+// GET /api/mobile-mode — read-only. External-server remote mode has been removed; the response
+// stays as a small compatibility shape for the mobile page.
 import type { Express, Request, Response } from "express";
 import { MOBILE_MODE } from "../config/env.js";
 

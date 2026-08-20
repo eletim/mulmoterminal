@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildSessionList } from "../../../server/backends/remoteHost/terminalScreen.js";
+import { buildSessionList } from "../../../server/mobileTerminal/terminalScreen.js";
 import { recordCodexPromptForHeader, restoreCodexPromptBaselineForHeader, trackCodexActivity } from "../../../server/session/codex-activity-track.js";
 import { LAST_PROMPT_CAP } from "../../../server/session/header-hook.js";
 import { lastPrompts } from "../../../server/session/registry.js";

@@ -91,25 +91,10 @@ describe("SettingsModal", () => {
     expect(localStorage.getItem("sound_volume_percent")).toBe("37");
   });
 
-  it("reflects pushEnabled and emits update-push-enabled on toggle", async () => {
-    const w = mountModal({ pushEnabled: true });
-    const box = w.find<HTMLInputElement>('[aria-label="Send a Web Push to my devices"]');
-    expect(box.element.checked).toBe(true);
-    await box.setValue(false);
-    expect(w.emitted("update-push-enabled")?.at(-1)?.[0]).toBe(false);
-
-    // Defaults to unchecked when the prop is unset, and emits true when toggled on.
-    const w2 = mountModal({});
-    const box2 = w2.find<HTMLInputElement>('[aria-label="Send a Web Push to my devices"]');
-    expect(box2.element.checked).toBe(false);
-    await box2.setValue(true);
-    expect(w2.emitted("update-push-enabled")?.at(-1)?.[0]).toBe(true);
-  });
-
   // The setting exists so a user drowning in "waiting" pushes can keep the finished ones (#850),
   // so the emitted list — not just the click — is what matters.
   it("reflects pushKinds and emits the remaining kinds when one is unticked", async () => {
-    const w = mountModal({ pushEnabled: true, pushKinds: ["finished", "waiting"] });
+    const w = mountModal({ pushKinds: ["finished", "waiting"] });
     const waiting = w.find<HTMLInputElement>('[aria-label="Push when a session is waiting"]');
     expect(waiting.element.checked).toBe(true);
     await waiting.setValue(false);
@@ -117,18 +102,11 @@ describe("SettingsModal", () => {
   });
 
   it("emits in the canonical order however the boxes were clicked", async () => {
-    const w = mountModal({ pushEnabled: true, pushKinds: [] });
+    const w = mountModal({ pushKinds: [] });
     await w.find<HTMLInputElement>('[aria-label="Push when a session is waiting"]').setValue(true);
     expect(w.emitted("update-push-kinds")?.at(-1)?.[0]).toEqual(["waiting"]);
     await w.find<HTMLInputElement>('[aria-label="Push when a session is finished"]').setValue(true);
     expect(w.emitted("update-push-kinds")?.at(-1)?.[0]).toEqual(["finished", "waiting"]);
-  });
-
-  // The kinds decide nothing while the master switch is off, so offering them as live controls
-  // would suggest otherwise.
-  it("disables the kind checkboxes when push is off", () => {
-    const w = mountModal({ pushEnabled: false, pushKinds: ["finished"] });
-    expect(w.find<HTMLInputElement>('[aria-label="Push when a session is finished"]').element.disabled).toBe(true);
   });
 
   it("Browse fills the sound path from the OS file picker and applies it", async () => {

@@ -28,8 +28,6 @@ const {
   saveSoundKinds,
   sounds,
   saveSounds,
-  pushEnabled,
-  savePushEnabled,
   pushKinds,
   savePushKinds,
   prRepos,
@@ -55,7 +53,6 @@ const dirPaths = computed(() => {
     :sound-file="soundFile"
     :sound-kinds="soundKinds"
     :sounds="sounds"
-    :push-enabled="pushEnabled"
     :push-kinds="pushKinds"
     :pr-repos="prRepos"
     :launchers="launchers"
@@ -67,7 +64,6 @@ const dirPaths = computed(() => {
     @update-sound="saveSound"
     @update-sound-kinds="saveSoundKinds"
     @update-sounds="saveSounds"
-    @update-push-enabled="savePushEnabled"
     @update-push-kinds="savePushKinds"
     @update-repos="savePrRepos"
     @update-launchers="saveLaunchers"

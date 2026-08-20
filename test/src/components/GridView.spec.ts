@@ -57,7 +57,7 @@ vi.mock("../../../src/composables/useGridActivity", () => ({
 
 type FetchUrl = string | URL | Request; // what a fetch stub's first argument can be
 
-// Config GET hydrates pushEnabled=true; capture POSTs so we can assert the toggle saves.
+// Config GET hydrates pushKinds; capture POSTs so we can assert Settings saves them.
 // The grid is mounted here without the router plugin, and several of its behaviours now ask the
 // singleton where the user actually IS — shortcuts and the unplaced sweep only apply while
 // /terminals is on screen, since the grid stays mounted underneath an overlay (#1193).
@@ -82,7 +82,7 @@ beforeEach(() => {
           home: "/w",
           cwdPresets: [],
           soundFile: null,
-          pushEnabled: true,
+          pushKinds: ["finished", "waiting"],
           prRepos: [],
           launchers: [],
           userMcpServers: [],
@@ -98,8 +98,8 @@ beforeEach(() => {
 // A SettingsModal stub whose props we can inspect + whose emits we can drive.
 const SettingsStub = {
   name: "SettingsModal",
-  props: ["soundFile", "pushEnabled", "prRepos", "launchers", "userMcpServers", "cwd", "sessionId"],
-  emits: ["update-push-enabled", "close"],
+  props: ["soundFile", "pushKinds", "prRepos", "launchers", "userMcpServers", "cwd", "sessionId"],
+  emits: ["update-push-kinds", "close"],
   template: '<div class="settings-stub" />',
 };
 // A toolbar stub that lets us open the settings modal (GridView: @settings="showSettings = true").
@@ -247,20 +247,18 @@ describe("GridView guide help (empty state)", () => {
 });
 
 describe("GridView settings wiring", () => {
-  it("passes pushEnabled to SettingsModal and saves it on update-push-enabled (regression #347)", async () => {
+  it("passes pushKinds to SettingsModal and saves update-push-kinds", async () => {
     const w = await mountGrid();
     await w.find(".open-settings").trigger("click"); // open the settings modal
     const modal = w.findComponent(SettingsStub);
     expect(modal.exists()).toBe(true);
-    // The grid view must reflect the saved config, not a default false.
-    expect(modal.props("pushEnabled")).toBe(true);
+    expect(modal.props("pushKinds")).toEqual(["finished", "waiting"]);
 
-    // Toggling in the grid view must persist via POST /api/config.
-    modal.vm.$emit("update-push-enabled", false);
+    modal.vm.$emit("update-push-kinds", ["finished"]);
     await flushPromises();
-    const pushPost = posts.find((p) => String(p.body).includes("pushEnabled"));
-    expect(pushPost, "toggling push should POST /api/config").toBeTruthy();
-    expect(String(pushPost?.body)).toContain('"pushEnabled":false');
+    const pushPost = posts.find((p) => String(p.body).includes("pushKinds"));
+    expect(pushPost, "changing push kinds should POST /api/config").toBeTruthy();
+    expect(String(pushPost?.body)).toContain('"pushKinds":["finished"]');
   });
 });
 

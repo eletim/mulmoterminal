@@ -11,7 +11,6 @@ import {
   sanitizeQuickCommands,
   sanitizePushKinds,
   sanitizeUserMcpServers,
-  sanitizePushEnabled,
   sanitizePrWorkdirFooter,
   sanitizeCopyOnSelect,
   sanitizeWorklogIntervalHours,
@@ -43,17 +42,6 @@ describe("sanitizeSoundFile", () => {
     expect(sanitizeSoundFile("relative/path.wav")).toBeNull();
     expect(sanitizeSoundFile("./a.wav")).toBeNull();
     expect(sanitizeSoundFile("../a.wav")).toBeNull();
-  });
-});
-
-describe("sanitizePushEnabled", () => {
-  it("is true only for the boolean true; everything else is false", () => {
-    expect(sanitizePushEnabled(true)).toBe(true);
-    expect(sanitizePushEnabled(false)).toBe(false);
-    expect(sanitizePushEnabled("true")).toBe(false);
-    expect(sanitizePushEnabled(1)).toBe(false);
-    expect(sanitizePushEnabled(null)).toBe(false);
-    expect(sanitizePushEnabled(undefined)).toBe(false);
   });
 });
 
@@ -309,7 +297,6 @@ describe("loadAppConfig / saveAppConfig", () => {
     themes: [],
     buttons: null,
     chips: null,
-    pushEnabled: false,
     pushKinds: [...DEFAULT_PUSH_KINDS],
     worklogEnabled: false,
     worklogIntervalHours: 6,
@@ -343,7 +330,6 @@ describe("loadAppConfig / saveAppConfig", () => {
       themes: [],
       buttons: [{ id: "pr", label: "PR", run: "shell" as const, cmd: "gh pr create" }],
       chips: ["dir", "git"],
-      pushEnabled: true,
       pushKinds: [...DEFAULT_PUSH_KINDS],
       worklogEnabled: true,
       worklogIntervalHours: 12,
@@ -406,7 +392,6 @@ describe("loadAppConfig / saveAppConfig", () => {
       cockpitLines: { ...DEFAULT_COCKPIT_LINES },
       buttons: null,
       chips: null,
-      pushEnabled: false,
       pushKinds: [...DEFAULT_PUSH_KINDS],
       worklogEnabled: false,
       worklogIntervalHours: 6,
@@ -450,7 +435,7 @@ describe("loadAppConfigResult (missing vs corrupt vs ok)", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
     // A single trailing comma — the realistic hand-edit that triggered #741.
-    writeFileSync(file, '{ "pushEnabled": true, }');
+    writeFileSync(file, '{ "pushKinds": ["finished"], }');
     const loaded = loadAppConfigResult(file);
     expect(loaded.status).toBe("corrupt");
     rmSync(dir, { recursive: true, force: true });
@@ -459,9 +444,9 @@ describe("loadAppConfigResult (missing vs corrupt vs ok)", () => {
   it("returns the sanitized config for a good file", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
-    writeFileSync(file, JSON.stringify({ cwdPresets: [{ label: "a", path: "/a" }], pushEnabled: true }));
+    writeFileSync(file, JSON.stringify({ cwdPresets: [{ label: "a", path: "/a" }], pushKinds: ["finished"] }));
     const loaded = loadAppConfigResult(file);
-    expect(loaded).toMatchObject({ status: "ok", config: { cwdPresets: [{ label: "a", path: path.resolve("/a") }], pushEnabled: true } });
+    expect(loaded).toMatchObject({ status: "ok", config: { cwdPresets: [{ label: "a", path: path.resolve("/a") }], pushKinds: ["finished"] } });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -473,8 +458,8 @@ describe("loadAppConfigResult (missing vs corrupt vs ok)", () => {
     expect(emptyConfig()).toEqual(loadAppConfig(path.join(dir, "none.json")));
     // fresh object each call (callers mutate in place)
     expect(emptyConfig()).not.toBe(emptyConfig());
-    const merged = mergeConfigUpdate(emptyConfig(), { pushEnabled: true });
-    expect(merged).toEqual({ ...emptyConfig(), pushEnabled: true });
+    const merged = mergeConfigUpdate(emptyConfig(), { pushKinds: ["finished"] });
+    expect(merged).toEqual({ ...emptyConfig(), pushKinds: ["finished"] });
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -514,7 +499,6 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     themes: [],
     buttons: null,
     chips: null,
-    pushEnabled: false,
     pushKinds: [...DEFAULT_PUSH_KINDS],
     worklogEnabled: false,
     worklogIntervalHours: 6,
@@ -530,15 +514,15 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     fontFamily: null,
   };
 
-  it("a valid base keeps every omitted field through a pushEnabled-only update", () => {
+  it("a valid base keeps every omitted field through a pushKinds-only update", () => {
     const dir = tmp();
     const file = path.join(dir, "config.json");
     saveAppConfig(file, richConfig, {});
     const loaded = loadAppConfigResult(file);
     expect(loaded.status).toBe("ok");
     const base = loaded.status === "ok" ? loaded.config : loadAppConfig(file);
-    const next = mergeConfigUpdate(base, { pushEnabled: true });
-    expect(next).toEqual({ ...richConfig, pushEnabled: true });
+    const next = mergeConfigUpdate(base, { pushKinds: ["finished"] });
+    expect(next).toEqual({ ...richConfig, pushKinds: ["finished"] });
     expect(next.cwdPresets).toEqual(richConfig.cwdPresets);
     expect(next.launchers).toEqual(richConfig.launchers);
     rmSync(dir, { recursive: true, force: true });
@@ -555,7 +539,7 @@ describe("#741 corrupt config is not silently wiped by a partial update", () => 
     // The write path refuses here — but if it had fallen through to the OLD lenient load,
     // the merge base would have been empty and every rich field erased. Prove that gap:
     const wipedBase = loadAppConfig(file); // lenient path returns empty on corrupt
-    const wouldWipe = mergeConfigUpdate(wipedBase, { pushEnabled: true });
+    const wouldWipe = mergeConfigUpdate(wipedBase, { pushKinds: ["finished"] });
     expect(wouldWipe.cwdPresets).toEqual([]); // <- the regression the fix prevents
     expect(wouldWipe.launchers).toEqual([]);
     // And the corrupt file can be preserved rather than lost.
@@ -580,7 +564,6 @@ describe("mergeConfigUpdate", () => {
     themes: [],
     buttons: [{ id: "reveal", label: "Reveal in the file manager", run: "open", emoji: "📂", open: { reveal: "${dir}" } }],
     chips: ["git", "diff", "ctx", "usage"],
-    pushEnabled: false,
     pushKinds: [...DEFAULT_PUSH_KINDS],
     worklogEnabled: false,
     worklogIntervalHours: 6,
@@ -604,11 +587,6 @@ describe("mergeConfigUpdate", () => {
   it("keeps fields the body omits — a chips-only update must NOT wipe buttons", () => {
     const base = baseConfig();
     expect(mergeConfigUpdate(base, { chips: ["git"] }).buttons).toEqual(base.buttons);
-  });
-
-  it("applies pushEnabled from the body and keeps it when omitted", () => {
-    expect(mergeConfigUpdate(baseConfig(), { pushEnabled: true }).pushEnabled).toBe(true);
-    expect(mergeConfigUpdate(baseConfig({ pushEnabled: true }), { chips: ["git"] }).pushEnabled).toBe(true);
   });
 
   it("applies worklog settings from the body and keeps them when omitted", () => {

@@ -1,6 +1,6 @@
 // Whether a surviving tmux session can be resumed as a real session.
 //
-// Shared by the tmux routes (which offer them) and the remote-host bridge (which lists them),
+// Shared by the tmux routes and local mobile listing,
 // so it lives here rather than in either. Reads live state — the pty table, the persisted
 // dev-terminal set, and both agents' on-disk transcripts — and returns a predicate over ids.
 

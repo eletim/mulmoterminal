@@ -11,8 +11,6 @@
 //   publish — pub/sub only exists once the HTTP server does, and this is built before it.
 //   forgetTitle — the title manager needs publishActivity, and reap needs forgetTitle. The
 //     cycle is real; binding it late is how index.ts already broke it.
-//   sessionActivityPublisher — the phone mirror, which needs Firestore credentials.
-//
 // Everything else is the shared session registry, which is imported directly.
 import {
   activity,
@@ -59,11 +57,6 @@ export interface SessionLifecycleDeps {
   publish: (channel: string, data: unknown) => void;
   /** Drop a session's AI title so the next turn regenerates it. */
   forgetTitle: (id: string) => void;
-  /** Mirror of the session's status for the phone's viewer. */
-  sessionActivityPublisher: {
-    publish: (id: string, state: { working: boolean; waiting: boolean; event: string | null; workPhase: WorkPhase | null }) => void;
-    forget: (id: string) => void;
-  };
   /** The live turn's planning-vs-implementing phase, or null when nothing has been observed (#727). */
   workPhaseOf: (id: string) => WorkPhase | null;
   /** Drop that tracking when the session is torn down. */
@@ -203,7 +196,6 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   // after `/exit` — which reaches reap through term.onExit) appends to that file again.
   forgetClearedTranscript(id);
   deps.forgetTitle(id);
-  deps.sessionActivityPublisher.forget(id); // drop the phone's copy so its picker has no ghosts
   deps.forgetWorkPhase(id); // the live turn dies with the session
   deps.forgetTerminalSize(id);
   titleInFlight.delete(id);
@@ -318,7 +310,6 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
     lastResponse: lastResponses.get(id),
     memo: sessionMemos.get(id),
   });
-  deps.sessionActivityPublisher.publish(id, { working: row.working, waiting: row.waiting, event: row.event, workPhase: deps.workPhaseOf(id) });
   deps.publish(SESSIONS_CHANNEL, row);
 }
 

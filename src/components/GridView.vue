@@ -584,6 +584,7 @@ let adoptingUnplaced = false;
 // this PR). One flag rather than a count: every sweep asks for the whole list, so N deferred
 // triggers and one are the same question.
 let sweepAgain = false;
+// eslint-disable-next-line sonarjs/cognitive-complexity
 async function adoptUnplacedSessions(): Promise<void> {
   // One sweep at a time. The route watcher can fire again before the fetch resolves — leave the
   // grid for an overlay and come straight back — and both runs would read `cells` before either
@@ -640,7 +641,7 @@ watch(
   { immediate: true },
 );
 // ...and the same sweep on the PUSH, for a session spawned while the grid is already on screen:
-// the phone's remote chat (index.ts remoteHostSpawnChat), a scheduled task, an agent spawning one
+// the phone's local mobile launcher, a scheduled task, an agent spawning one
 // from another session. The route watcher above only fires when the route CHANGES, so a user
 // sitting on the grid — which is where they normally are — saw a live agent nowhere at all until
 // they happened to open an overlay and come back, or reloaded.

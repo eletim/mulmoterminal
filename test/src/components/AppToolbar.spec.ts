@@ -71,7 +71,7 @@ describe("AppToolbar per-view buttons", () => {
     expect(labels.some((label) => label.startsWith("Grid cell ordering:"))).toBe(true);
   });
 
-  it("does not render the external remote-host toolbar control", async () => {
+  it("does not render the external server toolbar control", async () => {
     const wrapper = await mountAt("/terminals");
     expect(wrapper.text()).not.toContain("Remote host");
     expect(wrapper.find('[aria-label="Remote host"]').exists()).toBe(false);

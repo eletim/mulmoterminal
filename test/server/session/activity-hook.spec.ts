@@ -157,8 +157,8 @@ describe("resolveHookSessionId", () => {
     expect(resolve("garbage", UUID)).toBe(UUID);
   });
 
-  // The id becomes a Firestore document id. A value with a path separator would change
-  // the document's depth rather than address a session.
+  // The id is later used to address a session. A path separator must not let a caller reshape
+  // that address.
   it("rejects an id carrying a path separator", () => {
     expect(resolve(undefined, `${UUID}/../../other`)).toBeNull();
     expect(resolve(undefined, "a/b")).toBeNull();

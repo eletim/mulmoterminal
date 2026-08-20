@@ -1,4 +1,4 @@
-// What a remote-host session is running. The server decides it (from the PtyEntry, or from
+// What a mobile-listed session is running. The server decides it (from the PtyEntry, or from
 // what tmux says is in the pane) and the settings UI offers it as the scope for a quick
 // command, so the list of kinds is a value both sides read.
 export const SESSION_AGENTS = ["claude", "codex", "antigravity", "shell"] as const;

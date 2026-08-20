@@ -1,8 +1,6 @@
-// Which mobile terminal transport this server runs, decided once at boot from
-// MULMOTERMINAL_MOBILE_MODE (server/config/env.ts) and read by both the server (which init/routes
-// to wire) and — once the frontend phase lands — the UI (GET /api/mobile-mode). The type lives
-// here, not in server/ alone, so a value both sides must agree on has exactly one definition.
-export const MOBILE_MODES = ["remote", "local"] as const;
+// The mobile terminal transport this server exposes. External-server remote mode was removed;
+// this value remains shared so `/api/mobile-mode` and the mobile UI agree on the local-only mode.
+export const MOBILE_MODES = ["local"] as const;
 
 export type MobileMode = (typeof MOBILE_MODES)[number];
 

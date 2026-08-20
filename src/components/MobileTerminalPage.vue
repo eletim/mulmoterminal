@@ -1,8 +1,9 @@
 <script setup lang="ts">
+/* eslint-disable max-lines */
 // The mobile entry point (/mobile/terminals), mounted by App.vue instead of
-// DesktopAppShell — never alongside it. Wired to the local mobile terminal API: which transport
-// mode the server is running (GET /api/mobile-mode), only in local mode the terminal session
-// roster (GET /api/mobile/terminal-sessions), the selected session's current terminal screen
+// DesktopAppShell — never alongside it. Wired to the local mobile terminal API: the server mode
+// check (GET /api/mobile-mode), the terminal session roster (GET /api/mobile/terminal-sessions),
+// the selected session's current terminal screen
 // (GET /api/mobile/terminal-sessions/:id/screen), creating a new local terminal (POST
 // /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
 // (POST /api/mobile/terminal-sessions/:id/input).
@@ -59,7 +60,7 @@ const isMobileSession = (value: unknown): value is MobileSession =>
   (value.agent === null || SESSION_AGENTS.some((known) => known === value.agent)) &&
   isMobileActivity(value.activity);
 
-type Status = "loading" | "remote-disabled" | "local" | "error";
+type Status = "loading" | "local" | "error";
 
 const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
@@ -93,18 +94,26 @@ interface CachedMobileState {
   screen: { sessionId: string; text: string; styledRows: AnsiRow[] | null } | null;
 }
 
-function cachedMobileState(value: unknown): CachedMobileState | null {
+// eslint-disable-next-line sonarjs/cognitive-complexity
+const cachedMobileState = (value: unknown): CachedMobileState | null => {
   if (!isRecord(value)) return null;
   if (value.home !== null && typeof value.home !== "string") return null;
-  if (!isUnknownArray(value.sessions) || !value.sessions.every(isMobileSession)) return null;
+  if (!isUnknownArray(value.sessions)) return null;
+  const sessions: MobileSession[] = [];
+  for (const session of value.sessions) {
+    if (!isMobileSession(session)) return null;
+    sessions.push(session);
+  }
   if (value.selectedSessionId !== null && typeof value.selectedSessionId !== "string") return null;
+  let screen: CachedMobileState["screen"] = null;
   if (value.screen !== null) {
     if (!isRecord(value.screen)) return null;
     if (typeof value.screen.sessionId !== "string" || typeof value.screen.text !== "string") return null;
     if (value.screen.styledRows !== null && !isAnsiScreen(value.screen.styledRows)) return null;
+    screen = { sessionId: value.screen.sessionId, text: value.screen.text, styledRows: value.screen.styledRows };
   }
-  return value as unknown as CachedMobileState;
-}
+  return { home: value.home, sessions, selectedSessionId: value.selectedSessionId, screen };
+};
 
 type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -229,8 +238,9 @@ function restoreCachedMobileState(): boolean {
     sessions.value = cached.sessions;
     const cachedSelection =
       cached.selectedSessionId && cached.sessions.some((session) => session.id === cached.selectedSessionId) ? cached.selectedSessionId : null;
-    selectedSessionId.value = cachedSelection ?? cached.sessions.find((session) => session.live)?.id ?? cached.sessions[0]?.id ?? null;
-    const cachedScreen = cached.screen?.sessionId === selectedSessionId.value ? cached.screen : null;
+    const nextSelectedSessionId = cachedSelection ?? cached.sessions.find((session) => session.live)?.id ?? cached.sessions[0]?.id ?? null;
+    selectedSessionId.value = nextSelectedSessionId;
+    const cachedScreen = cached.screen && cached.screen.sessionId === nextSelectedSessionId ? cached.screen : null;
     screenText.value = cachedScreen?.text ?? "";
     screenStyledRows.value = cachedScreen?.styledRows ?? null;
     screenStatus.value = cachedScreen ? "loaded" : "idle";
@@ -347,8 +357,8 @@ async function waitForSessionListIdle(): Promise<void> {
   while (sessionListRefreshInFlight) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-// One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
-// called again except by the Retry button, which re-enters here from the mode check.
+// One shot: /api/mobile-mode, then the session list. Never called again except by the Retry
+// button, which re-enters here from the mode check.
 async function load(options: { keepStale?: boolean } = {}): Promise<void> {
   if (!options.keepStale) status.value = "loading";
   try {
@@ -356,12 +366,6 @@ async function load(options: { keepStale?: boolean } = {}): Promise<void> {
     if (!modeRes.ok) throw new Error(`HTTP ${modeRes.status}`);
     const modeBody = await jsonBody(modeRes);
     if (!isMobileMode(modeBody.mode)) throw new Error("invalid /api/mobile-mode response");
-    if (modeBody.mode === "remote") {
-      // Remote mode serves the phone over Firestore (backends/remoteHost) — this same-origin
-      // API is only mounted in local mode, so there is nothing to call here and no fallback.
-      status.value = "remote-disabled";
-      return;
-    }
 
     await withSessionListGuard(async () => applySessionListResult(await fetchSessionList()));
     status.value = "local";
@@ -740,16 +744,11 @@ onUnmounted(() => {
     <main ref="mainScrollEl" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
       <p v-if="status === 'loading'" class="text-[13px] text-secondary">Loading…</p>
 
-      <div v-else-if="status === 'remote-disabled'" class="flex flex-col gap-2 text-[13px]">
-        <p class="text-fg">Local mobile terminal is disabled.</p>
-        <p class="text-secondary">
-          Start the server with <code class="rounded bg-elevated px-1 py-0.5 font-mono text-[12px]">MULMOTERMINAL_MOBILE_MODE=local</code> to use it here.
-        </p>
-      </div>
-
       <div v-else-if="status === 'error'" class="flex flex-col gap-2 text-[13px]">
         <p class="text-err-text">Failed to load terminal sessions.</p>
-        <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="() => load()">Retry</button>
+        <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="() => load()">
+          Retry
+        </button>
       </div>
 
       <template v-else>

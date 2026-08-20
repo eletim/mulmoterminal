@@ -60,13 +60,13 @@ matches the schema in `server/config/config-schema.ts`. If the user needs to wri
 
 ## No notifications arrive on my phone
 
-configKey: pushEnabled
+configKey: pushKinds
 source: server/backends/notifier.ts
 guide: docs/guide/en/notifications.md
 
 Pushes are sent only when several conditions hold at once, and some sessions are excluded by
 design. The conditions and the exclusions are listed in the notifications guide — walk them in
-order (RemoteHost connected, the toggle on, at least one registered device) before treating it as a
+order (push kinds selected, Web Push configured, at least one registered device) before treating it as a
 bug.
 
 ## Can't select or copy text that scrolled off screen (or no scrollbar) in a Claude/Codex terminal
@@ -94,7 +94,7 @@ tmux ahead of the replay; on a version that has the fix, report it as a new bug.
 
 ## The phone's terminal view shows no directory or branch
 
-source: server/backends/remoteHost/terminalScreen.ts
+source: server/mobileTerminal/terminalScreen.ts
 
 Fields the host cannot answer are omitted entirely — a session that outlived a restart has no PTY
 left, so it has neither a directory nor a branch to report. The phone side also needs a version

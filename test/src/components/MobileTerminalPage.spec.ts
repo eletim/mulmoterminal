@@ -6,8 +6,8 @@ import mobileTerminalPageSource from "../../../src/components/MobileTerminalPage
 import { router } from "../../../src/router/index";
 import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/rememberedLaunchAgent";
 
-// The page fetches GET /api/mobile-mode on mount, and — only when it answers "local" —
-// GET /api/mobile/terminal-sessions, followed by GET /api/mobile/terminal-sessions/:id/screen
+// The page fetches GET /api/mobile-mode on mount, then GET /api/mobile/terminal-sessions,
+// followed by GET /api/mobile/terminal-sessions/:id/screen
 // for whichever session ends up selected. Route the mock fetch by path so each test controls
 // all three responses independently.
 type MockActivity = { working: boolean; waiting: boolean; event: string | null; workPhase: "planning" | "implementing" | null };
@@ -108,7 +108,7 @@ function webPushRouteResponse(url: string, init: RequestInit | undefined, routes
 }
 
 function mockFetch(opts: {
-  mode?: "local" | "remote";
+  mode?: "local";
   sessions?: MockSession[];
   home?: string | null;
   modeOk?: boolean;
@@ -759,14 +759,6 @@ describe("MobileTerminalPage", () => {
     });
   });
 
-  it("in remote mode, shows the disabled message and never fetches sessions", async () => {
-    mockFetch({ mode: "remote" });
-    const wrapper = await mountPage();
-    expect(wrapper.text()).toContain("Local mobile terminal is disabled");
-    expect(wrapper.text()).toContain("MULMOTERMINAL_MOBILE_MODE=local");
-    expect(globalThis.fetch).not.toHaveBeenCalledWith("/api/mobile/terminal-sessions");
-  });
-
   it("selects the first live session initially", async () => {
     mockFetch({
       mode: "local",
@@ -1403,12 +1395,6 @@ describe("MobileTerminalPage", () => {
       expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
     });
 
-    it("does not fetch a screen in remote mode", async () => {
-      mockFetch({ mode: "remote" });
-      await mountPage();
-      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
-    });
-
     it("fetches the screen for a detached (live: false) session too", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "detached-one", live: false })], screens: { "detached-one": screenOk("x") } });
       await mountPage();
@@ -1908,16 +1894,6 @@ describe("MobileTerminalPage", () => {
       expect(sessionsCalls).toHaveLength(2); // the initial load, plus one on resume
     });
 
-    it("does not fetch a screen on resume in remote mode", async () => {
-      mockFetch({ mode: "remote" });
-      await mountPage();
-
-      fireVisibilityChange("visible");
-      await flushPromises();
-
-      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
-    });
-
     it("does not fetch a screen on resume when there are no sessions", async () => {
       mockFetch({ mode: "local", sessions: [] });
       await mountPage();
@@ -2243,12 +2219,6 @@ describe("MobileTerminalPage", () => {
 
     it("does not show the input form when the screen failed to load", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenFail(500) } });
-      const wrapper = await mountPage();
-      expect(inputEl(wrapper).exists()).toBe(false);
-    });
-
-    it("does not show the input form in remote mode", async () => {
-      mockFetch({ mode: "remote" });
       const wrapper = await mountPage();
       expect(inputEl(wrapper).exists()).toBe(false);
     });
@@ -2695,12 +2665,6 @@ describe("MobileTerminalPage", () => {
 
       it("hides the footer when there are no sessions", async () => {
         mockFetch({ mode: "local", sessions: [] });
-        const wrapper = await mountPage();
-        expect(wrapper.find("footer").exists()).toBe(false);
-      });
-
-      it("hides the footer in remote mode", async () => {
-        mockFetch({ mode: "remote" });
         const wrapper = await mountPage();
         expect(wrapper.find("footer").exists()).toBe(false);
       });

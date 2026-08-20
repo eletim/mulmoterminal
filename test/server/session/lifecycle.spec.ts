@@ -44,7 +44,6 @@ const THIRD_ID = "33333333-4444-4555-8666-777777777777";
 const makeDeps = (workPhase: WorkPhase | null = null, overrides: Partial<SessionLifecycleDeps> = {}) => ({
   publish: vi.fn(),
   forgetTitle: vi.fn(),
-  sessionActivityPublisher: { publish: vi.fn(), forget: vi.fn() },
   workPhaseOf: vi.fn(() => workPhase),
   forgetWorkPhase: vi.fn(),
   forgetTerminalSize: vi.fn(),
@@ -110,7 +109,6 @@ describe("reap", () => {
       false,
     ]);
     expect(deps.forgetTitle).toHaveBeenCalledWith(ID);
-    expect(deps.sessionActivityPublisher.forget).toHaveBeenCalledWith(ID);
     // A socket close only pauses the tmux size bookkeeping (a detached session can reattach);
     // teardown is the one place that frees it, or it grows for the server's whole life (#957).
     expect(deps.forgetTerminalSize).toHaveBeenCalledWith(ID);
@@ -254,18 +252,13 @@ describe("setWorking / setWaiting", () => {
     expect(deps.publish).not.toHaveBeenCalled();
   });
 
-  // The phone renders the same status vocabulary as the cockpit roster, which needs the event
-  // (blocked vs done) and the live work phase (planning vs editing) alongside the flags (#727).
-  it("mirrors the flags, the event and the work phase to the phone", () => {
+  // Subscribers render the same status vocabulary as the cockpit roster, which needs the event
+  // (blocked vs done) alongside the flags.
+  it("mirrors the flags and event to subscribers", () => {
     const deps = makeDeps("implementing");
     ptys.set(ID, fakeEntry({ ws: {} }));
     createSessionLifecycle(deps).setWaiting(ID, true, "Notification");
-    expect(deps.sessionActivityPublisher.publish).toHaveBeenCalledWith(ID, {
-      working: false,
-      waiting: true,
-      event: "Notification",
-      workPhase: "implementing",
-    });
+    expect(deps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Notification" }));
   });
 
   it("notifies local mobile Web Push when a running session starts waiting for input", () => {
@@ -408,7 +401,7 @@ describe("setWorking / setWaiting", () => {
     vi.advanceTimersByTime(1000);
 
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
-    expect(deps.sessionActivityPublisher.publish).toHaveBeenLastCalledWith(ID, expect.objectContaining({ working: false, waiting: true, event: "Stop" }));
+    expect(deps.publish).toHaveBeenLastCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Stop" }));
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
   });
 
@@ -446,7 +439,7 @@ describe("setWorking / setWaiting", () => {
     lifecycle.setWorking(ID, false, "Stop");
 
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
-    expect(deps.sessionActivityPublisher.publish).toHaveBeenLastCalledWith(ID, expect.objectContaining({ working: false, waiting: true, event: "Stop" }));
+    expect(deps.publish).toHaveBeenLastCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Stop" }));
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
     vi.advanceTimersByTime(1000);
     expect(vi.mocked(hasNewSessionChildProcess)).toHaveBeenCalledTimes(2);

@@ -2,7 +2,7 @@
 // the host, so an `image`-type field's workspace path is unrenderable there; a
 // view that lists the field in `imageFields` gets it inlined as a small JPEG data
 // URL the host produces here (used by server/backends/remoteView.ts for both the
-// remote-host channel and the desktop phone-frame preview).
+// mobile-facing views and the desktop phone-frame preview).
 //
 // Ported from MulmoClaude's server/utils/files/thumbnail-store.ts. Adaptations:
 // the workspace root comes from the configured collection host

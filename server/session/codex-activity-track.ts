@@ -6,7 +6,6 @@
 import { promises as fs } from "node:fs";
 import { HOOK_EVENT_FOR, boundaryOutcome, codexUserPrompts, type CodexTurnBoundary } from "../agents/codex-activity.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
-import { notifyTaskFinished } from "./task-push.js";
 import { watchCodexActivity } from "./codex-activity-watch.js";
 import { LAST_PROMPT_CAP } from "./header-hook.js";
 import { lastPrompts } from "./registry.js";
@@ -49,14 +48,11 @@ const sizeOf = (file: string) => async (): Promise<number | null> => {
 
 function applyBoundary(sessionId: string, boundary: CodexTurnBoundary, deps: CodexActivityTrackDeps): void {
   const event = HOOK_EVENT_FOR[boundary];
-  const { effects, push } = boundaryOutcome(boundary, deps.isActive());
+  const { effects } = boundaryOutcome(boundary, deps.isActive());
   for (const eff of effects) {
     if (eff.kind === "working") deps.setWorking(sessionId, eff.value, event);
     else deps.setWaiting(sessionId, eff.value, event);
   }
-  // `message` is empty: codex has no Notification equivalent, and a finished turn's body
-  // comes from its reply, not from a hook payload.
-  if (push) void notifyTaskFinished(sessionId, push, "", deps.uiPort);
 }
 
 const capPrompt = (prompt: string): string => prompt.trim().slice(0, LAST_PROMPT_CAP);

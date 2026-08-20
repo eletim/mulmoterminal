@@ -7,7 +7,6 @@ import { mountHookRoute } from "../../../server/routes/hook-routes";
 import { activity, ptys } from "../../../server/session/registry";
 
 vi.mock("../../../server/session/session-reads.js", () => ({ latestUserPrompt: vi.fn(async () => null) }));
-vi.mock("../../../server/session/task-push.js", () => ({ notifyTaskFinished: vi.fn(async () => {}) }));
 
 const ID = "11111111-2222-4333-8444-555555555555";
 

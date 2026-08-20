@@ -68,13 +68,9 @@ export interface AppConfig {
   buttons: HeaderButton[] | null;
   // Global header display chips, or null when unconfigured (the client keeps its default set).
   chips: HeaderChip[] | null;
-  // Send a Web Push (sendPush Cloud Function). Off by default; only fires while the RemoteHost
-  // channel is connected (that's what supplies the Firebase auth). The master switch — which
-  // KINDS it sends is `pushKinds`.
-  pushEnabled: boolean;
-  // Which kinds of push are wanted (#850). A push needs `pushEnabled` AND its kind here, so a
-  // user who only wants finished turns can decline the ones a blocked agent raises — which on
-  // a task that asks permission repeatedly is most of them.
+  // Which local mobile Web Push kinds are wanted (#850). A user who only wants finished turns can
+  // decline the ones a blocked agent raises — which on a task that asks permission repeatedly is
+  // most of them. Device opt-in lives in the mobile page's subscription store.
   pushKinds: PushKind[];
   // Periodic dev-work log: a built-in scheduled task that summarizes recent work across
   // the saved working dirs into weekly wiki pages. Off by default (it spawns an LLM
@@ -267,10 +263,6 @@ export function sanitizeSoundFile(input: unknown): string | null {
   return trimmed && path.isAbsolute(trimmed) ? trimmed : null;
 }
 
-export function sanitizePushEnabled(input: unknown): boolean {
-  return input === true;
-}
-
 // A per-kind sound value: a known `preset:<id>`, or an absolute path to the user's own file
 // under the same rule as `soundFile`. Anything else drops that ENTRY, not the whole map — a
 // typo in one kind must not cost the user the sounds they set on the others.
@@ -374,7 +366,6 @@ export const emptyConfig = (): AppConfig => ({
   themes: [],
   buttons: null,
   chips: null,
-  pushEnabled: false,
   pushKinds: [...DEFAULT_PUSH_KINDS],
   worklogEnabled: false,
   worklogIntervalHours: DEFAULT_WORKLOG_INTERVAL_HOURS,
@@ -419,7 +410,6 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     themes: sanitizeCustomThemes(o.themes),
     buttons: sanitizeButtons(o.buttons),
     chips: sanitizeChips(o.chips),
-    pushEnabled: sanitizePushEnabled(o.pushEnabled),
     pushKinds: sanitizePushKinds(o.pushKinds),
     worklogEnabled: sanitizeWorklogEnabled(o.worklogEnabled),
     worklogIntervalHours: sanitizeWorklogIntervalHours(o.worklogIntervalHours),
@@ -524,7 +514,6 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     themes: updated("themes", sanitizeCustomThemes, base.themes),
     buttons: updated("buttons", sanitizeButtons, base.buttons),
     chips: updated("chips", sanitizeChips, base.chips),
-    pushEnabled: updated("pushEnabled", sanitizePushEnabled, base.pushEnabled),
     pushKinds: updated("pushKinds", sanitizePushKinds, base.pushKinds),
     worklogEnabled: updated("worklogEnabled", sanitizeWorklogEnabled, base.worklogEnabled),
     worklogIntervalHours: updated("worklogIntervalHours", sanitizeWorklogIntervalHours, base.worklogIntervalHours),
@@ -560,7 +549,6 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     themes: config.themes,
     buttons: config.buttons,
     chips: config.chips,
-    pushEnabled: config.pushEnabled,
     pushKinds: config.pushKinds,
     worklogEnabled: config.worklogEnabled,
     worklogIntervalHours: config.worklogIntervalHours,

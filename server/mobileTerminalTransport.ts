@@ -1,39 +1,23 @@
 import type { Express } from "express";
-import type { MobileMode } from "../common/mobileMode.js";
-import { mountMobileTransport } from "./mobileTransportMount.js";
 import { mountLocalMobileTerminalRoutes, type LocalMobileTerminalRouteDeps } from "./routes/local-mobile-terminal-routes.js";
-import type { RemoteHostBackendDeps, RemoteHostRouteOptions } from "./backends/remoteHost/index.js";
 
 type LocalMobileExtras = Pick<
   LocalMobileTerminalRouteDeps,
   "captureStyledScreen" | "createTerminalAtCwd" | "activityOf" | "workPhaseOf" | "setWaiting" | "mobileWebPush"
 >;
 
+type LocalMobileCoreDeps = Omit<LocalMobileTerminalRouteDeps, keyof LocalMobileExtras | "isAllowedOrigin">;
+
 export function mountConfiguredMobileTransport({
-  mode,
   app,
   isAllowedOrigin,
-  remoteHostDeps,
+  terminalDeps,
   localExtras,
-  initRemote,
-  mountRemoteRoutes,
 }: {
-  mode: MobileMode;
   app: Express;
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"];
-  remoteHostDeps: RemoteHostBackendDeps;
+  terminalDeps: LocalMobileCoreDeps;
   localExtras: LocalMobileExtras;
-  initRemote: (deps: RemoteHostBackendDeps) => void;
-  mountRemoteRoutes: (app: Express, deps: RemoteHostRouteOptions) => void;
 }): void {
-  mountMobileTransport({
-    mode,
-    mountRemote: () => {
-      initRemote(remoteHostDeps);
-      mountRemoteRoutes(app, { isAllowedOrigin });
-    },
-    mountLocal: () => {
-      mountLocalMobileTerminalRoutes(app, { isAllowedOrigin, ...remoteHostDeps, ...localExtras });
-    },
-  });
+  mountLocalMobileTerminalRoutes(app, { isAllowedOrigin, ...terminalDeps, ...localExtras });
 }
