@@ -45,6 +45,7 @@ const originalNotificationDescriptor = Object.getOwnPropertyDescriptor(globalThi
 const originalPushManagerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "PushManager");
 const originalServiceWorkerDescriptor = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
 const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+const MOBILE_STATE_CACHE_KEY = "mulmoterminal.mobileTerminalPage.v1";
 
 function restoreDescriptor(target: object, key: string, descriptor: PropertyDescriptor | undefined): void {
   if (descriptor) Object.defineProperty(target, key, descriptor);
@@ -64,6 +65,7 @@ afterEach(async () => {
 
 beforeEach(() => {
   localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
+  localStorage.removeItem(MOBILE_STATE_CACHE_KEY);
 });
 
 // Split out of mockFetch's routing so that function stays a flat list of if-checks — each
@@ -320,6 +322,57 @@ describe("MobileTerminalPage", () => {
     const rows = wrapper.findAll("main li button");
     expect(rows[0].text()).toContain("~");
     expect(rows[1].text()).toContain("/home/eletim-other/project");
+  });
+
+  it("restores the cached mobile session view immediately and revalidates it in the background", async () => {
+    localStorage.setItem(
+      MOBILE_STATE_CACHE_KEY,
+      JSON.stringify({
+        home: "/home/eletim",
+        sessions: [session({ id: "a", title: "cached session", cwd: "/home/eletim/project", live: true, agent: "shell" })],
+        selectedSessionId: "a",
+        screen: { sessionId: "a", text: "cached screen", styledRows: null },
+      }),
+    );
+    let resolveSessions: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+    const deferredSessions = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+      resolveSessions = resolve;
+    });
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+      if (url === "/api/mobile/terminal-sessions") return deferredSessions;
+      if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "fresh screen" }) };
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+    await nextTick();
+    expect(wrapper.text()).toContain("cached session");
+    expect(wrapper.text()).toContain("cached screen");
+    expect(wrapper.text()).not.toContain("Loading…");
+
+    resolveSessions({
+      ok: true,
+      json: async () => ({
+        home: "/home/eletim",
+        sessions: [session({ id: "a", title: "fresh session", cwd: "/home/eletim/project", live: true, agent: "shell" })],
+      }),
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("fresh session");
+    expect(wrapper.text()).toContain("fresh screen");
+    expect(JSON.parse(localStorage.getItem(MOBILE_STATE_CACHE_KEY) ?? "{}").screen.text).toBe("fresh screen");
+  });
+
+  it("ignores a corrupt cached mobile state and falls back to the normal load path", async () => {
+    localStorage.setItem(MOBILE_STATE_CACHE_KEY, "{not json");
+    mockFetch({ mode: "local", sessions: [session({ id: "a", title: "fresh", live: true })], screens: { a: screenOk("fresh screen") } });
+    const wrapper = await mountPage();
+    expect(wrapper.text()).toContain("fresh");
+    expect(wrapper.text()).toContain("fresh screen");
   });
 
   it("distinguishes live from detached sessions", async () => {

@@ -25,6 +25,7 @@ import MobileWebPushPanel from "./MobileWebPushPanel.vue";
 
 const route = useRoute();
 const notificationRequestedSessionId = ref(readSessionIdQuery(route.query.sessionId));
+const MOBILE_STATE_CACHE_KEY = "mulmoterminal.mobileTerminalPage.v1";
 
 interface MobileActivity {
   working: boolean;
@@ -84,6 +85,26 @@ const isMobileScreen = (value: unknown): value is MobileScreen =>
   typeof value.screen === "string" &&
   (value.styledScreen === undefined || isAnsiScreen(value.styledScreen)) &&
   (value.lastCommandCopy === undefined || (isRecord(value.lastCommandCopy) && typeof value.lastCommandCopy.text === "string"));
+
+interface CachedMobileState {
+  home: string | null;
+  sessions: MobileSession[];
+  selectedSessionId: string | null;
+  screen: { sessionId: string; text: string; styledRows: AnsiRow[] | null } | null;
+}
+
+function cachedMobileState(value: unknown): CachedMobileState | null {
+  if (!isRecord(value)) return null;
+  if (value.home !== null && typeof value.home !== "string") return null;
+  if (!isUnknownArray(value.sessions) || !value.sessions.every(isMobileSession)) return null;
+  if (value.selectedSessionId !== null && typeof value.selectedSessionId !== "string") return null;
+  if (value.screen !== null) {
+    if (!isRecord(value.screen)) return null;
+    if (typeof value.screen.sessionId !== "string" || typeof value.screen.text !== "string") return null;
+    if (value.screen.styledRows !== null && !isAnsiScreen(value.screen.styledRows)) return null;
+  }
+  return value as unknown as CachedMobileState;
+}
 
 type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
@@ -183,6 +204,43 @@ const activityStatusOf = (session: MobileSession) =>
 const activityClassOf = (session: MobileSession) => ACTIVITY_CLASS[activityStatusOf(session)];
 const displayCwd = (cwd: string) => homeRelative(cwd, mobileHome.value);
 
+function writeCachedMobileState(): void {
+  try {
+    const screen =
+      selectedSessionId.value && screenStatus.value === "loaded"
+        ? { sessionId: selectedSessionId.value, text: screenText.value, styledRows: screenStyledRows.value }
+        : null;
+    localStorage.setItem(
+      MOBILE_STATE_CACHE_KEY,
+      JSON.stringify({ home: mobileHome.value, sessions: sessions.value, selectedSessionId: selectedSessionId.value, screen }),
+    );
+  } catch {
+    // Best effort only; cache failure must not affect the live mobile terminal.
+  }
+}
+
+function restoreCachedMobileState(): boolean {
+  try {
+    const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
+    if (!raw) return false;
+    const cached = cachedMobileState(JSON.parse(raw));
+    if (!cached || cached.sessions.length === 0) return false;
+    mobileHome.value = cached.home;
+    sessions.value = cached.sessions;
+    const cachedSelection =
+      cached.selectedSessionId && cached.sessions.some((session) => session.id === cached.selectedSessionId) ? cached.selectedSessionId : null;
+    selectedSessionId.value = cachedSelection ?? cached.sessions.find((session) => session.live)?.id ?? cached.sessions[0]?.id ?? null;
+    const cachedScreen = cached.screen?.sessionId === selectedSessionId.value ? cached.screen : null;
+    screenText.value = cachedScreen?.text ?? "";
+    screenStyledRows.value = cachedScreen?.styledRows ?? null;
+    screenStatus.value = cachedScreen ? "loaded" : "idle";
+    status.value = "local";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // The one place selection ever changes — a manual click (selectSession) and a poll's fallback
 // (applySessionList, when the selected session has disappeared) both go through this. Whichever
 // caller it is, switching sessions means the input box and any in-flight-send state belong to
@@ -262,6 +320,7 @@ async function fetchSessionList(): Promise<MobileSessionListResult> {
 function applySessionListResult(result: MobileSessionListResult): void {
   mobileHome.value = result.home;
   applySessionList(result.sessions);
+  writeCachedMobileState();
 }
 
 // Guards every call to fetchSessionList() — the initial load and every poll tick (interval or
@@ -290,8 +349,8 @@ async function waitForSessionListIdle(): Promise<void> {
 
 // One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
 // called again except by the Retry button, which re-enters here from the mode check.
-async function load(): Promise<void> {
-  status.value = "loading";
+async function load(options: { keepStale?: boolean } = {}): Promise<void> {
+  if (!options.keepStale) status.value = "loading";
   try {
     const modeRes = await fetch("/api/mobile-mode");
     if (!modeRes.ok) throw new Error(`HTTP ${modeRes.status}`);
@@ -307,7 +366,7 @@ async function load(): Promise<void> {
     await withSessionListGuard(async () => applySessionListResult(await fetchSessionList()));
     status.value = "local";
   } catch {
-    status.value = "error";
+    if (!options.keepStale) status.value = "error";
   }
 }
 
@@ -356,6 +415,7 @@ async function loadScreen(id: string): Promise<void> {
     lastCommandCopyText.value = body.lastCommandCopy?.text ?? "";
     copyStatus.value = "idle";
     screenStatus.value = "loaded";
+    writeCachedMobileState();
   } catch {
     if (selectedSessionId.value !== requestedId) return;
     screenStatus.value = "error";
@@ -535,6 +595,7 @@ async function createTerminal(): Promise<void> {
         ? body.sessionId
         : (parsed.sessions.find((session) => session.live)?.id ?? parsed.sessions[0]?.id ?? null),
     );
+    writeCachedMobileState();
     createStatus.value = "idle";
   } catch (err) {
     createStatus.value = "error";
@@ -618,7 +679,13 @@ function handleVisibilityChange(): void {
 }
 
 onMounted(() => {
-  void load();
+  const restored = restoreCachedMobileState();
+  void load({ keepStale: restored }).then(() => {
+    if (!restored) return;
+    if (!selectedSessionId.value) return;
+    if (screenStatus.value === "loading") return;
+    void loadScreen(selectedSessionId.value);
+  });
   document.addEventListener("visibilitychange", handleVisibilityChange);
   // Keeps activity (working/waiting/workPhase) and live/detached current while the list is on
   // screen. Runs for the lifetime of the component regardless of `status` — refreshSessionList
@@ -682,7 +749,7 @@ onUnmounted(() => {
 
       <div v-else-if="status === 'error'" class="flex flex-col gap-2 text-[13px]">
         <p class="text-err-text">Failed to load terminal sessions.</p>
-        <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="load">Retry</button>
+        <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="() => load()">Retry</button>
       </div>
 
       <template v-else>
