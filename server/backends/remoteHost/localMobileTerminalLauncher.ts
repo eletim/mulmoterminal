@@ -39,6 +39,7 @@ export function createLocalMobileTerminalCreator(deps: LocalMobileTerminalCreato
       if (agent === "shell") {
         deps.spawnLauncherPty(sessionId, null, DEFAULT_LAUNCH_CMD, cwd);
         markDevTerminalSession(sessionId, cwd);
+        markUnplacedSession(sessionId, "shell");
       } else if (agent === "claude") {
         deps.spawnClaudePty(sessionId, null, null, { cwd, attachGuiMcp: false });
         markUnplacedSession(sessionId, agent);
