@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 
 describe("createLocalMobileTerminalCreator", () => {
-  it("starts a shell session directly without requiring a browser subscriber", async () => {
+  it("starts a shell session directly and marks it for grid adoption", async () => {
     const d = deps();
     const create = createLocalMobileTerminalCreator(d);
     const result = await create("shell", "/repo");
@@ -54,6 +54,7 @@ describe("createLocalMobileTerminalCreator", () => {
     if (!result.ok) throw new Error("expected create to succeed");
     expect(d.spawnLauncherPty).toHaveBeenCalledWith(result.sessionId, null, process.env.SHELL || "/bin/sh", "/repo");
     expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(result.sessionId, "/repo");
+    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "shell");
     expect(mocks.worktreeOccupancy).not.toHaveBeenCalled();
   });
 

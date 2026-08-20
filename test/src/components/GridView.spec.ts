@@ -591,6 +591,31 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
     w.unmount();
   });
 
+  it("adopts a mobile-created shell as a shell launcher cell", async () => {
+    const SHELL = "99999999-9999-9999-9999-999999999999";
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/unplaced"))
+        return { ok: true, json: async () => ({ sessions: [{ id: SHELL, agent: "shell", cwd: "/proj" }] }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const w = mountActivated(GridView, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+
+    const cells = w.findComponent(CellsStub).props("cells") as Array<{
+      session: string | null;
+      agent?: string;
+      cwd?: string | null;
+      launcher?: { shell?: true; label: string } | null;
+    }>;
+    const adopted = cells.find((c) => c.session === SHELL);
+    expect(adopted).toMatchObject({ session: SHELL, cwd: "/proj", launcher: { shell: true, label: "shell" } });
+    expect(adopted?.agent).toBeUndefined();
+    w.unmount();
+  });
+
   // The live half of the same thing, and the one the user actually hits: the phone starts a chat
   // while the host is SITTING on the grid. The route never changes, so the sweep above never runs
   // and the live agent has no cell until something else forces a route change or a reload. The

@@ -21,6 +21,7 @@ import {
   runScriptInNewCell,
   insertCellAfter,
   shellCell,
+  shellLauncher,
   sessionCell,
   launchInCell,
   setSortMode,
@@ -61,10 +62,10 @@ import { reportActiveTerminals } from "../composables/useUnloadGuard";
 import { useAppConfig } from "../composables/useAppConfig";
 import { fetchDirConfig, invalidateDirConfig, useDirPriorities } from "../composables/useDirConfig";
 import { nextSortMode } from "./sortModeButton";
-import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent";
+import type { TerminalAgent } from "../../common/sessionAgent";
 import { router } from "../router";
 import { usePubSub } from "../composables/usePubSub";
-import type { LaunchAgent } from "../../common/launchAgent";
+import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent";
 import type { LaunchPick } from "./launchers";
 import { isRecord } from "../../common/isRecord";
 
@@ -418,6 +419,8 @@ const CELL_FOR_AGENT: Record<LaunchAgent, (cwd: string) => Omit<Cell, "uid">> = 
   antigravity: (cwd) => ({ session: null, cwd, agent: "antigravity" }),
 };
 const cellForAgent = (cwd: string, agent: LaunchAgent | undefined): Omit<Cell, "uid"> => (agent ? CELL_FOR_AGENT[agent](cwd) : shellCell(cwd));
+const adoptedCellForAgent = (session: string, cwd: string | null, agent: LaunchAgent): Omit<Cell, "uid"> =>
+  agent === "shell" ? { session, cwd, launcher: shellLauncher() } : sessionCell(session, cwd, agent);
 
 const openNewTerminal = ({ cwd, afterSlotKey, agent }: NewTerminalRequest) => {
   const match = afterSlotKey?.match(SLOT_UID_RE);
@@ -602,8 +605,9 @@ async function adoptUnplacedSessions(): Promise<void> {
       // holding a cell whose attach has not landed yet — and adopting twice would give one session
       // two cells fighting over the same socket.
       if (state.value.cells.some((cell) => cell.session === row.id)) continue;
-      const agent = asTerminalAgent(row.agent);
-      const placed = insertCellAfter(state.value, NO_ORIGIN_UID, sessionCell(row.id, typeof row.cwd === "string" ? row.cwd : defaultCwd.value, agent));
+      const agent = typeof row.agent === "string" && isLaunchAgent(row.agent) ? row.agent : "claude";
+      const cwd = typeof row.cwd === "string" ? row.cwd : defaultCwd.value;
+      const placed = insertCellAfter(state.value, NO_ORIGIN_UID, adoptedCellForAgent(row.id, cwd, agent));
       // A full grid drops the cell and hands the state straight back. Nothing to fall back to
       // here — this session has been waiting, and it can keep waiting: the mark is only cleared
       // by an attach, so the next load with room adopts it.

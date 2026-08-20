@@ -29,6 +29,7 @@ vi.mock("node:fs", () => {
 
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
+const C = "33333333-3333-3333-3333-333333333333";
 
 async function freshRegistry() {
   vi.resetModules();
@@ -107,15 +108,24 @@ describe("unplaced sessions", () => {
     expect(loggedTo("unplaced-sessions.json")).toContain(`${A} codex`);
   });
 
+  it("keeps a mobile-created shell as a shell instead of defaulting it to claude", async () => {
+    const registry = await freshRegistry();
+    registry.markUnplacedSession(A, "shell");
+    expect(registry.unplacedSessionRows()).toEqual([{ id: A, agent: "shell" }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loggedTo("unplaced-sessions.json")).toContain(`${A} shell`);
+  });
+
   it("reads the agent back after a restart, and defaults a line written without one", async () => {
     // The second half is the upgrade case: a log written before the agent field existed holds
     // bare ids, and those sessions were all claude.
-    readBack = { "unplaced-sessions.json": `${A} antigravity\n${B}` };
+    readBack = { "unplaced-sessions.json": `${A} shell\n${B} antigravity\n${C}` };
     const registry = await freshRegistry();
     await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated]);
     expect(registry.unplacedSessionRows()).toEqual([
-      { id: A, agent: "antigravity" },
-      { id: B, agent: "claude" },
+      { id: A, agent: "shell" },
+      { id: B, agent: "antigravity" },
+      { id: C, agent: "claude" },
     ]);
   });
 
