@@ -33,7 +33,6 @@ import { clearedTranscripts, forgetClearedTranscript } from "./cleared-transcrip
 import { parseWaitGraceMs, reapDecisionFor, reapTimerDelay, shouldForgetActivity } from "./reap-policy.js";
 import { sessionRow, shouldRefreshReply } from "./activity-transition.js";
 import { flagEffect, type ActivityFlag } from "./activity-flag.js";
-import type { WorkPhase } from "./workPhase.js";
 import { readLatestResponse } from "./session-reads.js";
 import { cleanupSessionSettings } from "./session-settings.js";
 import { cleanupSessionDrops } from "./session-drops.js";
@@ -57,8 +56,6 @@ export interface SessionLifecycleDeps {
   publish: (channel: string, data: unknown) => void;
   /** Drop a session's AI title so the next turn regenerates it. */
   forgetTitle: (id: string) => void;
-  /** The live turn's planning-vs-implementing phase, or null when nothing has been observed (#727). */
-  workPhaseOf: (id: string) => WorkPhase | null;
   /** Drop that tracking when the session is torn down. */
   forgetWorkPhase: (id: string) => void;
   /** Free the tmux window/client size bookkeeping. Unlike a socket close — which a reattach

@@ -270,15 +270,11 @@ const mobileWebPushActivityDeps = mobileWebPushActivityLifecycleDeps({ sender: m
 
 // Session teardown + activity publishing (session/lifecycle.ts). `forgetTitle` is bound
 // lazily because the title manager below needs publishActivity — the cycle is real.
-// The live turn's planning-vs-editing phase, fed by the hook route and read by the activity
-// publisher — the phone's status vocabulary needs it, and the publish path can't read the
-// transcript the roster parses for the same answer (#727).
 const workPhaseTracker = createWorkPhaseTracker();
 
 const lifecycle = createSessionLifecycle({
   publish: (channel, data) => pubsub?.publish(channel, data),
   forgetTitle: (id) => forgetTitle(id),
-  workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
   ...mobileWebPushActivityDeps,
