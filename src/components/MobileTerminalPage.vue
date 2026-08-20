@@ -76,16 +76,21 @@ const createError = ref("");
 interface MobileScreen {
   screen: string;
   styledScreen: AnsiRow[] | undefined;
+  lastCommandCopy: { text: string } | undefined;
 }
 
 const isMobileScreen = (value: unknown): value is MobileScreen =>
-  isRecord(value) && typeof value.screen === "string" && (value.styledScreen === undefined || isAnsiScreen(value.styledScreen));
+  isRecord(value) &&
+  typeof value.screen === "string" &&
+  (value.styledScreen === undefined || isAnsiScreen(value.styledScreen)) &&
+  (value.lastCommandCopy === undefined || (isRecord(value.lastCommandCopy) && typeof value.lastCommandCopy.text === "string"));
 
 type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
 const screenStyledRows = ref<AnsiRow[] | null>(null);
+const lastCommandCopyText = ref("");
 const screenIsLoading = () => screenStatus.value === "loading";
 const mainScrollEl = ref<HTMLElement | null>(null);
 const MAIN_SCROLL_BOTTOM_TOLERANCE_PX = 24;
@@ -111,6 +116,10 @@ const inputText = ref("");
 const inputTextareaEl = ref<HTMLTextAreaElement | null>(null);
 type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
+type CopyStatus = "idle" | "copying" | "copied";
+const copyStatus = ref<CopyStatus>("idle");
+const manualCopyText = ref("");
+const manualCopyTextareaEl = ref<HTMLTextAreaElement | null>(null);
 
 const MOBILE_INPUT_MIN_HEIGHT_PX = 42;
 const MOBILE_INPUT_MAX_HEIGHT_PX = 128;
@@ -187,6 +196,9 @@ function changeSelectedSession(next: string | null): void {
   selectedSessionId.value = next;
   inputText.value = "";
   inputStatus.value = "idle";
+  copyStatus.value = "idle";
+  lastCommandCopyText.value = "";
+  manualCopyText.value = "";
   interruptStatus.value = "idle";
   if (stopStatus.value !== "sending") stopStatus.value = "idle";
 
@@ -196,6 +208,7 @@ function changeSelectedSession(next: string | null): void {
     screenStatus.value = "idle";
     screenText.value = "";
     screenStyledRows.value = null;
+    lastCommandCopyText.value = "";
   }
 }
 
@@ -340,11 +353,39 @@ async function loadScreen(id: string): Promise<void> {
     if (selectedSessionId.value !== requestedId) return;
     screenText.value = body.screen;
     screenStyledRows.value = body.styledScreen ?? null;
+    lastCommandCopyText.value = body.lastCommandCopy?.text ?? "";
+    copyStatus.value = "idle";
     screenStatus.value = "loaded";
   } catch {
     if (selectedSessionId.value !== requestedId) return;
     screenStatus.value = "error";
   }
+}
+
+async function copyLastCommandOutput(): Promise<void> {
+  if (!lastCommandCopyText.value) return;
+  if (selectedSession.value?.agent !== "shell") return;
+  if (copyStatus.value === "copying") return;
+  copyStatus.value = "copying";
+  try {
+    if (!navigator.clipboard) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(lastCommandCopyText.value);
+    copyStatus.value = "copied";
+  } catch {
+    await showManualCopy(lastCommandCopyText.value);
+    copyStatus.value = "idle";
+  }
+}
+
+async function showManualCopy(text: string): Promise<void> {
+  manualCopyText.value = text;
+  await nextTick();
+  manualCopyTextareaEl.value?.focus();
+  manualCopyTextareaEl.value?.select();
+}
+
+function closeManualCopy(): void {
+  manualCopyText.value = "";
 }
 
 let selectionScreenLoadPromise: Promise<void> | null = null;
@@ -394,6 +435,9 @@ async function sendTerminalInput(): Promise<void> {
   const requestedId = selectedSessionId.value;
   const text = inputText.value;
   inputStatus.value = "sending";
+  lastCommandCopyText.value = "";
+  copyStatus.value = "idle";
+  manualCopyText.value = "";
 
   try {
     const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(requestedId)}/input`, {
@@ -695,6 +739,17 @@ onUnmounted(() => {
               @interrupt="interruptSelectedSession"
               @stop="stopConfirmedSession"
             />
+            <div v-if="selectedSession.agent === 'shell' && lastCommandCopyText" class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-md border border-border bg-panel px-3 py-1.5 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+                :disabled="copyStatus === 'copying'"
+                @click="copyLastCommandOutput"
+              >
+                <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">content_copy</span>
+                {{ copyStatus === "copying" ? "Copying…" : copyStatus === "copied" ? "Copied" : "Copy last command" }}
+              </button>
+            </div>
 
             <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
 
@@ -768,5 +823,22 @@ onUnmounted(() => {
 
       <p v-if="inputStatus === 'error'" class="mt-1 text-[12px] text-err-text">Failed to send terminal input.</p>
     </footer>
+
+    <div v-if="manualCopyText" class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4" role="dialog" aria-modal="true">
+      <div class="flex max-h-[80vh] w-full max-w-lg flex-col gap-2 rounded-md border border-border bg-panel p-4 shadow-lg">
+        <p class="text-[13px] text-fg">Copy command output</p>
+        <p class="text-[12px] text-secondary">Clipboard access is blocked here. The text is selected below.</p>
+        <textarea
+          ref="manualCopyTextareaEl"
+          readonly
+          data-testid="mobile-last-command-manual-copy"
+          class="h-[45vh] w-full resize-none rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
+          :value="manualCopyText"
+        />
+        <button type="button" class="self-end rounded-md border border-border bg-panel px-3 py-1.5 text-[13px] text-fg hover:bg-hover" @click="closeManualCopy">
+          Close
+        </button>
+      </div>
+    </div>
   </div>
 </template>
