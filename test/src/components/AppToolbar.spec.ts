@@ -17,7 +17,7 @@ const labelsOf = (wrapper: ReturnType<typeof mount>): string[] =>
 const mountAt = async (path: string) => {
   await router.push(path);
   await settle();
-  const wrapper = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+  const wrapper = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true } } });
   await settle();
   return wrapper;
 };
@@ -71,6 +71,12 @@ describe("AppToolbar per-view buttons", () => {
     expect(labels.some((label) => label.startsWith("Grid cell ordering:"))).toBe(true);
   });
 
+  it("does not render the external remote-host toolbar control", async () => {
+    const wrapper = await mountAt("/terminals");
+    expect(wrapper.text()).not.toContain("Remote host");
+    expect(wrapper.find('[aria-label="Remote host"]').exists()).toBe(false);
+  });
+
   // ...and NOT while a full-screen overlay covers it. They act on cells nobody can see — a new
   // terminal appearing behind the wiki, an ordering change nobody watches — and the rate gauge is
   // status for a view that is not showing.
@@ -97,7 +103,7 @@ describe("AppToolbar per-view buttons", () => {
     prsGotoIndex();
     await settle();
 
-    const labels = labelsOf(mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } }));
+    const labels = labelsOf(mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true } } }));
     expect(labels).not.toContain("Feeds");
     expect(labels).not.toContain("Accounting");
     expect(labels).not.toContain("New terminal");
@@ -143,21 +149,21 @@ describe("AppToolbar per-view buttons", () => {
   it("highlights at most one view, and the grid only while it is showing", async () => {
     await router.push("/terminals");
     await settle();
-    const onGrid = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+    const onGrid = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true } } });
     expect(activeLabels(onGrid)).toEqual(["Grid view"]);
 
     // Inside the content section the door stays lit, so there is always something saying where
     // you are.
     await router.push("/collections");
     await settle();
-    const onCollections = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+    const onCollections = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true } } });
     expect(activeLabels(onCollections)).toEqual(["Collections"]);
 
     // PRs is the one place with NO highlight: its own button hides with the grid controls, so
     // nothing in the nav is lit. A consequence of hiding them, recorded rather than discovered.
     prsGotoIndex();
     await settle();
-    const onPrs = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true, RemoteHostControl: true } } });
+    const onPrs = mount(AppToolbar, { global: { plugins: [router], stubs: { NotificationBell: true } } });
     expect(activeLabels(onPrs)).toEqual([]);
   });
 });
