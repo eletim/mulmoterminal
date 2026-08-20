@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import { router } from "../router";
 import NotificationBell from "./NotificationBell.vue";
 import RateLimitGauge from "./RateLimitGauge.vue";
-import RemoteHostControl from "./RemoteHostControl.vue";
 import LauncherButton from "./LauncherButton.vue";
 import { CONTENT_ROUTES } from "../composables/overlayOrigin";
 import { useCollectionBrowse, browseGotoIndex } from "../composables/useCollectionBrowse";
@@ -204,7 +203,6 @@ function showPrs(): void {
       <RateLimitGauge v-if="onGridRoute" />
     </nav>
     <NotificationBell class="ml-auto" />
-    <RemoteHostControl />
     <div v-if="updateBadge" ref="updateRoot" class="relative mr-1 flex-none">
       <button
         type="button"
