@@ -24,6 +24,7 @@ import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
 import type { AnsiRow } from "../../common/ansiStyle.js";
+import type { SessionAgent } from "../../common/sessionAgent.js";
 import { publicMobileWebPushConfig, type MobileWebPushConfig } from "../mobile-web-push/config.js";
 import { parseMobileWebPushSubscription, type MobileWebPushSubscriptionStore } from "../mobile-web-push/subscription-store.js";
 import type { MobileWebPushSender } from "../mobile-web-push/sender.js";
@@ -106,6 +107,60 @@ async function resolveStyledScreen(
   }
 }
 
+interface PendingShellCommandCopy {
+  command: string;
+  beforeScreen: string;
+}
+
+export interface ShellCommandCopy {
+  text: string;
+}
+
+const commonPrefixLength = (a: string, b: string): number => {
+  const max = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < max && a.charCodeAt(i) === b.charCodeAt(i)) i += 1;
+  return i;
+};
+
+function lineStartBefore(text: string, index: number): number {
+  const previousNewline = text.lastIndexOf("\n", Math.max(0, index - 1));
+  return previousNewline < 0 ? 0 : previousNewline + 1;
+}
+
+function trimRepeatedPrompt(block: string, previousPrompt: string): string {
+  if (!previousPrompt) return block.trimEnd();
+  const trimmed = block.trimEnd();
+  const suffix = `\n${previousPrompt}`;
+  if (block.endsWith(suffix)) return block.slice(0, -suffix.length).trimEnd();
+  const lastBreak = trimmed.lastIndexOf("\n");
+  if (lastBreak < 0) return trimmed;
+  const trailingLine = trimmed.slice(lastBreak + 1);
+  const previousMarker = previousPrompt.trimEnd().at(-1);
+  const trailingMarker = trailingLine.trimEnd().at(-1);
+  const promptMarkers = new Set(["$", "#", "%", ">", "❯", "❱", "❮"]);
+  return previousMarker && previousMarker === trailingMarker && promptMarkers.has(trailingMarker) && trailingLine.length <= 160
+    ? trimmed.slice(0, lastBreak).trimEnd()
+    : trimmed;
+}
+
+export function shellCommandCopyFromScreens(beforeScreen: string, afterScreen: string, command = ""): ShellCommandCopy | null {
+  const prefix = commonPrefixLength(beforeScreen, afterScreen);
+  if (prefix < beforeScreen.length) return null;
+  if (prefix >= afterScreen.length) return null;
+  const start = lineStartBefore(beforeScreen, prefix);
+  const previousPrompt = beforeScreen.slice(start);
+  const firstCommandLine = command.split("\n").find((line) => line.trim() !== "");
+  let text = afterScreen.slice(start);
+  if (firstCommandLine) {
+    const commandIndex = text.lastIndexOf(firstCommandLine);
+    if (commandIndex < 0) return null;
+    text = text.slice(lineStartBefore(text, commandIndex));
+  }
+  text = trimRepeatedPrompt(text, previousPrompt);
+  return text === "" ? null : { text };
+}
+
 async function createTerminalFromBody(
   body: unknown,
   createTerminalAtCwd: LocalMobileTerminalRouteDeps["createTerminalAtCwd"],
@@ -180,7 +235,10 @@ function mountInputRoute(
   app: Express,
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
   sendInput: ReturnType<typeof createTerminalInputSender>,
+  captureTerminalScreen: LocalMobileTerminalRouteDeps["captureTerminalScreen"],
+  sessionAgent: (sessionId: string) => SessionAgent | undefined,
   setWaiting: LocalMobileTerminalRouteDeps["setWaiting"],
+  pendingShellCommandCopies: Map<string, PendingShellCommandCopy>,
 ) {
   app.post("/api/mobile/terminal-sessions/:id/input", async (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
@@ -190,9 +248,13 @@ function mountInputRoute(
     // Checked here, against the SAME sanitizer sendInput uses internally, so an empty-after-
     // sanitize text is a 400 the caller can act on rather than a generic 500 — and so the only
     // way sendInput can still reject below is "no live terminal" (see the catch).
-    if (typeof text !== "string" || !sanitizeTerminalInput(text)) return res.status(400).json({ error: "text is required" });
+    if (typeof text !== "string") return res.status(400).json({ error: "text is required" });
+    const safe = sanitizeTerminalInput(text);
+    if (!safe) return res.status(400).json({ error: "text is required" });
     try {
+      const beforeScreen = sessionAgent(id) === "shell" ? await captureTerminalScreen(id).catch(() => null) : null;
       const result = await sendInput(id, text);
+      if (beforeScreen) pendingShellCommandCopies.set(id, { command: safe, beforeScreen: beforeScreen.screen });
       setWaiting(id, false);
       res.json(result);
     } catch (err) {
@@ -250,6 +312,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   // createTerminalSessionHandlers (backends/remoteHost/handlers/terminalSession.ts), which builds
   // exactly one for the same reason. Never construct a second one per request.
   const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence, sessionAgent });
+  const pendingShellCommandCopies = new Map<string, PendingShellCommandCopy>();
 
   app.get("/api/mobile/terminal-sessions", async (_req: Request, res: Response) => {
     const sessions = await listTerminalSessions();
@@ -265,7 +328,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
 
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
   mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
-  mountInputRoute(app, isAllowedOrigin, sendInput, setWaiting);
+  mountInputRoute(app, isAllowedOrigin, sendInput, captureTerminalScreen, sessionAgent, setWaiting, pendingShellCommandCopies);
   mountSessionOperationRoutes(app, isAllowedOrigin, interruptSession, stopSession);
 
   app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
@@ -279,7 +342,13 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
       // failure or a mismatch resolving styled rows must not cost the phone the screen it
       // already has (resolveStyledScreen's own comment covers both cases).
       const styledScreen = await resolveStyledScreen(id, screen, captureStyledScreen);
-      res.json(styledScreen ? { ...screen, styledScreen } : screen);
+      const pendingCopy = sessionAgent(id) === "shell" ? pendingShellCommandCopies.get(id) : undefined;
+      const lastCommandCopy = pendingCopy ? shellCommandCopyFromScreens(pendingCopy.beforeScreen, screen.screen, pendingCopy.command) : null;
+      res.json({
+        ...screen,
+        ...(styledScreen ? { styledScreen } : {}),
+        ...(lastCommandCopy ? { lastCommandCopy } : {}),
+      });
     } catch (err) {
       if (err instanceof TerminalSessionNotFoundError) return res.status(404).json({ error: "session not found" });
       console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed:", err);

@@ -12,7 +12,7 @@ import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/remembered
 // all three responses independently.
 type MockActivity = { working: boolean; waiting: boolean; event: string | null; workPhase: "planning" | "implementing" | null };
 type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null; activity: MockActivity };
-type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
+type ScreenResult = { ok: true; screen: unknown } | { ok: true; body: Record<string, unknown> } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 type InterruptResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
 type StopResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
@@ -20,6 +20,7 @@ type CreateResult = { ok: true; body?: unknown } | { ok: false; status?: number;
 type WebPushResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
 
 const screenOk = (screen: unknown): ScreenResult => ({ ok: true, screen });
+const screenOkBody = (body: Record<string, unknown>): ScreenResult => ({ ok: true, body });
 const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
 
 const inputOk = (): InputResult => ({ ok: true, body: { sent: true } });
@@ -43,6 +44,7 @@ type MockPushSubscription = PushSubscription & {
 const originalNotificationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Notification");
 const originalPushManagerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "PushManager");
 const originalServiceWorkerDescriptor = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
 
 function restoreDescriptor(target: object, key: string, descriptor: PropertyDescriptor | undefined): void {
   if (descriptor) Object.defineProperty(target, key, descriptor);
@@ -56,6 +58,7 @@ afterEach(async () => {
   restoreDescriptor(globalThis, "Notification", originalNotificationDescriptor);
   restoreDescriptor(globalThis, "PushManager", originalPushManagerDescriptor);
   restoreDescriptor(navigator, "serviceWorker", originalServiceWorkerDescriptor);
+  restoreDescriptor(navigator, "clipboard", originalClipboardDescriptor);
   await router.push("/");
 });
 
@@ -71,7 +74,7 @@ function screenResponse(url: string, screens: Record<string, ScreenResult>): Moc
   const result = screens[decodeURIComponent(match[1])];
   if (!result) throw new Error(`unexpected screen fetch: ${url}`);
   if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => ({}) };
-  return { ok: true, json: async () => ({ screen: result.screen }) };
+  return { ok: true, json: async () => ("body" in result ? result.body : { screen: result.screen }) };
 }
 
 function inputResponse(url: string, inputs: Record<string, InputResult>): MockFetchResponse | null {
@@ -2195,6 +2198,102 @@ describe("MobileTerminalPage", () => {
       mockFetch({ mode: "remote" });
       const wrapper = await mountPage();
       expect(inputEl(wrapper).exists()).toBe(false);
+    });
+
+    it("copies the last Shell command and output from the screen response", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }) },
+      });
+      const wrapper = await mountPage();
+      const button = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!button) throw new Error("copy button not found");
+
+      await button.trigger("click");
+      await flushPromises();
+
+      expect(writeText).toHaveBeenCalledWith("$ echo hi\nhi");
+      expect(wrapper.text()).toContain("Copied");
+    });
+
+    it("does not show the last-command copy button for agent sessions", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "claude" })],
+        screens: { a: screenOkBody({ screen: "hello", lastCommandCopy: { text: "hello" } }) },
+      });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).not.toContain("Copy last command");
+    });
+
+    it("shows a selected manual-copy box when the clipboard write fails", async () => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }) },
+      });
+      const wrapper = await mountPage();
+      const button = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!button) throw new Error("copy button not found");
+
+      await button.trigger("click");
+      await flushPromises();
+
+      const box = wrapper.get('[data-testid="mobile-last-command-manual-copy"]');
+      expect((box.element as HTMLTextAreaElement).value).toBe("$ echo hi\nhi");
+      expect((box.element as HTMLTextAreaElement).selectionStart).toBe(0);
+      expect((box.element as HTMLTextAreaElement).selectionEnd).toBe("$ echo hi\nhi".length);
+    });
+
+    it("clears the manual-copy box when switching sessions", async () => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", title: "session-a", live: true, agent: "shell" }), session({ id: "b", title: "session-b", live: true, agent: "shell" })],
+        screens: {
+          a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }),
+          b: screenOk("session b"),
+        },
+      });
+      const wrapper = await mountPage();
+      const copyButton = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!copyButton) throw new Error("copy button not found");
+      await copyButton.trigger("click");
+      await flushPromises();
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(true);
+
+      const sessionBButton = wrapper.findAll("main li button").find((candidate) => candidate.text().includes("session-b"));
+      if (!sessionBButton) throw new Error("session-b button not found");
+      await sessionBButton.trigger("click");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(false);
+    });
+
+    it("clears the manual-copy box when sending a new command", async () => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }) },
+        inputs: { a: inputOk() },
+      });
+      const wrapper = await mountPage();
+      const copyButton = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!copyButton) throw new Error("copy button not found");
+      await copyButton.trigger("click");
+      await flushPromises();
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(true);
+
+      await inputEl(wrapper).setValue("pwd");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(false);
     });
 
     it("POSTs the typed text, unmodified, to the session's input endpoint with a JSON content type", async () => {
