@@ -65,7 +65,6 @@ import {
   backgroundMarkers,
   codexRolloutIds,
   codexRolloutIdsHydrated,
-  devTerminalSessions,
   isPhoneListableSession,
   knownSessions,
   lastPrompts,
@@ -659,7 +658,7 @@ const remoteHostListTerminalSessions = async () => {
   // case that mark exists for is a server that restarted before any tab opened, where the answer
   // lives only on disk.
   await Promise.all([activityStateHydrated, unplacedSessionsHydrated, placedSessionsHydrated, codexRolloutIdsHydrated]);
-  const candidateIds = mobileActivityCandidateIds({ liveIds, tmuxIds, activityEntries: activity.entries(), isGridSession: (id) => devTerminalSessions.has(id) });
+  const candidateIds = mobileActivityCandidateIds({ liveIds, tmuxIds, activityEntries: activity.entries(), isGridSession: isPhoneListableSession });
   const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])];
   const memoryTitleOf = (id: string) => sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title);
   const persistentDetails = await persistentMobileDetails(idsNeedingPersistentDetail(ids, memoryTitleOf), cwdOfSession, {

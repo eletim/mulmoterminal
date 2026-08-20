@@ -186,9 +186,9 @@ describe("codex rollout id mappings", () => {
     registry.rememberCodexRolloutId(A, B);
     expect(registry.codexRolloutIds.get(A)).toBe(B);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(loggedTo("codex-rollout-ids.json")).toContain(`${A} ${B}`);
+    expect(loggedTo("codex-rollout-ids.log")).toContain(`${A} ${B}`);
 
-    readBack = { "codex-rollout-ids.json": `${A} ${B}` };
+    readBack = { "codex-rollout-ids.log": `${A} ${B}` };
     const restarted = await freshRegistry();
     await restarted.codexRolloutIdsHydrated;
     expect(restarted.codexRolloutIds.get(A)).toBe(B);
@@ -199,6 +199,6 @@ describe("codex rollout id mappings", () => {
     registry.rememberCodexRolloutId(A, "not-a-session");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(registry.codexRolloutIds.has(A)).toBe(false);
-    expect(loggedTo("codex-rollout-ids.json")).toBe("");
+    expect(loggedTo("codex-rollout-ids.log")).toBe("");
   });
 });

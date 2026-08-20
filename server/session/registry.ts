@@ -99,7 +99,7 @@ const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
 // flooding the UI while preserving the one fact needed to title/resume a session the UI already
 // has another reason to care about.
 export const codexRolloutIds = new Map<string, string>();
-const CODEX_ROLLOUT_IDS_FILE = path.join(MULMOTERMINAL_HOME, "codex-rollout-ids.json");
+const CODEX_ROLLOUT_IDS_FILE = path.join(MULMOTERMINAL_HOME, "codex-rollout-ids.log");
 export const codexRolloutIdsHydrated = (async () => {
   try {
     for (const line of (await fs.readFile(CODEX_ROLLOUT_IDS_FILE, "utf8")).split("\n")) {

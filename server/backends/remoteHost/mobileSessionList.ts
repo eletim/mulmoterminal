@@ -48,11 +48,11 @@ export async function persistentMobileDetail(
 ): Promise<MobilePersistentDetail | null> {
   const rolloutId = sources.rolloutIdOf(id);
   if (rolloutId) {
-    const codex = await sources.readCodex(rolloutId);
+    const codex = await sources.readCodex(rolloutId).catch(() => null);
     if (codex?.title) return { title: codex.title, cwd: codex.cwd ?? (cwdHint || null), agent: "codex" };
   }
   if (!cwdHint) return null;
-  const claude = await sources.readClaude(id, cwdHint);
+  const claude = await sources.readClaude(id, cwdHint).catch(() => null);
   return claude?.title ? { title: claude.title, cwd: cwdHint, agent: "claude" } : null;
 }
 
