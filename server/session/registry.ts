@@ -98,6 +98,10 @@ const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
 // dev-terminal/activity, or an explicitly cwd-scoped query. That keeps old rollout history from
 // flooding the UI while preserving the one fact needed to title/resume a session the UI already
 // has another reason to care about.
+//
+// Append-only like the other session id logs in this file. It can retain mappings for old sessions,
+// but those do not create mobile rows by themselves; they are consulted only after another bounded
+// source has already selected the MulmoTerminal session id.
 export const codexRolloutIds = new Map<string, string>();
 const CODEX_ROLLOUT_IDS_FILE = path.join(MULMOTERMINAL_HOME, "codex-rollout-ids.log");
 export const codexRolloutIdsHydrated = (async () => {
