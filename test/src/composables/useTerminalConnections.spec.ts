@@ -24,6 +24,8 @@ describe("useTerminalConnections — detached-slot state replay", () => {
   beforeEach(() => {
     FakeWebSocket.instances.length = 0;
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    mockTermState.bufferLines = [];
+    mockTermState.bufferLength = 24;
   });
   afterEach(() => {
     conn.release("cell-race"); // tear the slot down so it can't leak into the next test
@@ -242,6 +244,101 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     } finally {
       setTerminalSubmitMode("cr");
     }
+  });
+
+  it("captures the last Shell launcher command and multiline output from the xterm buffer", () => {
+    const shellTarget = { ...target(null), launcher: { shell: true as const } };
+    conn.attach("cell-shell-copy", shellTarget, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    expect(conn.connView.get("cell-shell-copy")?.lastCommandCopyText).toBe("");
+    mockTermState.emitData("echo hi");
+    mockTermState.bufferLines = ["user@host:/repo$ echo hi"];
+    mockTermState.emitData("\r");
+    expect(conn.connView.get("cell-shell-copy")?.lastCommandCopyText).toBe("");
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "\r\nhi\r\nagain\r\nuser@host:/repo$ " }) } as MessageEvent);
+
+    expect(conn.connView.get("cell-shell-copy")?.lastCommandCopyText).toBe("user@host:/repo$ echo hi\nhi\nagain");
+    conn.release("cell-shell-copy");
+  });
+
+  it("updates the Shell launcher copy target on the next command, including output-free commands", () => {
+    const shellTarget = { ...target(null), launcher: { shell: true as const } };
+    conn.attach("cell-shell-next", shellTarget, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    mockTermState.emitData("echo hi");
+    mockTermState.bufferLines = ["user@host:/repo$ echo hi"];
+    mockTermState.emitData("\r");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "\r\nhi\r\nuser@host:/repo$ " }) } as MessageEvent);
+    expect(conn.connView.get("cell-shell-next")?.lastCommandCopyText).toBe("user@host:/repo$ echo hi\nhi");
+
+    mockTermState.emitData("true");
+    mockTermState.bufferLines = ["user@host:/repo$ echo hi", "hi", "user@host:/repo$ true"];
+    mockTermState.emitData("\r");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "\r\nuser@host:/repo$ " }) } as MessageEvent);
+
+    expect(conn.connView.get("cell-shell-next")?.lastCommandCopyText).toBe("user@host:/repo$ true");
+    conn.release("cell-shell-next");
+  });
+
+  it("keeps ANSI color codes out of Shell launcher copy text", () => {
+    const shellTarget = { ...target(null), launcher: { shell: true as const } };
+    conn.attach("cell-shell-ansi", shellTarget, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    mockTermState.emitData("printf red");
+    mockTermState.bufferLines = ["user@host:/repo$ printf red"];
+    mockTermState.emitData("\r");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "\r\n\u001b[31mred\u001b[0m\r\nuser@host:/repo$ " }) } as MessageEvent);
+
+    expect(conn.connView.get("cell-shell-ansi")?.lastCommandCopyText).toBe("user@host:/repo$ printf red\nred");
+    conn.release("cell-shell-ansi");
+  });
+
+  it("keeps long Shell launcher output in the copy target without depending on scrollback", () => {
+    const shellTarget = { ...target(null), launcher: { shell: true as const } };
+    conn.attach("cell-shell-long", shellTarget, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    mockTermState.emitData("seq 1 1200");
+    mockTermState.bufferLines = ["user@host:/repo$ seq 1 1200"];
+    mockTermState.emitData("\r");
+    const output = Array.from({ length: 1200 }, (_, i) => String(i + 1)).join("\r\n");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: `\r\n${output}\r\nuser@host:/repo$ ` }) } as MessageEvent);
+
+    const copied = conn.connView.get("cell-shell-long")?.lastCommandCopyText ?? "";
+    expect(copied.startsWith("user@host:/repo$ seq 1 1200\n1\n2\n3")).toBe(true);
+    expect(copied.endsWith("\n1198\n1199\n1200")).toBe(true);
+    conn.release("cell-shell-long");
+  });
+
+  it("does not capture last-command copy text for non-Shell launcher cells and clears it on retarget", () => {
+    conn.attach("cell-shell-mix", { ...target(null), launcher: { shell: true as const } }, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+    mockTermState.emitData("pwd");
+    mockTermState.bufferLines = ["user@host:/repo$ pwd"];
+    mockTermState.emitData("\r");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "\r\n/repo\r\nuser@host:/repo$ " }) } as MessageEvent);
+    expect(conn.connView.get("cell-shell-mix")?.lastCommandCopyText).toContain("pwd");
+
+    conn.retarget("cell-shell-mix", { ...target("next"), launcher: { index: 1 } });
+    expect(conn.connView.get("cell-shell-mix")?.lastCommandCopyText).toBe("");
+    mockTermState.bufferLines = ["codex prompt"];
+    mockTermState.emitData("hello\r");
+    expect(conn.connView.get("cell-shell-mix")?.lastCommandCopyText).toBe("");
+    conn.release("cell-shell-mix");
   });
 
   it("configures xterm with macOptionIsMeta so macOS Option acts as Meta (Alt bindings reach the PTY)", () => {

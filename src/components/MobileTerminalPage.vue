@@ -17,6 +17,7 @@ import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
 import { readRememberedLaunchAgent } from "../composables/rememberedLaunchAgent";
+import { useManualCopy } from "../composables/useManualCopy";
 import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 import { homeRelative } from "./cwdDisplay";
@@ -148,8 +149,7 @@ type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
 type CopyStatus = "idle" | "copying" | "copied";
 const copyStatus = ref<CopyStatus>("idle");
-const manualCopyText = ref("");
-const manualCopyTextareaEl = ref<HTMLTextAreaElement | null>(null);
+const { manualCopyText, setManualCopyTextareaEl, showManualCopy, closeManualCopy } = useManualCopy();
 
 const MOBILE_INPUT_MIN_HEIGHT_PX = 42;
 const MOBILE_INPUT_MAX_HEIGHT_PX = 128;
@@ -439,17 +439,6 @@ async function copyLastCommandOutput(): Promise<void> {
     await showManualCopy(lastCommandCopyText.value);
     copyStatus.value = "idle";
   }
-}
-
-async function showManualCopy(text: string): Promise<void> {
-  manualCopyText.value = text;
-  await nextTick();
-  manualCopyTextareaEl.value?.focus();
-  manualCopyTextareaEl.value?.select();
-}
-
-function closeManualCopy(): void {
-  manualCopyText.value = "";
 }
 
 let selectionScreenLoadPromise: Promise<void> | null = null;
@@ -897,7 +886,7 @@ onUnmounted(() => {
         <p class="text-[13px] text-fg">Copy command output</p>
         <p class="text-[12px] text-secondary">Clipboard access is blocked here. The text is selected below.</p>
         <textarea
-          ref="manualCopyTextareaEl"
+          :ref="setManualCopyTextareaEl"
           readonly
           data-testid="mobile-last-command-manual-copy"
           class="h-[45vh] w-full resize-none rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"

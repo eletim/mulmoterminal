@@ -7,12 +7,8 @@ import { describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
-import {
-  localSessionActivity,
-  mountLocalMobileTerminalRoutes,
-  shellCommandCopyFromScreens,
-  type LocalMobileTerminalRouteDeps,
-} from "../../../server/routes/local-mobile-terminal-routes";
+import { localSessionActivity, mountLocalMobileTerminalRoutes, type LocalMobileTerminalRouteDeps } from "../../../server/routes/local-mobile-terminal-routes";
+import { shellCommandCopyFromScreens } from "../../../common/shellCommandCopy";
 import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/mobileTerminal/terminalScreen";
 import { NO_BROWSER_ERROR } from "../../../server/mobileTerminal/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";

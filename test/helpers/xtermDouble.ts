@@ -50,6 +50,7 @@ export interface XtermTermState {
   bufferLength: number;
   bufferBaseY: number;
   bufferCursorY: number;
+  bufferLines: string[];
   /** How many terminals the manager has constructed for this state. The rebuild (#846) is
    *  otherwise invisible from outside: it swaps `c.term` for a fresh one behind the slot key. */
   constructed: number;
@@ -73,6 +74,7 @@ export function createXtermState(): { termState: XtermTermState; keyState: Xterm
       bufferLength: 24,
       bufferBaseY: 0,
       bufferCursorY: 0,
+      bufferLines: [],
       constructed: 0,
     },
     keyState: { handler: () => true },
@@ -122,6 +124,10 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
             length: termState.bufferLength,
             baseY: termState.bufferBaseY,
             cursorY: termState.bufferCursorY,
+            getLine: (index: number) => {
+              const text = termState.bufferLines[index];
+              return text === undefined ? undefined : { translateToString: () => text };
+            },
           },
         };
       }
@@ -141,7 +147,17 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
       input(data: string) {
         termState.input.push(data);
       }
-      write() {}
+      write(data?: string, callback?: () => void) {
+        if (typeof data === "string") {
+          const normalized = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r\n?/g, "\n");
+          const chunks = normalized.split("\n");
+          if (!termState.bufferLines.length) termState.bufferLines.push("");
+          termState.bufferLines[termState.bufferLines.length - 1] += chunks[0] ?? "";
+          for (const chunk of chunks.slice(1)) termState.bufferLines.push(chunk);
+          termState.bufferLength = Math.max(24, termState.bufferLines.length);
+        }
+        callback?.();
+      }
       refresh() {}
       reset() {}
       focus() {}
