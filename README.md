@@ -421,7 +421,8 @@ Antigravity** one (your choice is remembered).
 **Shell** is not an agent: it runs your OS default shell (`$SHELL`, or `/bin/sh`) in the
 chosen directory, with nothing to install and nothing to configure. It starts a launcher
 cell, so it has no model, no MCP registration, and no worktree — those rows disappear
-while it is picked.
+while it is picked. A shell cell's copy button copies the latest command line and its output
+without changing normal terminal selection.
 
 **Other models.**
 Claude Code can run against any **Anthropic-compatible** backend (OpenRouter, Moonshot, a

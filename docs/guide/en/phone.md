@@ -12,28 +12,28 @@ description: Watch, reply to, and start Claude Code / Codex sessions from your p
 - TOC
 {:toc}
 
-Your agents keep working while you're away from the desk. The companion app —
-**[mulmoserver.web.app](https://mulmoserver.web.app)**, a PWA you add to your home screen — is a
-**remote control** for the MulmoTerminal running on your Mac: watch a session's live screen,
+Your agents keep working while you're away from the desk. The local mobile page in MulmoTerminal
+is a **remote control** for the MulmoTerminal running on your Mac: watch a session's live screen,
 answer it, and start a new terminal, all from your phone.
 
 ![The terminal viewed from a phone — live screen plus quick replies](../images/remote-phone-terminal.jpg)
 
-Everything here needs the **RemoteHost** link connected on the terminal side. That's the same
-connection [Mobile notifications](notifications.html) uses, so if push already works you're set.
+Everything here runs through the MulmoTerminal server you already use on the desktop. The phone
+must be able to reach that server over a trusted local network, Tailscale, or an equivalent private
+tunnel.
 
 ---
 
 ## Connecting
 
-1. On the Mac, open the **RemoteHost** menu in the toolbar and press **Connect** — it signs in
-   with your Google account.
-2. On the phone, open [mulmoserver.web.app](https://mulmoserver.web.app) and sign in with the
-   **same account**. Add it to your home screen so it behaves like an app.
+1. Start MulmoTerminal on an address your phone can reach. Use the local mobile/Tailscale helper
+   if you have it, or bind to a trusted LAN address with the origin settings described in
+   [Configuration](config.html#bind-host).
+2. On the phone, open the MulmoTerminal URL and go to `/mobile/terminals`. Add it to your home
+   screen so it behaves like an app.
 
-The toolbar shows the link's state: **Online**, **Reconnecting…**, or **Offline** with the last
-error. A laptop that slept or changed networks reconnects on its own; if it gives up, you get a
-bell notification so you find out before the phone does.
+The mobile page reconnects when the phone sleeps or changes networks. If the network is slow, it
+keeps the app shell visible while it refreshes the session list and screen.
 
 ## What you see
 
@@ -45,9 +45,9 @@ If that directory is a **GitHub repository**, its name links to the repo. The li
 repository's front page rather than the current branch — a branch you haven't pushed, or one
 that was deleted when its PR merged, would just 404.
 
-The list offers the **grid's terminals**. A session that survived a MulmoTerminal restart is
-still viewable — the screen comes from tmux — but you can't type into it, because the process
-that was relaying your keystrokes is gone.
+The list offers the **grid's terminals** and resumable sessions that still matter. A session that
+survived a MulmoTerminal restart is still viewable — the screen comes from tmux — but you can't
+type into it when the process that was relaying your keystrokes is gone.
 
 ## Answering
 

@@ -23,57 +23,46 @@ in two places: the **terminal side** and the **phone side**.
 - Pushes fire **even for the pane you're viewing** (unlike the attention [sound](features.html),
   which stays quiet for the active pane — a push assumes your phone is elsewhere). Only internal
   background workers are excluded.
-- The send happens on the server; device registration/delivery is handled by a separate service
-  (`mulmoserver`). Pushes are sent **only while RemoteHost is connected**.
+- The send happens on the MulmoTerminal server. Devices are registered from the local mobile page
+  (`/mobile/terminals`) and stored locally.
 
 ---
 
 ## 1. Terminal side (mulmoterminal)
 
-1. Open the **RemoteHost** control in the toolbar (`phonelink` icon) and click
-   **Connect (Google sign-in)**. A Google sign-in popup opens — sign in with the
-   **same Google account** you'll use on the phone.
-2. In **Settings → Web Push notifications**, turn on
-   **"Notify my devices when a task finishes"** (off by default).
+1. Start MulmoTerminal so your phone can reach it, for example with the local mobile/Tailscale
+   helper or your own trusted LAN binding.
+2. Open **Settings → Web Push notifications** and choose which moments should push.
 
-> ⚠️ This is **not** the **Google account** section in Settings — that one links a
-> Calendar account for tools. Notifications use the **Connect** button in the RemoteHost panel.
+## 2. Phone side
 
-That's it — a background task finishing now sends a push to your phone.
-
-> 💡 The login survives a server restart (since 0.9.3): the session is parked in the browser and
-> the client silently reconnects — on page load, socket reconnect, tab wake, or network recovery.
-
-## 2. Phone side (mulmoserver PWA)
-
-The entry point is the same on every phone: **[https://mulmoserver.web.app](https://mulmoserver.web.app)**
-(or scan the **QR code** shown in the RemoteHost panel with your phone's camera). Sign in with the
-**same Google account** as the terminal — but the steps **differ between iPhone and Android**.
+Open your MulmoTerminal mobile URL, ending in `/mobile/terminals`. The steps differ between
+iPhone and Android.
 
 ### iPhone / iPad (iOS 16.4+)
 
 On iOS, **Web Push only works from a PWA installed on the Home Screen** — you can't enable it
 from a regular Safari tab, so **install first**.
 
-1. Open [https://mulmoserver.web.app](https://mulmoserver.web.app) in Safari.
+1. Open the MulmoTerminal mobile URL in Safari.
 2. Tap **Share → "Add to Home Screen"** to install the PWA.
-3. **Launch it from the Home Screen icon** and sign in with the same Google account as the terminal.
-4. Tap **"Enable notifications"** and allow the permission prompt (this registers the device
-   as a push target).
+3. **Launch it from the Home Screen icon**.
+4. In the mobile page's Web Push panel, tap the enable/register action and allow the permission
+   prompt. This registers the device as a push target.
 
 ### Android
 
 Android (Chrome) can enable push straight from the browser tab.
 
-1. Open [https://mulmoserver.web.app](https://mulmoserver.web.app) in Chrome.
-2. Sign in with the same Google account as the terminal.
-3. Tap **"Enable notifications"** and allow the permission prompt.
+1. Open the MulmoTerminal mobile URL in Chrome.
+2. In the mobile page's Web Push panel, tap the enable/register action and allow the permission
+   prompt.
 4. (Recommended) Use the menu's **"Add to Home Screen"** to install the PWA — launching and
    delivery are more reliable that way.
 
 ## Not just notifications: watch and reply from the phone
 
-The mulmoserver PWA is a **remote control**, not just an inbox. Get pinged, glance at the live
+The mobile page is a **remote control**, not just an inbox. Get pinged, glance at the live
 screen, send one word, and the agent keeps going — all without a laptop. You can also start a
 new terminal in the session's directory, and give yourself one-tap chips for the sentences you
 send most.
@@ -88,8 +77,7 @@ send most.
 
 All four have to hold:
 
-- ✅ RemoteHost is **connected** on the terminal side
-- ✅ the **"Notify my devices" toggle is ON**
+- ✅ Web Push is configured on the server
 - ✅ at least one **device has notifications enabled** on the phone side
 - ✅ the moment is **a kind you asked for** — see below
 
@@ -112,35 +100,30 @@ each. Untick one and that moment stops notifying, while the other keeps working.
 > accurate — the session really is blocked — but if you only want to hear about finished work,
 > untick it and keep **Turn finished**.
 
-Turning the master toggle off silences everything without losing which kinds you picked.
-
 A kind added in a future version stays **off** until you tick it, so an upgrade can't start
 notifying you about something you never asked for.
 
 ### In `config.json`
 
-The checkboxes write [`pushEnabled` and `pushKinds`](config.html):
+The checkboxes write [`pushKinds`](config.html):
 
 ```json
-{ "pushEnabled": true, "pushKinds": ["finished"] }
+{ "pushKinds": ["finished"] }
 ```
 
-`pushKinds: []` means no kind qualifies — the same silence as turning the toggle off, but it
-remembers nothing. Leaving `pushKinds` out entirely keeps both kinds, which is what a config
-written before this setting existed does.
+`pushKinds: []` means no kind qualifies. Leaving `pushKinds` out entirely keeps both kinds, which
+is what a config written before this setting existed does.
 
 ## If nothing arrives
 
-- Is **RemoteHost disconnected**? → Connect again.
+- Is Web Push disabled in the server environment? → set the VAPID env vars and restart.
 - Notifications not enabled / no device registered on the phone. → enable them in the PWA.
 - **Can't enable on iPhone?** → launch from the **Home Screen icon**, not a Safari tab
   (an iOS restriction).
 - **Blocked the permission prompt?** → flip it back to "Allow" in the browser's site settings
   (the icon left of the address bar → Notifications).
-- **Different Google accounts** on the terminal and the phone? → sign in to both with the
-  same account.
 - Getting the **same push twice**? Your phone may have a **stale registration** — re-registering
-  on the mulmoserver side clears it.
+  from the mobile page clears it.
 
 ---
 

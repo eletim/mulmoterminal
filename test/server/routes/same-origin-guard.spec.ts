@@ -105,14 +105,14 @@ describe("requestOriginAllowed", () => {
   it("allows a safe method without consulting the predicate", () => {
     const predicate = vi.fn(refuseEverything);
     for (const m of ["GET", "HEAD", "OPTIONS"]) {
-      expect(requestOriginAllowed(request(m, "/api/remote-host/status"), predicate), m).toBe(true);
+      expect(requestOriginAllowed(request(m, "/api/mobile-mode"), predicate), m).toBe(true);
     }
     expect(predicate).not.toHaveBeenCalled();
   });
 
   it("still asks the predicate for a state-changing method", () => {
-    expect(requestOriginAllowed(request("POST", "/api/remote-host/connect"), refuseEverything)).toBe(false);
-    expect(requestOriginAllowed(request("POST", "/api/remote-host/connect"), () => true)).toBe(true);
+    expect(requestOriginAllowed(request("POST", "/api/mobile/terminal-input"), refuseEverything)).toBe(false);
+    expect(requestOriginAllowed(request("POST", "/api/mobile/terminal-input"), () => true)).toBe(true);
   });
 
   it("keeps the view-data exemption, which authenticates by token instead", () => {

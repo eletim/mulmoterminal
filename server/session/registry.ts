@@ -11,7 +11,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
 import type { DirModelChoice } from "./provider-env.js";
-import { asTerminalAgent, type TerminalAgent } from "../../common/sessionAgent.js";
+import { asTerminalAgent } from "../../common/sessionAgent.js";
+import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
@@ -89,9 +90,43 @@ export const lastTitledUserTurns = new Map<string, number>();
 // keeps failing backs off instead of re-spawning the summarizer on every 4s roster poll.
 export const lastTitleAttemptMs = new Map<string, number>();
 
+const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
+
 // mulmoterminal session key -> the codex rollout id it maps to. codex mints its own id, so we
 // discover it after spawn and keep it here to `codex resume <id>` once the live PTY is gone.
+// This mapping is NOT a list source: mobile/session pickers still have to start from live/tmux,
+// dev-terminal/activity, or an explicitly cwd-scoped query. That keeps old rollout history from
+// flooding the UI while preserving the one fact needed to title/resume a session the UI already
+// has another reason to care about.
+//
+// Append-only like the other session id logs in this file. It can retain mappings for old sessions,
+// but those do not create mobile rows by themselves; they are consulted only after another bounded
+// source has already selected the MulmoTerminal session id.
 export const codexRolloutIds = new Map<string, string>();
+const CODEX_ROLLOUT_IDS_FILE = path.join(MULMOTERMINAL_HOME, "codex-rollout-ids.log");
+export const codexRolloutIdsHydrated = (async () => {
+  try {
+    for (const line of (await fs.readFile(CODEX_ROLLOUT_IDS_FILE, "utf8")).split("\n")) {
+      const [id, rolloutId] = line.trim().split(/\s+/);
+      if (id && rolloutId && isValidSessionId(id) && isValidSessionId(rolloutId)) codexRolloutIds.set(id, rolloutId);
+    }
+  } catch {
+    // absent on first run / unreadable => no mappings remembered
+  }
+})();
+let codexRolloutPersist: Promise<void> = Promise.resolve();
+function appendCodexRolloutId(id: string, rolloutId: string): void {
+  codexRolloutPersist = codexRolloutPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(CODEX_ROLLOUT_IDS_FILE, `\n${id} ${rolloutId}`))
+    .catch((e) => console.error(`[codex-rollout-ids] failed to persist: ${messageOf(e)}`));
+}
+
+export function rememberCodexRolloutId(id: string, rolloutId: string): void {
+  if (!isValidSessionId(id) || !isValidSessionId(rolloutId) || codexRolloutIds.get(id) === rolloutId) return;
+  codexRolloutIds.set(id, rolloutId);
+  appendCodexRolloutId(id, rolloutId);
+}
 // Rollout files already attributed to a session, so a single rollout is never mapped to two keys
 // (which would let both cold-resume the same conversation). Serialized by the single event loop.
 export const claimedCodexRollouts = new Set<string>();
@@ -119,8 +154,6 @@ export const claimedAntigravityConversations = new Set<string>();
 // are tracked here so they're FILTERED OUT of /api/sessions: a translation worker is
 // a transient internal helper, not a chat the user should see in the sidebar.
 export const translationWorkerIds = new Set<string>();
-
-const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
 
 // Hydrate one id log once at boot (best-effort — absent on first run / unreadable => empty).
 // Exposed as a promise so readers/writers can wait for it: a request served (or a mark
@@ -217,26 +250,28 @@ export function isBackgroundSession(id: string): boolean {
 //
 // Persisted because the case it exists for is precisely "nobody was looking": a mark held only in
 // memory would be lost by the restart that happens before anyone opens a tab.
-// `<session id> <agent>` per line, because the ID ALONE is not enough to reconnect. A cell adopting
-// a codex session over claude's endpoint attaches to the wrong agent, and the live PtyEntry that
-// would have said so is exactly what is gone in the case this exists for — the server restarted,
-// or the pty was reaped, before anyone opened a tab (Codex, PR #1189).
-const unplacedSessions = new Map<string, TerminalAgent>();
+// `<session id> <launch agent>` per line, because the ID ALONE is not enough to reconnect. A cell
+// adopting a codex session over claude's endpoint attaches to the wrong agent, and a mobile-created
+// shell must come back as a shell launcher rather than being disguised as an agent. The live
+// PtyEntry that would have said so is exactly what is gone in the case this exists for — the server
+// restarted, or the pty was reaped, before anyone opened a tab.
+const unplacedSessions = new Map<string, LaunchAgent>();
 const UNPLACED_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "unplaced-sessions.json");
+const asUnplacedLaunchAgent = (value: unknown): LaunchAgent => (typeof value === "string" && isLaunchAgent(value) ? value : asTerminalAgent(value));
 export const unplacedSessionsHydrated = (async () => {
   try {
     const contents = await fs.readFile(UNPLACED_SESSIONS_FILE, "utf8");
     for (const line of contents.split("\n")) {
       const [id, agent] = line.trim().split(/\s+/);
       // A line with no agent is one written before this field existed; claude is what those were.
-      if (id && isValidSessionId(id)) unplacedSessions.set(id, asTerminalAgent(agent));
+      if (id && isValidSessionId(id)) unplacedSessions.set(id, asUnplacedLaunchAgent(agent));
     }
   } catch {
     // absent on first run / unreadable => nothing waiting
   }
 })();
 let unplacedPersist: Promise<void> = Promise.resolve();
-function appendUnplacedSession(id: string, agent: TerminalAgent): void {
+function appendUnplacedSession(id: string, agent: LaunchAgent): void {
   unplacedPersist = unplacedPersist
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
     .then(() => fs.appendFile(UNPLACED_SESSIONS_FILE, `\n${id} ${agent}`))
@@ -248,10 +283,10 @@ function appendUnplacedSession(id: string, agent: TerminalAgent): void {
 // would be handed back as unplaced.
 const placedSessions = new Set<string>();
 
-/** Note that the server spawned a VISIBLE session nobody has a cell for yet. The agent travels
- *  with the id for the same reason it does everywhere else: the cell has to reconnect on the right
- *  endpoint, and by the time this is read the running process may be gone. */
-export function markUnplacedSession(id: string, agent: TerminalAgent = "claude"): void {
+/** Note that the server spawned a VISIBLE session nobody has a cell for yet. The launch agent
+ *  travels with the id for the same reason it does everywhere else: the cell has to reconnect on
+ *  the right endpoint, and by the time this is read the running process may be gone. */
+export function markUnplacedSession(id: string, agent: LaunchAgent = "claude"): void {
   if (!isValidSessionId(id) || unplacedSessions.has(id)) return;
   unplacedSessions.set(id, agent);
   appendUnplacedSession(id, agent);
@@ -292,7 +327,7 @@ export function markAttachedSessionPlaced(sessionId: string, requested: string |
 }
 
 /** The sessions a loading grid should adopt: spawned visible by the server, never taken. */
-export function unplacedSessionRows(): { id: string; agent: TerminalAgent }[] {
+export function unplacedSessionRows(): { id: string; agent: LaunchAgent }[] {
   return [...unplacedSessions].filter(([id]) => !placedSessions.has(id)).map(([id, agent]) => ({ id, agent }));
 }
 

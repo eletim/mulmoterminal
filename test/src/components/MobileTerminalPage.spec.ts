@@ -6,13 +6,13 @@ import mobileTerminalPageSource from "../../../src/components/MobileTerminalPage
 import { router } from "../../../src/router/index";
 import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/rememberedLaunchAgent";
 
-// The page fetches GET /api/mobile-mode on mount, and — only when it answers "local" —
-// GET /api/mobile/terminal-sessions, followed by GET /api/mobile/terminal-sessions/:id/screen
+// The page fetches GET /api/mobile-mode on mount, then GET /api/mobile/terminal-sessions,
+// followed by GET /api/mobile/terminal-sessions/:id/screen
 // for whichever session ends up selected. Route the mock fetch by path so each test controls
 // all three responses independently.
 type MockActivity = { working: boolean; waiting: boolean; event: string | null; workPhase: "planning" | "implementing" | null };
 type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null; activity: MockActivity };
-type ScreenResult = { ok: true; screen: unknown } | { ok: false; status?: number };
+type ScreenResult = { ok: true; screen: unknown } | { ok: true; body: Record<string, unknown> } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 type InterruptResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
 type StopResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
@@ -20,6 +20,7 @@ type CreateResult = { ok: true; body?: unknown } | { ok: false; status?: number;
 type WebPushResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
 
 const screenOk = (screen: unknown): ScreenResult => ({ ok: true, screen });
+const screenOkBody = (body: Record<string, unknown>): ScreenResult => ({ ok: true, body });
 const screenFail = (status = 500): ScreenResult => ({ ok: false, status });
 
 const inputOk = (): InputResult => ({ ok: true, body: { sent: true } });
@@ -43,6 +44,8 @@ type MockPushSubscription = PushSubscription & {
 const originalNotificationDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Notification");
 const originalPushManagerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "PushManager");
 const originalServiceWorkerDescriptor = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+const MOBILE_STATE_CACHE_KEY = "mulmoterminal.mobileTerminalPage.v1";
 
 function restoreDescriptor(target: object, key: string, descriptor: PropertyDescriptor | undefined): void {
   if (descriptor) Object.defineProperty(target, key, descriptor);
@@ -56,11 +59,13 @@ afterEach(async () => {
   restoreDescriptor(globalThis, "Notification", originalNotificationDescriptor);
   restoreDescriptor(globalThis, "PushManager", originalPushManagerDescriptor);
   restoreDescriptor(navigator, "serviceWorker", originalServiceWorkerDescriptor);
+  restoreDescriptor(navigator, "clipboard", originalClipboardDescriptor);
   await router.push("/");
 });
 
 beforeEach(() => {
   localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
+  localStorage.removeItem(MOBILE_STATE_CACHE_KEY);
 });
 
 // Split out of mockFetch's routing so that function stays a flat list of if-checks — each
@@ -71,7 +76,7 @@ function screenResponse(url: string, screens: Record<string, ScreenResult>): Moc
   const result = screens[decodeURIComponent(match[1])];
   if (!result) throw new Error(`unexpected screen fetch: ${url}`);
   if (!result.ok) return { ok: false, status: result.status ?? 500, json: async () => ({}) };
-  return { ok: true, json: async () => ({ screen: result.screen }) };
+  return { ok: true, json: async () => ("body" in result ? result.body : { screen: result.screen }) };
 }
 
 function inputResponse(url: string, inputs: Record<string, InputResult>): MockFetchResponse | null {
@@ -103,7 +108,7 @@ function webPushRouteResponse(url: string, init: RequestInit | undefined, routes
 }
 
 function mockFetch(opts: {
-  mode?: "local" | "remote";
+  mode?: "local";
   sessions?: MockSession[];
   home?: string | null;
   modeOk?: boolean;
@@ -317,6 +322,57 @@ describe("MobileTerminalPage", () => {
     const rows = wrapper.findAll("main li button");
     expect(rows[0].text()).toContain("~");
     expect(rows[1].text()).toContain("/home/eletim-other/project");
+  });
+
+  it("restores the cached mobile session view immediately and revalidates it in the background", async () => {
+    localStorage.setItem(
+      MOBILE_STATE_CACHE_KEY,
+      JSON.stringify({
+        home: "/home/eletim",
+        sessions: [session({ id: "a", title: "cached session", cwd: "/home/eletim/project", live: true, agent: "shell" })],
+        selectedSessionId: "a",
+        screen: { sessionId: "a", text: "cached screen", styledRows: null },
+      }),
+    );
+    let resolveSessions: (value: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+    const deferredSessions = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => {
+      resolveSessions = resolve;
+    });
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+      if (url === "/api/mobile/terminal-sessions") return deferredSessions;
+      if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "fresh screen" }) };
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    const wrapper = mount(MobileTerminalPage, { global: { plugins: [router] } });
+    await nextTick();
+    expect(wrapper.text()).toContain("cached session");
+    expect(wrapper.text()).toContain("cached screen");
+    expect(wrapper.text()).not.toContain("Loading…");
+
+    resolveSessions({
+      ok: true,
+      json: async () => ({
+        home: "/home/eletim",
+        sessions: [session({ id: "a", title: "fresh session", cwd: "/home/eletim/project", live: true, agent: "shell" })],
+      }),
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("fresh session");
+    expect(wrapper.text()).toContain("fresh screen");
+    expect(JSON.parse(localStorage.getItem(MOBILE_STATE_CACHE_KEY) ?? "{}").screen.text).toBe("fresh screen");
+  });
+
+  it("ignores a corrupt cached mobile state and falls back to the normal load path", async () => {
+    localStorage.setItem(MOBILE_STATE_CACHE_KEY, "{not json");
+    mockFetch({ mode: "local", sessions: [session({ id: "a", title: "fresh", live: true })], screens: { a: screenOk("fresh screen") } });
+    const wrapper = await mountPage();
+    expect(wrapper.text()).toContain("fresh");
+    expect(wrapper.text()).toContain("fresh screen");
   });
 
   it("distinguishes live from detached sessions", async () => {
@@ -701,14 +757,6 @@ describe("MobileTerminalPage", () => {
         clearIntervalSpy.mockRestore();
       });
     });
-  });
-
-  it("in remote mode, shows the disabled message and never fetches sessions", async () => {
-    mockFetch({ mode: "remote" });
-    const wrapper = await mountPage();
-    expect(wrapper.text()).toContain("Local mobile terminal is disabled");
-    expect(wrapper.text()).toContain("MULMOTERMINAL_MOBILE_MODE=local");
-    expect(globalThis.fetch).not.toHaveBeenCalledWith("/api/mobile/terminal-sessions");
   });
 
   it("selects the first live session initially", async () => {
@@ -1347,12 +1395,6 @@ describe("MobileTerminalPage", () => {
       expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
     });
 
-    it("does not fetch a screen in remote mode", async () => {
-      mockFetch({ mode: "remote" });
-      await mountPage();
-      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
-    });
-
     it("fetches the screen for a detached (live: false) session too", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "detached-one", live: false })], screens: { "detached-one": screenOk("x") } });
       await mountPage();
@@ -1852,16 +1894,6 @@ describe("MobileTerminalPage", () => {
       expect(sessionsCalls).toHaveLength(2); // the initial load, plus one on resume
     });
 
-    it("does not fetch a screen on resume in remote mode", async () => {
-      mockFetch({ mode: "remote" });
-      await mountPage();
-
-      fireVisibilityChange("visible");
-      await flushPromises();
-
-      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/screen$/));
-    });
-
     it("does not fetch a screen on resume when there are no sessions", async () => {
       mockFetch({ mode: "local", sessions: [] });
       await mountPage();
@@ -2191,10 +2223,115 @@ describe("MobileTerminalPage", () => {
       expect(inputEl(wrapper).exists()).toBe(false);
     });
 
-    it("does not show the input form in remote mode", async () => {
-      mockFetch({ mode: "remote" });
+    it("copies the last Shell command and output from the screen response", async () => {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }) },
+      });
       const wrapper = await mountPage();
-      expect(inputEl(wrapper).exists()).toBe(false);
+      const button = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!button) throw new Error("copy button not found");
+
+      await button.trigger("click");
+      await flushPromises();
+
+      expect(writeText).toHaveBeenCalledWith("$ echo hi\nhi");
+      expect(wrapper.text()).toContain("Copied");
+    });
+
+    it("shows the last-command copy button disabled for Shell sessions before any command is available", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ " }) },
+      });
+      const wrapper = await mountPage();
+      const button = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!button) throw new Error("copy button not found");
+
+      expect(button.attributes("disabled")).toBeDefined();
+      expect(button.attributes("title")).toBe("Run a command to enable copy");
+      expect(wrapper.text()).toContain("Run a command to enable copy");
+    });
+
+    it("does not show the last-command copy button for agent sessions", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "claude" })],
+        screens: { a: screenOkBody({ screen: "hello", lastCommandCopy: { text: "hello" } }) },
+      });
+      const wrapper = await mountPage();
+      expect(wrapper.text()).not.toContain("Copy last command");
+    });
+
+    it("shows a selected manual-copy box when the clipboard write fails", async () => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }) },
+      });
+      const wrapper = await mountPage();
+      const button = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!button) throw new Error("copy button not found");
+
+      await button.trigger("click");
+      await flushPromises();
+
+      const box = wrapper.get('[data-testid="mobile-last-command-manual-copy"]');
+      expect((box.element as HTMLTextAreaElement).value).toBe("$ echo hi\nhi");
+      expect((box.element as HTMLTextAreaElement).selectionStart).toBe(0);
+      expect((box.element as HTMLTextAreaElement).selectionEnd).toBe("$ echo hi\nhi".length);
+    });
+
+    it("clears the manual-copy box when switching sessions", async () => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", title: "session-a", live: true, agent: "shell" }), session({ id: "b", title: "session-b", live: true, agent: "shell" })],
+        screens: {
+          a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }),
+          b: screenOk("session b"),
+        },
+      });
+      const wrapper = await mountPage();
+      const copyButton = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!copyButton) throw new Error("copy button not found");
+      await copyButton.trigger("click");
+      await flushPromises();
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(true);
+
+      const sessionBButton = wrapper.findAll("main li button").find((candidate) => candidate.text().includes("session-b"));
+      if (!sessionBButton) throw new Error("session-b button not found");
+      await sessionBButton.trigger("click");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(false);
+    });
+
+    it("clears the manual-copy box when sending a new command", async () => {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ echo hi\nhi", lastCommandCopy: { text: "$ echo hi\nhi" } }) },
+        inputs: { a: inputOk() },
+      });
+      const wrapper = await mountPage();
+      const copyButton = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!copyButton) throw new Error("copy button not found");
+      await copyButton.trigger("click");
+      await flushPromises();
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(true);
+
+      await inputEl(wrapper).setValue("pwd");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="mobile-last-command-manual-copy"]').exists()).toBe(false);
     });
 
     it("POSTs the typed text, unmodified, to the session's input endpoint with a JSON content type", async () => {
@@ -2543,12 +2680,6 @@ describe("MobileTerminalPage", () => {
 
       it("hides the footer when there are no sessions", async () => {
         mockFetch({ mode: "local", sessions: [] });
-        const wrapper = await mountPage();
-        expect(wrapper.find("footer").exists()).toBe(false);
-      });
-
-      it("hides the footer in remote mode", async () => {
-        mockFetch({ mode: "remote" });
         const wrapper = await mountPage();
         expect(wrapper.find("footer").exists()).toBe(false);
       });

@@ -50,11 +50,11 @@ function originReadingFiles(): string[] {
   return files.sort();
 }
 
-// What the two #1094 routes must actually DO is not asserted here, on purpose: a source scan can
-// only say a file mentions the helper, which would still pass if /api/remote-host/status lost its
-// guard while a sibling POST kept one. That belongs where it can be observed instead of grepped —
-// remoteHost/routes.spec.ts and backends/google.spec.ts each drive the real route with a predicate
-// that refuses everything, and assert the GET answers 200 while the POST still 403s.
+// What the #1094 routes must actually DO is not asserted here, on purpose: a source scan can
+// only say a file mentions the helper, which would still pass if a guarded GET lost its safe-method
+// exemption while a sibling POST kept one. That belongs where it can be observed instead of grepped:
+// route specs drive the real route with a predicate that refuses everything, and assert GET answers
+// 200 while POST still 403s.
 describe("per-route origin guards", () => {
   it("leave the Origin header to requestOriginAllowed", () => {
     expect(originReadingFiles()).toEqual([...ORIGIN_READERS].sort());

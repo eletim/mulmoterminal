@@ -97,7 +97,7 @@ practical. A cell's launcher can create a worktree and start the session inside 
 Each session runs inside tmux, so **a page reload or a server restart reconnects** instead of losing
 it. Without tmux the sessions are plain PTYs and a restart ends them.
 
-## RemoteHost (from your phone)
+## Local mobile (from your phone)
 
 **Web Push to your phone** when a turn finishes or an agent stops to ask, plus watching, replying,
 and starting a terminal from the phone — so walking away doesn't mean missing the call.

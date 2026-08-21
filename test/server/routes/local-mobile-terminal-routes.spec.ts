@@ -1,18 +1,16 @@
 // @vitest-environment node
 //
-// The local-mode counterpart of the phone's remote-host terminal view (server/routes/local-
-// mobile-terminal-routes.ts): same session access, reached over same-origin HTTP instead of a
-// Firestore command channel. Every dependency here is a fake standing in for the SAME functions
-// server/index.ts wires into the Firestore adapter (remoteHostListTerminalSessions & co) — this
-// spec pins the ROUTE's contract (status codes, shapes, origin guard), not that plumbing, which
-// terminalScreen.spec.ts and terminalInput.spec.ts already cover.
+// The local mobile terminal route adapter. Every dependency here is a fake standing in for the
+// same PTY/tmux access functions server/index.ts wires into production; this spec pins the route
+// contract, while terminalScreen.spec.ts and terminalInput.spec.ts cover the lower-level helpers.
 import { describe, it, expect } from "vitest";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { localSessionActivity, mountLocalMobileTerminalRoutes, type LocalMobileTerminalRouteDeps } from "../../../server/routes/local-mobile-terminal-routes";
-import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/backends/remoteHost/terminalScreen";
-import { NO_BROWSER_ERROR } from "../../../server/backends/remoteHost/launchTerminal";
+import { shellCommandCopyFromScreens } from "../../../common/shellCommandCopy";
+import { TerminalSessionNotFoundError, type SessionScreen, type TerminalSessionSummary } from "../../../server/mobileTerminal/terminalScreen";
+import { NO_BROWSER_ERROR } from "../../../server/mobileTerminal/launchTerminal";
 import { isLaunchAgent, LAUNCH_AGENTS } from "../../../common/launchAgent";
 import type { AnsiRow } from "../../../common/ansiStyle";
 import type { MobileWebPushConfig } from "../../../server/mobile-web-push/config";
@@ -129,6 +127,41 @@ describe("localSessionActivity", () => {
       event: "Stop",
       workPhase: null,
     });
+  });
+});
+
+describe("shellCommandCopyFromScreens", () => {
+  it("returns the prompt-bearing command and multiline output while dropping the next prompt", () => {
+    expect(
+      shellCommandCopyFromScreens("older\nuser@host:/repo$ ", "older\nuser@host:/repo$ printf 'a\\nb'\na\nb\nuser@host:/repo$ ", "printf 'a\\nb'"),
+    ).toEqual({
+      text: "user@host:/repo$ printf 'a\\nb'\na\nb",
+    });
+  });
+
+  it("waits until the submitted command is visible before offering a copy block", () => {
+    expect(shellCommandCopyFromScreens("user@host:/repo$ ", "user@host:/repo$ ", "git status")).toBeNull();
+    expect(shellCommandCopyFromScreens("user@host:/repo$ ", "something else", "git status")).toBeNull();
+  });
+
+  it("returns null when the pre-send boundary has scrolled out of the captured window", () => {
+    expect(shellCommandCopyFromScreens("before\nuser@host:/repo$ ", "later output\ngit status\nmore output\nuser@host:/repo$ ", "git status")).toBeNull();
+  });
+
+  it("drops a dynamic trailing prompt when it keeps the same prompt marker", () => {
+    expect(shellCommandCopyFromScreens("old\nuser@host:/repo main$ ", "old\nuser@host:/repo main$ false\nfailed\nuser@host:/repo main ✘ $", "false")).toEqual({
+      text: "user@host:/repo main$ false\nfailed",
+    });
+  });
+
+  it("starts at the latest submitted command when a stale boundary spans two mobile sends", () => {
+    expect(
+      shellCommandCopyFromScreens(
+        "old\nuser@host:/repo$ ",
+        "old\nuser@host:/repo$ cd myproject\nuser@host:/repo/myproject$ ls\nREADME.md\npackage.json\nuser@host:/repo/myproject$ ",
+        "ls",
+      ),
+    ).toEqual({ text: "user@host:/repo/myproject$ ls\nREADME.md\npackage.json" });
   });
 });
 
@@ -439,6 +472,38 @@ describe("GET /api/mobile/terminal-sessions/:id/screen", () => {
     const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
     expect(res.status).toBe(200);
     expect(res.body.styledScreen).toEqual([[{ text: "❯ ", fg: null, bg: null, bold: false }]]);
+  });
+
+  it("adds a Shell-only lastCommandCopy after mobile input, using the pre-send screen as the command boundary", async () => {
+    let screen: SessionScreen = { ...SCREEN, screen: "old\nuser@host:/repo$ " };
+    const { app } = appFor({
+      sessionAgent: () => "shell",
+      captureTerminalScreen: async () => screen,
+      captureStyledScreen: async () => [[{ text: screen.screen, fg: null, bg: null, bold: false }]],
+    });
+
+    await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/input`).send({ text: "printf 'a\\nb'" });
+    screen = { ...SCREEN, screen: "old\nuser@host:/repo$ printf 'a\\nb'\na\nb\nuser@host:/repo$ " };
+
+    const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
+    expect(res.status).toBe(200);
+    expect(res.body.lastCommandCopy).toEqual({ text: "user@host:/repo$ printf 'a\\nb'\na\nb" });
+  });
+
+  it("does not add lastCommandCopy for agent sessions even after mobile input", async () => {
+    let screen: SessionScreen = { ...SCREEN, screen: "❯ " };
+    const { app } = appFor({
+      sessionAgent: () => "claude",
+      captureTerminalScreen: async () => screen,
+      captureStyledScreen: async () => [[{ text: screen.screen, fg: null, bg: null, bold: false }]],
+    });
+
+    await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/input`).send({ text: "hello" });
+    screen = { ...SCREEN, screen: "❯ hello\nreply" };
+
+    const res = await request(app).get(`/api/mobile/terminal-sessions/${LIVE}/screen`);
+    expect(res.status).toBe(200);
+    expect(res.body.lastCommandCopy).toBeUndefined();
   });
 });
 

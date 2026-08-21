@@ -5,7 +5,7 @@ import type { NotifyKind } from "./notifyKinds.js";
 
 // Every kind that exists — a SUBSET of NOTIFY_KINDS, since a push can only report what the
 // server itself observes. The rest of the notify kinds are browser-side signals (a Run cell's
-// exit, a PR phase poll) that never reach the process holding the Firebase auth.
+// exit, a PR phase poll) that are not raised by terminal activity transitions.
 //   finished — the turn ended, output is waiting to be reviewed.
 //   waiting  — the agent is blocked on input (a permission prompt or a question), so answering
 //              from the phone unblocks real work. Fires once per prompt, which on a long task

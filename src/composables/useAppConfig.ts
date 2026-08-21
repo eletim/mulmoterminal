@@ -25,11 +25,6 @@ import { setIssueWorkComments } from "./issueWorkComments";
 // other (each useAppConfig() otherwise has its own local refs).
 const soundFile = ref<string | null>(null);
 
-// Whether the server sends a Web Push when a task finishes — a SINGLETON like the
-// others so the settings toggle (openable from either view) reflects the saved state.
-// The actual sending is server-side; the client only reads/writes this flag.
-const pushEnabled = ref(false);
-
 // Which kinds of push the server sends (#850) — SINGLETON like the others.
 const pushKinds = ref<PushKind[]>([]);
 
@@ -245,12 +240,6 @@ async function saveSound(file: string | null): Promise<boolean> {
   if (r.ok) soundFile.value = typeof r.value === "string" ? r.value : null;
   return r.ok;
 }
-// Persist the "send a Web Push on task finish" toggle (partial update).
-async function savePushEnabled(on: boolean): Promise<boolean> {
-  const r = await postConfigField("pushEnabled", on);
-  if (r.ok) pushEnabled.value = r.value === true;
-  return r.ok;
-}
 // Persist the cross-repo PR list's repos (partial update, other fields untouched).
 async function savePrRepos(next: string[]): Promise<boolean> {
   const r = await postConfigField("prRepos", next);
@@ -383,7 +372,6 @@ export function useAppConfig() {
       home.value = typeof c.home === "string" ? c.home : null;
       adoptServerPresets(c.cwdPresets, version);
       adoptSoundConfig(c);
-      pushEnabled.value = c.pushEnabled === true;
       // Each list is filtered by the SAME guard its own save path uses (postConfigField below).
       // They used to differ: a save validated, the load on every page open did not.
       pushKinds.value = listOf(c.pushKinds, isPushKind);
@@ -409,7 +397,6 @@ export function useAppConfig() {
     quickCommands,
     userMcpServers,
     ...soundSettings,
-    pushEnabled,
     pushKinds,
     saving,
     error,
@@ -417,7 +404,6 @@ export function useAppConfig() {
     savePresets,
     recordPreset,
     removePreset,
-    savePushEnabled,
     savePushKinds,
     savePrRepos,
     saveLaunchers,

@@ -7,7 +7,7 @@
 // an empty config — so the whole file goes silently missing: a directory's colours, a
 // provider's registration, the Run menu's scripts. Nothing says why.
 //
-// The rule already existed for SKILL.md frontmatter (backends/remoteHost/skills.ts) and for
+// The rule already existed for SKILL.md frontmatter (server/skills/discovery.ts) and for
 // wiki pages (src/wikiMarkdown.ts); this is the same rule where the JSON readers can reach it.
 import { readFileSync } from "node:fs";
 

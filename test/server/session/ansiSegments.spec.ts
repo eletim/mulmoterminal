@@ -9,7 +9,7 @@ import {
   trimTrailingBlankAnsiRows,
   trimTrailingPad,
 } from "../../../server/session/ansiSegments.js";
-import { SCREEN_HISTORY_ROWS } from "../../../server/backends/remoteHost/terminalScreen.js";
+import { SCREEN_HISTORY_ROWS } from "../../../server/mobileTerminal/terminalScreen.js";
 import type { AnsiRow, AnsiSegment } from "../../../common/ansiStyle.js";
 
 const ESC = String.fromCharCode(0x1b);
@@ -192,9 +192,8 @@ describe("ansiScreenWindow", () => {
     expect(rows.at(-1)?.[0]?.text).toBe(`line-${SCREEN_HISTORY_ROWS + 9}`);
   });
 
-  // The reply is a same-origin HTTP response rather than a Firestore doc, but the cap still
-  // applies (round 2 review) — a wide, multibyte-heavy pane must not return an unbounded payload
-  // just because there's no 1 MiB Firestore ceiling forcing the issue.
+  // A wide, multibyte-heavy pane must not return an unbounded payload just because the response is
+  // same-origin HTTP.
   it("stops at the byte ceiling even when the row count would allow more", () => {
     const wide = "あ".repeat(2000); // 6 KB per row: 300 of them would be 1.8 MB
     const rows = ansiScreenWindow(Array.from({ length: SCREEN_HISTORY_ROWS }, (_, index) => plainRow(`${index}:${wide}`)));

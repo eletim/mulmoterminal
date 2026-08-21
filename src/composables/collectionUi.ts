@@ -181,7 +181,7 @@ configureCollectionUi({
 
   // ── mobile custom views (phone-frame preview): a `target: "mobile"` view is
   //    built HOST-side into its sandboxed srcdoc (server/backends/remoteView.ts,
-  //    shared with the remote-host channel), so the desktop preview renders the
+  //    shared with mobile-facing views), so the desktop preview renders the
   //    exact artifact the phone gets. Optional + paired: providing both makes the
   //    view selector surface mobile views. Image thumbnails aren't inlined (no
   //    thumbnail store yet) — image fields render as placeholders, like the phone. ──

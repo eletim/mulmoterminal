@@ -107,8 +107,8 @@ function writeFakeYarn(binDir: string) {
     executable,
     [
       "#!/usr/bin/env bash",
-      "printf 'YARN %s %s\\n' \"$1\" \"$2\"",
-      "printf 'ENV PORT=%s CLIENT_PORT=%s VITE_HOST=%s ORIGINS=%s\\n' \"$PORT\" \"$CLIENT_PORT\" \"${MULMOTERMINAL_VITE_HOST:-}\" \"${MULMOTERMINAL_ALLOWED_ORIGINS:-}\"",
+      'printf \'YARN %s %s\\n\' "$1" "$2"',
+      'printf \'ENV PORT=%s CLIENT_PORT=%s VITE_HOST=%s ORIGINS=%s\\n\' "$PORT" "$CLIENT_PORT" "${MULMOTERMINAL_VITE_HOST:-}" "${MULMOTERMINAL_ALLOWED_ORIGINS:-}"',
       "",
     ].join("\n"),
   );
@@ -198,10 +198,7 @@ describe("start-tailscale-dev.sh", () => {
   it("uses HTTPS mode when Tailscale Serve succeeds", () => {
     dir = makeTempDir("tailscale-https-success-");
     const binDir = path.join(currentTempDir(), "bin");
-    writeFakeTailscale(
-      binDir,
-      '[[ "$1 $2" == "serve --bg" ]] || exit 1\nprintf "serve ok\\n"',
-    );
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "serve --bg" ]] || exit 1\nprintf "serve ok\\n"');
     writeFakeYarn(binDir);
 
     const result = runScript({
@@ -234,6 +231,7 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stderr).toContain("serve failed");
     expect(result.stderr).toContain("Tailscale Serve could not be configured");
     expect(result.stdout).not.toContain("YARN dev");
+    // eslint-disable-next-line sonarjs/no-hardcoded-ip -- Tailscale CGNAT fixture returned by the fake CLI.
     expect(result.stdout).not.toContain("100.64.0.23");
   });
 
@@ -261,10 +259,7 @@ describe("start-tailscale-dev.sh", () => {
   it("uses HTTPS in auto mode when Tailscale Serve succeeds", () => {
     dir = makeTempDir("tailscale-auto-success-");
     const binDir = path.join(currentTempDir(), "bin");
-    writeFakeTailscale(
-      binDir,
-      '[[ "$1 $2" == "serve --bg" ]] || exit 1\nprintf "serve ok\\n"',
-    );
+    writeFakeTailscale(binDir, '[[ "$1 $2" == "serve --bg" ]] || exit 1\nprintf "serve ok\\n"');
     writeFakeYarn(binDir);
 
     const result = runScript({

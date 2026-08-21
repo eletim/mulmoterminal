@@ -2,7 +2,7 @@
 //
 // The launcher greys the row out, but that is the explanation, not the guarantee: a directory can
 // be spelled several ways (`/wt/x/`, `/repo/../wt/x`, a symlinked root), a chip can point into a
-// repo whose worktree list the form never fetched, and the phone and the remote-host bridge open
+// repo whose worktree list the form never fetched, and mobile terminal creation opens
 // terminals without the form at all. Codex raised the first of those on #1208; all of them are the
 // same hole, and this is the choke point that closes it for every client at once.
 //

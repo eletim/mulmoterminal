@@ -127,7 +127,7 @@ describe("carrying unknown keys through a save (#966)", () => {
       for (let i = 0; i < 3; i += 1) {
         const loaded = loadAppConfigResult(file);
         const base = loaded.status === "ok" ? loaded.config : emptyConfig();
-        saveAppConfig(file, mergeConfigUpdate(base, { pushEnabled: i % 2 === 0 }), unknownKeysOf(loaded));
+        saveAppConfig(file, mergeConfigUpdate(base, { pushKinds: i % 2 === 0 ? ["finished"] : ["waiting"] }), unknownKeysOf(loaded));
       }
       expect(JSON.parse(readFileSync(file, "utf8")).futureFeature).toBe("on");
     });
@@ -165,12 +165,14 @@ describe("POST /api/config", () => {
       const app = express();
       app.use(express.json());
       mountConfigRoutes(app, dir);
-      const res = await request(app).post("/api/config").send({ pushEnabled: true });
+      const res = await request(app)
+        .post("/api/config")
+        .send({ pushKinds: ["finished"] });
       expect(res.status).toBe(200);
 
       const onDisk = JSON.parse(readFileSync(APP_CONFIG_FILE, "utf8"));
       expect(onDisk.futureFeature).toBe("on");
-      expect(onDisk.pushEnabled).toBe(true);
+      expect(onDisk.pushKinds).toEqual(["finished"]);
       expect(onDisk.prRepos).toEqual(["o/r"]);
       // The response stays this version's view — an unknown key means nothing to the UI.
       expect(res.body.futureFeature).toBeUndefined();

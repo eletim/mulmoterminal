@@ -56,6 +56,7 @@ import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
 import { sendBytesFor, type Keymap, type KeymapKeyEvent } from "../../common/keymap";
+import { shellCommandCopyFromScreens } from "../../common/shellCommandCopy";
 import { getActiveKeymap } from "./activeKeymap";
 import { isCopyOnSelectEnabled } from "./copyOnSelect";
 import { createFilePathLinkProvider } from "./terminalFilePathLinkProvider";
@@ -64,6 +65,11 @@ import { filesGotoFile } from "./useFilesView";
 import type { TerminalAgent } from "../../common/sessionAgent";
 
 export type ConnStatus = "connecting" | "connected" | "disconnected";
+interface ConnProjection {
+  status: ConnStatus;
+  serverCwd: string | null;
+  lastCommandCopyText: string;
+}
 
 // Enter submits and Shift/Option+Enter make a newline — but which BYTES carry each meaning
 // depends on the host's Claude binding, so the choice lives in `enterKeyOverride` (keyed by
@@ -208,6 +214,8 @@ interface Conn {
   // to a small number would otherwise lose the FIRST banner and still read as passing.
   lastDroppedInputNoticeMs: number;
   selectionEdgeAutoScroll: SelectionEdgeAutoScrollHandle | null;
+  pendingShellCommandCopy: { beforeScreen: string; afterScreen: string; command: string } | null;
+  shellDraft: string;
 }
 
 // The banner is re-armed on a timer rather than shown once per stretch, because a stretch has no
@@ -253,7 +261,7 @@ function fitAndSyncSize(c: Conn): void {
 
 // The reactive projection the view binds to (status pill, RunMenu cwd). Keyed by
 // the same slot key; a slot that hasn't connected yet (or was released) is absent.
-export const connView = reactive(new Map<string, { status: ConnStatus; serverCwd: string | null }>());
+export const connView = reactive(new Map<string, ConnProjection>());
 
 function setStatus(c: Conn, s: ConnStatus) {
   const v = connView.get(c.key);
@@ -386,12 +394,117 @@ export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.
 // The record is owned by the connection, not this closure, because it is per SESSION: connect()
 // clears it alongside term.reset() so a crashed app's modes can't outlive it.
 
+function readBufferFromConn(c: Conn): string {
+  const buf = c.term.buffer.active;
+  const lines = Array.from({ length: buf.length }, (_, i) => buf.getLine(i)?.translateToString(true) ?? "");
+  return lines.join("\n").trimEnd();
+}
+
+const isShellLauncherTarget = (t: ConnTarget): boolean => !!t.launcher && "shell" in t.launcher;
+
+function setLastCommandCopyText(c: Conn, text: string): void {
+  const v = connView.get(c.key);
+  if (v) v.lastCommandCopyText = text;
+}
+
+function resetShellCommandCopy(c: Conn): void {
+  c.pendingShellCommandCopy = null;
+  c.shellDraft = "";
+  setLastCommandCopyText(c, "");
+}
+
+function beforeScreenForSubmittedCommand(screen: string, command: string): string {
+  if (!command) return screen;
+  const lineStart = screen.lastIndexOf("\n") + 1;
+  const line = screen.slice(lineStart);
+  for (let length = command.length; length > 0; length--) {
+    const echoed = command.slice(0, length);
+    if (line.endsWith(echoed)) return `${screen.slice(0, lineStart)}${line.slice(0, -echoed.length)}`;
+  }
+  return screen;
+}
+
+function captureShellCommandSubmit(c: Conn): void {
+  const command = c.shellDraft;
+  c.shellDraft = "";
+  if (!isShellLauncherTarget(c.target) || command.trim() === "") return;
+  const screen = readBufferFromConn(c);
+  const beforeScreen = beforeScreenForSubmittedCommand(screen, command);
+  c.pendingShellCommandCopy = { command, beforeScreen, afterScreen: `${beforeScreen}${command}` };
+  setLastCommandCopyText(c, "");
+}
+
+function updateShellCommandCopy(c: Conn): void {
+  if (!isShellLauncherTarget(c.target) || !c.pendingShellCommandCopy) return;
+  const copy = shellCommandCopyFromScreens(c.pendingShellCommandCopy.beforeScreen, c.pendingShellCommandCopy.afterScreen, c.pendingShellCommandCopy.command);
+  setLastCommandCopyText(c, copy?.text ?? "");
+}
+
+const ANSI_CONTROL_RE = /\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
+
+function appendShellOutput(c: Conn, data: string): void {
+  if (!isShellLauncherTarget(c.target) || !c.pendingShellCommandCopy) return;
+  c.pendingShellCommandCopy.afterScreen += data.replace(ANSI_CONTROL_RE, "").replace(/\r\n?/g, "\n");
+  updateShellCommandCopy(c);
+}
+
+const SHELL_PASTE_START = "\x1b[200~";
+const SHELL_PASTE_END = "\x1b[201~";
+
+function skipCsiSequence(data: string, index: number): number {
+  let i = index + 1;
+  if (data[i] === "[") {
+    i++;
+    while (i < data.length && !/[@-~]/.test(data[i] ?? "")) i++;
+    return Math.min(i + 1, data.length);
+  }
+  return i;
+}
+
+function observeShellInput(c: Conn, data: string): void {
+  if (!isShellLauncherTarget(c.target)) return;
+  let i = 0;
+  while (i < data.length) {
+    if (data.startsWith(SHELL_PASTE_START, i)) {
+      i += SHELL_PASTE_START.length;
+      continue;
+    }
+    if (data.startsWith(SHELL_PASTE_END, i)) {
+      i += SHELL_PASTE_END.length;
+      continue;
+    }
+    const char = data[i] ?? "";
+    if (char === "\r" || char === "\n") {
+      captureShellCommandSubmit(c);
+      i++;
+      continue;
+    }
+    if (char === "\u0003" || char === "\u0015") {
+      c.shellDraft = "";
+      i++;
+      continue;
+    }
+    if (char === "\b" || char === "\u007f") {
+      c.shellDraft = c.shellDraft.slice(0, -1);
+      i++;
+      continue;
+    }
+    if (char === "\u001b") {
+      i = skipCsiSequence(data, i);
+      continue;
+    }
+    if (char >= " ") c.shellDraft += char;
+    i++;
+  }
+}
+
 // Terminal input -> the slot's CURRENT socket (survives reconnects: `c.ws` is re-read
 // each keystroke, so input always targets the live socket). The Enter-family key handler
 // rides the same socket: keys whose bytes differ from xterm's native \r (per the user's
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
+    observeShellInput(c, data);
     // Announced even when the socket is down: the user typed either way, and what a parked cell
     // reads it for (#992) is "someone is using this", not "the PTY received it".
     //
@@ -567,9 +680,11 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     warnedDroppedInput: false,
     lastDroppedInputNoticeMs: Number.NEGATIVE_INFINITY,
     selectionEdgeAutoScroll,
+    pendingShellCommandCopy: null,
+    shellDraft: "",
   };
   conns.set(key, c);
-  connView.set(key, { status: "connecting", serverCwd: target.cwd });
+  connView.set(key, { status: "connecting", serverCwd: target.cwd, lastCommandCopyText: "" });
   wireTerminalToConn(term, c);
   return c;
 }
@@ -635,6 +750,7 @@ function connect(c: Conn) {
   if (c.ws) c.ws.close();
   c.term.reset();
   c.selectionEdgeAutoScroll?.cancel();
+  resetShellCommandCopy(c);
   // The mouse modes belonged to the session being replaced. Keeping them would make the next
   // app inherit "wants wheel reports" it never asked for, and its wheel would deliver escape
   // bytes instead of scrolling (#737).
@@ -716,7 +832,10 @@ function handleMessage(c: Conn, event: MessageEvent) {
     // Checked here as well as on fit() because a slot that is only receiving output would
     // otherwise sit frozen until something happened to resize it (#846).
     guardBufferHealth(c);
-    if (typeof msg.data === "string") c.term.write(msg.data);
+    if (typeof msg.data === "string") {
+      const data = msg.data;
+      c.term.write(data, () => appendShellOutput(c, data));
+    }
   } else if (msg.type === "session") {
     applySessionFrame(c, msg);
   } else {
@@ -789,6 +908,7 @@ export function retarget(key: string, target: ConnTarget) {
   c.sawExit = false;
   c.released = false;
   c.selectionEdgeAutoScroll?.cancel();
+  resetShellCommandCopy(c);
   connect(c);
 }
 
@@ -957,10 +1077,7 @@ export function sendView(key: string, active: boolean) {
 // by translateToString; trailing blank lines are dropped. "" for an unknown slot.
 export function readBuffer(key: string): string {
   const c = conns.get(key);
-  if (!c) return "";
-  const buf = c.term.buffer.active;
-  const lines = Array.from({ length: buf.length }, (_, i) => buf.getLine(i)?.translateToString(true) ?? "");
-  return lines.join("\n").trimEnd();
+  return c ? readBufferFromConn(c) : "";
 }
 
 // A slot whose xterm is still on screen IS attached, whatever the bookkeeping says. `attachedEl` is

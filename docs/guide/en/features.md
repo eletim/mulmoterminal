@@ -30,7 +30,7 @@ MulmoTerminal — a browser terminal for parallel Claude Code and Codex agents �
 | Six kinds of notification sound | Besides finished and input-waiting: a Run cell succeeding or failing, a session exiting, and a PR going red. **Only the first two are on by default**; the rest are opt-in ([config](config.html#sounds)) |
 | Worktree isolation | Git worktrees so many agents can run on the same repo without colliding |
 | Session persistence (tmux) | If tmux is available, each session runs inside tmux and **reconnects** across reloads and server restarts |
-| Phone companion (RemoteHost) | **Web Push to your phone** on finished / input-waiting turns, plus **watch, reply, and start a new terminal** from the phone — with your own one-tap chips (→ [From your phone](phone.html)) |
+| Phone companion (local mobile) | **Web Push to your phone** on finished / input-waiting turns, plus **watch, reply, and start a new terminal** from the phone — with your own one-tap chips (→ [From your phone](phone.html)) |
 
 ## 2. See — what each agent is doing and where
 
@@ -100,7 +100,7 @@ so a very large unsaved buffer may not get out.
 | Summarize output (AI) | Pass terminal output to `claude -p` and summarize **errors / warnings / cause / how to fix** |
 | Copy as prompt | Copy command + directory + summary + follow-up and paste it into any session |
 | Cross-terminal talk | **Bring another terminal's last turn** brings another cell's last turn into this one; **Exchange** does an **automatic round-trip** — send, wait for the other agent's answer, bring it back (great for Claude ↔ Codex mutual review) |
-| Plain shell | The launcher's **Shell** toggle runs your OS default shell (`$SHELL`) in the chosen directory as a **persistent terminal** — nothing to install, nothing to configure |
+| Plain shell | The launcher's **Shell** toggle runs your OS default shell (`$SHELL`) in the chosen directory as a **persistent terminal** — nothing to install, nothing to configure. Its copy button copies the latest command line and output without changing normal terminal selection |
 | Launch commands | Start any other interactive command (`codex`, `htop`, …) as a **persistent terminal** |
 | Voice input | Dictate into the prompt via microphone transcription. Settings picks **the language you dictate in** (per browser) — your browser's, per-clip detection, or a fixed one; speaking a language the mic isn't expecting comes back **translated** into the one it is |
 | MCP servers | Join your own HTTP MCP servers to sessions via the MCP SERVERS setting |

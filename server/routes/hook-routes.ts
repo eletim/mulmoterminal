@@ -14,7 +14,6 @@ import { headerHookEffect } from "../session/header-hook.js";
 import { activity, lastPrompts, lastResponses, ptys } from "../session/registry.js";
 import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt } from "../session/session-reads.js";
-import { notifyTaskFinished } from "../session/task-push.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
 import { failPendingTranslation } from "../session/translation-worker.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
@@ -47,18 +46,13 @@ function notifyMobileWebPushActivity(deps: HookDeps, notification: MobileWebPush
 // Activity hooks update a session's working / needs-attention flags. `active` (this
 // session is the user's actively-viewed pane) suppresses the attention flag — see
 // activityHookEffects for why a mere attached socket doesn't count in the grid.
-function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, message: string, notificationType?: string) {
+function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, _message: string, notificationType?: string) {
   if (event !== "Notification") activeWaitingMobileWebPushSent.delete(sessionId);
   for (const eff of activityHookEffects(event, active, notificationType)) {
     if (eff.kind === "working") deps.setWorking(sessionId, eff.value, event);
     else deps.setWaiting(sessionId, eff.value, event);
   }
-  // Push regardless of `active` — the phone is elsewhere, unlike the attention beep.
-  // A finished turn (Stop) and a blocked one (Notification) both reach here; the kind
-  // decides the wording. Stop is one event per finished turn, so this fires once even
-  // though a background Stop publishes twice.
   const kind = pushKindFor(event, notificationType);
-  if (kind) void notifyTaskFinished(sessionId, kind, message, deps.uiPort);
   const currentActivity = activity.get(sessionId);
   if (active && kind === "waiting" && currentActivity?.working === true && currentActivity.waiting !== true && !activeWaitingMobileWebPushSent.has(sessionId)) {
     activeWaitingMobileWebPushSent.add(sessionId);
@@ -186,7 +180,7 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
   const { event, toolName, message, notificationType } = hookFields(body);
   if (!sessionId && body.session_id) {
     // Rejecting silently would make hooks look simply broken; the id shape is the
-    // precondition for using it as a Firestore doc id and as push routing.
+    // precondition for using it as a session id and push routing.
     console.warn(`[hook] ignoring ${event} — session id is not a canonical uuid`);
   }
   if (sessionId) {

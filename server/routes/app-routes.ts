@@ -224,8 +224,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // project and what they chose, read back out of Claude's own transcripts. Writes nothing.
   mountDecisionRoutes(app);
 
-  // GET /api/mobile-mode — read-only, mounted regardless of MULMOTERMINAL_MOBILE_MODE (unlike
-  // the remote-host / local-terminal routes below, which are exclusive on it).
+  // GET /api/mobile-mode — read-only compatibility shape for the local mobile terminal page.
   mountMobileModeRoute(app);
 
   // Local voice input (POST /api/transcribe + model status/download) — macOS only,
@@ -365,9 +364,8 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // sessions, from public per-model pricing. Read-only; shown in the Settings modal (#245).
   mountCostRoute(app, { resolveCwd: workspaceForRoute });
 
-  // POST /api/remote-host/connect|disconnect + GET /status, OR the local mobile terminal API —
-  // mutually exclusive with each other, on MULMOTERMINAL_MOBILE_MODE. Mounted from index.ts's
-  // switch, once the terminal-access functions this needs exist, rather than here.
+  // The local mobile terminal API is mounted from index.ts once the terminal-access functions
+  // it needs exist.
 
   // GET /api/google/status + POST /api/google/authorize|unlink — the Settings modal's
   // Google account link. Consent needs a browser on THIS machine (loopback listener),

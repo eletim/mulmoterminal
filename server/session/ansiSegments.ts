@@ -9,7 +9,7 @@
 // OSC 8 hyperlinks (screen-rows.ts's own comment), and every other escape shape is dropped here
 // exactly as it already is for the plain-text `screen` field.
 import { ESCAPE_SPLIT, SGR } from "./screen-rows.js";
-import { SCREEN_HISTORY_ROWS, SCREEN_MAX_BYTES } from "../backends/remoteHost/terminalScreen.js";
+import { SCREEN_HISTORY_ROWS, SCREEN_MAX_BYTES } from "../mobileTerminal/terminalScreen.js";
 import type { AnsiRow, AnsiSegment } from "../../common/ansiStyle.js";
 
 // The classic 16-colour terminal palette, tuned to read on both a light and a dark page (this
@@ -238,10 +238,10 @@ const ROW_SEPARATOR_BYTES = 1;
 
 // The newest rows that fit in SCREEN_MAX_BYTES, scanned from the bottom exactly like
 // terminalScreen.ts's own withinByteCap (not reused directly: that one is scoped to
-// ScreenRow[], private to the Firestore wire shape, and this shape carries segments instead of
+// ScreenRow[], private to the plain mobile screen shape, and this shape carries segments instead of
 // one text field) — kept as the SAME algorithm over the SAME budget, not a smaller version of
 // it, so a local response can't grow unboundedly on a wide pane just because it is not
-// Firestore-constrained (#7 round-2 review).
+// constrained by the same byte ceiling (#7 round-2 review).
 //
 // Measures the SERIALIZED row (JSON.stringify), not just its visible text (#7 round-3 review):
 // output that changes style every character (an extreme case, but not an impossible one) turns

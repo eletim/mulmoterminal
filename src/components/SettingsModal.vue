@@ -40,7 +40,6 @@ defineProps<{
   soundFile?: string | null;
   soundKinds?: NotifyKind[];
   sounds?: SoundMap;
-  pushEnabled?: boolean;
   pushKinds?: PushKind[];
   prRepos?: string[];
   launchers?: Launcher[];
@@ -57,7 +56,6 @@ defineProps<{
 // them, so it must not spell them out a second time.
 const emit = defineEmits<
   SoundEmits & {
-    (e: "update-push-enabled", on: boolean): void;
     (e: "update-push-kinds", kinds: PushKind[]): void;
     (e: "update-repos", repos: string[]): void;
     (e: "update-launchers", launchers: Launcher[]): void;
@@ -115,12 +113,7 @@ useModalKeyboard({ modalEl, onClose: () => emit("close"), trapSelector: MODAL_FO
         @launch-skill="emit('launch-skill', $event)"
       />
       <VoiceInputSection />
-      <WebPushSection
-        :push-enabled="pushEnabled"
-        :push-kinds="pushKinds"
-        @update-push-enabled="emit('update-push-enabled', $event)"
-        @update-push-kinds="emit('update-push-kinds', $event)"
-      />
+      <WebPushSection :push-kinds="pushKinds" @update-push-kinds="emit('update-push-kinds', $event)" />
       <GoogleAccountSection />
       <PrReposSection :pr-repos="prRepos" @update-repos="emit('update-repos', $event)" />
       <LaunchersSection :launchers="launchers" @update-launchers="emit('update-launchers', $event)" />

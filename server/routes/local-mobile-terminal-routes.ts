@@ -1,14 +1,5 @@
-// The local-mode counterpart of the phone's Firestore remote-host terminal view (#435, #445,
-// #831) — same underlying session access, reached over a plain same-origin HTTP API instead of a
-// Firestore command channel. Mounted only when MULMOTERMINAL_MOBILE_MODE=local (server/index.ts),
-// exclusive with backends/remoteHost's mountRemoteHostRoutes.
-//
-// Every dependency here is one of the SAME functions server/index.ts already builds for the
-// remote host adapter (remoteHostListTerminalSessions, remoteHostCaptureTerminalScreen, …) — this
-// file is a second adapter over the same PTY access, never a reimplementation of it, and never a
-// caller of the Firestore handler table. The one exception is captureStyledScreen (#7's ANSI
-// colour layer): it reads the same tmux/PTY sources remoteHostCaptureTerminalScreen does, but is
-// never handed to the Firestore remote-host adapter — see its own doc comment for why.
+// Local mobile terminal view (#435, #445, #831): a same-origin HTTP API over the same PTY/tmux
+// access used by the desktop grid.
 import type { Express, Request, Response } from "express";
 import os from "node:os";
 import { SESSION_ID_RE } from "../config/env.js";
@@ -16,24 +7,22 @@ import { requestBody } from "./requestBody.js";
 import { requestOriginAllowed } from "./same-origin-guard.js";
 import { messageOf } from "../errors.js";
 import { isLaunchAgent, LAUNCH_AGENTS, type LaunchAgent } from "../../common/launchAgent.js";
-import { createTerminalInputSender, sanitizeTerminalInput } from "../backends/remoteHost/terminalInput.js";
-import { TerminalSessionNotFoundError } from "../backends/remoteHost/terminalScreen.js";
+import { createTerminalInputSender, sanitizeTerminalInput } from "../mobileTerminal/terminalInput.js";
+import { TerminalSessionNotFoundError } from "../mobileTerminal/terminalScreen.js";
 import { ansiRowsToText } from "../session/ansiSegments.js";
 import { workspaceRequest } from "../config/workspace.js";
-import type { RemoteHostHandlerDeps } from "../backends/remoteHost/handlers/deps.js";
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
 import type { AnsiRow } from "../../common/ansiStyle.js";
+import type { SessionAgent } from "../../common/sessionAgent.js";
 import { publicMobileWebPushConfig, type MobileWebPushConfig } from "../mobile-web-push/config.js";
 import { parseMobileWebPushSubscription, type MobileWebPushSubscriptionStore } from "../mobile-web-push/subscription-store.js";
 import type { MobileWebPushSender } from "../mobile-web-push/sender.js";
+import type { SessionScreen, TerminalSessionSummary } from "../mobileTerminal/terminalScreen.js";
+import { shellCommandCopyFromScreens } from "../../common/shellCommandCopy.js";
 
-// The local-only counterpart of remoteHost's Firestore SessionActivity doc (backends/remoteHost/
-// sessionActivity.ts): same working/waiting/event/workPhase vocabulary, but every field is always
-// present (never omitted the way the Firestore doc's optional ones are) — a shape a mobile client
-// can read without optional chaining. Deliberately NOT added to TerminalSessionSummary or
-// buildSessionList (backends/remoteHost/terminalScreen.ts): that type is remote mobile's wire
-// contract too, and this field is local-only (see the route below for why).
+// Local mobile activity payload: same working/waiting/event/workPhase vocabulary as the desktop
+// roster, with every field present so the client can render it without optional chaining.
 export interface LocalSessionActivity extends ActivityTriple {
   workPhase: WorkPhase | null;
 }
@@ -43,23 +32,21 @@ export interface LocalSessionActivity extends ActivityTriple {
 // itself needs no Express/fake-session-table setup to test.
 export const localSessionActivity = (activity: ActivityTriple, workPhase: WorkPhase | null): LocalSessionActivity => ({ ...activity, workPhase });
 
-export type LocalMobileTerminalRouteDeps = Pick<
-  RemoteHostHandlerDeps,
-  | "listTerminalSessions"
-  | "captureTerminalScreen"
-  | "acknowledgeTerminalView"
-  | "writeToSession"
-  | "interruptSession"
-  | "stopSession"
-  | "canClearBox"
-  | "submitSequence"
-  | "sessionAgent"
-  | "launchTerminal"
-> & {
+export interface LocalMobileTerminalRouteDeps {
+  listTerminalSessions: () => Promise<TerminalSessionSummary[]>;
+  captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
+  acknowledgeTerminalView?: (sessionId: string) => void;
+  writeToSession: (sessionId: string, chunk: string) => boolean;
+  interruptSession: (sessionId: string) => boolean;
+  stopSession: (sessionId: string) => void;
+  canClearBox: (sessionId: string) => boolean;
+  submitSequence: (sessionId: string) => string;
+  sessionAgent: (sessionId: string) => SessionAgent | undefined;
+  launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string };
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
-  // roster and the remote host's Firestore mirror read (session/registry.js's `activity` map,
+  // roster reads (session/registry.js's `activity` map,
   // session/work-phase-tracker.js) — never a second copy of that state. Two readers rather than
   // one combined accessor because those are genuinely separate stores in server/index.ts; both
   // are already normalized (see normalizeActivity / workPhaseTracker.phaseOf), so a session
@@ -69,16 +56,15 @@ export type LocalMobileTerminalRouteDeps = Pick<
   workPhaseOf: (sessionId: string) => WorkPhase | null;
   setWaiting: (sessionId: string, waiting: boolean, event?: string) => void;
   // The colour layer (#7), local-only — see its definition in server/index.ts for why this is
-  // a separate capture rather than a field on captureTerminalScreen's SessionScreen (that type
-  // is remote mobile's Firestore wire shape too, which has no reader for this and a byte
-  // ceiling this would eat into for no reason).
+  // a separate capture rather than a field on captureTerminalScreen's SessionScreen, keeping the
+  // plain response compact for clients that do not read styled rows.
   captureStyledScreen: (sessionId: string) => Promise<AnsiRow[]>;
   mobileWebPush: {
     config: () => MobileWebPushConfig;
     subscriptions: MobileWebPushSubscriptionStore;
     sender: MobileWebPushSender;
   };
-};
+}
 
 // Resolves the styled rows for a screen response, or undefined when styling isn't usable —
 // either it failed outright, or (#7 round-3 review) it and the plain `screen` disagree on what
@@ -104,6 +90,11 @@ async function resolveStyledScreen(
     console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed to build styled rows:", err);
     return undefined;
   }
+}
+
+interface PendingShellCommandCopy {
+  command: string;
+  beforeScreen: string;
 }
 
 async function createTerminalFromBody(
@@ -180,7 +171,10 @@ function mountInputRoute(
   app: Express,
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
   sendInput: ReturnType<typeof createTerminalInputSender>,
+  captureTerminalScreen: LocalMobileTerminalRouteDeps["captureTerminalScreen"],
+  sessionAgent: (sessionId: string) => SessionAgent | undefined,
   setWaiting: LocalMobileTerminalRouteDeps["setWaiting"],
+  pendingShellCommandCopies: Map<string, PendingShellCommandCopy>,
 ) {
   app.post("/api/mobile/terminal-sessions/:id/input", async (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
@@ -190,9 +184,13 @@ function mountInputRoute(
     // Checked here, against the SAME sanitizer sendInput uses internally, so an empty-after-
     // sanitize text is a 400 the caller can act on rather than a generic 500 — and so the only
     // way sendInput can still reject below is "no live terminal" (see the catch).
-    if (typeof text !== "string" || !sanitizeTerminalInput(text)) return res.status(400).json({ error: "text is required" });
+    if (typeof text !== "string") return res.status(400).json({ error: "text is required" });
+    const safe = sanitizeTerminalInput(text);
+    if (!safe) return res.status(400).json({ error: "text is required" });
     try {
+      const beforeScreen = sessionAgent(id) === "shell" ? await captureTerminalScreen(id).catch(() => null) : null;
       const result = await sendInput(id, text);
+      if (beforeScreen) pendingShellCommandCopies.set(id, { command: safe, beforeScreen: beforeScreen.screen });
       setWaiting(id, false);
       res.json(result);
     } catch (err) {
@@ -225,6 +223,56 @@ function mountSessionOperationRoutes(
   });
 }
 
+function mountScreenRoute(
+  app: Express,
+  deps: Pick<LocalMobileTerminalRouteDeps, "captureTerminalScreen" | "acknowledgeTerminalView" | "captureStyledScreen" | "sessionAgent">,
+  pendingShellCommandCopies: Map<string, PendingShellCommandCopy>,
+) {
+  app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
+    const { id } = req.params;
+    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
+    try {
+      const screen = await deps.captureTerminalScreen(id);
+      deps.acknowledgeTerminalView?.(id);
+      // Styling is additive on top of the plain-text screen above, which already reflects
+      // whatever real error there is (session gone, tmux down, …) via the catch below — a
+      // failure or a mismatch resolving styled rows must not cost the phone the screen it
+      // already has (resolveStyledScreen's own comment covers both cases).
+      const styledScreen = await resolveStyledScreen(id, screen, deps.captureStyledScreen);
+      const pendingCopy = deps.sessionAgent(id) === "shell" ? pendingShellCommandCopies.get(id) : undefined;
+      const lastCommandCopy = pendingCopy ? shellCommandCopyFromScreens(pendingCopy.beforeScreen, screen.screen, pendingCopy.command) : null;
+      res.json({
+        ...screen,
+        ...(styledScreen ? { styledScreen } : {}),
+        ...(lastCommandCopy ? { lastCommandCopy } : {}),
+      });
+    } catch (err) {
+      if (err instanceof TerminalSessionNotFoundError) return res.status(404).json({ error: "session not found" });
+      console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed:", err);
+      res.status(500).json({ error: "failed to read terminal screen" });
+    }
+  });
+}
+
+function mountLaunchRoute(
+  app: Express,
+  isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
+  launchTerminal: LocalMobileTerminalRouteDeps["launchTerminal"],
+) {
+  app.post("/api/mobile/terminal-sessions/:id/launch", (req: Request<{ id: string }>, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const { id } = req.params;
+    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
+    // cwd is resolved server-side from `id` inside launchTerminal (decideLaunchTerminal) — the
+    // phone never sends one (#831's rule, unchanged here).
+    const { agent } = requestBody(req.body);
+    const validAgent = isLaunchAgent(agent);
+    const decision = launchTerminal(agent, id);
+    if (!decision.ok) return res.status(validAgent ? 409 : 400).json({ error: decision.error });
+    res.json({ ok: true });
+  });
+}
+
 export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTerminalRouteDeps): void {
   const {
     isAllowedOrigin,
@@ -247,16 +295,14 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   } = deps;
   // One sender for the whole mount, so its per-session serialization (typeAndSubmit's chain in
   // terminalInput.ts) actually spans every request — mirrors the Remote Host adapter's own
-  // createTerminalSessionHandlers (backends/remoteHost/handlers/terminalSession.ts), which builds
-  // exactly one for the same reason. Never construct a second one per request.
+  // Never construct a second sender per request; the sender carries per-session serialization.
   const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence, sessionAgent });
+  const pendingShellCommandCopies = new Map<string, PendingShellCommandCopy>();
 
   app.get("/api/mobile/terminal-sessions", async (_req: Request, res: Response) => {
     const sessions = await listTerminalSessions();
     // `activity` is joined in here, by id, rather than added to buildSessionList/
-    // TerminalSessionSummary — see LocalSessionActivity's comment. remoteHostListTerminalSessions
-    // (passed in as listTerminalSessions) is the SAME function the Firestore remote-host adapter
-    // calls, and its return shape is remote mobile's wire contract too.
+    // TerminalSessionSummary — see LocalSessionActivity's comment.
     res.json({
       home: os.homedir(),
       sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })),
@@ -265,38 +311,8 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
 
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
   mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
-  mountInputRoute(app, isAllowedOrigin, sendInput, setWaiting);
+  mountInputRoute(app, isAllowedOrigin, sendInput, captureTerminalScreen, sessionAgent, setWaiting, pendingShellCommandCopies);
   mountSessionOperationRoutes(app, isAllowedOrigin, interruptSession, stopSession);
-
-  app.get("/api/mobile/terminal-sessions/:id/screen", async (req: Request<{ id: string }>, res: Response) => {
-    const { id } = req.params;
-    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-    try {
-      const screen = await captureTerminalScreen(id);
-      acknowledgeTerminalView(id);
-      // Styling is additive on top of the plain-text screen above, which already reflects
-      // whatever real error there is (session gone, tmux down, …) via the catch below — a
-      // failure or a mismatch resolving styled rows must not cost the phone the screen it
-      // already has (resolveStyledScreen's own comment covers both cases).
-      const styledScreen = await resolveStyledScreen(id, screen, captureStyledScreen);
-      res.json(styledScreen ? { ...screen, styledScreen } : screen);
-    } catch (err) {
-      if (err instanceof TerminalSessionNotFoundError) return res.status(404).json({ error: "session not found" });
-      console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed:", err);
-      res.status(500).json({ error: "failed to read terminal screen" });
-    }
-  });
-
-  app.post("/api/mobile/terminal-sessions/:id/launch", (req: Request<{ id: string }>, res: Response) => {
-    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
-    const { id } = req.params;
-    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-    // cwd is resolved server-side from `id` inside launchTerminal (decideLaunchTerminal) — the
-    // phone never sends one (#831's rule, unchanged here).
-    const { agent } = requestBody(req.body);
-    const validAgent = isLaunchAgent(agent);
-    const decision = launchTerminal(agent, id);
-    if (!decision.ok) return res.status(validAgent ? 409 : 400).json({ error: decision.error });
-    res.json({ ok: true });
-  });
+  mountScreenRoute(app, { captureTerminalScreen, acknowledgeTerminalView, captureStyledScreen, sessionAgent }, pendingShellCommandCopies);
+  mountLaunchRoute(app, isAllowedOrigin, launchTerminal);
 }

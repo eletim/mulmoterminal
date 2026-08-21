@@ -331,6 +331,9 @@ or `terminal-overrides` capability. The isolation test: write the sequence **dir
     — so copying more than the visible screen isn't possible today.
   - Copy (auto): Claude's OSC 52 auto-copy works only via the tmux `Ms` override + `set-clipboard
     on` (#206). Paste uses the browser's native Cmd+V into xterm (there is no app paste button).
+  - Shell launcher copy: the header copy button observes submitted Shell input and reads xterm's
+    plain buffer after output frames, then extracts the latest command/output block. It does not
+    hook selection, Ctrl/Cmd+C, mouse reporting, or xterm's copy listener.
 - **Phone submit** — the submit byte is env-dependent (`terminalSubmit`, #445/#772); the sanitizer
   strips control bytes so phone input is single-line.
 
@@ -362,6 +365,6 @@ looking) — flag them for QA on the release.
 ## Related
 
 `docs/spawn-architecture.md` (session lifecycle), `docs/gui-protocol-spike.md`,
-`docs/remote-host-protocol.md` (what the phone can ask of a session),
+the local mobile terminal routes (what the phone can ask of a session),
 `src/composables/useTerminalConnections.ts`, `server/infra/tmux.ts`, `server/session/*.ts`.
 Issues: #206, #263/#264/#293, #265/#266, #434, #445, #572, #729, #737, #772/#780, #776, #778, #782, #783/#785, #1073.

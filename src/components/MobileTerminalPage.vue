@@ -1,8 +1,9 @@
 <script setup lang="ts">
+/* eslint-disable max-lines */
 // The mobile entry point (/mobile/terminals), mounted by App.vue instead of
-// DesktopAppShell — never alongside it. Wired to the local mobile terminal API: which transport
-// mode the server is running (GET /api/mobile-mode), only in local mode the terminal session
-// roster (GET /api/mobile/terminal-sessions), the selected session's current terminal screen
+// DesktopAppShell — never alongside it. Wired to the local mobile terminal API: the server mode
+// check (GET /api/mobile-mode), the terminal session roster (GET /api/mobile/terminal-sessions),
+// the selected session's current terminal screen
 // (GET /api/mobile/terminal-sessions/:id/screen), creating a new local terminal (POST
 // /api/mobile/terminal-sessions), and — for a live session — sending it one line of input
 // (POST /api/mobile/terminal-sessions/:id/input).
@@ -16,6 +17,7 @@ import { isUnknownArray } from "../../common/isUnknownArray";
 import { isAnsiScreen, type AnsiRow, type AnsiSegment } from "../../common/ansiStyle";
 import { jsonBody } from "../jsonBody";
 import { readRememberedLaunchAgent } from "../composables/rememberedLaunchAgent";
+import { useManualCopy } from "../composables/useManualCopy";
 import { readSessionIdQuery } from "../mobileWebPushClient";
 import { isWorkPhase, mobileActivityStatus, type WorkPhase } from "./mobileActivityStatus";
 import { homeRelative } from "./cwdDisplay";
@@ -25,6 +27,7 @@ import MobileWebPushPanel from "./MobileWebPushPanel.vue";
 
 const route = useRoute();
 const notificationRequestedSessionId = ref(readSessionIdQuery(route.query.sessionId));
+const MOBILE_STATE_CACHE_KEY = "mulmoterminal.mobileTerminalPage.v1";
 
 interface MobileActivity {
   working: boolean;
@@ -58,7 +61,7 @@ const isMobileSession = (value: unknown): value is MobileSession =>
   (value.agent === null || SESSION_AGENTS.some((known) => known === value.agent)) &&
   isMobileActivity(value.activity);
 
-type Status = "loading" | "remote-disabled" | "local" | "error";
+type Status = "loading" | "local" | "error";
 
 const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
@@ -76,16 +79,49 @@ const createError = ref("");
 interface MobileScreen {
   screen: string;
   styledScreen: AnsiRow[] | undefined;
+  lastCommandCopy: { text: string } | undefined;
 }
 
 const isMobileScreen = (value: unknown): value is MobileScreen =>
-  isRecord(value) && typeof value.screen === "string" && (value.styledScreen === undefined || isAnsiScreen(value.styledScreen));
+  isRecord(value) &&
+  typeof value.screen === "string" &&
+  (value.styledScreen === undefined || isAnsiScreen(value.styledScreen)) &&
+  (value.lastCommandCopy === undefined || (isRecord(value.lastCommandCopy) && typeof value.lastCommandCopy.text === "string"));
+
+interface CachedMobileState {
+  home: string | null;
+  sessions: MobileSession[];
+  selectedSessionId: string | null;
+  screen: { sessionId: string; text: string; styledRows: AnsiRow[] | null } | null;
+}
+
+// eslint-disable-next-line sonarjs/cognitive-complexity
+const cachedMobileState = (value: unknown): CachedMobileState | null => {
+  if (!isRecord(value)) return null;
+  if (value.home !== null && typeof value.home !== "string") return null;
+  if (!isUnknownArray(value.sessions)) return null;
+  const sessions: MobileSession[] = [];
+  for (const session of value.sessions) {
+    if (!isMobileSession(session)) return null;
+    sessions.push(session);
+  }
+  if (value.selectedSessionId !== null && typeof value.selectedSessionId !== "string") return null;
+  let screen: CachedMobileState["screen"] = null;
+  if (value.screen !== null) {
+    if (!isRecord(value.screen)) return null;
+    if (typeof value.screen.sessionId !== "string" || typeof value.screen.text !== "string") return null;
+    if (value.screen.styledRows !== null && !isAnsiScreen(value.screen.styledRows)) return null;
+    screen = { sessionId: value.screen.sessionId, text: value.screen.text, styledRows: value.screen.styledRows };
+  }
+  return { home: value.home, sessions, selectedSessionId: value.selectedSessionId, screen };
+};
 
 type ScreenStatus = "idle" | "loading" | "loaded" | "error";
 
 const screenStatus = ref<ScreenStatus>("idle");
 const screenText = ref("");
 const screenStyledRows = ref<AnsiRow[] | null>(null);
+const lastCommandCopyText = ref("");
 const screenIsLoading = () => screenStatus.value === "loading";
 const mainScrollEl = ref<HTMLElement | null>(null);
 const MAIN_SCROLL_BOTTOM_TOLERANCE_PX = 24;
@@ -111,6 +147,9 @@ const inputText = ref("");
 const inputTextareaEl = ref<HTMLTextAreaElement | null>(null);
 type InputStatus = "idle" | "sending" | "error";
 const inputStatus = ref<InputStatus>("idle");
+type CopyStatus = "idle" | "copying" | "copied";
+const copyStatus = ref<CopyStatus>("idle");
+const { manualCopyText, setManualCopyTextareaEl, showManualCopy, closeManualCopy } = useManualCopy();
 
 const MOBILE_INPUT_MIN_HEIGHT_PX = 42;
 const MOBILE_INPUT_MAX_HEIGHT_PX = 128;
@@ -174,6 +213,44 @@ const activityStatusOf = (session: MobileSession) =>
 const activityClassOf = (session: MobileSession) => ACTIVITY_CLASS[activityStatusOf(session)];
 const displayCwd = (cwd: string) => homeRelative(cwd, mobileHome.value);
 
+function writeCachedMobileState(): void {
+  try {
+    const screen =
+      selectedSessionId.value && screenStatus.value === "loaded"
+        ? { sessionId: selectedSessionId.value, text: screenText.value, styledRows: screenStyledRows.value }
+        : null;
+    localStorage.setItem(
+      MOBILE_STATE_CACHE_KEY,
+      JSON.stringify({ home: mobileHome.value, sessions: sessions.value, selectedSessionId: selectedSessionId.value, screen }),
+    );
+  } catch {
+    // Best effort only; cache failure must not affect the live mobile terminal.
+  }
+}
+
+function restoreCachedMobileState(): boolean {
+  try {
+    const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
+    if (!raw) return false;
+    const cached = cachedMobileState(JSON.parse(raw));
+    if (!cached || cached.sessions.length === 0) return false;
+    mobileHome.value = cached.home;
+    sessions.value = cached.sessions;
+    const cachedSelection =
+      cached.selectedSessionId && cached.sessions.some((session) => session.id === cached.selectedSessionId) ? cached.selectedSessionId : null;
+    const nextSelectedSessionId = cachedSelection ?? cached.sessions.find((session) => session.live)?.id ?? cached.sessions[0]?.id ?? null;
+    selectedSessionId.value = nextSelectedSessionId;
+    const cachedScreen = cached.screen && cached.screen.sessionId === nextSelectedSessionId ? cached.screen : null;
+    screenText.value = cachedScreen?.text ?? "";
+    screenStyledRows.value = cachedScreen?.styledRows ?? null;
+    screenStatus.value = cachedScreen ? "loaded" : "idle";
+    status.value = "local";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // The one place selection ever changes — a manual click (selectSession) and a poll's fallback
 // (applySessionList, when the selected session has disappeared) both go through this. Whichever
 // caller it is, switching sessions means the input box and any in-flight-send state belong to
@@ -187,6 +264,9 @@ function changeSelectedSession(next: string | null): void {
   selectedSessionId.value = next;
   inputText.value = "";
   inputStatus.value = "idle";
+  copyStatus.value = "idle";
+  lastCommandCopyText.value = "";
+  manualCopyText.value = "";
   interruptStatus.value = "idle";
   if (stopStatus.value !== "sending") stopStatus.value = "idle";
 
@@ -196,6 +276,7 @@ function changeSelectedSession(next: string | null): void {
     screenStatus.value = "idle";
     screenText.value = "";
     screenStyledRows.value = null;
+    lastCommandCopyText.value = "";
   }
 }
 
@@ -249,6 +330,7 @@ async function fetchSessionList(): Promise<MobileSessionListResult> {
 function applySessionListResult(result: MobileSessionListResult): void {
   mobileHome.value = result.home;
   applySessionList(result.sessions);
+  writeCachedMobileState();
 }
 
 // Guards every call to fetchSessionList() — the initial load and every poll tick (interval or
@@ -275,26 +357,20 @@ async function waitForSessionListIdle(): Promise<void> {
   while (sessionListRefreshInFlight) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-// One shot: /api/mobile-mode, then — only when it answers "local" — the session list. Never
-// called again except by the Retry button, which re-enters here from the mode check.
-async function load(): Promise<void> {
-  status.value = "loading";
+// One shot: /api/mobile-mode, then the session list. Never called again except by the Retry
+// button, which re-enters here from the mode check.
+async function load(options: { keepStale?: boolean } = {}): Promise<void> {
+  if (!options.keepStale) status.value = "loading";
   try {
     const modeRes = await fetch("/api/mobile-mode");
     if (!modeRes.ok) throw new Error(`HTTP ${modeRes.status}`);
     const modeBody = await jsonBody(modeRes);
     if (!isMobileMode(modeBody.mode)) throw new Error("invalid /api/mobile-mode response");
-    if (modeBody.mode === "remote") {
-      // Remote mode serves the phone over Firestore (backends/remoteHost) — this same-origin
-      // API is only mounted in local mode, so there is nothing to call here and no fallback.
-      status.value = "remote-disabled";
-      return;
-    }
 
     await withSessionListGuard(async () => applySessionListResult(await fetchSessionList()));
     status.value = "local";
   } catch {
-    status.value = "error";
+    if (!options.keepStale) status.value = "error";
   }
 }
 
@@ -340,10 +416,28 @@ async function loadScreen(id: string): Promise<void> {
     if (selectedSessionId.value !== requestedId) return;
     screenText.value = body.screen;
     screenStyledRows.value = body.styledScreen ?? null;
+    lastCommandCopyText.value = body.lastCommandCopy?.text ?? "";
+    copyStatus.value = "idle";
     screenStatus.value = "loaded";
+    writeCachedMobileState();
   } catch {
     if (selectedSessionId.value !== requestedId) return;
     screenStatus.value = "error";
+  }
+}
+
+async function copyLastCommandOutput(): Promise<void> {
+  if (!lastCommandCopyText.value) return;
+  if (selectedSession.value?.agent !== "shell") return;
+  if (copyStatus.value === "copying") return;
+  copyStatus.value = "copying";
+  try {
+    if (!navigator.clipboard) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(lastCommandCopyText.value);
+    copyStatus.value = "copied";
+  } catch {
+    await showManualCopy(lastCommandCopyText.value);
+    copyStatus.value = "idle";
   }
 }
 
@@ -394,6 +488,9 @@ async function sendTerminalInput(): Promise<void> {
   const requestedId = selectedSessionId.value;
   const text = inputText.value;
   inputStatus.value = "sending";
+  lastCommandCopyText.value = "";
+  copyStatus.value = "idle";
+  manualCopyText.value = "";
 
   try {
     const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(requestedId)}/input`, {
@@ -491,6 +588,7 @@ async function createTerminal(): Promise<void> {
         ? body.sessionId
         : (parsed.sessions.find((session) => session.live)?.id ?? parsed.sessions[0]?.id ?? null),
     );
+    writeCachedMobileState();
     createStatus.value = "idle";
   } catch (err) {
     createStatus.value = "error";
@@ -574,7 +672,13 @@ function handleVisibilityChange(): void {
 }
 
 onMounted(() => {
-  void load();
+  const restored = restoreCachedMobileState();
+  void load({ keepStale: restored }).then(() => {
+    if (!restored) return;
+    if (!selectedSessionId.value) return;
+    if (screenStatus.value === "loading") return;
+    void loadScreen(selectedSessionId.value);
+  });
   document.addEventListener("visibilitychange", handleVisibilityChange);
   // Keeps activity (working/waiting/workPhase) and live/detached current while the list is on
   // screen. Runs for the lifetime of the component regardless of `status` — refreshSessionList
@@ -629,16 +733,11 @@ onUnmounted(() => {
     <main ref="mainScrollEl" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
       <p v-if="status === 'loading'" class="text-[13px] text-secondary">Loading…</p>
 
-      <div v-else-if="status === 'remote-disabled'" class="flex flex-col gap-2 text-[13px]">
-        <p class="text-fg">Local mobile terminal is disabled.</p>
-        <p class="text-secondary">
-          Start the server with <code class="rounded bg-elevated px-1 py-0.5 font-mono text-[12px]">MULMOTERMINAL_MOBILE_MODE=local</code> to use it here.
-        </p>
-      </div>
-
       <div v-else-if="status === 'error'" class="flex flex-col gap-2 text-[13px]">
         <p class="text-err-text">Failed to load terminal sessions.</p>
-        <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="load">Retry</button>
+        <button type="button" class="w-fit rounded-md border border-border bg-panel px-2.5 py-1 text-[12px] text-fg hover:bg-hover" @click="() => load()">
+          Retry
+        </button>
       </div>
 
       <template v-else>
@@ -695,6 +794,19 @@ onUnmounted(() => {
               @interrupt="interruptSelectedSession"
               @stop="stopConfirmedSession"
             />
+            <div v-if="selectedSession.agent === 'shell'" class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-md border border-border bg-panel px-3 py-1.5 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
+                :disabled="copyStatus === 'copying' || !lastCommandCopyText"
+                :title="lastCommandCopyText ? 'Copy last command output' : 'Run a command to enable copy'"
+                @click="copyLastCommandOutput"
+              >
+                <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">content_copy</span>
+                {{ copyStatus === "copying" ? "Copying…" : copyStatus === "copied" ? "Copied" : "Copy last command" }}
+              </button>
+              <span v-if="!lastCommandCopyText" class="text-[11px] text-secondary">Run a command to enable copy</span>
+            </div>
 
             <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
 
@@ -768,5 +880,22 @@ onUnmounted(() => {
 
       <p v-if="inputStatus === 'error'" class="mt-1 text-[12px] text-err-text">Failed to send terminal input.</p>
     </footer>
+
+    <div v-if="manualCopyText" class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4" role="dialog" aria-modal="true">
+      <div class="flex max-h-[80vh] w-full max-w-lg flex-col gap-2 rounded-md border border-border bg-panel p-4 shadow-lg">
+        <p class="text-[13px] text-fg">Copy command output</p>
+        <p class="text-[12px] text-secondary">Clipboard access is blocked here. The text is selected below.</p>
+        <textarea
+          :ref="setManualCopyTextareaEl"
+          readonly
+          data-testid="mobile-last-command-manual-copy"
+          class="h-[45vh] w-full resize-none rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
+          :value="manualCopyText"
+        />
+        <button type="button" class="self-end rounded-md border border-border bg-panel px-3 py-1.5 text-[13px] text-fg hover:bg-hover" @click="closeManualCopy">
+          Close
+        </button>
+      </div>
+    </div>
   </div>
 </template>
