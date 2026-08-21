@@ -554,9 +554,20 @@ shared local Tailscale/Web Push setup can be reused by every worktree while
 worktree-specific `.env.local` values still win. If neither local env file
 exists and the script is running interactively, it starts a first-time setup,
 detects the current Tailscale DNS name from `tailscale status --json`, and
-writes the shared file. If Tailscale is unavailable or does not report a DNS
-name, the setup falls back to manual host entry. User-specific Web Push values
-such as `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
+writes the shared file. `MULMOTERMINAL_TAILSCALE_MODE` defaults to `auto`.
+Use `tailscale` (or `https`) to require Tailscale Serve, `http` for direct HTTP
+over a working Tailscale VPN, or `local` to start without Tailscale. In `auto`,
+the helper uses Tailscale Serve when it works; if Tailscale itself is missing or
+not running, an interactive shell asks whether to continue in `local` mode. A
+non-interactive shell never waits for that prompt; set
+`MULMOTERMINAL_TAILSCALE_MODE=local` there when Tailscale should be skipped.
+Local mode does not require a Tailscale DNS name, Tailscale IP address, or
+`tailscale serve`; it starts the app for `http://localhost:${CLIENT_PORT}` and
+still honors ordinary bind/origin settings such as `MULMOTERMINAL_VITE_HOST`
+and `MULMOTERMINAL_ALLOWED_ORIGINS` if you are putting it behind LAN access or
+your own proxy. If Tailscale is available but only the DNS setup cannot be
+detected during first-time Tailscale setup, the setup falls back to manual host
+entry. User-specific Web Push values such as `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
 `MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
 `MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can also be saved there. When Web Push
 keys are missing, the setup can generate a VAPID key pair automatically and
