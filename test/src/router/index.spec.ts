@@ -16,6 +16,12 @@ describe("router route table", () => {
     expect(router.resolve("/mobile/terminals").name).toBe("mobileTerminals");
   });
 
+  it("redirects the short /mobile entry to the mobile terminal page", async () => {
+    const mem = createRouter({ history: createMemoryHistory(), routes });
+    await mem.push("/mobile");
+    expect(mem.currentRoute.value.name).toBe("mobileTerminals");
+  });
+
   it("emits base-prefixed hrefs when mounted under a base path", () => {
     const mem = createRouter({ history: createMemoryHistory("/mulmoterminal/"), routes });
     expect(mem.resolve({ name: "mobileTerminals" }).href).toBe("/mulmoterminal/mobile/terminals");

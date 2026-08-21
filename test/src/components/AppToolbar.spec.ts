@@ -77,6 +77,12 @@ describe("AppToolbar per-view buttons", () => {
     expect(wrapper.find('[aria-label="Remote host"]').exists()).toBe(false);
   });
 
+  it("renders the desktop Mobile QR toolbar control without displacing Settings", async () => {
+    const wrapper = await mountAt("/terminals");
+    expect(wrapper.find('button[aria-label="Mobile QR code"]').exists()).toBe(true);
+    expect(wrapper.find('button[aria-label="Settings"]').exists()).toBe(true);
+  });
+
   // ...and NOT while a full-screen overlay covers it. They act on cells nobody can see — a new
   // terminal appearing behind the wiki, an ordering change nobody watches — and the rate gauge is
   // status for a view that is not showing.
