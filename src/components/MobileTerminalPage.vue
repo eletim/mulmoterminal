@@ -805,16 +805,18 @@ onUnmounted(() => {
               @interrupt="interruptSelectedSession"
               @stop="stopConfirmedSession"
             />
-            <div v-if="selectedSession.agent === 'shell' && lastCommandCopyText" class="flex flex-wrap items-center gap-2">
+            <div v-if="selectedSession.agent === 'shell'" class="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 class="inline-flex items-center gap-1 rounded-md border border-border bg-panel px-3 py-1.5 text-[12px] text-fg hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-panel"
-                :disabled="copyStatus === 'copying'"
+                :disabled="copyStatus === 'copying' || !lastCommandCopyText"
+                :title="lastCommandCopyText ? 'Copy last command output' : 'Run a command to enable copy'"
                 @click="copyLastCommandOutput"
               >
                 <span class="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">content_copy</span>
                 {{ copyStatus === "copying" ? "Copying…" : copyStatus === "copied" ? "Copied" : "Copy last command" }}
               </button>
+              <span v-if="!lastCommandCopyText" class="text-[11px] text-secondary">Run a command to enable copy</span>
             </div>
 
             <p v-if="screenStatus === 'loading'" class="text-[13px] text-secondary">Loading terminal screen…</p>
