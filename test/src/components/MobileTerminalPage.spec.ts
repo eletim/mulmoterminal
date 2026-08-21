@@ -2242,6 +2242,21 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("Copied");
     });
 
+    it("shows the last-command copy button disabled for Shell sessions before any command is available", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: true, agent: "shell" })],
+        screens: { a: screenOkBody({ screen: "$ " }) },
+      });
+      const wrapper = await mountPage();
+      const button = wrapper.findAll("button").find((candidate) => candidate.text().includes("Copy last command"));
+      if (!button) throw new Error("copy button not found");
+
+      expect(button.attributes("disabled")).toBeDefined();
+      expect(button.attributes("title")).toBe("Run a command to enable copy");
+      expect(wrapper.text()).toContain("Run a command to enable copy");
+    });
+
     it("does not show the last-command copy button for agent sessions", async () => {
       mockFetch({
         mode: "local",
