@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import webPush from "web-push";
@@ -113,6 +113,12 @@ function writeFakeYarn(binDir: string) {
     ].join("\n"),
   );
   chmodSync(executable, 0o755);
+}
+
+function writeNoTailscalePathBasics(binDir: string) {
+  mkdirSync(binDir, { recursive: true });
+  symlinkSync(BASH, path.join(binDir, "bash"));
+  symlinkSync("/usr/bin/dirname", path.join(binDir, "dirname"));
 }
 
 function parseEnv(contents: string) {
@@ -256,6 +262,45 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://100.64.0.23:6857");
   });
 
+  it("does not call Tailscale in explicit local mode", () => {
+    dir = makeTempDir("tailscale-local-bin-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(binDir, 'echo "tailscale should not run" >&2; exit 44');
+
+    const result = dryRun({
+      MULMOTERMINAL_TAILSCALE_MODE: "local",
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("tailscale serve");
+    expect(result.stderr).not.toContain("tailscale should not run");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode local");
+    expect(result.stdout).toContain("Tailscale disabled; no Tailscale DNS, IP, or serve route is required");
+    expect(result.stdout).not.toContain("MULMOTERMINAL_ALLOWED_ORIGINS=http://");
+  });
+
+  it("does not run first-time Tailscale setup in explicit local mode", () => {
+    const home = isolatedHome();
+    const result = interactiveDryRun("", {
+      ...home,
+      MULMOTERMINAL_TAILSCALE_MODE: "local",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("Starting first-time setup");
+    expect(result.stdout).not.toContain("Tailscale host");
+    expect(existsSync(localEnvPath(home))).toBe(false);
+  });
+
+  it("keeps tailscale as an alias for explicit HTTPS mode", () => {
+    const result = dryRun({ MULMOTERMINAL_TAILSCALE_MODE: "tailscale" });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("tailscale serve --bg");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode https");
+  });
+
   it("uses HTTPS in auto mode when Tailscale Serve succeeds", () => {
     dir = makeTempDir("tailscale-auto-success-");
     const binDir = path.join(currentTempDir(), "bin");
@@ -295,6 +340,62 @@ describe("start-tailscale-dev.sh", () => {
     expect(result.stdout).toContain("[mulmoterminal] tailscale mode http");
     expect(result.stdout).toContain("VITE_HOST=0.0.0.0");
     expect(result.stdout).toContain("ORIGINS=http://100.64.0.23:6857");
+  });
+
+  it("falls back to local mode in auto mode when Tailscale is not installed and the user accepts", () => {
+    dir = makeTempDir("tailscale-auto-local-missing-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeNoTailscalePathBasics(binDir);
+    writeFakeYarn(binDir);
+
+    const result = interactiveRunScript("\n", {
+      PATH: binDir,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("tailscale CLI not found");
+    expect(result.stderr).toContain("Tailscale is not available");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode local");
+    expect(result.stdout).toContain("Tailscale disabled; no Tailscale DNS, IP, or serve route is required");
+    expect(result.stdout).toContain("YARN dev");
+    expect(result.stdout).toContain("ENV PORT=34568 CLIENT_PORT=6857 VITE_HOST= ORIGINS=");
+  });
+
+  it("falls back to local mode in auto mode when Tailscale is not running and the user accepts", () => {
+    dir = makeTempDir("tailscale-auto-local-down-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeFakeTailscale(
+      binDir,
+      'if [[ "$1 $2" == "serve --bg" ]]; then echo "serve failed" >&2; exit 7; fi\nif [[ "$1 $2" == "ip -4" ]]; then echo "daemon down" >&2; exit 8; fi\nexit 1',
+    );
+    writeFakeYarn(binDir);
+
+    const result = interactiveRunScript("\n", {
+      PATH: prependPath(binDir),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain("serve failed");
+    expect(result.stderr).toContain("Could not read the Tailscale IPv4 address");
+    expect(result.stdout).toContain("[mulmoterminal] tailscale mode local");
+    expect(result.stdout).toContain("YARN dev");
+    expect(result.stdout).toContain("ORIGINS=");
+  });
+
+  it("does not prompt or hang in auto mode when Tailscale is unavailable non-interactively", () => {
+    dir = makeTempDir("tailscale-auto-local-noninteractive-");
+    const binDir = path.join(currentTempDir(), "bin");
+    writeNoTailscalePathBasics(binDir);
+    writeFakeYarn(binDir);
+
+    const result = runScript({
+      PATH: binDir,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Not prompting in a non-interactive shell");
+    expect(result.stderr).toContain("MULMOTERMINAL_TAILSCALE_MODE=local");
+    expect(result.stdout).not.toContain("YARN dev");
   });
 
   it("generates HTTP first-time setup values after accepted auto fallback", () => {
@@ -391,7 +492,7 @@ describe("start-tailscale-dev.sh", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Invalid MULMOTERMINAL_TAILSCALE_MODE=maybe");
-    expect(result.stderr).toContain("Expected one of: auto, https, http");
+    expect(result.stderr).toContain("Expected one of: auto, tailscale, https, http, local");
     expect(result.stdout).not.toContain("yarn dev");
   });
 
