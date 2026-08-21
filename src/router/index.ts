@@ -37,6 +37,7 @@ export const routes: RouteRecordRaw[] = [
   { path: "/wiki/lint", name: "wikiLint", component: Stub },
   // The local mobile terminal's entry point. A route of its own, distinct from /terminals,
   // so App.vue can mount the mobile page alone — never the desktop grid shell alongside it.
+  { path: "/mobile", redirect: { name: "mobileTerminals" } },
   { path: "/mobile/terminals", name: "mobileTerminals", component: Stub },
   // Unknown URLs land on the default view — via `/`, so they follow it wherever it points.
   { path: "/:pathMatch(.*)*", redirect: "/" },

@@ -7,5 +7,5 @@
        itself guarantees. The value of the flag is in shipped code, which has it on. */
     "noUncheckedIndexedAccess": false
   },
-  "include": ["test/src/**/*.ts", "test/common/**/*.ts", "test/*.ts"]
+  "include": ["src/**/*.d.ts", "test/src/**/*.ts", "test/common/**/*.ts", "test/*.ts"]
 }

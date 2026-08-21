@@ -3,6 +3,7 @@ import { computed, ref, useTemplateRef } from "vue";
 import { useRoute } from "vue-router";
 import { router } from "../router";
 import NotificationBell from "./NotificationBell.vue";
+import MobileQrButton from "./MobileQrButton.vue";
 import RateLimitGauge from "./RateLimitGauge.vue";
 import LauncherButton from "./LauncherButton.vue";
 import { CONTENT_ROUTES } from "../composables/overlayOrigin";
@@ -203,6 +204,7 @@ function showPrs(): void {
       <RateLimitGauge v-if="onGridRoute" />
     </nav>
     <NotificationBell class="ml-auto" />
+    <MobileQrButton />
     <div v-if="updateBadge" ref="updateRoot" class="relative mr-1 flex-none">
       <button
         type="button"

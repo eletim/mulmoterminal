@@ -33,4 +33,10 @@ describe("App page split", () => {
     expect(wrapper.findComponent({ name: "MobileTerminalPage" }).exists()).toBe(true);
     expect(wrapper.findComponent({ name: "DesktopAppShell" }).exists()).toBe(false);
   });
+
+  it("keeps the desktop toolbar out of the short mobile entry", async () => {
+    const wrapper = await mountAt("/mobile");
+    expect(wrapper.findComponent({ name: "MobileTerminalPage" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "DesktopAppShell" }).exists()).toBe(false);
+  });
 });
