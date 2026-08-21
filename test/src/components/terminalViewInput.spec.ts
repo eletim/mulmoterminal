@@ -42,9 +42,10 @@ class ResizeObserverStub {
 // At module scope, not inside a test: a component's module load is not the test's work, and
 // billing it to `testTimeout` is what makes the first test of a file the one that flakes.
 const Terminal = (await import("../../../src/components/Terminal.vue")).default;
+const terminalConn = await import("../../../src/composables/useTerminalConnections");
 
-const mountTerminal = async () => {
-  return mount(Terminal, { props: { sessionId: null, connectKey: 1, persistKey: "input-spec", cwd: "/proj/input-spec" } });
+const mountTerminal = async (props: Record<string, unknown> = {}) => {
+  return mount(Terminal, { props: { sessionId: null, connectKey: 1, persistKey: "input-spec", cwd: "/proj/input-spec", ...props } });
 };
 
 // The compiled SFC lists the names `defineEmits` declared. Read through a guard rather than a
@@ -58,6 +59,8 @@ const declaredEmits = (component: unknown): string[] => {
 
 beforeEach(() => {
   attachedHandlers.length = 0;
+  terminalConn.connView.clear();
+  document.body.innerHTML = "";
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
   globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) })) as unknown as typeof fetch;
 });
@@ -84,5 +87,50 @@ describe("Terminal.vue reports the user typing", () => {
   // filtering in terminalUserInput entirely, which is the whole reason the event exists.
   it("declares `input` as a component emit, which is what shadows the native one", async () => {
     expect(declaredEmits(Terminal)).toContain("input");
+  });
+
+  it("shows the Shell last-command copy button disabled before a command is available", async () => {
+    const w = await mountTerminal({ launcher: { shell: true } });
+    await flushPromises();
+    const button = w.get('[data-testid="desktop-shell-copy-last-command"]');
+
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("title")).toBe("Run a command to enable copy");
+  });
+
+  it("does not show the Shell last-command copy button for non-Shell terminals", async () => {
+    const w = await mountTerminal();
+    await flushPromises();
+    expect(w.find('[data-testid="desktop-shell-copy-last-command"]').exists()).toBe(false);
+  });
+
+  it("copies the Shell last command and shows copied feedback", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    terminalConn.connView.set("input-spec", { status: "connected", serverCwd: "/proj/input-spec", lastCommandCopyText: "$ pwd\n/proj/input-spec" });
+    const w = await mountTerminal({ launcher: { shell: true } });
+    await flushPromises();
+
+    await w.get('[data-testid="desktop-shell-copy-last-command"]').trigger("click");
+    await flushPromises();
+
+    expect(writeText).toHaveBeenCalledWith("$ pwd\n/proj/input-spec");
+    expect(w.text()).toContain("Copied");
+  });
+
+  it("shows selected manual copy fallback when Shell last-command clipboard write fails", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) } });
+    terminalConn.connView.set("input-spec", { status: "connected", serverCwd: "/proj/input-spec", lastCommandCopyText: "$ pwd\n/proj/input-spec" });
+    const w = await mountTerminal({ launcher: { shell: true } });
+    await flushPromises();
+
+    await w.get('[data-testid="desktop-shell-copy-last-command"]').trigger("click");
+    await flushPromises();
+
+    const box = document.body.querySelector('[data-testid="desktop-shell-last-command-manual-copy"]');
+    if (!(box instanceof HTMLTextAreaElement)) throw new Error("manual copy textarea not found");
+    expect(box.value).toBe("$ pwd\n/proj/input-spec");
+    expect(box.selectionStart).toBe(0);
+    expect(box.selectionEnd).toBe("$ pwd\n/proj/input-spec".length);
   });
 });

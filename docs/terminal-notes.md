@@ -331,6 +331,9 @@ or `terminal-overrides` capability. The isolation test: write the sequence **dir
     — so copying more than the visible screen isn't possible today.
   - Copy (auto): Claude's OSC 52 auto-copy works only via the tmux `Ms` override + `set-clipboard
     on` (#206). Paste uses the browser's native Cmd+V into xterm (there is no app paste button).
+  - Shell launcher copy: the header copy button observes submitted Shell input and reads xterm's
+    plain buffer after output frames, then extracts the latest command/output block. It does not
+    hook selection, Ctrl/Cmd+C, mouse reporting, or xterm's copy listener.
 - **Phone submit** — the submit byte is env-dependent (`terminalSubmit`, #445/#772); the sanitizer
   strips control bytes so phone input is single-line.
 

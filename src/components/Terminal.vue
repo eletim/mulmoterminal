@@ -24,6 +24,7 @@ import GitBranchChip from "./GitBranchChip.vue";
 import { useHeaderButtons, hasPickFileButton, type HeaderButton } from "../composables/useHeaderButtons";
 import { useSessionContext } from "../composables/useSessionContext";
 import { runHeaderButton } from "../composables/useHeaderAction";
+import { useManualCopy } from "../composables/useManualCopy";
 import type { RunCommand } from "./runCommand";
 import type { LaunchChoice } from "./wsUrl";
 
@@ -127,6 +128,33 @@ const statusClass = computed(() => {
 // The server-resolved cwd of the connected session (the open project), used by the
 // Run menu so it lists THAT directory's scripts. Falls back to the requested cwd.
 const serverCwd = computed(() => conn.connView.get(slotKey)?.serverCwd ?? props.cwd ?? null);
+const shellLastCommandCopyText = computed(() => conn.connView.get(slotKey)?.lastCommandCopyText ?? "");
+const showsShellLastCommandCopy = computed(() => !!props.launcher && "shell" in props.launcher);
+type ShellCopyStatus = "idle" | "copying" | "copied";
+const shellCopyStatus = ref<ShellCopyStatus>("idle");
+let shellCopyTimer: ReturnType<typeof setTimeout> | undefined;
+const { manualCopyText, setManualCopyTextareaEl, showManualCopy, closeManualCopy } = useManualCopy();
+
+watch(shellLastCommandCopyText, () => {
+  shellCopyStatus.value = "idle";
+});
+
+async function copyShellLastCommand(): Promise<void> {
+  const text = shellLastCommandCopyText.value;
+  if (!text || shellCopyStatus.value === "copying") return;
+  shellCopyStatus.value = "copying";
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    shellCopyStatus.value = "copied";
+    clearTimeout(shellCopyTimer);
+    shellCopyTimer = setTimeout(() => (shellCopyStatus.value = "idle"), 2500);
+  } catch {
+    await showManualCopy(text);
+    shellCopyStatus.value = "idle";
+  }
+}
+onUnmounted(() => clearTimeout(shellCopyTimer));
 
 // This terminal's directory settings, resolved HERE rather than handed down (#909). Keyed on the
 // server-confirmed cwd — better than a host's copy, since the server may have rejected the
@@ -538,6 +566,25 @@ onUnmounted(() => {
       <RunMenu v-if="runMenu" :cwd="serverCwd" @run="(c) => emit('run', c)" />
       <SkillMenu v-if="runMenu" :cwd="serverCwd" @skill="onSkill" />
       <div class="ml-auto inline-flex items-center gap-1">
+        <span v-if="showsShellLastCommandCopy" class="relative inline-flex">
+          <button
+            type="button"
+            data-testid="desktop-shell-copy-last-command"
+            class="inline-flex cursor-pointer items-center rounded-[4px] border-0 bg-transparent p-0.5 text-[var(--cell-btn,var(--text-muted))] hover:bg-selected hover:text-fg disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[var(--cell-btn,var(--text-muted))]"
+            :disabled="shellCopyStatus === 'copying' || !shellLastCommandCopyText"
+            :title="shellLastCommandCopyText ? 'Copy last command output' : 'Run a command to enable copy'"
+            :aria-label="shellLastCommandCopyText ? 'Copy last command output' : 'Run a command to enable copy'"
+            @click="copyShellLastCommand"
+          >
+            <span class="material-symbols-outlined text-[18px]" aria-hidden="true">{{ shellCopyStatus === "copied" ? "check" : "content_copy" }}</span>
+          </button>
+          <span
+            v-if="shellCopyStatus === 'copied'"
+            role="status"
+            class="pointer-events-none absolute right-0 top-full z-30 mt-1 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1 text-[11px] text-fg shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+            >Copied</span
+          >
+        </span>
         <button
           v-for="b in headerButtons"
           :key="b.id"
@@ -608,4 +655,21 @@ onUnmounted(() => {
       <span>{{ dropUploadingText }}</span>
     </div>
   </div>
+  <Teleport to="body">
+    <div v-if="manualCopyText" class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.45)] px-4" role="dialog" aria-modal="true">
+      <div class="flex max-h-[80vh] w-[min(640px,92vw)] flex-col gap-2 rounded-lg bg-panel p-4 text-fg shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
+        <p class="text-[12px] text-muted">
+          Your browser blocks clipboard access on this address — the command output is selected below. Copy it with your usual key.
+        </p>
+        <textarea
+          :ref="setManualCopyTextareaEl"
+          readonly
+          data-testid="desktop-shell-last-command-manual-copy"
+          class="h-[50vh] w-full resize-none rounded border border-border bg-deep p-2 font-mono text-[12px] text-fg"
+          :value="manualCopyText"
+        />
+        <button type="button" class="self-end rounded border border-border px-3 py-1 text-[12px] hover:bg-hover" @click="closeManualCopy">Close</button>
+      </div>
+    </div>
+  </Teleport>
 </template>
