@@ -529,51 +529,116 @@ Example `.env` (gitignored):
 CLAUDE_CWD=/Users/you/my-project
 ```
 
-Serving from a Tailscale subpath in local dev can look like this:
+For local development, prefer the checked-in helper:
 
-```
-PORT=34568 CLIENT_PORT=6857 MULMOTERMINAL_BASE_PATH=/mulmoterminal/ MULMOTERMINAL_MOBILE_MODE=local yarn dev
-tailscale serve --bg --set-path=/mulmoterminal http://localhost:6857/mulmoterminal
-```
-
-For that exact local deployment, run the checked-in helper instead:
-
-```
-scripts/start-tailscale-dev.sh
+```bash
+./scripts/start-tailscale-dev.sh
 ```
 
-It starts dev mode with `PORT=34568`, `CLIENT_PORT=6857`,
-`MULMOTERMINAL_BASE_PATH=/mulmoterminal/`, and
-`MULMOTERMINAL_MOBILE_MODE=local`, then points Tailscale Serve
-`/mulmoterminal` at `http://localhost:6857/mulmoterminal`. Tailscale Serve's
-path mount forwards the request below that mount to the target, so the target
-includes the Vite base path. Existing shell variables override those defaults.
-The script reads `.env` from the repo root, then
-`~/.config/mulmoterminal/local.env`, then `.env.local` from the repo root, so a
-shared local Tailscale/Web Push setup can be reused by every worktree while
-worktree-specific `.env.local` values still win. If neither local env file
-exists and the script is running interactively, it starts a first-time setup,
-detects the current Tailscale DNS name from `tailscale status --json`, and
-writes the shared file. `MULMOTERMINAL_TAILSCALE_MODE` defaults to `auto`.
-Use `tailscale` (or `https`) to require Tailscale Serve, `http` for direct HTTP
-over a working Tailscale VPN, or `local` to start without Tailscale. In `auto`,
-the helper uses Tailscale Serve when it works; if Tailscale itself is missing or
-not running, an interactive shell asks whether to continue in `local` mode. A
-non-interactive shell never waits for that prompt; set
-`MULMOTERMINAL_TAILSCALE_MODE=local` there when Tailscale should be skipped.
-Local mode does not require a Tailscale DNS name, Tailscale IP address, or
-`tailscale serve`; it starts the app for `http://localhost:${CLIENT_PORT}` and
-still honors ordinary bind/origin settings such as `MULMOTERMINAL_VITE_HOST`
-and `MULMOTERMINAL_ALLOWED_ORIGINS` if you are putting it behind LAN access or
-your own proxy. If Tailscale is available but only the DNS setup cannot be
-detected during first-time Tailscale setup, the setup falls back to manual host
-entry. User-specific Web Push values such as `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`,
-`MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, and
-`MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` can also be saved there. When Web Push
-keys are missing, the setup can generate a VAPID key pair automatically and
-stores it in the shared file with `0600` permissions, so later runs and other
-worktrees reuse the same keys. Existing shell values still win and private keys
-are never printed by the setup.
+It starts `yarn dev` with these helper defaults:
+
+```bash
+PORT=34568
+CLIENT_PORT=6857
+MULMOTERMINAL_BASE_PATH=/mulmoterminal/
+MULMOTERMINAL_MOBILE_MODE=local
+```
+
+Open `http://localhost:6857/mulmoterminal/` for localhost use. In the default
+`auto` mode, the helper configures Tailscale Serve when Tailscale is available.
+If Tailscale itself is missing or not running, an interactive shell asks whether
+to continue without Tailscale in `local` mode; a non-interactive shell does not
+prompt, so set `MULMOTERMINAL_TAILSCALE_MODE=local` explicitly there.
+
+`MULMOTERMINAL_TAILSCALE_MODE` controls the network mode:
+
+| Value       | Meaning |
+| ----------- | ------- |
+| `auto`      | Default. Use Tailscale Serve when it works. If Serve fails but a Tailscale IPv4 address is available, ask before falling back to direct Tailscale HTTP. If Tailscale itself is unavailable, ask before falling back to `local`. |
+| `local`     | Do not use Tailscale. No Tailscale DNS name, Tailscale IP address, or `tailscale serve` route is required. |
+| `http`      | Use direct HTTP over an already-working Tailscale VPN. The helper detects `tailscale ip -4`, binds Vite to `0.0.0.0`, and allows `http://<tailscale-ip>:6857`. |
+| `https`     | Require Tailscale Serve HTTPS. If `tailscale serve` cannot be configured, startup exits. |
+| `tailscale` | Alias for `https`. |
+
+Common examples:
+
+```bash
+# 1. Normal Tailscale use: auto-detect and use Tailscale when available.
+./scripts/start-tailscale-dev.sh
+```
+
+```bash
+# 2. No Tailscale, localhost only.
+MULMOTERMINAL_TAILSCALE_MODE=local ./scripts/start-tailscale-dev.sh
+```
+
+```bash
+# 3. No Tailscale, open from another device on your LAN.
+# Replace 192.168.1.20 with this machine's LAN address.
+MULMOTERMINAL_TAILSCALE_MODE=local \
+MULMOTERMINAL_VITE_HOST=0.0.0.0 \
+MULMOTERMINAL_ALLOWED_ORIGINS=http://192.168.1.20:6857 \
+./scripts/start-tailscale-dev.sh
+```
+
+```bash
+# 4. Behind nginx or another HTTPS reverse proxy on the same machine.
+# Point the proxy at http://127.0.0.1:6857/mulmoterminal/
+# and forward WebSocket upgrades for the same base path.
+MULMOTERMINAL_TAILSCALE_MODE=local \
+MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.example.test \
+./scripts/start-tailscale-dev.sh
+```
+
+```bash
+# 5. Require Tailscale Serve HTTPS.
+MULMOTERMINAL_TAILSCALE_MODE=https ./scripts/start-tailscale-dev.sh
+```
+
+If you change the path your browser opens, keep `MULMOTERMINAL_BASE_PATH` in
+sync with it:
+
+```bash
+MULMOTERMINAL_TAILSCALE_MODE=local \
+MULMOTERMINAL_BASE_PATH=/mt/ \
+MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.example.test \
+./scripts/start-tailscale-dev.sh
+```
+
+The helper reads env files in this order, with later files overriding earlier
+ones and shell variables overriding all files:
+
+1. Repo `.env`
+2. User shared env: `MULMOTERMINAL_LOCAL_ENV_FILE` when set, otherwise
+   `$XDG_CONFIG_HOME/mulmoterminal/local.env`, otherwise
+   `~/.config/mulmoterminal/local.env`
+3. Repo `.env.local`
+
+Set `MULMOTERMINAL_ENV_FILES=/path/a.env:/path/b.env` to replace that default
+list. In the default env-file mode, an interactive first run can create the user
+shared env for Tailscale HTTPS or direct Tailscale HTTP setup. Worktree-specific
+overrides belong in `.env.local`; settings you want every worktree to share
+belong in the user shared env.
+
+The main startup env vars are:
+
+| Variable | When to set it |
+| -------- | -------------- |
+| `MULMOTERMINAL_TAILSCALE_MODE` | Choose `auto`, `local`, `http`, `https`, or `tailscale`. |
+| `PORT` | Backend port. With the helper, default is `34568`; Vite proxies `/api`, `/ws`, and related routes to it. |
+| `CLIENT_PORT` | Vite frontend port and the port you usually open in dev. With the helper, default is `6857`. |
+| `MULMOTERMINAL_BASE_PATH` | Browser path prefix. Helper default is `/mulmoterminal/`; set it to `/` or another path only when the URL/proxy path matches. |
+| `MULMOTERMINAL_VITE_HOST` | Vite bind address. Set `0.0.0.0` when browsers on other LAN devices must reach the dev server directly. |
+| `MULMOTERMINAL_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to drive the backend. Required for LAN/reverse-proxy origins beyond localhost. |
+| `MULMOTERMINAL_HOST` | Backend bind address. Usually leave unset with the helper; set it only when clients or a proxy connect directly to `PORT` instead of the Vite dev server. |
+| `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`, `MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, `MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` | Enable mobile Web Push. Subject must start with `mailto:` or `https://`. |
+
+Local mode is plain HTTP. That is fine for `localhost`, but phones and other
+external devices treat many browser features as secure-context only. PWA install,
+Service Worker, Web Push, clipboard, and similar features may require HTTPS when
+you are not on localhost. Tailscale Serve HTTPS is one way to provide that.
+Using nginx or another reverse proxy for your own HTTPS termination is a
+separate setup path tracked by [Issue #84](https://github.com/eletim/mulmoterminal/issues/84).
 
 ### UI settings (`~/.mulmoterminal/config.json`)
 
