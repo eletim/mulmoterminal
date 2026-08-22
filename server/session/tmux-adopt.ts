@@ -9,16 +9,24 @@ export interface AdoptableTerminalWriterDeps {
   commandOf: (sessionId: string) => string;
 }
 
-export function createAdoptingTerminalWriter(deps: AdoptableTerminalWriterDeps): (sessionId: string, chunk: string) => boolean {
-  return (sessionId: string, chunk: string): boolean => {
+export function createTmuxSessionAdopter(deps: AdoptableTerminalWriterDeps): (sessionId: string) => PtyEntry | undefined {
+  return (sessionId: string): PtyEntry | undefined => {
     let entry = deps.entryOf(sessionId);
     if (!entry && deps.hasTmux(sessionId)) {
       try {
         entry = deps.spawnLauncherPty(sessionId, null, deps.commandOf(sessionId), deps.cwdOf(sessionId));
       } catch {
-        return false;
+        return undefined;
       }
     }
+    return entry;
+  };
+}
+
+export function createAdoptingTerminalWriter(deps: AdoptableTerminalWriterDeps): (sessionId: string, chunk: string) => boolean {
+  const adopt = createTmuxSessionAdopter(deps);
+  return (sessionId: string, chunk: string): boolean => {
+    const entry = adopt(sessionId);
     if (!entry) return false;
     try {
       entry.term.write(chunk);

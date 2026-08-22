@@ -1,11 +1,59 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 
-import { createAdoptingTerminalWriter } from "../../../server/session/tmux-adopt.js";
+import { createAdoptingTerminalWriter, createTmuxSessionAdopter } from "../../../server/session/tmux-adopt.js";
 
 const ID = "11111111-2222-4333-8444-555555555555";
 
 const entry = () => ({ term: { write: vi.fn() } }) as never;
+
+describe("createTmuxSessionAdopter", () => {
+  it("returns an already-live PTY without spawning", () => {
+    const live = entry();
+    const spawnLauncherPty = vi.fn();
+    const adopt = createTmuxSessionAdopter({
+      entryOf: () => live,
+      hasTmux: () => true,
+      cwdOf: () => "/work",
+      spawnLauncherPty,
+      commandOf: () => "/bin/sh",
+    });
+
+    expect(adopt(ID)).toBe(live);
+    expect(spawnLauncherPty).not.toHaveBeenCalled();
+  });
+
+  it("adopts a tmux-only survivor without writing to it", () => {
+    const adopted = entry();
+    const spawnLauncherPty = vi.fn(() => adopted);
+    const adopt = createTmuxSessionAdopter({
+      entryOf: () => undefined,
+      hasTmux: () => true,
+      cwdOf: () => "/remembered",
+      spawnLauncherPty,
+      commandOf: () => "/bin/bash",
+    });
+
+    expect(adopt(ID)).toBe(adopted);
+
+    expect(spawnLauncherPty).toHaveBeenCalledWith(ID, null, "/bin/bash", "/remembered");
+    expect((adopted as { term: { write: ReturnType<typeof vi.fn> } }).term.write).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined when there is no tmux survivor to adopt", () => {
+    const spawnLauncherPty = vi.fn();
+    const adopt = createTmuxSessionAdopter({
+      entryOf: () => undefined,
+      hasTmux: () => false,
+      cwdOf: () => "/work",
+      spawnLauncherPty,
+      commandOf: () => "/bin/sh",
+    });
+
+    expect(adopt(ID)).toBeUndefined();
+    expect(spawnLauncherPty).not.toHaveBeenCalled();
+  });
+});
 
 describe("createAdoptingTerminalWriter", () => {
   it("writes to an already-live PTY without spawning", () => {

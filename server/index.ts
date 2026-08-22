@@ -49,7 +49,7 @@ import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
-import { createAdoptingTerminalWriter } from "./session/tmux-adopt.js";
+import { createAdoptingTerminalWriter, createTmuxSessionAdopter } from "./session/tmux-adopt.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
 import { createTitleManager } from "./session/session-title.js";
 import { generateTitleFromTurns } from "./config/header-title.js";
@@ -667,13 +667,15 @@ const mobileListTerminalSessions = async () => {
 // Write a chunk to a session from the phone. A tmux session that outlived this server has no
 // in-process PtyEntry until someone reattaches; adopt it here so mobile can type into the same
 // Shell/task it can already list and capture (#74).
-const mobileWriteToSession = createAdoptingTerminalWriter({
+const mobileTmuxAdoptDeps: Parameters<typeof createTmuxSessionAdopter>[0] = {
   entryOf: (id) => ptys.get(id),
   hasTmux: tmuxHasSession,
   cwdOf: (id) => sessionCwd(id) ?? CLAUDE_CWD,
   spawnLauncherPty,
   commandOf: (id) => agentOfSession(id) ?? process.env.SHELL ?? "/bin/sh",
-});
+};
+const mobileAdoptTmuxSession = createTmuxSessionAdopter(mobileTmuxAdoptDeps);
+const mobileWriteToSession = createAdoptingTerminalWriter(mobileTmuxAdoptDeps);
 
 const mobileSessionOperations = createTerminalSessionOperations({
   writeToSession: mobileWriteToSession,
@@ -707,8 +709,12 @@ const mobileSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> 
     memosHydrated: sessionMemosHydrated,
   });
 
-const mobileCaptureTerminalScreen = (sessionId: string) =>
-  captureSessionScreen(sessionId, {
+const mobileCaptureTerminalScreen = (sessionId: string) => {
+  // A phone has no terminal WebSocket to reattach through. If a grid session survived only in
+  // tmux, adopt that same session id before reading so the mobile view can recover to a writable
+  // in-process PTY instead of staying detached/read-only until a desktop tab happens to attach.
+  mobileAdoptTmuxSession(sessionId);
+  return captureSessionScreen(sessionId, {
     // Both capture paths are asked for the same history; how much of it the phone actually
     // gets is captureSessionScreen's call, so the two agree (mulmoserver#139).
     captureStyledPane: (id) => tmuxCaptureStyledPane(id, SCREEN_HISTORY_ROWS),
@@ -723,6 +729,7 @@ const mobileCaptureTerminalScreen = (sessionId: string) =>
     // kinds (#830).
     quickCommandsOf: (id) => quickCommandsForAgent(getQuickCommands(), agentOfSession(id)),
   });
+};
 
 // The LOCAL mobile route's colour layer (#7). Deliberately its own capture rather than a field
 // added to SessionScreen: the plain screen response stays compact and older clients can ignore
@@ -734,6 +741,7 @@ const mobileCaptureTerminalScreen = (sessionId: string) =>
 // ansiScreenWindow applies the SAME row cap AND byte cap terminalScreen.ts's own screenWindow
 // applies to the plain screen, so the two never disagree on how much of the pane is shown.
 const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRow[]> => {
+  mobileAdoptTmuxSession(sessionId);
   const captured = tmuxCaptureStyledPane(sessionId, SCREEN_HISTORY_ROWS);
   if (captured !== null) return ansiScreenWindow(parseAnsiRows(captured));
   const entry = ptys.get(sessionId);
