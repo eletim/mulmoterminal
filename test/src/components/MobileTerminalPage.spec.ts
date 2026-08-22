@@ -1412,6 +1412,24 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.text()).toContain("session-a-title");
     });
 
+    it("automatically retries a transient screen error while the page stays visible", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenFail(500) } });
+        const wrapper = await mountPage();
+        expect(wrapper.text()).toContain("Failed to load terminal screen.");
+
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk("recovered") } });
+        vi.advanceTimersByTime(2000);
+        await flushPromises();
+
+        expect(screenCallCount("a")).toBe(1);
+        expect(wrapper.text()).toContain("recovered");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("shows a screen error when the response's screen field is not a string", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: true })], screens: { a: screenOk(123) } });
       const wrapper = await mountPage();

@@ -125,6 +125,8 @@ const lastCommandCopyText = ref("");
 const screenIsLoading = () => screenStatus.value === "loading";
 const mainScrollEl = ref<HTMLElement | null>(null);
 const MAIN_SCROLL_BOTTOM_TOLERANCE_PX = 24;
+const SCREEN_ERROR_RETRY_MS = 2000;
+let screenRetryTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 function segmentStyle(segment: AnsiSegment): Record<string, string> {
   const style: Record<string, string> = {};
@@ -228,6 +230,23 @@ function writeCachedMobileState(): void {
   }
 }
 
+function clearScreenRetry(): void {
+  if (screenRetryTimeoutId === null) return;
+  clearTimeout(screenRetryTimeoutId);
+  screenRetryTimeoutId = null;
+}
+
+function scheduleScreenRetry(id: string): void {
+  if (screenRetryTimeoutId !== null) return;
+  screenRetryTimeoutId = setTimeout(() => {
+    screenRetryTimeoutId = null;
+    if (document.visibilityState !== "visible") return;
+    if (selectedSessionId.value !== id) return;
+    if (screenStatus.value !== "error") return;
+    void loadScreen(id);
+  }, SCREEN_ERROR_RETRY_MS);
+}
+
 function restoreCachedMobileState(): boolean {
   try {
     const raw = localStorage.getItem(MOBILE_STATE_CACHE_KEY);
@@ -261,6 +280,7 @@ function restoreCachedMobileState(): boolean {
 function changeSelectedSession(next: string | null): void {
   if (next === selectedSessionId.value) return;
 
+  clearScreenRetry();
   selectedSessionId.value = next;
   inputText.value = "";
   inputStatus.value = "idle";
@@ -407,6 +427,7 @@ function pollSessionListIfVisible(): void {
 // top of whatever the newer selection has already shown.
 async function loadScreen(id: string): Promise<void> {
   const requestedId = id;
+  clearScreenRetry();
   screenStatus.value = "loading";
   try {
     const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(id)}/screen`);
@@ -423,6 +444,7 @@ async function loadScreen(id: string): Promise<void> {
   } catch {
     if (selectedSessionId.value !== requestedId) return;
     screenStatus.value = "error";
+    scheduleScreenRetry(requestedId);
   }
 }
 
@@ -689,6 +711,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (cooldownTimeoutId !== null) clearTimeout(cooldownTimeoutId);
+  clearScreenRetry();
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   if (sessionListTimer !== null) clearInterval(sessionListTimer);
 });
