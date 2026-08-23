@@ -41,6 +41,7 @@ import { stopShellTaskWatch } from "./shell-task-watch.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
+import { recordSessionStopped } from "./session-lifecycle-records.js";
 import {
   forgetMobileWebPushActivitySession,
   mobileWebPushKindForActivityTransition,
@@ -183,6 +184,7 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
+  recordSessionStopped({ id, agent: entry.agent, cwd: entry.cwd });
   // An unpersisted new session vanishes with its pty; a persisted one stays
   // visible via its on-disk record.
   knownSessions.delete(id);

@@ -17,6 +17,7 @@ import { wireAgentPtyRelay } from "./pty-relay.js";
 import { attachCodexAutoRun } from "./draft-injection.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { recordSessionLive } from "./session-lifecycle-records.js";
 
 // Bound to ONE pty: `ptys.has(id)` would keep a stale tail alive after a reap-then-
 // respawn under the same id, and both tails would report the same boundaries.
@@ -86,6 +87,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
     console.log(ptyStartLine({ agent: "codex", pid: term.pid, cwd, tmux, reattached, sessionId, note }));
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "codex" };
     ptys.set(sessionId, entry);
+    recordSessionLive({ id: sessionId, agent: "codex", cwd });
     if (resumeRolloutId) {
       rememberCodexRolloutId(sessionId, resumeRolloutId);
       const file = codexRolloutPath(root, resumeRolloutId);

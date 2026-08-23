@@ -73,8 +73,18 @@ export interface AntigravityConversationRecordSource {
   startedAt: number;
 }
 
+export interface LifecycleSessionRecordSource {
+  id: string;
+  lifecycle: SessionRecordLifecycle;
+  agent: SessionAgent | null;
+  cwd: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SessionRecordInput {
   ids?: readonly string[];
+  lifecycle?: readonly LifecycleSessionRecordSource[];
   now?: number;
   live?: readonly LiveSessionRecordSource[];
   tmuxIds?: readonly string[];
@@ -116,11 +126,12 @@ function lifecycleFor(input: {
   tmux: boolean;
   known: KnownSessionRecordSource | undefined;
   activity: SessionRecordActivity;
-  resume: SessionRecordResume;
+  lifecycle: LifecycleSessionRecordSource | undefined;
 }): SessionRecordLifecycle {
   if (input.failed) return "failed";
   if (input.live) return input.live.attached === false ? "detached" : "live";
   if (input.tmux || activeActivity(input.activity)) return "detached";
+  if (input.lifecycle) return input.lifecycle.lifecycle;
   if (input.known) return "starting";
   return "stopped";
 }
@@ -136,19 +147,28 @@ function recordUpdatedAt(input: {
   known: KnownSessionRecordSource | undefined;
   activity: SessionRecordActivity;
   antigravity: AntigravityConversationRecordSource | undefined;
+  lifecycle: LifecycleSessionRecordSource | undefined;
   now: number;
 }): number {
-  return Math.max(input.activity.at ?? 0, input.known?.createdAt ?? 0, input.antigravity?.startedAt ?? 0, input.live ? input.now : 0);
+  return Math.max(
+    input.activity.at ?? 0,
+    input.known?.createdAt ?? 0,
+    input.antigravity?.startedAt ?? 0,
+    input.lifecycle?.updatedAt ?? 0,
+    input.live ? input.now : 0,
+  );
 }
 
 function agentFor(input: {
   live: LiveSessionRecordSource | undefined;
+  lifecycle: LifecycleSessionRecordSource | undefined;
   unplaced: UnplacedSessionRecordSource | undefined;
   codexRolloutId: string | undefined;
   antigravity: AntigravityConversationRecordSource | undefined;
   claudeTranscript: boolean;
 }): SessionAgent | null {
   if (input.live) return input.live.agent;
+  if (input.lifecycle?.agent) return input.lifecycle.agent;
   if (input.unplaced) return input.unplaced.agent;
   if (input.codexRolloutId) return "codex";
   if (input.antigravity) return "antigravity";
@@ -158,15 +178,17 @@ function agentFor(input: {
 
 function cwdFor(input: {
   live: LiveSessionRecordSource | undefined;
+  lifecycle: LifecycleSessionRecordSource | undefined;
   remembered: string | undefined;
   antigravity: AntigravityConversationRecordSource | undefined;
 }): string | null {
-  return input.live?.cwd ?? input.remembered ?? input.antigravity?.cwd ?? null;
+  return input.live?.cwd ?? input.lifecycle?.cwd ?? input.remembered ?? input.antigravity?.cwd ?? null;
 }
 
 interface SessionRecordLookup {
   liveById: Map<string, LiveSessionRecordSource>;
   knownById: Map<string, KnownSessionRecordSource>;
+  lifecycleById: Map<string, LifecycleSessionRecordSource>;
   activityById: Map<string, ActivityRecordSource>;
   unplacedById: Map<string, UnplacedSessionRecordSource>;
   antigravityById: Map<string, AntigravityConversationRecordSource>;
@@ -184,6 +206,7 @@ function sessionRecordLookup(input: SessionRecordInput): SessionRecordLookup {
   return {
     liveById: new Map((input.live ?? []).map((entry) => [entry.id, entry])),
     knownById: new Map((input.known ?? []).map((entry) => [entry.id, entry])),
+    lifecycleById: new Map((input.lifecycle ?? []).map((entry) => [entry.id, entry])),
     activityById: new Map((input.activity ?? []).map((entry) => [entry.id, entry])),
     unplacedById: new Map((input.unplaced ?? []).map((entry) => [entry.id, entry])),
     antigravityById: new Map((input.antigravityConversations ?? []).map((entry) => [entry.sessionId, entry])),
@@ -204,6 +227,7 @@ function sessionRecordIds(source: SessionRecordLookup, explicitIds: readonly str
   addAll(ids, source.liveById.keys());
   addAll(ids, source.tmuxIds);
   addAll(ids, source.knownById.keys());
+  addAll(ids, source.lifecycleById.keys());
   addAll(ids, source.activityById.keys());
   addAll(ids, source.devTerminalIds);
   addAll(ids, source.unplacedById.keys());
@@ -242,6 +266,7 @@ function resumeFor(
 function buildSessionRecord(id: string, source: SessionRecordLookup, input: SessionRecordInput): SessionRecord {
   const live = source.liveById.get(id);
   const known = source.knownById.get(id);
+  const lifecycle = source.lifecycleById.get(id);
   const activity = activityFor(source.activityById.get(id));
   const unplaced = source.unplacedById.get(id);
   const antigravity = source.antigravityById.get(id);
@@ -251,21 +276,21 @@ function buildSessionRecord(id: string, source: SessionRecordLookup, input: Sess
   const tmux = source.tmuxIds.has(id) || !!live?.tmux;
   return {
     id,
-    agent: agentFor({ live, unplaced, codexRolloutId, antigravity, claudeTranscript: resume.claudeTranscript }),
-    cwd: cwdFor({ live, remembered: input.cwdBySession?.get(id), antigravity }),
+    agent: agentFor({ live, lifecycle, unplaced, codexRolloutId, antigravity, claudeTranscript: resume.claudeTranscript }),
+    cwd: cwdFor({ live, lifecycle, remembered: input.cwdBySession?.get(id), antigravity }),
     title: known?.title ?? null,
     visibility: visibilityFor({
       internal: source.internalIds.has(id),
       background: source.backgroundIds.has(id),
       grid: placement.gridCell || placement.unplaced,
     }),
-    lifecycle: lifecycleFor({ failed: source.failedIds.has(id), live, tmux, known, activity, resume }),
+    lifecycle: lifecycleFor({ failed: source.failedIds.has(id), live, tmux, known, activity, lifecycle }),
     runtime: { pty: !!live, tmux, attached: live?.attached !== false && !!live },
     resume,
     placement,
     activity,
-    createdAt: known?.createdAt ?? antigravity?.startedAt ?? null,
-    updatedAt: recordUpdatedAt({ live, known, activity, antigravity, now: input.now ?? 0 }),
+    createdAt: known?.createdAt ?? lifecycle?.createdAt ?? antigravity?.startedAt ?? null,
+    updatedAt: recordUpdatedAt({ live, known, activity, antigravity, lifecycle, now: input.now ?? 0 }),
   };
 }
 

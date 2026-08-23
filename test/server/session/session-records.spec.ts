@@ -111,6 +111,82 @@ describe("buildSessionRecords", () => {
     expect(ids(selectInternalSessionRecords(records))).toEqual(["internal-grid"]);
     expect(ids(selectGridVisibleSessionRecords(records))).toEqual([]);
   });
+
+  it("uses lifecycle writer rows as the fallback lifecycle, agent, cwd, and timestamps", () => {
+    const records = buildSessionRecords({
+      lifecycle: [
+        {
+          id: "writer-only",
+          lifecycle: "detached",
+          agent: "codex",
+          cwd: "/repo/writer",
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      ],
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      id: "writer-only",
+      agent: "codex",
+      cwd: "/repo/writer",
+      lifecycle: "detached",
+      createdAt: 10,
+      updatedAt: 20,
+    });
+  });
+
+  it("keeps live runtime authoritative during the dual-write period", () => {
+    const records = buildSessionRecords({
+      now: 30,
+      live: [{ id: "same", cwd: "/repo/live", agent: "claude" }],
+      lifecycle: [
+        {
+          id: "same",
+          lifecycle: "stopped",
+          agent: "codex",
+          cwd: "/repo/writer",
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      ],
+    });
+
+    expect(records[0]).toMatchObject({
+      id: "same",
+      agent: "claude",
+      cwd: "/repo/live",
+      lifecycle: "live",
+      runtime: { pty: true },
+      createdAt: 10,
+      updatedAt: 30,
+    });
+  });
+
+  it("lets lifecycle writer rows retire legacy starting markers during dual-write", () => {
+    const records = buildSessionRecords({
+      known: [{ id: "same", title: "Starting", createdAt: 10 }],
+      lifecycle: [
+        {
+          id: "same",
+          lifecycle: "stopped",
+          agent: "claude",
+          cwd: "/repo",
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      ],
+    });
+
+    expect(records[0]).toMatchObject({
+      id: "same",
+      title: "Starting",
+      lifecycle: "stopped",
+      createdAt: 10,
+      updatedAt: 20,
+    });
+  });
 });
 
 describe("SessionRecord selectors", () => {

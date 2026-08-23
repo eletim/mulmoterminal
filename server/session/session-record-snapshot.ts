@@ -21,6 +21,7 @@ import {
   sessionRecordRegistrySnapshot,
   unplacedSessionsHydrated,
 } from "./registry.js";
+import { sessionLifecycleRecordRows } from "./session-lifecycle-records.js";
 
 export const MOBILE_SESSION_ACTIVITY_CANDIDATE_LIMIT = 50;
 
@@ -82,6 +83,7 @@ function recordsFromSnapshot(registry: RegistrySnapshot, { ids, tmuxIds = [], no
     live: liveSessionSources(),
     tmuxIds,
     known: knownSessionSources(),
+    lifecycle: sessionLifecycleRecordRows(),
     activity: activitySources(),
     codexRolloutIds,
     ...registry,
