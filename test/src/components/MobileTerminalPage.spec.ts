@@ -11,7 +11,15 @@ import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/remembered
 // for whichever session ends up selected. Route the mock fetch by path so each test controls
 // all three responses independently.
 type MockActivity = { working: boolean; waiting: boolean; event: string | null; workPhase: "planning" | "implementing" | null };
-type MockSession = { id: string; title: string; cwd: string; live: boolean; agent: string | null; activity: MockActivity };
+type MockSession = {
+  id: string;
+  title: string;
+  cwd: string;
+  live: boolean;
+  inputAvailable?: boolean;
+  agent: string | null;
+  activity: MockActivity;
+};
 type ScreenResult = { ok: true; screen: unknown } | { ok: true; body: Record<string, unknown> } | { ok: false; status?: number };
 type InputResult = { ok: true; body: unknown } | { ok: false; status?: number };
 type InterruptResult = { ok: true; body?: unknown } | { ok: false; status?: number; body?: unknown };
@@ -226,6 +234,7 @@ const session = (over: Partial<MockSession> & { id: string }): MockSession => ({
   title: over.id,
   cwd: `/repo/${over.id}`,
   live: false,
+  inputAvailable: over.live ?? false,
   agent: null,
   activity: IDLE_ACTIVITY,
   ...over,
@@ -351,6 +360,10 @@ describe("MobileTerminalPage", () => {
     await nextTick();
     expect(wrapper.text()).toContain("cached session");
     expect(wrapper.text()).toContain("cached screen");
+    expect(wrapper.text()).toContain("Showing cached terminal data.");
+    expect(wrapper.find("footer").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Interrupt");
+    expect(wrapper.text()).not.toContain("Stop");
     expect(wrapper.text()).not.toContain("Loading…");
 
     resolveSessions({
@@ -364,7 +377,31 @@ describe("MobileTerminalPage", () => {
 
     expect(wrapper.text()).toContain("fresh session");
     expect(wrapper.text()).toContain("fresh screen");
+    expect(wrapper.text()).not.toContain("Showing cached terminal data.");
+    expect(wrapper.find("footer").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Interrupt");
+    expect(wrapper.text()).toContain("Stop");
     expect(JSON.parse(localStorage.getItem(MOBILE_STATE_CACHE_KEY) ?? "{}").screen.text).toBe("fresh screen");
+  });
+
+  it("does not let a successful server list keep stale cached sessions alive", async () => {
+    localStorage.setItem(
+      MOBILE_STATE_CACHE_KEY,
+      JSON.stringify({
+        home: "/home/eletim",
+        sessions: [session({ id: "stale", title: "stale cached session", live: true })],
+        selectedSessionId: "stale",
+        screen: { sessionId: "stale", text: "stale cached screen", styledRows: null },
+      }),
+    );
+    mockFetch({ mode: "local", sessions: [] });
+
+    const wrapper = await mountPage();
+
+    expect(wrapper.text()).toContain("No terminal sessions.");
+    expect(wrapper.text()).not.toContain("stale cached session");
+    expect(wrapper.text()).not.toContain("stale cached screen");
+    expect(JSON.parse(localStorage.getItem(MOBILE_STATE_CACHE_KEY) ?? "{}").sessions).toEqual([]);
   });
 
   it("ignores a corrupt cached mobile state and falls back to the normal load path", async () => {
@@ -2188,11 +2225,30 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.findAll("button").some((b) => b.text() === "Send")).toBe(true);
     });
 
-    it("does not show the input form for a detached session", async () => {
-      mockFetch({ mode: "local", sessions: [session({ id: "a", live: false })], screens: { a: screenOk("hello") } });
+    it("does not show the input form for a detached read-only session", async () => {
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: false, inputAvailable: false })], screens: { a: screenOk("hello") } });
       const wrapper = await mountPage();
       expect(inputEl(wrapper).exists()).toBe(false);
       expect(wrapper.text()).toContain("Detached sessions are read-only.");
+    });
+
+    it("allows input for a detached tmux session that the server can reattach on send", async () => {
+      mockFetch({
+        mode: "local",
+        sessions: [session({ id: "a", live: false, inputAvailable: true })],
+        screens: { a: screenOk("hello") },
+        inputs: { a: inputOk() },
+      });
+      const wrapper = await mountPage();
+      expect(inputEl(wrapper).exists()).toBe(true);
+      expect(wrapper.text()).toContain("Input will reattach this detached tmux session.");
+
+      await inputEl(wrapper).setValue("ls");
+      await wrapper.find("form").trigger("submit");
+      await flushPromises();
+
+      expect(inputCallCount("a")).toBe(1);
+      expect((inputEl(wrapper).element as HTMLTextAreaElement).value).toBe("");
     });
 
     it("does not show the input form while the screen is loading", async () => {
@@ -2619,7 +2675,7 @@ describe("MobileTerminalPage", () => {
     });
 
     it("keeps the detached-session read-only notice inside the scrollable main, not the footer", async () => {
-      mockFetch({ mode: "local", sessions: [session({ id: "a", live: false })], screens: { a: screenOk("v1") } });
+      mockFetch({ mode: "local", sessions: [session({ id: "a", live: false, inputAvailable: false })], screens: { a: screenOk("v1") } });
       const wrapper = await mountPage();
 
       const main = wrapper.find("main");
@@ -2644,10 +2700,16 @@ describe("MobileTerminalPage", () => {
         expect(wrapper.find("footer").exists()).toBe(true);
       });
 
-      it("hides the footer for a detached session", async () => {
-        mockFetch({ mode: "local", sessions: [session({ id: "a", live: false })], screens: { a: screenOk("v1") } });
+      it("hides the footer for a detached read-only session", async () => {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: false, inputAvailable: false })], screens: { a: screenOk("v1") } });
         const wrapper = await mountPage();
         expect(wrapper.find("footer").exists()).toBe(false);
+      });
+
+      it("shows the footer for a detached reattachable tmux session", async () => {
+        mockFetch({ mode: "local", sessions: [session({ id: "a", live: false, inputAvailable: true })], screens: { a: screenOk("v1") } });
+        const wrapper = await mountPage();
+        expect(wrapper.find("footer").exists()).toBe(true);
       });
 
       it("hides the footer while the screen is loading", async () => {
