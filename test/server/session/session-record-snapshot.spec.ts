@@ -170,6 +170,29 @@ describe("currentSessionRecords", () => {
     });
   });
 
+  it("does not let delayed stopped hydration overwrite a current active lifecycle write", async () => {
+    readBack = {
+      "stopped-session-lifecycle.json": D,
+    };
+    let releaseLifecycle!: () => void;
+    readDelays = {
+      "stopped-session-lifecycle.json": new Promise((resolve) => {
+        releaseLifecycle = resolve;
+      }),
+    };
+    const { lifecycle } = await freshModules();
+
+    lifecycle.recordSessionStarting({ id: D, agent: "claude", cwd: "/repo/current", now: 10 });
+    releaseLifecycle();
+    await lifecycle.sessionLifecycleRecordsHydrated;
+
+    expect(lifecycle.sessionLifecycleRecords.get(D)).toMatchObject({
+      lifecycle: "starting",
+      agent: "claude",
+      cwd: "/repo/current",
+    });
+  });
+
   it("excludes Mobile activity-only rows from active Session candidates", async () => {
     readBack = {
       "dev-terminal-sessions.json": [A, B, C, D].join("\n"),

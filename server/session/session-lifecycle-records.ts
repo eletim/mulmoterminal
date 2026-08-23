@@ -42,6 +42,8 @@ export const sessionLifecycleRecordsHydrated = (async () => {
         continue;
       }
       if (state === undefined || state === "stopped") {
+        const current = sessionLifecycleRecords.get(id);
+        if (current && current.lifecycle !== "stopped") continue;
         sessionLifecycleRecords.set(id, { id, lifecycle: "stopped", agent: null, cwd: null, createdAt: now, updatedAt: now });
       }
     }

@@ -102,9 +102,8 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     expect(records.selectCurrentPcGridCandidateIds(current, [])).toEqual([CLAUDE, CODEX, ANTIGRAVITY, SHELL]);
   });
 
-  it("keeps restart-surviving Mobile-created agent sessions resumable before transcripts exist", async () => {
+  it("keeps restart-surviving visible unplaced agent sessions discoverable before transcripts exist", async () => {
     readBack = {
-      "dev-terminal-sessions.json": [CLAUDE, CODEX, ANTIGRAVITY].join("\n"),
       "dev-terminal-cwds.json": `${CLAUDE} /mobile/claude\n${CODEX} /mobile/codex\n${ANTIGRAVITY} /mobile/agy\n`,
       "unplaced-sessions.json": `${CLAUDE} claude\n${CODEX} codex\n${ANTIGRAVITY} antigravity`,
     };

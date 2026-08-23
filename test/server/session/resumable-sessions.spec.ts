@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { codexRolloutIds, devTerminalSessions } from "../../../server/session/registry.js";
 import { resumableSessionPredicate } from "../../../server/session/resumable-sessions.js";
-import { recordSessionStopped, sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
+import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const ROLLOUT = "22222222-2222-4222-8222-222222222222";
@@ -46,7 +46,7 @@ describe("resumableSessionPredicate", () => {
   });
 
   it("lets a stopped tombstone suppress legacy grid and rollout resumability", async () => {
-    recordSessionStopped({ id: SESSION, agent: "codex", cwd: "/repo", now: 10 });
+    sessionLifecycleRecords.set(SESSION, { id: SESSION, lifecycle: "stopped", agent: "codex", cwd: "/repo", createdAt: 10, updatedAt: 10 });
 
     const isResumable = await resumableSessionPredicate();
 
