@@ -1,8 +1,14 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { WebSocket } from "ws";
-import { startAndWire } from "../../../server/routes/ws-routes.js";
+import { clientStillConnected, sessionAgentForWsKind, startAndWire } from "../../../server/routes/ws-routes.js";
 import { bufferEarlyFrames } from "../../../server/session/early-frames.js";
+import {
+  recordKnownSessionStopped,
+  recordSessionDetached,
+  recordSessionStarting,
+  sessionLifecycleRecords,
+} from "../../../server/session/session-lifecycle-records.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 
 // #1074 pulled this out of the launch and codex paths, which had written the same steps twice —
@@ -70,7 +76,51 @@ function harness() {
   return { socket, delivered, handleClientClose, deps, early };
 }
 
+beforeEach(() => {
+  sessionLifecycleRecords.clear();
+});
+
 describe("startAndWire", () => {
+  it("knows which websocket routes have an explicit session agent", () => {
+    expect(sessionAgentForWsKind("claude")).toBe("claude");
+    expect(sessionAgentForWsKind("codex")).toBe("codex");
+    expect(sessionAgentForWsKind("antigravity")).toBe("antigravity");
+    expect(sessionAgentForWsKind("launch")).toBeNull();
+    expect(sessionAgentForWsKind("run")).toBeNull();
+  });
+
+  it("retires a fresh lifecycle row when the client leaves before spawn", () => {
+    const { early, socket } = harness();
+    socket.readyState = 3;
+    recordSessionStarting({ id: "s1", agent: "codex", cwd: "/repo", now: 10 });
+
+    expect(clientStillConnected(asWebSocket(socket), "codex", "s1", early, () => recordKnownSessionStopped({ id: "s1", now: 20 }))).toBe(false);
+
+    expect(sessionLifecycleRecords.get("s1")).toMatchObject({
+      lifecycle: "stopped",
+      agent: "codex",
+      cwd: "/repo",
+      createdAt: 10,
+      updatedAt: 20,
+    });
+  });
+
+  it("does not retire a lifecycle row when pre-spawn abandon is a continuing tmux-only session", () => {
+    const { early, socket } = harness();
+    socket.readyState = 3;
+    recordSessionDetached({ id: "s1", agent: "codex", cwd: "/repo", now: 10 });
+
+    expect(clientStillConnected(asWebSocket(socket), "codex", "s1", early)).toBe(false);
+
+    expect(sessionLifecycleRecords.get("s1")).toMatchObject({
+      lifecycle: "detached",
+      agent: "codex",
+      cwd: "/repo",
+      createdAt: 10,
+      updatedAt: 10,
+    });
+  });
+
   it("replays what arrived before the pty existed, then live frames, in arrival order", () => {
     const { socket, delivered, deps, early } = harness();
     socket.emit("message", "resize-80x24"); // arrived while the spawn was still deciding
@@ -161,6 +211,54 @@ describe("startAndWire", () => {
         throw thrown;
       });
       expect(JSON.parse(socket.sent[0]).message).toBe("saw: codex is not on PATH");
+    });
+
+    it("retires an existing lifecycle row instead of leaving a zombie starting session", () => {
+      const { early, deps, socket } = harness();
+      recordSessionDetached({ id: "s1", agent: "codex", cwd: "/repo", now: 10 });
+
+      startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "codex", early, startFailureMessage: () => "no codex on PATH" }, () => {
+        throw new Error("spawn failed");
+      });
+
+      expect(sessionLifecycleRecords.get("s1")).toMatchObject({
+        lifecycle: "stopped",
+        agent: "codex",
+        cwd: "/repo",
+        createdAt: 10,
+      });
+    });
+
+    it("does not create a lifecycle row for a failed non-session run", () => {
+      const { early, deps, socket } = harness();
+
+      startAndWire(deps, asWebSocket(socket), { id: "run-1", tag: "run", early, startFailureMessage: () => "run failed" }, () => {
+        throw new Error("spawn failed");
+      });
+
+      expect(sessionLifecycleRecords.has("run-1")).toBe(false);
+    });
+
+    it("does not stop a lifecycle row when start failure belongs to a continuing tmux-only session", () => {
+      const { early, deps, socket } = harness();
+      recordSessionDetached({ id: "s1", agent: "codex", cwd: "/repo", now: 10 });
+
+      startAndWire(
+        deps,
+        asWebSocket(socket),
+        { id: "s1", tag: "codex", early, startFailureMessage: () => "tmux attach failed", stopLifecycleOnStartFailure: false },
+        () => {
+          throw new Error("spawn failed");
+        },
+      );
+
+      expect(sessionLifecycleRecords.get("s1")).toMatchObject({
+        lifecycle: "detached",
+        agent: "codex",
+        cwd: "/repo",
+        createdAt: 10,
+        updatedAt: 10,
+      });
     });
   });
 });

@@ -15,6 +15,7 @@ import { startShellTaskWatch, stopShellTaskWatch } from "./shell-task-watch.js";
 import { appendBoundedOutput } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { recordSessionLive } from "./session-lifecycle-records.js";
 
 export function createShellSpawners(deps: SpawnDeps) {
   // Run an arbitrary shell command in a PTY and relay its I/O to the browser. Unlike
@@ -62,6 +63,7 @@ export function createShellSpawners(deps: SpawnDeps) {
     // and a draft is submitted the way that agent expects. Anything else stays a shell (#1208).
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: launcherAgent(command) };
     ptys.set(sessionId, entry);
+    recordSessionLive({ id: sessionId, agent: entry.agent, cwd });
     startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking, setWaiting: deps.setWaiting });
 
     term.onData((data) => {

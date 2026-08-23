@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame } from "../../../server/session/pty-connection.js";
+import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 
 const OPEN = 1;
@@ -71,6 +72,10 @@ function entryWith(over: Partial<PtyEntry> = {}) {
   const { term } = fakeTerm();
   return { term, ws: null, buffer: "", cwd: "/ws", active: false, agent: "claude", ...over } as unknown as PtyEntry;
 }
+
+beforeEach(() => {
+  sessionLifecycleRecords.clear();
+});
 
 describe("handleClientFrame", () => {
   const frame = (o: unknown) => JSON.stringify(o);
@@ -314,6 +319,19 @@ describe("reattachPty", () => {
     expect(entry.ws).toBe(s.ws);
   });
 
+  it("records the session as live with runtime metadata", () => {
+    const { reattachPty } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: null, agent: "codex", cwd: "/repo" });
+    reattachPty(entry, s.ws as never, SESSION);
+    expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({
+      id: SESSION,
+      lifecycle: "live",
+      agent: "codex",
+      cwd: "/repo",
+    });
+  });
+
   it("replays the buffered tail so the reattached view has context", () => {
     const { reattachPty } = setup();
     const s = fakeSocket();
@@ -434,6 +452,19 @@ describe("handleClientClose", () => {
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.ws).toBeNull();
     expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `armReap:${SESSION}`]);
+  });
+
+  it("records the session as detached when the current socket closes", () => {
+    const { handleClientClose } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never, agent: "shell", cwd: "/repo" });
+    handleClientClose(entry, s.ws as never, SESSION);
+    expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({
+      id: SESSION,
+      lifecycle: "detached",
+      agent: "shell",
+      cwd: "/repo",
+    });
   });
 
   it("drops a settling size check, which has nobody left to repair the screen for", () => {

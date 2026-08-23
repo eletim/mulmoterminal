@@ -13,6 +13,7 @@ import {
   SCHEDULED_SESSION_RETENTION,
   type ScheduledSessionRecord,
 } from "../../../server/session/scheduled-sessions.js";
+import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 
 const HOUR = 60 * 60_000;
 const NOW = 1_000 * HOUR;
@@ -224,6 +225,7 @@ describe("createScheduledSessionRegistry", () => {
     dir = scheduledSessionsDir("/ws/app", home);
     clockMs = NOW;
     vi.clearAllMocks();
+    sessionLifecycleRecords.clear();
     hasTmux.mockReturnValue(true);
     isInUse.mockReturnValue(false);
   });
@@ -249,6 +251,7 @@ describe("createScheduledSessionRegistry", () => {
     await r.sweep();
     expect(reapSession).toHaveBeenCalledExactlyOnceWith("s1");
     expect(killTmux).toHaveBeenCalledExactlyOnceWith("s1");
+    expect(sessionLifecycleRecords.get("s1")).toMatchObject({ id: "s1", lifecycle: "stopped" });
     expect(await registered()).toEqual(["s2.json", "s3.json"]);
   });
 
@@ -272,6 +275,7 @@ describe("createScheduledSessionRegistry", () => {
     await registry().sweep();
     // reap() is a no-op without a live entry, so the direct kill is what frees the tmux.
     expect(killTmux).toHaveBeenCalledWith("s1");
+    expect(sessionLifecycleRecords.get("s1")).toMatchObject({ id: "s1", lifecycle: "stopped" });
   });
 
   it("does not kill tmux for a session whose tmux is already gone", async () => {

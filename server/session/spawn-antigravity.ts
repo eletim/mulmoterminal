@@ -15,6 +15,7 @@ import { ptyStartLine } from "./pty-exit-log.js";
 import { claimedAntigravityConversations, ptys, rememberAntigravityConversation } from "./registry.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { recordSessionLive } from "./session-lifecycle-records.js";
 
 export function createAntigravitySpawner(deps: SpawnDeps) {
   function captureAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>, cwd: string): void {
@@ -66,6 +67,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
 
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "antigravity" };
     ptys.set(sessionId, entry);
+    recordSessionLive({ id: sessionId, agent: "antigravity", cwd });
 
     if (resumeConversationId) {
       // Recorded on resume too, not just on the spawn that discovered it: a session resumed by the

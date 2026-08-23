@@ -22,6 +22,7 @@ import {
 } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
+import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 import { tmuxKillSession } from "../../../server/infra/tmux.js";
 
 vi.mock("../../../server/infra/tmux.js", () => ({ tmuxKillSession: vi.fn() }));
@@ -71,6 +72,7 @@ const clearRegistry = () => {
     map.clear();
   }
   hiddenSessions.clear();
+  sessionLifecycleRecords.clear();
   clearedTranscripts.clear();
 };
 
@@ -119,6 +121,7 @@ describe("reap", () => {
     createSessionLifecycle(deps).reap(ID);
     expect((entry as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
     expect(deps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, event: "closed" }));
+    expect(sessionLifecycleRecords.get(ID)).toMatchObject({ id: ID, lifecycle: "stopped", agent: "claude", cwd: "/work" });
   });
 
   // The mark says "our transcript is frozen on a conversation that ended". Teardown is where
