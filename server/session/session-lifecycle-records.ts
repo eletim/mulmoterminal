@@ -85,7 +85,7 @@ function writeLifecycle(input: SessionLifecycleWrite): SessionLifecycleRecord {
   if (lifecycle === "stopped") {
     if (current?.lifecycle !== "stopped") persistStoppedSessionLifecycle(id, "stopped");
     pruneStoppedSessionLifecycleRecords();
-  } else if (current?.lifecycle === "stopped") {
+  } else {
     persistStoppedSessionLifecycle(id, "active");
   }
   return next;

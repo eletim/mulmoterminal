@@ -69,8 +69,23 @@ describe("createLocalMobileTerminalCreator", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected create to succeed");
     expect(d.spawnCodexPty).toHaveBeenCalledWith(result.sessionId, null, null, "/repo", false, { mcpGroups: ["render"] });
+    expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(result.sessionId, "/repo");
     expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "codex", "/repo");
     expect(mocks.claimRelease).toHaveBeenCalledOnce();
+  });
+
+  it("marks mobile-created agent sessions as grid-owned before adoption", async () => {
+    const d = deps();
+    const create = createLocalMobileTerminalCreator(d);
+
+    const claude = await create("claude", "/repo/claude");
+    const antigravity = await create("antigravity", "/repo/agy");
+
+    expect(claude.ok).toBe(true);
+    expect(antigravity.ok).toBe(true);
+    if (!claude.ok || !antigravity.ok) throw new Error("expected create to succeed");
+    expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(claude.sessionId, "/repo/claude");
+    expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(antigravity.sessionId, "/repo/agy");
   });
 
   it("returns a retryable error when the spawn is refused", async () => {

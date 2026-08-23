@@ -102,6 +102,26 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     expect(records.selectCurrentPcGridCandidateIds(current, [])).toEqual([CLAUDE, CODEX, ANTIGRAVITY, SHELL]);
   });
 
+  it("keeps restart-surviving Mobile-created agent sessions resumable before transcripts exist", async () => {
+    readBack = {
+      "dev-terminal-sessions.json": [CLAUDE, CODEX, ANTIGRAVITY].join("\n"),
+      "dev-terminal-cwds.json": `${CLAUDE} /mobile/claude\n${CODEX} /mobile/codex\n${ANTIGRAVITY} /mobile/agy\n`,
+      "unplaced-sessions.json": `${CLAUDE} claude\n${CODEX} codex\n${ANTIGRAVITY} antigravity`,
+    };
+    const { records, snapshot } = await freshModules();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+
+    const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY], paneCommandOf: () => "bash", now: 50 });
+    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY], paneCommandOf: () => "bash", now: 50 });
+
+    expect(records.selectUnplacedSessionRecords(current).map((record) => [record.id, record.agent, record.cwd, record.lifecycle])).toEqual([
+      [CLAUDE, "claude", "/mobile/claude", "detached"],
+      [CODEX, "codex", "/mobile/codex", "detached"],
+      [ANTIGRAVITY, "antigravity", "/mobile/agy", "detached"],
+    ]);
+    expect(mobileSources.ids).toEqual([CLAUDE, CODEX, ANTIGRAVITY]);
+  });
+
   it("hydrates a tmux-only survivor after restart for both PC grid and Mobile reattach", async () => {
     readBack = {
       "dev-terminal-sessions.json": CODEX,

@@ -136,4 +136,13 @@ describe("session lifecycle writer", () => {
     const writes = fsMock.appendFile.mock.calls.map((call) => String(call[1]));
     expect(writes).toEqual([expect.stringContaining(`${id} stopped`), expect.stringContaining(`${id} active`)]);
   });
+
+  it("persists active markers even when the stopped row is no longer in memory", async () => {
+    const id = "01234567-89ab-cdef-0123-456789abcdef";
+
+    recordSessionStarting({ id, agent: "claude", cwd: "/repo", now: 20 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(String(fsMock.appendFile.mock.calls[0]?.[1])).toContain(`${id} active`);
+  });
 });
