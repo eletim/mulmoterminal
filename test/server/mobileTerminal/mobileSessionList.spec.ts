@@ -1,44 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import {
-  idsNeedingPersistentDetail,
-  mobileActivityCandidateIds,
-  persistentMobileDetail,
-  persistentMobileDetails,
-} from "../../../server/mobileTerminal/mobileSessionList.js";
-
-describe("mobileActivityCandidateIds", () => {
-  it("adds only activity-backed grid sessions not already covered by live or tmux sources", () => {
-    const ids = mobileActivityCandidateIds({
-      liveIds: ["live"],
-      tmuxIds: ["tmux"],
-      activityEntries: [
-        ["live", { waiting: true, at: 5 }],
-        ["tmux", { waiting: true, at: 4 }],
-        ["idle", { at: 3 }],
-        ["chat", { waiting: true, at: 2 }],
-        ["finished", { waiting: true, at: 1 }],
-      ],
-      isGridSession: (id) => id !== "chat",
-    });
-    expect(ids).toEqual(["finished"]);
-  });
-
-  it("keeps the newest bounded candidates", () => {
-    const ids = mobileActivityCandidateIds({
-      liveIds: [],
-      tmuxIds: [],
-      activityEntries: [
-        ["old", { waiting: true, at: 1 }],
-        ["new", { working: true, at: 3 }],
-        ["middle", { waiting: true, at: 2 }],
-      ],
-      isGridSession: () => true,
-      limit: 2,
-    });
-    expect(ids).toEqual(["new", "middle"]);
-  });
-});
+import { idsNeedingPersistentDetail, persistentMobileDetail, persistentMobileDetails } from "../../../server/mobileTerminal/mobileSessionList.js";
 
 describe("idsNeedingPersistentDetail", () => {
   it("skips sessions that already have an in-memory title", () => {

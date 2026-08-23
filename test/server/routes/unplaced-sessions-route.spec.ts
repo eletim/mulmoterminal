@@ -49,4 +49,17 @@ describe("GET /api/sessions/unplaced", () => {
       ],
     });
   });
+
+  it("returns unplaced sessions through the SessionRecord placement view", async () => {
+    const { app, registry } = await appWithRegistry();
+    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated, registry.backgroundSessionsHydrated]);
+    registry.markUnplacedSession(SHELL, "shell");
+    registry.markUnplacedSession(CODEX, "codex");
+    registry.backgroundMarkers.add(CODEX);
+
+    const res = await request(app).get("/api/sessions/unplaced");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessions: [{ id: SHELL, agent: "shell", cwd: null }] });
+  });
 });

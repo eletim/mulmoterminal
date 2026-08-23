@@ -8,6 +8,7 @@ import {
   selectGridVisibleSessionRecords,
   selectHistorySessionRecords,
   selectInternalSessionRecords,
+  selectUnplacedSessionRecords,
 } from "../../../server/session/session-records.js";
 
 const ids = <T extends { id: string }>(records: readonly T[]) => records.map((record) => record.id);
@@ -145,6 +146,7 @@ describe("SessionRecord selectors", () => {
       backgroundIds: ["background-spawn"],
     });
 
+    expect(ids(selectUnplacedSessionRecords(records))).toEqual(["phone-spawn"]);
     expect(selectCurrentPcGridCandidateIds(records, ["cell-a", "cell-b"])).toEqual(["cell-a", "cell-b", "phone-spawn"]);
   });
 

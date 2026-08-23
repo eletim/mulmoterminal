@@ -20,8 +20,6 @@ import {
   failedWorkersHydrated,
   unplacedSessionsHydrated,
   placedSessionsHydrated,
-  unplacedSessionRows,
-  ptys,
   devTerminalSessions,
   devTerminalSessionsHydrated,
   isBackgroundSession,
@@ -53,6 +51,7 @@ import { parseActivityIds, selectSessionRows } from "../session/session-list.js"
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
+import { currentUnplacedSessionRecords } from "../session/session-record-snapshot.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -296,16 +295,13 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   // and a spec pins that, since "it happens not to be marked" and "it cannot be marked" read the
   // same until someone adds a caller.
   app.get("/api/sessions/unplaced", async (_req, res) => {
-    await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated]);
-    const sessions = unplacedSessionRows().map(({ id, agent }) => {
-      const entry = ptys.get(id);
-      // A session whose PTY is gone (the server restarted, tmux ended) is still worth adopting —
-      // the cell resumes it from disk. The AGENT comes from the mark rather than the entry for
-      // exactly that case: a codex session adopted as claude reconnects on the wrong endpoint, and
-      // the entry that would have said so is what is missing (Codex, PR #1189). The live entry
-      // still wins when there is one — it is the process actually running.
-      return { id, agent: entry?.agent ?? agent, cwd: entry?.cwd ?? null };
-    });
+    await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated, backgroundSessionsHydrated]);
+    const sessions = currentUnplacedSessionRecords().map((record) => ({
+      id: record.id,
+      agent: record.agent ?? "claude",
+      // Preserve the old endpoint contract: after a restart, no live PtyEntry means no cwd here.
+      cwd: record.runtime.pty ? record.cwd : null,
+    }));
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);

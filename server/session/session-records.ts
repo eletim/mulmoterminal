@@ -74,6 +74,7 @@ export interface AntigravityConversationRecordSource {
 }
 
 export interface SessionRecordInput {
+  ids?: readonly string[];
   now?: number;
   live?: readonly LiveSessionRecordSource[];
   tmuxIds?: readonly string[];
@@ -197,7 +198,8 @@ function sessionRecordLookup(input: SessionRecordInput): SessionRecordLookup {
   };
 }
 
-function sessionRecordIds(source: SessionRecordLookup): Set<string> {
+function sessionRecordIds(source: SessionRecordLookup, explicitIds: readonly string[] | undefined): Set<string> {
+  if (explicitIds) return new Set(explicitIds);
   const ids = new Set<string>();
   addAll(ids, source.liveById.keys());
   addAll(ids, source.tmuxIds);
@@ -269,7 +271,7 @@ function buildSessionRecord(id: string, source: SessionRecordLookup, input: Sess
 
 export function buildSessionRecords(input: SessionRecordInput): SessionRecord[] {
   const source = sessionRecordLookup(input);
-  return [...sessionRecordIds(source)].map((id) => buildSessionRecord(id, source, input));
+  return [...sessionRecordIds(source, input.ids)].map((id) => buildSessionRecord(id, source, input));
 }
 
 export function selectGridVisibleSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
@@ -288,13 +290,12 @@ export function selectInternalSessionRecords(records: readonly SessionRecord[]):
   return records.filter((record) => record.visibility === "internal");
 }
 
+export function selectUnplacedSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
+  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced);
+}
+
 export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[], persistedCellSessionIds: readonly string[]): string[] {
-  return [
-    ...new Set([
-      ...persistedCellSessionIds,
-      ...records.filter((record) => record.visibility === "grid" && record.placement.unplaced).map((record) => record.id),
-    ]),
-  ];
+  return [...new Set([...persistedCellSessionIds, ...selectUnplacedSessionRecords(records).map((record) => record.id)])];
 }
 
 export function selectCurrentMobileCandidateRecords(records: readonly SessionRecord[]): SessionRecord[] {
