@@ -102,6 +102,7 @@ detached の auto-reap は `server/session/lifecycle.ts` と `server/session/rea
 - `sessionCwds`
 - `sessionMemos`
 - `codexRolloutIds`
+- `antigravityConversations`
 - background/user-scheduled/failed-worker marks
 
 つまり `reap()` は live runtime の終了であって、履歴や UI 補助 metadata の削除ではない。この境界が現在の「実体がないが一覧に見える」状態の原因になる。
