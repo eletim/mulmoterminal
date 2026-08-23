@@ -82,9 +82,19 @@ export interface LifecycleSessionRecordSource {
   updatedAt: number;
 }
 
+export interface TmuxSurvivorSessionRecordSource {
+  id: string;
+  agent: SessionAgent | null;
+  cwd: string | null;
+  title: string | null;
+  createdAt: number | null;
+  updatedAt: number;
+}
+
 export interface SessionRecordInput {
   ids?: readonly string[];
   lifecycle?: readonly LifecycleSessionRecordSource[];
+  tmuxSurvivors?: readonly TmuxSurvivorSessionRecordSource[];
   now?: number;
   live?: readonly LiveSessionRecordSource[];
   tmuxIds?: readonly string[];
@@ -148,6 +158,7 @@ function recordUpdatedAt(input: {
   activity: SessionRecordActivity;
   antigravity: AntigravityConversationRecordSource | undefined;
   lifecycle: LifecycleSessionRecordSource | undefined;
+  tmuxSurvivor: TmuxSurvivorSessionRecordSource | undefined;
   now: number;
 }): number {
   return Math.max(
@@ -155,6 +166,7 @@ function recordUpdatedAt(input: {
     input.known?.createdAt ?? 0,
     input.antigravity?.startedAt ?? 0,
     input.lifecycle?.updatedAt ?? 0,
+    input.tmuxSurvivor?.updatedAt ?? 0,
     input.live ? input.now : 0,
   );
 }
@@ -166,6 +178,7 @@ function agentFor(input: {
   codexRolloutId: string | undefined;
   antigravity: AntigravityConversationRecordSource | undefined;
   claudeTranscript: boolean;
+  tmuxSurvivor: TmuxSurvivorSessionRecordSource | undefined;
 }): SessionAgent | null {
   if (input.live) return input.live.agent;
   if (input.lifecycle?.agent) return input.lifecycle.agent;
@@ -173,6 +186,7 @@ function agentFor(input: {
   if (input.codexRolloutId) return "codex";
   if (input.antigravity) return "antigravity";
   if (input.claudeTranscript) return "claude";
+  if (input.tmuxSurvivor?.agent) return input.tmuxSurvivor.agent;
   return null;
 }
 
@@ -181,14 +195,16 @@ function cwdFor(input: {
   lifecycle: LifecycleSessionRecordSource | undefined;
   remembered: string | undefined;
   antigravity: AntigravityConversationRecordSource | undefined;
+  tmuxSurvivor: TmuxSurvivorSessionRecordSource | undefined;
 }): string | null {
-  return input.live?.cwd ?? input.lifecycle?.cwd ?? input.remembered ?? input.antigravity?.cwd ?? null;
+  return input.live?.cwd ?? input.lifecycle?.cwd ?? input.remembered ?? input.antigravity?.cwd ?? input.tmuxSurvivor?.cwd ?? null;
 }
 
 interface SessionRecordLookup {
   liveById: Map<string, LiveSessionRecordSource>;
   knownById: Map<string, KnownSessionRecordSource>;
   lifecycleById: Map<string, LifecycleSessionRecordSource>;
+  tmuxSurvivorById: Map<string, TmuxSurvivorSessionRecordSource>;
   activityById: Map<string, ActivityRecordSource>;
   unplacedById: Map<string, UnplacedSessionRecordSource>;
   antigravityById: Map<string, AntigravityConversationRecordSource>;
@@ -207,6 +223,7 @@ function sessionRecordLookup(input: SessionRecordInput): SessionRecordLookup {
     liveById: new Map((input.live ?? []).map((entry) => [entry.id, entry])),
     knownById: new Map((input.known ?? []).map((entry) => [entry.id, entry])),
     lifecycleById: new Map((input.lifecycle ?? []).map((entry) => [entry.id, entry])),
+    tmuxSurvivorById: new Map((input.tmuxSurvivors ?? []).map((entry) => [entry.id, entry])),
     activityById: new Map((input.activity ?? []).map((entry) => [entry.id, entry])),
     unplacedById: new Map((input.unplaced ?? []).map((entry) => [entry.id, entry])),
     antigravityById: new Map((input.antigravityConversations ?? []).map((entry) => [entry.sessionId, entry])),
@@ -228,6 +245,7 @@ function sessionRecordIds(source: SessionRecordLookup, explicitIds: readonly str
   addAll(ids, source.tmuxIds);
   addAll(ids, source.knownById.keys());
   addAll(ids, source.lifecycleById.keys());
+  addAll(ids, source.tmuxSurvivorById.keys());
   addAll(ids, source.activityById.keys());
   addAll(ids, source.devTerminalIds);
   addAll(ids, source.unplacedById.keys());
@@ -267,6 +285,7 @@ function buildSessionRecord(id: string, source: SessionRecordLookup, input: Sess
   const live = source.liveById.get(id);
   const known = source.knownById.get(id);
   const lifecycle = source.lifecycleById.get(id);
+  const tmuxSurvivor = source.tmuxSurvivorById.get(id);
   const activity = activityFor(source.activityById.get(id));
   const unplaced = source.unplacedById.get(id);
   const antigravity = source.antigravityById.get(id);
@@ -276,9 +295,9 @@ function buildSessionRecord(id: string, source: SessionRecordLookup, input: Sess
   const tmux = source.tmuxIds.has(id) || !!live?.tmux;
   return {
     id,
-    agent: agentFor({ live, lifecycle, unplaced, codexRolloutId, antigravity, claudeTranscript: resume.claudeTranscript }),
-    cwd: cwdFor({ live, lifecycle, remembered: input.cwdBySession?.get(id), antigravity }),
-    title: known?.title ?? null,
+    agent: agentFor({ live, lifecycle, unplaced, codexRolloutId, antigravity, claudeTranscript: resume.claudeTranscript, tmuxSurvivor }),
+    cwd: cwdFor({ live, lifecycle, remembered: input.cwdBySession?.get(id), antigravity, tmuxSurvivor }),
+    title: known?.title ?? tmuxSurvivor?.title ?? null,
     visibility: visibilityFor({
       internal: source.internalIds.has(id),
       background: source.backgroundIds.has(id),
@@ -289,8 +308,8 @@ function buildSessionRecord(id: string, source: SessionRecordLookup, input: Sess
     resume,
     placement,
     activity,
-    createdAt: known?.createdAt ?? lifecycle?.createdAt ?? antigravity?.startedAt ?? null,
-    updatedAt: recordUpdatedAt({ live, known, activity, antigravity, lifecycle, now: input.now ?? 0 }),
+    createdAt: known?.createdAt ?? lifecycle?.createdAt ?? antigravity?.startedAt ?? tmuxSurvivor?.createdAt ?? null,
+    updatedAt: recordUpdatedAt({ live, known, activity, antigravity, lifecycle, tmuxSurvivor, now: input.now ?? 0 }),
   };
 }
 

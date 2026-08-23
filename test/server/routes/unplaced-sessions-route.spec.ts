@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
+import type { SessionRouteDeps } from "../../../server/routes/session-routes.js";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -21,12 +22,12 @@ vi.mock("node:fs", async (importOriginal) => {
 const SHELL = "11111111-1111-1111-1111-111111111111";
 const CODEX = "22222222-2222-2222-2222-222222222222";
 
-async function appWithRegistry() {
+async function appWithRegistry(over: Partial<SessionRouteDeps> = {}) {
   vi.resetModules();
   const registry = await import("../../../server/session/registry.js");
   const { mountSessionRoutes } = await import("../../../server/routes/session-routes.js");
   const app = express();
-  mountSessionRoutes(app, { freshenRosterTitle: () => undefined, publishActivity: () => undefined });
+  mountSessionRoutes(app, { freshenRosterTitle: () => undefined, publishActivity: () => undefined, listTmuxIds: () => [], ...over });
   return { app, registry };
 }
 
@@ -41,7 +42,7 @@ describe("GET /api/sessions/unplaced", () => {
 
     const res = await request(app).get("/api/sessions/unplaced");
 
-    expect(res.status).toBe(200);
+    expect(res.status, res.text).toBe(200);
     expect(res.body).toEqual({
       sessions: [
         { id: SHELL, agent: "shell", cwd: null },
@@ -59,7 +60,23 @@ describe("GET /api/sessions/unplaced", () => {
 
     const res = await request(app).get("/api/sessions/unplaced");
 
-    expect(res.status).toBe(200);
+    expect(res.status, res.text).toBe(200);
     expect(res.body).toEqual({ sessions: [{ id: SHELL, agent: "shell", cwd: null }] });
+  });
+
+  it("hydrates an unplaced tmux-only survivor with persisted cwd after restart", async () => {
+    const { app, registry } = await appWithRegistry({
+      listTmuxIds: () => [CODEX],
+      paneCommandOf: () => "bash",
+      claudeTranscriptExists: () => false,
+    });
+    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated, registry.devTerminalCwdsHydrated]);
+    registry.markUnplacedSession(CODEX, "codex");
+    registry.markDevTerminalSession(CODEX, "/repo/restarted");
+
+    const res = await request(app).get("/api/sessions/unplaced");
+
+    expect(res.status, res.text).toBe(200);
+    expect(res.body).toEqual({ sessions: [{ id: CODEX, agent: "codex", cwd: "/repo/restarted" }] });
   });
 });

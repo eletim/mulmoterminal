@@ -61,6 +61,7 @@ import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountPresentPathRoot } from "../backends/presentPathRoot.js";
 import { cwdForSession } from "../session/session-cwd.js";
+import { sessionExistsOnDisk } from "../session/session-reads.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
 import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "../config/env.js";
 import { FILE_WRITE_CHANNEL, type FileWriteEvent } from "../../common/fileWriteChannel.js";
@@ -71,7 +72,7 @@ import type { createCodexSpawner } from "../session/spawn-codex.js";
 import type { createAntigravitySpawner } from "../session/spawn-antigravity.js";
 import type { createTranslationWorker } from "../session/translation-worker.js";
 import type { createTitleManager } from "../session/session-title.js";
-import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClientCount } from "../infra/tmux.js";
+import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClientCount, tmuxPaneCommand } from "../infra/tmux.js";
 import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountBasePathAssetCss, mountSpaFallback } from "../infra/spa-fallback.js";
@@ -110,6 +111,14 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 const sessionCallReporting = (deps: AppRouteDeps, sessionId: string) => ({
   agent: deps.agentOfSession(sessionId),
   reportsOwnCalls: hookedSessions.has(sessionId),
+});
+
+const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
+  freshenRosterTitle: deps.freshenRosterTitle,
+  publishActivity: deps.publishActivity,
+  listTmuxIds: tmuxListSessionIds,
+  paneCommandOf: tmuxPaneCommand,
+  claudeTranscriptExists: sessionExistsOnDisk,
 });
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
@@ -375,7 +384,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
 
   // Sidebar listing, one session's detail, the grid's attention poll, the tool timeline and
   // codex's own sessions (see routes/session-routes.ts).
-  mountSessionRoutes(app, { freshenRosterTitle: deps.freshenRosterTitle, publishActivity: deps.publishActivity });
+  mountSessionRoutes(app, sessionRouteDeps(deps));
 
   // Explicit close (reliable deps.reap over HTTP) + one-shot orphan cleanup. Extracted to a
   // module so the origin guard / id validation / orphan-selection boundary are testable.

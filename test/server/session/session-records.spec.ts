@@ -187,6 +187,49 @@ describe("buildSessionRecords", () => {
       updatedAt: 20,
     });
   });
+
+  it("uses tmux survivor metadata as a detached runtime fallback after restart", () => {
+    const records = buildSessionRecords({
+      tmuxIds: ["survivor"],
+      tmuxSurvivors: [
+        {
+          id: "survivor",
+          agent: "shell",
+          cwd: "/repo/survivor",
+          title: "Restored survivor",
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      ],
+    });
+
+    expect(records[0]).toMatchObject({
+      id: "survivor",
+      agent: "shell",
+      cwd: "/repo/survivor",
+      title: "Restored survivor",
+      lifecycle: "detached",
+      runtime: { pty: false, tmux: true, attached: false },
+      createdAt: 10,
+      updatedAt: 20,
+    });
+  });
+
+  it("keeps persisted resume metadata ahead of tmux pane-command fallback", () => {
+    const records = buildSessionRecords({
+      tmuxIds: ["codex-survivor", "claude-survivor"],
+      codexRolloutIds: new Map([["codex-survivor", "rollout"]]),
+      claudeTranscriptIds: ["claude-survivor"],
+      tmuxSurvivors: [
+        { id: "codex-survivor", agent: "shell", cwd: null, title: null, createdAt: null, updatedAt: 20 },
+        { id: "claude-survivor", agent: "shell", cwd: null, title: null, createdAt: null, updatedAt: 20 },
+      ],
+    });
+
+    const byId = new Map(records.map((record) => [record.id, record]));
+    expect(byId.get("codex-survivor")).toMatchObject({ agent: "codex", resume: { codexRolloutId: "rollout" } });
+    expect(byId.get("claude-survivor")).toMatchObject({ agent: "claude", resume: { claudeTranscript: true } });
+  });
 });
 
 describe("SessionRecord selectors", () => {

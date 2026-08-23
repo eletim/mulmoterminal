@@ -7,21 +7,27 @@ import {
   type LiveSessionRecordSource,
   type SessionRecord,
 } from "./session-records.js";
+import { sessionDisplayName } from "../../common/sessionMemo.js";
 import {
   activity,
   activityStateHydrated,
+  aiTitles,
   antigravityConversationsHydrated,
   backgroundSessionsHydrated,
   codexRolloutIds,
   codexRolloutIdsHydrated,
   devTerminalSessionsHydrated,
   knownSessions,
+  lastPrompts,
   placedSessionsHydrated,
   ptys,
   sessionRecordRegistrySnapshot,
+  sessionMemos,
+  sessionMemosHydrated,
   unplacedSessionsHydrated,
 } from "./registry.js";
 import { sessionLifecycleRecordRows } from "./session-lifecycle-records.js";
+import { hydrateTmuxSurvivorRecordSources } from "./tmux-survivor-records.js";
 
 export const MOBILE_SESSION_ACTIVITY_CANDIDATE_LIMIT = 50;
 
@@ -30,6 +36,8 @@ export interface CurrentSessionRecordOptions {
   tmuxIds?: readonly string[];
   now?: number;
   activityCandidateLimit?: number;
+  paneCommandOf?: (id: string) => string | null;
+  claudeTranscriptExists?: (id: string, cwd: string) => boolean;
 }
 
 export interface CurrentMobileSessionRecordSources {
@@ -49,6 +57,7 @@ export async function hydrateSessionRecordSnapshotInputs(): Promise<void> {
     unplacedSessionsHydrated,
     placedSessionsHydrated,
     backgroundSessionsHydrated,
+    sessionMemosHydrated,
     antigravityConversationsHydrated,
     codexRolloutIdsHydrated,
   ]);
@@ -76,15 +85,52 @@ function activeActivityIds(): string[] {
   return [...activity].filter(([, value]) => value.working || value.waiting).map(([id]) => id);
 }
 
-function recordsFromSnapshot(registry: RegistrySnapshot, { ids, tmuxIds = [], now = Date.now() }: CurrentSessionRecordOptions = {}): SessionRecord[] {
+function titleSources(ids: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of ids) {
+    const title = sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title);
+    if (title) out.set(id, title);
+  }
+  return out;
+}
+
+function tmuxClaudeTranscriptIds(
+  tmuxIds: readonly string[],
+  cwdBySession: ReadonlyMap<string, string>,
+  exists: CurrentSessionRecordOptions["claudeTranscriptExists"],
+): string[] {
+  if (!exists) return [];
+  return tmuxIds.filter((id) => {
+    const cwd = cwdBySession.get(id);
+    return !!cwd && exists(id, cwd);
+  });
+}
+
+function recordsFromSnapshot(
+  registry: RegistrySnapshot,
+  { ids, tmuxIds = [], now = Date.now(), paneCommandOf, claudeTranscriptExists }: CurrentSessionRecordOptions = {},
+): SessionRecord[] {
+  const live = liveSessionSources();
+  const liveIds = new Set(live.map((entry) => entry.id));
+  const claudeTranscriptIds = tmuxClaudeTranscriptIds(tmuxIds, registry.cwdBySession, claudeTranscriptExists);
   return buildSessionRecords({
     ...(ids !== undefined ? { ids } : {}),
     now,
-    live: liveSessionSources(),
+    live,
     tmuxIds,
+    tmuxSurvivors: hydrateTmuxSurvivorRecordSources({
+      tmuxIds,
+      liveIds,
+      cwdBySession: registry.cwdBySession,
+      titleBySession: titleSources(tmuxIds),
+      antigravityConversations: registry.antigravityConversations,
+      now,
+      ...(paneCommandOf ? { paneCommandOf } : {}),
+    }),
     known: knownSessionSources(),
     lifecycle: sessionLifecycleRecordRows(),
     activity: activitySources(),
+    claudeTranscriptIds,
     codexRolloutIds,
     ...registry,
   });

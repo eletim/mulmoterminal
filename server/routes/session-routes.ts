@@ -18,8 +18,6 @@ import {
   antigravityConversationsHydrated,
   backgroundSessionsHydrated,
   failedWorkersHydrated,
-  unplacedSessionsHydrated,
-  placedSessionsHydrated,
   devTerminalSessions,
   devTerminalSessionsHydrated,
   isBackgroundSession,
@@ -34,6 +32,7 @@ import {
   collectOnDiskSessionStats,
   collectPendingSessions,
   readSessionMeta,
+  sessionExistsOnDisk,
   readSessionSummary,
   sessionLastTurn,
   sessionTimeline,
@@ -41,7 +40,7 @@ import {
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
 import { sessionAttached } from "../session/dir-session.js";
-import { tmuxAttachedCounts } from "../infra/tmux.js";
+import { tmuxAttachedCounts, tmuxListSessionIds, tmuxPaneCommand } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import { antigravityBrainRoot } from "../agents/antigravity-session.js";
@@ -51,7 +50,7 @@ import { parseActivityIds, selectSessionRows } from "../session/session-list.js"
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
-import { currentUnplacedSessionRecords } from "../session/session-record-snapshot.js";
+import { currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -69,6 +68,12 @@ export interface SessionRouteDeps {
   /** Fan a session's row out on the "sessions" channel, so every OTHER open cell, tab and
    *  phone sees an edited memo without asking. */
   publishActivity: (sessionId: string) => void;
+  /** The tmux sessions that survived this node process. Injected so route specs never touch tmux. */
+  listTmuxIds?: () => string[];
+  /** Current pane command for a tmux-backed survivor; auxiliary metadata, never an existence source. */
+  paneCommandOf?: (sessionId: string) => string | null;
+  /** Claude transcript check for tmux survivors whose cwd is known from persisted metadata. */
+  claudeTranscriptExists?: (sessionId: string, cwd: string) => boolean;
 }
 
 // GRID-ONLY (dev_tool): initial per-session status + last prompt, so a grid cell
@@ -295,12 +300,15 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   // and a spec pins that, since "it happens not to be marked" and "it cannot be marked" read the
   // same until someone adds a caller.
   app.get("/api/sessions/unplaced", async (_req, res) => {
-    await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated, backgroundSessionsHydrated]);
-    const sessions = currentUnplacedSessionRecords().map((record) => ({
+    await hydrateSessionRecordSnapshotInputs();
+    const sessions = currentUnplacedSessionRecords({
+      tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
+      paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
+      claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
+    }).map((record) => ({
       id: record.id,
       agent: record.agent ?? "claude",
-      // Preserve the old endpoint contract: after a restart, no live PtyEntry means no cwd here.
-      cwd: record.runtime.pty ? record.cwd : null,
+      cwd: record.cwd,
     }));
     res.json({ sessions });
   });
