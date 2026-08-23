@@ -180,6 +180,34 @@ export function closeCell(state: GridState, uid: number, order?: number[]): Grid
   return ensureEntry(clampPage({ ...state, cells, expanded }));
 }
 
+// Browser grid state remembers placement, not backend existence. Once SessionRecord says a
+// persisted session is stopped/missing, remove that cell from the placement list so it cannot
+// block new cells or silently re-create a session on the next reload.
+export function dropSessionCells(state: GridState, sessionIds: ReadonlySet<string>): GridState {
+  if (sessionIds.size === 0) return state;
+  const cells = state.cells.filter((c) => c.session === null || !sessionIds.has(c.session));
+  if (cells.length === state.cells.length) return state;
+  const expanded = state.expanded !== null && cells.some((c) => c.uid === state.expanded) ? state.expanded : null;
+  return ensureEntry(clampPage({ ...state, cells, expanded }));
+}
+
+// Rendering is stricter than persistence during the initial backend check: a persisted id is not
+// handed to TerminalCell until SessionRecord has confirmed it active. That keeps localStorage from
+// becoming a second source of truth by causing a reconnect/spawn before the server has answered.
+export function attachableCells(cells: readonly Cell[], attachableSessionIds: ReadonlySet<string>): Cell[] {
+  return cells.map((c) => {
+    if (c.session === null || attachableSessionIds.has(c.session)) return c;
+    return {
+      uid: c.uid,
+      session: null,
+      cwd: c.cwd,
+      ...(c.command !== undefined ? { command: c.command } : {}),
+      ...(c.agent !== undefined ? { agent: c.agent } : {}),
+      ...(c.parked === true ? { parked: true as const } : {}),
+    };
+  });
+}
+
 // The uid to keep zoomed after closing the zoomed `uid`: the cell before it in the
 // on-screen `order`, or the one after when it was first. null (collapse to the grid)
 // when there's no surviving neighbour or no order was given.

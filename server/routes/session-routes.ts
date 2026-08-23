@@ -50,7 +50,8 @@ import { parseActivityIds, selectSessionRows } from "../session/session-list.js"
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
-import { currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
+import { currentSessionRecords, currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
+import { activeSessionRecordLifecycle, type SessionRecord } from "../session/session-records.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -61,6 +62,7 @@ const BACKGROUND_SESSION_LIST_LIMIT = 10;
 // Cap on ids per /api/activity request — a grid can't show more cells than this, and
 // it bounds the query string a client can make us parse.
 const ACTIVITY_IDS_LIMIT = 200;
+const GRID_RECORD_IDS_LIMIT = 200;
 
 export interface SessionRouteDeps {
   /** Kick off a re-title for a session the roster just showed, when it has moved on enough. */
@@ -137,6 +139,31 @@ async function activitySnapshot(req: Request, res: Response) {
     out[id] = { working: a.working ?? false, waiting: a.waiting ?? false, event: a.event ?? null };
   }
   res.json(out);
+}
+
+const gridSessionRecordRow = (record: SessionRecord) => ({
+  id: record.id,
+  agent: record.agent ?? "claude",
+  cwd: record.cwd,
+  lifecycle: record.lifecycle,
+  runtime: record.runtime,
+  placement: record.placement,
+  active: record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle),
+});
+
+// PC grid placement lives in browser localStorage, but whether a persisted session still exists
+// comes from SessionRecord. This route answers only the ids the grid already has cells for, so a
+// reload can decide which cells may attach without rediscovering sessions from placement state.
+async function gridSessionRecords(req: Request, res: Response, deps: SessionRouteDeps) {
+  await hydrateSessionRecordSnapshotInputs();
+  const ids = parseActivityIds(req.query.ids, (id) => SESSION_ID_RE.test(id), GRID_RECORD_IDS_LIMIT);
+  const records = currentSessionRecords({
+    ids,
+    tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
+    paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
+    claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
+  });
+  res.json({ sessions: records.map(gridSessionRecordRow) });
 }
 
 // The tool-activity timeline for a session (what the agent ran, newest last), so a
@@ -286,6 +313,7 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps.freshenRosterTitle));
   app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps.publishActivity));
   app.get("/api/activity", activitySnapshot);
+  app.get("/api/sessions/grid-records", (req, res) => gridSessionRecords(req, res, deps));
   app.get("/api/transcript/timeline", toolTimeline);
   app.get("/api/transcript/last-turn", lastTurn);
   app.get("/api/sessions", sessionList);

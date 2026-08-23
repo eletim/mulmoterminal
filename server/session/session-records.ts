@@ -122,7 +122,7 @@ function addAll(ids: Set<string>, values: Iterable<string>): void {
   for (const id of values) ids.add(id);
 }
 
-function activeLifecycle(lifecycle: SessionRecordLifecycle): boolean {
+export function activeSessionRecordLifecycle(lifecycle: SessionRecordLifecycle): boolean {
   return lifecycle === "starting" || lifecycle === "live" || lifecycle === "detached";
 }
 
@@ -319,7 +319,7 @@ export function buildSessionRecords(input: SessionRecordInput): SessionRecord[] 
 }
 
 export function selectGridVisibleSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && activeLifecycle(record.lifecycle));
+  return records.filter((record) => record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle));
 }
 
 export function selectHistorySessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
@@ -335,7 +335,7 @@ export function selectInternalSessionRecords(records: readonly SessionRecord[]):
 }
 
 export function selectUnplacedSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced && activeLifecycle(record.lifecycle));
+  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced && activeSessionRecordLifecycle(record.lifecycle));
 }
 
 export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[], persistedCellSessionIds: readonly string[]): string[] {
@@ -343,5 +343,5 @@ export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[
 }
 
 export function selectCurrentMobileCandidateRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && activeLifecycle(record.lifecycle));
+  return records.filter((record) => record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle));
 }

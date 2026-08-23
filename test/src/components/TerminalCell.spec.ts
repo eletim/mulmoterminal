@@ -176,6 +176,22 @@ describe("TerminalCell", () => {
     expect(term.props("cwd")).toBe("/home/me/picked");
   });
 
+  it("restores a delayed initial session id after backend placement confirmation", async () => {
+    const id = "11111111-1111-1111-1111-111111111111";
+    const w = mountCell(null, { initialCwd: "/home/me/restored", initialAgent: "codex" });
+    await flushPromises();
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(false);
+
+    await w.setProps({ initialSessionId: id });
+    await flushPromises();
+
+    const term = w.findComponent({ name: "TerminalView" });
+    expect(term.exists()).toBe(true);
+    expect(term.props("sessionId")).toBe(id);
+    expect(term.props("cwd")).toBe("/home/me/restored");
+    expect(term.props("connectKey")).toBe(1);
+  });
+
   it("disables the go button when the field is empty", async () => {
     const w = mountCell(null, { defaultCwd: null });
     await flushPromises();
