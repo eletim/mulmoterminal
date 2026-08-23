@@ -81,8 +81,10 @@ function activitySources(): ActivityRecordSource[] {
   return [...activity].map(([id, value]) => ({ id, ...value }));
 }
 
-function activeActivityIds(): string[] {
-  return [...activity].filter(([, value]) => value.working || value.waiting).map(([id]) => id);
+function activeLifecycleIds(): string[] {
+  return sessionLifecycleRecordRows()
+    .filter((record) => record.lifecycle === "starting" || record.lifecycle === "live" || record.lifecycle === "detached")
+    .map((record) => record.id);
 }
 
 function titleSources(ids: readonly string[]): Map<string, string> {
@@ -147,7 +149,7 @@ export function currentUnplacedSessionRecords(options: CurrentSessionRecordOptio
 
 export function currentMobileSessionRecordSources(options: CurrentSessionRecordOptions = {}): CurrentMobileSessionRecordSources {
   const registry = sessionRecordRegistrySnapshot();
-  const runtimeIds = [...new Set([...ptys.keys(), ...(options.tmuxIds ?? []), ...activeActivityIds()])];
+  const runtimeIds = [...new Set([...ptys.keys(), ...(options.tmuxIds ?? []), ...activeLifecycleIds()])];
   const activityLimit = options.activityCandidateLimit ?? MOBILE_SESSION_ACTIVITY_CANDIDATE_LIMIT;
   const records = selectCurrentMobileCandidateRecords(recordsFromSnapshot(registry, { ...options, ids: runtimeIds }));
   const activityCandidates = records

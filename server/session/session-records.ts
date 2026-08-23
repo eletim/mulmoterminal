@@ -122,8 +122,8 @@ function addAll(ids: Set<string>, values: Iterable<string>): void {
   for (const id of values) ids.add(id);
 }
 
-function activeActivity(activity: SessionRecordActivity): boolean {
-  return activity.working || activity.waiting;
+function activeLifecycle(lifecycle: SessionRecordLifecycle): boolean {
+  return lifecycle === "starting" || lifecycle === "live" || lifecycle === "detached";
 }
 
 function hasResume(record: Pick<SessionRecord, "resume">): boolean {
@@ -140,7 +140,7 @@ function lifecycleFor(input: {
 }): SessionRecordLifecycle {
   if (input.failed) return "failed";
   if (input.live) return input.live.attached === false ? "detached" : "live";
-  if (input.tmux || activeActivity(input.activity)) return "detached";
+  if (input.tmux) return "detached";
   if (input.lifecycle) return input.lifecycle.lifecycle;
   if (input.known) return "starting";
   return "stopped";
@@ -319,7 +319,7 @@ export function buildSessionRecords(input: SessionRecordInput): SessionRecord[] 
 }
 
 export function selectGridVisibleSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && record.lifecycle !== "stopped" && record.lifecycle !== "failed");
+  return records.filter((record) => record.visibility === "grid" && activeLifecycle(record.lifecycle));
 }
 
 export function selectHistorySessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
@@ -335,7 +335,7 @@ export function selectInternalSessionRecords(records: readonly SessionRecord[]):
 }
 
 export function selectUnplacedSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced);
+  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced && activeLifecycle(record.lifecycle));
 }
 
 export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[], persistedCellSessionIds: readonly string[]): string[] {
@@ -343,9 +343,5 @@ export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[
 }
 
 export function selectCurrentMobileCandidateRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => {
-    if (record.visibility !== "grid") return false;
-    if (record.runtime.pty || record.runtime.tmux) return true;
-    return activeActivity(record.activity);
-  });
+  return records.filter((record) => record.visibility === "grid" && activeLifecycle(record.lifecycle));
 }

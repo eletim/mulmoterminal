@@ -23,8 +23,9 @@ const D = "44444444-4444-4444-4444-444444444444";
 async function freshModules() {
   vi.resetModules();
   const registry = await import("../../../server/session/registry.js");
+  const lifecycle = await import("../../../server/session/session-lifecycle-records.js");
   const snapshot = await import("../../../server/session/session-record-snapshot.js");
-  return { registry, snapshot };
+  return { lifecycle, registry, snapshot };
 }
 
 beforeEach(() => {
@@ -83,11 +84,12 @@ describe("currentSessionRecords", () => {
       "unplaced-sessions.json": `${B} codex`,
       "dev-terminal-sessions.json": A,
     };
-    const { registry, snapshot } = await freshModules();
+    const { lifecycle, registry, snapshot } = await freshModules();
     await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated, registry.devTerminalSessionsHydrated]);
 
     registry.ptys.set(A, { cwd: "/repo/live", agent: "claude", ws: null } as never);
     registry.ptys.set(C, { cwd: "/repo/chat", agent: "shell", ws: null } as never);
+    lifecycle.recordSessionStarting({ id: B, agent: "codex", cwd: "/repo/waiting" });
     registry.activity.set(B, { waiting: true, at: 20 });
 
     const sources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [A, C] });
@@ -133,7 +135,7 @@ describe("currentSessionRecords", () => {
     expect(registry.ptys.has(D)).toBe(false);
   });
 
-  it("keeps Mobile activity-only candidates newest first and bounded", async () => {
+  it("excludes Mobile activity-only rows from active Session candidates", async () => {
     readBack = {
       "dev-terminal-sessions.json": [A, B, C, D].join("\n"),
     };
@@ -146,7 +148,7 @@ describe("currentSessionRecords", () => {
 
     const sources = snapshot.currentMobileSessionRecordSources({ activityCandidateLimit: 2 });
 
-    expect(sources.ids).toEqual([B, C]);
-    expect(sources.candidateIds).toEqual([B, C]);
+    expect(sources.ids).toEqual([]);
+    expect(sources.candidateIds).toEqual([]);
   });
 });

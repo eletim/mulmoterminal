@@ -25,18 +25,21 @@ const CODEX = "22222222-2222-2222-2222-222222222222";
 async function appWithRegistry(over: Partial<SessionRouteDeps> = {}) {
   vi.resetModules();
   const registry = await import("../../../server/session/registry.js");
+  const lifecycle = await import("../../../server/session/session-lifecycle-records.js");
   const { mountSessionRoutes } = await import("../../../server/routes/session-routes.js");
   const app = express();
   mountSessionRoutes(app, { freshenRosterTitle: () => undefined, publishActivity: () => undefined, listTmuxIds: () => [], ...over });
-  return { app, registry };
+  return { app, lifecycle, registry };
 }
 
 beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/sessions/unplaced", () => {
   it("preserves shell identity on the HTTP response consumed by the grid", async () => {
-    const { app, registry } = await appWithRegistry();
+    const { app, lifecycle, registry } = await appWithRegistry();
     await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated]);
+    lifecycle.recordSessionStarting({ id: SHELL, agent: "shell", cwd: "/repo/shell" });
+    lifecycle.recordSessionStarting({ id: CODEX, agent: "codex", cwd: "/repo/codex" });
     registry.markUnplacedSession(SHELL, "shell");
     registry.markUnplacedSession(CODEX, "codex");
 
@@ -45,15 +48,17 @@ describe("GET /api/sessions/unplaced", () => {
     expect(res.status, res.text).toBe(200);
     expect(res.body).toEqual({
       sessions: [
-        { id: SHELL, agent: "shell", cwd: null },
-        { id: CODEX, agent: "codex", cwd: null },
+        { id: SHELL, agent: "shell", cwd: "/repo/shell" },
+        { id: CODEX, agent: "codex", cwd: "/repo/codex" },
       ],
     });
   });
 
   it("returns unplaced sessions through the SessionRecord placement view", async () => {
-    const { app, registry } = await appWithRegistry();
+    const { app, lifecycle, registry } = await appWithRegistry();
     await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated, registry.backgroundSessionsHydrated]);
+    lifecycle.recordSessionStarting({ id: SHELL, agent: "shell", cwd: "/repo/shell" });
+    lifecycle.recordSessionStarting({ id: CODEX, agent: "codex", cwd: "/repo/codex" });
     registry.markUnplacedSession(SHELL, "shell");
     registry.markUnplacedSession(CODEX, "codex");
     registry.backgroundMarkers.add(CODEX);
@@ -61,7 +66,18 @@ describe("GET /api/sessions/unplaced", () => {
     const res = await request(app).get("/api/sessions/unplaced");
 
     expect(res.status, res.text).toBe(200);
-    expect(res.body).toEqual({ sessions: [{ id: SHELL, agent: "shell", cwd: null }] });
+    expect(res.body).toEqual({ sessions: [{ id: SHELL, agent: "shell", cwd: "/repo/shell" }] });
+  });
+
+  it("does not return marker-only zombie sessions as unplaced", async () => {
+    const { app, registry } = await appWithRegistry();
+    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated, registry.backgroundSessionsHydrated]);
+    registry.markUnplacedSession(SHELL, "shell");
+
+    const res = await request(app).get("/api/sessions/unplaced");
+
+    expect(res.status, res.text).toBe(200);
+    expect(res.body).toEqual({ sessions: [] });
   });
 
   it("hydrates an unplaced tmux-only survivor with persisted cwd after restart", async () => {
