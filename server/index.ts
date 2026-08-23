@@ -129,7 +129,7 @@ import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
-import { readSessionSummary } from "./session/session-reads.js";
+import { readSessionSummary, sessionExistsOnDisk } from "./session/session-reads.js";
 import { codexSessionsRoot } from "./agents/codex-session.js";
 import { readCodexSessionSummary } from "./agents/codex-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -605,7 +605,11 @@ const mobileListTerminalSessions = async () => {
   const allTmuxIds = tmuxListSessionIds();
   await sessionMemosHydrated;
   await hydrateSessionRecordSnapshotInputs();
-  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentMobileSessionRecordSources({ tmuxIds: allTmuxIds });
+  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentMobileSessionRecordSources({
+    tmuxIds: allTmuxIds,
+    paneCommandOf: tmuxPaneCommand,
+    claudeTranscriptExists: sessionExistsOnDisk,
+  });
   const cwdOfSession = (id: string) => recordById.get(id)?.cwd ?? ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
   const memoryTitleOf = (id: string) => sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title);
   const persistentDetails = await persistentMobileDetails(idsNeedingPersistentDetail(ids, memoryTitleOf), cwdOfSession, {
@@ -672,11 +676,11 @@ const mobileCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.
 
 // What the phone's per-session view heads the screen with (#786, mulmoserver#107): the same
 // dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
-// answers from. A session that outlived a restart has no PtyEntry, so it has no cwd here and
-// no branch to look up — those fields are simply absent, and the phone shows the screen alone.
+// answers from. A session that outlived a restart has no PtyEntry, so it falls back to the
+// persisted cwd written when the session was launched or attached.
 const mobileSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> =>
   buildScreenMeta(sessionId, {
-    cwdOf: (id) => ptys.get(id)?.cwd ?? "",
+    cwdOf: (id) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "",
     branchOf: async (cwd) => (await currentBranch(cwd)).branch,
     // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
     // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged

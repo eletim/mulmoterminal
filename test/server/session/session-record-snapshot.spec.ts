@@ -99,6 +99,40 @@ describe("currentSessionRecords", () => {
     expect(sources.recordById.get(C)).toBeUndefined();
   });
 
+  it("hydrates tmux-only survivors for the Mobile list from persisted SessionRecord metadata", async () => {
+    readBack = {
+      "unplaced-sessions.json": `${D} codex`,
+      "dev-terminal-cwds.json": `${D} /repo/restarted\n`,
+      "codex-rollout-ids.log": `${D} ${A}`,
+    };
+    const { registry, snapshot } = await freshModules();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+    registry.sessionMemos.set(D, "Phone task");
+
+    const sources = snapshot.currentMobileSessionRecordSources({
+      tmuxIds: [D],
+      paneCommandOf: () => "bash",
+      now: 40,
+    });
+
+    expect(sources.ids).toEqual([D]);
+    expect(sources.liveIds).toEqual([]);
+    expect(sources.tmuxIds).toEqual([D]);
+    expect(sources.candidateIds).toEqual([]);
+    expect(sources.recordById.get(D)).toMatchObject({
+      id: D,
+      agent: "codex",
+      cwd: "/repo/restarted",
+      title: "Phone task",
+      lifecycle: "detached",
+      runtime: { pty: false, tmux: true, attached: false },
+      resume: { codexRolloutId: A },
+      placement: { unplaced: true },
+      updatedAt: 40,
+    });
+    expect(registry.ptys.has(D)).toBe(false);
+  });
+
   it("keeps Mobile activity-only candidates newest first and bounded", async () => {
     readBack = {
       "dev-terminal-sessions.json": [A, B, C, D].join("\n"),
