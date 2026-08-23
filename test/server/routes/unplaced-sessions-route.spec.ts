@@ -96,3 +96,56 @@ describe("GET /api/sessions/unplaced", () => {
     expect(res.body).toEqual({ sessions: [{ id: CODEX, agent: "codex", cwd: "/repo/restarted" }] });
   });
 });
+
+describe("GET /api/sessions/grid-records", () => {
+  it("answers PC grid cell existence from SessionRecord instead of local placement", async () => {
+    const { app, lifecycle, registry } = await appWithRegistry();
+    await registry.devTerminalSessionsHydrated;
+    lifecycle.recordSessionLive({ id: SHELL, agent: "shell", cwd: "/repo/live", now: 10 });
+    lifecycle.recordSessionStopped({ id: CODEX, agent: "codex", cwd: "/repo/stopped", now: 20 });
+    registry.markDevTerminalSession(SHELL, "/repo/live");
+    registry.markDevTerminalSession(CODEX, "/repo/stopped");
+
+    const res = await request(app).get(`/api/sessions/grid-records?ids=${SHELL},${CODEX}`);
+
+    expect(res.status, res.text).toBe(200);
+    expect(res.body.sessions).toEqual([
+      expect.objectContaining({ id: SHELL, agent: "shell", cwd: "/repo/live", lifecycle: "live", active: true }),
+      expect.objectContaining({ id: CODEX, agent: "codex", cwd: "/repo/stopped", lifecycle: "stopped", active: false }),
+    ]);
+  });
+
+  it("does not mark a non-grid live record active for PC grid placement", async () => {
+    const { app, lifecycle } = await appWithRegistry();
+    lifecycle.recordSessionLive({ id: SHELL, agent: "claude", cwd: "/repo/chat", now: 10 });
+
+    const res = await request(app).get(`/api/sessions/grid-records?ids=${SHELL}`);
+
+    expect(res.status, res.text).toBe(200);
+    expect(res.body.sessions).toEqual([expect.objectContaining({ id: SHELL, cwd: "/repo/chat", lifecycle: "live", active: false })]);
+  });
+
+  it("hydrates tmux-only survivors for persisted PC grid cells after restart", async () => {
+    const { app, registry } = await appWithRegistry({
+      listTmuxIds: () => [CODEX],
+      paneCommandOf: () => "codex",
+      claudeTranscriptExists: () => false,
+    });
+    await Promise.all([registry.devTerminalSessionsHydrated, registry.devTerminalCwdsHydrated]);
+    registry.markDevTerminalSession(CODEX, "/repo/restarted");
+
+    const res = await request(app).get(`/api/sessions/grid-records?ids=${CODEX}`);
+
+    expect(res.status, res.text).toBe(200);
+    expect(res.body.sessions).toEqual([
+      expect.objectContaining({
+        id: CODEX,
+        agent: "codex",
+        cwd: "/repo/restarted",
+        lifecycle: "detached",
+        active: true,
+        runtime: { pty: false, tmux: true, attached: false },
+      }),
+    ]);
+  });
+});

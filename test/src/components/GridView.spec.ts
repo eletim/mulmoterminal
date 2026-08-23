@@ -73,6 +73,10 @@ beforeEach(() => {
   localStorage.clear();
   globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
     const u = String(url);
+    if (u.includes("/api/sessions/grid-records")) {
+      const ids = new URL(u, "http://localhost").searchParams.get("ids")?.split(",").filter(Boolean) ?? [];
+      return { ok: true, json: async () => ({ sessions: ids.map((id) => ({ id, active: true, lifecycle: "live" })) }) } as Response;
+    }
     if (u.includes("/api/config")) {
       if (init?.method === "POST") posts.push({ url: u, body: init.body });
       return {
@@ -452,6 +456,129 @@ const SkillSettingsStub = {
   template: "<button class=\"launch-theme\" @click=\"$emit('launch-skill', 'mulmoterminal-theme')\" />",
 };
 const CellsStub = { name: "TerminalGrid", props: ["cells"], template: '<div class="cells-stub" />' };
+
+describe("GridView SessionRecord-backed placement (#118)", () => {
+  const STALE = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const ADOPTED = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+
+  it("does not hand a persisted stopped session to the terminal cell", async () => {
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 10, session: STALE, cwd: "/old" }], expanded: null, page: 0, sortMode: "manual" }));
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/grid-records"))
+        return { ok: true, json: async () => ({ sessions: [{ id: STALE, active: false, lifecycle: "stopped" }] }) } as Response;
+      if (String(url).includes("/api/sessions/unplaced")) return { ok: true, json: async () => ({ sessions: [] }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+
+    const w = mountActivated(GridView, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+
+    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null; cwd: string | null }>;
+    expect(cells).toEqual([{ uid: 1, session: null, cwd: null }]);
+    expect(localStorage.getItem("grid_v2")).not.toContain(STALE);
+    w.unmount();
+  });
+
+  it("retries a failed backend existence lookup without promoting localStorage to existence", async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 0, session: STALE, cwd: "/old" }], expanded: null, page: 0, sortMode: "manual" }));
+      let asked = 0;
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+        if (String(url).includes("/api/sessions/grid-records")) {
+          asked++;
+          if (asked === 1) return { ok: false, json: async () => ({}) } as Response;
+          return { ok: true, json: async () => ({ sessions: [{ id: STALE, active: true, lifecycle: "live" }] }) } as Response;
+        }
+        if (String(url).includes("/api/sessions/unplaced")) return { ok: true, json: async () => ({ sessions: [] }) } as Response;
+        return realFetch(url, init);
+      }) as typeof fetch;
+
+      const w = mountActivated(GridView, {
+        global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      });
+      await flushPromises();
+      expect(w.find('[data-testid="grid-restoring"]').exists()).toBe(true);
+      expect(w.findComponent(CellsStub).exists()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushPromises();
+
+      expect(asked).toBe(2);
+      expect(w.find('[data-testid="grid-restoring"]').exists()).toBe(false);
+      expect((w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>)[0]?.session).toBe(STALE);
+      w.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets a stale full grid clear before adopting an unplaced session", async () => {
+    localStorage.setItem(
+      "grid_v2",
+      JSON.stringify({
+        cells: Array.from({ length: 81 }, (_, i) => ({ uid: i, session: `aaaaaaaa-aaaa-aaaa-aaaa-${String(i).padStart(12, "0")}`, cwd: "/old" })),
+        expanded: null,
+        page: 0,
+        sortMode: "manual",
+      }),
+    );
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/grid-records")) {
+        const ids = new URL(String(url), "http://localhost").searchParams.get("ids")?.split(",") ?? [];
+        return {
+          ok: true,
+          json: async () => ({
+            sessions: ids.includes(ADOPTED) ? [{ id: ADOPTED, active: true, lifecycle: "live" }] : [],
+          }),
+        } as Response;
+      }
+      if (String(url).includes("/api/sessions/unplaced"))
+        return { ok: true, json: async () => ({ sessions: [{ id: ADOPTED, agent: "claude", cwd: "/new" }] }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+
+    const w = mountActivated(GridView, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null; cwd: string | null }>;
+    expect(cells.some((cell) => cell.session === ADOPTED && cell.cwd === "/new")).toBe(true);
+    w.unmount();
+  });
+
+  it("removes a cell session id when a closed push makes the backend record inactive", async () => {
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 0, session: STALE, cwd: "/old" }], expanded: null, page: 0, sortMode: "manual" }));
+    let active = true;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
+      if (String(url).includes("/api/sessions/grid-records"))
+        return { ok: true, json: async () => ({ sessions: [{ id: STALE, active, lifecycle: active ? "live" : "stopped" }] }) } as Response;
+      if (String(url).includes("/api/sessions/unplaced")) return { ok: true, json: async () => ({ sessions: [] }) } as Response;
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const w = mountActivated(GridView, {
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+    });
+    await flushPromises();
+    expect((w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>)[0]?.session).toBe(STALE);
+
+    active = false;
+    pubsub.push("sessions", { id: STALE, working: false, event: "closed" });
+    await flushPromises();
+
+    expect((w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>)[0]?.session).toBeNull();
+    expect(localStorage.getItem("grid_v2")).not.toContain(STALE);
+    w.unmount();
+  });
+});
 
 describe("GridView skill launch (#1111)", () => {
   const SPAWNED = "cccccccc-cccc-cccc-cccc-cccccccccccc";
