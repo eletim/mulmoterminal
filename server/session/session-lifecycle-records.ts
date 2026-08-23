@@ -26,9 +26,24 @@ export const STOPPED_SESSION_LIFECYCLE_RECORD_LIMIT = 500;
 const STOPPED_SESSION_LIFECYCLE_FILE = path.join(MULMOTERMINAL_HOME, "stopped-session-lifecycle.json");
 
 export const sessionLifecycleRecords = new Map<string, SessionLifecycleRecord>();
+const currentProcessLifecycleWriteIds = new Set<string>();
+let lifecycleRecordsHydrated = false;
 
 function stoppedLifecycleLogLine(id: string, state: "stopped" | "active"): string {
   return `\n${id} ${state}`;
+}
+
+function applyHydratedLifecycleLine(id: string | undefined, state: string | undefined, now: number): void {
+  if (!id || !SESSION_ID_RE.test(id)) return;
+  if (currentProcessLifecycleWriteIds.has(id)) return;
+  if (state === "active") {
+    if (sessionLifecycleRecords.get(id)?.lifecycle === "stopped") sessionLifecycleRecords.delete(id);
+    return;
+  }
+  if (state !== undefined && state !== "stopped") return;
+  const current = sessionLifecycleRecords.get(id);
+  if (current && current.lifecycle !== "stopped") return;
+  sessionLifecycleRecords.set(id, { id, lifecycle: "stopped", agent: null, cwd: null, createdAt: now, updatedAt: now });
 }
 
 export const sessionLifecycleRecordsHydrated = (async () => {
@@ -36,19 +51,13 @@ export const sessionLifecycleRecordsHydrated = (async () => {
     const now = Date.now();
     for (const line of (await fs.readFile(STOPPED_SESSION_LIFECYCLE_FILE, "utf8")).split("\n")) {
       const [id, state] = line.trim().split(/\s+/);
-      if (!id || !SESSION_ID_RE.test(id)) continue;
-      if (state === "active") {
-        if (sessionLifecycleRecords.get(id)?.lifecycle === "stopped") sessionLifecycleRecords.delete(id);
-        continue;
-      }
-      if (state === undefined || state === "stopped") {
-        const current = sessionLifecycleRecords.get(id);
-        if (current && current.lifecycle !== "stopped") continue;
-        sessionLifecycleRecords.set(id, { id, lifecycle: "stopped", agent: null, cwd: null, createdAt: now, updatedAt: now });
-      }
+      applyHydratedLifecycleLine(id, state, now);
     }
   } catch {
     // absent on first run / unreadable => no durable stopped tombstones
+  } finally {
+    lifecycleRecordsHydrated = true;
+    currentProcessLifecycleWriteIds.clear();
   }
 })();
 
@@ -74,6 +83,7 @@ export function pruneStoppedSessionLifecycleRecords(limit = STOPPED_SESSION_LIFE
 
 function writeLifecycle(input: SessionLifecycleWrite): SessionLifecycleRecord {
   const { id, lifecycle, now = Date.now() } = input;
+  if (!lifecycleRecordsHydrated) currentProcessLifecycleWriteIds.add(id);
   const current = sessionLifecycleRecords.get(id);
   const next: SessionLifecycleRecord = {
     id,
