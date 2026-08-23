@@ -11,6 +11,8 @@ import {
   setCellAgent,
   setCellParked,
   closeCell,
+  dropSessionCells,
+  attachableCells,
   toggleExpand,
   switchPage,
   runCommand,
@@ -156,6 +158,31 @@ describe("closeCell reflows across pages", () => {
   it("leaves the zoom untouched when a NON-zoomed cell is closed", () => {
     const after = closeCell(make(running(3), { expanded: 2 }), 0, [0, 1, 2]);
     expect(after.expanded).toBe(2);
+  });
+});
+
+describe("SessionRecord-backed grid existence", () => {
+  it("drops cells whose persisted session is inactive without treating placement as existence", () => {
+    const s = dropSessionCells(make([cell(0, U(0)), cell(1, U(1)), cell(2, U(2))], { expanded: 1 }), new Set([U(1)]));
+
+    expect(s.cells.map((c) => c.session)).toEqual([U(0), U(2)]);
+    expect(s.expanded).toBeNull();
+    expect(runningCount(s.cells)).toBe(2);
+  });
+
+  it("keeps an entry launcher when every persisted session was stale", () => {
+    const s = dropSessionCells(make(running(2), { expanded: 0 }), new Set([U(0), U(1)]));
+
+    expect(s.cells).toEqual([{ uid: 2, session: null, cwd: null }]);
+    expect(s.expanded).toBeNull();
+    expect(runningCount(s.cells)).toBe(0);
+  });
+
+  it("clears unconfirmed sessions for rendering while preserving raw placement objects", () => {
+    const cells = [{ ...cell(0, U(0), "/a"), launcher: { shell: true as const, label: "shell" } }, cell(1, U(1), "/b")];
+
+    expect(attachableCells(cells, new Set([U(1)]))).toEqual([{ uid: 0, session: null, cwd: "/a" }, cell(1, U(1), "/b")]);
+    expect(cells[0]?.session).toBe(U(0));
   });
 });
 

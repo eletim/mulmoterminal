@@ -25,6 +25,7 @@ vi.mock("../../../server/session/worktree-session-limit.js", () => ({
 }));
 
 const { createLocalMobileTerminalCreator } = await import("../../../server/mobileTerminal/localMobileTerminalLauncher.js");
+const { sessionLifecycleRecords } = await import("../../../server/session/session-lifecycle-records.js");
 
 const entry = () => ({}) as never;
 
@@ -39,6 +40,7 @@ function deps() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionLifecycleRecords.clear();
   mocks.claimLaunch.mockReturnValue({ contended: false, release: mocks.claimRelease });
   mocks.worktreeOccupancy.mockResolvedValue({ isWorktree: false, session: null });
   mocks.registeredGuiMcpGroups.mockResolvedValue(["render"]);
@@ -54,7 +56,8 @@ describe("createLocalMobileTerminalCreator", () => {
     if (!result.ok) throw new Error("expected create to succeed");
     expect(d.spawnLauncherPty).toHaveBeenCalledWith(result.sessionId, null, process.env.SHELL || "/bin/sh", "/repo");
     expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(result.sessionId, "/repo");
-    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "shell");
+    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "shell", "/repo");
+    expect(sessionLifecycleRecords.get(result.sessionId)).toMatchObject({ lifecycle: "starting", agent: "shell", cwd: "/repo" });
     expect(mocks.worktreeOccupancy).not.toHaveBeenCalled();
   });
 
@@ -66,8 +69,23 @@ describe("createLocalMobileTerminalCreator", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected create to succeed");
     expect(d.spawnCodexPty).toHaveBeenCalledWith(result.sessionId, null, null, "/repo", false, { mcpGroups: ["render"] });
-    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "codex");
+    expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(result.sessionId, "/repo");
+    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "codex", "/repo");
     expect(mocks.claimRelease).toHaveBeenCalledOnce();
+  });
+
+  it("marks mobile-created agent sessions as grid-owned before adoption", async () => {
+    const d = deps();
+    const create = createLocalMobileTerminalCreator(d);
+
+    const claude = await create("claude", "/repo/claude");
+    const antigravity = await create("antigravity", "/repo/agy");
+
+    expect(claude.ok).toBe(true);
+    expect(antigravity.ok).toBe(true);
+    if (!claude.ok || !antigravity.ok) throw new Error("expected create to succeed");
+    expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(claude.sessionId, "/repo/claude");
+    expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(antigravity.sessionId, "/repo/agy");
   });
 
   it("returns a retryable error when the spawn is refused", async () => {
@@ -79,6 +97,23 @@ describe("createLocalMobileTerminalCreator", () => {
 
     await expect(create("claude", "/repo")).resolves.toEqual({ ok: false, error: "claude not found" });
     expect(mocks.markUnplacedSession).not.toHaveBeenCalled();
+    const rows = [...sessionLifecycleRecords.values()];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ lifecycle: "stopped", agent: "claude", cwd: "/repo" });
+  });
+
+  it("does not mark a spawned session stopped when later adoption bookkeeping fails", async () => {
+    mocks.markUnplacedSession.mockImplementationOnce(() => {
+      throw new Error("marker failed");
+    });
+    const d = deps();
+    const create = createLocalMobileTerminalCreator(d);
+
+    await expect(create("claude", "/repo")).resolves.toEqual({ ok: false, error: "marker failed" });
+
+    const rows = [...sessionLifecycleRecords.values()];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ lifecycle: "starting", agent: "claude", cwd: "/repo" });
   });
 
   it("refuses a second agent launch into a contended managed worktree before spawning", async () => {

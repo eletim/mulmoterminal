@@ -62,8 +62,11 @@ export interface TerminalSessionSummary {
   // A PTY is attached in THIS server process. False means the session exists only in tmux
   // (it outlived a restart) — still viewable, since capture-pane doesn't need our process.
   live: boolean;
-  // What is running in it, or null when unknown (see SessionAgent). A tmux-only
-  // session is always null: the process that knew is gone.
+  // True when POST /input can write to this row: either an in-process PTY is live, or tmux can be
+  // adopted back into one. This is deliberately separate from `live`, which remains the
+  // connection-state label the phone shows.
+  inputAvailable: boolean;
+  // What is running in it, or null when tmux/the in-process PTY cannot tell.
   agent: SessionAgent | null;
 }
 
@@ -137,10 +140,11 @@ export function sessionFallbackTitle(agent: SessionAgent | null, cwd: string, ho
 // by being live — where the id at least identifies something currently running.
 export function buildSessionList({ candidateIds = [], liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
   const live = new Set(liveIds);
+  const tmux = new Set(tmuxIds);
   const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])].filter(isResumable).filter(isGridSession);
   return (
     ids
-      .map((id) => ({ id, ...detailOf(id), live: live.has(id) }))
+      .map((id) => ({ id, ...detailOf(id), live: live.has(id), inputAvailable: live.has(id) || tmux.has(id) }))
       .filter((session) => session.title !== "" || session.live)
       .map((session) => ({ ...session, title: session.title || sessionFallbackTitle(session.agent, session.cwd) }))
       // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding

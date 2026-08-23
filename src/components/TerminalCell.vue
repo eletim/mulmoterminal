@@ -441,6 +441,23 @@ function resumeSession({ id, cwd: dir, agent: resumeAgent }: { id: string; cwd: 
   void loadDiff(); // an already-idle worktree session shows its badge right away
 }
 
+// Grid placement is checked against backend SessionRecord after the first render. A restored cell
+// may therefore mount as an empty launcher and receive its persisted id a moment later; adopt that
+// id exactly like a resume, but only while the user has not already launched something in the cell.
+watch(
+  () => [props.initialSessionId, props.initialAgent] as const,
+  ([id, initialAgent]) => {
+    if (id === null || launched.value) return;
+    launchTarget.value = asTerminalAgent(initialAgent);
+    sessionId.value = id;
+    connectKey.value++;
+    launched.value = true;
+    recordNextCwd = false;
+    void loadInitial(id);
+    void loadDiff();
+  },
+);
+
 // Reveal this cell's working directory in the OS file manager. The browser can't
 // open a folder, but the local server can (POST /api/open-dir).
 async function openDir() {

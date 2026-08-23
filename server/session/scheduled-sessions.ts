@@ -16,6 +16,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { recordSessionStopped } from "./session-lifecycle-records.js";
 import { createHash } from "node:crypto";
 import { writeFileAtomic } from "../files/atomic-write.js";
 import { isRecord } from "../../common/isRecord.js";
@@ -155,7 +156,10 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
     // stays on disk, so a later sweep retries it.
     if (deps.isInUse(record.id)) return false;
     deps.reapSession(record.id);
-    if (deps.hasTmux(record.id)) deps.killTmux(record.id);
+    if (deps.hasTmux(record.id)) {
+      deps.killTmux(record.id);
+      recordSessionStopped({ id: record.id });
+    }
     await fs.rm(entryFile(record.id), { force: true });
     return true;
   };

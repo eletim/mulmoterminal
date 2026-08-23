@@ -116,6 +116,17 @@ describe("unplaced sessions", () => {
     expect(loggedTo("unplaced-sessions.json")).toContain(`${A} shell`);
   });
 
+  it("remembers the cwd for an unplaced session without requiring a grid cell marker", async () => {
+    const registry = await freshRegistry();
+    await registry.devTerminalCwdsHydrated;
+
+    registry.markUnplacedSession(A, "codex", "/repo/mobile");
+
+    expect(registry.sessionCwd(A)).toBe("/repo/mobile");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loggedTo("dev-terminal-cwds.json")).toContain("/repo/mobile");
+  });
+
   it("reads the agent back after a restart, and defaults a line written without one", async () => {
     // The second half is the upgrade case: a log written before the agent field existed holds
     // bare ids, and those sessions were all claude.
@@ -141,33 +152,6 @@ describe("unplaced sessions", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(loggedTo("placed-sessions.json").split(A).length - 1).toBe(1);
     expect(registry.unplacedSessionRows()).toEqual([]);
-  });
-
-  // What the phone may list (#1184). A session it started itself is in neither set the desktop
-  // reads until a browser attaches, so without the unplaced half the phone could not find the work
-  // it had just begun. The two halves must also never both hold one id, or one session would be
-  // two rows.
-  it("lets the phone list a session it started, until and after a cell takes it", async () => {
-    const registry = await freshRegistry();
-    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated]);
-    expect(registry.isPhoneListableSession(A)).toBe(false);
-
-    registry.markUnplacedSession(A);
-    expect(registry.isPhoneListableSession(A)).toBe(true);
-    expect(registry.unplacedSessionRows().map((r) => r.id)).toEqual([A]);
-
-    // The attach clears the unplaced mark AND records the cell, so the answer stays true across
-    // the handover rather than blinking off between the two writes.
-    registry.markSessionPlaced(A);
-    registry.markDevTerminalSession(A);
-    expect(registry.isPhoneListableSession(A)).toBe(true);
-    expect(registry.unplacedSessionRows()).toEqual([]);
-  });
-
-  it("does not list a tmux shell that was never a cell and nobody spawned for one", async () => {
-    const registry = await freshRegistry();
-    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated]);
-    expect(registry.isPhoneListableSession(B)).toBe(false);
   });
 
   it("ignores an id that is not a session id", async () => {

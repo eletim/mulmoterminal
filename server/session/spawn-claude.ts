@@ -26,6 +26,7 @@ import { requireResolution, resolveProvider, type DirModelChoice } from "./provi
 import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
 import { ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
+import { recordSessionLive } from "./session-lifecycle-records.js";
 
 export interface SpawnClaudeOptions {
   // Passed to claude as the first turn, so the session starts working before anyone
@@ -205,6 +206,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
     ptys.set(sessionId, entry);
+    recordSessionLive({ id: sessionId, agent: "claude", cwd });
     // Every claude spawn above carries `--settings` with the Pre/PostToolUse hooks, so from here
     // on this session reports its own tool calls — which is what stops the MCP broker recording
     // its GUI calls a second time (mcp/gui-call-history.ts).

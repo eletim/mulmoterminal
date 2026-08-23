@@ -48,6 +48,7 @@ interface MobileSession {
   title: string;
   cwd: string;
   live: boolean;
+  inputAvailable?: boolean;
   agent: string | null;
   activity: MobileActivity;
 }
@@ -58,6 +59,7 @@ const isMobileSession = (value: unknown): value is MobileSession =>
   typeof value.title === "string" &&
   typeof value.cwd === "string" &&
   typeof value.live === "boolean" &&
+  (value.inputAvailable === undefined || typeof value.inputAvailable === "boolean") &&
   (value.agent === null || SESSION_AGENTS.some((known) => known === value.agent)) &&
   isMobileActivity(value.activity);
 
@@ -66,6 +68,7 @@ type Status = "loading" | "local" | "error";
 const status = ref<Status>("loading");
 const sessions = ref<MobileSession[]>([]);
 const mobileHome = ref<string | null>(null);
+const showingCachedState = ref(false);
 const selectedSessionId = ref<string | null>(null);
 const selectedSession = computed(() => sessions.value.find((candidate) => candidate.id === selectedSessionId.value) ?? null);
 const newTerminalCwd = ref("");
@@ -212,6 +215,8 @@ const activityStatusOf = (session: MobileSession) =>
   mobileActivityStatus(session.activity.working, session.activity.waiting, session.activity.event, session.activity.workPhase);
 const activityClassOf = (session: MobileSession) => ACTIVITY_CLASS[activityStatusOf(session)];
 const displayCwd = (cwd: string) => homeRelative(cwd, mobileHome.value);
+const sessionInputAvailable = (session: MobileSession | null): boolean => !!session && (session.inputAvailable ?? session.live);
+const selectedSessionAcceptsInput = computed(() => !showingCachedState.value && sessionInputAvailable(selectedSession.value));
 
 function writeCachedMobileState(): void {
   try {
@@ -245,6 +250,7 @@ function restoreCachedMobileState(): boolean {
     screenStyledRows.value = cachedScreen?.styledRows ?? null;
     screenStatus.value = cachedScreen ? "loaded" : "idle";
     status.value = "local";
+    showingCachedState.value = true;
     return true;
   } catch {
     return false;
@@ -330,6 +336,7 @@ async function fetchSessionList(): Promise<MobileSessionListResult> {
 function applySessionListResult(result: MobileSessionListResult): void {
   mobileHome.value = result.home;
   applySessionList(result.sessions);
+  showingCachedState.value = false;
   writeCachedMobileState();
 }
 
@@ -480,7 +487,7 @@ function selectSession(id: string): void {
 // has since switched away from must not touch the (now different) session's input state at all.
 async function sendTerminalInput(): Promise<void> {
   if (!selectedSessionId.value) return;
-  if (!selectedSession.value?.live) return;
+  if (!selectedSessionAcceptsInput.value) return;
   if (screenStatus.value !== "loaded") return;
   if (inputStatus.value === "sending") return;
   if (inputText.value.trim() === "") return;
@@ -783,11 +790,13 @@ onUnmounted(() => {
           </ul>
 
           <div v-if="selectedSession" class="mt-4 flex flex-col gap-2">
+            <p v-if="showingCachedState" class="text-[12px] text-secondary">Showing cached terminal data. Reconnect before sending input.</p>
             <div class="flex items-center justify-between gap-2">
               <h2 class="truncate text-[13px] font-medium text-fg">{{ selectedSession.title }}</h2>
             </div>
 
             <MobileSessionActions
+              v-if="!showingCachedState"
               :session="selectedSession"
               :interrupt-status="interruptStatus"
               :stop-status="stopStatus"
@@ -845,7 +854,13 @@ onUnmounted(() => {
               class="overflow-x-auto whitespace-pre rounded-md border border-border bg-elevated p-2 font-mono text-[12px] text-fg"
               >{{ screenText }}</pre>
 
-            <p v-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
+            <p v-if="screenStatus === 'loaded' && showingCachedState" class="text-[12px] text-muted">
+              Cached screens are read-only until the server confirms the session.
+            </p>
+            <p v-else-if="screenStatus === 'loaded' && !selectedSession.live && sessionInputAvailable(selectedSession)" class="text-[12px] text-muted">
+              Input will reattach this detached tmux session.
+            </p>
+            <p v-else-if="screenStatus === 'loaded' && !selectedSession.live" class="text-[12px] text-muted">Detached sessions are read-only.</p>
           </div>
         </template>
       </template>
@@ -856,7 +871,7 @@ onUnmounted(() => {
          layout above is what pins it to the bottom — no position:fixed/sticky needed, and so
          nothing here has to account for header height or scroll offset the way those would. -->
     <footer
-      v-if="status === 'local' && screenStatus === 'loaded' && selectedSession?.live"
+      v-if="status === 'local' && screenStatus === 'loaded' && selectedSessionAcceptsInput"
       class="flex-none border-t border-border bg-panel px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
       <form class="flex items-end gap-2" @submit.prevent="sendTerminalInput">

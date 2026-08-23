@@ -1,3 +1,5 @@
+import { recordSessionStopped } from "../session/session-lifecycle-records.js";
+
 export interface TerminalSessionOperationDeps {
   writeToSession: (sessionId: string, chunk: string) => boolean;
   reapSession: (sessionId: string) => void;
@@ -10,7 +12,10 @@ export function createTerminalSessionOperations({ writeToSession, reapSession, h
     interruptSession: (sessionId: string): boolean => writeToSession(sessionId, "\x03"),
     stopSession: (sessionId: string): void => {
       reapSession(sessionId);
-      if (hasTmux(sessionId)) killTmux(sessionId);
+      if (hasTmux(sessionId)) {
+        killTmux(sessionId);
+        recordSessionStopped({ id: sessionId });
+      }
     },
   };
 }

@@ -24,6 +24,8 @@ import {
   shellLauncher,
   sessionCell,
   launchInCell,
+  attachableCells,
+  dropSessionCells,
   setSortMode,
   moveCell,
   moveZoom,
@@ -96,19 +98,101 @@ if (init.migrated) {
 }
 watch(state, persist, { deep: true });
 
-// Feed the tab-close guard: warn on close/reload while any cell runs a session or
-// command (counts every page, not just the mounted one).
+const activeGridSessionIds = reactive(new Set<string>());
+const inactiveGridSessionIds = reactive(new Set<string>());
+const localActiveSessionIds = reactive(new Set<string>());
+const GRID_RECORD_RETRY_MS = 2000;
+let gridRecordFetchSeq = 0;
+let gridRecordRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+const rawCellSessionIds = computed(() => [...new Set(state.value.cells.map((c) => c.session).filter((s): s is string => s !== null))]);
+const rawCellSessionIdKey = computed(() => rawCellSessionIds.value.join(","));
+const attachableSessionIds = computed(() => new Set([...activeGridSessionIds, ...localActiveSessionIds]));
+const gridCells = computed(() => attachableCells(state.value.cells, attachableSessionIds.value));
+const restoringGridSessions = computed(() =>
+  rawCellSessionIds.value.some((id) => !localActiveSessionIds.has(id) && !activeGridSessionIds.has(id) && !inactiveGridSessionIds.has(id)),
+);
+const gridReady = computed(() => !restoringGridSessions.value);
+const pages = computed(() => pageCount(gridCells.value.length));
+
+// Feed the tab-close guard: warn on close/reload while any active cell runs a session or
+// command (counts every page, not just the mounted one). Persisted but inactive cells are only
+// placement leftovers, so they must not behave as live sessions here.
 watch(
-  () => runningCount(state.value.cells),
+  () => runningCount(gridCells.value),
   (n) => reportActiveTerminals("grid", n),
   { immediate: true },
 );
 
-const pages = computed(() => pageCount(state.value.cells.length));
+const activeRecord = (row: unknown): string | null => (isRecord(row) && typeof row.id === "string" && row.active === true ? row.id : null);
+const hasNonStaleCellForSession = (id: string): boolean => state.value.cells.some((cell) => cell.session === id) && !inactiveGridSessionIds.has(id);
+
+function scheduleGridRecordRetry(): void {
+  if (gridRecordRetryTimer !== null || rawCellSessionIds.value.length === 0) return;
+  gridRecordRetryTimer = setTimeout(() => {
+    gridRecordRetryTimer = null;
+    void refreshGridSessionRecords();
+  }, GRID_RECORD_RETRY_MS);
+}
+
+function applyGridSessionRecordRows(ids: readonly string[], rows: readonly unknown[]): void {
+  const requested = new Set(ids);
+  const active = new Set(rows.map(activeRecord).filter((id): id is string => id !== null && requested.has(id)));
+  for (const id of requested) {
+    activeGridSessionIds.delete(id);
+    inactiveGridSessionIds.delete(id);
+    if (active.has(id)) activeGridSessionIds.add(id);
+    else {
+      localActiveSessionIds.delete(id);
+      inactiveGridSessionIds.add(id);
+    }
+  }
+}
+
+function pruneInactiveGridCells(): void {
+  const pruned = dropSessionCells(state.value, inactiveGridSessionIds);
+  if (pruned === state.value) return;
+  state.value = pruned;
+  if (onTerminalsRoute()) void adoptUnplacedSessions();
+}
+
+async function refreshGridSessionRecords(): Promise<void> {
+  const ids = rawCellSessionIds.value;
+  const seq = ++gridRecordFetchSeq;
+  if (ids.length === 0) {
+    if (gridRecordRetryTimer !== null) clearTimeout(gridRecordRetryTimer);
+    gridRecordRetryTimer = null;
+    activeGridSessionIds.clear();
+    inactiveGridSessionIds.clear();
+    return;
+  }
+  try {
+    const res = await fetch(`/api/sessions/grid-records?ids=${encodeURIComponent(ids.join(","))}`);
+    if (seq !== gridRecordFetchSeq) return;
+    if (!res.ok) {
+      scheduleGridRecordRetry();
+      return;
+    }
+    const body: unknown = await res.json();
+    if (seq !== gridRecordFetchSeq) return;
+    const rows = isRecord(body) && Array.isArray(body.sessions) ? body.sessions : [];
+    applyGridSessionRecordRows(ids, rows);
+    pruneInactiveGridCells();
+  } catch {
+    // Best effort: leave the persisted placement untouched and retry instead of inventing
+    // existence locally from grid_v2.
+    if (seq === gridRecordFetchSeq) scheduleGridRecordRetry();
+  }
+}
+
+watch(rawCellSessionIdKey, () => void refreshGridSessionRecords(), { immediate: true });
+onBeforeUnmount(() => {
+  if (gridRecordRetryTimer !== null) clearTimeout(gridRecordRetryTimer);
+});
 
 // Nothing has been launched yet (only the entry launch cell) — show the newcomer a
 // pointer to the guide, cleared the moment any terminal starts.
-const noRunningTerminals = computed(() => runningCount(state.value.cells) === 0);
+const noRunningTerminals = computed(() => gridReady.value && runningCount(gridCells.value) === 0);
 
 // The "auto" order needs every cell's status, including cells on pages that aren't
 // mounted. useGridActivity tracks each cell session's live attention state by id —
@@ -116,7 +200,7 @@ const noRunningTerminals = computed(() => runningCount(state.value.cells) === 0)
 // limit would cap — so a waiting cell on any page floats forward. The per-cell
 // `statusByUid` (reported up while a cell is mounted) is the fallback for cells with
 // no session id (command cells) and a just-launched cell before its id arrives.
-const cellSessionIds = computed(() => state.value.cells.map((c) => c.session).filter((s): s is string => !!s));
+const cellSessionIds = computed(() => gridCells.value.map((c) => c.session).filter((s): s is string => !!s));
 const { activity: gridActivity } = useGridActivity(cellSessionIds);
 const statusByUid = reactive<Record<number, AttentionStatus>>({});
 const onStatus = (uid: number, s: AttentionStatus) => (statusByUid[uid] = s);
@@ -128,18 +212,18 @@ const sessionStatus = computed(() => {
   for (const [id, a] of gridActivity) m.set(id, activityStatus(a.working, a.waiting, a.event));
   return m;
 });
-const statusForSort = computed<Record<number, AttentionStatus>>(() => resolveCellStatus(state.value.cells, sessionStatus.value, statusByUid));
+const statusForSort = computed<Record<number, AttentionStatus>>(() => resolveCellStatus(gridCells.value, sessionStatus.value, statusByUid));
 // At-a-glance tally across ALL pages, for the toolbar summary.
-const statusCounts = computed(() => countByStatus(state.value.cells, statusForSort.value));
+const statusCounts = computed(() => countByStatus(gridCells.value, statusForSort.value));
 const reorderable = computed(() => state.value.sortMode === "manual");
 // "priority" ranks cells by their directory's orderPriority, so like the status above it needs
 // a value for cells on pages that aren't mounted — hence the whole cwd set, not per-cell.
-const cellCwds = computed(() => [...new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => !!c))]);
+const cellCwds = computed(() => [...new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => !!c))]);
 const { priorities: priorityByCwd } = useDirPriorities(cellCwds);
 // In "auto" mode the whole list is attention-sorted; "priority" orders by each directory's
 // declared rank; "manual" keeps the hand-arranged order.
 // The ONE ordering both the grid and the cockpit roster read, so the two can't drift (#720).
-const orderedCells = computed(() => orderCells(state.value.cells, statusForSort.value, state.value.sortMode, priorityByCwd.value));
+const orderedCells = computed(() => orderCells(gridCells.value, statusForSort.value, state.value.sortMode, priorityByCwd.value));
 // The grid: while a cell is zoomed, render EVERY cell (the filmstrip lines up all tabs' terminals,
 // live); otherwise just the active page's slice. A waiting cell from any page floats to the front.
 const displayCells = computed(() => (zoomedUid(state.value) !== null ? orderedCells.value : pageSlice(orderedCells.value, state.value.page)));
@@ -173,7 +257,7 @@ async function seedMeta(id: string, cwd: string | null) {
     // best-effort — the next poll retries
   }
 }
-const refreshAllMeta = () => state.value.cells.forEach((c) => c.session && void seedMeta(c.session, c.cwd));
+const refreshAllMeta = () => gridCells.value.forEach((c) => c.session && void seedMeta(c.session, c.cwd));
 // The PR workflow phase per directory (GET /api/pr-phase), shown in the roster beside the
 // agent status. Keyed by cwd, not session — the phase is the branch's, so cells sharing a dir
 // share one fetch. Best-effort and cached server-side, so the roster poll can re-fetch cheaply.
@@ -216,7 +300,7 @@ async function seedChrome(cwd: string) {
   chromeByCwd.set(cwd, { headerColor: config.headerColor, headerTextColor: config.headerTextColor });
 }
 const refreshAllChrome = () => {
-  const cwds = new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => c !== null));
+  const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
   cwds.forEach((cwd) => void seedChrome(cwd));
 };
 // A user editing .mulmoterminal.json is announced on the dir-config channel; re-fetch that
@@ -237,8 +321,8 @@ const unsubscribeDirConfig = usePubSub().subscribe("dir-config", (data) => {
 onBeforeUnmount(unsubscribeDirConfig);
 
 const forgetClosedCells = () => {
-  const sessions = new Set(state.value.cells.map((c) => c.session).filter((s): s is string => !!s));
-  const cwds = new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => c !== null));
+  const sessions = new Set(gridCells.value.map((c) => c.session).filter((s): s is string => !!s));
+  const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
   staleCacheKeys(sessionMeta.keys(), sessions).forEach((id) => {
     sessionMeta.delete(id);
     latestMetaSeed.delete(id);
@@ -259,7 +343,7 @@ const forgetClosedCells = () => {
 // Keyed on the cwd as well as the session: a cell that keeps its session and only moves
 // directory still retires a phaseByCwd entry, and the roster may be hidden for hours.
 watch(
-  () => rosterCellsKey(state.value.cells),
+  () => rosterCellsKey(gridCells.value),
   () => {
     forgetClosedCells();
     refreshAllMeta();
@@ -268,7 +352,7 @@ watch(
 );
 
 const refreshAllPhases = () => {
-  const cwds = new Set(state.value.cells.map((c) => c.cwd).filter((c): c is string => c !== null));
+  const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
   cwds.forEach((cwd) => void seedPhase(cwd));
 };
 
@@ -345,21 +429,26 @@ const launchOpen = computed(() => cancelUid.value !== null);
 // Session ids currently held by cells (across all pages — off-page cells stay
 // live as background PTYs). A launcher uses this to warn before resuming a
 // session that's already open, since attaching would detach the other cell.
-const openSessionIds = computed(() => state.value.cells.map((c) => c.session).filter((s): s is string => s !== null));
+const openSessionIds = computed(() => gridCells.value.map((c) => c.session).filter((s): s is string => s !== null));
 // Directories that already have a running session (a launched cell), so the launcher
 // can flag preset chips whose dir is in use elsewhere.
 const openCwds = computed(() =>
-  state.value.cells
+  gridCells.value
     .filter((c) => c.session)
     .map((c) => c.cwd)
     .filter((c): c is string => c !== null),
 );
 
 function onAddTerminal() {
-  if (runningCount(state.value.cells) >= MAX_TERMINALS && !launchOpen.value) return; // surfaced by the disabled button
+  if (!gridReady.value) return;
+  if (runningCount(gridCells.value) >= MAX_TERMINALS && !launchOpen.value) return; // surfaced by the disabled button
   state.value = addCell(state.value);
 }
-const onSession = (uid: number, id: string) => (state.value = setSession(state.value, uid, id));
+const onSession = (uid: number, id: string) => {
+  localActiveSessionIds.add(id);
+  inactiveGridSessionIds.delete(id);
+  state.value = setSession(state.value, uid, id);
+};
 const onCwd = (uid: number, cwd: string) => (state.value = setCwd(state.value, uid, cwd));
 const onAgent = (uid: number, agent: TerminalAgent) => (state.value = setCellAgent(state.value, uid, agent));
 const onPark = (uid: number, parked: boolean) => (state.value = setCellParked(state.value, uid, parked));
@@ -505,7 +594,7 @@ function runShortcut(shortcut: GridShortcut) {
 // tries the most recent cwd preset, which a cell with no recorded dir would otherwise skip.
 const adjacentCwd = (uid: number): string =>
   preferredLaunchDir({
-    initialCwd: state.value.cells.find((c) => c.uid === uid)?.cwd,
+    initialCwd: gridCells.value.find((c) => c.uid === uid)?.cwd,
     presets: presets.value,
     defaultCwd: defaultCwd.value,
   });
@@ -539,7 +628,9 @@ const placeChat = ({ id, agent, canvas }: SpawnedChatRequest): boolean => {
   // Already adopted — by the unplaced sweep below, or by an earlier request for the same session.
   // Two cells for one session fight over its socket: the server supersedes the prior one, so the
   // older cell goes dead while still looking live.
-  if (state.value.cells.some((cell) => cell.session === id)) return true;
+  if (hasNonStaleCellForSession(id)) return true;
+  localActiveSessionIds.add(id);
+  inactiveGridSessionIds.delete(id);
   // Seeded with the directory the server spawns these in (CLAUDE_CWD, which /api/config reports as
   // `cwd`); the cell adopts whatever the PTY reports anyway. sessionCell carries the agent, which
   // matters because a spawn follows the Claude/Codex/Antigravity toggle.
@@ -605,9 +696,11 @@ async function adoptUnplacedSessions(): Promise<void> {
       // Already here: the server clears the mark when a cell attaches, but this tab may still be
       // holding a cell whose attach has not landed yet — and adopting twice would give one session
       // two cells fighting over the same socket.
-      if (state.value.cells.some((cell) => cell.session === row.id)) continue;
+      if (hasNonStaleCellForSession(row.id)) continue;
       const agent = typeof row.agent === "string" && isLaunchAgent(row.agent) ? row.agent : "claude";
       const cwd = typeof row.cwd === "string" ? row.cwd : defaultCwd.value;
+      localActiveSessionIds.add(row.id);
+      inactiveGridSessionIds.delete(row.id);
       const placed = insertCellAfter(state.value, NO_ORIGIN_UID, adoptedCellForAgent(row.id, cwd, agent));
       // A full grid drops the cell and hands the state straight back. Nothing to fall back to
       // here — this session has been waiting, and it can keep waiting: the mark is only cleared
@@ -651,13 +744,21 @@ watch(
 // can become unplaced. A create that arrives while the user is elsewhere in the app needs nothing
 // extra — the watcher adopts it on the way back.
 const isSessionCreated = (data: unknown): boolean => isRecord(data) && data.event === "created";
+const closedSessionId = (data: unknown): string | null => (isRecord(data) && typeof data.id === "string" && data.event === "closed" ? data.id : null);
 const { subscribe: subscribeSessions, onReconnect } = usePubSub();
 const unsubscribeSessions = subscribeSessions("sessions", (data) => {
   if (isSessionCreated(data) && onTerminalsRoute()) void adoptUnplacedSessions();
+  const closed = closedSessionId(data);
+  if (closed) {
+    localActiveSessionIds.delete(closed);
+    activeGridSessionIds.delete(closed);
+    void refreshGridSessionRecords();
+  }
 });
 // pub/sub replays room membership on reconnect but not the events missed while disconnected, so a
 // spawn during a dropped socket would never be swept — the same re-sync useSessions does.
 const offReconnect = onReconnect(() => {
+  void refreshGridSessionRecords();
   if (onTerminalsRoute()) void adoptUnplacedSessions();
 });
 onBeforeUnmount(() => {
@@ -705,6 +806,7 @@ onBeforeUnmount(detachSpawnedChat);
       </button>
     </nav>
     <TerminalGrid
+      v-if="gridReady"
       ref="gridRef"
       class="flex-1 min-h-0 min-w-0"
       :cells="displayCells"
@@ -734,6 +836,7 @@ onBeforeUnmount(detachSpawnedChat);
       @move="onMove"
       @status="onStatus"
     />
+    <div v-else class="flex-1 min-h-0 min-w-0 bg-base" aria-busy="true" data-testid="grid-restoring"></div>
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
       <GuideLinks />
     </footer>

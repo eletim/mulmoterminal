@@ -169,14 +169,15 @@ describe("isResumableTmuxSession", () => {
   const empty = new Set<string>();
 
   it("keeps a session that is live, a grid session, or has a Claude/Codex transcript", () => {
-    expect(isResumableTmuxSession("a", new Set(["a"]), empty, empty, none)).toBe(true); // live pty
-    expect(isResumableTmuxSession("b", empty, new Set(["b"]), empty, none)).toBe(true); // persisted grid session
-    expect(isResumableTmuxSession("c", empty, empty, new Set(["c"]), none)).toBe(true); // Claude transcript on disk
-    expect(isResumableTmuxSession("d", empty, empty, empty, (id) => id === "d")).toBe(true); // Codex rollout on disk
+    expect(isResumableTmuxSession("a", new Set(["a"]), empty, empty, empty, none)).toBe(true); // live pty
+    expect(isResumableTmuxSession("b", empty, new Set(["b"]), empty, empty, none)).toBe(true); // persisted grid session
+    expect(isResumableTmuxSession("u", empty, empty, new Set(["u"]), empty, none)).toBe(true); // visible unplaced session
+    expect(isResumableTmuxSession("c", empty, empty, empty, new Set(["c"]), none)).toBe(true); // Claude transcript on disk
+    expect(isResumableTmuxSession("d", empty, empty, empty, empty, (id) => id === "d")).toBe(true); // Codex rollout on disk
   });
 
   it("treats a session tracked nowhere as a pure orphan (reap-able)", () => {
-    expect(isResumableTmuxSession("z", new Set(["a"]), new Set(["b"]), new Set(["c"]), (id) => id === "d")).toBe(false);
+    expect(isResumableTmuxSession("z", new Set(["a"]), new Set(["b"]), new Set(["u"]), new Set(["c"]), (id) => id === "d")).toBe(false);
   });
 });
 

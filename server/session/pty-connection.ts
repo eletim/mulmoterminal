@@ -12,6 +12,7 @@ import { isResizeFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
+import { recordSessionDetached, recordSessionLive } from "./session-lifecycle-records.js";
 
 /** A frame as it arrives off the socket. Only `toString()` is used — ws hands us a
  *  Buffer, and narrowing to this lets a test pass one without a live connection. */
@@ -42,6 +43,8 @@ export interface ConnectionDeps {
   recheckTerminalSize: (id: string) => void;
   /** The socket is gone, so a settling size check has nobody to repair the screen for. */
   cancelTerminalSizeCheck: (id: string) => void;
+  /** Current PTY entry for this session id. A missing/different entry means this close is stale. */
+  currentEntryOf?: (id: string) => PtyEntry | undefined;
 }
 
 // The one place a browser's bytes become data. Answers a plain record so every field below is
@@ -92,6 +95,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
   function reattachPty(entry: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
     deps.cancelReap(sessionId); // a reattach within the grace window keeps the session
     console.log(`[ws] reattach ${sessionId} (pid=${entry.term.pid})`);
+    recordSessionLive({ id: sessionId, agent: entry.agent, cwd: entry.cwd });
     // Drop any socket still attached (e.g. the same session open in another tab).
     // Tell it it's been superseded FIRST so it stops instead of auto-reconnecting —
     // otherwise two clients on one session ping-pong (each reattach kicks the other,
@@ -162,7 +166,11 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
   function handleClientClose(entry: PtyEntry, ws: WebSocket, sessionId: string) {
     // Ignore if a newer client already reattached to this session.
     if (entry.ws !== ws) return;
+    // Ignore if this PTY has already been reaped. Its socket may close later, but that close must
+    // not rewrite the stopped lifecycle back to detached.
+    if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) return;
     entry.ws = null;
+    recordSessionDetached({ id: sessionId, agent: entry.agent, cwd: entry.cwd });
     deps.cancelTerminalSizeCheck(sessionId);
     // A session with no live socket is by definition not being viewed. Clear `active`
     // so an UNCLEAN disconnect (crash / network drop / killed tab, where the client

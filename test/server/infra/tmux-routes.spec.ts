@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { Express } from "express";
 import { mountTmuxRoutes, type TmuxRouteDeps } from "../../../server/infra/tmux-routes.js";
+import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 
 interface FakeRes {
   statusCode: number;
@@ -45,6 +46,10 @@ function mountAndCapture(deps: TmuxRouteDeps): { terminate: Handler; cleanup: Ha
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
+beforeEach(() => {
+  sessionLifecycleRecords.clear();
+});
+
 function baseDeps(over: Partial<TmuxRouteDeps> = {}): TmuxRouteDeps {
   return {
     isAllowedOrigin: () => true,
@@ -86,6 +91,7 @@ describe("mountTmuxRoutes — POST /api/session/:id/terminate", () => {
     await terminate({ headers: {}, params: { id: UUID } }, res);
     expect(reapSession).toHaveBeenCalledWith(UUID);
     expect(killTmux).toHaveBeenCalledWith(UUID); // tmux still present after reap → killed directly
+    expect(sessionLifecycleRecords.get(UUID)).toMatchObject({ id: UUID, lifecycle: "stopped" });
     expect(res.payload).toEqual({ ok: true });
   });
 
@@ -122,6 +128,8 @@ describe("mountTmuxRoutes — POST /api/tmux/cleanup-orphans", () => {
     const res = makeRes();
     await cleanup({ headers: {}, params: {} }, res);
     expect(killTmux.mock.calls.map((c) => c[0])).toEqual(["orphan-1", "orphan-2"]);
+    expect(sessionLifecycleRecords.get("orphan-1")).toMatchObject({ id: "orphan-1", lifecycle: "stopped" });
+    expect(sessionLifecycleRecords.get("orphan-2")).toMatchObject({ id: "orphan-2", lifecycle: "stopped" });
     expect(res.payload).toEqual({ killed: ["orphan-1", "orphan-2"], killedCount: 2 });
   });
 

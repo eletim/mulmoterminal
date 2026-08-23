@@ -59,20 +59,15 @@ import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
 import {
   activity,
-  activityStateHydrated,
   aiTitles,
   backgroundMarkers,
   codexRolloutIds,
-  codexRolloutIdsHydrated,
-  isPhoneListableSession,
   knownSessions,
   lastPrompts,
-  placedSessionsHydrated,
   ptys,
   sessionCwd,
   sessionMemos,
   sessionMemosHydrated,
-  unplacedSessionsHydrated,
 } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { runWithHiddenMarker } from "./session/hiddenMarker.js";
@@ -100,7 +95,7 @@ import {
   type SessionScreenMeta,
   type SessionWorkSummary,
 } from "./mobileTerminal/terminalScreen.js";
-import { idsNeedingPersistentDetail, mobileActivityCandidateIds, persistentMobileDetails } from "./mobileTerminal/mobileSessionList.js";
+import { idsNeedingPersistentDetail, persistentMobileDetails } from "./mobileTerminal/mobileSessionList.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./mobileTerminal/quickCommands.js";
 import { createLaunchTerminalPublisher } from "./mobileTerminal/launchTerminalPublisher.js";
@@ -134,7 +129,7 @@ import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { resumableSessionPredicate } from "./session/resumable-sessions.js";
-import { readSessionSummary } from "./session/session-reads.js";
+import { readSessionSummary, sessionExistsOnDisk } from "./session/session-reads.js";
 import { codexSessionsRoot } from "./agents/codex-session.js";
 import { readCodexSessionSummary } from "./agents/codex-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -142,6 +137,7 @@ import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
+import { currentMobileSessionRecordSources, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -263,6 +259,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   checkTerminalSize: (id, size) => tmuxSizeSync.requestCheck(id, size),
   recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
+  currentEntryOf: (id) => ptys.get(id),
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
@@ -606,19 +603,15 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
 };
 
 const mobileListTerminalSessions = async () => {
-  // A live PTY knows where claude actually runs, so it wins. A session that outlived this process
-  // has none — that is what the remembered cwd is for (#1021), and without it the phone shows the
-  // row with no directory and no work item.
-  const cwdOfSession = (id: string) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
-  const liveIds = [...ptys.keys()];
-  const tmuxIds = tmuxListSessionIds();
-  await sessionMemosHydrated; // the memo IS the phone's row title when there is one
-  // Both unplaced logs, because a session waiting for a cell is one the phone may list — and the
-  // case that mark exists for is a server that restarted before any tab opened, where the answer
-  // lives only on disk.
-  await Promise.all([activityStateHydrated, unplacedSessionsHydrated, placedSessionsHydrated, codexRolloutIdsHydrated]);
-  const candidateIds = mobileActivityCandidateIds({ liveIds, tmuxIds, activityEntries: activity.entries(), isGridSession: isPhoneListableSession });
-  const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])];
+  const allTmuxIds = tmuxListSessionIds();
+  await sessionMemosHydrated;
+  await hydrateSessionRecordSnapshotInputs();
+  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentMobileSessionRecordSources({
+    tmuxIds: allTmuxIds,
+    paneCommandOf: tmuxPaneCommand,
+    claudeTranscriptExists: sessionExistsOnDisk,
+  });
+  const cwdOfSession = (id: string) => recordById.get(id)?.cwd ?? ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
   const memoryTitleOf = (id: string) => sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title);
   const persistentDetails = await persistentMobileDetails(idsNeedingPersistentDetail(ids, memoryTitleOf), cwdOfSession, {
     rolloutIdOf: (id) => codexRolloutIds.get(id),
@@ -636,11 +629,7 @@ const mobileListTerminalSessions = async () => {
     liveIds,
     tmuxIds,
     isResumable: await resumableSessionPredicate(),
-    // The phone lists the multi-terminal grid's cells, and the sessions on their way to being
-    // one — never a tmux shell that was never a cell. resumableSessionPredicate() below already
-    // awaited devTerminalSessionsHydrated, and the unplaced logs are awaited just above; a
-    // session that has only just been spawned passes `isResumable` on its live pty.
-    isGridSession: isPhoneListableSession,
+    isGridSession: (id) => recordById.get(id)?.visibility === "grid",
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {
@@ -656,7 +645,7 @@ const mobileListTerminalSessions = async () => {
         // and no schema change.
         title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), persistent?.title, knownSessions.get(id)?.title),
         cwd,
-        agent: agentOfSession(id) ?? persistent?.agent ?? null,
+        agent: agentOfSession(id) ?? persistent?.agent ?? recordById.get(id)?.agent ?? null,
         ...(summary ? { work: summary } : {}),
       };
       return detail;
@@ -688,11 +677,11 @@ const mobileCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.
 
 // What the phone's per-session view heads the screen with (#786, mulmoserver#107): the same
 // dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
-// answers from. A session that outlived a restart has no PtyEntry, so it has no cwd here and
-// no branch to look up — those fields are simply absent, and the phone shows the screen alone.
+// answers from. A session that outlived a restart has no PtyEntry, so it falls back to the
+// persisted cwd written when the session was launched or attached.
 const mobileSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> =>
   buildScreenMeta(sessionId, {
-    cwdOf: (id) => ptys.get(id)?.cwd ?? "",
+    cwdOf: (id) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "",
     branchOf: async (cwd) => (await currentBranch(cwd)).branch,
     // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
     // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged

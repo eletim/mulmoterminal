@@ -104,14 +104,23 @@ describe("buildSessionList", () => {
   it("marks live sessions and unions in the tmux-only ones", () => {
     const sessions = buildSessionList(listInput({ liveIds: ["a"], tmuxIds: ["b"] }));
     expect(sessions).toEqual([
-      { id: "a", title: "a", cwd: "/w", live: true, agent: "shell" },
-      { id: "b", title: "b", cwd: "/w", live: false, agent: "shell" },
+      { id: "a", title: "a", cwd: "/w", live: true, inputAvailable: true, agent: "shell" },
+      { id: "b", title: "b", cwd: "/w", live: false, inputAvailable: true, agent: "shell" },
     ]);
   });
 
   it("unions in bounded non-live candidates supplied by the host", () => {
     const sessions = buildSessionList(listInput({ candidateIds: ["waiting"], detailOf: () => ({ title: "Needs review", cwd: "/w", agent: "claude" }) }));
-    expect(sessions).toEqual([{ id: "waiting", title: "Needs review", cwd: "/w", live: false, agent: "claude" }]);
+    expect(sessions).toEqual([{ id: "waiting", title: "Needs review", cwd: "/w", live: false, inputAvailable: false, agent: "claude" }]);
+  });
+
+  it("separates attached/live display from mobile input availability", () => {
+    const sessions = buildSessionList(listInput({ liveIds: ["live"], tmuxIds: ["detached"], candidateIds: ["candidate"] }));
+    expect(sessions.map((session) => [session.id, session.live, session.inputAvailable])).toEqual([
+      ["live", true, true],
+      ["candidate", false, false],
+      ["detached", false, true],
+    ]);
   });
 
   // A session is both attached AND in tmux in the normal case — it must appear once.
@@ -157,7 +166,7 @@ describe("buildSessionList", () => {
     const id = "11111111-1111-1111-1111-111111111111";
     const cwd = `${homedir()}/DevEnv/dev/mulmoterminal`;
     const sessions = buildSessionList(listInput({ liveIds: [id], detailOf: () => ({ title: "", cwd, agent: "shell" }) }));
-    expect(sessions).toEqual([{ id, title: "shell DevEnv", cwd, live: true, agent: "shell" }]);
+    expect(sessions).toEqual([{ id, title: "shell DevEnv", cwd, live: true, inputAvailable: true, agent: "shell" }]);
   });
 
   it("uses a last prompt title for a live session instead of falling back to its id", () => {

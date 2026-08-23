@@ -18,10 +18,6 @@ import {
   antigravityConversationsHydrated,
   backgroundSessionsHydrated,
   failedWorkersHydrated,
-  unplacedSessionsHydrated,
-  placedSessionsHydrated,
-  unplacedSessionRows,
-  ptys,
   devTerminalSessions,
   devTerminalSessionsHydrated,
   isBackgroundSession,
@@ -36,6 +32,7 @@ import {
   collectOnDiskSessionStats,
   collectPendingSessions,
   readSessionMeta,
+  sessionExistsOnDisk,
   readSessionSummary,
   sessionLastTurn,
   sessionTimeline,
@@ -43,7 +40,7 @@ import {
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
 import { sessionAttached } from "../session/dir-session.js";
-import { tmuxAttachedCounts } from "../infra/tmux.js";
+import { tmuxAttachedCounts, tmuxListSessionIds, tmuxPaneCommand } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import { antigravityBrainRoot } from "../agents/antigravity-session.js";
@@ -53,6 +50,8 @@ import { parseActivityIds, selectSessionRows } from "../session/session-list.js"
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
+import { currentSessionRecords, currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
+import { activeSessionRecordLifecycle, type SessionRecord } from "../session/session-records.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -63,6 +62,7 @@ const BACKGROUND_SESSION_LIST_LIMIT = 10;
 // Cap on ids per /api/activity request — a grid can't show more cells than this, and
 // it bounds the query string a client can make us parse.
 const ACTIVITY_IDS_LIMIT = 200;
+const GRID_RECORD_IDS_LIMIT = 200;
 
 export interface SessionRouteDeps {
   /** Kick off a re-title for a session the roster just showed, when it has moved on enough. */
@@ -70,6 +70,12 @@ export interface SessionRouteDeps {
   /** Fan a session's row out on the "sessions" channel, so every OTHER open cell, tab and
    *  phone sees an edited memo without asking. */
   publishActivity: (sessionId: string) => void;
+  /** The tmux sessions that survived this node process. Injected so route specs never touch tmux. */
+  listTmuxIds?: () => string[];
+  /** Current pane command for a tmux-backed survivor; auxiliary metadata, never an existence source. */
+  paneCommandOf?: (sessionId: string) => string | null;
+  /** Claude transcript check for tmux survivors whose cwd is known from persisted metadata. */
+  claudeTranscriptExists?: (sessionId: string, cwd: string) => boolean;
 }
 
 // GRID-ONLY (dev_tool): initial per-session status + last prompt, so a grid cell
@@ -133,6 +139,31 @@ async function activitySnapshot(req: Request, res: Response) {
     out[id] = { working: a.working ?? false, waiting: a.waiting ?? false, event: a.event ?? null };
   }
   res.json(out);
+}
+
+const gridSessionRecordRow = (record: SessionRecord) => ({
+  id: record.id,
+  agent: record.agent ?? "claude",
+  cwd: record.cwd,
+  lifecycle: record.lifecycle,
+  runtime: record.runtime,
+  placement: record.placement,
+  active: record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle),
+});
+
+// PC grid placement lives in browser localStorage, but whether a persisted session still exists
+// comes from SessionRecord. This route answers only the ids the grid already has cells for, so a
+// reload can decide which cells may attach without rediscovering sessions from placement state.
+async function gridSessionRecords(req: Request, res: Response, deps: SessionRouteDeps) {
+  await hydrateSessionRecordSnapshotInputs();
+  const ids = parseActivityIds(req.query.ids, (id) => SESSION_ID_RE.test(id), GRID_RECORD_IDS_LIMIT);
+  const records = currentSessionRecords({
+    ids,
+    tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
+    paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
+    claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
+  });
+  res.json({ sessions: records.map(gridSessionRecordRow) });
 }
 
 // The tool-activity timeline for a session (what the agent ran, newest last), so a
@@ -282,6 +313,7 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps.freshenRosterTitle));
   app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps.publishActivity));
   app.get("/api/activity", activitySnapshot);
+  app.get("/api/sessions/grid-records", (req, res) => gridSessionRecords(req, res, deps));
   app.get("/api/transcript/timeline", toolTimeline);
   app.get("/api/transcript/last-turn", lastTurn);
   app.get("/api/sessions", sessionList);
@@ -296,16 +328,16 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   // and a spec pins that, since "it happens not to be marked" and "it cannot be marked" read the
   // same until someone adds a caller.
   app.get("/api/sessions/unplaced", async (_req, res) => {
-    await Promise.all([unplacedSessionsHydrated, placedSessionsHydrated]);
-    const sessions = unplacedSessionRows().map(({ id, agent }) => {
-      const entry = ptys.get(id);
-      // A session whose PTY is gone (the server restarted, tmux ended) is still worth adopting —
-      // the cell resumes it from disk. The AGENT comes from the mark rather than the entry for
-      // exactly that case: a codex session adopted as claude reconnects on the wrong endpoint, and
-      // the entry that would have said so is what is missing (Codex, PR #1189). The live entry
-      // still wins when there is one — it is the process actually running.
-      return { id, agent: entry?.agent ?? agent, cwd: entry?.cwd ?? null };
-    });
+    await hydrateSessionRecordSnapshotInputs();
+    const sessions = currentUnplacedSessionRecords({
+      tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
+      paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
+      claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
+    }).map((record) => ({
+      id: record.id,
+      agent: record.agent ?? "claude",
+      cwd: record.cwd,
+    }));
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);

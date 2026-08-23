@@ -27,7 +27,7 @@ const NO_CWD = randomUUID();
 // `.trimEnd()`-ed by captureSessionScreen, so it must not end in trimmable whitespace either.
 const SCREEN: SessionScreen = { screen: "$ echo", suggestion: "", quickCommands: [], cwd: "/home/user/project" };
 const STYLED_ROWS: AnsiRow[] = [[{ text: "$ echo", fg: null, bg: null, bold: false }]];
-const SESSIONS: TerminalSessionSummary[] = [{ id: LIVE, title: "one", cwd: "/home/user/project", live: true, agent: "claude" }];
+const SESSIONS: TerminalSessionSummary[] = [{ id: LIVE, title: "one", cwd: "/home/user/project", live: true, inputAvailable: true, agent: "claude" }];
 const IDLE_ACTIVITY = { working: false, waiting: false, event: null, workPhase: null };
 const WEB_PUSH_CONFIG: MobileWebPushConfig = {
   enabled: true,
@@ -549,6 +549,23 @@ describe("POST /api/mobile/terminal-sessions/:id/input", () => {
     const res = await request(app).post(`/api/mobile/terminal-sessions/${TMUX_ONLY}/input`).send({ text: "ls" });
     expect(res.status).toBe(409);
     expect(waitingUpdates).toEqual([]);
+  });
+
+  it("accepts input for a tmux-only session when the injected writer adopts it", async () => {
+    const adoptedWrites: Array<{ id: string; chunk: string }> = [];
+    const { app, waitingUpdates } = appFor({
+      writeToSession: (id, chunk) => {
+        adoptedWrites.push({ id, chunk });
+        return id === TMUX_ONLY;
+      },
+    });
+
+    const res = await request(app).post(`/api/mobile/terminal-sessions/${TMUX_ONLY}/input`).send({ text: "ls" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sent: true });
+    expect(adoptedWrites.map((write) => write.id)).toEqual([TMUX_ONLY, TMUX_ONLY]);
+    expect(waitingUpdates).toEqual([{ id: TMUX_ONLY, waiting: false, event: undefined }]);
   });
 
   it("403s a disallowed Origin without calling the sender", async () => {
