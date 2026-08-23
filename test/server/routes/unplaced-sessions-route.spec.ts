@@ -87,8 +87,7 @@ describe("GET /api/sessions/unplaced", () => {
       claudeTranscriptExists: () => false,
     });
     await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated, registry.devTerminalCwdsHydrated]);
-    registry.markUnplacedSession(CODEX, "codex");
-    registry.markDevTerminalSession(CODEX, "/repo/restarted");
+    registry.markUnplacedSession(CODEX, "codex", "/repo/restarted");
 
     const res = await request(app).get("/api/sessions/unplaced");
 

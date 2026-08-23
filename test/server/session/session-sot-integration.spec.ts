@@ -153,11 +153,15 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     registry.backgroundMarkers.add(BACKGROUND);
     registry.translationWorkerIds.add(INTERNAL);
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, BACKGROUND, INTERNAL] });
-    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, BACKGROUND, INTERNAL] });
+    const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
+    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
 
     expect(records.selectGridVisibleSessionRecords(current).map((record) => record.id)).toEqual([CLAUDE]);
     expect(records.selectUnplacedSessionRecords(current)).toEqual([]);
     expect(mobileSources.ids).toEqual([CLAUDE]);
+    expect(current.find((record) => record.id === EXTRA)).toMatchObject({
+      lifecycle: "stopped",
+      runtime: { pty: false, tmux: true, attached: false },
+    });
   });
 });

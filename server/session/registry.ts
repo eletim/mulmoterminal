@@ -286,7 +286,8 @@ const placedSessions = new Set<string>();
 /** Note that the server spawned a VISIBLE session nobody has a cell for yet. The launch agent
  *  travels with the id for the same reason it does everywhere else: the cell has to reconnect on
  *  the right endpoint, and by the time this is read the running process may be gone. */
-export function markUnplacedSession(id: string, agent: LaunchAgent = "claude"): void {
+export function markUnplacedSession(id: string, agent: LaunchAgent = "claude", cwd?: string): void {
+  if (isValidSessionId(id) && cwd) rememberSessionCwd(id, cwd);
   if (!isValidSessionId(id) || unplacedSessions.has(id)) return;
   unplacedSessions.set(id, agent);
   appendUnplacedSession(id, agent);

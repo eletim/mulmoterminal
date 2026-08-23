@@ -44,21 +44,21 @@ export function createLocalMobileTerminalCreator(deps: LocalMobileTerminalCreato
         deps.spawnLauncherPty(sessionId, null, DEFAULT_LAUNCH_CMD, cwd);
         spawned = true;
         markDevTerminalSession(sessionId, cwd);
-        markUnplacedSession(sessionId, "shell");
+        markUnplacedSession(sessionId, "shell", cwd);
       } else if (agent === "claude") {
         deps.spawnClaudePty(sessionId, null, null, { cwd, attachGuiMcp: false });
         spawned = true;
-        markUnplacedSession(sessionId, agent);
+        markUnplacedSession(sessionId, agent, cwd);
       } else if (agent === "codex") {
         const groups = await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
         deps.spawnCodexPty(sessionId, null, null, cwd, false, { mcpGroups: groups });
         spawned = true;
-        markUnplacedSession(sessionId, agent);
+        markUnplacedSession(sessionId, agent, cwd);
       } else {
         const groups = await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
         deps.spawnAntigravityPty(sessionId, null, null, cwd, { mcpGroups: groups });
         spawned = true;
-        markUnplacedSession(sessionId, agent);
+        markUnplacedSession(sessionId, agent, cwd);
       }
       return { ok: true, sessionId };
     } catch (err) {

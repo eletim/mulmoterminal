@@ -116,6 +116,17 @@ describe("unplaced sessions", () => {
     expect(loggedTo("unplaced-sessions.json")).toContain(`${A} shell`);
   });
 
+  it("remembers the cwd for an unplaced session without requiring a grid cell marker", async () => {
+    const registry = await freshRegistry();
+    await registry.devTerminalCwdsHydrated;
+
+    registry.markUnplacedSession(A, "codex", "/repo/mobile");
+
+    expect(registry.sessionCwd(A)).toBe("/repo/mobile");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loggedTo("dev-terminal-cwds.json")).toContain("/repo/mobile");
+  });
+
   it("reads the agent back after a restart, and defaults a line written without one", async () => {
     // The second half is the upgrade case: a log written before the agent field existed holds
     // bare ids, and those sessions were all claude.

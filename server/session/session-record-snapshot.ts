@@ -16,6 +16,7 @@ import {
   backgroundSessionsHydrated,
   codexRolloutIds,
   codexRolloutIdsHydrated,
+  devTerminalCwdsHydrated,
   devTerminalSessionsHydrated,
   knownSessions,
   lastPrompts,
@@ -53,6 +54,7 @@ type RegistrySnapshot = ReturnType<typeof sessionRecordRegistrySnapshot>;
 export async function hydrateSessionRecordSnapshotInputs(): Promise<void> {
   await Promise.all([
     activityStateHydrated,
+    devTerminalCwdsHydrated,
     devTerminalSessionsHydrated,
     unplacedSessionsHydrated,
     placedSessionsHydrated,

@@ -140,6 +140,7 @@ function lifecycleFor(input: {
 }): SessionRecordLifecycle {
   if (input.failed) return "failed";
   if (input.live) return input.live.attached === false ? "detached" : "live";
+  if (input.lifecycle?.lifecycle === "stopped" || input.lifecycle?.lifecycle === "failed") return input.lifecycle.lifecycle;
   if (input.tmux) return "detached";
   if (input.lifecycle) return input.lifecycle.lifecycle;
   if (input.known) return "starting";

@@ -56,7 +56,7 @@ describe("createLocalMobileTerminalCreator", () => {
     if (!result.ok) throw new Error("expected create to succeed");
     expect(d.spawnLauncherPty).toHaveBeenCalledWith(result.sessionId, null, process.env.SHELL || "/bin/sh", "/repo");
     expect(mocks.markDevTerminalSession).toHaveBeenCalledWith(result.sessionId, "/repo");
-    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "shell");
+    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "shell", "/repo");
     expect(sessionLifecycleRecords.get(result.sessionId)).toMatchObject({ lifecycle: "starting", agent: "shell", cwd: "/repo" });
     expect(mocks.worktreeOccupancy).not.toHaveBeenCalled();
   });
@@ -69,7 +69,7 @@ describe("createLocalMobileTerminalCreator", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected create to succeed");
     expect(d.spawnCodexPty).toHaveBeenCalledWith(result.sessionId, null, null, "/repo", false, { mcpGroups: ["render"] });
-    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "codex");
+    expect(mocks.markUnplacedSession).toHaveBeenCalledWith(result.sessionId, "codex", "/repo");
     expect(mocks.claimRelease).toHaveBeenCalledOnce();
   });
 

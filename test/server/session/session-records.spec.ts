@@ -165,6 +165,42 @@ describe("buildSessionRecords", () => {
     });
   });
 
+  it("keeps stopped lifecycle tombstones ahead of tmux-only survivor detection", () => {
+    const records = buildSessionRecords({
+      live: [{ id: "reattached", cwd: "/repo/live", agent: "claude", tmux: true }],
+      tmuxIds: ["stopped", "reattached"],
+      lifecycle: [
+        {
+          id: "stopped",
+          lifecycle: "stopped",
+          agent: "codex",
+          cwd: "/repo/stopped",
+          createdAt: 10,
+          updatedAt: 20,
+        },
+        {
+          id: "reattached",
+          lifecycle: "stopped",
+          agent: "codex",
+          cwd: "/repo/old",
+          createdAt: 10,
+          updatedAt: 20,
+        },
+      ],
+    });
+    const byId = new Map(records.map((record) => [record.id, record]));
+
+    expect(byId.get("stopped")).toMatchObject({
+      lifecycle: "stopped",
+      runtime: { pty: false, tmux: true, attached: false },
+    });
+    expect(byId.get("reattached")).toMatchObject({
+      lifecycle: "live",
+      cwd: "/repo/live",
+      runtime: { pty: true, tmux: true, attached: true },
+    });
+  });
+
   it("lets lifecycle writer rows retire legacy starting markers during dual-write", () => {
     const records = buildSessionRecords({
       known: [{ id: "same", title: "Starting", createdAt: 10 }],

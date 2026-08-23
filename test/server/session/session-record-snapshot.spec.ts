@@ -4,10 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockedFileName } from "../../support/mockFsPath.js";
 
 let readBack: Record<string, string> = {};
+let readDelays: Record<string, Promise<void>> = {};
 
 vi.mock("node:fs", () => {
   const promises = {
-    readFile: vi.fn(async (file: unknown) => readBack[mockedFileName(file)] ?? ""),
+    readFile: vi.fn(async (file: unknown) => {
+      const name = mockedFileName(file);
+      await readDelays[name];
+      return readBack[name] ?? "";
+    }),
     appendFile: vi.fn(async () => undefined),
     mkdir: vi.fn(async () => undefined),
     writeFile: vi.fn(async () => undefined),
@@ -31,6 +36,7 @@ async function freshModules() {
 beforeEach(() => {
   vi.clearAllMocks();
   readBack = {};
+  readDelays = {};
 });
 
 describe("currentSessionRecords", () => {
@@ -133,6 +139,35 @@ describe("currentSessionRecords", () => {
       updatedAt: 40,
     });
     expect(registry.ptys.has(D)).toBe(false);
+  });
+
+  it("waits for persisted cwd hydration before building restart survivor records", async () => {
+    readBack = {
+      "unplaced-sessions.json": `${D} codex`,
+      "dev-terminal-cwds.json": `${D} /repo/delayed\n`,
+    };
+    let releaseCwd!: () => void;
+    readDelays = {
+      "dev-terminal-cwds.json": new Promise((resolve) => {
+        releaseCwd = resolve;
+      }),
+    };
+    const { snapshot } = await freshModules();
+    let hydrated = false;
+    const hydration = snapshot.hydrateSessionRecordSnapshotInputs().then(() => {
+      hydrated = true;
+    });
+
+    await Promise.resolve();
+    expect(hydrated).toBe(false);
+    releaseCwd();
+    await hydration;
+
+    expect(snapshot.currentSessionRecords({ tmuxIds: [D], now: 40 })[0]).toMatchObject({
+      id: D,
+      cwd: "/repo/delayed",
+      lifecycle: "detached",
+    });
   });
 
   it("excludes Mobile activity-only rows from active Session candidates", async () => {
