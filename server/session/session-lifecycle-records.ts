@@ -3,7 +3,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
 import type { SessionRecordLifecycle } from "./session-records.js";
 
 export interface SessionLifecycleRecord {
@@ -28,11 +27,21 @@ const STOPPED_SESSION_LIFECYCLE_FILE = path.join(MULMOTERMINAL_HOME, "stopped-se
 
 export const sessionLifecycleRecords = new Map<string, SessionLifecycleRecord>();
 
+function stoppedLifecycleLogLine(id: string, state: "stopped" | "active"): string {
+  return `\n${id} ${state}`;
+}
+
 export const sessionLifecycleRecordsHydrated = (async () => {
   try {
     const now = Date.now();
-    for (const id of parseSessionIdLog(await fs.readFile(STOPPED_SESSION_LIFECYCLE_FILE, "utf8"), (value) => SESSION_ID_RE.test(value))) {
-      if (!sessionLifecycleRecords.has(id)) {
+    for (const line of (await fs.readFile(STOPPED_SESSION_LIFECYCLE_FILE, "utf8")).split("\n")) {
+      const [id, state] = line.trim().split(/\s+/);
+      if (!id || !SESSION_ID_RE.test(id)) continue;
+      if (state === "active") {
+        if (sessionLifecycleRecords.get(id)?.lifecycle === "stopped") sessionLifecycleRecords.delete(id);
+        continue;
+      }
+      if (state === undefined || state === "stopped") {
         sessionLifecycleRecords.set(id, { id, lifecycle: "stopped", agent: null, cwd: null, createdAt: now, updatedAt: now });
       }
     }
@@ -42,12 +51,12 @@ export const sessionLifecycleRecordsHydrated = (async () => {
 })();
 
 let stoppedLifecyclePersist: Promise<void> = Promise.resolve();
-function persistStoppedSessionLifecycle(id: string): void {
+function persistStoppedSessionLifecycle(id: string, state: "stopped" | "active"): void {
   if (!SESSION_ID_RE.test(id)) return;
   stoppedLifecyclePersist = stoppedLifecyclePersist
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
-    .then(() => fs.appendFile(STOPPED_SESSION_LIFECYCLE_FILE, sessionIdLogLine(id)))
-    .catch((err) => console.error(`[session-lifecycle] failed to persist stopped ${id}: ${messageOf(err)}`));
+    .then(() => fs.appendFile(STOPPED_SESSION_LIFECYCLE_FILE, stoppedLifecycleLogLine(id, state)))
+    .catch((err) => console.error(`[session-lifecycle] failed to persist ${state} ${id}: ${messageOf(err)}`));
 }
 
 function hasOwn(input: SessionLifecycleWrite, key: "agent" | "cwd"): boolean {
@@ -74,8 +83,10 @@ function writeLifecycle(input: SessionLifecycleWrite): SessionLifecycleRecord {
   };
   sessionLifecycleRecords.set(id, next);
   if (lifecycle === "stopped") {
-    if (current?.lifecycle !== "stopped") persistStoppedSessionLifecycle(id);
+    if (current?.lifecycle !== "stopped") persistStoppedSessionLifecycle(id, "stopped");
     pruneStoppedSessionLifecycleRecords();
+  } else if (current?.lifecycle === "stopped") {
+    persistStoppedSessionLifecycle(id, "active");
   }
   return next;
 }

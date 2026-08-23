@@ -43,6 +43,8 @@ export interface ConnectionDeps {
   recheckTerminalSize: (id: string) => void;
   /** The socket is gone, so a settling size check has nobody to repair the screen for. */
   cancelTerminalSizeCheck: (id: string) => void;
+  /** Current PTY entry for this session id. A missing/different entry means this close is stale. */
+  currentEntryOf?: (id: string) => PtyEntry | undefined;
 }
 
 // The one place a browser's bytes become data. Answers a plain record so every field below is
@@ -164,6 +166,9 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
   function handleClientClose(entry: PtyEntry, ws: WebSocket, sessionId: string) {
     // Ignore if a newer client already reattached to this session.
     if (entry.ws !== ws) return;
+    // Ignore if this PTY has already been reaped. Its socket may close later, but that close must
+    // not rewrite the stopped lifecycle back to detached.
+    if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) return;
     entry.ws = null;
     recordSessionDetached({ id: sessionId, agent: entry.agent, cwd: entry.cwd });
     deps.cancelTerminalSizeCheck(sessionId);

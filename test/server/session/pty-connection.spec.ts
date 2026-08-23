@@ -50,6 +50,7 @@ function fakeSocket(readyState = OPEN) {
 
 function setup(terminalModes: readonly number[] = []) {
   const calls: string[] = [];
+  const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
     cancelReap: (id) => calls.push(`cancelReap:${id}`),
     reap: (id) => calls.push(`reap:${id}`),
@@ -63,8 +64,9 @@ function setup(terminalModes: readonly number[] = []) {
     checkTerminalSize: (id, { cols, rows }) => calls.push(`sizeCheck:${id}:${cols}x${rows}`),
     recheckTerminalSize: (id) => calls.push(`sizeRecheck:${id}`),
     cancelTerminalSizeCheck: (id) => calls.push(`sizeCheckCancel:${id}`),
+    currentEntryOf: (id) => currentEntries.get(id),
   });
-  return { ...handlers, calls };
+  return { ...handlers, calls, currentEntries };
 }
 
 // PtyEntry carries fields these handlers never touch; the fakes model the ones they do.
@@ -164,6 +166,19 @@ describe("handleClientFrame", () => {
     const entry = entryWith({ ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "terminate" }), SESSION);
     expect(calls).toEqual([`reap:${SESSION}`]);
+  });
+
+  it("does not turn a reaped session back into detached when its socket closes later", () => {
+    const { handleClientClose, currentEntries, calls } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    sessionLifecycleRecords.set(SESSION, { id: SESSION, lifecycle: "stopped", agent: "claude", cwd: "/ws", createdAt: 1, updatedAt: 2 });
+
+    handleClientClose(entry, s.ws as never, SESSION);
+
+    expect(calls).toEqual([]);
+    expect(currentEntries.has(SESSION)).toBe(false);
+    expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({ lifecycle: "stopped" });
   });
 
   it("marks an activated pane read, and only tracks the flag when deactivated", () => {
@@ -446,18 +461,20 @@ describe("reattachPty", () => {
 
 describe("handleClientClose", () => {
   it("detaches the socket and arms the reap", () => {
-    const { handleClientClose, calls } = setup();
+    const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never, active: true });
+    currentEntries.set(SESSION, entry);
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.ws).toBeNull();
     expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `armReap:${SESSION}`]);
   });
 
   it("records the session as detached when the current socket closes", () => {
-    const { handleClientClose } = setup();
+    const { handleClientClose, currentEntries } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never, agent: "shell", cwd: "/repo" });
+    currentEntries.set(SESSION, entry);
     handleClientClose(entry, s.ws as never, SESSION);
     expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({
       id: SESSION,
@@ -468,9 +485,10 @@ describe("handleClientClose", () => {
   });
 
   it("drops a settling size check, which has nobody left to repair the screen for", () => {
-    const { handleClientClose, calls } = setup();
+    const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never, tmux: true });
+    currentEntries.set(SESSION, entry);
     handleClientClose(entry, s.ws as never, SESSION);
     expect(calls).toContain(`sizeCheckCancel:${SESSION}`);
   });
@@ -478,9 +496,10 @@ describe("handleClientClose", () => {
   it("clears active, so an unclean disconnect cannot suppress the attention flag", () => {
     // A crashed tab never sends `view active:false`; without this the session would
     // stay "being viewed" until someone reconnects.
-    const { handleClientClose } = setup();
+    const { handleClientClose, currentEntries } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never, active: true });
+    currentEntries.set(SESSION, entry);
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.active).toBe(false);
   });

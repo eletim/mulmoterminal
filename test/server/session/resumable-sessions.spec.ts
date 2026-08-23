@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { codexRolloutIds, devTerminalSessions } from "../../../server/session/registry.js";
 import { resumableSessionPredicate } from "../../../server/session/resumable-sessions.js";
+import { recordSessionStopped, sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const ROLLOUT = "22222222-2222-4222-8222-222222222222";
@@ -18,6 +19,7 @@ describe("resumableSessionPredicate", () => {
     previousCodexHome = process.env.CODEX_HOME;
     codexHome = mkdtempSync(path.join(tmpdir(), "mt-codex-resume-"));
     process.env.CODEX_HOME = codexHome;
+    sessionLifecycleRecords.clear();
     devTerminalSessions.add(SESSION);
     codexRolloutIds.set(SESSION, ROLLOUT);
   });
@@ -41,5 +43,13 @@ describe("resumableSessionPredicate", () => {
     const isResumable = await resumableSessionPredicate();
 
     expect(isResumable(SESSION)).toBe(true);
+  });
+
+  it("lets a stopped tombstone suppress legacy grid and rollout resumability", async () => {
+    recordSessionStopped({ id: SESSION, agent: "codex", cwd: "/repo", now: 10 });
+
+    const isResumable = await resumableSessionPredicate();
+
+    expect(isResumable(SESSION)).toBe(false);
   });
 });

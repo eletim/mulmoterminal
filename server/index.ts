@@ -259,6 +259,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   checkTerminalSize: (id, size) => tmuxSizeSync.requestCheck(id, size),
   recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
+  currentEntryOf: (id) => ptys.get(id),
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
