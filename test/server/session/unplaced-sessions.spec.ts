@@ -143,33 +143,6 @@ describe("unplaced sessions", () => {
     expect(registry.unplacedSessionRows()).toEqual([]);
   });
 
-  // What the phone may list (#1184). A session it started itself is in neither set the desktop
-  // reads until a browser attaches, so without the unplaced half the phone could not find the work
-  // it had just begun. The two halves must also never both hold one id, or one session would be
-  // two rows.
-  it("lets the phone list a session it started, until and after a cell takes it", async () => {
-    const registry = await freshRegistry();
-    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated]);
-    expect(registry.isPhoneListableSession(A)).toBe(false);
-
-    registry.markUnplacedSession(A);
-    expect(registry.isPhoneListableSession(A)).toBe(true);
-    expect(registry.unplacedSessionRows().map((r) => r.id)).toEqual([A]);
-
-    // The attach clears the unplaced mark AND records the cell, so the answer stays true across
-    // the handover rather than blinking off between the two writes.
-    registry.markSessionPlaced(A);
-    registry.markDevTerminalSession(A);
-    expect(registry.isPhoneListableSession(A)).toBe(true);
-    expect(registry.unplacedSessionRows()).toEqual([]);
-  });
-
-  it("does not list a tmux shell that was never a cell and nobody spawned for one", async () => {
-    const registry = await freshRegistry();
-    await Promise.all([registry.unplacedSessionsHydrated, registry.placedSessionsHydrated]);
-    expect(registry.isPhoneListableSession(B)).toBe(false);
-  });
-
   it("ignores an id that is not a session id", async () => {
     const registry = await freshRegistry();
     registry.markUnplacedSession("../etc/passwd");

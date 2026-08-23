@@ -1,30 +1,5 @@
 import type { SessionAgent } from "../../common/sessionAgent.js";
 
-export const MOBILE_ACTIVITY_CANDIDATE_LIMIT = 50;
-
-export interface MobileActivityCandidateInput {
-  liveIds: readonly string[];
-  tmuxIds: readonly string[];
-  activityEntries: Iterable<readonly [string, { working?: boolean; waiting?: boolean; at?: number }]>;
-  isGridSession: (id: string) => boolean;
-  limit?: number;
-}
-
-export function mobileActivityCandidateIds({
-  liveIds,
-  tmuxIds,
-  activityEntries,
-  isGridSession,
-  limit = MOBILE_ACTIVITY_CANDIDATE_LIMIT,
-}: MobileActivityCandidateInput): string[] {
-  const alreadyListed = new Set([...liveIds, ...tmuxIds]);
-  return [...activityEntries]
-    .filter(([id, a]) => !alreadyListed.has(id) && isGridSession(id) && (a.working || a.waiting))
-    .sort((a, b) => (b[1].at ?? 0) - (a[1].at ?? 0))
-    .slice(0, limit)
-    .map(([id]) => id);
-}
-
 export function idsNeedingPersistentDetail(ids: readonly string[], memoryTitleOf: (id: string) => string): string[] {
   return ids.filter((id) => memoryTitleOf(id) === "");
 }

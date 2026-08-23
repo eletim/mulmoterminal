@@ -331,18 +331,6 @@ export function unplacedSessionRows(): { id: string; agent: LaunchAgent }[] {
   return [...unplacedSessions].filter(([id]) => !placedSessions.has(id)).map(([id, agent]) => ({ id, agent }));
 }
 
-/** Whether the phone may list this session: a grid cell, or one on its way to being one.
- *
- *  The two halves are one question asked at two moments. `devTerminalSessions` is written by a
- *  browser attach and by nothing else, so a session the PHONE started — the issue it just began,
- *  the chat it just sent — is in neither set the desktop reads, and the phone would not find in
- *  its own list the work it had started (#1184). The unplaced mark is exactly "spawned visible,
- *  no cell yet", and it is cleared by the attach that adds the id to the other set, so a session
- *  moves between the halves without ever being in both or in neither. */
-export function isPhoneListableSession(id: string): boolean {
-  return devTerminalSessions.has(id) || (unplacedSessions.has(id) && !placedSessions.has(id));
-}
-
 // Sessions that connected on the ALL-TOOLS MCP url (`/api/mcp/:sessionId`). That url is handed
 // out by --mcp-config and by nothing else, so reaching it is proof the session carries the whole
 // GUI MCP — including the tools that belong to no group and are therefore unreachable through a
@@ -526,6 +514,21 @@ export function rememberAntigravityConversation(sessionId: string, conversationI
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
     .then(() => fs.appendFile(ANTIGRAVITY_CONVERSATIONS_FILE, antigravityConversationLine(record)))
     .catch((e) => console.error(`[antigravity-conversations] failed to persist: ${messageOf(e)}`));
+}
+
+/** A read-only copy of the registry facts SessionRecord needs. The registry remains the writer
+ *  for these facts until the lifecycle writer lands; this keeps #114 from adding another SoT. */
+export function sessionRecordRegistrySnapshot() {
+  return {
+    devTerminalIds: [...devTerminalSessions],
+    unplaced: [...unplacedSessions].map(([id, agent]) => ({ id, agent })),
+    placedIds: [...placedSessions],
+    backgroundIds: [...new Set([...hiddenSessions, ...backgroundSessions])],
+    failedIds: [...failedWorkers],
+    cwdBySession: new Map(sessionCwds),
+    antigravityConversations: [...antigravityConversations.values()],
+    internalIds: [...translationWorkerIds],
+  };
 }
 
 // The one-line note the user wrote on a session (#1084). Their own words about what a cell is
