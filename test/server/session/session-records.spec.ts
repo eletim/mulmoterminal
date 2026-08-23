@@ -24,6 +24,7 @@ describe("buildSessionRecords", () => {
         { id: "live", working: true, event: "Notification", at: 101 },
         { id: "waiting", waiting: true, event: "Stop", at: 80 },
       ],
+      lifecycle: [{ id: "waiting", lifecycle: "detached", agent: "codex", cwd: null, createdAt: 70, updatedAt: 80 }],
       devTerminalIds: ["live", "cell-only"],
       unplaced: [
         { id: "waiting", agent: "codex" },
@@ -258,6 +259,10 @@ describe("SessionRecord selectors", () => {
     const records = buildSessionRecords({
       live: [{ id: "live-not-in-grid", cwd: "/repo/live", agent: "shell" }],
       tmuxIds: ["tmux-only"],
+      lifecycle: [
+        { id: "phone-spawn", lifecycle: "starting", agent: "claude", cwd: "/repo/phone", createdAt: 10, updatedAt: 20 },
+        { id: "background-spawn", lifecycle: "starting", agent: "codex", cwd: "/repo/bg", createdAt: 10, updatedAt: 20 },
+      ],
       unplaced: [
         { id: "phone-spawn", agent: "claude" },
         { id: "background-spawn", agent: "codex" },
@@ -267,6 +272,22 @@ describe("SessionRecord selectors", () => {
 
     expect(ids(selectUnplacedSessionRecords(records))).toEqual(["phone-spawn"]);
     expect(selectCurrentPcGridCandidateIds(records, ["cell-a", "cell-b"])).toEqual(["cell-a", "cell-b", "phone-spawn"]);
+  });
+
+  it("does not promote marker-only or activity-only stale records to active grid existence", () => {
+    const records = buildSessionRecords({
+      devTerminalIds: ["grid-marker", "activity-marker", "stopped-marker"],
+      lifecycle: [{ id: "stopped-marker", lifecycle: "stopped", agent: "claude", cwd: "/repo/stopped", createdAt: 10, updatedAt: 20 }],
+      unplaced: [
+        { id: "unplaced-marker", agent: "claude" },
+        { id: "stopped-marker", agent: "claude" },
+      ],
+      activity: [{ id: "activity-marker", waiting: true, at: 40 }],
+    });
+
+    expect(ids(selectGridVisibleSessionRecords(records))).toEqual([]);
+    expect(ids(selectUnplacedSessionRecords(records))).toEqual([]);
+    expect(ids(selectCurrentMobileCandidateRecords(records))).toEqual([]);
   });
 
   it("models the target shared grid existence as visibility plus active lifecycle", () => {
@@ -285,14 +306,15 @@ describe("SessionRecord selectors", () => {
     expect(ids(selectGridVisibleSessionRecords(records))).toEqual(["live-grid", "tmux-survivor"]);
   });
 
-  it("models the current Mobile list source as grid-gated live, tmux, and active activity", () => {
+  it("models the current Mobile list source as grid-gated active lifecycle records", () => {
     const records = buildSessionRecords({
       live: [
         { id: "live-grid", cwd: "/repo/live-grid", agent: "claude" },
         { id: "live-chat", cwd: "/repo/live-chat", agent: "claude" },
       ],
       tmuxIds: ["tmux-grid", "tmux-chat"],
-      devTerminalIds: ["live-grid", "tmux-grid", "activity-grid", "idle-grid"],
+      lifecycle: [{ id: "starting-grid", lifecycle: "starting", agent: "codex", cwd: "/repo/starting", createdAt: 10, updatedAt: 20 }],
+      devTerminalIds: ["live-grid", "tmux-grid", "starting-grid", "activity-grid", "idle-grid"],
       activity: [
         { id: "activity-grid", waiting: true, at: 40 },
         { id: "activity-chat", waiting: true, at: 30 },
@@ -300,6 +322,6 @@ describe("SessionRecord selectors", () => {
       ],
     });
 
-    expect(ids(selectCurrentMobileCandidateRecords(records))).toEqual(["live-grid", "tmux-grid", "activity-grid"]);
+    expect(ids(selectCurrentMobileCandidateRecords(records))).toEqual(["live-grid", "tmux-grid", "starting-grid"]);
   });
 });
