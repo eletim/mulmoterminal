@@ -164,4 +164,27 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       runtime: { pty: false, tmux: true, attached: false },
     });
   });
+
+  it("keeps a durably stopped session from reviving as a tmux-only survivor after restart", async () => {
+    readBack = {
+      "dev-terminal-sessions.json": EXTRA,
+      "dev-terminal-cwds.json": `${EXTRA} /repo/stopped\n`,
+      "stopped-session-lifecycle.json": EXTRA,
+    };
+    const { records, snapshot } = await freshModules();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+
+    const current = snapshot.currentSessionRecords({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
+    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
+
+    expect(current).toHaveLength(1);
+    expect(current[0]).toMatchObject({
+      id: EXTRA,
+      cwd: "/repo/stopped",
+      lifecycle: "stopped",
+      runtime: { pty: false, tmux: true, attached: false },
+    });
+    expect(records.selectGridVisibleSessionRecords(current)).toEqual([]);
+    expect(mobileSources.ids).toEqual([]);
+  });
 });

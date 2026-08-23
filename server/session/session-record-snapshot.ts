@@ -27,7 +27,7 @@ import {
   sessionMemosHydrated,
   unplacedSessionsHydrated,
 } from "./registry.js";
-import { sessionLifecycleRecordRows } from "./session-lifecycle-records.js";
+import { sessionLifecycleRecordRows, sessionLifecycleRecordsHydrated } from "./session-lifecycle-records.js";
 import { hydrateTmuxSurvivorRecordSources } from "./tmux-survivor-records.js";
 
 export const MOBILE_SESSION_ACTIVITY_CANDIDATE_LIMIT = 50;
@@ -56,6 +56,7 @@ export async function hydrateSessionRecordSnapshotInputs(): Promise<void> {
     activityStateHydrated,
     devTerminalCwdsHydrated,
     devTerminalSessionsHydrated,
+    sessionLifecycleRecordsHydrated,
     unplacedSessionsHydrated,
     placedSessionsHydrated,
     backgroundSessionsHydrated,

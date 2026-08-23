@@ -1,5 +1,17 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const fsMock = vi.hoisted(() => ({
+  readFile: vi.fn(async () => ""),
+  appendFile: vi.fn(async (...args: unknown[]) => Promise.resolve(args.length).then(() => undefined)),
+  mkdir: vi.fn(async () => undefined),
+}));
+
+vi.mock("node:fs", () => ({
+  promises: fsMock,
+  default: { promises: fsMock },
+}));
+
 import {
   recordSessionDetached,
   recordKnownSessionStopped,
@@ -12,6 +24,7 @@ import {
 } from "../../../server/session/session-lifecycle-records.js";
 
 beforeEach(() => {
+  vi.clearAllMocks();
   sessionLifecycleRecords.clear();
 });
 
@@ -100,5 +113,16 @@ describe("session lifecycle writer", () => {
     expect(sessionLifecycleRecords.has("stopped-0")).toBe(false);
     expect(sessionLifecycleRecords.has(`stopped-${STOPPED_SESSION_LIFECYCLE_RECORD_LIMIT}`)).toBe(true);
     expect([...sessionLifecycleRecords.values()].filter((record) => record.lifecycle === "stopped")).toHaveLength(STOPPED_SESSION_LIFECYCLE_RECORD_LIMIT);
+  });
+
+  it("persists durable stopped tombstones for restart survivor suppression", async () => {
+    const id = "01234567-89ab-cdef-0123-456789abcdef";
+
+    recordSessionStopped({ id, now: 10 });
+    recordSessionStopped({ id, now: 20 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fsMock.appendFile).toHaveBeenCalledTimes(1);
+    expect(String(fsMock.appendFile.mock.calls[0]?.[1])).toContain(id);
   });
 });

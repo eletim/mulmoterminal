@@ -1,4 +1,9 @@
 import type { SessionAgent } from "../../common/sessionAgent.js";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
+import { messageOf } from "../errors.js";
+import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
 import type { SessionRecordLifecycle } from "./session-records.js";
 
 export interface SessionLifecycleRecord {
@@ -19,8 +24,31 @@ export interface SessionLifecycleWrite {
 }
 
 export const STOPPED_SESSION_LIFECYCLE_RECORD_LIMIT = 500;
+const STOPPED_SESSION_LIFECYCLE_FILE = path.join(MULMOTERMINAL_HOME, "stopped-session-lifecycle.json");
 
 export const sessionLifecycleRecords = new Map<string, SessionLifecycleRecord>();
+
+export const sessionLifecycleRecordsHydrated = (async () => {
+  try {
+    const now = Date.now();
+    for (const id of parseSessionIdLog(await fs.readFile(STOPPED_SESSION_LIFECYCLE_FILE, "utf8"), (value) => SESSION_ID_RE.test(value))) {
+      if (!sessionLifecycleRecords.has(id)) {
+        sessionLifecycleRecords.set(id, { id, lifecycle: "stopped", agent: null, cwd: null, createdAt: now, updatedAt: now });
+      }
+    }
+  } catch {
+    // absent on first run / unreadable => no durable stopped tombstones
+  }
+})();
+
+let stoppedLifecyclePersist: Promise<void> = Promise.resolve();
+function persistStoppedSessionLifecycle(id: string): void {
+  if (!SESSION_ID_RE.test(id)) return;
+  stoppedLifecyclePersist = stoppedLifecyclePersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(STOPPED_SESSION_LIFECYCLE_FILE, sessionIdLogLine(id)))
+    .catch((err) => console.error(`[session-lifecycle] failed to persist stopped ${id}: ${messageOf(err)}`));
+}
 
 function hasOwn(input: SessionLifecycleWrite, key: "agent" | "cwd"): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
@@ -45,7 +73,10 @@ function writeLifecycle(input: SessionLifecycleWrite): SessionLifecycleRecord {
     updatedAt: now,
   };
   sessionLifecycleRecords.set(id, next);
-  if (lifecycle === "stopped") pruneStoppedSessionLifecycleRecords();
+  if (lifecycle === "stopped") {
+    if (current?.lifecycle !== "stopped") persistStoppedSessionLifecycle(id);
+    pruneStoppedSessionLifecycleRecords();
+  }
   return next;
 }
 
