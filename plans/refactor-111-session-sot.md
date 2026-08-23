@@ -65,6 +65,18 @@ Server:
 - Mobile row detached: `TerminalSessionSummary.live === false`。この server process に `PtyEntry` がない。tmux-only survivor でも transcript-only stale でも false になり得る。
 - tmux detached: tmux session はあるが browser/client がついていない。`tmuxAttachedClientCount()` や `tmuxAttachedCounts()` は「誰かが持っているか」の警告用途で、Session 集合の SoT ではない。
 
+detached の auto-reap は `server/session/lifecycle.ts` と `server/session/reap-policy.ts` に分かれている。
+
+- socket close で `entry.ws = null` になり、`armReapForDetached()` が呼ばれる。
+- reattach は `cancelReap()` で grace timer を取り消す。
+- `activity.working` は原則 keep。作業中の session は auto-reap しない。
+- `activity.waiting` は長い grace。既定は 30 分で、`WAIT_REAP_GRACE_MS <= 0` なら auto-reap しない。
+- idle detached は短い grace。既定は 30 秒。
+- `event === "Notification"` の waiting は working より先に判定される。権限待ちなどで `working=true` が残り続ける session を無限保持しないため。
+- shell session は foreground child process がある間 keep され、終わった直後も `unacknowledgedShellDone` として screen が見られるまで keep される。
+
+したがって `SessionRecord.lifecycle = "detached"` を導入するときは、単に socket が無い状態だけでなく、現行の keep / short grace / long grace / no-auto-reap / shell foreground keep を preserve する必要がある。stale pruning はこの grace state を見ずに detached record を消してはいけない。
+
 ### 5. Reap / stop / exit
 
 `server/session/lifecycle.ts` の `reap()` が live `PtyEntry` の終了点。
@@ -113,6 +125,7 @@ Mobile stop:
 | persisted activity | `server/session/activity-state.ts` | JSON | restart 後に working/waiting 表示を復元 | activity hydrate race 対策。runtime existence とは別。 |
 | transcript | `server/session/session-reads.ts` | agent disk | chat/session履歴、Claude cold resume、title/prompt/usage/context/timeline | finished history も全て含む。存在 SoT にすると過去履歴が全部 live session になる。 |
 | Codex rollout mapping | `codexRolloutIds` | append log | MulmoTerminal id から Codex rollout id へ cold resume | mapping だけで runtime existence はない。 |
+| Antigravity conversation mapping | `antigravityConversations` | JSONL | MulmoTerminal id から Antigravity conversation id / cwd へ cold resume | mapping だけで runtime existence はない。hydration 前に読むと restart survivor を resume できない。 |
 | `sessionCwds` | `server/session/registry.ts` | append log | restart 後/ptysなし session の cwd 補完 | cwd metadata。存在ではない。 |
 | `sessionMemos` | `server/session/registry.ts` | JSONL | user memo | user metadata。存在ではない。 |
 | PC grid localStorage | `src/components/gridTabs.ts`, `GridView.vue` | browser localStorage | cell配置、session id、cwd、agent、launcher | browserごとの UI state。backend生存sessionを網羅しない。 |
@@ -196,7 +209,7 @@ PC には複数の集合がある。
 
 - tmux session: node restart 後も残る。
 - activity: `activity-state.json` から working/waiting/event を hydrate。
-- dev terminal ids / unplaced / placed / cwd / memo / rollout mappings: append logs から hydrate。
+- dev terminal ids / unplaced / placed / cwd / memo / rollout mappings / Antigravity conversation mappings: append logs または JSONL から hydrate。
 - transcript/rollout: agent の disk から読む。
 
 復旧しないもの:
@@ -308,7 +321,7 @@ PC grid と Mobile は `visibility=grid` かつ `lifecycle in starting/live/deta
   - `unplaced/placed`
   - `activity`
   - `sessionCwd`
-  - transcript/rollout metadata
+  - transcript/rollout/Antigravity conversation metadata
 - 出力:
   - `SessionRecord[]`
   - `gridVisibleSessions()`
@@ -331,6 +344,7 @@ PC grid と Mobile は `visibility=grid` かつ `lifecycle in starting/live/deta
 
 - registry row の `stoppedAt` / `updatedAt` を使って stale stopped records を pruning。
 - transcript/rollout 履歴は history route に残し、active grid/mobile list からは除外。
+- detached row は現行の `reapDecisionFor()` と shell foreground / unacknowledged done の keep 条件を preserve してから pruning する。
 - legacy logs の読み込みを migration 期間後に削除する。
 
 ## 実装 Issue 分割案
