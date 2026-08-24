@@ -1,7 +1,7 @@
 // Single source of truth for MulmoTerminal's config DSL (the per-dir `.mulmoterminal.json`
 // and the global `~/.mulmoterminal/config.json`). Schemas here drive three things: the
-// TypeScript types (`z.infer`), runtime validation, and the JSON Schema shipped with the
-// config skill (`dirConfigJsonSchema`). Keeping shape/type/JSON-Schema in one place stops the
+// TypeScript types (`z.infer`), runtime validation, and the generated JSON Schema
+// (`dirConfigJsonSchema`). Keeping shape/type/JSON-Schema in one place stops the
 // drift that hand-written sanitizers + a separately-authored schema doc would suffer.
 //
 // Two behaviours deliberately live OUTSIDE these schemas:
@@ -26,13 +26,13 @@ import type { QuickCommand } from "../../common/quickCommands.js";
 
 // ---- shared constants ---------------------------------------------------------------------
 
-export const VIEW_TARGETS = ["diff", "prs", "wiki", "collections", "accounting"] as const;
+export const VIEW_TARGETS = ["diff"] as const;
 export const RUN_TYPES = ["shell", "input", "open"] as const;
 export const BUILTIN_CHIPS = ["dir", "git", "work", "ctx", "usage", "status", "diff", "tools"] as const;
 
 export const NAME_MAX_CHARS = 40;
 // Runtime caps (sanitizeButtons / sanitizeChips truncate past these), mirrored by the JSON Schema
-// so the skill can't emit a config whose tail is silently dropped at load time.
+// so generated config docs cannot advertise a tail that is silently dropped at load time.
 export const MAX_BUTTONS = 32;
 export const MAX_CHIPS = 16;
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -249,19 +249,6 @@ export const dirAppendSystemPromptField = z.boolean().nullable().catch(null);
 export const dirProviderField = z.string().trim().min(1).nullable().catch(null);
 export const dirModelField = z.string().trim().min(1).nullable().catch(null);
 
-// A per-dir allowlist for the header Skill menu: which skill slugs to show, in this
-// order. Trimmed, deduped, capped. null when unset/garbage/empty — which means
-// "no filter, show every discovered skill" (absent config == show all).
-export const MAX_SKILL_FILTER = 100;
-export const dirSkillsField = z
-  .array(z.string())
-  .transform((arr) => {
-    const cleaned = [...new Set(arr.map((s) => s.trim()).filter(Boolean))].slice(0, MAX_SKILL_FILTER);
-    return cleaned.length ? cleaned : null;
-  })
-  .nullable()
-  .catch(null);
-
 // Extra directories a session may read/edit — Claude Code's `--add-dir` (#908), the
 // terminal-side answer to opening several folders in one VS Code workspace. Relative
 // entries resolve against the directory holding the config, which is what a reader of
@@ -278,7 +265,7 @@ export function resolveAddDirs(input: unknown, base: string, exists: (p: string)
     // duplicate container mount and grant nothing.
     // `exists` touches the disk, so it can throw (EACCES, or the path vanishing between the
     // check and the stat). This runs inside loadDirConfig's outer try, where a throw costs
-    // the WHOLE directory config — colors, sound, skills — over one unreadable entry. A
+    // the WHOLE directory config — colors, sound — over one unreadable entry. A
     // failure here means "drop this entry", never "drop everything".
     .filter((dir) => {
       if (dir === path.resolve(base)) return false;
@@ -292,17 +279,17 @@ export function resolveAddDirs(input: unknown, base: string, exists: (p: string)
   return unique.length ? unique : null;
 }
 
-// ---- JSON Schema for the config skill -----------------------------------------------------
+// ---- JSON Schema for config editors -------------------------------------------------------
 // The WRITABLE per-dir shape (what a user types into `.mulmoterminal.json`), described strictly
-// so the skill can validate its output and drive structured generation. Distinct from the
+// so editors can validate their output and drive structured generation. Distinct from the
 // lenient loader above, which tolerates junk; this documents the correct shape.
 //
 // Buttons/chips are STRICTER here than the flat item schemas used for types: the JSON Schema must
-// match what the runtime loader actually accepts, or the skill could emit a "valid" config that
+// match what the runtime loader actually accepts, or an editor could emit a "valid" config that
 // sanitization silently drops (a no-op the user reads as success).
 
 // The runtime keeps only trimmed, non-empty strings (`str()` in header-config.ts), so a
-// whitespace-only value is dropped at load time. Reject it here too, or the skill can emit a
+// whitespace-only value is dropped at load time. Reject it here too, or an editor can emit a
 // schema-valid button that silently vanishes.
 const nonEmptyText = z.string().min(1).regex(/\S/);
 
@@ -361,8 +348,8 @@ const writableDirConfigSchema = z.object({
   theme: themeIdSchema.optional(),
   // partialRecord, NOT record: zod v4's z.record over an enum key is EXHAUSTIVE — its JSON
   // Schema marks every one of the ~23 palette keys `required`, so the shipped
-  // dir-config.schema.json rejects the common `colors: { background: … }` (the skill sets
-  // one color) with 22 missing-key errors. partialRecord keeps the same runtime key + value
+  // dir-config.schema.json rejects the common `colors: { background: … }` shape with 22
+  // missing-key errors. partialRecord keeps the same runtime key + value
   // validation but leaves the keys optional in the generated schema.
   colors: z.partialRecord(z.enum(THEME_COLOR_KEYS), z.string().regex(PALETTE_COLOR_RE)).optional(),
   // xterm font size in px for this directory's terminals. Omit to follow the Settings value.
@@ -381,8 +368,6 @@ const writableDirConfigSchema = z.object({
   sounds: z.partialRecord(z.enum(NOTIFY_KINDS), nonEmptyText).optional(),
   buttons: z.array(writableHeaderButtonSchema).max(MAX_BUTTONS).optional(),
   chips: z.array(writableHeaderChipSchema).max(MAX_CHIPS).optional(),
-  // Header Skill-menu allowlist: show only these skill slugs, in this order. Omit to show all.
-  skills: z.array(nonEmptyText).max(MAX_SKILL_FILTER).optional(),
   // Which backend this directory's sessions run on (#579). `provider` names an entry in the
   // global config's `providers`; `model` alone picks a different model on Anthropic itself.
   provider: nonEmptyText.optional(),

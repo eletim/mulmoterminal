@@ -40,7 +40,6 @@ import {
   dirFontSizeField,
   dirFontFamilyField,
   dirOrderPriorityField,
-  dirSkillsField,
   dirProviderField,
   dirModelField,
   dirAppendSystemPromptField,
@@ -67,9 +66,6 @@ export interface DirConfig extends DirChrome {
   buttons: HeaderButton[] | null;
   // Per-project header display chips, or null when this dir doesn't configure them.
   chips: HeaderChip[] | null;
-  // Header Skill-menu allowlist: show only these skill slugs, in this order. null =
-  // this dir doesn't filter, so the menu shows every discovered skill.
-  skills: string[] | null;
   // Which backend/model this directory's sessions run on (#579). Never a secret.
   provider: string | null;
   model: string | null;
@@ -155,7 +151,6 @@ const EMPTY: DirConfig = {
   sounds: {},
   buttons: null,
   chips: null,
-  skills: null,
   provider: null,
   model: null,
   addDirs: null,
@@ -187,7 +182,6 @@ export function loadDirConfig(cwd: string): DirConfig {
       sounds: resolveDirSounds(base, raw.sounds),
       buttons: sanitizeButtons(raw.buttons),
       chips: sanitizeChips(raw.chips),
-      skills: dirSkillsField.parse(raw.skills),
       provider: dirProviderField.parse(raw.provider),
       model: dirModelField.parse(raw.model),
       addDirs: resolveAddDirs(raw.addDirs, base, (p) => statSync(p).isDirectory()),
@@ -256,11 +250,10 @@ export interface DirConfigDetail {
 const chipLabel = (chip: HeaderChip): string => (typeof chip === "string" ? chip : chip.label);
 
 function dirConfigExtras(cwd: string): DirConfigExtras {
-  const { provider, model, skills, addDirs, appendSystemPrompt, buttons, chips } = loadDirConfig(cwd);
+  const { provider, model, addDirs, appendSystemPrompt, buttons, chips } = loadDirConfig(cwd);
   return {
     provider,
     model,
-    skills,
     addDirs,
     appendSystemPrompt,
     buttonLabels: (buttons ?? []).map((button) => button.label),

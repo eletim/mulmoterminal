@@ -9,7 +9,6 @@
 import { ref, computed } from "vue";
 import { usePubSub } from "./usePubSub";
 import { applyLiveChanges, type LiveChange } from "./liveMerge";
-import { browseNavigateToRecord } from "./useCollectionBrowse";
 import { isRecord } from "../../common/isRecord";
 
 // Must match server/backends/notifier.ts NOTIFIER_CHANNEL.
@@ -69,35 +68,6 @@ let changesDuringFetch: LiveChange<NotifierEntry>[] | null = null;
 // Fetches overlap: the bell asks on init and again on every pub/sub reconnect. Only the
 // newest answer may be applied — an older one describes a moment already overtaken.
 let latestFetch = 0;
-
-/** Parse a collection deep-link (`/collections/<slug>?selected=<itemId>`) into its
- *  parts. String ops + URLSearchParams only — no regex (lint bans backtracking-prone
- *  patterns). Returns null for anything that isn't a collection target. */
-export function parseCollectionTarget(target: string | undefined): { slug: string; itemId?: string | undefined } | null {
-  if (!target) return null;
-  const prefix = "/collections/";
-  if (!target.startsWith(prefix)) return null;
-  const rest = target.slice(prefix.length);
-  const queryAt = rest.indexOf("?");
-  const rawSlug = queryAt === -1 ? rest : rest.slice(0, queryAt);
-  if (!rawSlug) return null;
-  let itemId: string | undefined;
-  if (queryAt !== -1) {
-    // URLSearchParams.get() returns an already-decoded value — decoding again would
-    // throw "URI malformed" on a valid id containing a literal "%" (e.g. "100% done").
-    const selected = new URLSearchParams(rest.slice(queryAt + 1)).get("selected");
-    if (selected) itemId = selected;
-  }
-  // The slug was string-sliced (not via URLSearchParams), so it is still encoded.
-  // A malformed escape (e.g. "%E0%A4%A") makes decodeURIComponent throw; since this
-  // runs from the row-click handler, treat a bad slug as non-actionable (return null)
-  // rather than letting it crash activation.
-  try {
-    return { slug: decodeURIComponent(rawSlug), itemId };
-  } catch {
-    return null;
-  }
-}
 
 function upsert(entry: NotifierEntry): void {
   const idx = active.value.findIndex((existing) => existing.id === entry.id);
@@ -203,14 +173,10 @@ export function useNotifications() {
     }
   }
 
-  /** Row click: navigate to the entry's target if it's a collection record. Does NOT
-   *  clear — completion bells are action obligations the watcher clears when the
-   *  record is done. Returns true if it navigated. */
+  /** Row click: no remaining notification target owns in-app navigation. */
   function activate(entry: NotifierEntry): boolean {
-    const parsed = parseCollectionTarget(entry.navigateTarget);
-    if (!parsed) return false;
-    browseNavigateToRecord(parsed.slug, parsed.itemId);
-    return true;
+    void entry;
+    return false;
   }
 
   return { active, count, topSeverity, sorted, dismiss, activate };

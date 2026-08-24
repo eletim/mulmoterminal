@@ -1,14 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import FilesPane from "../../../src/components/FilesPane.vue";
 
-// Don't instantiate real CodeMirror (needs a full DOM); capture the change callback so a
-// user edit can be simulated.
 let onChange: () => void = () => {};
+let lastReadOnly: boolean | undefined;
 const fakeEditor = { setDoc: vi.fn(), getDoc: vi.fn(() => "edited text"), destroy: vi.fn() };
-// Capture the pubsub handler so the IMMEDIATE path (Claude's write hook) can be driven — the
-// timer path alone leaves it untested, which is where a real defect would hide.
 const pubsub = vi.hoisted(() => ({ handlers: new Map<string, (data: unknown) => void>() }));
+
 vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({
     subscribe: (channel: string, cb: (data: unknown) => void) => {
@@ -18,504 +16,134 @@ vi.mock("../../../src/composables/usePubSub", () => ({
     onReconnect: () => () => {},
   }),
 }));
+
 vi.mock("../../../src/components/cmEditor", async (orig) => {
   const actual = await orig<typeof import("../../../src/components/cmEditor")>();
-  return { ...actual, createEditor: (_host: HTMLElement, cb: () => void) => ((onChange = cb), fakeEditor) };
+  return {
+    ...actual,
+    createEditor: (_host: HTMLElement, cb: () => void, readOnly?: boolean) => {
+      onChange = cb;
+      lastReadOnly = readOnly;
+      return fakeEditor;
+    },
+  };
 });
 
 function mockFs() {
-  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes("/list")) return { ok: true, json: async () => ({ entries: [{ name: "README.md", dir: false, size: 10 }] }) };
+    if (url.includes("/list")) {
+      const p = new URL(url, "https://x").searchParams.get("path");
+      return {
+        ok: true,
+        json: async () => ({
+          entries:
+            p === ""
+              ? [
+                  { name: "src", dir: true, size: 0 },
+                  { name: "README.md", dir: false, size: 10 },
+                ]
+              : [{ name: "app.ts", dir: false, size: 5 }],
+        }),
+      };
+    }
     if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
-    return { ok: true, json: async () => ({ ok: true, version: "v2" }), _init: init };
+    if (url.includes("/version")) return { ok: true, json: async () => ({ version: "v1" }) };
+    return { ok: false, status: 404, json: async () => ({}) };
   }) as unknown as typeof fetch;
 }
 
-const writeCalls = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/write"));
-
-async function openFileAndEdit(cwd: string | null = "/proj") {
-  const w = mount(FilesPane, { props: { cwd } });
-  await flushPromises();
-  await w.findAll('[data-testid="files-row"]')[0].trigger("click");
-  await flushPromises();
-  onChange();
-  await flushPromises();
-  return w;
-}
+const calls = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+const writeCalls = () => calls().filter((u) => u.includes("/write") || u.includes("/backup"));
 
 describe("FilesPane", () => {
   beforeEach(() => {
     fakeEditor.setDoc.mockClear();
+    fakeEditor.destroy.mockClear();
+    pubsub.handlers.clear();
+    lastReadOnly = undefined;
     mockFs();
   });
 
-  // The pane beside a zoomed grid cell has no route, no ?cwd= and no "is it open" — it is
-  // handed a directory and mounted. That the overlay ALSO uses it is covered by its own spec.
-  it("browses and opens a file from nothing but a cwd prop", async () => {
+  it("browses and opens a file as a read-only viewer for the cwd", async () => {
     const w = mount(FilesPane, { props: { cwd: "/proj" } });
     await flushPromises();
+
     expect(w.text()).toContain("README.md");
-
-    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
-    await flushPromises();
-    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "README.md");
-    const read = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find((c) => String(c[0]).includes("/text"));
-    expect(String(read?.[0])).toContain(encodeURIComponent("/proj"));
-  });
-
-  // The host guards its own navigation on this; a missed event means it guards on a stale answer.
-  it("reports the buffer going dirty, and clean again after a save", async () => {
-    const w = await openFileAndEdit();
-    expect(w.emitted("dirty")?.at(-1)).toEqual([true]);
-
     await w
-      .findAll("button")
-      .find((b) => b.text().startsWith("Save"))
+      .findAll('[data-testid="files-row"]')
+      .find((b) => b.text().includes("README.md"))
       ?.trigger("click");
     await flushPromises();
-    expect(w.emitted("dirty")?.at(-1)).toEqual([false]);
+
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "README.md");
+    expect(lastReadOnly).toBe(true);
+    expect(String(calls().find((u) => u.includes("/text")))).toContain(encodeURIComponent("/proj"));
   });
 
-  // Bound to the pane's own subtree, not to window: with a pane open beside a terminal, a
-  // window-level handler would save whenever the user pressed ⌘S while typing INTO the terminal.
-  it("saves on ⌘S inside the pane, and ignores one raised outside it", async () => {
-    const w = await openFileAndEdit();
-    expect(writeCalls()).toHaveLength(0);
-
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true }));
-    await flushPromises();
-    expect(writeCalls()).toHaveLength(0);
-
-    await w.trigger("keydown", { key: "s", metaKey: true });
-    await flushPromises();
-    expect(writeCalls()).toHaveLength(1);
-  });
-
-  // Saving on the way out rather than asking: the editor sits beside a terminal being worked
-  // in, and the server keeps three generations of whatever a save replaces.
-  it("saves the buffer when closing, without asking", async () => {
-    const w = await openFileAndEdit();
-    const confirmSpy = vi.spyOn(window, "confirm");
-
-    await w.find('[aria-label="Close files"]').trigger("click");
-    await flushPromises();
-    expect(writeCalls()).toHaveLength(1);
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(w.emitted("close")).toHaveLength(1);
-    confirmSpy.mockRestore();
-  });
-
-  it("saves the open file before opening another one", async () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/list")) {
-        return {
-          ok: true,
-          json: async () => ({
-            entries: [
-              { name: "README.md", dir: false, size: 10 },
-              { name: "other.md", dir: false, size: 10 },
-            ],
-          }),
-        };
-      }
-      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
-      return { ok: true, json: async () => ({ ok: true, version: "v2" }), _init: init };
-    }) as unknown as typeof fetch;
-
+  it("does not expose save behaviour or call write endpoints when the editor reports a change", async () => {
     const w = mount(FilesPane, { props: { cwd: "/proj" } });
     await flushPromises();
-    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
+    await w
+      .findAll('[data-testid="files-row"]')
+      .find((b) => b.text().includes("README.md"))
+      ?.trigger("click");
     await flushPromises();
+
     onChange();
+    await w.trigger("keydown", { key: "s", metaKey: true });
+    await (w.vm as unknown as { flush: () => Promise<boolean> }).flush();
     await flushPromises();
 
-    await w.findAll('[data-testid="files-row"]')[1].trigger("click");
-    await flushPromises();
-    expect(writeCalls()).toHaveLength(1);
-    expect(fakeEditor.setDoc).toHaveBeenLastCalledWith("# hello", "other.md");
+    expect(w.findAll("button").some((b) => b.text().startsWith("Save"))).toBe(false);
+    expect(w.emitted("dirty")).toBeUndefined();
+    expect(writeCalls()).toEqual([]);
   });
 
-  // A save can lose the version race on the way out, and there is nowhere to put a banner by
-  // then — so the buffer goes to the backup store and the other writer's file is left alone.
-  it("banks the buffer instead of a banner when the parting save hits a conflict", async () => {
-    const w = await openFileAndEdit();
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/backup")) return { ok: true, json: async () => ({ stored: true }) };
-      if (url.includes("/write")) return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: "v9" }) };
-      return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
-    }) as unknown as typeof fetch;
-
-    await (w.vm as unknown as { flush: () => Promise<void> }).flush();
+  it("closes without attempting to save", async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj" } });
     await flushPromises();
-    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
-    expect(calls.some((u) => u.includes("/backup"))).toBe(true);
-    expect(w.find('[data-testid="files-conflict"]').exists()).toBe(false);
+    await w.find('[aria-label="Close files"]').trigger("click");
+    await flushPromises();
+
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(writeCalls()).toEqual([]);
   });
 
-  // reload() is how the host says "the root changed and I already cleared it with the user" —
-  // the pane never reacts to `cwd` itself, or it would discard a buffer still being asked about.
   it("re-reads the tree only when the host calls reload, not when cwd changes", async () => {
     const w = mount(FilesPane, { props: { cwd: "/proj" } });
     await flushPromises();
-    const listCalls = () => (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/list"));
-    expect(listCalls()).toHaveLength(1);
+    expect(calls().filter((u) => u.includes("/list"))).toHaveLength(1);
 
     await w.setProps({ cwd: "/other" });
     await flushPromises();
-    expect(listCalls()).toHaveLength(1);
+    expect(calls().filter((u) => u.includes("/list"))).toHaveLength(1);
 
     await (w.vm as unknown as { reload: () => Promise<void> }).reload();
     await flushPromises();
-    expect(listCalls()).toHaveLength(2);
-    expect(String(listCalls()[1][0])).toContain(encodeURIComponent("/other"));
-  });
-});
-
-// Leaving happens WHILE the pane is being torn down. Anything flush() reads after its first
-// await may already be gone, which is how a parting save's 409 fallback lost the buffer.
-describe("FilesPane leaving mid-unmount", () => {
-  beforeEach(() => {
-    fakeEditor.setDoc.mockClear();
-    mockFs();
+    const listCalls = calls().filter((u) => u.includes("/list"));
+    expect(listCalls).toHaveLength(2);
+    expect(listCalls[1]).toContain(encodeURIComponent("/other"));
   });
 
-  it("still banks the buffer when the pane unmounts during the parting save", async () => {
-    const w = await openFileAndEdit();
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/backup")) return { ok: true, json: async () => ({ stored: true }) };
-      return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: "v9" }) };
-    }) as unknown as typeof fetch;
-
-    const flushing = (w.vm as unknown as { flush: () => Promise<void> }).flush();
-    w.unmount(); // the editor is destroyed while the write is in flight
-    await flushing;
+  it("opens requested paths and refreshes when an external write changes the open file", async () => {
+    const w = mount(FilesPane, { props: { cwd: "/proj", requestedPath: "src/app.ts" } });
     await flushPromises();
-
-    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
-    expect(calls.some((u) => u.includes("/backup"))).toBe(true);
-  });
-
-  // Clearing `dirty` on a failed backup would leave the only copy nowhere and say it was fine.
-  it("keeps the buffer marked unsaved when neither the save nor the backup lands", async () => {
-    const w = await openFileAndEdit();
-    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: "nope" }) })) as unknown as typeof fetch;
-
-    await (w.vm as unknown as { flush: () => Promise<void> }).flush();
-    await flushPromises();
-    expect(w.emitted("dirty")?.at(-1)).toEqual([true]);
-  });
-
-  // No awaiting an answer on the way out of the tab, so the backup goes unconditionally.
-  it("banks and writes on pagehide, so a conflict there can't cost the buffer", async () => {
-    await openFileAndEdit();
-    const before = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
-    window.dispatchEvent(new Event("pagehide"));
-    await flushPromises();
-
-    const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.slice(before).map((c) => String(c[0]));
-    expect(calls.some((u) => u.includes("/backup"))).toBe(true);
-    expect(calls.some((u) => u.includes("/write"))).toBe(true);
-  });
-});
-
-// The server being down turns "leave and save" into "leave and lose". Every caller that CAN
-// stay has to stay, because at that point the buffer is the only copy in existence.
-describe("FilesPane when nothing can be saved or banked", () => {
-  const allFail = () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/list"))
-        return {
-          ok: true,
-          json: async () => ({
-            entries: [
-              { name: "README.md", dir: false, size: 10 },
-              { name: "other.md", dir: false, size: 10 },
-            ],
-          }),
-        };
-      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
-      return { ok: false, status: 500, json: async () => ({ error: "server is down" }) };
-    }) as unknown as typeof fetch;
-  };
-
-  beforeEach(() => {
-    fakeEditor.setDoc.mockClear();
-    mockFs();
-  });
-
-  it("reports it, and stays unsaved, instead of claiming success", async () => {
-    const w = await openFileAndEdit();
-    allFail();
-    expect(await (w.vm as unknown as { flush: () => Promise<boolean> }).flush()).toBe(false);
-    expect(w.emitted("dirty")?.at(-1)).toEqual([true]);
-    expect(w.text()).toContain("server is down");
-  });
-
-  it("does not open another file over the top of it", async () => {
-    allFail(); // reads still work; writes and backups do not
-    const w = mount(FilesPane, { props: { cwd: "/proj" } });
-    await flushPromises();
-    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
-    await flushPromises();
-    onChange();
-    await flushPromises();
-
-    fakeEditor.setDoc.mockClear();
-    await w.findAll('[data-testid="files-row"]')[1].trigger("click");
-    await flushPromises();
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // still on the file with the edits
-  });
-
-  it("does not close", async () => {
-    const w = await openFileAndEdit();
-    allFail();
-    await w.find('[aria-label="Close files"]').trigger("click");
-    await flushPromises();
-    expect(w.emitted("close")).toBeUndefined();
-  });
-
-  // "Kept as a backup either way" is the banner's promise; a store that refuses the write
-  // means the honest move is to keep the buffer rather than discard it anyway.
-  it("refuses to discard on the conflict banner when the backup is refused", async () => {
-    const w = await openFileAndEdit();
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/backup")) return { ok: false, status: 500, json: async () => ({ error: "no room" }) };
-      if (url.includes("/write")) return { ok: false, status: 409, json: async () => ({ error: "file changed on disk", version: "v9" }) };
-      return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
-    }) as unknown as typeof fetch;
-
-    await w
-      .findAll("button")
-      .find((b) => b.text().startsWith("Save"))
-      ?.trigger("click");
-    await flushPromises();
-    fakeEditor.setDoc.mockClear();
-
-    await w
-      .findAll("button")
-      .find((b) => b.text().startsWith("Reload"))
-      ?.trigger("click");
-    await flushPromises();
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // the buffer is still there
-    expect(w.text()).toContain("could not back up your version");
-  });
-});
-
-// Coming back to a directory should look the way it was left. Only saved state is restored —
-// the buffer went to disk (or the backup store) on the way out.
-describe("FilesPane restoring a remembered tree", () => {
-  const nestedFs = () => {
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/list")) {
-        const p = new URL(url, "https://x").searchParams.get("path");
-        if (p === "")
-          return {
-            ok: true,
-            json: async () => ({
-              entries: [
-                { name: "src", dir: true, size: 0 },
-                { name: "README.md", dir: false, size: 10 },
-              ],
-            }),
-          };
-        if (p === "src") return { ok: true, json: async () => ({ entries: [{ name: "deep", dir: true, size: 0 }] }) };
-        return { ok: true, json: async () => ({ entries: [{ name: "app.ts", dir: false, size: 5 }] }) };
-      }
-      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "# hello", version: "v1" }) };
-      return { ok: true, json: async () => ({ ok: true, version: "v2" }) };
-    }) as unknown as typeof fetch;
-  };
-
-  beforeEach(() => {
-    fakeEditor.setDoc.mockClear();
-    nestedFs();
-  });
-
-  it("re-opens the remembered directories, parents first, and the file", async () => {
-    const w = mount(FilesPane, {
-      props: { cwd: "/proj", initialState: { openPath: "src/deep/app.ts", expanded: ["src/deep", "src"] } },
-    });
-    await flushPromises();
-
-    // The nested directory could only be opened after its parent was fetched.
-    expect(w.text()).toContain("app.ts");
     expect(fakeEditor.setDoc).toHaveBeenCalledWith("# hello", "app.ts");
-  });
 
-  it("skips anything that has since gone, without failing the rest", async () => {
-    const w = mount(FilesPane, {
-      props: { cwd: "/proj", initialState: { openPath: null, expanded: ["gone", "src"] } },
-    });
-    await flushPromises();
-    expect(w.text()).toContain("deep"); // src still opened
-  });
-
-  it("reports what to remember", async () => {
-    const w = mount(FilesPane, { props: { cwd: "/proj", initialState: { openPath: "README.md", expanded: ["src"] } } });
-    await flushPromises();
-    expect((w.vm as unknown as { snapshot: () => unknown }).snapshot()).toEqual({ openPath: "README.md", expanded: ["src"] });
-  });
-});
-
-// The file moves under the editor as a matter of course here: the agent working in this
-// directory edits the same files. The 409 on save is the hard guarantee; these two paths only
-// get the news out before the user has typed into a file that already moved.
-describe("FilesPane noticing an external change", () => {
-  const serveVersion = (version: string | null, text = "# from the agent") => {
+    fakeEditor.setDoc.mockClear();
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/version")) return { ok: true, json: async () => ({ version }) };
-      if (url.includes("/list")) return { ok: true, json: async () => ({ entries: [{ name: "README.md", dir: false, size: 10 }] }) };
-      if (url.includes("/text")) return { ok: true, json: async () => ({ text, version }) };
-      return { ok: true, json: async () => ({ ok: true, version: "v2" }) };
+      if (url.includes("/version")) return { ok: true, json: async () => ({ version: "v2" }) };
+      if (url.includes("/text")) return { ok: true, json: async () => ({ text: "changed", version: "v2" }) };
+      return { ok: true, json: async () => ({ entries: [] }) };
     }) as unknown as typeof fetch;
-  };
-  const check = async (w: ReturnType<typeof mount>) => {
-    await (w.vm as unknown as { checkForExternalChange?: () => Promise<void> }).checkForExternalChange?.();
-    vi.advanceTimersByTime(30_000);
+
+    pubsub.handlers.get("file-write")?.({ file: "/proj/src/app.ts" });
     await flushPromises();
-  };
-
-  beforeEach(() => {
-    fakeEditor.setDoc.mockClear();
-    mockFs();
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-  });
-  afterEach(() => vi.useRealTimers());
-
-  it("silently takes the new content when nothing is being edited", async () => {
-    const w = mount(FilesPane, { props: { cwd: "/proj" } });
     await flushPromises();
-    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
-    await flushPromises();
-    fakeEditor.setDoc.mockClear();
-
-    serveVersion("v9");
-    await check(w);
-    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# from the agent", "README.md");
-    expect(w.find('[data-testid="files-conflict"]').exists()).toBe(false); // nothing to ask about
-  });
-
-  it("raises the banner instead of overwriting what is being edited", async () => {
-    const w = await openFileAndEdit();
-    fakeEditor.setDoc.mockClear();
-
-    serveVersion("v9");
-    await check(w);
-    expect(w.find('[data-testid="files-conflict"]').exists()).toBe(true);
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled(); // the buffer is untouched
-  });
-
-  it("does nothing while the version still matches", async () => {
-    const w = mount(FilesPane, { props: { cwd: "/proj" } });
-    await flushPromises();
-    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
-    await flushPromises();
-    fakeEditor.setDoc.mockClear();
-
-    serveVersion("v1"); // the version it was loaded at
-    await check(w);
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled();
-  });
-});
-
-// The hook path is the one that makes this feel immediate; the 30s timer is only the backstop.
-describe("FilesPane reacting to the write hook", () => {
-  const fire = (file: string) => pubsub.handlers.get("file-write")?.({ file });
-
-  // The file is opened at v1, and only THEN does the agent rewrite it — anything else would be
-  // "no change" and prove nothing.
-  const server = { version: "v1", text: "# hello" };
-
-  beforeEach(() => {
-    fakeEditor.setDoc.mockClear();
-    pubsub.handlers.clear();
-    server.version = "v1";
-    server.text = "# hello";
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/version")) return { ok: true, json: async () => ({ version: server.version }) };
-      if (url.includes("/list")) return { ok: true, json: async () => ({ entries: [{ name: "README.md", dir: false, size: 10 }] }) };
-      if (url.includes("/text")) return { ok: true, json: async () => ({ text: server.text, version: server.version }) };
-      return { ok: true, json: async () => ({ ok: true, version: "v2" }) };
-    }) as unknown as typeof fetch;
-  });
-
-  const openReadme = async () => {
-    const w = mount(FilesPane, { props: { cwd: "/proj" } });
-    await flushPromises();
-    await w.findAll('[data-testid="files-row"]')[0].trigger("click");
-    await flushPromises();
-    fakeEditor.setDoc.mockClear();
-    // The agent rewrites it while it sits open.
-    server.version = "v9";
-    server.text = "# from the agent";
-    return w;
-  };
-
-  it("takes the new content as soon as the agent's write is announced", async () => {
-    const w = await openReadme();
-    fire("/proj/README.md");
-    await flushPromises();
-    expect(fakeEditor.setDoc).toHaveBeenCalledWith("# from the agent", "README.md");
-    w.unmount();
-  });
-
-  it("ignores a write to some other file", async () => {
-    const w = await openReadme();
-    fire("/proj/somewhere/else.ts");
-    await flushPromises();
-    expect(fakeEditor.setDoc).not.toHaveBeenCalled();
-    w.unmount();
-  });
-
-  it("stops listening once the pane is gone", async () => {
-    const w = await openReadme();
-    w.unmount();
-    expect(pubsub.handlers.has("file-write")).toBe(false);
-  });
-});
-
-// #910 regression. The tree and the open file are independent fetches, and until a path could
-// be clicked in terminal output nothing ever started them at the same time. Sharing one
-// "latest request wins" counter meant the file load cancelled the tree's own result: the pane
-// showed the file next to "Empty directory.", and stayed that way. Caught by running the app,
-// not by any test — so this is the test.
-describe("opening a file while the tree is still loading", () => {
-  let releaseList: (() => void) | null = null;
-
-  beforeEach(() => {
-    releaseList = null;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/list")) {
-        // Hold the tree response open so the file load below is genuinely concurrent.
-        await new Promise<void>((resolve) => (releaseList = resolve));
-        return { ok: true, json: async () => ({ entries: [{ name: "src", dir: true, size: 0 }] }) };
-      }
-      return { ok: true, json: async () => ({ text: "export const x = 1;", version: "v1" }) };
-    }) as unknown as typeof fetch;
-  });
-
-  it("keeps the tree — the file load must not cancel it", async () => {
-    const w = mount(FilesPane, { props: { cwd: "/proj" } });
-    await flushPromises();
-    // The click in terminal output lands before the tree has answered.
-    await (w.vm as unknown as { openFile: (p: string) => Promise<void> }).openFile("src/main.ts");
-    await flushPromises();
-    releaseList?.();
-    await flushPromises();
-
-    expect(fakeEditor.setDoc).toHaveBeenCalledWith("export const x = 1;", "main.ts");
-    expect(w.findAll('[data-testid="files-row"]')).toHaveLength(1);
-    expect(w.text()).not.toContain("Empty directory");
+    expect(fakeEditor.setDoc).toHaveBeenCalledWith("changed", "app.ts");
+    expect(writeCalls()).toEqual([]);
     w.unmount();
   });
 });

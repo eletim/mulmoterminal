@@ -20,7 +20,6 @@ import NotificationSoundsSection from "./settings/NotificationSoundsSection.vue"
 import VoiceInputSection from "./settings/VoiceInputSection.vue";
 import WebPushSection from "./settings/WebPushSection.vue";
 import GoogleAccountSection from "./settings/GoogleAccountSection.vue";
-import PrReposSection from "./settings/PrReposSection.vue";
 import LaunchersSection from "./settings/LaunchersSection.vue";
 import QuickCommandsSection from "./settings/QuickCommandsSection.vue";
 import McpServersSection from "./settings/McpServersSection.vue";
@@ -34,14 +33,12 @@ import type { PushKind } from "../../common/pushKinds";
 import type { NotifyKind } from "../../common/notifyKinds";
 import type { SoundMap } from "../composables/soundSettings";
 import type { SoundEmits } from "./settings/soundEmits";
-import type { BundledSkillName } from "../../common/bundledSkills";
 
 defineProps<{
   soundFile?: string | null;
   soundKinds?: NotifyKind[];
   sounds?: SoundMap;
   pushKinds?: PushKind[];
-  prRepos?: string[];
   launchers?: Launcher[];
   quickCommands?: QuickCommand[];
   userMcpServers?: UserMcpServer[];
@@ -57,13 +54,9 @@ defineProps<{
 const emit = defineEmits<
   SoundEmits & {
     (e: "update-push-kinds", kinds: PushKind[]): void;
-    (e: "update-repos", repos: string[]): void;
     (e: "update-launchers", launchers: Launcher[]): void;
     (e: "update-quick-commands", commands: QuickCommand[]): void;
     (e: "update-user-mcp", servers: UserMcpServer[]): void;
-    // Hand a section over to the skill that owns it. Named by skill rather than by section
-    // ("configure-appearance") so a new button costs nothing outside this file.
-    (e: "launch-skill", skill: BundledSkillName): void;
     (e: "close"): void;
   }
 >();
@@ -97,12 +90,12 @@ useModalKeyboard({ modalEl, onClose: () => emit("close"), trapSelector: MODAL_FO
         </button>
       </div>
 
-      <ThemeSection @launch-skill="emit('launch-skill', $event)" />
+      <ThemeSection />
       <TerminalFontSizeSection />
       <TerminalScrollSection />
       <WaitingRowsSection />
-      <DirAppearanceSection @launch-skill="emit('launch-skill', $event)" />
-      <DirSettingsSection :dir-paths="dirPaths" @launch-skill="emit('launch-skill', $event)" />
+      <DirAppearanceSection />
+      <DirSettingsSection :dir-paths="dirPaths" />
       <NotificationSoundsSection
         :sound-file="soundFile"
         :sound-kinds="soundKinds"
@@ -110,17 +103,15 @@ useModalKeyboard({ modalEl, onClose: () => emit("close"), trapSelector: MODAL_FO
         @update-sound="emit('update-sound', $event)"
         @update-sound-kinds="emit('update-sound-kinds', $event)"
         @update-sounds="emit('update-sounds', $event)"
-        @launch-skill="emit('launch-skill', $event)"
       />
       <VoiceInputSection />
       <WebPushSection :push-kinds="pushKinds" @update-push-kinds="emit('update-push-kinds', $event)" />
       <GoogleAccountSection />
-      <PrReposSection :pr-repos="prRepos" @update-repos="emit('update-repos', $event)" />
       <LaunchersSection :launchers="launchers" @update-launchers="emit('update-launchers', $event)" />
       <QuickCommandsSection :quick-commands="quickCommands" @update-quick-commands="emit('update-quick-commands', $event)" />
       <McpServersSection :user-mcp-servers="userMcpServers" @update-user-mcp="emit('update-user-mcp', $event)" />
       <CostSection :cwd="cwd" :session-id="sessionId" />
-      <ShortcutsSection @launch-skill="emit('launch-skill', $event)" />
+      <ShortcutsSection />
       <HelpSection />
 
       <div class="mt-4 flex items-center gap-2">

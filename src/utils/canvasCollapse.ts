@@ -1,10 +1,9 @@
 // Collapse the Canvas feed so a thing that was drawn twice appears once.
 //
-// Editing one collection over several turns calls presentCollection each time, and every call is
-// its own tool result — so the panel grew a fresh 80vh card per edit and pushed the current one
-// off the bottom of the pane. The results are not duplicates in the store (they are a real
-// history, and the server keeps them); they are duplicates ON SCREEN, because all but the last
-// render a state that no longer exists.
+// Re-presenting one file-backed artifact over several turns creates separate tool results, so the
+// panel would otherwise grow a fresh card per update and push the current one off the bottom. The
+// results are not duplicates in the store (they are a real history, and the server keeps them);
+// they are duplicates ON SCREEN, because all but the last render stale state.
 //
 // The rule: results sharing an identity collapse to the LAST one, placed at the last one's
 // position. A result whose identity is null never collapses — that is the default, so a tool
@@ -26,8 +25,8 @@
  *
  * `identityOf` returns null for anything that should stand alone — inline content with no backing
  * file, a tool with no notion of "the same thing again", or a shape the accessor did not
- * recognise. Callers must namespace the identity by tool, so a collection slug and a file path
- * cannot collide.
+ * recognise. Callers must namespace the identity by tool, so two tools with the same path-shaped
+ * identity cannot collide.
  */
 export function collapseByIdentity<T>(results: readonly T[], identityOf: (result: T) => string | null): T[] {
   // Backwards, keeping the first sighting of each identity — which is the LAST in reading order —

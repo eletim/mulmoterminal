@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useTheme } from "../../composables/useTheme";
-import SkillLaunchButton from "../SkillLaunchButton.vue";
 import { SECTION_HEADING } from "./sectionClasses";
-import type { BundledSkillName } from "../../../common/bundledSkills";
-
-const emit = defineEmits<{ (e: "launch-skill", skill: BundledSkillName): void }>();
 
 // Theme is applied immediately on click.
 const { themeId, themes, setTheme, missingThemeId } = useTheme();
@@ -43,8 +39,8 @@ function onThemeKey(e: KeyboardEvent, index: number) {
     below. Your choice is kept until then.
   </p>
   <p class="mb-2 mt-1.5 text-[12px] text-dim">
-    Picks from the schemes that exist. Your own go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in four
-    — the skill writes one from a palette, a photo or a brand's colours, and checks it for contrast.
+    Picks from the schemes that exist. Your own go in <code>themes</code> in <code>~/.mulmoterminal/config.json</code> and appear here next to the built-in
+    four.
   </p>
   <div ref="themesEl" class="flex flex-wrap gap-2" role="radiogroup" aria-label="Theme">
     <button
@@ -66,8 +62,5 @@ function onThemeKey(e: KeyboardEvent, index: number) {
       </span>
       <span class="text-[12px]">{{ t.label }}</span>
     </button>
-  </div>
-  <div class="mt-3">
-    <SkillLaunchButton skill="mulmoterminal-theme" icon="format_paint" label="Create a theme…" @launch="emit('launch-skill', $event)" />
   </div>
 </template>

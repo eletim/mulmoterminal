@@ -2,19 +2,15 @@
 // (or the agent) persist cron-style tasks in <ws>/config/scheduler/tasks.json; each
 // enabled task fires on its schedule and SPAWNS A NEW CHAT seeded with the task's
 // prompt. That is how the workout-log "週3回リマインダー" works — a daily task whose
-// prompt tells the agent to read data/workout-log/items/ and nudge. The collection
-// schema is uninvolved; the only link is the prompt text.
+// prompt tells the agent to inspect project files and nudge. The task payload is just prompt text.
 //
 // The tick/scheduling ENGINE is the shared package; the run-binding is
 // MulmoTerminal-specific: spawnChat = spawnClaudePty (a visible background session).
 // Tasks are registered directly on the task-manager (matching MulmoClaude's user
 // tasks) — they fire forward on schedule, with no system-task persistence/catch-up.
 //
-// System tasks may be passed in via `systemTasks` and are registered alongside the
-// user tasks on the same task-manager (one tick loop). feed-refresh now IS wired this
-// way — its def comes from the shared @mulmoclaude/core/feeds (`feedRefreshTaskDef`),
-// supplied by server/index.ts. journal / chat-index stay MulmoClaude-only (their run
-// logic isn't in the shared package).
+// System tasks may be passed in via `systemTasks` and are registered alongside the user tasks on
+// the same task-manager (one tick loop). MulmoTerminal currently passes none.
 import path from "node:path";
 import type { Express, Request, Response } from "express";
 import { SCHEDULE_TYPES } from "@receptron/task-scheduler";

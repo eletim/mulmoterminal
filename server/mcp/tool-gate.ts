@@ -1,12 +1,12 @@
 // Which tools a session may see, and what happens when it calls one.
 //
 // The rule that matters here is a security boundary, not a convenience. A hidden
-// translation worker is fed UNTRUSTED sentence content — collection entries, custom-view
-// strings — and its tools are auto-allowed, so it never stops at a permission prompt. A
-// string that talks the model into calling `manageCollection` must therefore find nothing
-// to call: the worker is offered submitTranslation ALONE, and any other name is refused
-// even though it was never advertised. Two layers, because the first one is only a list and
-// a model can name a tool it was not shown.
+// translation worker is fed UNTRUSTED sentence content — rendered strings, copied text, or any
+// other payload a caller pipes there — and its tools are auto-allowed, so it never stops at a
+// permission prompt. A string that talks the model into calling another tool must therefore find
+// nothing to call: the worker is offered submitTranslation ALONE, and any other name is refused
+// even though it was never advertised. Two layers, because the first one is only a list and a model
+// can name a tool it was not shown.
 //
 // The GROUP gate below is the same two-layer shape for a different reason. A group URL
 // (`/api/mcp/render/:id`) exists so a directory can switch a SUBSET of the GUI tools on

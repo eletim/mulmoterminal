@@ -9,14 +9,11 @@ import config from "../plugins/plugins.json";
 import { plugin as markdownPlugin } from "@mulmoclaude/markdown-plugin/vue";
 import { plugin as formPlugin } from "@mulmoclaude/form-plugin/vue";
 import { plugin as chartPlugin } from "@mulmoclaude/chart-plugin/vue";
-import { plugin as collectionPlugin } from "@mulmoclaude/collection-plugin/vue";
 import { plugin as htmlPlugin } from "@mulmoclaude/html-plugin/vue";
 import GenerateImagePlugin from "@mulmochat-plugin/generate-image/vue";
 import { plugin as mulmoScriptPlugin, MULMOSCRIPT_HOST_ADAPTER_KEY, type MulmoScriptHostAdapter } from "@mulmoclaude/mulmoscript-plugin/vue";
-import { AccountingView } from "@mulmoclaude/accounting-plugin/vue";
 import { wrapWithPluginRuntime } from "./composables/pluginRuntime";
-import CollectionCardView from "./components/CollectionCardView.vue";
-import { documentIdentity, filePathIdentity, collectionIdentity } from "./utils/canvasIdentity";
+import { documentIdentity, filePathIdentity } from "./utils/canvasIdentity";
 import { CANVAS_CARD_HEIGHT_VAR } from "./composables/useCanvasCardHeight";
 // Import each package's compiled stylesheet as a STRING (?inline), not as a global
 // side-effect. GuiPanel injects it into a per-view Shadow DOM (see PluginFrame),
@@ -27,11 +24,6 @@ import formCss from "@mulmoclaude/form-plugin/style.css?inline";
 import chartCss from "@mulmoclaude/chart-plugin/style.css?inline";
 import htmlCss from "@mulmoclaude/html-plugin/style.css?inline";
 import mulmoScriptCss from "@mulmoclaude/mulmoscript-plugin/style.css?inline";
-import { collectionShadowCss } from "./collectionShadowCss";
-// The accounting package ships its own self-contained Tailwind in style.css (its
-// content scan can't reach node_modules), imported as a STRING for shadow-DOM
-// injection — same treatment as chart/markdown.
-import accountingCss from "@mulmoclaude/accounting-plugin/style.css?inline";
 // The @mulmochat-plugin family (generate-image + its peer ui-image) ships incomplete
 // CSS — it assumes a Tailwind host. This is MulmoTerminal's Tailwind layer compiled
 // against those packages' dists (see src/plugin-tailwind.css), supplying the
@@ -181,30 +173,6 @@ const PACKAGES: Record<string, Registration> = {
     // than distinct stories. See canvasIdentity.ts.
     identityOf: filePathIdentity,
   },
-  // Keyed by the plugins.json `packages` entry (the cfg.packages loop below looks up
-  // PACKAGES[name]). The collection engine + presentCollection tool moved to
-  // @mulmoclaude/core/collection, so the server loads it from there and plugins.json
-  // names it there — this key MUST match, or the loop skips it and the browser has no
-  // renderer for presentCollection. The Vue `plugin` itself still ships in
-  // @mulmoclaude/collection-plugin/vue (imported above).
-  "@mulmoclaude/core/collection": {
-    toolName: collectionPlugin.toolDefinition.name,
-    // CollectionCardView wraps the package's chat View so it can register its shadow
-    // root as the record modal's teleport target (see the component + collectionUi).
-    // The binding (data fetch, asset URLs, nav, confirm) is configured once at
-    // startup by importing ./composables/collectionUi in main.ts.
-    viewComponent: CollectionCardView,
-    css: collectionShadowCss,
-    // The collection View uses an internal h-full layout (table/kanban scroll
-    // areas, and the custom-view iframe has no intrinsic content height). Give it a
-    // fixed frame so that chain resolves. MulmoClaude frames this card too, but at its
-    // own DEFAULT_PLUGIN_HEIGHT of min(60vh, 560px) — ours is the panel's measured
-    // height, chosen here (#50) so the card fills the pane rather than a fraction of it.
-    height: CANVAS_CARD_HEIGHT,
-    // The collection, by slug alone — NOT slug+itemId, and the same key reconcileCollectionCard
-    // uses. See canvasIdentity.ts for both decisions.
-    identityOf: collectionIdentity,
-  },
 };
 
 // Local plugin registrations, keyed by directory name.
@@ -227,21 +195,6 @@ for (const [modulePath, mod] of Object.entries(localModules)) {
   if (!localEnabled.has(name)) continue;
   registry[mod.REGISTRATION.toolName] = mod.REGISTRATION;
 }
-
-// Accounting is a HOST TOOL, not a plugins.json package: the package exposes only the
-// Vue View + the /api/accounting router (no gui-chat-protocol `.` core to load), and
-// the server always registers manageAccounting (see server/host-tools.ts). So its View
-// registers unconditionally here rather than through the cfg.packages gate above. The
-// View needs no runtime wrap — it reads selectedResult.data directly and reaches the
-// host via its own configureAccountingHost DI (see composables/accountingUi.ts).
-registry["manageAccounting"] = {
-  toolName: "manageAccounting",
-  viewComponent: AccountingView,
-  css: accountingCss,
-  // Full canvas app with an internal h-full layout — give it a fixed frame height
-  // (like the collection/html cards) so that chain resolves.
-  height: CANVAS_CARD_HEIGHT,
-};
 
 export function getPlugin(toolName: string): Registration | undefined {
   return registry[toolName];

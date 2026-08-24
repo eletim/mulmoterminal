@@ -1,9 +1,8 @@
 <script setup lang="ts">
-// The file explorer + editor itself, independent of where it is shown: the full-screen
+// The file explorer + read-only viewer itself, independent of where it is shown: the full-screen
 // Files view (FilesOverlay) and the pane beside a zoomed grid cell mount the same thing.
-// Left: a lazy-loaded directory tree rooted at `cwd`. Right: a CodeMirror editor, with a
-// Markdown preview toggle that reuses the server's sandboxed md→HTML iframe. Writes go
-// through PUT .../write, whose `path` the server contains within the project root.
+// Left: a lazy-loaded directory tree rooted at `cwd`. Right: a read-only CodeMirror
+// viewer, with a Markdown preview toggle that reuses the server's sandboxed md→HTML iframe.
 //
 // It owns no notion of routes or of being open — the host decides when it exists, and
 // calls `reload()` after a root change it has already cleared with the user.
@@ -46,20 +45,14 @@ export interface FilesPaneState {
 }
 
 const props = defineProps<{ cwd: string | null; requestedPath?: string | null; initialState?: FilesPaneState | null }>();
-const emit = defineEmits<{ close: []; dirty: [boolean] }>();
+const emit = defineEmits<{ close: [] }>();
 
 const roots = ref<Node[]>([]);
 const treeError = ref<string | null>(null);
 const openPath = ref<string | null>(null);
 const openName = computed(() => (openPath.value ? (openPath.value.split("/").pop() ?? "") : ""));
-const dirty = ref(false);
-const saving = ref(false);
 const fileError = ref<string | null>(null);
-// The version the open buffer was loaded from; sent back on save so the server can refuse a
-// write that would clobber someone else's (null = the file didn't exist).
 const baseVersion = ref<string | null>(null);
-// Set when a save came back 409, holding the version now on disk — what "Overwrite" re-sends.
-const conflict = ref<{ version: string | null } | null>(null);
 const showPreview = ref(false);
 const isMarkdown = computed(() => langKindForFilename(openName.value) === "markdown");
 
@@ -73,9 +66,6 @@ let editor: CmEditor | null = null;
 // terminal output could open a file at the same moment the pane mounts (#910).
 let treeReqId = 0;
 let fileReqId = 0;
-
-// The host guards its own navigation on this, so it has to hear every change.
-watch(dirty, (value) => emit("dirty", value));
 
 function qs(pathRel: string): string {
   const p = new URLSearchParams();
@@ -137,66 +127,7 @@ const rows = computed(() => {
   return out;
 });
 
-type WriteOutcome = { status: "saved"; version: string | null } | { status: "conflict"; version: string | null } | { status: "error"; message: string };
-
-// One write, reported as a value rather than through component state. Leaving has to keep
-// working while the pane is being torn down, and anything read from `editor` or a ref AFTER
-// an await may already be gone by then.
-async function writeBuffer(pathRel: string, text: string, base: string | null, keepalive = false): Promise<WriteOutcome> {
-  try {
-    const res = await fetch(`/api/files/browse/write?${qs(pathRel)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, baseVersion: base }),
-      keepalive,
-    });
-    const data = await jsonBody(res);
-    const version = typeof data.version === "string" ? data.version : null;
-    if (res.status === 409) return { status: "conflict", version };
-    if (!res.ok) return { status: "error", message: typeof data.error === "string" ? data.error : `HTTP ${res.status}` };
-    return { status: "saved", version };
-  } catch (e) {
-    return { status: "error", message: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-/** Hand a copy to the backup store — content that exists nowhere else once the editor is gone. */
-async function bankText(pathRel: string, text: string, keepalive = false): Promise<boolean> {
-  try {
-    const res = await fetch(`/api/files/browse/backup?${qs(pathRel)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-      keepalive,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-// Save on the way out instead of asking. The editor sits beside a terminal the user is
-// working in, so anything that moves the enlargement — a key, a click on the filmstrip —
-// would otherwise raise a dialog mid-flow. Nothing is lost either way: the server banks
-// three generations of every file it replaces.
-//
-// A save that loses the version race can't put a banner up (we are already leaving), so the
-// buffer is banked instead and the file left as the other writer left it. Everything needed
-// is read BEFORE the first await, so an unmount mid-flight can't take the content with it.
-// Returns whether the buffer is safe to leave behind — false when NEITHER the save nor the
-// backup landed (the server is down, the disk is full). Callers that can stay must stay: with
-// no copy anywhere, walking away is the one outcome that loses what was typed.
 async function flush(): Promise<boolean> {
-  if (!dirty.value || !openPath.value || !editor) return true;
-  const pathRel = openPath.value;
-  const text = editor.getDoc();
-  const outcome = await writeBuffer(pathRel, text, baseVersion.value);
-  if (outcome.status !== "saved" && !(await bankText(pathRel, text))) {
-    fileError.value = outcome.status === "error" ? outcome.message : "could not save or back up this file";
-    return false;
-  }
-  dirty.value = false;
-  conflict.value = null;
   return true;
 }
 
@@ -216,15 +147,9 @@ const failureReason = (body: Record<string, unknown>, status: number): string =>
 // `force` re-reads the file already open and skips the unsaved-edits prompt — the
 // conflict banner's "Reload", where discarding is the button the user just pressed.
 async function loadFile(pathRel: string, force = false): Promise<void> {
-  if (!force) {
-    if (pathRel === openPath.value) return; // already open — no reload
-    // Opening another file is leaving this one. If it couldn't be saved OR banked, staying is
-    // the only way not to lose it.
-    if (!(await flush())) return;
-  }
+  if (!force && pathRel === openPath.value) return; // already open — no reload
   const id = ++fileReqId;
   fileError.value = null;
-  conflict.value = null;
   showPreview.value = false;
   try {
     const res = await fetch(`/api/files/browse/text?${qs(pathRel)}`);
@@ -234,66 +159,13 @@ async function loadFile(pathRel: string, force = false): Promise<void> {
     openPath.value = pathRel;
     baseVersion.value = typeof data.version === "string" ? data.version : null;
     editor?.setDoc(typeof data.text === "string" ? data.text : "", pathRel.split("/").pop() ?? pathRel);
-    dirty.value = false;
   } catch (e) {
     if (id === fileReqId) fileError.value = e instanceof Error ? e.message : String(e);
   }
 }
 
-async function save(): Promise<void> {
-  if (!openPath.value || !editor || saving.value) return;
-  saving.value = true;
-  fileError.value = null;
-  const outcome = await writeBuffer(openPath.value, editor.getDoc(), baseVersion.value);
-  saving.value = false;
-  // 409: the file moved on under us (the agent working in this very directory is the likeliest
-  // author). Nothing was written — offer the choice instead of picking a loser.
-  if (outcome.status === "conflict") {
-    conflict.value = { version: outcome.version };
-    return;
-  }
-  if (outcome.status === "error") {
-    fileError.value = outcome.message;
-    return;
-  }
-  baseVersion.value = outcome.version;
-  dirty.value = false;
-  conflict.value = null;
-}
-
-/** Conflict banner — take the disk's copy. The buffer is banked first, so "discard" costs
- *  nothing that can't be fetched back out of the backup store. */
-async function discardAndReload(): Promise<void> {
-  if (!openPath.value || !editor) return;
-  // "Kept as a backup either way" is the promise the banner makes. If the store refuses it,
-  // the honest answer is to keep the buffer rather than discard it anyway.
-  if (!(await bankText(openPath.value, editor.getDoc()))) {
-    fileError.value = "could not back up your version — nothing was discarded";
-    return;
-  }
-  void loadFile(openPath.value, true);
-}
-
-/** Conflict banner — keep the buffer, adopting the disk's version as the new baseline so the
- *  retry is a deliberate overwrite rather than another conflict. */
-function overwrite(): void {
-  if (!conflict.value) return;
-  baseVersion.value = conflict.value.version;
-  conflict.value = null;
-  void save();
-}
-
 async function requestClose(): Promise<void> {
-  if (await flush()) emit("close");
-}
-
-// Bound to this pane's own subtree, not to window: with a pane open beside a terminal,
-// a window-level ⌘S would save while the user is typing into the terminal.
-function onKeydown(e: KeyboardEvent): void {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-    e.preventDefault();
-    void save();
-  }
+  emit("close");
 }
 
 // The file may move under the editor at any moment — the agent working in this directory is
@@ -305,10 +177,9 @@ function onKeydown(e: KeyboardEvent): void {
 const EXTERNAL_CHECK_MS = 30_000;
 let externalTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Re-read the version and react: a clean buffer just takes the new content (the pane reads as
- *  a live view), a dirty one raises the banner rather than choosing for the user. */
+/** Re-read the version and refresh the content: the pane is a live read-only view. */
 async function checkForExternalChange(): Promise<void> {
-  if (!openPath.value || saving.value || conflict.value) return;
+  if (!openPath.value) return;
   const pathRel = openPath.value;
   try {
     const res = await fetch(`/api/files/browse/version?${qs(pathRel)}`);
@@ -317,8 +188,7 @@ async function checkForExternalChange(): Promise<void> {
     const onDisk = typeof data.version === "string" ? data.version : null;
     // Still the version we loaded, or the answer arrived after the user moved on.
     if (onDisk === baseVersion.value || pathRel !== openPath.value) return;
-    if (dirty.value) conflict.value = { version: onDisk };
-    else void loadFile(pathRel, true);
+    void loadFile(pathRel, true);
   } catch {
     // Offline or the server restarted: the next tick asks again, and the save still can't clobber.
   }
@@ -341,15 +211,13 @@ function teardown(): void {
   editor = null;
   roots.value = [];
   openPath.value = null;
-  dirty.value = false;
   baseVersion.value = null;
-  conflict.value = null;
   showPreview.value = false;
 }
 
 async function start(): Promise<void> {
   await nextTick();
-  if (editorHost.value) editor = createEditor(editorHost.value, () => (dirty.value = true));
+  if (editorHost.value) editor = createEditor(editorHost.value, () => {}, true);
   await loadRoot();
   await restore(props.initialState ?? null);
   // An explicitly requested path wins over whatever was remembered — it is the more recent
@@ -386,28 +254,12 @@ watch(
   },
 );
 
-// Closing the tab or reloading is also leaving the file. `keepalive` lets the request outlive
-// the page — capped at 64 KB by the browser, so a very large buffer may not make it out, which
-// is the one hole autosave can't close.
-function onPageHide(): void {
-  if (!dirty.value || !openPath.value || !editor) return;
-  const pathRel = openPath.value;
-  const text = editor.getDoc();
-  // Both, unconditionally: there is no awaiting an answer here, so the only way to honour
-  // "your version is kept either way" is to bank it whether or not the write wins the race.
-  // The cost is one redundant generation per tab-close with unsaved edits.
-  void bankText(pathRel, text, true);
-  void writeBuffer(pathRel, text, baseVersion.value, true);
-}
-
 let stopWatchingExternal: (() => void) | null = null;
 onMounted(() => {
-  window.addEventListener("pagehide", onPageHide);
   stopWatchingExternal = watchExternalChanges();
   void start();
 });
 onBeforeUnmount(() => {
-  window.removeEventListener("pagehide", onPageHide);
   stopWatchingExternal?.();
   teardown();
 });
@@ -423,37 +275,25 @@ defineExpose({
     await start();
   },
   /** Open a file the host chose — a path clicked in terminal output (#910). Routed through
-   *  loadFile, which treats opening another file as leaving this one, so an unsaved buffer is
-   *  flushed (or keeps the pane where it is) exactly as it would be from the tree. */
+   *  loadFile exactly as it would be from the tree. */
   openFile: (pathRel: string) => loadFile(pathRel),
   flush,
 });
 </script>
 
 <template>
-  <div class="flex min-h-0 min-w-0 flex-auto flex-col" @keydown="onKeydown">
+  <div class="flex min-h-0 min-w-0 flex-auto flex-col">
     <header class="flex flex-none items-center gap-2.5 border-b border-border bg-panel px-4 py-2">
       <slot name="title" />
       <span class="flex-auto" />
-      <span v-if="openPath" class="min-w-0 truncate font-mono text-[12px]" :class="dirty ? 'text-fg' : 'text-secondary'"
-        >{{ openName }}<span v-if="dirty" class="ml-1 text-amber" title="Unsaved">●</span></span
-      >
+      <span v-if="openPath" class="min-w-0 truncate font-mono text-[12px] text-secondary">{{ openName }}</span>
       <button
         v-if="openPath && isMarkdown"
         type="button"
         class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-default disabled:opacity-50"
         @click="showPreview = !showPreview"
       >
-        {{ showPreview ? "Edit" : "Preview" }}
-      </button>
-      <button
-        v-if="openPath"
-        type="button"
-        class="h-[26px] cursor-pointer rounded-md border border-accent bg-accent-bg px-2.5 py-1 text-[12px] text-on-accent enabled:hover:bg-hover enabled:hover:text-fg disabled:cursor-default disabled:opacity-50"
-        :disabled="!dirty || saving"
-        @click="save"
-      >
-        {{ saving ? "Saving…" : "Save" }}
+        {{ showPreview ? "Source" : "Preview" }}
       </button>
       <button
         type="button"
@@ -496,31 +336,8 @@ defineExpose({
         </button>
       </nav>
       <section class="relative flex min-w-0 flex-auto">
-        <div
-          v-if="conflict"
-          role="alert"
-          data-testid="files-conflict"
-          class="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-2 border-b border-amber bg-[var(--warn-bg-subtle)] px-4 py-2 text-[13px] text-warn"
-        >
-          <span class="material-symbols-outlined" aria-hidden="true">warning</span>
-          <span class="flex-auto">This file changed on disk. Nothing was saved — your version is kept as a backup either way.</span>
-          <button
-            type="button"
-            class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"
-            @click="discardAndReload"
-          >
-            Reload (discard your edits)
-          </button>
-          <button
-            type="button"
-            class="h-[26px] cursor-pointer rounded-md border border-border bg-base px-2.5 py-1 text-[12px] text-secondary hover:bg-hover hover:text-fg"
-            @click="overwrite"
-          >
-            Overwrite anyway
-          </button>
-        </div>
         <p v-if="fileError" class="p-4 text-[13px] text-err">{{ fileError }}</p>
-        <p v-if="!openPath" class="m-auto p-4 text-[13px] text-muted">Select a file to view or edit.</p>
+        <p v-if="!openPath" class="m-auto p-4 text-[13px] text-muted">Select a file to view.</p>
         <iframe v-show="openPath && showPreview" class="flex-auto border-0 bg-white" :src="previewSrc" sandbox="" title="Markdown preview" />
         <div v-show="openPath && !showPreview" ref="editorHost" class="files-editor min-w-0 flex-auto overflow-hidden" />
       </section>

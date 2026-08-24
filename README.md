@@ -30,12 +30,10 @@ ping to your phone when a task finishes. One `npx` command, no Electron, no conf
 npx mulmoterminal@latest        # starts on http://localhost:34567 and opens your browser
 ```
 
-> **Something looks wrong?** Type `/mulmoterminal-bug-report` in any MulmoTerminal session. The
-> bundled skill hears the symptom out, checks your **real** config, schema and version to see
-> whether the behaviour is configuration or by design, searches the existing issues — and only
-> helps you file one if none of that explains it, with the environment collected and secrets
-> masked. Getting you unstuck is the goal; an issue is what is left when the first three steps
-> fail.
+> **Something looks wrong?** Open the issue tracker with the exact terminal/session symptoms,
+> version, config details, and a small reproduction. MulmoTerminal's job is to keep the live
+> session observable and recoverable; reports are easiest to act on when they stay anchored to
+> that terminal behaviour.
 
 ![MulmoTerminal's grid view — four live Claude sessions running side by side, each in its own color-coded project](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/grid-2x2-live.png)
 
@@ -52,7 +50,7 @@ npx mulmoterminal@latest        # starts on http://localhost:34567 and opens you
   ready / merged).
 - **A GUI for your agents, not just a terminal.** Beside the terminal, a **Canvas** panel
   renders what an agent produces over MCP — **documents, forms, charts, generated images,
-  HTML, collection cards** — each drawn by its own plugin. The agent doesn't just print
+  HTML, and slides** — each drawn by its own plugin. The agent doesn't just print
   text; it hands you an interface.
 - **Get pulled back from anywhere.** A finished — or input-waiting — task sends a **Web Push
   to your phone**, and the **RemoteHost** companion lets you watch sessions and answer with a
@@ -68,7 +66,7 @@ npx mulmoterminal@latest        # starts on http://localhost:34567 and opens you
   command-output explanations — so a wall of parallel agents stays legible.
 - **Make it yours.** Per-directory **themes, colors, and name badges** (`prod` in red,
   `staging` in amber), a configurable header (buttons + info chips), custom attention sounds,
-  and Run / Skill menus to launch a project's scripts and `.claude/skills` right inside a cell.
+  and a Run menu to launch a project's scripts right inside a cell.
 
 ![The cockpit roster — a one-row-per-session summary list beside the enlarged terminal](https://raw.githubusercontent.com/receptron/mulmoterminal/main/docs/guide/images/cockpit-roster.png)
 
@@ -236,11 +234,9 @@ mulmoterminal
 and every CLI in the table above), seeds the launcher's **directory
 presets** from the projects in your Claude Code history, and writes `~/.mulmoterminal/config.json`.
 It's **idempotent** — re-run it any time to refresh the presets; it overwrites the managed parts
-and keeps your other settings. When `claude` is installed it can hand off to the
-`/mulmoterminal-config` skill for interactive tweaks — it routes to the one that owns what you
-want to change. Once the app is up you can also reach them from **Settings**: each section that a
-skill can write ends in a button that starts that skill in a new session, which is how the settings
-with no UI (a theme of your own, `keymap`) get written without hand-editing JSON.
+and keeps your other settings. Once the app is up, **Settings** covers the common UI-backed
+options; advanced options live in `~/.mulmoterminal/config.json` or the project's
+`.mulmoterminal.json`.
 
 **Google account (optional).** Link a Google account to enable the chat's `google` tool and the
 phone's `google.calendar.*` commands: read/create events on any calendar (not just your primary),
@@ -302,11 +298,10 @@ The launcher detects it and prints the exact, OS-appropriate removal command; ru
 - [Configuration](#configuration)
 - [Running](#running)
 - [Scripts (Run menu)](#scripts-run-menu)
-- [Skills (Skill menu)](#skills-skill-menu)
-- [Files view (browse & edit)](#files-view-browse--edit)
+- [Files view (read-only)](#files-view-read-only)
 - [Git worktrees & pull requests](#git-worktrees--pull-requests)
 - [Cost & token usage](#cost--token-usage)
-- [Wiki, Collections & the GUI panel](#wiki-collections--the-gui-panel)
+- [GUI panel](#gui-panel)
 - [More features](#more-features)
 - [Server API specification](#server-api-specification)
   - [HTTP: `GET /api/sessions`](#http-get-apisessions)
@@ -406,7 +401,7 @@ today — **Claude Code** (the default), **Codex**, and **Antigravity** (`agy`).
 
   Its **GUI tools work differently**, because `agy` takes no MCP flag: it reads its servers from
   `.agents/mcp_config.json` in the working directory. MulmoTerminal writes that file from the
-  directory's [Canvas switches](#wiki-collections--the-gui-panel) — the same switches Claude's cells read — so
+  directory's [Canvas switches](#gui-panel) — the same switches Claude's cells read — so
   one switch serves every agent, and rewrites it whenever a switch flips or an agy session starts.
   Servers in it that MulmoTerminal did not write are left alone, the file is removed once no group
   is on, and it is kept out of your `git status` through `.git/info/exclude` — a local switch on a
@@ -416,8 +411,7 @@ today — **Claude Code** (the default), **Codex**, and **Antigravity** (`agy`).
   process's own environment instead.
 
 **Choosing an agent.** Each grid cell's launch form carries a **Claude / Codex /
-Antigravity / Shell** toggle, and the Collections browser a **Claude / Codex /
-Antigravity** one (your choice is remembered).
+Antigravity / Shell** toggle (your choice is remembered).
 **Shell** is not an agent: it runs your OS default shell (`$SHELL`, or `/bin/sh`) in the
 chosen directory, with nothing to install and nothing to configure. It starts a launcher
 cell, so it has no model, no MCP registration, and no worktree — those rows disappear
@@ -434,15 +428,6 @@ listing ~27 curated models with the measured pass rate of a real tool-using task
 each. A provider whose token can't be resolved **refuses to start** rather than falling
 back to Anthropic. Full walkthrough — setup, the measured model list, adding your own models, troubleshooting:
 [Using another model via OpenRouter](https://receptron.github.io/mulmoterminal/guide/en/providers.html).
-
-**Skills for Codex.** Codex has no `/<slug>` slash commands, so on session setup
-MulmoTerminal **mirrors the workspace's `.claude/skills` into `~/.codex/skills`** (each
-mirrored directory carries a `.mt-mirror` marker so a re-sync overwrites what MulmoTerminal
-owns and never clobbers Codex's own skills), and rewrites a collection's `/<slug> …` seed
-into a plain `Use the "<slug>" skill.` instruction. The same skills Claude uses then show
-up for Codex, loaded by description.
-
----
 
 ## Session persistence (tmux)
 
@@ -478,7 +463,7 @@ detects `tmux` on `PATH` at startup and uses it automatically when present.
 | -------- | ---------- |
 | Frontend | Vue 3 (`<script setup>` + TypeScript), Vue Router, Vite, xterm.js (`@xterm/*`), CodeMirror 6, socket.io-client |
 | Backend  | Node (ESM, TypeScript run via `tsx`), Express 5, `ws` (terminal WebSocket), `node-pty`, socket.io, `@modelcontextprotocol/sdk` (in-process GUI MCP) |
-| Plugins  | GUI-protocol Vue plugins (`@mulmoclaude/*`, `@mulmochat-plugin/*`): markdown, form, image, chart, HTML, collection, accounting, mulmoscript (MulmoCast video/slides), google |
+| Plugins  | GUI-protocol Vue plugins (`@mulmoclaude/*`, `@mulmochat-plugin/*`): markdown, form, image, chart, HTML, mulmoscript (MulmoCast video/slides), google |
 | Tests    | Vitest + @vue/test-utils + jsdom |
 
 Requires **Node ≥ 22.9** (uses `node --env-file-if-exists`) and the `claude` CLI on `PATH`.
@@ -509,14 +494,13 @@ the `claude` / `codex` sessions themselves.
 | `MT_TITLE_MODEL` | `haiku` | Model used for the cell header's AI title (a cheap/fast model summarizing the recent turns). Accepts a `--model` alias or a full model id. |
 | `CODEX_BIN`  | `codex`        | The Codex CLI binary to spawn. |
 | `CODEX_MODEL`| codex default  | Model passed to Codex as `--model` (unset = Codex's own default). |
-| `CODEX_HOME` | `~/.codex`     | Codex home — where its session rollouts and MulmoTerminal-mirrored skills live. |
+| `CODEX_HOME` | `~/.codex`     | Codex home — where its session rollouts live. |
 | `ANTIGRAVITY_BIN` | `agy`     | The Antigravity CLI binary to spawn. |
 | `ANTIGRAVITY_MODEL` | agy default | Model passed to Antigravity as `--model` (unset = agy's own default). |
 | `ANTIGRAVITY_HOME` | `~/.gemini/antigravity-cli` | Antigravity home directory containing session brain storage. |
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | Root for managed **git worktrees**. |
 | `CLAUDE_CONFIG_DIR` | `~` | Claude Code's own config directory. `.claude.json` lives **inside** it, so relocating your Claude Code config moves that file too — MulmoTerminal reads it to tell whether the per-project GUI MCP server is registered (`server/infra/gui-mcp-registration.ts`). Leave it unset and `~/.claude.json` is used. |
 | `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | Where the managed MulmoClaude workspace lives. MulmoTerminal seeds presets/helps **only** into this directory, so launching in an arbitrary project never writes them there (`server/backends/workspaceSetup.ts`). Set it to the same value MulmoClaude uses. |
-| `MULMOTERMINAL_NO_SKILL_INSTALL` | unset | Set to any value to skip installing the bundled skills (`mulmoterminal-config` and the `-dirs` / `-theme` / `-header` / `-keys` / `-model` / `-notify` / `-bug-report` / `-decisions` family) into `~/.claude/skills/` and the Codex skills root on startup. |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | Model used for image generation (needs `GEMINI_API_KEY`). The default is a **preview** model Google schedules for retirement around mid-2026, so pin a stable one here (e.g. `gemini-2.5-flash-image`) rather than waiting for a code change. |
 | `WAIT_REAP_GRACE_MS` | `1800000` | How long a **waiting** background session is kept before it's auto-reaped (`0` or negative = never). |
 
@@ -792,9 +776,7 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `soundFile`  | Absolute path to a custom **attention sound**, the fallback for every kind. Empty/unset uses the built-in synthesized chime. |
 | `soundKinds` | Which moments beep — see [Notification sounds](#notification-sounds). Defaults to `["finished","waiting"]`; the other kinds are opt-in. |
 | `sounds`     | Per-kind sound: `{ "waiting": "preset:coin" }`. A `preset:<id>` reference or an absolute path; a kind with no entry falls back to `soundFile`. |
-| `prRepos`    | `owner/repo` entries whose open PRs/issues the cross-repo **PRs & Issues** view aggregates, using whichever CLI the host needs — your own `gh` or `glab` login, so no token is stored here. An entry may name its host — `gitlab.com/group/project` is read with `glab`, and work can be started on it, commented on and turned into a merge request. A host that is neither shows a row saying so. |
-| `gitlabHosts` | Hosts that run a **self-hosted GitLab**, e.g. `["gitlab.example.com"]`. Nothing in a URL says which forge a host runs, so declaring it is what lets `prRepos` entries on that host be read with `glab` — everything gitlab.com can do, it can do. Needs `glab auth login --hostname <host>`. config.json only (no Settings control), so a hand edit takes effect on the next server start. |
-| `repoDirs`   | `{ "owner/repo": "/abs/path" }` — which local clone work on a repo starts in, when you keep several side by side. Only the *choice* is stored; which clones exist is re-derived from `cwdPresets` on every read, and an entry that no longer names a clone of that repo is ignored. |
+| `gitlabHosts` | Hosts that run a **self-hosted GitLab**, e.g. `["gitlab.example.com"]`. Declaring one lets session-scoped PR/MR links use `glab`. Needs `glab auth login --hostname <host>`. config.json only (no Settings control), so a hand edit takes effect on the next server start. |
 | `launchers`  | `{ label, command }` entries offered in a grid cell's launcher besides the agents — any interactive command. A plain shell needs no entry: the launch form's **Shell** toggle opens `$SHELL` unconfigured. |
 | `quickCommands` | `{ label, text, agents? }` phrases the **phone** offers as chips on a session's terminal view. Tapping one puts `text` in the input box; it is not sent until you press send. `agents` (`"claude"` / `"codex"` / `"shell"`) scopes a chip to session kinds — omit it to offer the chip everywhere. Empty by default. |
 | `userMcpServers` | `{ id, url }` HTTP MCP servers merged into the `--mcp-config` of the Claude sessions that carry the full GUI MCP — a cell whose working directory is the **workspace**, and any session the server starts itself (the phone, a scheduled task). A cell in a project directory loads its own MCP config instead. Takes effect on the next session. |
@@ -802,11 +784,8 @@ The Settings modal (⚙) persists per-user UI choices to `~/.mulmoterminal/confi
 | `chips`      | Header info chips (`dir` / `git` / `work` / `diff` / `ctx` / `usage` / `status` / `tools`, or custom text). Omit to keep the default set; `[]` hides all built-ins. `work` shows which PR / issue the cell is on (`#977 → #966`) and clears itself when the PR merges — see the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#work-chip). |
 | `pushEnabled` | `true` to send a **Web Push** to your registered devices. Off by default; only sends while the **RemoteHost** channel is connected (see below). The master switch — `pushKinds` picks which moments. |
 | `pushKinds` | Which moments push: `"finished"` (a turn ended, ✅) and/or `"waiting"` (the agent stopped to ask — a permission prompt or a question, ❓, **once per prompt**). Omit to keep both; `[]` for none. A kind added in a later version stays off until you tick it. |
-| `worklogEnabled` | `true` to run the built-in **dev worklog** batch (see below). Off by default (each run spawns an LLM session, so it costs tokens). |
-| `worklogIntervalHours` | Worklog cadence in hours (default `6`, clamped to `1`–`168`). |
 | `terminalSubmit` | Which bytes Claude reads as **submit** vs **newline**: `"cr"` (default — Enter submits, Shift+Enter makes a newline) or `"esc-cr"` (for a Claude Code rebound the other way). Applies to the keyboard **and** the phone remote-view submit, for **Claude sessions only** (shell/codex keep plain Enter). See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#terminal-submit). |
 | `copyOnSelect` | `true` puts a **mouse selection on the clipboard the moment it settles**, with no key pressed (the PuTTY / iTerm2 behaviour). **Off by default** — it changes the clipboard when you may only have meant to highlight something. No Settings UI: edit the file and reload the tab. Composes with the `copy` keymap action rather than replacing it. Over plain `http://` the browser gives a page no clipboard access, so a fallback asks xterm to copy instead; see the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#copy-on-select). |
-| `decisionDigest` | Keep a **Markdown digest of the decisions this project's sessions asked for**, refreshed at startup and every few hours, so an agent can read what has already been decided before asking something similar. Written to `~/.mulmoterminal/decisions/<project>.md` (never into your repository) and served to agents by the bundled `mulmoterminal-decisions` skill. **Off by default** — it is a vision-stage idea, and it writes a file that would otherwise not exist. The digest holds dated facts, never inferred rules. |
 | `issueWorkComments` | Let a cell **comment on the issue it is working on**: once when it starts, and again when its PR merges (closing the issue if GitHub has not already). The comment names the working **directory** it happened in — the folder name only, never the path — so a reader can tell which clone. **Off by default**; it writes to GitHub, often on somebody else's issue. Needs `gh` logged in. See the [Configuration guide](https://receptron.github.io/mulmoterminal/guide/en/config.html#issue-work-comments). |
 | `prWorkdirFooter` | Ends a PR body with `work in <clone>` — the directory name of the clone the work happened in, so a PR says which of several side-by-side checkouts produced it. Applies to **both** paths that open PRs here: **⧉ Open PR** appends it to the PR it creates, and every Claude session is told to end the bodies it writes with the same line (the name is resolved by the server, so a session inside a managed worktree still names the main checkout). **On by default**; set `false` to opt out — read per PR and per session spawn, so no restart is needed (there is no Settings control for it). Appending is idempotent: an existing PR never gets a second copy. |
 | `appendSystemPrompt` | Whether a spawned Claude session is asked to end a reply with a **closing summary** — what was asked, what was achieved, what was not (see [Closing summary](#closing-summary)). **On by default**; set `false` to opt out, and a directory's `.mulmoterminal.json` outranks this. Read per spawn, so no restart is needed (there is no Settings control for it), though a session already running keeps what it was launched with. `true` / `false` only. |
@@ -829,12 +808,12 @@ set** with your list (it is not merged on top), so listing your own — even a *
 you drop, reorder, or swap them.
 A button has an `id`, `label`, and a `run` of `"shell"` (run a command), `"input"` (send text to the
 agent), or `"open"`. An `open` button targets one of `url` / `reveal` (OS file manager) / `files`
-(in-app explorer) / `view` (a built-in overlay) / `terminal` (a dir → a new cell running `$SHELL`,
+(read-only in-app explorer) / `view` (`diff`) / `terminal` (a dir → a new cell running `$SHELL`,
 opened next to the current one) / `pr: true` (open the current branch's PR — the button is hidden when
 there's no open PR) / `pickFile: true` (OS file dialog → insert the path).
 `${dir}`, `${branch}`, `${repo}`, … substitute live context, and `when` (e.g. `"isGitRepo"`) gates
-visibility. The `/mulmoterminal-header` skill writes a valid config interactively; per-dir buttons
-merge over the global ones by `id`, while `chips` replace the global list wholesale.
+visibility. Per-dir buttons merge over the global ones by `id`, while `chips` replace the global
+list wholesale.
 
 ### Notification sounds
 
@@ -884,32 +863,6 @@ panes you're not watching. Delivery is handled by the separate `mulmoserver` `se
 Cloud Function; MulmoTerminal only makes the call, and only while the **RemoteHost**
 channel is connected (its Google sign-in supplies the notification auth). With RemoteHost
 disconnected, or with no device registered, the toggle is a no-op.
-
-**Dev worklog (cross-clone).** Set `worklogEnabled: true` in
-`~/.mulmoterminal/config.json` (and **restart** — the scheduler reads its tasks at boot)
-to register a built-in scheduled task. Every `worklogIntervalHours` (default 6) it spawns
-a Claude session that reviews the work you did across **all your saved working dirs**
-(`cwdPresets`) since it last ran, and writes it up as a short manager-style report.
-It runs as a **background worker**: behind the Background filter, never bold, and it takes
-no grid cell, so an hourly task cannot fill the grid. Web **Push** still fires for it —
-being quiet means out of the way, not unreachable, and it runs while you are away.
-Multiple clones/worktrees of the same repo (e.g. `myapp`, `myapp2`) are **merged into one
-per-repository section**, each covering what problem was addressed, what got solved, what's
-still in progress, and — mined from the transcripts — decisions that were only *discussed
-and not built*. The window is **since the last run** (tracked in
-`config/scheduler/worklog-state.json`), not a fixed 6 h, so a missed/slept run doesn't drop
-work. It reads and reconciles progress against `vision.md` / `milestones.md` (creating
-empty ones if absent) so a long-running goal isn't forgotten.
-
-Output lands in the wiki: one **weekly page** per ISO week
-(`data/wiki/pages/dev-log-YYYY-www.md` — filenames are lowercase, or the wiki can't open
-them), each tagged `worklog`. To browse them, open the **作業ログ 一覧** hub page
-(`worklog`), which links every week, or click the **`#worklog`** tag in the wiki index.
-
-Off by default because each run costs tokens — watch the cost readout and tune the cadence.
-Run it on a single "hub" instance; running it in several instances sharing one workspace
-double-fires it. The batch treats everything it reads (transcripts, git, wiki) as untrusted
-data and only writes the worklog / hub / `vision` / `milestones` pages.
 
 ### Per-directory settings (`<project>/.mulmoterminal.json`)
 
@@ -967,11 +920,10 @@ malformed file is ignored.
 **Security.** `sound` and every `sounds` entry are directory-relative paths only — absolute
 paths and any `../` that escapes the directory are rejected, and the path is never taken from the
 HTTP request, so an opened project can't point the player at arbitrary files.
-**When changes take effect.** A write made *through Claude's tools* — which includes the
-`mulmoterminal-dirs` skill — applies **live**: the tool hook that reports the write doubles
-as the reload signal, so colors, palette, font size and grid order update without reopening
-anything. There is no filesystem watcher, so an edit made **outside** a session (your own
-editor) is picked up when the terminal is next opened.
+**When changes take effect.** A write made *through Claude's tools* applies **live**: the tool
+hook that reports the write doubles as the reload signal, so colors, palette, font size and grid
+order update without reopening anything. There is no filesystem watcher, so an edit made
+**outside** a session (your own editor) is picked up when the terminal is next opened.
 
 **Checking what took effect.** Settings → **Directory settings** lists your recent directories
 and expands each one to the values in force, with a swatch per color and the path of the file
@@ -1079,48 +1031,16 @@ the last 32 KB of output. See
 
 ---
 
-## Skills (Skill menu)
-
-Next to the **▶ Run ▾** dropdown, every running terminal's header has a **⚡ Skill ▾**
-dropdown — and **only when the open
-project has skills** (nothing discovered, no button). It lists the
-[Claude skills](https://docs.claude.com/en/docs/claude-code/skills) discoverable for
-that terminal's directory — both **project scope** (`<dir>/.claude/skills`) and **user
-scope** (`~/.claude/skills`), the same skills Claude sees — and, on pick, **runs the
-skill in that session**: it types the skill's invocation into the terminal and submits
-it (for Claude, its `/<slug>` command; for Codex, which has no slash command, a plain
-`Use the "<slug>" skill.` instruction). Unlike **▶ Run** — which launches a
-`script.json` shell command in a spare cell — a skill runs **in the session you
-picked it from**, continuing that conversation.
-
-**Ordering:** working-dir (project) skills come **first**, then user-scope ones,
-alphabetical within each group; a project skill of the same slug shadows the user one.
-
-**Filtering:** add a `skills` array to the directory's
-[`.mulmoterminal.json`](#per-directory-settings-projectmulmoterminaljson) to narrow the menu —
-an allowlist of slugs that also sets the order (only those show, in that order). Omit
-it to show everything.
-
-```jsonc
-// <dir>/.mulmoterminal.json
-{ "skills": ["review-diff", "commit-msg"] }
-```
-
-Each menu item shows the skill's id, with its `SKILL.md` `description` as the hover
-tooltip. A directory (or workspace) without any `.claude/skills` simply shows no
-button. Skills are discovered read-only; the menu never creates or edits them.
-
----
-
-## Files view (browse & edit)
+## Files view (read-only)
 
 A terminal header can carry a **📁 Files** button — add it as a [header button](#header-buttons)
 (`"open": { "files": "${dir}" }`) — that opens a full-screen file explorer
 rooted at **that terminal's project directory** — so after Claude says "wrote `foo.md`"
-you can jump straight there to read or edit it. The left pane is a lazy-loaded directory
+you can jump straight there to inspect it. The left pane is a lazy-loaded directory
 tree; clicking a file opens it in a **CodeMirror** editor (Markdown / JS-TS / JSON
 highlighting, everything else as plain text). Markdown files get a **Preview** toggle
-that renders via the server's sandboxed `…/md` HTML. **Save** (or ⌘/Ctrl-S) writes back.
+that renders via the server's sandboxed `…/md` HTML. The view is read-only: there is no
+save, rename, delete, or editor-style mutation path.
 
 **Beside an enlarged terminal, not only full-screen.** Expand a grid cell (**⤢**) and its
 header gains a **folder** toggle that splits the enlarged area in two: terminal on the left,
@@ -1134,25 +1054,14 @@ The toggle is not the only way in: while a cell is enlarged, **clicking a file p
 printed** opens it here too, rather than in a new tab or full-screen — see
 [Clicking a file path](#clicking-a-file-path).
 
-All reads and writes go through `GET/PUT /api/files/browse/*?cwd=&path=`, and every
+All reads go through `GET /api/files/browse/*?cwd=&path=`, and every
 `path` is **contained within the project root** (server-side) — `..`/absolute escapes
-are rejected for reads and writes alike, so editing can't reach outside the directory
-the terminal is pointed at. A save sends the version the file had when it was opened, so
-it is **refused (409) rather than silently overwriting** an agent that edited the same
-file meanwhile; the editor then offers to reload or to overwrite deliberately.
+are rejected, so browsing cannot reach outside the directory the terminal is pointed at.
 
 You usually hear about it before that. An open file that changes on disk is picked up from
 Claude's own write hook (immediately) and from a 30-second version check (which catches Codex,
-git, builds and other editors too). A **clean** buffer just takes the new content — the pane
-reads as a live view — while a **dirty** one raises the same banner rather than choosing for you.
-
-**Leaving an open file saves it** — switching files, moving the enlargement to another
-terminal, closing the pane, navigating away. No dialog interrupts you mid-flow, because
-opening a file, and replacing one, keep a copy under `~/.mulmoterminal/backups/` — **three
-generations per file**, outside the project so they never reach `git status` or the agent's
-view of its own repo. A parting save that loses the version race banks your version there
-instead of overwriting the other writer. Re-opening unchanged content doesn't rotate one in, and a backup that
-can't be written never blocks the read or the save it was taken for.
+git, builds and other editors too). The pane reloads the new content and keeps behaving as
+a live viewer of the session's cwd.
 
 ---
 
@@ -1227,30 +1136,10 @@ A worktree cell's header carries a **diff badge** (`+<commits> ●<dirty>`); cli
 Closing a worktree cell asks whether to **keep** the worktree or **discard & remove** it
 (a dirty worktree is never removed unless you confirm).
 
-**PRs & Issues (cross-repo).** The toolbar's **Pull requests** button opens a full-screen
-view that aggregates open PRs **and** issues across the repos listed in Settings →
-**Pull request repos** (`prRepos`, `owner/repo` entries, or `gitlab.com/group/project` — plus any host declared in `gitlabHosts`) via your server-side `gh` / `glab` login.
-PRs show a CI-rollup / review-decision / draft badge; each repo lists its latest open
-issues. Rows are real links, per-repo errors don't sink the view, and the two lists load
-independently. Backed by `GET /api/prs` and `GET /api/issues`.
-
-**Starting work from an issue row.** Each issue row carries a **▶** button that does the setup in
-one click: read the issue, cut an `issue/<number>-<slug>` worktree in your clone of that repo, and
-open Claude there as a grid cell with the issue **typed into its input box but not sent**. The
-prompt is seeded server-side as a *draft* (`server/session/draft-injection.ts`), which waits for
-claude's input box to be ready — text pushed in before that lands in the scrollback instead. A repo
-with several clones asks which one the first time and remembers the answer; a repo with no clone
-here disables the button and says why. Backed by `POST /api/issues/start`.
-
-**Which clone a repo's work happens in.** `GET /api/repo-dirs` answers the reverse of the
-GitHub link a cell already shows: given `owner/repo`, which of your saved directories are
-clones of it. The candidates are derived from your directory presets by reading each one's
-`origin` — there is no second list to keep in step — and are ordered by each directory's
-`orderPriority`, then by path. Several clones of one repo commonly run side by side, so the
-answer is a choice rather than a lookup; once you make it, `repoDirs` in the config records
-`owner/repo` → the chosen path and it is used from then on. A recording is dropped if the
-directory is no longer a saved clone of that repo, and a repo with no clone here is simply
-absent from the answer — which is how a caller learns work cannot start on it.
+**Session-scoped PR links.** The cross-repo `/prs` dashboard is gone. A worktree/session cell can
+still show the PR/MR phase for its own current branch, open that PR/MR, and push/create a PR/MR
+from the cell. GitHub uses `gh`; GitLab uses `glab`, including self-hosted hosts declared in
+`gitlabHosts`.
 
 ---
 
@@ -1279,40 +1168,20 @@ The **Settings** modal (⚙) shows an **estimated $ cost** — Session / Today /
 0.1×, cache writes at 1.25× input). It's an estimate: real billing differs, **flat-plan
 (Max) usage isn't reflected**, and turns on unpriced models are flagged and excluded.
 
-A separate, full **double-entry accounting** book (the `account_balance` toolbar button →
-`/accounting`) is provided by the bundled `@mulmoclaude/accounting-plugin` and stores its
-books under `<workspace>/data/accounting`. It's a bookkeeping app — unrelated to the LLM
-cost estimate above — and is also exposed to Claude as the `manageAccounting` GUI tool.
-
 ---
 
-## Wiki, Collections & the GUI panel
-
-MulmoTerminal is also a **live view over the shared workspace** (`CLAUDE_CWD`, default
-`~/mulmoclaude`) that agents author into — never a snapshot, so it re-reads on entry.
+## GUI panel
 
 **GUI panel.** Beside the terminal, a **GUI panel** ("Canvas") renders the rich results of
 GUI-protocol tools the agent calls — documents (`presentDocument`), forms (`presentForm`),
-generated images, charts, HTML, and collection cards. Each result is drawn by its plugin's
+generated images, charts, HTML, and slides. Each result is drawn by its plugin's
 own Vue view inside a Shadow-DOM `PluginFrame` (so a plugin's bundled CSS can't leak),
 mirrors the active session, and replays history on re-select. Plugins reach the agent over
 an **in-process MCP server** served per session at `POST /api/mcp/:sessionId` (server name
 `mulmoterminal-gui`). Which plugins load is gated by `plugins/plugins.json`; the shipped
 set includes markdown, form, image generation (needs `GEMINI_API_KEY`), chart, HTML,
-collection, and mulmoscript (MulmoCast video/slides/PDF playback) views. You can also merge
+and mulmoscript (MulmoCast video/slides/PDF playback) views. You can also merge
 your **own HTTP MCP servers** into a workspace session via Settings → `userMcpServers`.
-
-**Wiki.** The toolbar **Wiki** button opens a read-only browser over `<workspace>/data/wiki/`
-— an **index** (tag-filterable page catalog), rendered **pages** with `[[wiki links]]` and
-backlinks, a **graph** view (pages ranked by references), and a **lint** report (orphans /
-broken links / tag drift) whose `[[links]]` are clickable too. Read-only endpoints:
-`GET /api/wiki`, `/api/wiki/graph`, `/api/wiki/lint`.
-
-**Collections.** The toolbar **Collections** button browses the workspace's collection
-"cards" (`@mulmoclaude/collection-plugin`). Running a collection **action** fetches a seed
-prompt and spawns a fresh agent session for it — the **Launch with Claude / Codex** toggle
-decides which agent (and whether the seed auto-runs or drops in as an editable draft).
-Favorited collections get their own toolbar buttons.
 
 ---
 
@@ -1434,7 +1303,7 @@ quietly answering about the **default workspace** (#1151):
 | --- | --- |
 | `/ws`, `/ws/codex`, `/ws/antigravity`, `/ws/launch`, `/ws/run` | The socket is closed with `{ type: "error", message }`, which the terminal shows as a red banner and does not retry. |
 | A session that is still running (`?session=` names a live PTY or a surviving tmux session) | **Attaches anyway**, with a warning in the server log. Moving or renaming a directory must not shut you out of an agent that is still working in it — and the cwd reported back comes from the running PTY, not from the request. |
-| `GET /api/scripts`, `/api/skills`, `/api/dir-config`, `/api/dir-sound`, `/api/git-status`, `/api/pr-phase`, `/api/header`, `/api/sessions`, `/api/codex/sessions`, `/api/antigravity/sessions`, `/api/session/:id`, `/api/transcript/*`, `/api/cost` | `404 { error, cwd }` — a directory that is not there. |
+| `GET /api/scripts`, `/api/dir-config`, `/api/dir-sound`, `/api/git-status`, `/api/pr-phase`, `/api/header`, `/api/sessions`, `/api/codex/sessions`, `/api/antigravity/sessions`, `/api/session/:id`, `/api/transcript/*`, `/api/cost` | `404 { error, cwd }` — a directory that is not there. |
 | A `?cwd=` that cannot name a directory at all (relative, or repeated as `?cwd=a&cwd=b`) | `400 { error, cwd }`. |
 
 A request that names **no** directory is unaffected: `CLAUDE_CWD` is then the answer it
@@ -1464,30 +1333,6 @@ than with the default workspace's scripts — see
 
 A missing or invalid `script.json` is **not** an error — it yields an empty
 `scripts` array.
-
-### HTTP: `GET /api/skills`
-
-The Claude skills discoverable for a terminal's chosen directory (`?cwd=<dir>`, or
-`CLAUDE_CWD` when none is named) — project scope (`<cwd>/.claude/skills`) plus user scope
-(`~/.claude/skills`), deduped by slug (project shadows user), **working-dir skills
-first**; see [Skills (Skill menu)](#skills-skill-menu). A `skills` allowlist in that
-directory's `.mulmoterminal.json` narrows and reorders the result; absent → all. The
-resolved `cwd` is echoed back. Each entry carries its `slug` (the skill invoked as
-`/<slug>`) and the `SKILL.md` `description` (the menu tooltip).
-
-```jsonc
-// GET /api/skills?cwd=/Users/me/proj
-{
-  "cwd": "/Users/me/proj",
-  "skills": [
-    { "slug": "commit", "description": "Write a commit message" },
-    { "slug": "review", "description": "Review the current diff" }
-  ]
-}
-```
-
-A directory without any discoverable skills is **not** an error — it yields an empty
-`skills` array.
 
 ### HTTP: `POST /api/command/summarize`
 
@@ -1559,9 +1404,6 @@ same-origin-guarded.
 | `GET /api/cost?cwd=&session=` | Estimated $ cost — session / today / month. |
 | `GET /api/transcript/timeline?session=&cwd=` | Per-session activity timeline (tools run). |
 | `GET /api/transcript/last-turn?session=&cwd=&agent=` | A session's last completed exchange (`prompt`, `reply`) plus the `text` to paste into another terminal. `agent=codex` reads the codex rollout instead of the Claude transcript. |
-| `GET /api/decisions?cwd=&limit=` | The decisions a human was asked to make in this project, newest first — each question with the options it offered, their descriptions, and the answer. `answerKind` says whether the answer was one of the options, text the user wrote instead (the question was wrong), or never given. Read out of Claude's own transcripts; writes nothing. `scanned` reports how many transcripts were read (the scan is capped) and `unreadable` how many could not be, so a partial answer is visible rather than implied. A `cwd` that is not an existing directory answers an empty response rather than falling back to the default workspace. |
-| `GET /api/decisions/digest?cwd=` | The same decisions as Markdown, for an agent to read (`{ enabled, markdown }`). `enabled: false` means the `decisionDigest` setting is off — a different answer from an empty digest, so a reader can tell "switched off" from "nothing decided here". |
-
 **Git & worktrees**
 
 | Endpoint | Purpose |
@@ -1570,18 +1412,13 @@ same-origin-guarded.
 | `POST /api/git-remote` | The dir's GitHub repo URL (for the header GitHub menu). |
 | `GET /api/worktrees?cwd=` · `GET /api/worktrees/diff?cwd=` | List managed worktrees / diff one vs its base. |
 | `POST /api/worktrees/create` · `/remove` · `/push` · `/pr` | Create on `agent/<slug>` — or, with `issue: <N>`, on `issue/<N>-<slug>` forked from a freshly fetched `origin/<base>`; remove (managed root only), push, open a PR (`gh`, else compare URL). |
-| `GET /api/prs` · `GET /api/issues` | Open PRs / issues across the configured `prRepos` — `gh` for github.com entries, `glab` for gitlab.com and any host declared in `gitlabHosts`. |
-| `GET /api/repo-dirs` | Which saved directories clone which GitHub repo, ordered, with the recorded choice per repo. |
-| `POST /api/issues/start` | Cut an issue's worktree in one of that repo's known clones and spawn a session there, seeded with the issue as a draft. |
 | `GET /api/github/star` · `POST /api/github/star` | Whether you have starred MulmoTerminal, and star it (via `gh`). `starred: null` means `gh` could not answer, and hides the button. |
 
-**Workspace views**
+**Files**
 
 | Endpoint | Purpose |
 | -------- | ------- |
-| `GET /api/wiki` (`?slug=`) · `/api/wiki/graph` · `/api/wiki/lint` | Read-only wiki index / page / graph / lint. |
-| `GET /api/collections/…` · `/api/feeds` · `GET\|PUT /api/shortcuts` | Collections browser, feeds, favorites (see `docs/collection-plugin-integration.md`). |
-| `GET /api/files/browse/{list,text,version,md}` · `PUT /api/files/browse/{write,backup}` | File tree / read / Markdown-render / write (contained within the project root). `text` answers `{ text, version }`; `write` takes `{ text, baseVersion }` (`null` = expecting to create it) and answers **409** with the version now on disk if the file changed since — so a save can't silently overwrite the agent that edits the same files. `version` answers that token alone, for the editor's periodic check. `backup` banks a buffer the editor is about to discard. |
+| `GET /api/files/browse/{list,text,version,md,json,table}` | Read-only file tree / file text / Markdown-render / structured previews, contained within the project root. `text` answers `{ text, version }`; `version` answers that token alone, for the viewer's periodic change check. |
 | `GET /api/files/raw?path=` | Raw asset bytes (workspace-rooted). |
 
 **GUI panel / plugins / MCP**
@@ -1589,18 +1426,17 @@ same-origin-guarded.
 | Endpoint | Purpose |
 | -------- | ------- |
 | `POST /api/mcp/:sessionId` | Per-session GUI MCP server (Streamable HTTP; `GET`/`DELETE` → 405). |
-| `POST /api/plugin/:toolName` | GUI-plugin dispatch (incl. `spawnBackgroundChat`, `manageAccounting`, `presentHtml`). |
+| `POST /api/plugin/:toolName` | GUI-plugin dispatch (incl. `spawnBackgroundChat`, `presentHtml`). |
 | `GET /api/agent/toolResults/:id` · `POST /api/agent/toolResult` | GUI-panel result history / persist. |
 | `GET /api/tools` · `GET /api/tool-calls/:id` | Available tools / tool-call history. |
-| `POST /api/accounting` | Double-entry accounting (bundled plugin). |
 
 **Config, sound & misc**
 
 | Endpoint | Purpose |
 | -------- | ------- |
-| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `soundKinds`, `sounds`, `prRepos`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
+| `GET\|POST /api/config` | User UI config (`cwdPresets`, `soundFile`, `soundKinds`, `sounds`, `launchers`, `quickCommands`, `userMcpServers`, `providers`). |
 | `GET /api/sound?kind=` · `/api/dir-sound?cwd=&kind=` · `/api/sound-preset/:id` · `/api/dir-config?cwd=` | Custom / per-directory / preset attention sound + per-dir config. `kind` selects a config entry, never a path. |
-| `GET /api/dir-config-detail?cwd=` | The same per-dir config, **plus** the settings a running terminal doesn't need (`provider`, `model`, `skills`, `addDirs`, header button/chip **labels**), **plus** which keys the file set and how each fared (applied / dropped in validation / not a setting at all). Read-only; backs the Settings modal's **Directory settings** preview. Unlike the other `?cwd=` routes this one does **not** fall back to the default workspace — it reports on the directory it was asked about, so a path that no longer exists comes back as `exists:false`. Sound paths and button commands stay server-side. |
+| `GET /api/dir-config-detail?cwd=` | The same per-dir config, **plus** settings a running terminal doesn't need (`provider`, `model`, `addDirs`, header button/chip **labels**), **plus** which keys the file set and how each fared (applied / dropped in validation / not a setting at all). Read-only; backs the Settings modal's **Directory settings** preview. Unlike the other `?cwd=` routes this one does **not** fall back to the default workspace — it reports on the directory it was asked about, so a path that no longer exists comes back as `exists:false`. Sound paths and button commands stay server-side. |
 | `GET /api/launch-options` | The Anthropic-compatible backends this server can reach, each with its models and — when it can't — the reason. Reports the **name** of the env var a key is read from, never the key. |
 | `GET /api/notifications`(`/history`) · `POST /api/notifications/:id/clear` | Notification feed. |
 | `POST /api/transcribe`(`/model`…) | Voice-input transcription (Whisper, macOS). |
@@ -1782,14 +1618,12 @@ Key rules:
   exists) via the in-memory `knownSessions` registry + a `created` push; an
   unused one disappears when its PTY is reaped.
 - **Background workers get their own filter.** A session nobody started by hand —
-  a collection's scheduled refresh, a **user scheduled task** (the dev worklog and
-  anything else the scheduler runs), or a plugin's `spawnBackgroundChat`
+  a configured scheduled task, or a plugin's `spawnBackgroundChat`
   `hidden: true` — is listed under the **Background** chip instead of among the
-  chats, so a refresh schedule doesn't fill the history. It stays openable (a
+  chats, so background automation doesn't fill the history. It stays openable (a
   MulmoTerminal session is a live terminal, so a row you can't reach is a process
   you can't stop), and it is put on the same count+age retention as the
   scheduler's own sessions. The chip appears only when there is one to show. A
-  **manual** collection Refresh is a normal visible session — unchanged. The
   marking is persisted (`~/.mulmoterminal/background-sessions.json`), so a worker
   stays out of the chat list after it finishes and after a restart.
 
@@ -1912,7 +1746,7 @@ server/
                   session state, hook injection, session discovery, GUI-MCP mount
   agents/         AgentAdapter seam + per-agent args/sessions: claude.ts,
                   codex.ts, registry.ts, claude-args.ts, codex-args.ts,
-                  codex-session(s).ts, codex-skills.ts
+                  codex-session(s).ts, antigravity-args.ts
   config/         user + per-directory + header config: app-config.ts,
                   config-routes.ts, config-schema.ts, dir-config.ts,
                   cwd-presets.ts, header-*.ts
@@ -1920,22 +1754,18 @@ server/
                   session-resolve.ts, activity-*.ts, cost.ts,
                   command-summary.ts, terminal-replay.ts, file-cache.ts
   git/            git, GitHub (gh) and GitLab (glab) + worktrees: git-status.ts, gitRemote.ts,
-                  gh.ts, prs.ts, issues.ts, pr-for-branch.ts, worktrees.ts, worktree-*.ts
-  files/          files-browse.ts (contained tree read/write), pick-file.ts,
+                  gh.ts, prs.ts, pr-for-branch.ts, worktrees.ts, worktree-*.ts
+  files/          files-browse.ts (contained read-only tree), pick-file.ts,
                   open-dir.ts, scripts.ts (Run-menu script.json loader)
   infra/          process/transport/misc: tmux.ts, tmux-routes.ts,
                   pubsub.ts (socket.io /ws/pubsub), spa-fallback.ts, host-tools.ts,
-                  plugins-registry.ts, web-push.ts, install-bundled-skills.ts, accounting-tool.ts
+                  plugins-registry.ts, web-push.ts
   mcp/            per-session MCP broker
-  backends/       wiki, collections, feeds, accounting, notifier,
-                  translation, whisper, remote-host, html, files
-  skills/         bundled skills: mulmoterminal-config (entry point + audit), -dirs, -theme,
-                  -header, -keys, -model, -notify, -bug-report, -decisions
+  backends/       notifier, translation, whisper, remote-host, html, files
   fix-pty-perms.js              postinstall: fixes node-pty binary permissions
 src/
   App.vue                       Layout; owns the active session + single/grid view
-  router/                       Vue Router routes (/, /terminals, /collections,
-                                /accounting, /prs, /files, /wiki, …)
+  router/                       Vue Router routes (/, /terminals, /files, /mobile)
   components/
     Sidebar.vue, SessionTabBar.vue           session list + tab bar (pub/sub driven)
     Terminal.vue                             xterm.js terminal; /ws, /ws/codex, /ws/run
@@ -1944,22 +1774,19 @@ src/
     CellLaunchForm.vue                       what an EMPTY cell shows: dir + target + resume /
                                              scripts / worktrees / tool groups
     GuiPanel.vue, PluginFrame.vue            GUI panel (Canvas) + Shadow-DOM plugin host
-    FilesOverlay.vue                         file browser + CodeMirror editor
+    FilesOverlay.vue                         read-only file browser + CodeMirror viewer
     GitBranchChip.vue, ModelContextBadge.vue header chips / badges
-    PrsOverlay.vue                           cross-repo PRs & Issues
-    Wiki*View.vue, Collections*.vue, AccountingOverlay.vue   workspace views
     TimelineOverlay.vue, ToolsPane.vue, NotificationBell.vue, RemoteHostControl.vue
     SettingsModal.vue                        ⚙ settings — the dialog shell + section order
     settings/                                one file per settings section (theme, sounds,
-                                             web push, google, PR repos, launchers, quick
+                                             web push, google, launchers, quick
                                              commands, MCP, cost, shortcuts, …), plus the
                                              shared SettingsStepper / SettingsListRow
   composables/                  useSessions, usePubSub, useGitStatus, useCost,
-                                useChatLauncher, useFilesView, useWikiBrowse,
-                                useCollectionBrowse, useNotifications, useVoiceInput, …
+                                useFilesView, useNotifications, useVoiceInput, …
 common/           Shared by server/ and src/ — both tsconfigs include it, so a value or
                   wire type either side decides from belongs HERE, never mirrored in both:
-                  dirChrome.ts, ghItems.ts, gitStatus.ts, launchOptions.ts, shortcuts.ts,
+                  dirChrome.ts, ghItems.ts, gitStatus.ts, launchOptions.ts,
                   sourceExtensions.ts, modelPresets.ts, modelIds.ts, theme*.ts, …
 vite.config.ts    Dev proxy for /ws (+ /ws/codex, /ws/launch, /ws/run), /ws/pubsub, /api, /artifacts
 vitest.config.ts  jsdom test environment

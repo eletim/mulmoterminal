@@ -86,8 +86,6 @@ function extraRows(extras: Record<string, unknown>): DirConfigRow[] {
   if (provider) rows.push({ key: "provider", label: "Provider", value: provider, color: null });
   const model = asString(extras.model);
   if (model) rows.push({ key: "model", label: "Model", value: model, color: null });
-  const skills = stringList(extras.skills);
-  if (skills.length) rows.push({ key: "skills", label: "Skill menu", value: skills.join(", "), color: null });
   const addDirs = stringList(extras.addDirs);
   if (addDirs.length) rows.push({ key: "addDirs", label: "Extra directories", value: addDirs.join(", "), color: null });
   // Both booleans are a setting, so the test is the TYPE, not truthiness — `false` is the whole

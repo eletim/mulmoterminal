@@ -1,6 +1,6 @@
-// Project-scoped file browsing + editing for the full-screen Files view. Takes a
+// Project-scoped read-only file browsing for the full-screen Files view. Takes a
 // `?cwd=` project dir (the directory a terminal's session runs in) so each terminal
-// browses/edits ITS OWN project. list/text/md are read-only GETs; write is a PUT.
+// browses its own project. list/text/md/json/table/version are read-only GETs.
 //
 // Security: the same loopback/trusted-local-user posture as the worktree/session
 // endpoints — any absolute existing dir is an allowed base — but `path` is always
@@ -13,13 +13,11 @@ import { marked } from "marked";
 import type { Express, Request, Response } from "express";
 import os from "node:os";
 import { hasErrnoCode } from "../errors.js";
-import { backupCurrentFile, storeBackup } from "./backup-store.js";
 import { resolveBase, resolveContained } from "./pathContainment.js";
 import { htmlDoc, jsonHtmlDoc, tableHtmlDoc, delimiterForExtension } from "./renderedDoc.js";
-import { requestBody } from "../routes/requestBody.js";
 
-// Cap on the bytes served to the editor / accepted on write — a text editor, not a
-// blob store. Large/binary files are refused rather than streamed into a textarea.
+// Cap on the bytes served to the viewer — a text viewer, not a blob store.
+// Large/binary files are refused rather than loaded into CodeMirror.
 export const MAX_EDIT_BYTES = 2 * 1024 * 1024;
 
 /** Wrap marked's HTML output in the shared self-contained document (served sandboxed). */
@@ -83,7 +81,7 @@ const browseBase = (req: Request, defaultCwd: string): string => resolveBase(typ
 const browseRel = (req: Request): string => (typeof req.query.path === "string" ? req.query.path : "");
 
 // Resolve `path` under the request's project base; 403 (and returns null) if it escapes —
-// lexically OR through a symlink. One containment gate shared by every route (read + write).
+// lexically OR through a symlink. One containment gate shared by every route.
 function containedFor(req: Request, res: Response, defaultCwd: string): string | null {
   const abs = resolveContained(browseBase(req, defaultCwd), browseRel(req), os.homedir());
   if (!abs) {
@@ -133,7 +131,7 @@ function mountRenderedRoute(app: Express, routePath: string, defaultCwd: string,
 }
 
 export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
-  const { defaultCwd, backupRoot } = deps;
+  const { defaultCwd } = deps;
 
   app.get("/api/files/browse/list", (req, res) => {
     const root = browseBase(req, defaultCwd);
@@ -153,13 +151,10 @@ export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
     try {
       const stat = fs.statSync(abs);
       if (stat.isDirectory()) return res.status(400).json({ error: "not a file" });
-      if (stat.size > MAX_EDIT_BYTES) return res.status(413).json({ error: "file too large to edit" });
+      if (stat.size > MAX_EDIT_BYTES) return res.status(413).json({ error: "file too large to view" });
       // One read for both, so the version can't describe a different revision than the text.
       const bytes = fs.readFileSync(abs);
       const text = bytes.toString("utf8");
-      // Opening is the last moment this content is certainly intact — the editor may save over
-      // it, and the agent in this directory may too. Same-content re-opens don't rotate.
-      storeBackup(abs, text, backupRoot);
       res.json({ text, version: versionOfBytes(bytes) });
     } catch {
       res.status(404).json({ error: "not found" });
@@ -189,52 +184,6 @@ export function mountFilesBrowseRoutes(app: Express, deps: BrowseDeps): void {
   serveRendered("/api/files/browse/json", (text, title) => jsonHtmlDoc(text, title));
   // The delimiter comes from the file's own extension, so one route serves .csv and .tsv.
   serveRendered("/api/files/browse/table", (text, title) => tableHtmlDoc(text, title, delimiterForExtension(path.extname(title))));
-
-  mountWriteRoute(app, deps);
-  mountBackupRoute(app, deps);
 }
 
-type BrowseDeps = { defaultCwd: string; backupRoot: string };
-
-function mountWriteRoute(app: Express, { defaultCwd, backupRoot }: BrowseDeps): void {
-  // Conditional write. `baseVersion` is the version the editor loaded (null = "I expect no
-  // file here"); it is REQUIRED, because an optional one is a blind-write escape hatch and
-  // blind writes are what this endpoint stopped doing. A mismatch answers 409 with the
-  // version now on disk, which the caller can re-send to overwrite deliberately.
-  app.put("/api/files/browse/write", (req, res) => {
-    const abs = containedFor(req, res, defaultCwd);
-    if (!abs) return;
-    const body = requestBody(req.body);
-    const text = body.text;
-    const baseVersion = body.baseVersion;
-    if (typeof text !== "string") return res.status(400).json({ error: "body.text (string) required" });
-    if (baseVersion !== null && typeof baseVersion !== "string") return res.status(400).json({ error: "body.baseVersion (string|null) required" });
-    if (Buffer.byteLength(text, "utf8") > MAX_EDIT_BYTES) return res.status(413).json({ error: "content too large" });
-    try {
-      if (fs.existsSync(abs) && fs.statSync(abs).isDirectory()) return res.status(400).json({ error: "path is a directory" });
-      const onDisk = currentVersion(abs);
-      if (onDisk !== baseVersion) return res.status(409).json({ error: "file changed on disk", version: onDisk });
-      // What is about to be replaced, banked before it is. Best-effort: a backup that can't be
-      // written must not turn into a refusal to save.
-      backupCurrentFile(abs, backupRoot);
-      const bytes = Buffer.from(text, "utf8");
-      fs.writeFileSync(abs, bytes);
-      res.json({ ok: true, version: versionOfBytes(bytes) });
-    } catch {
-      res.status(500).json({ error: "failed to write file" });
-    }
-  });
-}
-
-function mountBackupRoute(app: Express, { defaultCwd, backupRoot }: BrowseDeps): void {
-  // Bank a buffer the CLIENT is about to discard — the conflict banner's "Reload", where the
-  // content being dropped only ever existed in the editor. Nothing else can save it.
-  app.put("/api/files/browse/backup", (req, res) => {
-    const abs = containedFor(req, res, defaultCwd);
-    if (!abs) return;
-    const { text } = requestBody(req.body);
-    if (typeof text !== "string") return res.status(400).json({ error: "body.text (string) required" });
-    if (Buffer.byteLength(text, "utf8") > MAX_EDIT_BYTES) return res.status(413).json({ error: "content too large" });
-    res.json({ stored: storeBackup(abs, text, backupRoot) !== null });
-  });
-}
+type BrowseDeps = { defaultCwd: string };

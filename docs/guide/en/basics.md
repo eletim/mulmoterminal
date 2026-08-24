@@ -40,13 +40,11 @@ it**:
 
 | Group | Buttons |
 |---|---|
-| **Switch view** (left of the rule) | **Grid** and **Collections** — the two places to be |
-| Inside Collections | **Feeds**, **Wiki**, **Accounting**, **Files** appear once you are in the content section |
-| Inside the grid | **Pull requests**, **Worklog**, **New terminal**, cell ordering, the status tally |
+| **Switch view** (left of the rule) | **Grid** and **Files** |
+| Inside the grid | **New terminal**, cell ordering, the status tally |
 | Always | sound, roster / filmstrip, **Settings** |
 
-A full-screen surface (Collections, Wiki, PRs, Accounting, Files) **returns to the view you opened
-it from** when you close it.
+A full-screen **Files** surface **returns to the view you opened it from** when you close it.
 
 ## Launching an agent or a shell (launcher form)
 
@@ -59,7 +57,7 @@ Empty cells in the grid show a **launcher form**. This is where you choose **wha
 | **Claude / Codex / Antigravity / Shell** toggle | Choose what runs in this cell — an **agent**, or **Shell**: your OS default shell (`$SHELL`), with nothing to install and nothing to configure |
 | **WORKING DIRECTORY** | Enter the working directory (the play button launches it). Frequently used directories are offered as clickable *cwd preset* **chips** that fill the field (the chip's play button launches right away) |
 | **Model picker** (when Claude is selected) | Pick the backend / model for this session only (→ [providers](providers.html)) |
-| **Canvas / Workspace data / External accounts** toggles (with an agent selected) | Register a GUI tool group (`render` / `data` / `media` / `external`) as an MCP server **for the directory, not for this session** (→ [which directory to launch in](#launch-dir)) |
+| **Canvas / External accounts** toggles (with an agent selected) | Register a GUI tool group (`render` / `media` / `external`) as an MCP server **for the directory, not for this session** (→ [which directory to launch in](#launch-dir)) |
 | **OR ISOLATE IN A WORKTREE** | In a git repo, enter a task name and hit **New worktree** to create an isolated worktree and launch there. Existing worktrees are listed below it |
 | **OR RESUME HERE** | Sessions that already exist in this directory — click one to continue it |
 | **OR LAUNCH** | Start a configured **launch command** (`codex`, `htop`, anything) as a persistent terminal |
@@ -91,26 +89,28 @@ cell it opens is a persistent terminal (running / exited), not an agent session.
 The reference point is the **workspace** — the server's default working directory (`CLAUDE_CWD`).
 It is settled in this order: `--cwd`, then the `CLAUDE_CWD` environment variable, then the directory you ran `npx mulmoterminal` in.
 When you lose track of which one it is, the `Workspace: …` line printed at startup is the answer.
-Collections, Wiki and Accounting read and write there whichever cell you are in (only the Files pane beside an enlarged cell follows that cell's directory).
+The Files pane beside an enlarged cell follows that cell's directory.
 
 | The cell's working directory | Claude | Codex / Antigravity |
 |---|---|---|
 | **The workspace itself** | Carries the **whole** GUI MCP. Your [MCP servers](config.html#settings-modal) (`userMcpServers`) are merged into it too — and in exchange **that directory's own MCP config is not read** | No such rule. It gets **only the tool groups registered for that directory** |
 | **A project directory** | **No whole GUI MCP.** The directory's own MCP config (`.mcp.json`, `claude mcp add -s local`) loads normally, so register a tool group with the MCP toggles when you want GUI tools | Same |
 
-**To keep doing what you did in the single view in 3.x, launch Claude in the workspace.**
-That is the directory the single view ran in, so a Claude cell started there carries the same thing — drawing into the Canvas, working with collections, with no toggle to turn on.
+**To give Claude the full built-in GUI MCP, launch Claude in the workspace.**
+That lets the session draw into the Canvas without per-directory toggles.
 
 {: .note }
 > **If you also run MulmoClaude, make the workspace the directory MulmoClaude uses** (`~/mulmoclaude` by default).
 > **It is not the directory you cloned MulmoClaude into** — it is the shared place both apps keep their data.
 > To make it the default, run `npx mulmoterminal` from there or pass `--cwd ~/mulmoclaude` — it is settled when the server starts, so changing it means restarting it.
-> The preset skills and help docs are seeded only when the default working directory is that workspace.
+> Help docs are seeded only when the default working directory is that workspace.
 > → [Environment variables](config.html#env) (`CLAUDE_CWD` / `MULMOCLAUDE_WORKSPACE_PATH`)
 
 **Codex and Antigravity have no such rule.**
 Even in the workspace, their GUI tools are whatever that directory has registered.
-When you want one of them drawing into the Canvas or touching collections, turn on the MCP toggles you need: **Canvas** (`render` / `media`) is the panel beside an enlarged cell, **Workspace data** (`data`) is collections and the books, and **External accounts** (`external`) is Google, X and the like.
+When you want one of them drawing into the Canvas, turn on the MCP toggles you need: **Canvas**
+(`render` / `media`) is the panel beside an enlarged cell, and **External accounts** (`external`)
+is Google, X and the like.
 A toggle registers **the directory, not the session**, so it takes effect on the next session started there — it never reaches a session already running.
 Antigravity reads them from `.agents/mcp_config.json` (→ [2.8.0 setup guide](v2.8.0.html)).
 

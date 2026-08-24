@@ -16,7 +16,7 @@ import {
   NAME_MAX_CHARS,
   MAX_BUTTONS,
   MAX_CHIPS,
-  MAX_SKILL_FILTER,
+  VIEW_TARGETS,
 } from "../../../server/config/config-schema";
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from "../../../common/terminalFontSize.js";
 import { TERMINAL_FONT_FAMILY_MAX_CHARS } from "../../../common/terminalFontFamily.js";
@@ -157,21 +157,21 @@ describe("dirConfigJsonSchema", () => {
     expect(schema.type).toBe("object");
     const { properties } = schema;
     const props = isRecord(properties) ? Object.keys(properties) : [];
-    expect(props).toEqual(expect.arrayContaining(["name", "badgeColor", "headerColor", "theme", "colors", "sound", "buttons", "chips", "skills"]));
+    expect(props).toEqual(expect.arrayContaining(["name", "badgeColor", "headerColor", "theme", "colors", "sound", "buttons", "chips"]));
+    expect(props).not.toContain("skills");
   });
 
-  // The skill writes a directory's config from this schema, so a key the runtime honours but the
-  // schema omits is a key the skill will refuse to write — which is what happened to provider /
-  // model between the backend landing (#579) and the picker (#584).
-  it("includes the keys that choose a backend, so the config skill can write them", () => {
+  // Config editors use this schema, so a key the runtime honours but the schema omits is a key
+  // validation would reject even though the app accepts it.
+  it("includes the keys that choose a backend", () => {
     const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
     expect(Object.keys(isRecord(props) ? props : {})).toEqual(expect.arrayContaining(["provider", "model"]));
   });
 
-  // Same reasoning as provider/model above: the config skill writes from this schema, so
-  // `fontSize` has to appear here or the skill refuses to write a key the runtime honours.
+  // Same reasoning as provider/model above: `fontSize` has to appear here because the runtime
+  // honours it and editor validation should match.
   // The bounds come along so an editor flags an unusable size while it can still be fixed.
-  it("includes fontSize with its bounds, so the config skill can write it", () => {
+  it("includes fontSize with its bounds", () => {
     const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
     const fontSize = isRecord(props) && isRecord(props.fontSize) ? props.fontSize : {};
     expect(fontSize.minimum).toBe(TERMINAL_FONT_SIZE_MIN);
@@ -179,7 +179,7 @@ describe("dirConfigJsonSchema", () => {
   });
 
   // z.toJSONSchema DROPS a `.refine`, so the exact rule can't be carried here — the portable
-  // pattern is what stops the skill writing a stack that breaks the CSS declaration.
+  // pattern is what stops generated/editor config from writing a stack that breaks the CSS declaration.
   it("includes fontFamily with the pattern that rejects CSS syntax", () => {
     const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
     const fontFamily = isRecord(props) && isRecord(props.fontFamily) ? props.fontFamily : {};
@@ -189,29 +189,26 @@ describe("dirConfigJsonSchema", () => {
     expect(new RegExp(String(fontFamily.pattern)).test("Cica; color: red")).toBe(false);
   });
 
-  // Same reasoning as fontSize/provider above: the config skill writes from this schema, so a
-  // key absent here is a key it will refuse to write even though the runtime honours it.
-  it("includes orderPriority as an integer, so the config skill can write it", () => {
+  // Same reasoning as fontSize/provider above: generated schema should include keys the runtime
+  // honours.
+  it("includes orderPriority as an integer", () => {
     const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
     const orderPriority = isRecord(props) && isRecord(props.orderPriority) ? props.orderPriority : {};
     expect(orderPriority.type).toBe("integer");
   });
 
   // Same reasoning again (#1062): the loader honours this key, so a schema without it is a key
-  // the config skill refuses to write. Boolean-only for now — the planned third value is a
+  // generated schema should include it. Boolean-only for now — the planned third value is a
   // string, and blessing one here before the loader accepts it would write a config that loads
-  // as "unset" while the skill reports it as written.
-  it("includes appendSystemPrompt as a boolean, so the config skill can write it", () => {
+  // as "unset".
+  it("includes appendSystemPrompt as a boolean", () => {
     const props = isRecord(dirConfigJsonSchema().properties) ? dirConfigJsonSchema().properties : {};
     const appendSystemPrompt = isRecord(props) && isRecord(props.appendSystemPrompt) ? props.appendSystemPrompt : {};
     expect(appendSystemPrompt.type).toBe("boolean");
   });
 
-  it("caps the skills allowlist at MAX_SKILL_FILTER", () => {
-    const schema = dirConfigJsonSchema();
-    const props = isRecord(schema.properties) ? schema.properties : {};
-    const skills = isRecord(props.skills) ? props.skills : {};
-    expect(skills.maxItems).toBe(MAX_SKILL_FILTER);
+  it("only allows remaining header view targets", () => {
+    expect(VIEW_TARGETS).toEqual(["diff"]);
   });
 
   // Regression (#748): zod v4's z.record over an enum is exhaustive, so the generated schema

@@ -87,7 +87,6 @@ beforeEach(() => {
           cwdPresets: [],
           soundFile: null,
           pushKinds: ["finished", "waiting"],
-          prRepos: [],
           launchers: [],
           userMcpServers: [],
           buttons: null,
@@ -102,7 +101,7 @@ beforeEach(() => {
 // A SettingsModal stub whose props we can inspect + whose emits we can drive.
 const SettingsStub = {
   name: "SettingsModal",
-  props: ["soundFile", "pushKinds", "prRepos", "launchers", "userMcpServers", "cwd", "sessionId"],
+  props: ["soundFile", "pushKinds", "launchers", "userMcpServers", "cwd", "sessionId"],
   emits: ["update-push-kinds", "close"],
   template: '<div class="settings-stub" />',
 };
@@ -446,14 +445,11 @@ describe("GridView keyboard shortcuts (#829)", () => {
   });
 });
 
-// A Settings skill button pressed in the GRID opens the skill's session as a grid CELL. It used to
-// route to the single view, which put the user on a different screen than the one they pressed the
-// button on (reported against #1111's first cut).
-const SkillSettingsStub = {
+const PlainSettingsStub = {
   name: "SettingsModal",
   props: ["cwd", "sessionId"],
-  emits: ["launch-skill", "close"],
-  template: "<button class=\"launch-theme\" @click=\"$emit('launch-skill', 'mulmoterminal-theme')\" />",
+  emits: ["close"],
+  template: '<div class="settings-stub" />',
 };
 const CellsStub = { name: "TerminalGrid", props: ["cells"], template: '<div class="cells-stub" />' };
 
@@ -472,7 +468,7 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
     }) as typeof fetch;
 
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 
@@ -499,7 +495,7 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
       }) as typeof fetch;
 
       const w = mountActivated(GridView, {
-        global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+        global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
       });
       await flushPromises();
       expect(w.find('[data-testid="grid-restoring"]').exists()).toBe(true);
@@ -544,7 +540,7 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
     }) as typeof fetch;
 
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
     await flushPromises();
@@ -565,7 +561,7 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
     expect((w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>)[0]?.session).toBe(STALE);
@@ -580,115 +576,8 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
   });
 });
 
-describe("GridView skill launch (#1111)", () => {
-  const SPAWNED = "cccccccc-cccc-cccc-cccc-cccccccccccc";
-
-  const mountWithSpawn = async () => {
-    const spawns: unknown[] = [];
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
-      if (String(url).includes("spawnBackgroundChat")) {
-        spawns.push(JSON.parse(String(init?.body)));
-        return { ok: true, json: async () => ({ jsonData: { chatId: SPAWNED } }) } as Response;
-      }
-      return realFetch(url, init);
-    }) as typeof fetch;
-    const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
-    });
-    await flushPromises();
-    await w.find(".open-settings").trigger("click");
-    await w.find(".launch-theme").trigger("click");
-    await flushPromises();
-    return { w, spawns };
-  };
-
-  type LaunchedCell = { session: string | null; cwd: string | null; agent?: string };
-  const spawnedCells = (w: ReturnType<typeof mount>) => (w.findComponent(CellsStub).props("cells") as LaunchedCell[]).filter((c) => c.session === SPAWNED);
-
-  it("seeds the skill's slash command and shows the session in a cell of its own", async () => {
-    const { w, spawns } = await mountWithSpawn();
-    expect(spawns).toEqual([{ message: "/mulmoterminal-theme", draft: false, agent: "claude" }]);
-    const spawned = spawnedCells(w);
-    expect(spawned).toHaveLength(1);
-    // Seeded with the directory the server spawns these in, so the cell's header isn't blank while
-    // claude boots (/api/config reports it as `cwd`, stubbed to /w above).
-    expect(spawned[0].cwd).toBe("/w");
-    // Claude is the ABSENT case — an explicit `agent: undefined` does not survive the JSON a
-    // persisted cell round-trips, so the key must not be written at all.
-    expect("agent" in spawned[0]).toBe(false);
-    w.unmount();
-  });
-
-  // A spawn follows the Claude/Codex/Antigravity toggle (`mt-launch-agent`), and a cell with no
-  // agent flag reconnects on Claude's endpoint — so a codex session would attach as claude. The
-  // old single-view path got the agent via the opener's `opts`; the grid has to carry it itself.
-  // `launchAgent` (the exported ref) is set directly rather than through localStorage + a module
-  // reset: resetModules hands the test and the component DIFFERENT copies of useChatLauncher, so
-  // the opener one of them registers is invisible to the other.
-  it.each(["codex", "antigravity"] as const)("marks the cell with the agent that was spawned (%s)", async (agent) => {
-    const { launchAgent } = await import("../../../src/composables/useChatLauncher");
-    launchAgent.value = agent;
-    try {
-      const { w, spawns } = await mountWithSpawn();
-      expect(spawns).toEqual([{ message: "/mulmoterminal-theme", draft: false, agent }]);
-      expect(spawnedCells(w)[0].agent).toBe(agent);
-      w.unmount();
-    } finally {
-      launchAgent.value = "claude"; // a module singleton — leaving it set would follow later tests
-    }
-  });
-});
-
-// Two conditions the launch depends on, varied — neither is exercised by the happy path above, and
-// both fail as "pressing the button did nothing", which is the complaint that produced this code.
-describe("GridView skill launch — capacity and placement (#1111)", () => {
+describe("GridView unplaced sessions", () => {
   const SPAWNED = "dddddddd-dddd-dddd-dddd-dddddddddddd";
-  // A distinct UUID per cell: parseGridState keeps only cells whose session is a valid one.
-  const filledGrid = (count: number) =>
-    JSON.stringify({
-      cells: Array.from({ length: count }, (_, i) => ({ uid: i, session: `eeeeeeee-eeee-eeee-eeee-${String(i).padStart(12, "0")}`, cwd: "/w" })),
-      expanded: null,
-      page: 0,
-      sortMode: "manual",
-    });
-
-  const launchFrom = async (persisted: string | null) => {
-    if (persisted) localStorage.setItem("grid_v2", persisted);
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
-      if (String(url).includes("spawnBackgroundChat")) return { ok: true, json: async () => ({ jsonData: { chatId: SPAWNED } }) } as Response;
-      return realFetch(url, init);
-    }) as typeof fetch;
-    const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
-    });
-    await flushPromises();
-    await w.find(".open-settings").trigger("click");
-    await w.find(".launch-theme").trigger("click");
-    await flushPromises();
-    return w;
-  };
-
-  // A cell appended past the current page is invisible, which is indistinguishable from a button
-  // that did nothing. insertCellAfter jumps to the new cell's page; this pins that it does.
-  it("shows the new cell on screen when the current page is already full", async () => {
-    const w = await launchFrom(filledGrid(9)); // PAGE_SIZE — page 0 has no room left
-    const visible = (w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>).map((c) => c.session);
-    expect(visible).toContain(SPAWNED);
-    w.unmount();
-  });
-
-  // At the cap insertCellAfter drops the cell. It used to fall back to the single view; with that
-  // gone the session WAITS — the server clears its unplaced mark only when a cell attaches, so the
-  // next load with room adopts it. What must not happen is a cell appearing anyway, which would
-  // put two sessions on one slot.
-  it("adds no cell when the grid is full, leaving the session to wait", async () => {
-    const w = await launchFrom(filledGrid(81)); // MAX_TERMINALS
-    const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>;
-    expect(cells.filter((c) => c.session === SPAWNED)).toEqual([]);
-    w.unmount();
-  });
 
   // PR3b: the durable half. A chat spawned while no tab was open — a scheduled task at 3am, the
   // phone, an agent calling the tool from another session — has nowhere to appear once the single
@@ -702,7 +591,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 
@@ -725,7 +614,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 
@@ -754,7 +643,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises(); // the mount sweep: nothing waiting yet
     expect((w.findComponent(CellsStub).props("cells") as Array<{ session: string | null }>).some((c) => c.session === LIVE)).toBe(false);
@@ -789,7 +678,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises(); // the mount sweep is now parked inside its fetch
 
@@ -816,7 +705,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 
@@ -842,7 +731,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
     expect(asked).toBe(1); // the mount sweep
@@ -878,7 +767,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
     });
     const w = mount(holder, {
       props: { show: true },
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
     expect(asked).toBe(1);
@@ -903,7 +792,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       return realFetch(url, init);
     }) as typeof fetch;
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CellsStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 
@@ -912,10 +801,9 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
     w.unmount();
   });
 
-  // What the seeded collection is FOR: the Canvas pane exists only beside an enlarged cell, so a
-  // card placed into a tiled one is two gestures away and invisible until both are made. Reported
-  // live — the card was landing correctly and looked like a feature that did nothing.
-  it("enlarges the placed cell and opens its Canvas when a collection was seeded", async () => {
+  // A GUI output pane exists only beside an enlarged cell, so a card placed into a tiled one is
+  // two gestures away and invisible until both are made.
+  it("enlarges the placed cell and opens its Canvas when requested", async () => {
     const { placeSpawnedChat } = await import("../../../src/composables/useSpawnedChat");
     const opened: number[] = [];
     const CanvasGridStub = {
@@ -928,7 +816,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       },
     };
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CanvasGridStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CanvasGridStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 
@@ -944,11 +832,8 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
   });
 
   it("leaves the grid alone for a spawn that asks for no canvas", async () => {
-    // Every other spawn — a skill button, a template card, cron, an issue being started. Taking
-    // over the screen to show an empty pane is worse than leaving the grid as the user arranged it.
-    //
     // The field is OMITTED here, not set false: `canvas` is opt-in precisely so a caller with no
-    // canvas to show says nothing. A required field broke useIssueStart the day it landed.
+    // canvas to show says nothing.
     const { placeSpawnedChat } = await import("../../../src/composables/useSpawnedChat");
     const opened: number[] = [];
     const CanvasGridStub = {
@@ -961,7 +846,7 @@ describe("GridView skill launch — capacity and placement (#1111)", () => {
       },
     };
     const w = mountActivated(GridView, {
-      global: { stubs: { TerminalGrid: CanvasGridStub, AppToolbar: ToolbarStub, SettingsModal: SkillSettingsStub } },
+      global: { stubs: { TerminalGrid: CanvasGridStub, AppToolbar: ToolbarStub, SettingsModal: PlainSettingsStub } },
     });
     await flushPromises();
 

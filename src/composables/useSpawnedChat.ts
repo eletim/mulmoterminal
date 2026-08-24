@@ -1,20 +1,17 @@
 // A seam for placing an ALREADY-SPAWNED chat session as a grid cell — the sibling of
 // useNewTerminal, which spawns a fresh one. Everything that starts a chat programmatically goes
-// through here: the collection UI's create button and its collection / record actions, the
-// new-collection template cards and custom views (all via startCollectionChat), and the Settings
-// skill buttons. GridView owns the grid state, so it REGISTERS a handler; callers just call
-// placeSpawnedChat().
+// through here, including plugin-driven spawnBackgroundChat calls. GridView owns the grid state,
+// so it REGISTERS a handler; callers just call placeSpawnedChat().
 //
 // Why a separate seam rather than a flag on useNewTerminal: that one carries a cwd to spawn AT,
 // this one carries a session id to ADOPT. The spawn already happened — it is the only way to seed
 // a first turn, since a plain claude cell has no channel to be handed a prompt — so a cell here
 // attaches to a live PTY, which is the same path a reload takes to reattach.
 //
-// When the grid isn't mounted (the chat was started from a collection overlay, which renders in
-// the single-view shell), the request is QUEUED and the app switches to /terminals; GridView
+// When the grid isn't mounted, the request is QUEUED and the app switches to /terminals; GridView
 // drains the queue when it registers on activate. Same contract as useNewTerminal, down to the
-// shared createHandlerQueue: a collection action can spawn more than one chat before the route
-// changes, and a dropped one is a live agent with nowhere to appear.
+// shared createHandlerQueue: multiple programmatic spawns can arrive before the route changes, and
+// a dropped one is a live agent with nowhere to appear.
 import { router } from "../router";
 import { createHandlerQueue } from "./handlerQueue";
 import type { TerminalAgent } from "../../common/sessionAgent";
@@ -28,14 +25,13 @@ export interface SpawnedChatRequest {
   /** The prompt was typed into the input box without an Enter (spawnBackgroundChat draft:true)
    *  and is waiting for the user to review it — not a turn already running. */
   draft: boolean;
-  /** A collection card is ALREADY waiting in this session's Canvas, so the cell should arrive
-   *  enlarged with the pane open — otherwise the card sits behind two gestures nobody knows to
-   *  make.
+  /** A Canvas card is ALREADY waiting in this session, so the cell should arrive enlarged with the
+   *  pane open — otherwise the card sits behind two gestures nobody knows to make.
    *
    *  OPT-IN, not a field every caller answers: revealing is right only when something is already
    *  in the pane, and taking over the screen to show an EMPTY one is worse than leaving the grid
-   *  as the user arranged it. A spawn with no canvas to show (an issue being started, a skill
-   *  button, cron) says nothing here and gets the grid's ordinary behaviour. */
+   *  as the user arranged it. A spawn with no canvas to show says nothing here and gets the grid's
+   *  ordinary behaviour. */
   canvas?: boolean;
 }
 /** Returns whether the grid actually took it. `false` means the grid was FULL and fell back to
@@ -57,10 +53,10 @@ export function placeSpawnedChat(req: SpawnedChatRequest): void {
   // still where the user should be looking.
   const goingToTheGrid = queue.deliver(req, true);
   // Then SHOW the grid. Mounted is not the same as on screen: since #1190 the grid stays alive
-  // UNDERNEATH a full-screen overlay, so a chat started from the collections browser is placed
-  // into a grid the user cannot see. Navigating is also what closes that overlay — before the grid
-  // survived one, the queue-and-navigate path did this by accident, and it stopped happening the
-  // moment the grid stopped unmounting.
+  // UNDERNEATH a full-screen overlay, so a programmatic spawn may be placed into a grid the user
+  // cannot see. Navigating is also what closes that overlay — before the grid survived one, the
+  // queue-and-navigate path did this by accident, and it stopped happening the moment the grid
+  // stopped unmounting.
   //
   // NOT when the grid refused it. A full grid falls back to the single view, and pushing here
   // would drag the user off the view the session was just shown in (Codex, PR #1193).

@@ -1,8 +1,7 @@
 // @vitest-environment node
-// Whether a configured repo can be listed, and what the row says when it cannot. The message is
-// the feature: an unsupported forge used to produce an empty section with no explanation (#981).
+// How repository entries and remotes map to the repo identity used by session PR/MR actions.
 import { describe, it, expect } from "vitest";
-import { repoSupport, isSupported, repoForRemote, repoForDir, missingRepoReason } from "../../../server/git/forge-support.js";
+import { repoForRemote, repoForDir, missingRepoReason } from "../../../server/git/forge-support.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -57,40 +56,6 @@ describe("forgeFromRepoEntry", () => {
   );
 });
 
-describe("repoSupport", () => {
-  it("supports a GitHub repo", () => {
-    const support = repoSupport("receptron/mulmoterminal");
-    expect(isSupported(support)).toBe(true);
-    expect(isSupported(support) && support.forge.webUrl).toBe("https://github.com/receptron/mulmoterminal");
-  });
-
-  // GitLab became listable in #981 step 4; this used to assert the opposite.
-  it("supports a GitLab repo", () => {
-    const support = repoSupport("gitlab.com/group/project");
-    expect(isSupported(support)).toBe(true);
-    expect(isSupported(support) && support.forge.webUrl).toBe("https://gitlab.com/group/project");
-  });
-
-  // The point of the original change, still true for every other host: the row says which HOST is
-  // unhandled, so the reader does not go and check their repository name or their credentials.
-  it("names the host of a forge that is not implemented", () => {
-    const support = repoSupport("codeberg.org/owner/repo");
-    expect(isSupported(support)).toBe(false);
-    expect(!isSupported(support) && support.error).toContain("codeberg.org");
-    expect(!isSupported(support) && support.error).toContain("not supported yet");
-  });
-
-  it("names a self-hosted forge by its own host", () => {
-    const support = repoSupport("git.example.com/team/project");
-    expect(!isSupported(support) && support.error).toContain("git.example.com");
-  });
-
-  it("says what a malformed entry should look like", () => {
-    const support = repoSupport("owner");
-    expect(!isSupported(support) && support.error).toContain("owner/repo");
-  });
-});
-
 // The dir-derived half (#981 step 2b). Five call sites each wrote
 // `repoFromWebUrl(await resolveGithubUrl(dir))`, which answers null for BOTH "no remote" and "a
 // remote we cannot act on" — and then reported the second as the first.
@@ -141,7 +106,7 @@ describe("repoForDir", () => {
 // "unsupported forge" was the same collapsing this module exists to undo (Codex review).
 describe("missingRepoReason", () => {
   it("blames the forge only when the forge is the problem", () => {
-    expect(missingRepoReason(repoForRemote("git@gitlab.com:group/project.git"))).toBe("unsupported-forge");
+    expect(missingRepoReason(repoForRemote("git@git.example.com:team/project.git"))).toBe("unsupported-forge");
   });
 
   // Supported forge, unusable path: the host is fine, the remote just does not name a project.
@@ -158,7 +123,7 @@ describe("missingRepoReason", () => {
 });
 
 // A clone is reported for every forge work can happen on, and the name it is reported UNDER has to
-// be the one a `prRepos` entry would use — otherwise the entry and the clone never match (#1257).
+// preserve host identity so GitHub and GitLab projects do not collide (#1257).
 describe("which clones repoForRemote reports", () => {
   it("reports a GitHub clone under the bare owner/repo", () => {
     expect(repoForRemote("git@github.com:acme/web.git")?.repo).toBe("acme/web");

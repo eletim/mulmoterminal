@@ -22,17 +22,11 @@ import type { NextFunction, Request, Response } from "express";
 // a GET is unprotected by anything here, and belongs in a POST.
 const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-// The one deliberate cross-origin caller: a custom collection view is LLM-authored HTML in a
-// sandboxed iframe, so its origin is opaque (`null`) by construction. It carries its own
-// HMAC-signed capability token, scoped to one slug and to read/write — a stronger check than
-// origin, and the reason these paths must not be judged by origin at all.
-const VIEW_DATA = /^\/api\/collections\/[^/]+\/view-data(\/|$)/;
-
 type OriginPredicate = (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 
 export function needsSameOrigin(method: string, path: string): boolean {
-  if (!STATE_CHANGING.has(method.toUpperCase())) return false;
-  return !VIEW_DATA.test(path);
+  void path;
+  return STATE_CHANGING.has(method.toUpperCase());
 }
 
 // The same verdict for a route that keeps a guard of its own on top of the gate below — which is

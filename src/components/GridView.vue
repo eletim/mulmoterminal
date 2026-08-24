@@ -4,9 +4,6 @@ import TerminalGrid, { type CockpitRow } from "./TerminalGrid.vue";
 import AppSettingsModal from "./AppSettingsModal.vue";
 import AppToolbar from "./AppToolbar.vue";
 import GuideLinks from "./GuideLinks.vue";
-import { startCollectionChat } from "../composables/useChatLauncher";
-import { skillSeed } from "./skillSeed";
-import type { BundledSkillName } from "../../common/bundledSkills";
 import {
   initialState,
   addCell,
@@ -72,8 +69,8 @@ import type { LaunchPick } from "./launchers";
 import { isRecord } from "../../common/isRecord";
 
 // The multi-terminal grid view, shown at /terminals. Leaving the grid is just a
-// route push from the shared toolbar (Chat / Collections / a favorite), so there's
-// no exit emit — App.vue renders this only while route.name === "terminals".
+// route push from the shared toolbar, so there's no exit emit — App.vue renders
+// this only while route.name === "terminals".
 
 // One flat list of terminal cells; tabs are just pages (9 each) over it. Closing a
 // cell reflows the list so terminals flow across page boundaries. Only the active
@@ -600,23 +597,6 @@ const adjacentCwd = (uid: number): string =>
   });
 useCaptureKeydown(onShortcutKey);
 
-// Launch a Settings skill in a new auto-running session and show it as a GRID CELL. The button was
-// pressed in the grid's own Settings, so answering it by switching to the single view reads as the
-// app losing your place — you came back to a different screen than the one you left.
-//
-// Spawned first, then adopted: the spawn route is the only way to seed a first turn (a plain claude
-// cell has no channel to be handed a prompt). The cell attaches to the session it is given, which
-// is the same path a reload takes to reattach.
-//
-// No `hidden` here any more: it used to mean "don't let useChatLauncher select this in the single
-// view", which was a workaround for the switch this now avoids by default. `hidden` keeps its own
-// meaning on the server (a real background worker, background-chat.ts) and must not be reused for
-// placement.
-function launchSkill(skill: BundledSkillName) {
-  closeSettings();
-  void startCollectionChat(skillSeed(skill, "claude"));
-}
-
 // The grid component itself, for the one thing GridView drives that is not cell state: revealing
 // a placed chat's Canvas (see placeChat).
 const gridRef = ref<InstanceType<typeof TerminalGrid> | null>(null);
@@ -840,6 +820,6 @@ onBeforeUnmount(detachSpawnedChat);
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">
       <GuideLinks />
     </footer>
-    <AppSettingsModal v-if="showSettings" :presets="presets" @launch-skill="launchSkill" @close="closeSettings" />
+    <AppSettingsModal v-if="showSettings" :presets="presets" @close="closeSettings" />
   </div>
 </template>

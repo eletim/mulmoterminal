@@ -38,10 +38,9 @@ export function parseRepoEntry(entry: string): RepoEntry | null {
 /** The identity a repository is known by ON ITS OWN HOST — `owner/repo` for GitHub, the group path
  *  for GitLab — with any declared host stripped.
  *
- *  `/api/repo-dirs` keys by this, because it derives the name from a clone's remote URL where the
- *  host is not part of the path. A configured entry may spell the host out (`github.com/owner/repo`
- *  became storable in #981 step 2a), so comparing the raw entry against those keys finds nothing
- *  and reports "no local clone" for a repo that has one (Codex review).
+ *  Useful when a CLI wants a project path rather than the host-qualified identity. A configured
+ *  entry may spell the host out (`github.com/owner/repo` became storable in #981 step 2a), so
+ *  comparing raw entries against clone-derived project paths would report false mismatches.
  */
 export const canonicalRepo = (entry: string): string => parseRepoEntry(entry)?.path.join("/") ?? entry.trim();
 

@@ -6,8 +6,8 @@ import { narrowedTools, type ToolSummary } from "../../../server/routes/tool-rou
 const TOOLS: ToolSummary[] = [
   { toolName: "presentDocument", title: "presentDocument" },
   { toolName: "presentHtml", title: "presentHtml" },
-  { toolName: "manageCollection", title: "manageCollection" },
   { toolName: "generateImage", title: "generateImage" },
+  { toolName: "google", title: "google" },
   { toolName: "spawnBackgroundChat", title: "spawnBackgroundChat" },
 ];
 const names = (tools: ToolSummary[]) => tools.map((t) => t.toolName);
@@ -35,7 +35,7 @@ describe("narrowedTools", () => {
   // Ungrouped tools reach no group URL, so a grid cell that registered its tools a group at a
   // time cannot have one — however many groups it registered.
   it("does not give an ungrouped tool to a cell that registered groups", () => {
-    const all = narrowedTools(TOOLS, ["render", "data", "media", "external"], true);
+    const all = narrowedTools(TOOLS, ["render", "media", "external"], true);
     expect(names(all)).not.toContain("spawnBackgroundChat");
     expect(names(narrowedTools(TOOLS, [], false))).toContain("spawnBackgroundChat");
   });
@@ -45,15 +45,15 @@ describe("narrowedTools", () => {
   // spawnBackgroundChat was missing from a cell that could call it, because "is a grid cell" was
   // standing in for "has only what its directory registered", and those came apart.
   it("gives a grid cell everything when it carries the whole GUI MCP", () => {
-    expect(names(narrowedTools(TOOLS, ["render", "data", "media", "external"], true, true))).toEqual(names(TOOLS));
+    expect(names(narrowedTools(TOOLS, ["render", "media", "external"], true, true))).toEqual(names(TOOLS));
     // The groups it happens to have learned are irrelevant to that: the full MCP is the fact.
     expect(names(narrowedTools(TOOLS, [], true, true))).toEqual(names(TOOLS));
   });
 
   // The distinction the flag exists for. Four groups is not the same statement as the whole MCP.
   it("tells a four-group directory apart from a session with the whole MCP", () => {
-    const registered = narrowedTools(TOOLS, ["render", "data", "media", "external"], true, false);
-    const whole = narrowedTools(TOOLS, ["render", "data", "media", "external"], true, true);
+    const registered = narrowedTools(TOOLS, ["render", "media", "external"], true, false);
+    const whole = narrowedTools(TOOLS, ["render", "media", "external"], true, true);
     expect(names(whole)).toContain("spawnBackgroundChat");
     expect(names(registered)).not.toContain("spawnBackgroundChat");
     // Everything else is common to both — only the ungrouped tools differ.

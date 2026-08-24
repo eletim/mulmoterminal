@@ -84,12 +84,7 @@ onUnmounted(() => {
           >{{ mobileUrl }}</code
         >
         <div class="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            data-testid="mobile-qr-copy"
-            class="rounded border border-border px-2.5 py-1 text-[12px] hover:bg-hover"
-            @click="copyUrl"
-          >
+          <button type="button" data-testid="mobile-qr-copy" class="rounded border border-border px-2.5 py-1 text-[12px] hover:bg-hover" @click="copyUrl">
             {{ copied ? "Copied" : "Copy URL" }}
           </button>
           <button type="button" class="rounded border border-border px-2.5 py-1 text-[12px] hover:bg-hover" @click="popoverRef?.close()">Close</button>

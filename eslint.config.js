@@ -72,8 +72,6 @@ export default [
       "src/components/Terminal.vue", //           @keyframes — the voice button's pulse / spin
       "src/components/TerminalGrid.vue", //       parent-state x descendant layout machine + FLIP @keyframes
       "src/components/GuiPanel.vue", //           `.frame + .frame` sibling-combinator spacing
-      "src/components/WikiPageView.vue", //       :deep into v-html markdown
-      "src/components/WikiBrowseOverlay.vue", //  :deep into v-html lint output
       "src/components/FilesOverlay.vue", //       :deep into CodeMirror's injected root
       "src/components/ToolbarPopover.vue", //     shared popover chrome import
     ],
@@ -277,8 +275,7 @@ export default [
     files: [
       "**/*.vue",
       "src/main.ts", // App.vue
-      "src/plugins-registry.ts", // CollectionCardView.vue
-      "src/composables/collectionUi.ts", // PinToggle.vue
+      "src/plugins-registry.ts", // Vue plugin view components
       "src/components/filesPaneStore.ts", // FilesPaneState from FilesPane.vue
     ],
     rules: {
@@ -313,16 +310,6 @@ export default [
       // annotates its handler.) Moving the assertion onto the payload (`handler(data as T)`)
       // relocates it rather than removing it, so it stays where the unprovable claim is made.
       "src/composables/pluginRuntime.ts",
-      // The same shape one layer out: @mulmoclaude/accounting-plugin declares
-      // `AccountingApiCall = <T = unknown>(path, opts) => Promise<ApiResult<T>>`, and the
-      // collection package's CollectionApiResult<T> seam matches it. The PLUGIN picks T; the host
-      // can only hand it a body nothing has checked. `fetchJson` itself now REQUIRES a reader
-      // (#1300), so every caller that can check does — these two cannot, and say so at the seam
-      // with a one-line `asDeclared` rather than pushing the hole back into fetchJson for all of
-      // them. Removing these needs the packages to take a reader, as gui-chat-protocol's own
-      // `fetchJson<T>` already does: receptron/gui-chat-protocol#30.
-      "src/composables/accountingUi.ts",
-      "src/composables/collectionUi.ts",
     ],
     rules: {
       "@typescript-eslint/consistent-type-assertions": "off",

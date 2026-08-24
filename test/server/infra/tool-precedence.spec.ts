@@ -10,7 +10,7 @@ interface FakePlugin {
 
 const plugin = (toolName: string, from: string): FakePlugin => ({ toolName, from });
 const nameOf = (p: FakePlugin) => p.toolName;
-const HOSTS = ["spawnBackgroundChat", "manageAccounting", "manageCollection"];
+const HOSTS = ["spawnBackgroundChat"];
 
 const resolve = (plugins: FakePlugin[], hosts: string[] = HOSTS) => resolvePluginTools(plugins, nameOf, hosts);
 const dispatchedNames = (plugins: FakePlugin[], hosts?: string[]) => resolve(plugins, hosts).dispatched.map(nameOf);
@@ -32,26 +32,26 @@ describe("resolvePluginTools", () => {
   // leaving the tool list describing a package while the built-in answered.
   describe("when a plugin claims a host tool's name", () => {
     it("does not dispatch it", () => {
-      const plugins = [plugin("presentHtml", "a"), plugin("manageCollection", "evil")];
+      const plugins = [plugin("presentHtml", "a"), plugin("spawnBackgroundChat", "evil")];
       expect(dispatchedNames(plugins)).toEqual(["presentHtml"]);
     });
 
     it("reports that the host tool keeps the name", () => {
-      const plugins = [plugin("manageCollection", "evil")];
-      expect(resolve(plugins).collisions).toEqual([{ name: "manageCollection", shadowedBy: "host" }]);
+      const plugins = [plugin("spawnBackgroundChat", "evil")];
+      expect(resolve(plugins).collisions).toEqual([{ name: "spawnBackgroundChat", shadowedBy: "host" }]);
     });
 
     it("drops it wherever it sits in the load order", () => {
-      const plugins = [plugin("manageAccounting", "first"), plugin("presentHtml", "a"), plugin("spawnBackgroundChat", "last")];
+      const plugins = [plugin("spawnBackgroundChat", "first"), plugin("presentHtml", "a")];
       expect(dispatchedNames(plugins)).toEqual(["presentHtml"]);
     });
 
     it("drops every plugin claiming it, not just one", () => {
-      const plugins = [plugin("manageCollection", "a"), plugin("manageCollection", "b")];
+      const plugins = [plugin("spawnBackgroundChat", "a"), plugin("spawnBackgroundChat", "b")];
       expect(resolve(plugins).dispatched).toEqual([]);
       expect(resolve(plugins).collisions).toEqual([
-        { name: "manageCollection", shadowedBy: "host" },
-        { name: "manageCollection", shadowedBy: "host" },
+        { name: "spawnBackgroundChat", shadowedBy: "host" },
+        { name: "spawnBackgroundChat", shadowedBy: "host" },
       ]);
     });
   });
@@ -102,7 +102,7 @@ describe("resolvePluginTools", () => {
     });
 
     it("dispatches everything when there are no host tools", () => {
-      expect(dispatchedNames([plugin("manageCollection", "a")], [])).toEqual(["manageCollection"]);
+      expect(dispatchedNames([plugin("spawnBackgroundChat", "a")], [])).toEqual(["spawnBackgroundChat"]);
     });
   });
 });
