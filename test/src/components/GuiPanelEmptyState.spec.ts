@@ -123,4 +123,18 @@ describe("the canvas pane's empty state", () => {
     await flushPromises();
     expect(w.find('[data-testid="canvas-empty"]').exists()).toBe(false);
   });
+
+  it("ignores retired cards when deciding whether there is content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/api/tools")) return { ok: true, json: async () => ({ tools: [{ toolName: "presentHtml", title: "presentHtml" }] }) };
+        return { ok: true, json: async () => ({ toolResults: [{ uuid: "old", toolName: "presentCollection", data: {} }] }) };
+      }),
+    );
+    const w = mountPanel();
+    await flushPromises();
+    expect(w.find('[data-testid="canvas-empty"]').exists()).toBe(true);
+    expect(w.find('[data-testid="canvas-empty"]').text()).toContain("presentHtml");
+  });
 });

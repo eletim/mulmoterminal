@@ -118,8 +118,6 @@ async function onUpdateResult(existing: ToolResult, update: Partial<ToolResult>)
   }
 }
 
-const hasContent = computed(() => results.value.length > 0);
-
 // What a result IS, for the purpose of "this is the same thing you already drew". The plugin
 // decides (Registration.identityOf); the toolName prefix is added here so two plugins returning
 // the same string — a collection slug that happens to read like a path — stay separate.
@@ -157,6 +155,8 @@ const drawableCards = computed(() =>
     return plugin ? [{ result, plugin }] : [];
   }),
 );
+
+const hasContent = computed(() => drawableCards.value.length > 0);
 
 // Auto-follow. The pane never scrolled itself, so each new card landed below the fold and the
 // user had to go find it; collapsing above removes most of that, but a card can still arrive

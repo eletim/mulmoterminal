@@ -37,14 +37,21 @@ describe("runUpgradeCleanup", () => {
     const codexSkills = path.join(codexHome, "skills");
     makeOwnedSkill(claudeSkills, "mulmoterminal-config");
     makeOwnedSkill(codexSkills, "mulmoterminal-notify");
+    mkdirSync(path.join(codexSkills, "workspace-skill"), { recursive: true });
+    writeFileSync(path.join(codexSkills, "workspace-skill", "SKILL.md"), "# mirrored workspace skill");
+    writeFileSync(path.join(codexSkills, "workspace-skill", ".mt-mirror"), "mirrored by mulmoterminal\n");
+    mkdirSync(path.join(codexSkills, "user-skill"), { recursive: true });
+    writeFileSync(path.join(codexSkills, "user-skill", "SKILL.md"), "# user skill");
     mkdirSync(path.join(claudeSkills, "mulmoterminal-dirs"), { recursive: true });
     writeFileSync(path.join(claudeSkills, "mulmoterminal-dirs", "SKILL.md"), "# user skill");
 
     const result = runUpgradeCleanup({ home, codexHome });
 
-    expect(result.ownedSkillsRemoved).toBe(2);
+    expect(result.ownedSkillsRemoved).toBe(3);
     expect(existsSync(path.join(claudeSkills, "mulmoterminal-config"))).toBe(false);
     expect(existsSync(path.join(codexSkills, "mulmoterminal-notify"))).toBe(false);
+    expect(existsSync(path.join(codexSkills, "workspace-skill"))).toBe(false);
+    expect(existsSync(path.join(codexSkills, "user-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(path.join(claudeSkills, "mulmoterminal-dirs", "SKILL.md"))).toBe(true);
   });
 

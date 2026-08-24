@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { isRecord } from "../../common/isRecord.js";
 import { removeQuietly } from "./fs-cleanup.js";
 
 const OWNED_SKILL_MARKER = ".mt-owned";
+const CODEX_MIRROR_MARKER = ".mt-mirror";
 const RETIRED_MCP_SERVER_IDS = ["mulmoterminal-data"] as const;
 const RETIRED_MCP_SERVER_ID_SET = new Set<string>(RETIRED_MCP_SERVER_IDS);
 
@@ -59,6 +60,26 @@ export function removeOwnedRetiredSkills(roots: readonly string[]): number {
       if (!existsSync(path.join(dir, OWNED_SKILL_MARKER))) continue;
       if (removeQuietly(dir)) removed += 1;
     }
+  }
+  return removed;
+}
+
+function directoryNames(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+export function removeOwnedCodexSkillMirrors(codexSkillsRoot: string): number {
+  let removed = 0;
+  for (const name of directoryNames(codexSkillsRoot)) {
+    const dir = path.join(codexSkillsRoot, name);
+    if (!existsSync(path.join(dir, CODEX_MIRROR_MARKER))) continue;
+    if (removeQuietly(dir)) removed += 1;
   }
   return removed;
 }
@@ -191,6 +212,7 @@ export function runUpgradeCleanup(options: UpgradeCleanupOptions = {}): UpgradeC
   const codexHome = options.codexHome ?? defaultCodexHome(home);
   let result = emptyResult();
   result.ownedSkillsRemoved = removeOwnedRetiredSkills(retiredSkillRoots(home, codexHome));
+  result.ownedSkillsRemoved += removeOwnedCodexSkillMirrors(path.join(codexHome, "skills"));
   result = add(result, rewriteJsonConfig(options.claudeConfigFile ?? defaultClaudeConfigFile(home), removeRetiredClaudeMcpRegistrations));
   for (const file of ancestorFiles(options.knownDirs ?? [], ".mcp.json")) {
     result = add(result, rewriteJsonConfig(file, removeServerIdsFromScope));
