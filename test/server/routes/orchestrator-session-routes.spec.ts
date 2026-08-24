@@ -95,6 +95,14 @@ describe("orchestrator session routes", () => {
     expect(writes).toEqual([]);
   });
 
+  it("returns 404 when input targets a missing session", async () => {
+    const { app, writes } = appFor({ statusOf: async () => null });
+    const res = await request(app).post(`/api/sessions/${ID}/input`).send({ text: "run this" });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "session not found" });
+    expect(writes).toEqual([]);
+  });
+
   it("sends input using the shared terminal sender once ready", async () => {
     const { app, writes, waiting } = appFor();
     const res = await request(app).post(`/api/sessions/${ID}/input`).send({ text: "run this" });

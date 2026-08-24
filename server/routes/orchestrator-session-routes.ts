@@ -111,8 +111,12 @@ export function mountOrchestratorSessionRoutes(app: Express, deps: OrchestratorS
 
   app.post("/api/sessions/:id/input", async (req: Request<{ id: string }>, res: Response) => {
     if (rejectUnauthorized(req, res, deps)) return;
+    const { id } = req.params;
+    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
+    const status = await deps.statusOf(id);
+    if (!status) return res.status(404).json({ error: "session not found" });
     const result = await sendTerminalSessionInput(
-      req.params.id,
+      id,
       req.body,
       { captureTerminalScreen: deps.captureTerminalScreen, sendInput, sessionAgent: deps.sessionAgent, setWaiting: deps.setWaiting },
       { requireReady: async (id) => readinessOnly(await deps.statusOf(id)) },

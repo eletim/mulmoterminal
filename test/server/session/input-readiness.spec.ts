@@ -40,6 +40,17 @@ describe("input readiness", () => {
     });
   });
 
+  it("does not expose mutable tracker internals in public state", () => {
+    const id = randomUUID();
+    const tracker = createInputReadinessTracker();
+    tracker.markSessionLive(id, "codex");
+    tracker.noteOutput(id, "codex", "booting");
+
+    expect(tracker.stateOf(id)).not.toHaveProperty("agent");
+    expect(tracker.stateOf(id)).not.toHaveProperty("scan");
+    expect(tracker.stateOf(id)).not.toHaveProperty("quiet");
+  });
+
   it("reports detached tmux survivor readiness as unknown when no process observed it", () => {
     const session = record({
       agent: "codex",
