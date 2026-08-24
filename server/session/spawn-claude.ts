@@ -70,6 +70,17 @@ function newSessionTitle(seed: string | undefined): string {
   return (seed ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 }
 
+function recordClaudeLive(sessionId: string, cwd: string, deps: SpawnDeps): void {
+  recordSessionLive({ id: sessionId, agent: "claude", cwd });
+  deps.inputReadiness?.markSessionLive(sessionId, "claude");
+}
+
+function relayClaudeOutput(entry: PtyEntry, sessionId: string, data: string, deps: SpawnDeps): void {
+  entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
+  sendFrame(entry.ws, { type: "output", data });
+  deps.inputReadiness?.noteOutput(sessionId, "claude", data);
+}
+
 // What this session runs, and the directory config it runs under (#579). A refusal THROWS:
 // falling back to Anthropic would send this session's prompts to a backend the directory did not
 // select, which is exactly what the provider contract exists to prevent. The ws route turns it
@@ -206,7 +217,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
     ptys.set(sessionId, entry);
-    recordSessionLive({ id: sessionId, agent: "claude", cwd });
+    recordClaudeLive(sessionId, cwd, deps);
     // Every claude spawn above carries `--settings` with the Pre/PostToolUse hooks, so from here
     // on this session reports its own tool calls — which is what stops the MCP broker recording
     // its GUI calls a second time (mcp/gui-call-history.ts).
@@ -227,13 +238,13 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     // PTY -> browser (buffering a bounded tail for reattach).
     entry.term.onData((data) => {
-      entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
-      sendFrame(entry.ws, { type: "output", data });
+      relayClaudeOutput(entry, sessionId, data, deps);
       scanForDraftReady(data);
     });
 
     entry.term.onExit(({ exitCode, signal }) => {
       console.log(ptyExitLine({ agent: "claude", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
+      deps.inputReadiness?.markSessionStopped(sessionId);
       sendExitAndClose(entry.ws, exitCode, signal);
       // Clear the dot if it died mid-turn, then tear down everything (deletes
       // ptys/knownSessions/activity and publishes "closed") so a process that

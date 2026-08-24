@@ -25,7 +25,10 @@ const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 type OriginPredicate = (origin: string | undefined, remoteAddress: string | undefined) => boolean;
 
 export function needsSameOrigin(method: string, path: string): boolean {
-  void path;
+  // The external Session API has its own server-to-server authentication boundary: token when
+  // configured, otherwise Origin-less loopback by default. Running the browser Origin gate first
+  // would reject the token-backed Tailscale/server client case before that route can authenticate.
+  if (path === "/api/sessions" || path.startsWith("/api/sessions/")) return false;
   return STATE_CHANGING.has(method.toUpperCase());
 }
 
