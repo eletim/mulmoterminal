@@ -2,9 +2,7 @@
 // self-hosted instance at `gitlab.hogefuga.com` is indistinguishable from any other host, so the
 // user DECLARES it in `gitlabHosts` — the config mechanism #981 said this would need.
 //
-// In `common/` because both sides decide from it: the server picks a CLI from it, and the browser
-// says why a control is off. Two copies would drift, and disagreeing is the failure the forge
-// abstraction exists to undo.
+// In `common/` because config loading and forge parsing both need the same normalization.
 import { GITHUB_HOST, GITLAB_HOST } from "./repoEntry.js";
 
 // A hostname, lower case, with at least one dot. The dot is not cosmetic: `parseRepoEntry` reads a
@@ -49,12 +47,3 @@ export function sanitizeGitlabHosts(input: unknown): string[] {
  *  `glab` — is also the easiest to write by accident.
  */
 export const isGitlabHost = (host: string, declared: readonly string[]): boolean => host === GITLAB_HOST || (host !== GITHUB_HOST && declared.includes(host));
-
-/** Why a host is not handled, and what to do about it.
- *
- *  ONE sentence, shared by the PRs/Issues row and the start-work refusal: #1332 was filed by a user
- *  who read "is not supported yet" and could not tell whether their setup was wrong, whether the
- *  feature was coming, or what to try — so the reason has to carry the fix.
- */
-export const unknownForgeReason = (host: string): string =>
-  `${host} is not supported yet — MulmoTerminal reads github.com and gitlab.com; if ${host} is a self-hosted GitLab, add it to "gitlabHosts" in ~/.mulmoterminal/config.json and restart`;

@@ -5,7 +5,6 @@ import { onToolGroupsAnnounced } from "../composables/useToolGroupsAnnounce";
 import { getPlugin } from "../plugins-registry";
 import PluginFrame from "./PluginFrame.vue";
 import { TOOL_GROUPS, groupOfTool, toolsInGroup } from "../../common/toolGroups";
-import { reconcileCollectionCard } from "../../common/collectionSeed";
 import { collapseByIdentity } from "../utils/canvasCollapse";
 import { useCanvasCardHeight } from "../composables/useCanvasCardHeight";
 import { isRecord } from "../../common/isRecord";
@@ -79,11 +78,6 @@ const { upsert } = useSessionFeed(results, {
   // The channel carries untrusted JSON; a card with no uuid cannot be deduped or keyed, so it is
   // not a result this panel can render.
   parse: readToolResult,
-  // The one pair uuid dedupe cannot relate: a collection placeholder seeded by the browser at
-  // spawn, and the agent's own presentCollection card for the same collection. Different writers,
-  // different uuids, one thing on screen — the real card wins. The server applies the same rule to
-  // what it stores, so a reload agrees with what is here now.
-  reconcile: (list, incoming) => reconcileCollectionCard(list, incoming),
   // Drop the previous session's views the moment the session changes, rather than when its
   // replacement's history arrives: until then the panel would still be showing another cell's
   // drawings under this cell's name.
@@ -142,13 +136,8 @@ const cards = computed(() => collapseByIdentity(results.value, cardIdentity));
 // (same subject, same key, one instance kept across edits) and is the wrong one.
 //
 // The remount IS the refresh. A re-presented card is meant to show state that CHANGED, and the
-// views have no other way to learn that. The collection View reloads from a
-// `watch(activeSlug, …)`: re-presenting the same collection leaves that slug identical, so the
-// watch never fires, and MulmoTerminal does not configure the package's optional
-// `subscribeChanges` hook (see src/composables/collectionUi.ts) that would otherwise push the
-// change in. Keeping the instance therefore keeps its STALE contents — a card that collapsed to
-// "the newest" while rendering the oldest, which is worse than the stacking this replaces.
-// presentHtml's iframe and presentDocument's rendered body are the same story.
+// views have no other way to learn that. presentHtml's iframe and presentDocument's rendered
+// body are the same story.
 //
 // What is lost is what the view held internally — the table's scroll position, expanded rows —
 // and that is exactly what today's behaviour already loses, since today every edit draws a whole
@@ -217,10 +206,6 @@ const TOOL_HINTS = new Map<string, string>([
   ["presentForm", "a form to fill in and send back"],
   ["presentChart", "a chart from a set of data"],
   ["presentHtml", "a self-contained web page"],
-
-  ["presentCollection", "a collection from this workspace, laid out to browse"],
-  ["manageCollection", "reads and writes those collections and their schemas"],
-  ["manageAccounting", "reads and writes the workspace's books"],
 
   ["generateImage", "an image generated from a prompt"],
   ["presentMulmoScript", "a MulmoScript presentation, built and played here"],

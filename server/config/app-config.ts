@@ -31,7 +31,6 @@ import { sanitizeCockpitLines, DEFAULT_COCKPIT_LINES, type CockpitLines } from "
 import { normalizeFontFamily } from "../../common/terminalFontFamily.js";
 import { readTextFile } from "../infra/read-text-file.js";
 import { writeFileAtomicSync } from "../files/atomic-write.js";
-import { isRepoEntry } from "../../common/repoEntry.js";
 import { sanitizeGitlabHosts } from "../../common/gitlabHosts.js";
 
 export interface AppConfig {
@@ -46,16 +45,10 @@ export interface AppConfig {
   // Per-kind sound: a `preset:<id>` reference or an absolute path to the user's own file.
   // A kind with no entry falls back to `soundFile`, then to the built-in chime.
   sounds: Partial<Record<NotifyKind, string>>;
-  // GitHub repos ("owner/repo") whose open PRs the cross-repo PR view aggregates.
-  prRepos: string[];
   // Hosts that run a self-hosted GitLab (#1332), e.g. "gitlab.hogefuga.com". A host named here is
   // read with `glab`, exactly as gitlab.com is; nothing else can tell them apart from the URL.
-  // config.json only — no Settings control, so a hand edit needs a restart like `prRepos` does.
+  // config.json only — no Settings control, so a hand edit needs a restart.
   gitlabHosts: string[];
-  // Which local clone work on a repo starts in, for the repos the user has chosen one for (#1172).
-  // Only the CHOICE is stored: which clones exist at all is derived from `cwdPresets` on every
-  // read, so adding a clone needs no second edit and a stale entry cannot invent a directory.
-  repoDirs: Record<string, string>;
   // User-defined launch commands offered in the grid cell launcher (label + command).
   launchers: Launcher[];
   // Phrases the phone offers as chips on a session's terminal view (#830), optionally
@@ -72,11 +65,6 @@ export interface AppConfig {
   // decline the ones a blocked agent raises — which on a task that asks permission repeatedly is
   // most of them. Device opt-in lives in the mobile page's subscription store.
   pushKinds: PushKind[];
-  // Periodic dev-work log: a built-in scheduled task that summarizes recent work across
-  // the saved working dirs into weekly wiki pages. Off by default (it spawns an LLM
-  // session on each run, so it costs tokens). `worklogIntervalHours` is the cadence.
-  worklogEnabled: boolean;
-  worklogIntervalHours: number;
   // Anthropic-compatible backends a directory can point its sessions at (#579). Safe to
   // serve: an entry names the env var holding its key (`tokenEnv`), never the key.
   providers: Provider[];
@@ -107,11 +95,6 @@ export interface AppConfig {
   // its PR merges (#979). OFF unless asked for — it writes to GitHub, on issues that are often
   // somebody else's, and the comment names the working directory it happened in.
   issueWorkComments: boolean;
-  // Keep a Markdown digest of the decisions this project's sessions asked for, refreshed on a
-  // timer, for an agent to read before asking something similar (#1015). OFF unless asked for:
-  // it is a vision-stage idea rather than something every user needs, and it writes a file
-  // (under ~/.mulmoterminal/decisions/) that would otherwise never exist.
-  decisionDigest: boolean;
   // Colour schemes the user defined, offered in Settings alongside the four built-ins (#996).
   // Server-side rather than per-browser (like `fontFamily`, unlike `fontSize`): a palette you
   // authored is an asset you want on every browser you open the app from. WHICH one is selected
@@ -219,41 +202,6 @@ export function sanitizeQuickCommands(input: unknown): QuickCommand[] {
   return out;
 }
 
-// `owner/repo`, or `host/owner/repo` for a repository that is not on GitHub — GitLab nests groups,
-// so the tail can be longer than two segments (#981).
-//
-// What may be STORED is `isRepoEntry` in common/, the same rule the two issue-start endpoints and
-// the Settings field apply. It was written out four times, and widening only this one meant an
-// entry the user could save was rejected by everything downstream — including the form meant to
-// accept it (#981).
-
-export function sanitizeRepos(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  const seen = new Set<string>();
-  for (const v of input) {
-    if (typeof v !== "string") continue;
-    const r = v.trim();
-    if (isRepoEntry(r)) seen.add(r);
-  }
-  return [...seen];
-}
-
-// Which local clone a repo's work starts in (#1172), for the repos where the user has chosen.
-// Absolute paths only, for the same reason as the presets: a relative one would be resolved
-// against the server's own cwd and name a directory nobody picked. The path is NOT checked for
-// existence here — a clone on an unmounted volume must survive a config round trip, and the read
-// side drops a recording that no longer names a clone of that repo anyway.
-export function sanitizeRepoDirs(input: unknown): Record<string, string> {
-  if (!isRecord(input)) return {};
-  const out: Record<string, string> = {};
-  for (const [repo, dir] of Object.entries(input)) {
-    if (!isRepoEntry(repo.trim()) || typeof dir !== "string") continue;
-    const resolved = dir.trim();
-    if (path.isAbsolute(resolved)) out[repo.trim()] = resolved;
-  }
-  return out;
-}
-
 // Keep only a non-empty ABSOLUTE path; anything else (relative, blank, non-string)
 // clears the custom sound. Absolute-only matches the documented contract and stops
 // /api/sound from resolving a relative value against the server's cwd.
@@ -308,23 +256,11 @@ export function sanitizeTerminalSubmit(input: unknown): TerminalSubmitMode {
   return isTerminalSubmitMode(input) ? input : DEFAULT_TERMINAL_SUBMIT_MODE;
 }
 
-export const DEFAULT_WORKLOG_INTERVAL_HOURS = 6;
-const MIN_WORKLOG_INTERVAL_HOURS = 1;
-const MAX_WORKLOG_INTERVAL_HOURS = 168; // one week
-
-export function sanitizeWorklogEnabled(input: unknown): boolean {
-  return input === true;
-}
-
 export function sanitizeIssueWorkComments(input: unknown): boolean {
   return input === true;
 }
 
 export function sanitizeCopyOnSelect(input: unknown): boolean {
-  return input === true;
-}
-
-export function sanitizeDecisionDigest(input: unknown): boolean {
   return input === true;
 }
 
@@ -342,12 +278,6 @@ export function sanitizeAppendSystemPrompt(input: unknown): boolean {
   return input !== false;
 }
 
-// Positive whole hours, clamped to [1, 168]. Anything else falls back to the default.
-export function sanitizeWorklogIntervalHours(input: unknown): number {
-  if (typeof input !== "number" || !Number.isFinite(input) || input <= 0) return DEFAULT_WORKLOG_INTERVAL_HOURS;
-  return Math.min(MAX_WORKLOG_INTERVAL_HOURS, Math.max(MIN_WORKLOG_INTERVAL_HOURS, Math.round(input)));
-}
-
 // Fresh object each call — callers hold and mutate the returned config in place, so a
 // shared default constant would be corrupted across loads. Exported so a write path can
 // use it as the base for a MISSING file WITHOUT a second disk read (that re-read could
@@ -357,9 +287,7 @@ export const emptyConfig = (): AppConfig => ({
   soundFile: null,
   soundKinds: [...DEFAULT_SOUND_KINDS],
   sounds: {},
-  prRepos: [],
   gitlabHosts: [],
-  repoDirs: {},
   launchers: [],
   quickCommands: [],
   userMcpServers: [],
@@ -367,13 +295,10 @@ export const emptyConfig = (): AppConfig => ({
   buttons: null,
   chips: null,
   pushKinds: [...DEFAULT_PUSH_KINDS],
-  worklogEnabled: false,
-  worklogIntervalHours: DEFAULT_WORKLOG_INTERVAL_HOURS,
   providers: [],
   terminalSubmit: DEFAULT_TERMINAL_SUBMIT_MODE,
   keymap: {},
   copyOnSelect: false,
-  decisionDigest: false,
   issueWorkComments: false,
   prWorkdirFooter: true,
   appendSystemPrompt: true,
@@ -401,9 +326,7 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     soundFile: sanitizeSoundFile(o.soundFile),
     soundKinds: sanitizeSoundKinds(o.soundKinds),
     sounds: sanitizeSounds(o.sounds),
-    prRepos: sanitizeRepos(o.prRepos),
     gitlabHosts: sanitizeGitlabHosts(o.gitlabHosts),
-    repoDirs: sanitizeRepoDirs(o.repoDirs),
     launchers: sanitizeLaunchers(o.launchers),
     quickCommands: sanitizeQuickCommands(o.quickCommands),
     userMcpServers: sanitizeUserMcpServers(o.userMcpServers),
@@ -411,13 +334,10 @@ function sanitizeAppConfig(raw: unknown): AppConfig {
     buttons: sanitizeButtons(o.buttons),
     chips: sanitizeChips(o.chips),
     pushKinds: sanitizePushKinds(o.pushKinds),
-    worklogEnabled: sanitizeWorklogEnabled(o.worklogEnabled),
-    worklogIntervalHours: sanitizeWorklogIntervalHours(o.worklogIntervalHours),
     providers: sanitizeProviders(o.providers),
     terminalSubmit: sanitizeTerminalSubmit(o.terminalSubmit),
     keymap: sanitizeKeymap(o.keymap),
     copyOnSelect: sanitizeCopyOnSelect(o.copyOnSelect),
-    decisionDigest: sanitizeDecisionDigest(o.decisionDigest),
     issueWorkComments: sanitizeIssueWorkComments(o.issueWorkComments),
     prWorkdirFooter: sanitizePrWorkdirFooter(o.prWorkdirFooter),
     appendSystemPrompt: sanitizeAppendSystemPrompt(o.appendSystemPrompt),
@@ -505,9 +425,7 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     soundFile: updated("soundFile", sanitizeSoundFile, base.soundFile),
     soundKinds: updated("soundKinds", sanitizeSoundKinds, base.soundKinds),
     sounds: updated("sounds", sanitizeSounds, base.sounds),
-    prRepos: updated("prRepos", sanitizeRepos, base.prRepos),
     gitlabHosts: updated("gitlabHosts", sanitizeGitlabHosts, base.gitlabHosts),
-    repoDirs: updated("repoDirs", sanitizeRepoDirs, base.repoDirs),
     launchers: updated("launchers", sanitizeLaunchers, base.launchers),
     quickCommands: updated("quickCommands", sanitizeQuickCommands, base.quickCommands),
     userMcpServers: updated("userMcpServers", sanitizeUserMcpServers, base.userMcpServers),
@@ -515,13 +433,10 @@ export function mergeConfigUpdate(base: AppConfig, body: Record<string, unknown>
     buttons: updated("buttons", sanitizeButtons, base.buttons),
     chips: updated("chips", sanitizeChips, base.chips),
     pushKinds: updated("pushKinds", sanitizePushKinds, base.pushKinds),
-    worklogEnabled: updated("worklogEnabled", sanitizeWorklogEnabled, base.worklogEnabled),
-    worklogIntervalHours: updated("worklogIntervalHours", sanitizeWorklogIntervalHours, base.worklogIntervalHours),
     providers: updated("providers", sanitizeProviders, base.providers),
     terminalSubmit: updated("terminalSubmit", sanitizeTerminalSubmit, base.terminalSubmit),
     keymap: updated("keymap", sanitizeKeymap, base.keymap),
     copyOnSelect: updated("copyOnSelect", sanitizeCopyOnSelect, base.copyOnSelect),
-    decisionDigest: updated("decisionDigest", sanitizeDecisionDigest, base.decisionDigest),
     issueWorkComments: updated("issueWorkComments", sanitizeIssueWorkComments, base.issueWorkComments),
     fontFamily: updated("fontFamily", normalizeFontFamily, base.fontFamily),
     prWorkdirFooter: updated("prWorkdirFooter", sanitizePrWorkdirFooter, base.prWorkdirFooter),
@@ -540,9 +455,7 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     soundFile: config.soundFile,
     soundKinds: config.soundKinds,
     sounds: config.sounds,
-    prRepos: config.prRepos,
     gitlabHosts: config.gitlabHosts,
-    repoDirs: config.repoDirs,
     launchers: config.launchers,
     quickCommands: config.quickCommands,
     userMcpServers: config.userMcpServers,
@@ -550,12 +463,9 @@ export function toPublicAppConfig(config: AppConfig): AppConfig {
     buttons: config.buttons,
     chips: config.chips,
     pushKinds: config.pushKinds,
-    worklogEnabled: config.worklogEnabled,
-    worklogIntervalHours: config.worklogIntervalHours,
     terminalSubmit: config.terminalSubmit,
     keymap: config.keymap,
     copyOnSelect: config.copyOnSelect,
-    decisionDigest: config.decisionDigest,
     issueWorkComments: config.issueWorkComments,
     prWorkdirFooter: config.prWorkdirFooter,
     appendSystemPrompt: config.appendSystemPrompt,

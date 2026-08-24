@@ -4,7 +4,6 @@
     "@mulmoclaude/form-plugin",
     "@mulmochat-plugin/generate-image",
     "@mulmoclaude/chart-plugin",
-    "@mulmoclaude/core/collection",
     "@mulmoclaude/html-plugin",
     "@mulmoclaude/google-plugin",
     "@mulmoclaude/mulmoscript-plugin"

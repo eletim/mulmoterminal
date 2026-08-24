@@ -47,34 +47,12 @@ function adoptSoundConfig(c: Record<string, unknown>): void {
   sounds.value = isRecord(c.sounds) ? readSoundMap(c.sounds) : {};
 }
 
-// Cross-repo PR list's repos — also a SINGLETON, so the settings modal (openable from
-// either view) and any future reader share one list; a save in one view is seen by the
-// other instead of each useAppConfig() keeping a divergent copy.
 // The server's home directory, used to shorten paths for display (`formatCwd`). A SINGLETON like
 // the settings below, and for a sharper reason: it is only ever written by `loadConfig`, so a
 // component that calls useAppConfig() WITHOUT calling loadConfig — which anything outside the two
 // views does — held its own copy that stayed null forever, and every path it showed came out
 // unshortened. Found by looking at a screenshot of the issue rows' clone menu.
 const home = ref<string | null>(null);
-
-const prRepos = ref<string[]>([]);
-
-// The hosts declared as self-hosted GitLab (#1332). Read-only here — config.json is the only place
-// it can be set — but the browser needs it to know that a `gitlab.hogefuga.com/...` row can start
-// work, which is a decision this side makes on its own (common/issueStartPlan.ts).
-const gitlabHosts = ref<string[]>([]);
-
-/** The declared hosts, for a reader outside the composable — same shape as `currentSoundConfig`
- *  above, and for the same reason: useAppConfig() builds per-call refs, so calling it from a
- *  render path to read one singleton is waste. Reading `.value` here still tracks the dependency,
- *  so a computed that calls this re-runs when the config lands. */
-export const currentGitlabHosts = (): string[] => gitlabHosts.value;
-
-// Which clone each repo's work starts in (#1172) — a SINGLETON for the same reason, and read from
-// the CONFIG rather than reconstructed from /api/repo-dirs: that view drops a recording whose
-// directory it cannot currently see, so merging a new choice into it would quietly delete the
-// choice for a clone that happens to be on an unmounted volume today.
-const repoDirs = ref<Record<string, string>>({});
 
 // Cell-launcher commands (shell/codex/…) — SINGLETON so the grid's cell launchers and
 // the settings editor (openable from either view) share one list.
@@ -123,7 +101,6 @@ async function postConfigField(field: string, value: unknown): Promise<{ ok: tru
 // loaded: the list is a set of independent entries, so one bad entry costs only itself.
 const listOf = <T>(value: unknown, isEntry: (entry: unknown) => entry is T): T[] => (isUnknownArray(value) ? value.filter(isEntry) : []);
 
-const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
 const isCwdPreset = (value: unknown): value is CwdPreset => isRecord(value) && typeof value.label === "string" && typeof value.path === "string";
 const isQuickCommand = (value: unknown): value is QuickCommand => isRecord(value) && typeof value.label === "string" && typeof value.text === "string";
 const isUserMcpServer = (value: unknown): value is UserMcpServer => isRecord(value) && typeof value.id === "string" && typeof value.url === "string";
@@ -240,13 +217,6 @@ async function saveSound(file: string | null): Promise<boolean> {
   if (r.ok) soundFile.value = typeof r.value === "string" ? r.value : null;
   return r.ok;
 }
-// Persist the cross-repo PR list's repos (partial update, other fields untouched).
-async function savePrRepos(next: string[]): Promise<boolean> {
-  const r = await postConfigField("prRepos", next);
-  if (r.ok) prRepos.value = stringsOf(r.value);
-  return r.ok;
-}
-
 // The settings that are PUSHED into other modules rather than held as refs here. Grouped for the
 // same reason as adoptSoundConfig: loadConfig should read as what the config decides, not as the
 // plumbing for each decision.
@@ -274,31 +244,6 @@ function applyGlobalSettings(c: Record<string, unknown>): void {
   refreshTheme();
 }
 
-// The repo fields, adopted together — like adoptSoundConfig, so loadConfig keeps reading as a list
-// of facts rather than growing a ternary per field.
-function adoptRepoConfig(c: Record<string, unknown>): void {
-  prRepos.value = stringsOf(c.prRepos);
-  gitlabHosts.value = stringsOf(c.gitlabHosts);
-  repoDirs.value = isRecord(c.repoDirs) ? readRepoDirs(c.repoDirs) : {};
-}
-
-// Only string values survive: the map goes straight into a request naming a working directory.
-const readRepoDirs = (raw: Record<string, unknown>): Record<string, string> => {
-  const out: Record<string, string> = {};
-  Object.entries(raw).forEach(([repo, dir]) => {
-    if (typeof dir === "string") out[repo] = dir;
-  });
-  return out;
-};
-
-// Remember which clone a repo's work starts in. MERGED into what is already saved, never
-// replacing it: this is called with one repo's answer, and a whole-map write would drop every
-// other repo's choice.
-async function saveRepoDir(repo: string, dir: string): Promise<boolean> {
-  const r = await postConfigField("repoDirs", { ...repoDirs.value, [repo]: dir });
-  if (r.ok) repoDirs.value = isRecord(r.value) ? readRepoDirs(r.value) : repoDirs.value;
-  return r.ok;
-}
 // Persist the cell-launcher commands (partial update).
 async function saveLaunchers(next: Launcher[]): Promise<boolean> {
   const r = await postConfigField("launchers", next);
@@ -375,7 +320,7 @@ export function useAppConfig() {
       // Each list is filtered by the SAME guard its own save path uses (postConfigField below).
       // They used to differ: a save validated, the load on every page open did not.
       pushKinds.value = listOf(c.pushKinds, isPushKind);
-      adoptRepoConfig(c);
+      // gitlabHosts remains server-side config for session PR/MR link resolution.
       launchers.value = listOf(c.launchers, isLauncher);
       quickCommands.value = listOf(c.quickCommands, isQuickCommand);
       userMcpServers.value = listOf(c.userMcpServers, isUserMcpServer);
@@ -390,9 +335,6 @@ export function useAppConfig() {
     defaultCwd,
     home,
     presets,
-    prRepos,
-    repoDirs,
-    saveRepoDir,
     launchers,
     quickCommands,
     userMcpServers,
@@ -405,7 +347,6 @@ export function useAppConfig() {
     recordPreset,
     removePreset,
     savePushKinds,
-    savePrRepos,
     saveLaunchers,
     saveQuickCommands,
     saveUserMcpServers,

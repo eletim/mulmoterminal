@@ -10,10 +10,6 @@
 // content surfaces (the Collections door in the toolbar). What it uniquely had — one terminal
 // filling the window — is a zoomed cell.
 import { computed, onUnmounted } from "vue";
-import CollectionsBrowseOverlay from "./CollectionsBrowseOverlay.vue";
-import AccountingOverlay from "./AccountingOverlay.vue";
-import WikiBrowseOverlay from "./WikiBrowseOverlay.vue";
-import PrsOverlay from "./PrsOverlay.vue";
 import FilesOverlay from "./FilesOverlay.vue";
 import HoverTip from "./HoverTip.vue";
 import GridView from "./GridView.vue";
@@ -71,21 +67,7 @@ useFaviconState(sessions);
 
 <template>
   <GridView />
-  <!-- The full-screen overlays, on TOP of the grid rather than instead of it. Each is route-driven
-       and starts below the header (`top-10`), so the toolbar stays on screen and the view beneath
-       one does not change while it is open (#1193). -->
-  <!-- Full-screen collection / feed browser; shown when the toolbar's Collections door, an index
-       card or a ref hop opens it (driven by useCollectionBrowse). -->
-  <CollectionsBrowseOverlay />
-  <!-- Full-screen accounting view; opened by the toolbar's account_balance button
-       (driven by useAccountingView). Mutually exclusive with the browser above. -->
-  <AccountingOverlay />
-  <!-- Full-screen read-only wiki browser; opened by the toolbar's menu_book button
-       (driven by useWikiBrowse). Mutually exclusive with the overlays above. -->
-  <WikiBrowseOverlay />
-  <!-- Full-screen cross-repo PR list; opened by the toolbar's call_merge button. -->
-  <PrsOverlay />
-  <!-- Full-screen file explorer + editor; opened by the toolbar's Files button, or by a terminal
+  <!-- Full-screen file viewer; opened by the toolbar's Files button, or by a terminal
        header's Files button rooted at that terminal's own directory. -->
   <FilesOverlay />
   <!-- The one hover tip every cell-header chip opens (#1235). Mounted here, and only here, so the

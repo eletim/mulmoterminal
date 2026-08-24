@@ -25,7 +25,6 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 | ヘッダーに**自分のボタン**を足したい | [ヘッダーのカスタマイズ](#header) |
 | **自分の配色**でアプリ全体を染めたい | [自分の配色を作る](#custom-themes) |
 | issue に**着手を知らせたい** | [issueWorkComments](#issue-work-comments) |
-| **決めたことを何度も聞かれる**のをやめさせたい | [このプロジェクトで既に決めたこと](#decision-digest) |
 | **別のマシンのブラウザ**から開きたい | [`MULMOTERMINAL_HOST`](#bind-host) |
 
 ---
@@ -40,28 +39,8 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 **プロジェクトごとの `<project>/.mulmoterminal.json`**。ボタン/チップは両ファイルがマージされます。
 
 {: .highlight }
-> **手書きする必要はありません。** MulmoTerminal のセッションで **`/mulmoterminal-config`** と打てば、
-> 何を変えたいかを聞いて、その領域を担当するスキルに引き継ぎます。「今どう設定されている？」にも答えます
-> ——**検証で落とされたキー**も含めて。設定したのに効いていないものは、外から見るとこれです。
->
-> 領域が分かっているなら直接どうぞ:
->
-> | スキル | 範囲 |
-> |---|---|
-> | **`/mulmoterminal-dirs`** | プロジェクトの色・グリッドとランチャでの位置・名前バッジ・ターミナルの文字サイズ。実際に開いているディレクトリを母集団にし、既にある設定を読んでその規則を、まだ無いディレクトリにも適用します。（Settings → **Configure appearance…** はこれを起動します） |
-> | **`/mulmoterminal-theme`** | 自分の[配色](#custom-themes)を作る。Settings のテーマ選択に並びます（Settings → **Create a theme…**） |
-> | **`/mulmoterminal-header`** | [ヘッダーのボタンとチップ](#header)。global でもプロジェクト単位でも |
-> | **`/mulmoterminal-keys`** | [`keymap`](#keymap)・[`copyOnSelect`](#copy-on-select)・[`terminalSubmit`](#terminal-submit)（「Shift+Enter で改行ではなく送信されてしまう」の対処）（Settings → **Set up shortcuts…**） |
-> | **`/mulmoterminal-model`** | [`providers`](#providers)、プロジェクトごとのモデル |
-> | **`/mulmoterminal-notify`** | [どの瞬間に鳴らす・通知するか](#sounds)、それぞれ何を鳴らすか（Settings → **Configure notifications…**） |
->
-> **UI が一切ない設定**に手が届く唯一の対話的な経路でもあります。手編集でも構いません（このページに全フィールドの
-> 説明があります）が、スキルは書きながら検証します。これは特に `keymap` で効いてきます——記法を間違えると
-> サーバが起動しなくなるためです。
->
-> 名前を覚える必要もありません。上記のスキルに対応する Settings のセクションには、それを新しいセッションで
-> 起動するボタンが末尾に付いています。Settings に対応セクションが無い `-header` と `-model` だけ、
-> 名前で呼んでください。
+> 多くの設定は Settings モーダルから変更できます。このページは、直接 config を編集する場合や
+> 何が効いているか確認したい場合のために、ファイルで持つ項目をまとめています。
 
 ---
 
@@ -75,22 +54,21 @@ description: MulmoTerminal の設定方法。設定モーダル、プロジェ�
 
 | 項目 | 内容 |
 |---|---|
-| **Theme** | Midnight / Nord / Daylight / Solarized Light、および[自分で定義した配色](#custom-themes)。選ぶのは既にあるものだけで、新しく作るのは「Create a theme…」（`mulmoterminal-theme` スキルを起動） |
+| **Theme** | Midnight / Nord / Daylight / Solarized Light、および[自分で定義した配色](#custom-themes)。選ぶのは既にあるものだけです |
 | **Terminal font size** | ターミナル（xterm）のフォントサイズ（px, 8〜32）。**このブラウザ**の全ターミナルに適用され、スマホと PC でそれぞれ別の値を保持します。ディレクトリ側の `fontSize`（[後述](#per-dir)）が優先されます |
 | **Terminal scroll speed** | ホイール1ノッチ／トラックパッドの1スワイプでターミナルがどれだけ動くか（1× が xterm 既定）。フォントサイズと同じくブラウザ単位 — ポインティングデバイスの性質なので |
 | **Waiting rows** | 拡大したセルの横（下）に出る一覧で、**入力を待っている**行に琥珀色のリングが付いて点滅し、**終わっただけ**の行は緑で静止します。チェックを外すと止まるのは**動きだけ**で色は残ります。OS が「視差効果を減らす」設定のときは点滅しません |
-| **Directory appearance** | 「Configure appearance…」— ディレクトリの名前バッジ・色・ターミナルのパレット・グリッド上の位置を、`mulmoterminal-dirs` スキルで対話的に設定 |
-| **Directory settings** | 各ディレクトリの `.mulmoterminal.json` が**実際に何をしているか**。行を開くと、効いている値（色は見本付き）・**どのファイル由来か**・**検証で落ちたキー**・**このアプリが読まないキー**が出ます。読み取り専用 — 「Explain my settings…」で `mulmoterminal-config` スキルが同じものを読み、理由を説明して直します（→ [設定が効かないとき](#dir-settings-preview)） |
-| **Notification sounds** | どの瞬間に鳴らすか＋それぞれ何を鳴らすか。種類ごとに1行、プリセット選択と試聴ボタン付き。「Configure notifications…」で `mulmoterminal-notify` スキルを起動すると、プロジェクトごとの音やスマホに通知する瞬間まで設定できます（→ [通知音](#sounds)） |
+| **Directory appearance** | ディレクトリの名前バッジ・色・ターミナルのパレット・グリッド上の位置 |
+| **Directory settings** | 各ディレクトリの `.mulmoterminal.json` が**実際に何をしているか**。行を開くと、効いている値（色は見本付き）・**どのファイル由来か**・**検証で落ちたキー**・**このアプリが読まないキー**が出ます（→ [設定が効かないとき](#dir-settings-preview)） |
+| **Notification sounds** | どの瞬間に鳴らすか＋それぞれ何を鳴らすか。種類ごとに1行、プリセット選択と試聴ボタン付き（→ [通知音](#sounds)） |
 | **Voice input** | 音声入力で**話す言語**（ブラウザの言語 / 発話ごとの自動検出 / 固定）。文字起こしできるマシンでだけ表示されます |
 | **Web Push notifications** | local mobile のどの activity を登録済み端末へ通知するか（→ [スマホ通知](notifications.html)） |
 | **Google account** | Calendar 連携用の Google サインイン |
-| **Pull request repos** | 横断 PR/Issue ビューが集約するリポ（`owner/repo`） |
 | **Launch commands** | グリッドセルでエージェント以外に起動できるコマンド（`{ label, command }`）。素のシェルは登録不要 — ランチャの **Shell** トグルが無設定で `$SHELL` を開く |
 | **Phone quick commands** | **スマホ**のターミナル表示にチップとして並ぶ定型文。タップで入力欄に入るだけで、送信は送信ボタンを押したとき（`quickCommands`） |
 | **MCP servers** | 自分の HTTP MCP サーバ（`userMcpServers`）。GUI MCP をフルで持つセッション — 作業ディレクトリが**ワークスペース**のセル、およびサーバ自身が起こしたセッション（スマホ・スケジュールタスク）— にマージされます。プロジェクトディレクトリのセルは自前の MCP 設定を読みます（→ [どのディレクトリで起動するか](basics.html#launch-dir)） |
 | **Cost (estimated)** | Session / Today / Month の推定コスト表示 |
-| **Keyboard shortcuts** | 今どのキーに何が割り当たっているかの一覧（読み取り専用）。**既定は全部 Not set** — 「Set up shortcuts…」で `mulmoterminal-keys` スキルが `keymap` に書きます（→ [キーボードショートカット](#keymap)） |
+| **Keyboard shortcuts** | 今どのキーに何が割り当たっているかの一覧（読み取り専用）。**既定は全部 Not set**（→ [キーボードショートカット](#keymap)） |
 | **Help & user guide** | このガイドへのリンク集 |
 
 ## 設定が効かないとき — まずここを見る {#dir-settings-preview}
@@ -280,7 +258,7 @@ MulmoTerminal の「**拡張**」の柱がここ。稼働中ターミナルの�
 ```
 
 - `run: "input"` … 稼働中の Claude/Codex に `text` を送信（例 `/compact`）。
-- `run: "open"` … `url`（ブラウザ, http/https のみ）/ `reveal`（OSのファイルマネージャ: Finder/Explorer/xdg-open）/ `files`（アプリ内エクスプローラ）/ `pickFile`（OSのファイル選択でパス挿入）/ `terminal`（そのディレクトリで新しい端末セルを開く）/ `pr`（現在ブランチの PR をブラウザで開く）/ `view`（`diff`/`prs`/`wiki`/`collections`/`accounting`）。
+- `run: "open"` … `url`（ブラウザ, http/https のみ）/ `reveal`（OSのファイルマネージャ: Finder/Explorer/xdg-open）/ `files`（read-only アプリ内ファイルビューア）/ `pickFile`（OSのファイル選択でパス挿入）/ `terminal`（そのディレクトリで新しい端末セルを開く）/ `pr`（現在ブランチの PR をブラウザで開く）/ `view`（`diff`）。
 - `run: "shell"` … `cmd` をコマンドセルで実行（サーバ側で id 解決 + `${変数}` はシェルエスケープ、コマンドはブラウザに渡らない）。
 - `${変数}` … `dir` `dirName` `branch` `repo` `remoteUrl` `ahead` `behind` `dirty` `agent` `model` `task` `session`。
 - `when` … `isGitRepo` / `agent == …` / `repo == …`（`&&` / `||`、`&&` が優先）。
@@ -310,18 +288,6 @@ MulmoTerminal の「**拡張**」の柱がここ。稼働中ターミナルの�
 
 既定の並びに入っているので、`chips` を設定していないヘッダーには最初から出ます。**自分で `chips` を
 書いている場合は `"work"` を足してください** —— 書いたリストがそのまま全部になります。
-
-### Skill メニューの絞り込み（`skills`）
-
-ヘッダーの **Skill**（雷のアイコン） はそのディレクトリで使えるスキル（`<project>/.claude/skills` と `~/.claude/skills`）を一覧します。working dir（プロジェクト）のスキルが先頭、その後にユーザースコープ。選ぶと**今のセッション**でそのスキルを実行します（Claude は `/<slug>`、Codex は `Use the "<slug>" skill.`）。
-
-`skills` を書くと**その slug だけを、その並び順で**表示する許可リストになります。**書かなければ全部**表示。
-
-```json
-{ "skills": ["review-diff", "commit-msg"] }
-```
-
-- スキル名（slug）は英数字始まりで `a-z 0-9 - _` のみ。存在しない slug は無視されます。
 
 ### このディレクトリの返信まとめ（`appendSystemPrompt`）
 
@@ -635,9 +601,8 @@ Shift+Enter が改行ではなく*送信*になってしまう場合だけ**で�
 - **Claude セッションのみ** — `terminalSubmit` は *Claude Code* の割り当てを表すため、効くのは Claude
   セルだけです。**シェル**・**codex**・コマンドセルは `esc-cr` でも常に素の Enter（`\r`）で送信します
   — 逆向き設定がシェルの Enter を書き換えることはありません。
-- **MulmoTerminal が代わりに送るプロンプト** — 最初のプロンプト入りで起動したセッション
-  （**Skill** の起動ボタン、コレクション／カスタムビューから開いたチャット）は、そのプロンプトが
-  入力欄に打ち込まれて代わりに送信されます。この送信もこのマッピングに従います。
+- **MulmoTerminal が代わりに送るプロンプト** — 最初のプロンプト入りで起動したセッションでは、その
+  プロンプトが入力欄に打ち込まれて代わりに送信されます。この送信もこのマッピングに従います。
 - **スマホ** — ソフトキーボードは素の **Enter** しか送れません（Shift+Enter は無く、Android では
   Return キーが通常の Enter ですらないことが多い）。そのためスマホでは Enter は上の表の通りに動き、
   画面上のキーボードから改行は入れられません。複数行はリモートビューの入力欄から送ってください。
@@ -1161,25 +1126,6 @@ Merged in #983. Work done in `mulmoterminal5`.
 **既定は off** です。あなたの名前で GitHub に書き込み、しかも多くは他人が立てた issue だからです。
 グローバル設定なので、プロジェクト単位ではなくマシン単位で決めます。
 
-## このプロジェクトで既に決めたこと（`decisionDigest`） {#decision-digest}
-
-先週決めたことをもう一度聞いてくるエージェントは、学習していません。このプロジェクトの
-セッションが**実際に人間へ聞いた質問** — 提示した選択肢と、どれが選ばれたか — を Markdown に
-まとめておき、似たことを聞く前に読ませます。
-
-```json
-{ "decisionDigest": true }
-```
-
-- 書き出し先は `~/.mulmoterminal/decisions/<project>.md` で、**リポジトリの中には書きません**。
-- 更新は**サーバ起動時と 6 時間ごと**。対象はこのホストが実際に作業しているディレクトリだけです。
-- エージェント側は同梱スキル **`mulmoterminal-decisions`** 経由で読みます。他のスキルと同じく
-  `~/.claude/skills/` にミラーされます。
-- 中身は**日付つきの事実だけで、推論した規則は書きません**。「この人はいつも推奨案を選ぶ」の
-  たぐいは、それらしく読めてしまううえに間違っていることがあり、**間違った学習が黙って効くのが
-  一番まずい**からです。何を聞いて何と答えたかだけを載せ、その旨を冒頭に明記しています。
-- **どの選択肢も選ばず自分で書いた**回答も残します。むしろそちらが読む価値のある記録です —
-  質問そのものが的外れだった、という事実なので。
 
 **既定は off**。vision 段階のアイデアであり、放っておけば存在しないファイルを書くためです。
 
@@ -1217,7 +1163,6 @@ Merged in #983. Work done in `mulmoterminal5`.
     { "label": "PR", "text": "PR作って", "agents": ["claude"] },
     { "label": "merge", "text": "mergeして" }
   ],
-  "prRepos": ["acme/web", "acme/api"],
   "userMcpServers": [],
   "buttons": [],
   "chips": null
@@ -1229,17 +1174,13 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `cwdPresets` | ランチャに並ぶ作業ディレクトリのチップ（`{ label, path }`。クリックで欄に入力、再生アイコンで即起動）。並び順は各ディレクトリの [`orderPriority`](#order-priority) 順で、未設定のものはその後ろに最後に起動した順で続く |
 | `launchers` | グリッドセルの「OR LAUNCH」に並ぶ起動コマンド。自分で足したものだけ — 素のシェルはランチャの **Shell** トグルが担当 |
 | `quickCommands` | **スマホ**のターミナル表示にチップとして並ぶ定型文（`{ label, text, agents? }`）。タップすると `text` が入力欄に入るだけで、**送信されるのは送信ボタンを押したとき**。`agents` で `"claude"` / `"codex"` / `"shell"` に絞れる（省略＝全種別）。設定画面の **Phone quick commands** で編集 |
-| `prRepos` | 横断 PR/Issue ビューの対象リポ |
-| `gitlabHosts` | 自前ホスティングの GitLab のホスト名（例 `["gitlab.example.com"]`）。URL からは forge の種類が分からないので、宣言してはじめて `prRepos` のそのホストのエントリが `glab` で読まれる。`glab auth login --hostname <host>` が前提。設定画面は無く config.json のみなので、手で書いたら再起動（→ [自前ホスティングの GitLab](github.html#自前ホスティングの-gitlab)） |
-| `repoDirs` | 同じリポのクローンを複数並べているとき、そのリポの作業をどれで始めるか: `{ "acme/web": "/Users/you/src/web" }`。保存されるのは**選択だけ**で、どのクローンがあるかは `cwdPresets` から毎回導出するのでクローンを増やしても二重管理にならない。そのリポのクローンでなくなったエントリは無視される |
+| `gitlabHosts` | 自前ホスティングの GitLab のホスト名（例 `["gitlab.example.com"]`）。URL からは forge の種類が分からないので、宣言すると Session 単位の PR/MR リンクで `glab` を使える。`glab auth login --hostname <host>` が前提。設定画面は無く config.json のみなので、手で書いたら再起動 |
 | `buttons` / `chips` | ヘッダーのボタン/チップ（プロジェクト設定とマージ。→ [ヘッダーのカスタマイズ](#header)） |
 | `providers` | Anthropic 互換の接続先（→ [OpenRouter で別のモデルを使う](providers.html)） |
 | `soundFile` | 全種類共通のフォールバック通知音（音声ファイルの絶対パス。設定モーダルからも変更可） |
 | `soundKinds` | どの瞬間に鳴らすか。**書かなければ** `["finished","waiting"]`、2.2 で増えた4種は opt-in、`[]` で無音（→ [通知音](#sounds)） |
 | `sounds` | 種類ごとの音。例 `{ "waiting": "preset:coin" }` — `preset:<id>` か絶対パス。未指定の種類は `soundFile` を使う（→ [通知音](#sounds)） |
 | `pushKinds` | どの瞬間に飛ばすか：`"finished"`（ターン完了）と `"waiting"`（質問して停止）。**書かなければ両方**、`[]` でどれも飛ばさない（→ [どの瞬間に飛ぶか](notifications.html#kinds)） |
-| `worklogEnabled` / `worklogIntervalHours` | 定期 dev-work ログ（既定 OFF / 6 時間） |
-| `decisionDigest` | このプロジェクトで既に決めたことを Markdown にまとめ、エージェントが聞き直す前に読む。**既定 off**（→ [このプロジェクトで既に決めたこと](#decision-digest)） |
 | `terminalSubmit` | どのバイトを**送信**／**改行**とみなすか — `"cr"`（既定）または `"esc-cr"`（→ [Enter — 送信と改行](#terminal-submit)） |
 | `themes` | 自分で定義した配色。Settings のテーマ選択に並ぶ（→ [自分の配色を作る](#custom-themes)） |
 | `keymap` | ユーザ定義のキーボードショートカット。**既定は空——何も割り当てられていない**（→ [キーボードショートカット](#keymap)） |
@@ -1270,7 +1211,6 @@ Merged in #983. Work done in `mulmoterminal5`.
 | `MULMOTERMINAL_HOME` | `~/.mulmoterminal` | 管理下 git worktree のルート |
 | `CLAUDE_CONFIG_DIR` | `~` | Claude Code 自身の設定ディレクトリ。`.claude.json` は**この中**に置かれるので、Claude Code の設定を移すとこのファイルも一緒に移ります。MulmoTerminal は、プロジェクトごとの GUI MCP サーバが登録済みかを判定するのにこれを読みます。未設定なら `~/.claude.json` |
 | `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | 管理下の MulmoClaude ワークスペースの場所。プリセットや helps の書き込みは**このディレクトリに限定**されるので、任意のプロジェクトで起動しても余計なファイルが増えません。MulmoClaude 側と同じ値を指定してください |
-| `MULMOTERMINAL_NO_SKILL_INSTALL` | *(なし)* | 何か値を入れると、同梱スキル（`mulmoterminal-config` と `-dirs` / `-theme` / `-header` / `-keys` / `-model` / `-notify` / `-bug-report` / `-decisions`）を起動時に `~/.claude/skills/` と Codex のスキルルートへ入れる処理をやめます |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | 画像生成に使うモデル（`GEMINI_API_KEY` が必要）。既定は Google が 2026 年半ばごろの廃止を予告している**プレビュー**モデルなので、安定版（例 `gemini-2.5-flash-image`）に固定したいときはここで指定します |
 
 ### 誰がサーバに到達できるか（`MULMOTERMINAL_HOST`） {#bind-host}

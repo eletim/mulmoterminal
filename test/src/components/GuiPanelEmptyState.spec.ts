@@ -76,13 +76,12 @@ describe("the canvas pane's empty state", () => {
     expect(items.some((item) => item.includes("searchX"))).toBe(false);
   });
 
-  // A session that reached data / external tools can be asked for those in the same
+  // A session that reached external tools can be asked for those in the same
   // conversation, and this list is the only place they are named.
-  it("lists the non-drawing groups too when the session has them", async () => {
+  it("lists the external group too when the session has it", async () => {
     const w = mountPanel();
     await flushPromises();
     const items = itemsOf(w);
-    expect(items.some((item) => item.includes("manageCollection"))).toBe(true);
     expect(items.some((item) => item.includes("searchX"))).toBe(true);
   });
 

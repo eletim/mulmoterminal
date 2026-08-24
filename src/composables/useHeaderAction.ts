@@ -1,12 +1,8 @@
 // Dispatch a header action button. `input` types text into the running session; `open` opens a
-// url / reveals a dir / opens the in-app file explorer or a view. `shell` is handled upstream in
+// url / reveals a dir / opens the in-app file viewer. `shell` is handled upstream in
 // Terminal.vue (it emits `run` to open a command cell), so it never reaches here — the branch below
 // is only a defensive no-op warn.
 import { filesGotoIndex } from "./useFilesView";
-import { prsGotoIndex } from "./usePrsView";
-import { wikiGotoIndex } from "./useWikiBrowse";
-import { browseGotoIndex } from "./useCollectionBrowse";
-import { accountingViewOpen } from "./useAccountingView";
 import { submitText, insertText } from "./useTerminalConnections";
 import { openTerminalAt } from "./useNewTerminal";
 import { toInsertText } from "../components/dropPaths";
@@ -42,19 +38,12 @@ function revealDir(dirPath: string): void {
   fetch("/api/open-dir", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: dirPath }) }).catch(() => {});
 }
 
-function openView(view: string, cwd: string | null): void {
-  if (view === "prs") prsGotoIndex();
-  else if (view === "wiki") wikiGotoIndex();
-  else if (view === "collections") browseGotoIndex("collection");
-  else if (view === "accounting") accountingViewOpen();
-  else filesGotoIndex(cwd); // "files" and (until a dedicated route) "diff"
-}
-
 function dispatchOpen(open: OpenTarget, cwd: string | null, slotKey: string | null): void {
   if (open.url) openUrl(open.url);
   else if (open.reveal) revealDir(open.reveal);
   else if (open.files) filesGotoIndex(open.files);
-  else if (open.view) openView(open.view, cwd);
+  else if (open.view)
+    filesGotoIndex(cwd); // "diff" currently lands in the session's files view.
   else if (open.terminal) openTerminalAt(open.terminal, slotKey);
   else if (open.pickFile) void pickFileInto(slotKey);
 }

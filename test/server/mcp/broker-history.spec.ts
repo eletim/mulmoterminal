@@ -99,7 +99,7 @@ describe("buildGuiMcpServer tool-call history", () => {
     const history = recorder();
     const server = buildGuiMcpServer("11111111-1111-4111-8111-111111111111", "http://127.0.0.1:1", { history, group: "render" });
 
-    await callTool(server, "manageCollection", { action: "list" });
+    await callTool(server, "generateImage", { prompt: "draw" });
 
     expect(history.ends).toHaveLength(1);
     expect(history.ends[0].status).toBe("failed");

@@ -23,8 +23,6 @@ describe("tool groups", () => {
   // The blast-radius split is the whole point of the grouping: only `render` is auto-allowed,
   // so a tool landing in the wrong group is a tool running without a permission prompt.
   it("keeps the tools with side effects out of render", () => {
-    expect(groupOfTool("manageCollection")).toBe("data");
-    expect(groupOfTool("manageAccounting")).toBe("data");
     expect(groupOfTool("generateImage")).toBe("media");
     expect(groupOfTool("presentMulmoScript")).toBe("media");
     expect(groupOfTool("google")).toBe("external");
@@ -66,7 +64,7 @@ describe("tool groups", () => {
 
   it("names each group's expected MCP server id", () => {
     expect(toolGroupServerId("render")).toBe("mulmoterminal-render");
-    expect(TOOL_GROUPS.map(toolGroupServerId)).toEqual(["mulmoterminal-render", "mulmoterminal-data", "mulmoterminal-media", "mulmoterminal-external"]);
+    expect(TOOL_GROUPS.map(toolGroupServerId)).toEqual(["mulmoterminal-render", "mulmoterminal-media", "mulmoterminal-external"]);
   });
 
   // Per TOOL, not per group: "which tools may this directory reach" and "which may run without
@@ -110,15 +108,14 @@ describe("CANVAS_TOOL_GROUPS", () => {
   // The groups a session cannot draw with. Counting one of them would open a Canvas pane that
   // nothing can ever fill.
   it("leaves out the groups that draw nothing", () => {
-    expect(CANVAS_TOOL_GROUPS).not.toContain("data");
     expect(CANVAS_TOOL_GROUPS).not.toContain("external");
   });
 
   // Asked of whatever the server reported, which arrives as untyped JSON.
   it("detects a canvas group in a reported group list", () => {
     expect(hasCanvasGroup(["render"])).toBe(true);
-    expect(hasCanvasGroup(["data", "media"])).toBe(true);
-    expect(hasCanvasGroup(["data", "external"])).toBe(false);
+    expect(hasCanvasGroup(["external", "media"])).toBe(true);
+    expect(hasCanvasGroup(["external"])).toBe(false);
     expect(hasCanvasGroup([])).toBe(false);
     expect(hasCanvasGroup(["renderer"])).toBe(false);
     expect(hasCanvasGroup(undefined)).toBe(false);
@@ -137,7 +134,6 @@ describe("TOOL_GROUP_HEADINGS", () => {
   // The two groups that draw share a heading on purpose — they are one feature with two costs.
   it("gives the drawing groups the Canvas heading", () => {
     for (const group of CANVAS_TOOL_GROUPS) expect(TOOL_GROUP_HEADINGS[group]).toBe("Canvas");
-    expect(TOOL_GROUP_HEADINGS.data).not.toBe("Canvas");
     expect(TOOL_GROUP_HEADINGS.external).not.toBe("Canvas");
   });
 });

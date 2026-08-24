@@ -26,7 +26,6 @@ export const DIR_CONFIG_KEYS = [
   "sounds",
   "buttons",
   "chips",
-  "skills",
   "provider",
   "model",
   "addDirs",
@@ -57,7 +56,6 @@ export const EMPTY_DIR_CONFIG_SOURCE: DirConfigSource = { applied: [], ignored: 
 export interface DirConfigExtras {
   provider: string | null;
   model: string | null;
-  skills: string[] | null;
   addDirs: string[] | null;
   // Tri-state on purpose: `false` is a setting this file made, and the preview has to show it as
   // one. Carried here because a boolean cannot be read back off the per-cell config the way a
@@ -70,7 +68,6 @@ export interface DirConfigExtras {
 export const EMPTY_DIR_CONFIG_EXTRAS: DirConfigExtras = {
   provider: null,
   model: null,
-  skills: null,
   addDirs: null,
   appendSystemPrompt: null,
   buttonLabels: [],

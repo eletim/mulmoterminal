@@ -21,26 +21,9 @@ describe("needsSameOrigin", () => {
     }
   });
 
-  // A custom collection view is LLM-authored HTML in a sandboxed iframe, so its origin is
-  // opaque by construction. It carries an HMAC capability token instead — judging it by origin
-  // would break the feature while replacing a stronger check with a weaker one.
-  it("exempts the view-data endpoints, which authenticate by token", () => {
-    expect(needsSameOrigin("PUT", "/api/collections/notes/view-data")).toBe(false);
-    expect(needsSameOrigin("POST", "/api/collections/notes/view-data/query")).toBe(false);
-  });
-
-  it("does NOT exempt the collection's other routes", () => {
-    expect(needsSameOrigin("POST", "/api/collections/notes/items")).toBe(true);
-    expect(needsSameOrigin("DELETE", "/api/collections/notes")).toBe(true);
-    expect(needsSameOrigin("POST", "/api/collections/notes/view-token")).toBe(true);
-  });
-
-  // The exemption is a path shape, so it must not be reachable by dressing another route up
-  // to look like one.
-  it("cannot be smuggled past with a lookalike path", () => {
-    expect(needsSameOrigin("POST", "/api/collections/x/view-datastore")).toBe(true);
-    expect(needsSameOrigin("POST", "/api/collections/a/b/view-data")).toBe(true);
-    expect(needsSameOrigin("POST", "/api/evil/api/collections/x/view-data")).toBe(true);
+  it("has no feature-specific bypasses", () => {
+    expect(needsSameOrigin("PUT", "/api/files/browse/text")).toBe(true);
+    expect(needsSameOrigin("POST", "/api/plugin/spawnBackgroundChat")).toBe(true);
   });
 });
 
@@ -64,12 +47,6 @@ describe("sameOriginGuard", () => {
     const { next, res } = run("POST", "/api/config", false);
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);
-  });
-
-  it("lets an exempt path through even when the predicate would refuse", () => {
-    const { next, res } = run("PUT", "/api/collections/notes/view-data", false);
-    expect(next).toHaveBeenCalledOnce();
-    expect(res.status).not.toHaveBeenCalled();
   });
 
   it("lets a safe method through even when the predicate would refuse", () => {
@@ -113,10 +90,6 @@ describe("requestOriginAllowed", () => {
   it("still asks the predicate for a state-changing method", () => {
     expect(requestOriginAllowed(request("POST", "/api/mobile/terminal-input"), refuseEverything)).toBe(false);
     expect(requestOriginAllowed(request("POST", "/api/mobile/terminal-input"), () => true)).toBe(true);
-  });
-
-  it("keeps the view-data exemption, which authenticates by token instead", () => {
-    expect(requestOriginAllowed(request("PUT", "/api/collections/notes/view-data"), refuseEverything)).toBe(true);
   });
 
   it("hands the predicate both the origin and the peer", () => {

@@ -31,9 +31,7 @@ describe("parseRepoEntry", () => {
 });
 
 describe("canonicalRepo", () => {
-  // The identity `/api/repo-dirs` keys by: it reads the name off a clone's remote, where the host
-  // is not part of the path. An entry that spells the host out has to be reduced to it before any
-  // comparison, or a repo with a clone reads as having none.
+  // The project path a CLI wants. An entry that spells the host out has to be reduced first.
   it.each([
     ["acme/web", "acme/web"],
     ["github.com/acme/web", "acme/web"],

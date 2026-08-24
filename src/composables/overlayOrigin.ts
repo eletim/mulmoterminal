@@ -1,5 +1,5 @@
-// Where a full-screen overlay (collections / wiki / PRs / accounting / files) returns when it
-// closes: the view it was opened from, rather than a fixed screen (#886).
+// Where a full-screen overlay returns when it closes: the view it was opened
+// from, rather than a fixed screen (#886).
 //
 // The origin rides the HISTORY ENTRY, not a module variable — so entering an overlay via
 // browser back/forward restores that entry's own origin instead of a stale one, and a fresh
@@ -7,27 +7,10 @@
 // origin forward.
 import { router } from "../router";
 
-// The routes that render as a full-screen panel ON TOP of a view. Every one of them starts
-// below the header (`top-10`), so the header stays visible while they are open — which means
-// the view underneath must not change when one opens.
-// The CONTENT surfaces: the workspace's own data, as opposed to the terminals. Entered through the
-// Collections button, which then reveals its siblings — so this set is what "am I in there?"
-// means, and it lives beside OVERLAY_ROUTES because the two lists must not drift. PRs is the one
-// overlay that is NOT content: it is about work under supervision, and belongs with the grid.
-export const CONTENT_ROUTES = new Set([
-  "accounting",
-  "files",
-  "wiki",
-  "wikiPage",
-  "wikiGraph",
-  "wikiLint",
-  "collections",
-  "collectionDetail",
-  "feeds",
-  "feedDetail",
-]);
-
-const OVERLAY_ROUTES = new Set([...CONTENT_ROUTES, "prs"]);
+// The routes that render as a full-screen panel ON TOP of the terminal grid. The
+// Files viewer starts below the header (`top-10`), so the header stays visible
+// while it is open and the grid underneath does not change.
+const OVERLAY_ROUTES = new Set(["files"]);
 
 /** The route an open overlay should return to. */
 export function overlayReturnPath(): string {

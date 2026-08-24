@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { currentGitlabHosts, useAppConfig } from "../../../src/composables/useAppConfig";
+import { useAppConfig } from "../../../src/composables/useAppConfig";
 
 // Echo the posted cwdPresets back as the server would, so presets.value reflects
 // each save. useAppConfig's presets ref is per-call (not a singleton), so every
@@ -168,12 +168,10 @@ describe("useAppConfig — a save keeps what the server echoed", () => {
     expect(userMcpServers.value).toEqual(next);
   });
 
-  it("keeps launchers and pr repos after saving them", async () => {
-    const { launchers, saveLaunchers, prRepos, savePrRepos } = useAppConfig();
+  it("keeps launchers after saving them", async () => {
+    const { launchers, saveLaunchers } = useAppConfig();
     expect(await saveLaunchers([{ label: "zsh", command: "/bin/zsh" }])).toBe(true);
     expect(launchers.value).toEqual([{ label: "zsh", command: "/bin/zsh" }]);
-    expect(await savePrRepos(["receptron/mulmoterminal"])).toBe(true);
-    expect(prRepos.value).toEqual(["receptron/mulmoterminal"]);
   });
 });
 
@@ -192,10 +190,9 @@ describe("useAppConfig — loadConfig validates what the server sends", () => {
       quickCommands: [{ label: "hi", text: "hello" }, { label: "no text" }],
       userMcpServers: [{ id: "a", url: "https://x" }, { id: "b" }],
       pushKinds: ["finished", "not-a-kind"],
-      prRepos: ["owner/repo", 42],
       cwdPresets: [{ label: "proj", path: "/p" }, { label: "no path" }],
     });
-    const { loadConfig, launchers, quickCommands, userMcpServers, pushKinds, prRepos, presets } = useAppConfig();
+    const { loadConfig, launchers, quickCommands, userMcpServers, pushKinds, presets } = useAppConfig();
 
     await loadConfig();
 
@@ -203,20 +200,7 @@ describe("useAppConfig — loadConfig validates what the server sends", () => {
     expect(quickCommands.value).toEqual([{ label: "hi", text: "hello" }]);
     expect(userMcpServers.value).toEqual([{ id: "a", url: "https://x" }]);
     expect(pushKinds.value).toEqual(["finished"]);
-    expect(prRepos.value).toEqual(["owner/repo"]);
     expect(presets.value).toEqual([{ label: "proj", path: "/p" }]);
-  });
-
-  // The declared self-hosted GitLab hosts (#1332). config.json-only, so the browser can never write
-  // them — but it decides from them (an issue row on such a host can start work), and without this
-  // adoption that decision is made against an empty list on every page.
-  it("adopts the declared gitlab hosts, dropping anything that is not a string", async () => {
-    mockConfigGet({ gitlabHosts: ["gitlab.hogefuga.com", 42] });
-    const { loadConfig } = useAppConfig();
-
-    await loadConfig();
-
-    expect(currentGitlabHosts()).toEqual(["gitlab.hogefuga.com"]);
   });
 
   // A body that is not a JSON object at all must leave what is already shown alone rather than

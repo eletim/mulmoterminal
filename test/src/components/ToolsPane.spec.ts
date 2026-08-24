@@ -131,8 +131,8 @@ describe("ToolsPane", () => {
     expect(wrapper.find('[data-testid="tool-name"]').text()).toBe("presentDocument");
 
     // Another session's announcement must not repoint this pane.
-    toolsReply = [{ toolName: "manageCollection" }];
-    capturedGroups?.({ sessionId: "b", groups: ["data"] });
+    toolsReply = [{ toolName: "generateImage" }];
+    capturedGroups?.({ sessionId: "b", groups: ["media"] });
     await flushPromises();
     expect(wrapper.find('[data-testid="tool-name"]').text()).toBe("presentDocument");
   });

@@ -6,7 +6,7 @@
 // so the longest-running sessions read as the emptiest ones (#998).
 //
 // Two shapes cover what the callers actually need, and neither is new: this module is where the
-// line stream from decision-scan.ts and the tail reader from codex-rollout.ts now live together,
+// line stream readers and the tail reader from codex-rollout.ts now live together,
 // so a reader picks one instead of writing a third.
 import { createReadStream, closeSync, openSync, readSync, statSync } from "node:fs";
 import readline from "node:readline";

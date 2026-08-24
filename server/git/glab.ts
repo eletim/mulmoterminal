@@ -40,30 +40,11 @@ export const glabTarget = (forge: RemoteForge): GlabTarget => {
   return { host: forge.host, project, repo: `https://${forge.host}/${project}` };
 };
 
-// `-F json` on `mr list` is the OUTPUT FORMAT; on `issue list` that same short flag means something
-// else entirely (`--output-format` = details|ids|urls) and the format flag is `-O`. Verified
-// against glab 1.111.0 — writing these from memory produces a command that runs and returns the
-// wrong thing.
-// State: neither list is given a state flag. `mr list` has none to give (its help documents the
-// open default), and `issue list`'s `--opened` is DEPRECATED — running it prints "Flag --opened has
-// been deprecated, default if --closed is not used", which both states the default and warns that
-// the flag is going away. Learned by running it, not from the help.
+// `mr list` is still used for the current branch's merge request. `-F json` is the output format,
+// verified against glab 1.111.0.
 export const glabMrListArgs = (target: GlabTarget, limit: number): string[] => ["mr", "list", "--repo", target.repo, "--per-page", String(limit), "-F", "json"];
 
-export const glabIssueListArgs = (target: GlabTarget, limit: number): string[] => [
-  "issue",
-  "list",
-  "--repo",
-  target.repo,
-  "--per-page",
-  String(limit),
-  "-O",
-  "json",
-];
-
-// `issue view` takes `-F` for the output format — like `mr list`, and UNLIKE `issue list`, which
-// takes `-O` and gives `-F` a different meaning entirely. Three subcommands, three answers;
-// verified against glab 1.111.0 rather than pattern-matched from its sibling.
+// `issue view` takes `-F` for the output format; verified against glab 1.111.0.
 export const glabIssueViewArgs = (target: GlabTarget, issue: number): string[] => ["issue", "view", String(issue), "--repo", target.repo, "-F", "json"];
 
 // `note`, not `comment` — and the message flag is `-m`. Checked against glab 1.111.0.

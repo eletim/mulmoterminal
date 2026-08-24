@@ -2,11 +2,7 @@
 import { computed } from "vue";
 import { activeKeymap } from "../../composables/activeKeymap";
 import { keymapRows, sendRows } from "../keymapLabels";
-import SkillLaunchButton from "../SkillLaunchButton.vue";
 import { SECTION_HEADING } from "./sectionClasses";
-import type { BundledSkillName } from "../../../common/bundledSkills";
-
-const emit = defineEmits<{ (e: "launch-skill", skill: BundledSkillName): void }>();
 
 // Reactive, not a snapshot: /api/config is fetched asynchronously, so a modal opened before it
 // lands would otherwise sit on "Not set" for every action until it is closed and reopened.
@@ -18,7 +14,7 @@ const sendKeyRows = computed(() => sendRows(activeKeymap.value));
   <h3 :class="SECTION_HEADING">Keyboard shortcuts</h3>
   <p class="mb-3 mt-1.5 text-[12px] text-dim">
     Read-only. Shortcuts are off until you bind them in <code>~/.mulmoterminal/config.json</code> under <code>keymap</code> — every key you bind stops reaching
-    the program inside the terminal, so the skill checks a binding against what your agent already uses before writing it. Or see the
+    the program inside the terminal. See the
     <a class="text-accent underline" href="https://receptron.github.io/mulmoterminal/guide/en/config.html#keymap" target="_blank" rel="noopener noreferrer"
       >guide</a
     >.
@@ -42,8 +38,5 @@ const sendKeyRows = computed(() => sendRows(activeKeymap.value));
       <code class="shrink-0 rounded border border-border bg-subtle px-1.5 py-0.5 font-mono text-[11px] text-fg">{{ row.key }}</code>
       <code class="shrink-0 font-mono text-[10px] text-muted">send</code>
     </div>
-  </div>
-  <div class="mt-3">
-    <SkillLaunchButton skill="mulmoterminal-keys" icon="keyboard" label="Set up shortcuts…" @launch="emit('launch-skill', $event)" />
   </div>
 </template>

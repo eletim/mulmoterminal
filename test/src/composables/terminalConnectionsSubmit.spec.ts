@@ -152,17 +152,16 @@ describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit 
     }
   });
 
-  // #1142: the Skill menu types `/<slug>` through submitText, so this path has the same dead end
-  // as the phone's — Claude keeps the command menu open on a bare `/slug` and eats the ESC of an
-  // ESC+CR submit. The guard space is mode-independent: a cr host submits the same line either
-  // way, so both modes send it rather than the guard depending on a setting.
-  it.each(["cr", "esc-cr"] as const)("submitText: the skill seed carries the completion guard in %s mode", (mode) => {
+  // #1142: slash commands typed through submitText need a trailing space guard; Claude keeps the
+  // command menu open on a bare `/slug` and eats the ESC of an ESC+CR submit. The guard space is
+  // mode-independent: a cr host submits the same line either way.
+  it.each(["cr", "esc-cr"] as const)("submitText: slash commands carry the completion guard in %s mode", (mode) => {
     vi.useFakeTimers();
     try {
       setTerminalSubmitMode(mode);
       const ws = openCell(`cell-guard-${mode}`, target(null));
-      conn.submitText(`cell-guard-${mode}`, "/mulmoterminal-decisions");
-      expect(ws.sent[0]).toBe(JSON.stringify({ type: "input", data: "/mulmoterminal-decisions " }));
+      conn.submitText(`cell-guard-${mode}`, "/compact");
+      expect(ws.sent[0]).toBe(JSON.stringify({ type: "input", data: "/compact " }));
       conn.release(`cell-guard-${mode}`);
     } finally {
       vi.useRealTimers();

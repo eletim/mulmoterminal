@@ -2,19 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const m = vi.hoisted(() => ({
   filesGotoIndex: vi.fn(),
-  prsGotoIndex: vi.fn(),
-  wikiGotoIndex: vi.fn(),
-  browseGotoIndex: vi.fn(),
-  accountingViewOpen: vi.fn(),
   submitText: vi.fn(),
   insertText: vi.fn(),
   openTerminalAt: vi.fn(),
 }));
 vi.mock("../../../src/composables/useFilesView", () => ({ filesGotoIndex: m.filesGotoIndex }));
-vi.mock("../../../src/composables/usePrsView", () => ({ prsGotoIndex: m.prsGotoIndex }));
-vi.mock("../../../src/composables/useWikiBrowse", () => ({ wikiGotoIndex: m.wikiGotoIndex }));
-vi.mock("../../../src/composables/useCollectionBrowse", () => ({ browseGotoIndex: m.browseGotoIndex }));
-vi.mock("../../../src/composables/useAccountingView", () => ({ accountingViewOpen: m.accountingViewOpen }));
 vi.mock("../../../src/composables/useTerminalConnections", () => ({ submitText: m.submitText, insertText: m.insertText }));
 vi.mock("../../../src/composables/useNewTerminal", () => ({ openTerminalAt: m.openTerminalAt }));
 
@@ -54,11 +46,9 @@ describe("runHeaderButton", () => {
     vi.unstubAllGlobals();
   });
 
-  it("open files → filesGotoIndex; open view routes to the matching nav (else files)", () => {
+  it("open files → filesGotoIndex; open view uses the remaining file view", () => {
     runHeaderButton(btn({ run: "open", open: { files: "/dir" } }), null, null);
     expect(m.filesGotoIndex).toHaveBeenCalledWith("/dir");
-    runHeaderButton(btn({ run: "open", open: { view: "prs" } }), null, null);
-    expect(m.prsGotoIndex).toHaveBeenCalled();
     runHeaderButton(btn({ run: "open", open: { view: "diff" } }), null, "/c");
     expect(m.filesGotoIndex).toHaveBeenLastCalledWith("/c");
   });

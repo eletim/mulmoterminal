@@ -122,13 +122,13 @@ describe("the canvas opening itself when the agent draws", () => {
     expect(w.findComponent({ name: "GuiPanel" }).props("sessionId")).toBe("s1");
   });
 
-  // manageCollection / google publish on the same channel and draw no card. Switching the pane
+  // Unknown tools publish on the same channel and draw no card. Switching the pane
   // for one shows the user whatever was already there, with no visible reason.
   it("ignores a result no plugin renders", async () => {
     const w = mountGrid([cell(1, "s1")], 1);
     await flushPromises();
 
-    publish("session:s1", { uuid: "u2", toolName: "manageCollection", data: {} });
+    publish("session:s1", { uuid: "u2", toolName: "unknownTool", data: {} });
     await flushPromises();
     expect(canvasOpen(w)).toBe(false);
   });

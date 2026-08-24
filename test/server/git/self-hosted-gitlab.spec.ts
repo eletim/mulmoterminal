@@ -3,7 +3,7 @@
 // to behave exactly as gitlab.com does, all the way down to the argv `glab` is handed.
 import { describe, it, expect, afterEach } from "vitest";
 import { forgeFromRepoEntry, forgeOf, projectPath, setDeclaredGitlabHosts } from "../../../server/git/forge-host.js";
-import { isSupported, repoForRemote, repoSupport } from "../../../server/git/forge-support.js";
+import { repoForRemote } from "../../../server/git/forge-support.js";
 import { glabIssueNotesArgs, glabMrListArgs, glabTarget } from "../../../server/git/glab.js";
 
 const HOST = "gitlab.hogefuga.com";
@@ -35,33 +35,16 @@ describe("a declared host", () => {
   });
 
   // The clone on disk reaches this through its remote URL rather than through a config entry, and
-  // the name it resolves to is what a `prRepos` entry is matched against.
+  // the name it resolves to is host-qualified so session PR/MR actions target the right forge.
   it("is recognised from a clone's remote, host-qualified so it matches the entry", () => {
     declare(HOST);
     expect(repoForRemote(`git@${HOST}:group/project.git`)?.repo).toBe(ENTRY);
-  });
-
-  it("is listable", () => {
-    declare(HOST);
-    const support = repoSupport(ENTRY);
-    expect(isSupported(support) && support.forge.kind).toBe("gitlab");
   });
 });
 
 describe("an undeclared host", () => {
   it("is not a forge this app knows", () => {
     expect(forgeOfEntry(ENTRY).kind).toBe("unknown");
-  });
-
-  // The sentence #1332 was filed about. It said the host was unsupported and stopped there, so a
-  // user with a working `glab` had no way to tell that one config line was all it needed.
-  it("is refused with the config key that would fix it", () => {
-    const support = repoSupport(ENTRY);
-    expect(isSupported(support)).toBe(false);
-    const error = isSupported(support) ? "" : support.error;
-    expect(error).toContain(HOST);
-    expect(error).toContain("gitlabHosts");
-    expect(error).toContain("~/.mulmoterminal/config.json");
   });
 
   // Declaring GitHub would hand every GitHub repo to `glab`. It is refused at the rule, so no
@@ -72,7 +55,7 @@ describe("an undeclared host", () => {
   });
 
   // A remote is a different entrance to the same question, and answering it differently would make
-  // a clone and its `prRepos` entry disagree about what they are.
+  // the session action target a different forge than the clone.
   it("is unknown by remote URL too", () => {
     expect(forgeOf(`https://${HOST}/group/project.git`)?.kind).toBe("unknown");
   });

@@ -38,7 +38,7 @@ describe("useMcpToolGroups", () => {
     expect(mcp.dir.value).toBe("/repo");
     expect(mcp.enabled.value.render).toBe(true);
     expect(mcp.enabled.value.external).toBe(true);
-    expect(mcp.enabled.value.data).toBe(false);
+    expect(mcp.enabled.value.media).toBe(false);
   });
 
   it("shows no switches at all when the read fails — a guessed position would write the wrong way", async () => {
@@ -61,7 +61,7 @@ describe("useMcpToolGroups", () => {
     const mcp = useMcpToolGroups();
     await mcp.load("/repo");
     await mcp.syncInto("/wt/task");
-    // render agrees; data and media are off on both sides; only the stale `external` moves.
+    // render agrees; media is off on both sides; only the stale `external` moves.
     expect(posted).toEqual([{ cwd: "/wt/task", group: "external", enabled: false }]);
   });
 
@@ -90,7 +90,7 @@ describe("useMcpToolGroups", () => {
         return { ok: true, json: async () => ({ ok: true }) };
       }
       const cwd = decodeURIComponent(String(url).split("cwd=")[1] ?? "");
-      // The repo has all four on; the worktree has none, so all four are due to be written.
+      // The repo has every group on; the worktree has none, so every group is due to be written.
       return { ok: true, json: async () => ({ groups: cwd === "/repo" ? [...TOOL_GROUPS] : [] }) };
     }) as unknown as typeof fetch;
 

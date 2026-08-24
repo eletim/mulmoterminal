@@ -101,7 +101,7 @@ Grid cells aren't just for Claude — they can run your project's **scripts**, s
 ## 5. Use Claude and Codex together
 
 You can send the same task to both Claude and Codex to compare, or use each for what it does best — all on a per-cell basis.
-Just pick one with the toggle at launch; collection actions and mulmoclaude skills work with both.
+Just pick one with the toggle at launch; each session keeps its own terminal, cwd, transcript, and lifecycle.
 
 ## 6. Tell projects apart by color
 
