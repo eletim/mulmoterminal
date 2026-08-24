@@ -147,9 +147,9 @@ await fs.mkdir(CLAUDE_CWD, { recursive: true });
 initWorkspaceSetup({ workspace: CLAUDE_CWD });
 
 const upgradeCleanup = runUpgradeCleanup({ knownDirs: [CLAUDE_CWD, ...getCwdPresets().map((preset) => preset.path)] });
-if (upgradeCleanup.ownedSkillsRemoved > 0 || upgradeCleanup.mcpRegistrationsRemoved > 0) {
+if (upgradeCleanup.ownedSkillsRemoved > 0 || upgradeCleanup.mcpRegistrationsRemoved > 0 || upgradeCleanup.notificationsRemoved > 0) {
   console.log(
-    `[cleanup] removed ${upgradeCleanup.ownedSkillsRemoved} retired skill(s) and ${upgradeCleanup.mcpRegistrationsRemoved} retired MCP registration(s)`,
+    `[cleanup] removed ${upgradeCleanup.ownedSkillsRemoved} retired skill(s), ${upgradeCleanup.mcpRegistrationsRemoved} retired MCP registration(s), and ${upgradeCleanup.notificationsRemoved} retired notification(s)`,
   );
 }
 

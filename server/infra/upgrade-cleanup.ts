@@ -31,12 +31,14 @@ export interface UpgradeCleanupOptions {
 export interface UpgradeCleanupResult {
   ownedSkillsRemoved: number;
   mcpRegistrationsRemoved: number;
+  notificationsRemoved: number;
   filesChanged: number;
 }
 
 const emptyResult = (): UpgradeCleanupResult => ({
   ownedSkillsRemoved: 0,
   mcpRegistrationsRemoved: 0,
+  notificationsRemoved: 0,
   filesChanged: 0,
 });
 
@@ -130,10 +132,42 @@ function rewriteJsonConfig(file: string, mutate: (doc: Record<string, unknown>) 
   if (removed === 0) return emptyResult();
   try {
     writeFileSync(file, JSON.stringify(parsed, null, 2) + "\n", "utf8");
-    return { ownedSkillsRemoved: 0, mcpRegistrationsRemoved: removed, filesChanged: 1 };
+    return { ownedSkillsRemoved: 0, mcpRegistrationsRemoved: removed, notificationsRemoved: 0, filesChanged: 1 };
   } catch {
     return emptyResult();
   }
+}
+
+function retiredCollectionTarget(entry: Record<string, unknown>): boolean {
+  if (typeof entry.navigateTarget === "string" && entry.navigateTarget.startsWith("/collections/")) return true;
+  const pluginData = ownProp(entry, "pluginData");
+  if (!isRecord(pluginData)) return false;
+  if (pluginData.kind === "collection-completion") return true;
+  const action = ownProp(pluginData, "action");
+  const target = ownProp(action, "target");
+  return isRecord(target) && target.view === "collections";
+}
+
+export function removeRetiredCollectionNotifications(activeFile: Record<string, unknown>): number {
+  const entries = ownProp(activeFile, "entries");
+  if (!isRecord(entries)) return 0;
+  const pairs = Object.entries(entries);
+  const kept = pairs.filter(([, entry]) => !isRecord(entry) || !retiredCollectionTarget(entry));
+  const removed = pairs.length - kept.length;
+  if (removed > 0) activeFile.entries = Object.fromEntries(kept);
+  return removed;
+}
+
+function rewriteNotifierActiveFile(file: string): UpgradeCleanupResult {
+  const result = rewriteJsonConfig(file, removeRetiredCollectionNotifications);
+  return result.mcpRegistrationsRemoved === 0
+    ? result
+    : {
+        ownedSkillsRemoved: 0,
+        mcpRegistrationsRemoved: 0,
+        notificationsRemoved: result.mcpRegistrationsRemoved,
+        filesChanged: result.filesChanged,
+      };
 }
 
 function isRetiredCodexMcpTable(line: string): boolean {
@@ -171,7 +205,7 @@ function rewriteCodexConfig(file: string): UpgradeCleanupResult {
   if (result.removed === 0) return emptyResult();
   try {
     writeFileSync(file, result.text, "utf8");
-    return { ownedSkillsRemoved: 0, mcpRegistrationsRemoved: result.removed, filesChanged: 1 };
+    return { ownedSkillsRemoved: 0, mcpRegistrationsRemoved: result.removed, notificationsRemoved: 0, filesChanged: 1 };
   } catch {
     return emptyResult();
   }
@@ -199,10 +233,20 @@ function ancestorFiles(dirs: readonly string[], filename: string): string[] {
   return [...files];
 }
 
+function workspaceFiles(dirs: readonly string[], filename: string): string[] {
+  const files = new Set<string>();
+  for (const raw of dirs) {
+    if (!raw) continue;
+    for (const dir of new Set([raw, realpathOr(raw)])) files.add(path.join(dir, filename));
+  }
+  return [...files];
+}
+
 function add(a: UpgradeCleanupResult, b: UpgradeCleanupResult): UpgradeCleanupResult {
   return {
     ownedSkillsRemoved: a.ownedSkillsRemoved + b.ownedSkillsRemoved,
     mcpRegistrationsRemoved: a.mcpRegistrationsRemoved + b.mcpRegistrationsRemoved,
+    notificationsRemoved: a.notificationsRemoved + b.notificationsRemoved,
     filesChanged: a.filesChanged + b.filesChanged,
   };
 }
@@ -219,6 +263,9 @@ export function runUpgradeCleanup(options: UpgradeCleanupOptions = {}): UpgradeC
   }
   for (const file of ancestorFiles(options.knownDirs ?? [], path.join(".agents", "mcp_config.json"))) {
     result = add(result, rewriteJsonConfig(file, removeServerIdsFromScope));
+  }
+  for (const file of workspaceFiles(options.knownDirs ?? [], path.join("data", "notifier", "active.json"))) {
+    result = add(result, rewriteNotifierActiveFile(file));
   }
   result = add(result, rewriteCodexConfig(path.join(codexHome, "config.toml")));
   return result;

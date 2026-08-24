@@ -89,6 +89,38 @@ describe("runUpgradeCleanup", () => {
         theirs: { command: "keep" },
       },
     });
+    writeJson(path.join(cwd, "data", "notifier", "active.json"), {
+      entries: {
+        oldTarget: {
+          id: "oldTarget",
+          pluginPkg: "todo",
+          severity: "nudge",
+          title: "Old collection target",
+          navigateTarget: "/collections/todo?selected=item-1",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        oldPluginData: {
+          id: "oldPluginData",
+          pluginPkg: "todo",
+          severity: "urgent",
+          title: "Old collection plugin data",
+          pluginData: {
+            legacy: true,
+            legacyId: "todo:item-2",
+            kind: "todo",
+            action: { type: "navigate", target: { view: "collections", slug: "todo", itemId: "item-2" } },
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        keepSession: {
+          id: "keepSession",
+          pluginPkg: "session",
+          severity: "nudge",
+          title: "Session still needs attention",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
     mkdirSync(codexHome, { recursive: true });
     writeFileSync(
       path.join(codexHome, "config.toml"),
@@ -106,6 +138,7 @@ describe("runUpgradeCleanup", () => {
     const result = runUpgradeCleanup({ home, codexHome, claudeConfigFile, knownDirs: [cwd] });
 
     expect(result).toMatchObject<Partial<UpgradeCleanupResult>>({ ownedSkillsRemoved: 0, mcpRegistrationsRemoved: 5 });
+    expect(result.notificationsRemoved).toBe(2);
     const claude = readJson(claudeConfigFile);
     expect((claude.mcpServers as Record<string, unknown>)["mulmoterminal-data"]).toBeUndefined();
     expect((claude.mcpServers as Record<string, unknown>)["mulmoterminal-render"]).toBeDefined();
@@ -118,6 +151,15 @@ describe("runUpgradeCleanup", () => {
     const codex = readFileSync(path.join(codexHome, "config.toml"), "utf8");
     expect(codex).not.toContain("mulmoterminal-data");
     expect(codex).toContain("[mcp_servers.mulmoterminal-render]");
+    expect(readJson(path.join(cwd, "data", "notifier", "active.json")).entries).toEqual({
+      keepSession: {
+        id: "keepSession",
+        pluginPkg: "session",
+        severity: "nudge",
+        title: "Session still needs attention",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
   });
 });
 
