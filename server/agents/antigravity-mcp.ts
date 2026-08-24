@@ -43,9 +43,9 @@ export interface AntigravityMcpServer {
 }
 
 // Ours to rewrite, so an entry for a group that was switched OFF is removed rather than left
-// behind. `mulmoterminal-gui` is not a group id: it is the all-tools entry an earlier version of
-// this wrote, and cleaning it up here is what stops it outliving the code that made it.
-const OUR_SERVER_IDS = new Set(["mulmoterminal-gui", ...TOOL_GROUPS.map(toolGroupServerId)]);
+// behind. `mulmoterminal-gui` is the all-tools entry an earlier version wrote, and
+// `mulmoterminal-data` is the retired tool group removed with the non-terminal features.
+const OUR_SERVER_IDS = new Set(["mulmoterminal-gui", "mulmoterminal-data", ...TOOL_GROUPS.map(toolGroupServerId)]);
 
 // The merged `mcpServers` map: the user's own entries untouched, ours replaced by exactly the
 // groups given. Pure, so the "never clobber a server we don't own" rule is testable without a

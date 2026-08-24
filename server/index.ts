@@ -10,7 +10,7 @@ import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
 import { initOpenPathBackend } from "./backends/openPath.js";
-import { getUserMcpServers, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
+import { getUserMcpServers, getTerminalSubmit, getQuickCommands, getCwdPresets, APP_CONFIG_FILE } from "./config/config-routes.js";
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
@@ -44,6 +44,7 @@ import { newProbeSessionId } from "./agents/probe-session.js";
 import { writeProbeScreen } from "./agents/probe-stall.js";
 import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
 import { removeLegacySandboxCredentials, removeLegacySandboxContainers } from "./infra/fs-cleanup.js";
+import { runUpgradeCleanup } from "./infra/upgrade-cleanup.js";
 import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
@@ -144,6 +145,13 @@ await fs.mkdir(CLAUDE_CWD, { recursive: true });
 // Gated to the managed mulmoclaude workspace and
 // fault-isolated per step, so it never aborts boot (see workspaceSetup.ts).
 initWorkspaceSetup({ workspace: CLAUDE_CWD });
+
+const upgradeCleanup = runUpgradeCleanup({ knownDirs: [CLAUDE_CWD, ...getCwdPresets().map((preset) => preset.path)] });
+if (upgradeCleanup.ownedSkillsRemoved > 0 || upgradeCleanup.mcpRegistrationsRemoved > 0) {
+  console.log(
+    `[cleanup] removed ${upgradeCleanup.ownedSkillsRemoved} retired skill(s) and ${upgradeCleanup.mcpRegistrationsRemoved} retired MCP registration(s)`,
+  );
+}
 
 // Pub/sub channel the sidebar subscribes to for live session-activity changes.
 
