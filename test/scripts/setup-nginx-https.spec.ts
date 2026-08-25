@@ -163,18 +163,46 @@ describe("setup-nginx-https.sh", () => {
     const serverConf = path.join(currentTempDir(), "site.conf");
     writeFileSync(serverConf, ["server {", "    listen 443 ssl;", "    server_name dev.tail.ts.net;", "}"].join("\n"));
 
-    const result = runScript({
+    const env = {
       MULMOTERMINAL_NGINX_BIN: executable,
       MULMOTERMINAL_NGINX_ROOT: root,
       MULMOTERMINAL_NGINX_SERVER_CONF: serverConf,
       MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
-    });
+    };
+    const result = runScript(env);
+    const retried = runScript(env);
     const log = readFileSync(logFile, "utf8");
 
     expect(result.status).toBe(1);
+    expect(retried.status).toBe(1);
     expect(result.stderr).toContain("nginx -t failed; nginx was not reloaded.");
-    expect(log).toContain("-t\n");
+    expect(log.match(/^-t$/gm)).toHaveLength(2);
     expect(log).not.toContain("-s reload");
+    expect(existsSync(path.join(root, ".mulmoterminal-nginx-validated"))).toBe(false);
+  });
+
+  it("auto-discovers an exact server_name in the same TLS server block", () => {
+    dir = makeTempDir("nginx-https-discovery-");
+    const root = nginxRoot();
+    const { executable } = writeFakeNginx();
+    const enabledDir = path.join(root, "sites-enabled");
+    const availableDir = path.join(root, "sites-available");
+    mkdirSync(enabledDir, { recursive: true });
+    mkdirSync(availableDir, { recursive: true });
+    const misleading = path.join(enabledDir, "aaa-misleading.conf");
+    const correct = path.join(availableDir, "zzz-correct.conf");
+    writeFileSync(misleading, ["server { listen 443 ssl; server_name notdev.tail.ts.net; }", "server { listen 80; server_name dev.tail.ts.net; }"].join("\n"));
+    writeFileSync(correct, ["server {", "    listen 443 ssl;", "    server_name dev.tail.ts.net;", "}"].join("\n"));
+
+    const result = runScript({
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(misleading, "utf8")).not.toContain("MulmoTerminal managed include");
+    expect(readFileSync(correct, "utf8")).toContain("MulmoTerminal managed include");
   });
 
   it("creates a new HTTPS server config with certificate paths and a base-path proxy", () => {

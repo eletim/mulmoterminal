@@ -59,6 +59,7 @@ CONF_D="${MULMOTERMINAL_NGINX_CONF_D:-${NGINX_ROOT}/conf.d}"
 SNIPPETS_DIR="${MULMOTERMINAL_NGINX_SNIPPETS:-${NGINX_ROOT}/snippets}"
 SITES_AVAILABLE="${MULMOTERMINAL_NGINX_SITES_AVAILABLE:-${NGINX_ROOT}/sites-available}"
 SITES_ENABLED="${MULMOTERMINAL_NGINX_SITES_ENABLED:-${NGINX_ROOT}/sites-enabled}"
+VALIDATION_STAMP="${MULMOTERMINAL_NGINX_VALIDATION_STAMP:-${NGINX_ROOT}/.mulmoterminal-nginx-validated}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -169,8 +170,44 @@ detect_existing_server_conf() {
   [[ -n "$SERVER_NAME" ]] || return 1
   for candidate in "$SITES_ENABLED"/* "$SITES_AVAILABLE"/* "$CONF_D"/*.conf "$NGINX_ROOT/nginx.conf"; do
     [[ -f "$candidate" ]] || continue
-    grep -Eq 'listen[^;]*443' "$candidate" || continue
-    if grep -E 'server_name[^;]*' "$candidate" | grep -qF "$SERVER_NAME"; then
+    if awk -v server_name="$SERVER_NAME" '
+      function brace_delta(value, copy, opens, closes) {
+        copy = value
+        opens = gsub(/\{/, "{", copy)
+        copy = value
+        closes = gsub(/\}/, "}", copy)
+        return opens - closes
+      }
+      function has_name(value, fields, count, i) {
+        sub(/#.*/, "", value)
+        gsub(/[;[:space:]]+/, " ", value)
+        count = split(value, fields, " ")
+        for (i = 1; i <= count; i++) {
+          if (fields[i] == server_name) return 1
+        }
+        return 0
+      }
+      {
+        line = $0
+        sub(/#.*/, "", line)
+        if (!in_server && line ~ /^[[:space:]]*server[[:space:]]*\{/) {
+          in_server = 1
+          depth = 0
+          has_443 = 0
+          has_target_name = 0
+        }
+        if (in_server) {
+          if (line ~ /listen/ && line ~ /(^|[[:space:]:])443([[:space:];]|$)/) has_443 = 1
+          if (line ~ /server_name/ && has_name(line)) has_target_name = 1
+          depth += brace_delta(line)
+          if (depth == 0) {
+            if (has_443 && has_target_name) found = 1
+            in_server = 0
+          }
+        }
+      }
+      END { exit found ? 0 : 1 }
+    ' "$candidate"; then
       resolved="$(readlink -f -- "$candidate" 2>/dev/null || true)"
       printf '%s\n' "${resolved:-$candidate}"
       return 0
@@ -351,6 +388,15 @@ install_include_once() {
       closes = gsub(/\}/, "}", copy)
       return opens - closes
     }
+    function has_server_name(value, fields, count, i) {
+      sub(/#.*/, "", value)
+      gsub(/[;[:space:]]+/, " ", value)
+      count = split(value, fields, " ")
+      for (i = 1; i <= count; i++) {
+        if (fields[i] == server_name) return 1
+      }
+      return 0
+    }
     {
       if (!in_server && $0 ~ /^[[:space:]]*server[[:space:]]*\{/) {
         in_server = 1
@@ -361,8 +407,8 @@ install_include_once() {
 
       delta = in_server ? brace_delta($0) : 0
       if (in_server) {
-        if ($0 ~ /listen[^;]*443/) has_443 = 1
-        if (server_name != "" && $0 ~ /server_name/ && index($0, server_name) > 0) has_name = 1
+        if ($0 ~ /listen/ && $0 ~ /(^|[[:space:]:])443([[:space:];]|$)/) has_443 = 1
+        if (server_name != "" && $0 ~ /server_name/ && has_server_name($0)) has_name = 1
         if (!inserted && has_443 && has_name && depth + delta == 0) {
           print block
           inserted = 1
@@ -440,6 +486,7 @@ test_and_reload() {
     return 0
   fi
 
+  rm -f "$VALIDATION_STAMP"
   ensure_nginx_available
   if ! "$NGINX_BIN" -t; then
     echo "[mulmoterminal] nginx -t failed; nginx was not reloaded." >&2
@@ -451,6 +498,8 @@ test_and_reload() {
   else
     echo "[mulmoterminal] nginx -t passed; reload skipped"
   fi
+  mkdir -p "$(dirname -- "$VALIDATION_STAMP")"
+  install -m 0644 /dev/null "$VALIDATION_STAMP"
 }
 
 echo "[mulmoterminal] nginx HTTPS mode ${MODE}"
@@ -491,6 +540,10 @@ else
       echo "[mulmoterminal] enabled ${SERVER_LINK}"
     fi
   fi
+fi
+
+if [[ ! -f "$VALIDATION_STAMP" ]]; then
+  CHANGED=1
 fi
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
