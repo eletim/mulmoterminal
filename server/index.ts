@@ -87,7 +87,7 @@ import { phaseForRepoBranch } from "./git/prPhase.js";
 import { repoForDir } from "./git/forge-support.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./mobileTerminal/terminalInput.js";
-import { createTerminalSessionOperations } from "./mobileTerminal/sessionOperations.js";
+import { createCoreSessionOperations } from "./mobileTerminal/coreSessionOperations.js";
 import { initGoogleBackend } from "./backends/google.js";
 import { initPluginRuntime } from "./infra/pluginRuntime.js";
 import { createMobileWebPushFeature, mobileWebPushActivityLifecycleDeps } from "./mobile-web-push/feature.js";
@@ -112,6 +112,7 @@ import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
 import { visibleCoreSessions } from "./session/core-session-visibility.js";
+import { legacyMemoForCoreSession, legacySessionMemosHydrated, migrateLegacyMemoToCore } from "./session/core-session-legacy-ui.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -130,6 +131,14 @@ const ANTIGRAVITY_MODEL = process.env.ANTIGRAVITY_MODEL || null;
 // the backend runs hands-off; override with CLAUDE_PERMISSION_MODE (e.g.
 // "default" / "acceptEdits" / "bypassPermissions" / "plan") when needed.
 const CLAUDE_PERMISSION_MODE = process.env.CLAUDE_PERMISSION_MODE || "auto";
+
+// A direct `tsx server/index.ts` launch bypasses bin/mulmoterminal.js's preflight. Do not bind a
+// healthy-looking server whose every terminal launch is guaranteed to fail: Core's dedicated tmux
+// server is the sole session authority, not an optional persistence enhancement.
+if (!tmuxAvailable()) {
+  console.error("tmux not found. MulmoTerminal requires tmux (Windows users: run inside WSL).");
+  process.exit(1);
+}
 
 // CLAUDE_CWD is the workspace used as the PTY cwd and as the root for persisted
 // session state, so it must exist before we spawn anything into it.
@@ -301,6 +310,7 @@ const spawnDeps: SpawnDeps = {
   publishSessionCreated: (sessionId) => {
     const title = knownSessions.get(sessionId)?.title;
     if (title) void coreSessions.setTitle(sessionId, title).catch(() => undefined);
+    void migrateLegacyMemoToCore(sessionId).catch(() => undefined);
     pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" });
   },
   inputReadiness,
@@ -570,6 +580,7 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
 };
 
 const mobileListTerminalSessions = async () => {
+  await legacySessionMemosHydrated;
   // Core owns existence; this filter is display policy shared with the desktop grid. Internal
   // helpers remain directly addressable for their completion/push flows but are not terminal rows.
   const sessions = await visibleCoreSessions(await coreSessions.list());
@@ -585,7 +596,14 @@ const mobileListTerminalSessions = async () => {
       if (!session) return { title: "", cwd: "", agent: null };
       const summary = work.get(session.cwd);
       const detail: SessionDetailDraft = {
-        title: sessionDisplayName(session.memo, session.title, aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title),
+        title: sessionDisplayName(
+          session.memo,
+          legacyMemoForCoreSession(id),
+          session.title,
+          aiTitles.get(id),
+          lastPrompts.get(id),
+          knownSessions.get(id)?.title,
+        ),
         cwd: session.cwd,
         agent: session.agent,
         ...(summary ? { work: summary } : {}),
@@ -605,14 +623,7 @@ const mobileWriteToSession = async (sessionId: string, chunk: string): Promise<b
   }
 };
 
-const mobileSessionOperations = createTerminalSessionOperations({
-  interrupt: (id) => coreSessions.stop(id),
-  stop: (id) => coreSessions.stop(id),
-  delete: async (id) => {
-    reap(id);
-    await coreSessions.delete(id);
-  },
-});
+const mobileSessionOperations = createCoreSessionOperations(reap);
 
 // Whether the phone's typing may empty the input box before pasting, so only the
 // phone's text is submitted (#572). The rule itself lives with the sender.
@@ -623,6 +634,7 @@ const mobileCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.
 // answers from. A session that outlived a restart has no PtyEntry, so it falls back to the
 // persisted cwd written when the session was launched or attached.
 const mobileSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
+  await legacySessionMemosHydrated;
   const session = await coreSessions.get(sessionId);
   return buildScreenMeta(sessionId, {
     cwdOf: () => session.cwd,
@@ -634,7 +646,7 @@ const mobileSessionScreenMeta = async (sessionId: string): Promise<SessionScreen
     // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
     // on a screen the phone polls (#832).
     githubUrlOf: resolveGithubUrl,
-    memoOf: () => session.memo ?? "",
+    memoOf: () => session.memo ?? legacyMemoForCoreSession(sessionId) ?? "",
     summaryOf: (id) => session.title ?? aiTitles.get(id) ?? "",
     promptOf: (id) => lastPrompts.get(id) ?? "",
     memosHydrated: Promise.resolve(),
@@ -841,13 +853,9 @@ server.listen(Number(PORT), BIND_HOST, async () => {
   if (!isLoopbackBinding(server.address())) {
     console.warn(bindSecurityWarning(BIND_HOST, PORT, browserHostnames));
   }
-  const surviving = tmuxAvailable() ? (await coreSessions.list()).map((session) => session.id) : [];
-  if (tmuxAvailable()) {
-    const detail = surviving.length ? ` — ${surviving.length} session(s) survived; reattach on connect` : "";
-    console.log(`[tmux] persistence on${detail}`);
-  } else {
-    console.log("[tmux] not found — terminals are not persistent across a server restart");
-  }
+  const surviving = (await coreSessions.list()).map((session) => session.id);
+  const detail = surviving.length ? ` — ${surviving.length} session(s) survived; reattach on connect` : "";
+  console.log(`[tmux] Core session runtime on${detail}`);
   // Say we are here, so a later launcher can warn about a second instance and a later boot can
   // tell our live files from a dead server's leftovers (#1061).
   const unregisterInstance = registerInstance(Number(PORT));

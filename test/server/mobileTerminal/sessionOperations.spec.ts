@@ -10,7 +10,7 @@ describe("createTerminalSessionOperations", () => {
     expect(interrupt).toHaveBeenCalledWith("s1");
   });
 
-  it("keeps stop and delete as distinct Core operations", async () => {
+  it("delegates the Mobile stop and delete contracts to their injected Core operations", async () => {
     const stop = vi.fn(async () => undefined);
     const remove = vi.fn(async () => undefined);
     const ops = createTerminalSessionOperations({ interrupt: vi.fn(), stop, delete: remove });
