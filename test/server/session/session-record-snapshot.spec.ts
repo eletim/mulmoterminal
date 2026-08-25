@@ -100,11 +100,11 @@ describe("currentSessionRecords", () => {
 
     const sources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [A, C] });
 
-    expect(sources.ids).toEqual([A, B]);
-    expect(sources.liveIds).toEqual([A]);
-    expect(sources.tmuxIds).toEqual([A]);
+    expect(sources.ids).toEqual([A, C, B]);
+    expect(sources.liveIds).toEqual([A, C]);
+    expect(sources.tmuxIds).toEqual([A, C]);
     expect(sources.candidateIds).toEqual([B]);
-    expect(sources.recordById.get(C)).toBeUndefined();
+    expect(sources.recordById.get(C)).toMatchObject({ id: C, visibility: "history" });
   });
 
   it("hydrates tmux-only survivors for the Mobile list from persisted SessionRecord metadata", async () => {
@@ -216,7 +216,7 @@ describe("currentSessionRecords", () => {
     });
   });
 
-  it("excludes Mobile activity-only rows from active Session candidates", async () => {
+  it("keeps Mobile activity-only dev records as Session candidates", async () => {
     readBack = {
       "dev-terminal-sessions.json": [A, B, C, D].join("\n"),
     };
@@ -227,9 +227,33 @@ describe("currentSessionRecords", () => {
     registry.activity.set(C, { working: true, at: 3 });
     registry.activity.set(D, { waiting: true, at: 2 });
 
-    const sources = snapshot.currentMobileSessionRecordSources({ activityCandidateLimit: 2 });
+    const sources = snapshot.currentMobileSessionRecordSources();
 
-    expect(sources.ids).toEqual([]);
-    expect(sources.candidateIds).toEqual([]);
+    expect(new Set(sources.ids)).toEqual(new Set([A, B, C, D]));
+    expect(new Set(sources.candidateIds)).toEqual(new Set([A, B, C, D]));
+  });
+
+  it("excludes explicitly deleted records from fresh SessionRecord snapshots", async () => {
+    readBack = {
+      "dev-terminal-sessions.json": [A, B].join("\n"),
+      "deleted-session-records.log": A,
+    };
+    const { snapshot } = await freshModules();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+
+    expect(snapshot.currentSessionRecords().map((record) => record.id)).toEqual([B]);
+    expect(snapshot.currentMobileSessionRecordSources().ids).toEqual([B]);
+  });
+
+  it("replays an active deletion marker so a resumed id is visible after restart", async () => {
+    readBack = {
+      "dev-terminal-sessions.json": A,
+      "deleted-session-records.log": `${A}\n${A} active`,
+    };
+    const { snapshot } = await freshModules();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+
+    expect(snapshot.currentSessionRecords().map((record) => record.id)).toEqual([A]);
+    expect(snapshot.currentMobileSessionRecordSources().ids).toEqual([A]);
   });
 });

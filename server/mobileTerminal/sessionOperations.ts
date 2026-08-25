@@ -1,4 +1,4 @@
-import { recordSessionStopped } from "../session/session-lifecycle-records.js";
+import { recordSessionDeleted } from "../session/session-lifecycle-records.js";
 
 export interface TerminalSessionOperationDeps {
   writeToSession: (sessionId: string, chunk: string) => boolean;
@@ -14,8 +14,8 @@ export function createTerminalSessionOperations({ writeToSession, reapSession, h
       reapSession(sessionId);
       if (hasTmux(sessionId)) {
         killTmux(sessionId);
-        recordSessionStopped({ id: sessionId });
       }
+      recordSessionDeleted(sessionId);
     },
   };
 }

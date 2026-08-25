@@ -339,12 +339,8 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // codex's own sessions (see routes/session-routes.ts).
   mountSessionRoutes(app, sessionRouteDeps(deps));
 
-  // Explicit close (reliable deps.reap over HTTP) + one-shot orphan cleanup. Extracted to a
+  // Explicit close (reliable HTTP fallback for logical deletion) + one-shot orphan cleanup. Extracted to a
   // module so the origin guard / id validation / orphan-selection boundary are testable.
-  // Shared by the orphan cleanup (which must never deps.reap a resumable session) and the phone's
-  // session picker (which must never OFFER a non-resumable one) — the same rule read from
-  // both directions, so they can't drift apart.
-
   mountTmuxRoutes(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),

@@ -2,7 +2,7 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { Express } from "express";
 import { mountTmuxRoutes, type TmuxRouteDeps } from "../../../server/infra/tmux-routes.js";
-import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
+import { deletedSessionRecordIds, sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 
 interface FakeRes {
   statusCode: number;
@@ -48,6 +48,7 @@ const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
 beforeEach(() => {
   sessionLifecycleRecords.clear();
+  deletedSessionRecordIds.clear();
 });
 
 function baseDeps(over: Partial<TmuxRouteDeps> = {}): TmuxRouteDeps {
@@ -91,7 +92,7 @@ describe("mountTmuxRoutes — POST /api/session/:id/terminate", () => {
     await terminate({ headers: {}, params: { id: UUID } }, res);
     expect(reapSession).toHaveBeenCalledWith(UUID);
     expect(killTmux).toHaveBeenCalledWith(UUID); // tmux still present after reap → killed directly
-    expect(sessionLifecycleRecords.get(UUID)).toMatchObject({ id: UUID, lifecycle: "stopped" });
+    expect(deletedSessionRecordIds.has(UUID)).toBe(true);
     expect(res.payload).toEqual({ ok: true });
   });
 
@@ -101,6 +102,7 @@ describe("mountTmuxRoutes — POST /api/session/:id/terminate", () => {
     const res = makeRes();
     await terminate({ headers: {}, params: { id: UUID } }, res);
     expect(killTmux).not.toHaveBeenCalled();
+    expect(deletedSessionRecordIds.has(UUID)).toBe(true);
     expect(res.payload).toEqual({ ok: true });
   });
 });

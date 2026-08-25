@@ -24,10 +24,14 @@ export interface SessionLifecycleWrite {
 
 export const STOPPED_SESSION_LIFECYCLE_RECORD_LIMIT = 500;
 const STOPPED_SESSION_LIFECYCLE_FILE = path.join(MULMOTERMINAL_HOME, "stopped-session-lifecycle.json");
+const DELETED_SESSION_RECORDS_FILE = path.join(MULMOTERMINAL_HOME, "deleted-session-records.log");
 
 export const sessionLifecycleRecords = new Map<string, SessionLifecycleRecord>();
+export const deletedSessionRecordIds = new Set<string>();
 const currentProcessLifecycleWriteIds = new Set<string>();
+const currentProcessDeletedRecordStates = new Map<string, "deleted" | "active">();
 let lifecycleRecordsHydrated = false;
+let deletedRecordsHydrated = false;
 
 function stoppedLifecycleLogLine(id: string, state: "stopped" | "active"): string {
   return `\n${id} ${state}`;
@@ -61,6 +65,22 @@ export const sessionLifecycleRecordsHydrated = (async () => {
   }
 })();
 
+export const deletedSessionRecordsHydrated = (async () => {
+  try {
+    for (const line of (await fs.readFile(DELETED_SESSION_RECORDS_FILE, "utf8")).split("\n")) {
+      const [id, state] = line.trim().split(/\s+/);
+      if (!id || !SESSION_ID_RE.test(id) || currentProcessDeletedRecordStates.has(id)) continue;
+      if (state === "active") deletedSessionRecordIds.delete(id);
+      else if (state === undefined || state === "deleted") deletedSessionRecordIds.add(id);
+    }
+  } catch {
+    // absent on first run / unreadable => no explicit deletions
+  } finally {
+    deletedRecordsHydrated = true;
+    currentProcessDeletedRecordStates.clear();
+  }
+})();
+
 let stoppedLifecyclePersist: Promise<void> = Promise.resolve();
 function persistStoppedSessionLifecycle(id: string, state: "stopped" | "active"): void {
   if (!SESSION_ID_RE.test(id)) return;
@@ -68,6 +88,24 @@ function persistStoppedSessionLifecycle(id: string, state: "stopped" | "active")
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
     .then(() => fs.appendFile(STOPPED_SESSION_LIFECYCLE_FILE, stoppedLifecycleLogLine(id, state)))
     .catch((err) => console.error(`[session-lifecycle] failed to persist ${state} ${id}: ${messageOf(err)}`));
+}
+
+let deletedRecordPersist: Promise<void> = Promise.resolve();
+function persistDeletedSessionRecord(id: string, state: "deleted" | "active"): void {
+  currentProcessDeletedRecordStates.set(id, state);
+  deletedRecordPersist = deletedRecordPersist
+    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
+    .then(() => fs.appendFile(DELETED_SESSION_RECORDS_FILE, `\n${id} ${state}`))
+    .catch((err) => console.error(`[session-lifecycle] failed to persist ${state} deletion state ${id}: ${messageOf(err)}`));
+}
+
+function restoreDeletedSessionRecord(id: string): void {
+  if (!SESSION_ID_RE.test(id)) return;
+  const currentProcessState = currentProcessDeletedRecordStates.get(id);
+  if (currentProcessState === "active") return;
+  if (deletedRecordsHydrated && !deletedSessionRecordIds.has(id) && currentProcessState !== "deleted") return;
+  deletedSessionRecordIds.delete(id);
+  persistDeletedSessionRecord(id, "active");
 }
 
 function hasOwn(input: SessionLifecycleWrite, key: "agent" | "cwd"): boolean {
@@ -98,6 +136,7 @@ function writeLifecycle(input: SessionLifecycleWrite): SessionLifecycleRecord {
     if (current?.lifecycle !== "stopped") persistStoppedSessionLifecycle(id, "stopped");
     pruneStoppedSessionLifecycleRecords();
   } else {
+    if (lifecycle === "starting" || lifecycle === "live") restoreDeletedSessionRecord(id);
     persistStoppedSessionLifecycle(id, "active");
   }
   return next;
@@ -122,6 +161,14 @@ export function recordSessionStopped(input: Omit<SessionLifecycleWrite, "lifecyc
 export function recordKnownSessionStopped(input: Omit<SessionLifecycleWrite, "lifecycle">): SessionLifecycleRecord | null {
   if (!sessionLifecycleRecords.has(input.id)) return null;
   return recordSessionStopped(input);
+}
+
+export function recordSessionDeleted(id: string): void {
+  if (!SESSION_ID_RE.test(id)) return;
+  if (deletedRecordsHydrated && deletedSessionRecordIds.has(id) && currentProcessDeletedRecordStates.get(id) !== "active") return;
+  deletedSessionRecordIds.add(id);
+  sessionLifecycleRecords.delete(id);
+  persistDeletedSessionRecord(id, "deleted");
 }
 
 export function sessionLifecycleRecordRows(): SessionLifecycleRecord[] {

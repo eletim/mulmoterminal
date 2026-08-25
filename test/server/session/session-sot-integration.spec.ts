@@ -61,8 +61,6 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       candidateIds: mobileSources.candidateIds,
       liveIds: mobileSources.liveIds,
       tmuxIds: mobileSources.tmuxIds,
-      isResumable: () => true,
-      isGridSession: (id) => mobileSources.recordById.get(id)?.visibility === "grid",
       detailOf: (id) => {
         const record = mobileSources.recordById.get(id);
         return { title: record?.agent ?? id, cwd: record?.cwd ?? "", agent: record?.agent ?? null };
@@ -137,8 +135,6 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       candidateIds: mobileSources.candidateIds,
       liveIds: mobileSources.liveIds,
       tmuxIds: mobileSources.tmuxIds,
-      isResumable: () => true,
-      isGridSession: (id) => mobileSources.recordById.get(id)?.visibility === "grid",
       detailOf: (id) => {
         const record = mobileSources.recordById.get(id);
         return { title: record?.title ?? "survivor", cwd: record?.cwd ?? "", agent: record?.agent ?? null };
@@ -157,7 +153,64 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     ]);
   });
 
-  it("keeps stopped, stale, background, and internal state out of active PC and Mobile existence", async () => {
+  it("keeps a detached-finished Codex record visible after reap until the user explicitly deletes it", async () => {
+    readBack = {
+      "dev-terminal-sessions.json": [CODEX, CLAUDE, SHELL].join("\n"),
+      "dev-terminal-cwds.json": `${CODEX} /repo/codex\n${CLAUDE} /repo/claude\n${SHELL} /repo/shell\n`,
+      "codex-rollout-ids.log": `${CODEX} ${EXTRA}`,
+    };
+    const { lifecycle, mobile, registry, snapshot } = await freshModules();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+
+    registry.ptys.set(CODEX, { cwd: "/repo/codex", agent: "codex", tmux: true, ws: {} } as never);
+    lifecycle.recordSessionLive({ id: CODEX, agent: "codex", cwd: "/repo/codex", now: 10 });
+
+    const codexEntry = registry.ptys.get(CODEX);
+    if (!codexEntry) throw new Error("missing Codex pty");
+    codexEntry.ws = null;
+    lifecycle.recordSessionDetached({ id: CODEX, agent: "codex", cwd: "/repo/codex", now: 20 });
+    registry.activity.set(CODEX, { waiting: true, event: "Stop", at: 30 });
+
+    registry.ptys.delete(CODEX);
+    lifecycle.recordSessionStopped({ id: CODEX, agent: "codex", cwd: "/repo/codex", now: 40 });
+    lifecycle.recordSessionStopped({ id: CLAUDE, agent: "claude", cwd: "/repo/claude", now: 41 });
+    lifecycle.recordSessionStopped({ id: SHELL, agent: "shell", cwd: "/repo/shell", now: 42 });
+    registry.sessionMemos.set(CODEX, "Finished Codex task");
+    registry.sessionMemos.set(CLAUDE, "Finished Claude task");
+    registry.sessionMemos.set(SHELL, "Finished Shell task");
+
+    const afterReap = snapshot.currentMobileSessionRecordSources({ now: 50 });
+    const rows = mobile.buildSessionList({
+      candidateIds: afterReap.candidateIds,
+      liveIds: afterReap.liveIds,
+      tmuxIds: afterReap.tmuxIds,
+      detailOf: (id) => {
+        const record = afterReap.recordById.get(id);
+        return { title: registry.sessionMemos.get(id) ?? "", cwd: record?.cwd ?? "", agent: record?.agent ?? null };
+      },
+    });
+
+    expect(new Set(afterReap.ids)).toEqual(new Set([CODEX, CLAUDE, SHELL]));
+    expect(afterReap.recordById.get(CODEX)).toMatchObject({
+      lifecycle: "stopped",
+      runtime: { pty: false, tmux: false, attached: false },
+      resume: { codexRolloutId: EXTRA },
+    });
+    expect(rows.map((row) => [row.id, row.title, row.live, row.inputAvailable, row.agent])).toEqual([
+      [CLAUDE, "Finished Claude task", false, false, "claude"],
+      [CODEX, "Finished Codex task", false, false, "codex"],
+      [SHELL, "Finished Shell task", false, false, "shell"],
+    ]);
+
+    lifecycle.recordSessionDeleted(CODEX);
+    expect(snapshot.currentMobileSessionRecordSources({ now: 60 }).ids).toEqual([SHELL, CLAUDE]);
+
+    registry.ptys.set(CODEX, { cwd: "/repo/codex", agent: "codex", tmux: true, ws: {} } as never);
+    lifecycle.recordSessionLive({ id: CODEX, agent: "codex", cwd: "/repo/codex", now: 70 });
+    expect(new Set(snapshot.currentMobileSessionRecordSources({ tmuxIds: [CODEX], now: 80 }).ids)).toEqual(new Set([CODEX, SHELL, CLAUDE]));
+  });
+
+  it("keeps stopped user sessions in PC and Mobile existence while excluding background and internal records", async () => {
     readBack = {
       "dev-terminal-sessions.json": [CLAUDE, STALE, EXTRA, BACKGROUND, INTERNAL, UNPLACED_MARKER].join("\n"),
       "unplaced-sessions.json": `${UNPLACED_MARKER} claude`,
@@ -175,9 +228,9 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
     const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
 
-    expect(records.selectGridVisibleSessionRecords(current).map((record) => record.id)).toEqual([CLAUDE]);
-    expect(records.selectUnplacedSessionRecords(current)).toEqual([]);
-    expect(mobileSources.ids).toEqual([CLAUDE]);
+    expect(new Set(records.selectGridVisibleSessionRecords(current).map((record) => record.id))).toEqual(new Set([CLAUDE, STALE, EXTRA, UNPLACED_MARKER]));
+    expect(records.selectUnplacedSessionRecords(current).map((record) => record.id)).toEqual([UNPLACED_MARKER]);
+    expect(new Set(mobileSources.ids)).toEqual(new Set([EXTRA, STALE, CLAUDE, UNPLACED_MARKER]));
     expect(current.find((record) => record.id === EXTRA)).toMatchObject({
       lifecycle: "stopped",
       runtime: { pty: false, tmux: true, attached: false },
@@ -203,7 +256,7 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       lifecycle: "stopped",
       runtime: { pty: false, tmux: true, attached: false },
     });
-    expect(records.selectGridVisibleSessionRecords(current)).toEqual([]);
-    expect(mobileSources.ids).toEqual([]);
+    expect(records.selectGridVisibleSessionRecords(current).map((record) => record.id)).toEqual([EXTRA]);
+    expect(mobileSources.ids).toEqual([EXTRA]);
   });
 });

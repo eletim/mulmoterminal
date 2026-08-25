@@ -457,12 +457,12 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
   const STALE = "dddddddd-dddd-dddd-dddd-dddddddddddd";
   const ADOPTED = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 
-  it("does not hand a persisted stopped session to the terminal cell", async () => {
+  it("keeps a persisted stopped SessionRecord in its terminal cell", async () => {
     localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 10, session: STALE, cwd: "/old" }], expanded: null, page: 0, sortMode: "manual" }));
     const realFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
       if (String(url).includes("/api/sessions/grid-records"))
-        return { ok: true, json: async () => ({ sessions: [{ id: STALE, active: false, lifecycle: "stopped" }] }) } as Response;
+        return { ok: true, json: async () => ({ sessions: [{ id: STALE, active: true, lifecycle: "stopped" }] }) } as Response;
       if (String(url).includes("/api/sessions/unplaced")) return { ok: true, json: async () => ({ sessions: [] }) } as Response;
       return realFetch(url, init);
     }) as typeof fetch;
@@ -473,8 +473,8 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
     await flushPromises();
 
     const cells = w.findComponent(CellsStub).props("cells") as Array<{ session: string | null; cwd: string | null }>;
-    expect(cells).toEqual([{ uid: 1, session: null, cwd: null }]);
-    expect(localStorage.getItem("grid_v2")).not.toContain(STALE);
+    expect(cells).toEqual([expect.objectContaining({ session: STALE, cwd: "/old" })]);
+    expect(localStorage.getItem("grid_v2")).toContain(STALE);
     w.unmount();
   });
 
@@ -550,13 +550,13 @@ describe("GridView SessionRecord-backed placement (#118)", () => {
     w.unmount();
   });
 
-  it("removes a cell session id when a closed push makes the backend record inactive", async () => {
+  it("removes a cell session id when a closed push leaves no backend SessionRecord", async () => {
     localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 0, session: STALE, cwd: "/old" }], expanded: null, page: 0, sortMode: "manual" }));
     let active = true;
     const realFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url: FetchUrl, init?: RequestInit) => {
       if (String(url).includes("/api/sessions/grid-records"))
-        return { ok: true, json: async () => ({ sessions: [{ id: STALE, active, lifecycle: active ? "live" : "stopped" }] }) } as Response;
+        return { ok: true, json: async () => ({ sessions: active ? [{ id: STALE, active: true, lifecycle: "live" }] : [] }) } as Response;
       if (String(url).includes("/api/sessions/unplaced")) return { ok: true, json: async () => ({ sessions: [] }) } as Response;
       return realFetch(url, init);
     }) as typeof fetch;

@@ -108,7 +108,6 @@ import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
-import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { readSessionSummary, sessionExistsOnDisk } from "./session/session-reads.js";
 import { codexSessionsRoot } from "./agents/codex-session.js";
 import { readCodexSessionSummary } from "./agents/codex-sessions.js";
@@ -232,7 +231,7 @@ const tmuxSizeSync = createTmuxSizeSync({
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
   cancelReap: (id) => cancelReap(id),
-  reap: (id) => reap(id),
+  deleteSession: (id) => deleteSession(id),
   setWaiting: (id, waiting) => setWaiting(id, waiting),
   armReapForDetached: (id) => armReapForDetached(id),
   terminalModesOf: (id) => tmuxTerminalModes(id),
@@ -257,7 +256,7 @@ const lifecycle = createSessionLifecycle({
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
   ...mobileWebPushActivityDeps,
 });
-const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
+const { cancelReap, reap, deleteSession, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
@@ -572,8 +571,6 @@ const mobileListTerminalSessions = async () => {
     candidateIds,
     liveIds,
     tmuxIds,
-    isResumable: await resumableSessionPredicate(),
-    isGridSession: (id) => recordById.get(id)?.visibility === "grid",
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {

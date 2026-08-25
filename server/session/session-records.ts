@@ -93,6 +93,7 @@ export interface TmuxSurvivorSessionRecordSource {
 
 export interface SessionRecordInput {
   ids?: readonly string[];
+  deletedIds?: readonly string[];
   lifecycle?: readonly LifecycleSessionRecordSource[];
   tmuxSurvivors?: readonly TmuxSurvivorSessionRecordSource[];
   now?: number;
@@ -120,10 +121,6 @@ function idSet(ids: readonly string[] | undefined): Set<string> {
 
 function addAll(ids: Set<string>, values: Iterable<string>): void {
   for (const id of values) ids.add(id);
-}
-
-export function activeSessionRecordLifecycle(lifecycle: SessionRecordLifecycle): boolean {
-  return lifecycle === "starting" || lifecycle === "live" || lifecycle === "detached";
 }
 
 function hasResume(record: Pick<SessionRecord, "resume">): boolean {
@@ -217,6 +214,7 @@ interface SessionRecordLookup {
   failedIds: Set<string>;
   claudeTranscriptIds: Set<string>;
   codexRolloutIds: ReadonlyMap<string, string>;
+  deletedIds: Set<string>;
 }
 
 function sessionRecordLookup(input: SessionRecordInput): SessionRecordLookup {
@@ -236,11 +234,12 @@ function sessionRecordLookup(input: SessionRecordInput): SessionRecordLookup {
     failedIds: idSet(input.failedIds),
     claudeTranscriptIds: idSet(input.claudeTranscriptIds),
     codexRolloutIds: input.codexRolloutIds ?? new Map<string, string>(),
+    deletedIds: idSet(input.deletedIds),
   };
 }
 
 function sessionRecordIds(source: SessionRecordLookup, explicitIds: readonly string[] | undefined): Set<string> {
-  if (explicitIds) return new Set(explicitIds);
+  if (explicitIds) return new Set(explicitIds.filter((id) => !source.deletedIds.has(id)));
   const ids = new Set<string>();
   addAll(ids, source.liveById.keys());
   addAll(ids, source.tmuxIds);
@@ -255,8 +254,8 @@ function sessionRecordIds(source: SessionRecordLookup, explicitIds: readonly str
   addAll(ids, source.internalIds);
   addAll(ids, source.failedIds);
   addAll(ids, source.claudeTranscriptIds);
-  addAll(ids, source.codexRolloutIds.keys());
   addAll(ids, source.antigravityById.keys());
+  for (const id of source.deletedIds) ids.delete(id);
   return ids;
 }
 
@@ -320,7 +319,7 @@ export function buildSessionRecords(input: SessionRecordInput): SessionRecord[] 
 }
 
 export function selectGridVisibleSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle));
+  return records.filter((record) => record.visibility === "grid");
 }
 
 export function selectHistorySessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
@@ -336,7 +335,7 @@ export function selectInternalSessionRecords(records: readonly SessionRecord[]):
 }
 
 export function selectUnplacedSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced && activeSessionRecordLifecycle(record.lifecycle));
+  return records.filter((record) => record.visibility === "grid" && record.placement.unplaced);
 }
 
 export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[], persistedCellSessionIds: readonly string[]): string[] {
@@ -344,5 +343,5 @@ export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[
 }
 
 export function selectCurrentMobileCandidateRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle));
+  return records.filter((record) => record.visibility !== "internal" && record.visibility !== "background");
 }

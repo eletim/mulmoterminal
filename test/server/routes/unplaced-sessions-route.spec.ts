@@ -110,7 +110,7 @@ describe("GET /api/sessions/grid-records", () => {
     expect(res.status, res.text).toBe(200);
     expect(res.body.sessions).toEqual([
       expect.objectContaining({ id: SHELL, agent: "shell", cwd: "/repo/live", lifecycle: "live", active: true }),
-      expect.objectContaining({ id: CODEX, agent: "codex", cwd: "/repo/stopped", lifecycle: "stopped", active: false }),
+      expect.objectContaining({ id: CODEX, agent: "codex", cwd: "/repo/stopped", lifecycle: "stopped", active: true }),
     ]);
   });
 
