@@ -624,13 +624,20 @@ fi
 
 configure_nginx() {
   local setup_script="${ROOT_DIR}/scripts/setup-nginx-https.sh"
-  local detected_host status nginx_root sudo_bin
+  local detected_host nginx_host status nginx_root sudo_bin
 
   if [[ -z "${MULMOTERMINAL_NGINX_SERVER_NAME:-}" ]]; then
     detected_host="$(host_from_origin "${MULMOTERMINAL_ALLOWED_ORIGINS:-}")"
     [[ -n "$detected_host" ]] || detected_host="$(first_env_value "${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}")"
     if [[ -n "$detected_host" ]]; then
       export MULMOTERMINAL_NGINX_SERVER_NAME="$detected_host"
+    fi
+  fi
+
+  if [[ -z "${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}" ]]; then
+    nginx_host="$(normalize_host "${MULMOTERMINAL_NGINX_SERVER_NAME:-}")"
+    if [[ -n "$nginx_host" ]]; then
+      export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="$nginx_host"
     fi
   fi
 

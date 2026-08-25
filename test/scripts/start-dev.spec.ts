@@ -111,4 +111,32 @@ describe("start-dev.sh", () => {
     expect(second.stdout).toContain("nginx configuration is already current");
     expect(readFileSync(nginxLog, "utf8").trim().split("\n")).toEqual(["-t", "-s reload"]);
   });
+
+  it("allows the nginx hostname loaded from the shared env in Vite", () => {
+    dir = makeTempDir("start-dev-nginx-shared-env-");
+    const binDir = path.join(dir, "bin");
+    const nginxRoot = path.join(dir, "nginx");
+    const serverConf = path.join(dir, "site.conf");
+    const sharedEnv = path.join(dir, "local.env");
+    const allowedHostLog = path.join(dir, "allowed-host.log");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(serverConf, ["server {", "    listen 443 ssl;", "    server_name custom.example.test;", "}"].join("\n"));
+    executable(path.join(binDir, "nginx"), "exit 0");
+    executable(path.join(binDir, "yarn"), `printf '%s\\n' "\${__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS:-}" > ${JSON.stringify(allowedHostLog)}`);
+    writeFileSync(
+      sharedEnv,
+      [
+        "MULMOTERMINAL_MODE=nginx",
+        `MULMOTERMINAL_NGINX_ROOT=${nginxRoot}`,
+        `MULMOTERMINAL_NGINX_SERVER_CONF=${serverConf}`,
+        `MULMOTERMINAL_NGINX_BIN=${path.join(binDir, "nginx")}`,
+        "MULMOTERMINAL_NGINX_SERVER_NAME=custom.example.test",
+        "MULMOTERMINAL_ALLOWED_ORIGINS=https://custom.example.test",
+      ].join("\n"),
+    );
+
+    const result = run({ PATH: `${binDir}:/usr/bin:/bin`, MULMOTERMINAL_ENV_FILES: sharedEnv });
+    expect(result.status).toBe(0);
+    expect(readFileSync(allowedHostLog, "utf8").trim()).toBe("custom.example.test");
+  });
 });
