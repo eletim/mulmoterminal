@@ -92,7 +92,6 @@ describe("start-dev.sh", () => {
     const serverConf = path.join(dir, "site.conf");
     const nginxLog = path.join(dir, "nginx.log");
     mkdirSync(binDir, { recursive: true });
-    mkdirSync(nginxRoot, { recursive: true });
     writeFileSync(serverConf, ["server {", "    listen 443 ssl;", "    server_name dev.example.test;", "}"].join("\n"));
     executable(path.join(binDir, "nginx"), `printf '%s\\n' "$*" >> ${JSON.stringify(nginxLog)}`);
     executable(path.join(binDir, "yarn"), "exit 0");

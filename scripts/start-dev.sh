@@ -651,7 +651,7 @@ configure_nginx() {
   fi
 
   nginx_root="${MULMOTERMINAL_NGINX_ROOT:-/etc/nginx}"
-  if [[ "${MULMOTERMINAL_NGINX_USE_SUDO:-auto}" == "0" || -w "$nginx_root" || "${EUID}" == "0" ]]; then
+  if [[ "${MULMOTERMINAL_NGINX_USE_SUDO:-auto}" == "0" || "${EUID}" == "0" ]] || can_setup_nginx_without_sudo "$nginx_root"; then
     "$setup_script"
     return 0
   fi
@@ -662,6 +662,39 @@ configure_nginx() {
     return 1
   fi
   "$sudo_bin" --preserve-env "$setup_script"
+}
+
+writable_or_creatable_directory() {
+  local path="$1"
+  while [[ ! -e "$path" ]]; do
+    local parent
+    parent="$(dirname -- "$path")"
+    [[ "$parent" != "$path" ]] || return 1
+    path="$parent"
+  done
+  [[ -d "$path" && -w "$path" ]]
+}
+
+can_setup_nginx_without_sudo() {
+  local nginx_root="$1"
+  local conf_d snippets sites_available sites_enabled validation_stamp mode server_conf
+  conf_d="${MULMOTERMINAL_NGINX_CONF_D:-${nginx_root}/conf.d}"
+  snippets="${MULMOTERMINAL_NGINX_SNIPPETS:-${nginx_root}/snippets}"
+  sites_available="${MULMOTERMINAL_NGINX_SITES_AVAILABLE:-${nginx_root}/sites-available}"
+  sites_enabled="${MULMOTERMINAL_NGINX_SITES_ENABLED:-${nginx_root}/sites-enabled}"
+  validation_stamp="${MULMOTERMINAL_NGINX_VALIDATION_STAMP:-${nginx_root}/.mulmoterminal-nginx-validated}"
+  mode="${MULMOTERMINAL_NGINX_MODE:-existing}"
+  server_conf="${MULMOTERMINAL_NGINX_SERVER_CONF:-}"
+
+  writable_or_creatable_directory "$conf_d" || return 1
+  writable_or_creatable_directory "$snippets" || return 1
+  writable_or_creatable_directory "$(dirname -- "$validation_stamp")" || return 1
+  if [[ "$mode" == "new" ]]; then
+    writable_or_creatable_directory "$sites_available" || return 1
+    writable_or_creatable_directory "$sites_enabled" || return 1
+  elif [[ -n "$server_conf" && ! -w "$server_conf" ]]; then
+    return 1
+  fi
 }
 
 if [[ "$startup_mode" == "nginx" ]]; then
