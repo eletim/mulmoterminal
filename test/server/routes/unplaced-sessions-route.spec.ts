@@ -108,20 +108,17 @@ describe("GET /api/sessions/grid-records", () => {
     const res = await request(app).get(`/api/sessions/grid-records?ids=${SHELL},${CODEX}`);
 
     expect(res.status, res.text).toBe(200);
-    expect(res.body.sessions).toEqual([
-      expect.objectContaining({ id: SHELL, agent: "shell", cwd: "/repo/live", lifecycle: "live", active: true }),
-      expect.objectContaining({ id: CODEX, agent: "codex", cwd: "/repo/stopped", lifecycle: "stopped", active: true }),
-    ]);
+    expect(res.body.sessions).toEqual([expect.objectContaining({ id: SHELL, agent: "shell", cwd: "/repo/live", lifecycle: "live", active: true })]);
   });
 
-  it("does not mark a non-grid live record active for PC grid placement", async () => {
+  it("recognizes a live record from canonical membership regardless of placement", async () => {
     const { app, lifecycle } = await appWithRegistry();
     lifecycle.recordSessionLive({ id: SHELL, agent: "claude", cwd: "/repo/chat", now: 10 });
 
     const res = await request(app).get(`/api/sessions/grid-records?ids=${SHELL}`);
 
     expect(res.status, res.text).toBe(200);
-    expect(res.body.sessions).toEqual([expect.objectContaining({ id: SHELL, cwd: "/repo/chat", lifecycle: "live", active: false })]);
+    expect(res.body.sessions).toEqual([expect.objectContaining({ id: SHELL, cwd: "/repo/chat", lifecycle: "live", active: true })]);
   });
 
   it("hydrates tmux-only survivors for persisted PC grid cells after restart", async () => {

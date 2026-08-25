@@ -247,9 +247,8 @@ function sessionRecordIds(source: SessionRecordLookup, explicitIds: readonly str
   addAll(ids, source.lifecycleById.keys());
   addAll(ids, source.tmuxSurvivorById.keys());
   addAll(ids, source.activityById.keys());
-  addAll(ids, source.devTerminalIds);
-  addAll(ids, source.unplacedById.keys());
-  addAll(ids, source.placedIds);
+  // Placement sources only decorate records established by runtime, lifecycle,
+  // activity, or history. They never create a session record on their own.
   addAll(ids, source.backgroundIds);
   addAll(ids, source.internalIds);
   addAll(ids, source.failedIds);
@@ -338,10 +337,19 @@ export function selectUnplacedSessionRecords(records: readonly SessionRecord[]):
   return records.filter((record) => record.visibility === "grid" && record.placement.unplaced);
 }
 
-export function selectCurrentPcGridCandidateIds(records: readonly SessionRecord[], persistedCellSessionIds: readonly string[]): string[] {
-  return [...new Set([...persistedCellSessionIds, ...selectUnplacedSessionRecords(records).map((record) => record.id)])];
-}
-
-export function selectCurrentMobileCandidateRecords(records: readonly SessionRecord[]): SessionRecord[] {
-  return records.filter((record) => record.visibility !== "internal" && record.visibility !== "background");
+/**
+ * The canonical membership of the user-facing terminal surface.
+ *
+ * Placement and resume metadata describe a record, but do not make a terminal
+ * currently exist. Active lifecycle/runtime facts do. A durable stopped/failed
+ * record remains available to history and resume features without leaking back
+ * into either the desktop grid or the mobile picker.
+ */
+export function selectCurrentTerminalSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
+  return records.filter(
+    (record) =>
+      record.visibility !== "internal" &&
+      record.visibility !== "background" &&
+      (record.lifecycle === "starting" || record.lifecycle === "live" || record.lifecycle === "detached"),
+  );
 }

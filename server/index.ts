@@ -116,7 +116,7 @@ import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
-import { currentMobileSessionRecordSources, currentSessionRecords, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
+import { currentSessionRecords, currentTerminalSessionRecordSources, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
 import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { inputReadinessForRecord, mountOrchestratorSessionRoutes, orchestratorSessionStatus } from "./routes/orchestrator-session-routes.js";
 
@@ -553,7 +553,7 @@ const mobileListTerminalSessions = async () => {
   const allTmuxIds = tmuxListSessionIds();
   await sessionMemosHydrated;
   await hydrateSessionRecordSnapshotInputs();
-  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentMobileSessionRecordSources({
+  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentTerminalSessionRecordSources({
     tmuxIds: allTmuxIds,
     paneCommandOf: tmuxPaneCommand,
     claudeTranscriptExists: sessionExistsOnDisk,
