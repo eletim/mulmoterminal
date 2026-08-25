@@ -690,13 +690,13 @@ can_setup_nginx_without_sudo() {
   sites_available="${MULMOTERMINAL_NGINX_SITES_AVAILABLE:-${nginx_root}/sites-available}"
   sites_enabled="${MULMOTERMINAL_NGINX_SITES_ENABLED:-${nginx_root}/sites-enabled}"
   validation_stamp="${MULMOTERMINAL_NGINX_VALIDATION_STAMP:-${nginx_root}/.mulmoterminal-nginx-validated}"
-  mode="${MULMOTERMINAL_NGINX_MODE:-existing}"
+  mode="${MULMOTERMINAL_NGINX_MODE:-auto}"
   server_conf="${MULMOTERMINAL_NGINX_SERVER_CONF:-}"
 
   writable_or_creatable_directory "$conf_d" || return 1
   writable_or_creatable_directory "$snippets" || return 1
   writable_or_creatable_directory "$(dirname -- "$validation_stamp")" || return 1
-  if [[ "$mode" == "new" ]]; then
+  if [[ "$mode" == "new" || "$mode" == "auto" ]]; then
     writable_or_creatable_directory "$sites_available" || return 1
     writable_or_creatable_directory "$sites_enabled" || return 1
   elif [[ -n "$server_conf" && ! -w "$server_conf" ]]; then

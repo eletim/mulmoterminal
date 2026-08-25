@@ -39,6 +39,7 @@ describe("start-dev.sh", () => {
     const result = run({
       MULMOTERMINAL_START_DRY_RUN: "1",
       MULMOTERMINAL_NGINX_ROOT: path.join(dir, "nginx"),
+      MULMOTERMINAL_NGINX_MODE: "existing",
       MULMOTERMINAL_NGINX_SERVER_CONF: path.join(dir, "site.conf"),
       MULMOTERMINAL_NGINX_SERVER_NAME: "dev.example.test",
     });
@@ -47,6 +48,48 @@ describe("start-dev.sh", () => {
     expect(result.stdout).toContain("nginx HTTPS mode existing");
     expect(result.stdout).toContain("startup mode nginx");
     expect(result.stdout).toContain("would run: nginx -t");
+  });
+
+  it("defaults to a new nginx server when only an unrelated HTTPS server exists", () => {
+    dir = makeTempDir("start-dev-nginx-auto-new-");
+    const nginxRoot = path.join(dir, "nginx");
+    const availableDir = path.join(nginxRoot, "sites-available");
+    const enabledDir = path.join(nginxRoot, "sites-enabled");
+    const unrelatedConf = path.join(enabledDir, "unrelated.conf");
+    mkdirSync(enabledDir, { recursive: true });
+    writeFileSync(unrelatedConf, ["server {", "    listen 443 ssl;", "    server_name localhost;", "}"].join("\n"));
+
+    const result = run({
+      MULMOTERMINAL_START_DRY_RUN: "1",
+      MULMOTERMINAL_NGINX_ROOT: nginxRoot,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.example.test",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("nginx HTTPS mode new");
+    expect(result.stdout).toContain(`would write ${path.join(availableDir, "mulmoterminal.conf")}`);
+    expect(readFileSync(unrelatedConf, "utf8")).not.toContain("MulmoTerminal");
+  });
+
+  it("continues into new-server setup instead of requesting an existing server conf", () => {
+    dir = makeTempDir("start-dev-nginx-auto-setup-");
+    const nginxRoot = path.join(dir, "nginx");
+    const enabledDir = path.join(nginxRoot, "sites-enabled");
+    const unrelatedConf = path.join(enabledDir, "unrelated.conf");
+    mkdirSync(enabledDir, { recursive: true });
+    writeFileSync(unrelatedConf, ["server {", "    listen 443 ssl;", "    server_name localhost;", "}"].join("\n"));
+
+    const result = run({
+      MULMOTERMINAL_NGINX_ROOT: nginxRoot,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.example.test",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("nginx HTTPS mode new");
+    expect(result.stderr).toContain("TLS certificate files are missing");
+    expect(result.stderr).not.toContain("--server-conf is required");
+    expect(result.stderr).not.toContain("Could not inspect the nginx configuration");
+    expect(readFileSync(unrelatedConf, "utf8")).not.toContain("MulmoTerminal");
   });
 
   it("starts local-only without invoking nginx or Tailscale", () => {

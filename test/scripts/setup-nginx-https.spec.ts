@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeTempDir } from "../support/tempDir.js";
@@ -214,8 +214,10 @@ describe("setup-nginx-https.sh", () => {
     mkdirSync(availableDir, { recursive: true });
     const misleading = path.join(enabledDir, "aaa-misleading.conf");
     const correct = path.join(availableDir, "zzz-correct.conf");
+    const enabledCorrect = path.join(enabledDir, "zzz-correct.conf");
     writeFileSync(misleading, ["server { listen 443 ssl; server_name notdev.tail.ts.net; }", "server { listen 80; server_name dev.tail.ts.net; }"].join("\n"));
     writeFileSync(correct, ["server {", "    listen 443 ssl;", "    server_name dev.tail.ts.net;", "}"].join("\n"));
+    symlinkSync(correct, enabledCorrect);
 
     const result = runScript({
       MULMOTERMINAL_NGINX_BIN: executable,
@@ -224,8 +226,58 @@ describe("setup-nginx-https.sh", () => {
     });
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain("nginx HTTPS mode existing");
     expect(readFileSync(misleading, "utf8")).not.toContain("MulmoTerminal managed include");
     expect(readFileSync(correct, "utf8")).toContain("MulmoTerminal managed include");
+  });
+
+  it("selects new mode when existing HTTPS servers do not match the target host", () => {
+    dir = makeTempDir("nginx-https-auto-new-");
+    const root = nginxRoot();
+    const { executable } = writeFakeNginx();
+    const availableDir = path.join(root, "sites-available");
+    const enabledDir = path.join(root, "sites-enabled");
+    const unrelated = path.join(enabledDir, "localhost.conf");
+    const certFile = path.join(currentTempDir(), "dev.tail.ts.net.crt");
+    const keyFile = path.join(currentTempDir(), "dev.tail.ts.net.key");
+    mkdirSync(enabledDir, { recursive: true });
+    writeFileSync(unrelated, ["server {", "    listen 443 ssl;", "    server_name localhost;", "}"].join("\n"));
+    writeFileSync(certFile, "cert");
+    writeFileSync(keyFile, "key");
+
+    const result = runScript({
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("nginx HTTPS mode new");
+    expect(readFileSync(unrelated, "utf8")).not.toContain("MulmoTerminal");
+    expect(readFileSync(path.join(availableDir, "mulmoterminal.conf"), "utf8")).toContain("server_name dev.tail.ts.net;");
+  });
+
+  it("honors explicit existing mode even when no matching HTTPS server is found", () => {
+    dir = makeTempDir("nginx-https-explicit-existing-");
+    const root = nginxRoot();
+    const enabledDir = path.join(root, "sites-enabled");
+    const unrelated = path.join(enabledDir, "localhost.conf");
+    mkdirSync(enabledDir, { recursive: true });
+    writeFileSync(unrelated, ["server {", "    listen 443 ssl;", "    server_name localhost;", "}"].join("\n"));
+
+    const result = runScript({
+      MULMOTERMINAL_NGINX_DRY_RUN: "1",
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_MODE: "existing",
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("nginx HTTPS mode existing");
+    expect(result.stderr).toContain("--server-conf is required in existing mode");
+    expect(readFileSync(unrelated, "utf8")).not.toContain("MulmoTerminal");
   });
 
   it("creates a new HTTPS server config with certificate paths and a base-path proxy", () => {
@@ -267,6 +319,32 @@ describe("setup-nginx-https.sh", () => {
     expect(readFileSync(enabledFile, "utf8")).toBe(server);
     expect(log).toContain("-t\n");
     expect(log).toContain("-s reload\n");
+  });
+
+  it("keeps an auto-detected managed server in new mode on later runs", () => {
+    dir = makeTempDir("nginx-https-auto-managed-");
+    const root = nginxRoot();
+    const { executable, logFile } = writeFakeNginx();
+    const certFile = path.join(currentTempDir(), "dev.tail.ts.net.crt");
+    const keyFile = path.join(currentTempDir(), "dev.tail.ts.net.key");
+    writeFileSync(certFile, "cert");
+    writeFileSync(keyFile, "key");
+    const commonEnv = {
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    };
+
+    expect(runScript({ ...commonEnv, MULMOTERMINAL_NGINX_MODE: "new" }).status).toBe(0);
+    const automatic = runScript(commonEnv);
+    const serverFile = path.join(root, "sites-available", "mulmoterminal.conf");
+
+    expect(automatic.status).toBe(0);
+    expect(automatic.stdout).toContain("nginx HTTPS mode new");
+    expect(readFileSync(serverFile, "utf8")).not.toContain("BEGIN MulmoTerminal managed include");
+    expect(readFileSync(logFile, "utf8").trim().split("\n")).toEqual(["-t", "-s reload"]);
   });
 
   it("omits the exact-path redirect for root base path", () => {

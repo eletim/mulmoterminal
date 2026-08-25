@@ -10,6 +10,8 @@ Creates nginx reverse-proxy config for MulmoTerminal over HTTPS.
 Options:
   --mode existing|new        existing: add an include to an existing TLS server.
                              new: create a MulmoTerminal HTTPS server.
+                             When omitted, select existing only for an exact
+                             matching HTTPS server_name; otherwise select new.
   --server-conf PATH         Existing nginx server file to receive the include.
   --server-name HOST         HTTPS host name, normally the Tailscale MagicDNS FQDN.
   --base-path PATH           Browser base path. Default: MULMOTERMINAL_BASE_PATH or /mulmoterminal/.
@@ -42,7 +44,7 @@ Testing/advanced path overrides:
 EOF
 }
 
-MODE="${MULMOTERMINAL_NGINX_MODE:-existing}"
+MODE="${MULMOTERMINAL_NGINX_MODE:-auto}"
 SERVER_CONF="${MULMOTERMINAL_NGINX_SERVER_CONF:-}"
 SERVER_NAME="${MULMOTERMINAL_NGINX_SERVER_NAME:-}"
 BASE_PATH="${MULMOTERMINAL_NGINX_BASE_PATH:-${MULMOTERMINAL_BASE_PATH:-/mulmoterminal/}}"
@@ -168,7 +170,7 @@ fi
 detect_existing_server_conf() {
   local candidate resolved
   [[ -n "$SERVER_NAME" ]] || return 1
-  for candidate in "$SITES_ENABLED"/* "$SITES_AVAILABLE"/* "$CONF_D"/*.conf "$NGINX_ROOT/nginx.conf"; do
+  for candidate in ${SERVER_CONF:+"$SERVER_CONF"} "$SITES_ENABLED"/* "$CONF_D"/*.conf "$NGINX_ROOT/nginx.conf"; do
     [[ -f "$candidate" ]] || continue
     if awk -v server_name="$SERVER_NAME" '
       function brace_delta(value, copy, opens, closes) {
@@ -216,12 +218,8 @@ detect_existing_server_conf() {
   return 1
 }
 
-if [[ "$MODE" == "existing" && -z "$SERVER_CONF" ]]; then
-  SERVER_CONF="$(detect_existing_server_conf || true)"
-fi
-
 case "$MODE" in
-  existing|new) ;;
+  auto|existing|new) ;;
   *)
     echo "[mulmoterminal] Invalid --mode ${MODE}; expected existing or new." >&2
     exit 2
@@ -232,6 +230,22 @@ MAP_FILE="${CONF_D}/mulmoterminal-websocket-map.conf"
 LOCATION_FILE="${SNIPPETS_DIR}/mulmoterminal-location.conf"
 SERVER_FILE="${SITES_AVAILABLE}/mulmoterminal.conf"
 SERVER_LINK="${SITES_ENABLED}/mulmoterminal.conf"
+
+if [[ "$MODE" != "new" ]]; then
+  detected_server_conf="$(detect_existing_server_conf || true)"
+  if [[ "$MODE" == "auto" ]]; then
+    resolved_server_file="$(readlink -f -- "$SERVER_FILE" 2>/dev/null || printf '%s\n' "$SERVER_FILE")"
+    if [[ -n "$detected_server_conf" && "$detected_server_conf" != "$resolved_server_file" ]]; then
+      MODE="existing"
+      SERVER_CONF="$detected_server_conf"
+    else
+      MODE="new"
+      SERVER_CONF=""
+    fi
+  elif [[ -z "$SERVER_CONF" ]]; then
+    SERVER_CONF="$detected_server_conf"
+  fi
+fi
 
 location_config() {
   if [[ "$BASE_PATH" != "/" ]]; then
@@ -459,7 +473,7 @@ validate_new_mode_inputs() {
   fi
   CERT_FILE="${CERT_FILE:-/etc/ssl/mulmoterminal/${SERVER_NAME}.crt}"
   KEY_FILE="${KEY_FILE:-/etc/ssl/mulmoterminal/${SERVER_NAME}.key}"
-  if [[ "$DRY_RUN" == "1" ]]; then
+  if [[ "$DRY_RUN" == "1" || ( "$CHECK_ONLY" == "1" && ! -f "$SERVER_FILE" ) ]]; then
     return 0
   fi
   if [[ ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ]]; then

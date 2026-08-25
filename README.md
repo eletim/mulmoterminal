@@ -560,7 +560,6 @@ user config (recommended), for example:
 ```dotenv
 MULMOTERMINAL_MODE=nginx
 MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.example.test
-MULMOTERMINAL_NGINX_MODE=existing
 MULMOTERMINAL_NGINX_SERVER_CONF=/etc/nginx/sites-available/default
 MULMOTERMINAL_NGINX_SERVER_NAME=dev.example.test
 ```
@@ -619,9 +618,14 @@ the entrypoint runs it directly for a writable custom nginx root or uses `sudo`
 for system configuration. Changed configuration is reloaded only after
 `nginx -t` succeeds.
 
-Set the nginx variables below in the shared user env. For `existing` mode,
-`MULMOTERMINAL_NGINX_SERVER_CONF` may be omitted when the matching 443 server can
-be found under the normal nginx configuration directories.
+Set the nginx variables below in the shared user env. When
+`MULMOTERMINAL_NGINX_MODE` is omitted, startup uses `existing` only when it finds
+an HTTPS server whose `server_name` exactly matches the target host; otherwise it
+uses `new`. An unrelated HTTPS server such as `server_name localhost` is never
+modified. An explicit `existing` or `new` value always takes precedence. In
+`existing` mode, `MULMOTERMINAL_NGINX_SERVER_CONF` may be omitted when the
+matching 443 server can be found under the normal nginx configuration
+directories.
 
 #### Existing nginx server
 
@@ -685,7 +689,7 @@ Useful nginx setup env vars:
 
 | Variable | When to set it |
 | -------- | -------------- |
-| `MULMOTERMINAL_NGINX_MODE` | `existing` to add an include to an existing TLS server, `new` to create a MulmoTerminal HTTPS server. |
+| `MULMOTERMINAL_NGINX_MODE` | Optional override: `existing` adds an include to a matching TLS server and `new` creates a MulmoTerminal HTTPS server. When omitted, the target `server_name` selects `existing` only on an exact HTTPS match, otherwise `new`. |
 | `MULMOTERMINAL_NGINX_SERVER_CONF` | Existing nginx server file to edit in `existing` mode. |
 | `MULMOTERMINAL_NGINX_SERVER_NAME` | Tailscale MagicDNS FQDN, such as `dev.tail.ts.net`. |
 | `MULMOTERMINAL_NGINX_BASE_PATH` | Browser path prefix for generated nginx config. Defaults to `MULMOTERMINAL_BASE_PATH` or `/mulmoterminal/`. |
