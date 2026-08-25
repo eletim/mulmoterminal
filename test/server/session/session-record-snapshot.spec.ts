@@ -100,11 +100,11 @@ describe("currentSessionRecords", () => {
 
     const sources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [A, C] });
 
-    expect(sources.ids).toEqual([A, C, B]);
-    expect(sources.liveIds).toEqual([A, C]);
-    expect(sources.tmuxIds).toEqual([A, C]);
+    expect(sources.ids).toEqual([A, B]);
+    expect(sources.liveIds).toEqual([A]);
+    expect(sources.tmuxIds).toEqual([A]);
     expect(sources.candidateIds).toEqual([B]);
-    expect(sources.recordById.get(C)).toMatchObject({ id: C, visibility: "history" });
+    expect(sources.recordById.has(C)).toBe(false);
   });
 
   it("hydrates tmux-only survivors for the Mobile list from persisted SessionRecord metadata", async () => {

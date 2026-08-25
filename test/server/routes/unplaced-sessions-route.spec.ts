@@ -21,15 +21,17 @@ vi.mock("node:fs", async (importOriginal) => {
 
 const SHELL = "11111111-1111-1111-1111-111111111111";
 const CODEX = "22222222-2222-2222-2222-222222222222";
+const CLAUDE = "33333333-3333-3333-3333-333333333333";
 
 async function appWithRegistry(over: Partial<SessionRouteDeps> = {}) {
   vi.resetModules();
   const registry = await import("../../../server/session/registry.js");
   const lifecycle = await import("../../../server/session/session-lifecycle-records.js");
+  const snapshot = await import("../../../server/session/session-record-snapshot.js");
   const { mountSessionRoutes } = await import("../../../server/routes/session-routes.js");
   const app = express();
   mountSessionRoutes(app, { freshenRosterTitle: () => undefined, publishActivity: () => undefined, listTmuxIds: () => [], ...over });
-  return { app, lifecycle, registry };
+  return { app, lifecycle, registry, snapshot };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -111,14 +113,43 @@ describe("GET /api/sessions/grid-records", () => {
     expect(res.body.sessions).toEqual([expect.objectContaining({ id: SHELL, agent: "shell", cwd: "/repo/live", lifecycle: "live", active: true })]);
   });
 
-  it("recognizes a live record from canonical membership regardless of placement", async () => {
+  it("does not promote an ordinary live chat into the PC terminal surface", async () => {
     const { app, lifecycle } = await appWithRegistry();
     lifecycle.recordSessionLive({ id: SHELL, agent: "claude", cwd: "/repo/chat", now: 10 });
 
     const res = await request(app).get(`/api/sessions/grid-records?ids=${SHELL}`);
 
     expect(res.status, res.text).toBe(200);
-    expect(res.body.sessions).toEqual([expect.objectContaining({ id: SHELL, cwd: "/repo/chat", lifecycle: "live", active: true })]);
+    expect(res.body.sessions).toEqual([]);
+  });
+
+  it("matches PC discovery to the canonical set used by Mobile", async () => {
+    const { app, lifecycle, registry, snapshot } = await appWithRegistry();
+    await snapshot.hydrateSessionRecordSnapshotInputs();
+
+    lifecycle.recordSessionLive({ id: SHELL, agent: "shell", cwd: "/repo/grid", now: 10 });
+    registry.ptys.set(SHELL, { cwd: "/repo/grid", agent: "shell", ws: null } as never);
+    registry.markDevTerminalSession(SHELL, "/repo/grid");
+
+    lifecycle.recordSessionLive({ id: CODEX, agent: "codex", cwd: "/repo/chat", now: 20 });
+    registry.ptys.set(CODEX, { cwd: "/repo/chat", agent: "codex", ws: null } as never);
+
+    lifecycle.recordSessionStarting({ id: CLAUDE, agent: "claude", cwd: "/repo/unplaced", now: 30 });
+    registry.markUnplacedSession(CLAUDE, "claude", "/repo/unplaced");
+
+    const [grid, unplaced] = await Promise.all([
+      request(app).get(`/api/sessions/grid-records?ids=${SHELL},${CODEX}`),
+      request(app).get("/api/sessions/unplaced"),
+    ]);
+    const pcIds = new Set([...grid.body.sessions, ...unplaced.body.sessions].map((row: { id: string }) => row.id));
+    const canonicalIds = new Set(snapshot.currentTerminalSessionRecords().map((record) => record.id));
+    const mobileIds = new Set(snapshot.currentTerminalSessionRecordSources().ids);
+
+    expect(grid.status, grid.text).toBe(200);
+    expect(unplaced.status, unplaced.text).toBe(200);
+    expect(pcIds).toEqual(canonicalIds);
+    expect(mobileIds).toEqual(canonicalIds);
+    expect(canonicalIds).toEqual(new Set([SHELL, CLAUDE]));
   });
 
   it("hydrates tmux-only survivors for persisted PC grid cells after restart", async () => {

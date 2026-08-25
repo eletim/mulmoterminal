@@ -340,16 +340,15 @@ export function selectUnplacedSessionRecords(records: readonly SessionRecord[]):
 /**
  * The canonical membership of the user-facing terminal surface.
  *
- * Placement and resume metadata describe a record, but do not make a terminal
- * currently exist. Active lifecycle/runtime facts do. A durable stopped/failed
- * record remains available to history and resume features without leaking back
- * into either the desktop grid or the mobile picker.
+ * Current existence and terminal-surface classification are separate decisions:
+ * active lifecycle/runtime facts establish existence, while grid visibility says
+ * the record belongs to the shared PC/Mobile terminal surface. Placement and
+ * resume metadata never establish existence by themselves. A durable
+ * stopped/failed record remains available to history and resume features without
+ * leaking back into either surface.
  */
 export function selectCurrentTerminalSessionRecords(records: readonly SessionRecord[]): SessionRecord[] {
   return records.filter(
-    (record) =>
-      record.visibility !== "internal" &&
-      record.visibility !== "background" &&
-      (record.lifecycle === "starting" || record.lifecycle === "live" || record.lifecycle === "detached"),
+    (record) => record.visibility === "grid" && (record.lifecycle === "starting" || record.lifecycle === "live" || record.lifecycle === "detached"),
   );
 }

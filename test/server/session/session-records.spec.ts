@@ -305,7 +305,7 @@ describe("SessionRecord selectors", () => {
     });
 
     const current = selectCurrentTerminalSessionRecords(records);
-    expect(ids(current)).toEqual(["live-not-in-grid", "tmux-only", "phone-spawn"]);
+    expect(ids(current)).toEqual(["phone-spawn"]);
     expect(ids(selectUnplacedSessionRecords(current))).toEqual(["phone-spawn"]);
   });
 
@@ -357,7 +357,7 @@ describe("SessionRecord selectors", () => {
       ],
     });
 
-    expect(ids(selectCurrentTerminalSessionRecords(records))).toEqual(["live-grid", "live-chat", "tmux-grid", "tmux-chat", "starting-grid"]);
+    expect(ids(selectCurrentTerminalSessionRecords(records))).toEqual(["live-grid", "tmux-grid", "starting-grid"]);
   });
 
   it("keeps canonical membership unchanged when placement metadata changes", () => {
@@ -366,7 +366,7 @@ describe("SessionRecord selectors", () => {
       tmuxIds: ["tmux"],
       lifecycle: [{ id: "starting", lifecycle: "starting" as const, agent: "codex" as const, cwd: "/repo/starting", createdAt: 10, updatedAt: 20 }],
     };
-    const withoutPlacement = buildSessionRecords(runtime);
+    const classified = buildSessionRecords({ ...runtime, devTerminalIds: ["live", "tmux", "starting"] });
     const withPlacement = buildSessionRecords({
       ...runtime,
       devTerminalIds: ["live", "tmux", "starting", "marker-only"],
@@ -377,7 +377,7 @@ describe("SessionRecord selectors", () => {
       placedIds: ["tmux"],
     });
 
-    expect(ids(selectCurrentTerminalSessionRecords(withPlacement))).toEqual(ids(selectCurrentTerminalSessionRecords(withoutPlacement)));
+    expect(ids(selectCurrentTerminalSessionRecords(withPlacement))).toEqual(ids(selectCurrentTerminalSessionRecords(classified)));
     expect(ids(withPlacement)).not.toContain("marker-only");
   });
 
