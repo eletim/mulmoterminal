@@ -98,13 +98,13 @@ describe("currentSessionRecords", () => {
     lifecycle.recordSessionStarting({ id: B, agent: "codex", cwd: "/repo/waiting" });
     registry.activity.set(B, { waiting: true, at: 20 });
 
-    const sources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [A, C] });
+    const sources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [A, C] });
 
-    expect(sources.ids).toEqual([A, C, B]);
-    expect(sources.liveIds).toEqual([A, C]);
-    expect(sources.tmuxIds).toEqual([A, C]);
+    expect(sources.ids).toEqual([A, B]);
+    expect(sources.liveIds).toEqual([A]);
+    expect(sources.tmuxIds).toEqual([A]);
     expect(sources.candidateIds).toEqual([B]);
-    expect(sources.recordById.get(C)).toMatchObject({ id: C, visibility: "history" });
+    expect(sources.recordById.has(C)).toBe(false);
   });
 
   it("hydrates tmux-only survivors for the Mobile list from persisted SessionRecord metadata", async () => {
@@ -117,7 +117,7 @@ describe("currentSessionRecords", () => {
     await snapshot.hydrateSessionRecordSnapshotInputs();
     registry.sessionMemos.set(D, "Phone task");
 
-    const sources = snapshot.currentMobileSessionRecordSources({
+    const sources = snapshot.currentTerminalSessionRecordSources({
       tmuxIds: [D],
       paneCommandOf: () => "bash",
       now: 40,
@@ -216,7 +216,7 @@ describe("currentSessionRecords", () => {
     });
   });
 
-  it("keeps Mobile activity-only dev records as Session candidates", async () => {
+  it("does not treat activity-only dev records as current terminal sessions", async () => {
     readBack = {
       "dev-terminal-sessions.json": [A, B, C, D].join("\n"),
     };
@@ -227,10 +227,10 @@ describe("currentSessionRecords", () => {
     registry.activity.set(C, { working: true, at: 3 });
     registry.activity.set(D, { waiting: true, at: 2 });
 
-    const sources = snapshot.currentMobileSessionRecordSources();
+    const sources = snapshot.currentTerminalSessionRecordSources();
 
-    expect(new Set(sources.ids)).toEqual(new Set([A, B, C, D]));
-    expect(new Set(sources.candidateIds)).toEqual(new Set([A, B, C, D]));
+    expect(sources.ids).toEqual([]);
+    expect(sources.candidateIds).toEqual([]);
   });
 
   it("excludes explicitly deleted records from fresh SessionRecord snapshots", async () => {
@@ -238,11 +238,13 @@ describe("currentSessionRecords", () => {
       "dev-terminal-sessions.json": [A, B].join("\n"),
       "deleted-session-records.log": A,
     };
-    const { snapshot } = await freshModules();
+    const { registry, snapshot } = await freshModules();
     await snapshot.hydrateSessionRecordSnapshotInputs();
+    registry.ptys.set(A, { cwd: "/repo/deleted", agent: "claude", ws: null } as never);
+    registry.ptys.set(B, { cwd: "/repo/current", agent: "codex", ws: null } as never);
 
     expect(snapshot.currentSessionRecords().map((record) => record.id)).toEqual([B]);
-    expect(snapshot.currentMobileSessionRecordSources().ids).toEqual([B]);
+    expect(snapshot.currentTerminalSessionRecordSources().ids).toEqual([B]);
   });
 
   it("replays an active deletion marker so a resumed id is visible after restart", async () => {
@@ -250,10 +252,11 @@ describe("currentSessionRecords", () => {
       "dev-terminal-sessions.json": A,
       "deleted-session-records.log": `${A}\n${A} active`,
     };
-    const { snapshot } = await freshModules();
+    const { registry, snapshot } = await freshModules();
     await snapshot.hydrateSessionRecordSnapshotInputs();
+    registry.ptys.set(A, { cwd: "/repo/resumed", agent: "claude", ws: null } as never);
 
     expect(snapshot.currentSessionRecords().map((record) => record.id)).toEqual([A]);
-    expect(snapshot.currentMobileSessionRecordSources().ids).toEqual([A]);
+    expect(snapshot.currentTerminalSessionRecordSources().ids).toEqual([A]);
   });
 });

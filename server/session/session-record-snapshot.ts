@@ -1,6 +1,6 @@
 import {
   buildSessionRecords,
-  selectCurrentMobileCandidateRecords,
+  selectCurrentTerminalSessionRecords,
   selectUnplacedSessionRecords,
   type ActivityRecordSource,
   type KnownSessionRecordSource,
@@ -43,7 +43,7 @@ export interface CurrentSessionRecordOptions {
   claudeTranscriptExists?: (id: string, cwd: string) => boolean;
 }
 
-export interface CurrentMobileSessionRecordSources {
+export interface CurrentTerminalSessionRecordSources {
   recordById: Map<string, SessionRecord>;
   ids: string[];
   liveIds: string[];
@@ -143,14 +143,17 @@ export function currentSessionRecords(options: CurrentSessionRecordOptions = {})
   return recordsFromSnapshot(sessionRecordRegistrySnapshot(), options);
 }
 
-export function currentUnplacedSessionRecords(options: CurrentSessionRecordOptions = {}): SessionRecord[] {
-  const registry = sessionRecordRegistrySnapshot();
-  return selectUnplacedSessionRecords(recordsFromSnapshot(registry, { ...options, ids: registry.unplaced.map((record) => record.id) }));
+export function currentTerminalSessionRecords(options: CurrentSessionRecordOptions = {}): SessionRecord[] {
+  return selectCurrentTerminalSessionRecords(recordsFromSnapshot(sessionRecordRegistrySnapshot(), options));
 }
 
-export function currentMobileSessionRecordSources(options: CurrentSessionRecordOptions = {}): CurrentMobileSessionRecordSources {
+export function currentUnplacedSessionRecords(options: CurrentSessionRecordOptions = {}): SessionRecord[] {
   const registry = sessionRecordRegistrySnapshot();
-  const records = selectCurrentMobileCandidateRecords(recordsFromSnapshot(registry, options));
+  return selectUnplacedSessionRecords(currentTerminalSessionRecords({ ...options, ids: registry.unplaced.map((record) => record.id) }));
+}
+
+export function currentTerminalSessionRecordSources(options: CurrentSessionRecordOptions = {}): CurrentTerminalSessionRecordSources {
+  const records = currentTerminalSessionRecords(options);
   const orderedRecords = records.toSorted((a, b) => b.updatedAt - a.updatedAt);
   const recordById = new Map(orderedRecords.map((record) => [record.id, record]));
   const ids = [...recordById.keys()];

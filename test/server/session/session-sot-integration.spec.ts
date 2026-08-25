@@ -55,8 +55,8 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     registry.ptys.set(ANTIGRAVITY, { cwd: "/repo/agy", agent: "antigravity", tmux: true, ws: {} } as never);
     registry.ptys.set(SHELL, { cwd: "/repo/shell", agent: "shell", tmux: true, ws: {} } as never);
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY, SHELL] });
-    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY, SHELL] });
+    const current = snapshot.currentTerminalSessionRecords({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY, SHELL] });
+    const mobileSources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY, SHELL] });
     const mobileRows = mobile.buildSessionList({
       candidateIds: mobileSources.candidateIds,
       liveIds: mobileSources.liveIds,
@@ -94,10 +94,10 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       registry.ptys.set(id, { cwd, agent, tmux: true, ws: null } as never);
     }
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: agents.map(([id]) => id) });
+    const current = snapshot.currentTerminalSessionRecords({ tmuxIds: agents.map(([id]) => id) });
 
     expect(records.selectUnplacedSessionRecords(current).map((record) => [record.id, record.agent, record.cwd])).toEqual(agents);
-    expect(records.selectCurrentPcGridCandidateIds(current, [])).toEqual([CLAUDE, CODEX, ANTIGRAVITY, SHELL]);
+    expect(current.map((record) => record.id)).toEqual([CLAUDE, CODEX, ANTIGRAVITY, SHELL]);
   });
 
   it("keeps restart-surviving visible unplaced agent sessions discoverable before transcripts exist", async () => {
@@ -108,8 +108,8 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     const { records, snapshot } = await freshModules();
     await snapshot.hydrateSessionRecordSnapshotInputs();
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY], paneCommandOf: () => "bash", now: 50 });
-    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY], paneCommandOf: () => "bash", now: 50 });
+    const current = snapshot.currentTerminalSessionRecords({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY], paneCommandOf: () => "bash", now: 50 });
+    const mobileSources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [CLAUDE, CODEX, ANTIGRAVITY], paneCommandOf: () => "bash", now: 50 });
 
     expect(records.selectUnplacedSessionRecords(current).map((record) => [record.id, record.agent, record.cwd, record.lifecycle])).toEqual([
       [CLAUDE, "claude", "/mobile/claude", "detached"],
@@ -129,8 +129,8 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     await snapshot.hydrateSessionRecordSnapshotInputs();
     registry.sessionMemos.set(CODEX, "Restarted Codex task");
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: [CODEX], paneCommandOf: () => "bash", now: 50 });
-    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CODEX], paneCommandOf: () => "bash", now: 50 });
+    const current = snapshot.currentTerminalSessionRecords({ tmuxIds: [CODEX], paneCommandOf: () => "bash", now: 50 });
+    const mobileSources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [CODEX], paneCommandOf: () => "bash", now: 50 });
     const mobileRows = mobile.buildSessionList({
       candidateIds: mobileSources.candidateIds,
       liveIds: mobileSources.liveIds,
@@ -153,7 +153,7 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     ]);
   });
 
-  it("keeps a detached-finished Codex record visible after reap until the user explicitly deletes it", async () => {
+  it("keeps stopped records in history metadata but out of both current surfaces", async () => {
     readBack = {
       "dev-terminal-sessions.json": [CODEX, CLAUDE, SHELL].join("\n"),
       "dev-terminal-cwds.json": `${CODEX} /repo/codex\n${CLAUDE} /repo/claude\n${SHELL} /repo/shell\n`,
@@ -179,7 +179,7 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     registry.sessionMemos.set(CLAUDE, "Finished Claude task");
     registry.sessionMemos.set(SHELL, "Finished Shell task");
 
-    const afterReap = snapshot.currentMobileSessionRecordSources({ now: 50 });
+    const afterReap = snapshot.currentTerminalSessionRecordSources({ now: 50 });
     const rows = mobile.buildSessionList({
       candidateIds: afterReap.candidateIds,
       liveIds: afterReap.liveIds,
@@ -190,27 +190,23 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       },
     });
 
-    expect(new Set(afterReap.ids)).toEqual(new Set([CODEX, CLAUDE, SHELL]));
-    expect(afterReap.recordById.get(CODEX)).toMatchObject({
+    expect(afterReap.ids).toEqual([]);
+    expect(snapshot.currentSessionRecords({ now: 50 }).find((record) => record.id === CODEX)).toMatchObject({
       lifecycle: "stopped",
       runtime: { pty: false, tmux: false, attached: false },
       resume: { codexRolloutId: EXTRA },
     });
-    expect(rows.map((row) => [row.id, row.title, row.live, row.inputAvailable, row.agent])).toEqual([
-      [CLAUDE, "Finished Claude task", false, false, "claude"],
-      [CODEX, "Finished Codex task", false, false, "codex"],
-      [SHELL, "Finished Shell task", false, false, "shell"],
-    ]);
+    expect(rows).toEqual([]);
 
     lifecycle.recordSessionDeleted(CODEX);
-    expect(snapshot.currentMobileSessionRecordSources({ now: 60 }).ids).toEqual([SHELL, CLAUDE]);
+    expect(snapshot.currentTerminalSessionRecordSources({ now: 60 }).ids).toEqual([]);
 
     registry.ptys.set(CODEX, { cwd: "/repo/codex", agent: "codex", tmux: true, ws: {} } as never);
     lifecycle.recordSessionLive({ id: CODEX, agent: "codex", cwd: "/repo/codex", now: 70 });
-    expect(new Set(snapshot.currentMobileSessionRecordSources({ tmuxIds: [CODEX], now: 80 }).ids)).toEqual(new Set([CODEX, SHELL, CLAUDE]));
+    expect(snapshot.currentTerminalSessionRecordSources({ tmuxIds: [CODEX], now: 80 }).ids).toEqual([CODEX]);
   });
 
-  it("keeps stopped user sessions in PC and Mobile existence while excluding background and internal records", async () => {
+  it("uses one current membership for PC and Mobile while excluding stale, background, and internal records", async () => {
     readBack = {
       "dev-terminal-sessions.json": [CLAUDE, STALE, EXTRA, BACKGROUND, INTERNAL, UNPLACED_MARKER].join("\n"),
       "unplaced-sessions.json": `${UNPLACED_MARKER} claude`,
@@ -225,13 +221,14 @@ describe("Session SoT integration across PC grid and Mobile", () => {
     registry.backgroundMarkers.add(BACKGROUND);
     registry.translationWorkerIds.add(INTERNAL);
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
-    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
+    const catalog = snapshot.currentSessionRecords({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
+    const current = snapshot.currentTerminalSessionRecords({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
+    const mobileSources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [CLAUDE, EXTRA, BACKGROUND, INTERNAL] });
 
-    expect(new Set(records.selectGridVisibleSessionRecords(current).map((record) => record.id))).toEqual(new Set([CLAUDE, STALE, EXTRA, UNPLACED_MARKER]));
-    expect(records.selectUnplacedSessionRecords(current).map((record) => record.id)).toEqual([UNPLACED_MARKER]);
-    expect(new Set(mobileSources.ids)).toEqual(new Set([EXTRA, STALE, CLAUDE, UNPLACED_MARKER]));
-    expect(current.find((record) => record.id === EXTRA)).toMatchObject({
+    expect(current.map((record) => record.id)).toEqual([CLAUDE]);
+    expect(mobileSources.ids).toEqual(current.map((record) => record.id));
+    expect(records.selectUnplacedSessionRecords(current)).toEqual([]);
+    expect(catalog.find((record) => record.id === EXTRA)).toMatchObject({
       lifecycle: "stopped",
       runtime: { pty: false, tmux: true, attached: false },
     });
@@ -243,20 +240,21 @@ describe("Session SoT integration across PC grid and Mobile", () => {
       "dev-terminal-cwds.json": `${EXTRA} /repo/stopped\n`,
       "stopped-session-lifecycle.json": EXTRA,
     };
-    const { records, snapshot } = await freshModules();
+    const { snapshot } = await freshModules();
     await snapshot.hydrateSessionRecordSnapshotInputs();
 
-    const current = snapshot.currentSessionRecords({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
-    const mobileSources = snapshot.currentMobileSessionRecordSources({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
+    const catalog = snapshot.currentSessionRecords({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
+    const current = snapshot.currentTerminalSessionRecords({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
+    const mobileSources = snapshot.currentTerminalSessionRecordSources({ tmuxIds: [EXTRA], paneCommandOf: () => "bash", now: 50 });
 
-    expect(current).toHaveLength(1);
-    expect(current[0]).toMatchObject({
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]).toMatchObject({
       id: EXTRA,
       cwd: "/repo/stopped",
       lifecycle: "stopped",
       runtime: { pty: false, tmux: true, attached: false },
     });
-    expect(records.selectGridVisibleSessionRecords(current).map((record) => record.id)).toEqual([EXTRA]);
-    expect(mobileSources.ids).toEqual([EXTRA]);
+    expect(current).toEqual([]);
+    expect(mobileSources.ids).toEqual([]);
   });
 });
