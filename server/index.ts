@@ -117,7 +117,9 @@ import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
-import { currentMobileSessionRecordSources, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
+import { currentMobileSessionRecordSources, currentSessionRecords, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
+import { createInputReadinessTracker } from "./session/input-readiness.js";
+import { inputReadinessForRecord, mountOrchestratorSessionRoutes, orchestratorSessionStatus } from "./routes/orchestrator-session-routes.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -258,6 +260,7 @@ const lifecycle = createSessionLifecycle({
   ...mobileWebPushActivityDeps,
 });
 const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
+const inputReadiness = createInputReadinessTracker();
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
@@ -289,6 +292,7 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" }),
+  inputReadiness,
 };
 const { spawnClaudePty } = createClaudeSpawner(spawnDeps);
 const { spawnCodexPty } = createCodexSpawner(spawnDeps);
@@ -702,6 +706,30 @@ const sharedMobileTerminalDeps = {
 const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
 const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
 
+const orchestratorSessionStatusOf = async (id: string) => {
+  await hydrateSessionRecordSnapshotInputs();
+  const record = currentSessionRecords({
+    ids: [id],
+    tmuxIds: tmuxListSessionIds(),
+    paneCommandOf: tmuxPaneCommand,
+    claudeTranscriptExists: sessionExistsOnDisk,
+  })[0];
+  if (
+    !record ||
+    (record.lifecycle === "stopped" &&
+      record.createdAt === null &&
+      record.updatedAt === 0 &&
+      record.agent === null &&
+      record.cwd === null &&
+      !record.runtime.pty &&
+      !record.runtime.tmux)
+  ) {
+    return null;
+  }
+  const readiness = inputReadinessForRecord(record, inputReadiness.stateOf(id));
+  return orchestratorSessionStatus(record, workPhaseTracker.phaseOf(id), readiness);
+};
+
 mountConfiguredMobileTransport({
   app,
   isAllowedOrigin,
@@ -714,6 +742,14 @@ mountConfiguredMobileTransport({
     setWaiting,
     mobileWebPush,
   },
+});
+
+mountOrchestratorSessionRoutes(app, {
+  ...sharedMobileTerminalDeps,
+  createTerminalAtCwd: localMobileTerminalCreator,
+  setWaiting,
+  statusOf: orchestratorSessionStatusOf,
+  isAllowedOrigin,
 });
 
 // User-task scheduler: cron tasks from config/scheduler/tasks.json fire on schedule

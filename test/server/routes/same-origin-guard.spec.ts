@@ -21,9 +21,14 @@ describe("needsSameOrigin", () => {
     }
   });
 
-  it("has no feature-specific bypasses", () => {
+  it("keeps ordinary feature routes behind the same-origin gate", () => {
     expect(needsSameOrigin("PUT", "/api/files/browse/text")).toBe(true);
     expect(needsSameOrigin("POST", "/api/plugin/spawnBackgroundChat")).toBe(true);
+  });
+
+  it("leaves the external Session API to its own server-to-server auth", () => {
+    expect(needsSameOrigin("POST", "/api/sessions")).toBe(false);
+    expect(needsSameOrigin("POST", "/api/sessions/11111111-1111-4111-8111-111111111111/input")).toBe(false);
   });
 });
 

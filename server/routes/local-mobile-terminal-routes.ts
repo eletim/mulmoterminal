@@ -5,12 +5,9 @@ import os from "node:os";
 import { SESSION_ID_RE } from "../config/env.js";
 import { requestBody } from "./requestBody.js";
 import { requestOriginAllowed } from "./same-origin-guard.js";
-import { messageOf } from "../errors.js";
-import { isLaunchAgent, LAUNCH_AGENTS, type LaunchAgent } from "../../common/launchAgent.js";
-import { createTerminalInputSender, sanitizeTerminalInput } from "../mobileTerminal/terminalInput.js";
+import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent.js";
+import { sanitizeTerminalInput } from "../mobileTerminal/terminalInput.js";
 import { TerminalSessionNotFoundError } from "../mobileTerminal/terminalScreen.js";
-import { ansiRowsToText } from "../session/ansiSegments.js";
-import { workspaceRequest } from "../config/workspace.js";
 import type { ActivityTriple } from "../session/activity-transition.js";
 import type { WorkPhase } from "../session/workPhase.js";
 import type { AnsiRow } from "../../common/ansiStyle.js";
@@ -20,6 +17,16 @@ import { parseMobileWebPushSubscription, type MobileWebPushSubscriptionStore } f
 import type { MobileWebPushSender } from "../mobile-web-push/sender.js";
 import type { SessionScreen, TerminalSessionSummary } from "../mobileTerminal/terminalScreen.js";
 import { shellCommandCopyFromScreens } from "../../common/shellCommandCopy.js";
+import {
+  createTerminalSessionFromBody,
+  createTerminalSessionInputSender,
+  interruptTerminalSession,
+  readTerminalSessionScreen,
+  resolveStyledScreen,
+  sendTerminalSessionInput,
+  stopTerminalSession,
+  type PendingShellCommandCopy,
+} from "../mobileTerminal/terminalSessionService.js";
 
 // Local mobile activity payload: same working/waiting/event/workPhase vocabulary as the desktop
 // roster, with every field present so the client can render it without optional chaining.
@@ -66,51 +73,6 @@ export interface LocalMobileTerminalRouteDeps {
   };
 }
 
-// Resolves the styled rows for a screen response, or undefined when styling isn't usable —
-// either it failed outright, or (#7 round-3 review) it and the plain `screen` disagree on what
-// the pane showed, which only happens when captureTerminalScreen and captureStyledScreen (two
-// INDEPENDENT reads of the same live session — nothing makes them atomic with each other) raced
-// against an active repaint. Both parsers extract the SAME text off the SAME capture, so the two
-// agree byte for byte whenever they really did read the same frame; a mismatch means they
-// didn't, and only the already-successful plain `screen` is trustworthy then. Split out of the
-// route handler so a styling failure or mismatch can never touch what has already succeeded.
-async function resolveStyledScreen(
-  id: string,
-  screen: { screen: string },
-  captureStyledScreen: LocalMobileTerminalRouteDeps["captureStyledScreen"],
-): Promise<AnsiRow[] | undefined> {
-  try {
-    const captured = await captureStyledScreen(id);
-    // `.trimEnd()` matches captureSessionScreen's own `rowsToScreen(...).trimEnd()` — it strips
-    // more than ASCII space (U+00A0 included), so leaving it off here would make a screen
-    // ending in Claude Code's NBSP-padded ghost text mismatch for a reason that isn't a real
-    // capture race at all.
-    return ansiRowsToText(captured).trimEnd() === screen.screen ? captured : undefined;
-  } catch (err) {
-    console.error("[api] GET /api/mobile/terminal-sessions/:id/screen failed to build styled rows:", err);
-    return undefined;
-  }
-}
-
-interface PendingShellCommandCopy {
-  command: string;
-  beforeScreen: string;
-}
-
-async function createTerminalFromBody(
-  body: unknown,
-  createTerminalAtCwd: LocalMobileTerminalRouteDeps["createTerminalAtCwd"],
-): Promise<{ status: number; body: unknown }> {
-  const { agent, cwd } = requestBody(body);
-  if (!isLaunchAgent(agent)) return { status: 400, body: { error: `agent must be one of: ${LAUNCH_AGENTS.join(", ")}` } };
-  if (typeof cwd !== "string" || cwd.trim() === "") return { status: 400, body: { error: "cwd is required" } };
-  const workspace = workspaceRequest(cwd);
-  if (workspace.kind === "unusable") return { status: workspace.malformed ? 400 : 409, body: { error: workspace.problem } };
-
-  const decision = await createTerminalAtCwd(agent, workspace.cwd);
-  return decision.ok ? { status: 200, body: { ok: true, sessionId: decision.sessionId } } : { status: 409, body: { error: decision.error } };
-}
-
 function mountCreateTerminalRoute(
   app: Express,
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
@@ -118,7 +80,7 @@ function mountCreateTerminalRoute(
 ) {
   app.post("/api/mobile/terminal-sessions", async (req: Request, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
-    const result = await createTerminalFromBody(req.body, createTerminalAtCwd);
+    const result = await createTerminalSessionFromBody(req.body, createTerminalAtCwd);
     res.status(result.status).json(result.body);
   });
 }
@@ -167,17 +129,18 @@ function mountMobileWebPushRoutes(
   });
 }
 
-function mountInputRoute(
-  app: Express,
-  isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
-  sendInput: ReturnType<typeof createTerminalInputSender>,
-  captureTerminalScreen: LocalMobileTerminalRouteDeps["captureTerminalScreen"],
-  sessionAgent: (sessionId: string) => SessionAgent | undefined,
-  setWaiting: LocalMobileTerminalRouteDeps["setWaiting"],
-  pendingShellCommandCopies: Map<string, PendingShellCommandCopy>,
-) {
+interface InputRouteDeps {
+  isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"];
+  sendInput: ReturnType<typeof createTerminalSessionInputSender>;
+  captureTerminalScreen: LocalMobileTerminalRouteDeps["captureTerminalScreen"];
+  sessionAgent: (sessionId: string) => SessionAgent | undefined;
+  setWaiting: LocalMobileTerminalRouteDeps["setWaiting"];
+  pendingShellCommandCopies: Map<string, PendingShellCommandCopy>;
+}
+
+function mountInputRoute(app: Express, deps: InputRouteDeps) {
   app.post("/api/mobile/terminal-sessions/:id/input", async (req: Request<{ id: string }>, res: Response) => {
-    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    if (!requestOriginAllowed(req, deps.isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
     const { text } = requestBody(req.body);
@@ -187,16 +150,13 @@ function mountInputRoute(
     if (typeof text !== "string") return res.status(400).json({ error: "text is required" });
     const safe = sanitizeTerminalInput(text);
     if (!safe) return res.status(400).json({ error: "text is required" });
-    try {
-      const beforeScreen = sessionAgent(id) === "shell" ? await captureTerminalScreen(id).catch(() => null) : null;
-      const result = await sendInput(id, text);
-      if (beforeScreen) pendingShellCommandCopies.set(id, { command: safe, beforeScreen: beforeScreen.screen });
-      setWaiting(id, false);
-      res.json(result);
-    } catch (err) {
-      // tmux-only session, no PTY attached in this process (terminalInput.ts's typeAndSubmit).
-      res.status(409).json({ error: messageOf(err) });
-    }
+    const result = await sendTerminalSessionInput(
+      id,
+      req.body,
+      { captureTerminalScreen: deps.captureTerminalScreen, sendInput: deps.sendInput, sessionAgent: deps.sessionAgent, setWaiting: deps.setWaiting },
+      { onShellCommand: (sessionId, copy) => deps.pendingShellCommandCopies.set(sessionId, copy) },
+    );
+    res.status(result.status).json(result.body);
   });
 }
 
@@ -209,17 +169,15 @@ function mountSessionOperationRoutes(
   app.post("/api/mobile/terminal-sessions/:id/interrupt", (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
-    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-    if (!interruptSession(id)) return res.status(409).json({ error: "session is not live" });
-    res.json({ interrupted: true });
+    const result = interruptTerminalSession(id, interruptSession);
+    res.status(result.status).json(result.body);
   });
 
   app.post("/api/mobile/terminal-sessions/:id/stop", (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
-    if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-    stopSession(id);
-    res.json({ stopped: true });
+    const result = stopTerminalSession(id, stopSession);
+    res.status(result.status).json(result.body);
   });
 }
 
@@ -232,7 +190,9 @@ function mountScreenRoute(
     const { id } = req.params;
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
     try {
-      const screen = await deps.captureTerminalScreen(id);
+      const screenResult = await readTerminalSessionScreen(id, deps.captureTerminalScreen);
+      if (screenResult.status !== 200) return res.status(screenResult.status).json(screenResult.body);
+      const screen = screenResult.body;
       deps.acknowledgeTerminalView?.(id);
       // Styling is additive on top of the plain-text screen above, which already reflects
       // whatever real error there is (session gone, tmux down, …) via the catch below — a
@@ -296,7 +256,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   // One sender for the whole mount, so its per-session serialization (typeAndSubmit's chain in
   // terminalInput.ts) actually spans every request — mirrors the Remote Host adapter's own
   // Never construct a second sender per request; the sender carries per-session serialization.
-  const sendInput = createTerminalInputSender({ writeToSession, canClearBox, submitSequence, sessionAgent });
+  const sendInput = createTerminalSessionInputSender({ writeToSession, canClearBox, submitSequence, sessionAgent });
   const pendingShellCommandCopies = new Map<string, PendingShellCommandCopy>();
 
   app.get("/api/mobile/terminal-sessions", async (_req: Request, res: Response) => {
@@ -311,7 +271,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
 
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
   mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
-  mountInputRoute(app, isAllowedOrigin, sendInput, captureTerminalScreen, sessionAgent, setWaiting, pendingShellCommandCopies);
+  mountInputRoute(app, { isAllowedOrigin, sendInput, captureTerminalScreen, sessionAgent, setWaiting, pendingShellCommandCopies });
   mountSessionOperationRoutes(app, isAllowedOrigin, interruptSession, stopSession);
   mountScreenRoute(app, { captureTerminalScreen, acknowledgeTerminalView, captureStyledScreen, sessionAgent }, pendingShellCommandCopies);
   mountLaunchRoute(app, isAllowedOrigin, launchTerminal);
