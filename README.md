@@ -569,10 +569,10 @@ earlier files, while variables explicitly exported by the invoking shell win
 over every file:
 
 1. Repo `.env`
-2. Repo `.env.local`
-3. User shared env: `MULMOTERMINAL_LOCAL_ENV_FILE` when set, otherwise
+2. User shared env: `MULMOTERMINAL_LOCAL_ENV_FILE` when set, otherwise
    `$XDG_CONFIG_HOME/mulmoterminal/local.env`, otherwise
    `~/.config/mulmoterminal/local.env`
+3. Repo `.env.local`
 
 Set `MULMOTERMINAL_ENV_FILES=/path/a.env:/path/b.env` to replace the default
 list. An interactive first run can create the shared user env and initialize Web

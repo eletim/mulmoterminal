@@ -128,6 +128,11 @@ describe("start-dev.sh", () => {
     expect(result.stdout).toContain("startup mode local-only");
   });
 
+  it("loads the shared config before the worktree-specific .env.local", () => {
+    const source = readFileSync(SCRIPT, "utf8");
+    expect(source.indexOf('env_files+=("$USER_LOCAL_ENV_FILE")')).toBeLessThan(source.indexOf('env_files+=("$LOCAL_ENV_FILE")'));
+  });
+
   it("sets up changed nginx config once and skips test/reload on the next startup", () => {
     dir = makeTempDir("start-dev-nginx-");
     const binDir = path.join(dir, "bin");

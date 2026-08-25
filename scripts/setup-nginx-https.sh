@@ -556,7 +556,7 @@ else
   fi
 fi
 
-if [[ ! -f "$VALIDATION_STAMP" ]]; then
+if [[ ! -f "$VALIDATION_STAMP" || ( "$MODE" == "new" && ( "$CERT_FILE" -nt "$VALIDATION_STAMP" || "$KEY_FILE" -nt "$VALIDATION_STAMP" ) ) ]]; then
   CHANGED=1
 fi
 

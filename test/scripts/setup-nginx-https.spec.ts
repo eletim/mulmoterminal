@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeTempDir } from "../support/tempDir.js";
@@ -345,6 +345,32 @@ describe("setup-nginx-https.sh", () => {
     expect(automatic.stdout).toContain("nginx HTTPS mode new");
     expect(readFileSync(serverFile, "utf8")).not.toContain("BEGIN MulmoTerminal managed include");
     expect(readFileSync(logFile, "utf8").trim().split("\n")).toEqual(["-t", "-s reload"]);
+  });
+
+  it("reloads a managed new server after its certificate is renewed", () => {
+    dir = makeTempDir("nginx-https-renewed-cert-");
+    const root = nginxRoot();
+    const { executable, logFile } = writeFakeNginx();
+    const certFile = path.join(currentTempDir(), "dev.tail.ts.net.crt");
+    const keyFile = path.join(currentTempDir(), "dev.tail.ts.net.key");
+    writeFileSync(certFile, "cert");
+    writeFileSync(keyFile, "key");
+    const env = {
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_MODE: "new",
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    };
+
+    expect(runScript(env).status).toBe(0);
+    const renewedAt = new Date(Date.now() + 60_000);
+    utimesSync(certFile, renewedAt, renewedAt);
+
+    expect(runScript(env, ["--check"]).status).toBe(10);
+    expect(runScript(env).status).toBe(0);
+    expect(readFileSync(logFile, "utf8").trim().split("\n")).toEqual(["-t", "-s reload", "-t", "-s reload"]);
   });
 
   it("omits the exact-path redirect for root base path", () => {

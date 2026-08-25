@@ -423,8 +423,8 @@ if [[ -n "${MULMOTERMINAL_ENV_FILES:-}" ]]; then
 else
   using_default_env_files=1
   env_files=("$ROOT_DIR/.env")
-  env_files+=("$LOCAL_ENV_FILE")
   [[ -n "$USER_LOCAL_ENV_FILE" ]] && env_files+=("$USER_LOCAL_ENV_FILE")
+  env_files+=("$LOCAL_ENV_FILE")
 fi
 
 for env_file in "${env_files[@]}"; do
