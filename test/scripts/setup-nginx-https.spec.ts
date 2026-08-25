@@ -127,8 +127,33 @@ describe("setup-nginx-https.sh", () => {
     expect(updated).toContain("ssl_certificate /keep/fullchain.pem;");
     expect(updated.indexOf("BEGIN MulmoTerminal managed include")).toBeLessThan(updated.indexOf("server {\n    listen 80;"));
     expect(readdirSync(currentTempDir()).some((entry) => entry.startsWith("site.conf.bak."))).toBe(true);
-    expect(log.match(/^-t$/gm)).toHaveLength(2);
-    expect(log.match(/^-s reload$/gm)).toHaveLength(2);
+    expect(log.match(/^-t$/gm)).toHaveLength(1);
+    expect(log.match(/^-s reload$/gm)).toHaveLength(1);
+    expect(second.stdout).toContain("nginx configuration is already current; test and reload skipped");
+  });
+
+  it("reports whether setup is needed without writing, testing, or reloading", () => {
+    dir = makeTempDir("nginx-https-check-");
+    const root = nginxRoot();
+    const { executable, logFile } = writeFakeNginx();
+    const serverConf = path.join(currentTempDir(), "site.conf");
+    writeFileSync(serverConf, ["server {", "    listen 443 ssl;", "    server_name dev.tail.ts.net;", "}"].join("\n"));
+    const env = {
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_SERVER_CONF: serverConf,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+    };
+
+    const needed = runScript(env, ["--check"]);
+    expect(needed.status).toBe(10);
+    expect(readFileSync(serverConf, "utf8")).not.toContain("MulmoTerminal managed include");
+    expect(existsSync(logFile)).toBe(false);
+
+    expect(runScript(env).status).toBe(0);
+    const current = runScript(env, ["--check"]);
+    expect(current.status).toBe(0);
+    expect(readFileSync(logFile, "utf8").match(/^-t$|^-s reload$/gm)).toHaveLength(2);
   });
 
   it("does not reload when nginx -t fails", () => {
