@@ -111,6 +111,7 @@ import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
 import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
+import { visibleCoreSessions } from "./session/core-session-visibility.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -313,6 +314,14 @@ const { spawnCommandPty, spawnLauncherPty, resolveLauncher } = createShellSpawne
 // claude session, so it needs the spawner above and the reap this file owns.
 const { translateViaHiddenChat } = createTranslationWorker({
   reap: (id) => reap(id),
+  deleteSession: async (id) => {
+    try {
+      await coreSessions.delete(id);
+    } catch (error) {
+      // A launch can fail before Core creates the session, while cleanup must stay idempotent.
+      if (!(error instanceof CoreSessionNotFoundError)) throw error;
+    }
+  },
   spawnHiddenChat: (sessionId, prompt) => {
     // ws=null → headless; the worker buffers output nobody reads. Default cwd = CLAUDE_CWD (trusted).
     spawnClaudePty(sessionId, null, null, { initialPrompt: prompt });
@@ -561,7 +570,9 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
 };
 
 const mobileListTerminalSessions = async () => {
-  const sessions = await coreSessions.list();
+  // Core owns existence; this filter is display policy shared with the desktop grid. Internal
+  // helpers remain directly addressable for their completion/push flows but are not terminal rows.
+  const sessions = await visibleCoreSessions(await coreSessions.list());
   const runningIds = sessions.filter((session) => !session.exited).map((session) => session.id);
   const work = await workByCwd(sessions.map((session) => session.cwd));
   const byId = new Map(sessions.map((session) => [session.id, session]));

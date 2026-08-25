@@ -60,9 +60,9 @@ npx mulmoterminal@latest
 | | 無いとどうなるか | 手順 |
 |---|---|---|
 | **Node.js 22.9+** | 起動できません | [ステップ 1](#step1) |
-| **Claude Code** | 起動できません（唯一の必須チェック） | [ステップ 2](#step2) |
+| **Claude Code** | Claudeセッションを起動できません | [ステップ 2](#step2) |
 | git / gh | 起動はします。worktree・差分・PR 機能が消えます | [ステップ 3](#step3) |
-| tmux | 起動はします。サーバ再起動でセッションが消えます | [ステップ 3](#step3) |
+| **tmux** | Terminal Sessionを起動できません | [ステップ 3](#step3) |
 
 ---
 
@@ -200,7 +200,7 @@ claude --version
 |---|---|
 | `git` | [worktree による作業の隔離](features.html)、セルのブランチ表示・未保存ドット・差分パネル、PR フッター |
 | `gh` | [PR / Issue 横断ビュー](github.html)、セルからのワンクリック PR 作成 |
-| `tmux`（推奨） | [セッション永続化](features.html) — サーバを再起動してもターミナルが生き残る |
+| `tmux`（必須） | Terminal Sessionの実行・永続化 |
 
 ### git
 
@@ -230,12 +230,11 @@ gh auth status
 MulmoTerminal は**この `gh` のログインをそのまま使います**。アクセストークンを
 別途どこかに保存させることはありません。
 
-### tmux（推奨）
+### tmux（必須）
 
 - **macOS** — `brew install tmux`
 - **Linux** — `sudo apt install tmux`
-- **Windows** — ネイティブ版はありません。入れなくても動きますが、
-  サーバを再起動するとセッションは残りません。
+- **Windows** — ネイティブ版はありません。WSL 内で MulmoTerminal を実行してください。
 
 ---
 
@@ -312,7 +311,7 @@ npx mulmoterminal@latest init
 | `MulmoTerminal is already running` と聞かれる | 2 つ同時に動かすのは**非対応**です（`~/.mulmoterminal` を共有してしまうため）。基本は `N` で止めて、動いている方を使ってください |
 | ブラウザが開かない | 手で `http://localhost:34567` を開けば同じです |
 | 画面は出るがセルが起動しない | そのディレクトリが存在するか、[ステップ 2](#step2) のログインが済んでいるかを確認 |
-| Windows で tmux が無いと言われる | 仕様です。永続化なしで動きます |
+| Windows で tmux が無いと言われる | WSL 内で MulmoTerminal を実行し、tmux をインストールしてください |
 
 それでも解決しないときは、**セッションの中で `/mulmoterminal-bug-report` と打ってください。**
 同梱のスキルが症状を聞き、実際の設定とバージョンを読んで仕様や設定で説明がつかないかを先に確かめ、
@@ -379,7 +378,7 @@ MulmoTerminal は普段の開発ツールを操縦するコックピットなの
 | **必須** | `git` | [worktree 分離](features.html)、セルのブランチ / 未保存ドット / 差分表示、PR フッター | [ステップ 3](#step3) |
 | **必須** | `gh` | [PR / Issue 横断ビュー](github.html)とワンクリック PR 作成 | [ステップ 3](#step3) |
 | 任意 | `glab` | 同じことを **gitlab.com** のプロジェクトでも — 一覧・issue から着手・MR 作成 | `brew install glab` のあと `glab auth login` |
-| 推奨 | `tmux` | [セッション永続化](features.html) — サーバ再起動でもターミナルが生き残る | `brew install tmux` · `sudo apt install tmux` · Windows ネイティブ版は無し（通常ターミナルにフォールバック） |
+| **必須** | `tmux` | Terminal Sessionの実行・永続化 | `brew install tmux` · `sudo apt install tmux` · WindowsではWSLを使用 |
 | 任意 | `codex` | セルで [Codex セッション](basics.html#claude-and-codex)を Claude と並べて動かす | `npm i -g @openai/codex` |
 | 任意 | `ffmpeg` | [GUI パネル](features.html)の mulmo-script プラグインからの動画生成 | `brew install ffmpeg` · `sudo apt install ffmpeg` |
 | 任意 | `ollama` | [claude-ollama](claude-ollama.html) — 完全ローカルのモデルで Claude Code を動かす | [ollama.com/download](https://ollama.com/download) |

@@ -48,6 +48,8 @@ import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
 import type { CoreSession } from "../session/core-session-adapter.js";
+import { normalizeMemo } from "../../common/sessionMemo.js";
+import { visibleCoreSessions } from "../session/core-session-visibility.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -113,20 +115,21 @@ async function setMemo(req: Request<{ id: string }>, res: Response, deps: Sessio
   if (typeof text !== "string") return res.status(400).json({ error: "text must be a string" });
   await sessionMemosHydrated; // or a write during startup is undone by the file it raced
   try {
-    if (await deps.setCoreMemo?.(id, text)) {
-      publishCoreMemo(id, text);
+    const memo = normalizeMemo(text);
+    if (await deps.setCoreMemo?.(id, memo)) {
+      publishCoreMemo(id, memo);
       deps.publishActivity(id);
-      return res.json({ id, memo: text });
+      return res.json({ id, memo });
     }
     // Awaited: acknowledging before the append lands would show the user a note that is not saved
     // anywhere, and it would then disappear at the next restart with nothing having reported an
     // error. The store rolls its own in-memory value back on failure, so a 500 leaves both sides
     // agreeing that the memo was not written.
-    const memo = await setSessionMemo(id, text);
+    const storedMemo = await setSessionMemo(id, text);
     deps.publishActivity(id);
     // The STORED memo, not the request's: normalization collapses and caps what was typed, and a
     // client that echoed its own text would show something the next reload disagrees with.
-    res.json({ id, memo });
+    res.json({ id, memo: storedMemo });
   } catch (err) {
     console.error("[api] /api/session/:id/memo failed:", err);
     res.status(500).json({ error: "failed to save the memo" });
@@ -331,7 +334,11 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   // Compatibility endpoint for the grid's adoption loop. Placement is browser-only UI state;
   // every existing terminal comes from Core, so this returns the same canonical membership.
   app.get("/api/sessions/unplaced", async (_req, res) => {
-    const sessions = (await deps.listCoreSessions()).map((session) => ({ id: session.id, agent: session.agent, cwd: session.cwd }));
+    const sessions = (await visibleCoreSessions(await deps.listCoreSessions())).map((session) => ({
+      id: session.id,
+      agent: session.agent,
+      cwd: session.cwd,
+    }));
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);

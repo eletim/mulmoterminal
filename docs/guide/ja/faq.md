@@ -110,7 +110,7 @@ CI は Linux と macOS を毎 PR、Windows を毎日回しています。Windows
 
 - **Node.js 22.9 以上**
 - `claude` か `codex` の CLI が PATH にあること
-- （任意）`tmux` — セッションの永続化に使います
+- `tmux` — Terminal Sessionの実行・永続化に使います（WindowsではWSL内で実行）
 
 ```bash
 npx mulmoterminal@latest
