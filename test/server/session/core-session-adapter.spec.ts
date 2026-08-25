@@ -61,4 +61,21 @@ describe("CoreSessionAdapter", () => {
 
     expect(input).toHaveBeenCalledWith(native.id, "\u001b[A", { submit: false });
   });
+
+  it("reports child exit from a remain-on-exit Core pane", async () => {
+    const core = {
+      list: vi
+        .fn()
+        .mockResolvedValueOnce([native])
+        .mockResolvedValueOnce([{ ...native, exited: true, exitCode: 7 }]),
+    } as unknown as SessionCore;
+    const adapter = new CoreSessionAdapter({ core });
+
+    await expect(
+      new Promise((resolve) => {
+        adapter.watchExit(native.id, resolve, 1);
+      }),
+    ).resolves.toEqual({ exitCode: 7 });
+    expect(core.list).toHaveBeenCalledTimes(2);
+  });
 });

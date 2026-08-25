@@ -1,9 +1,9 @@
 // tmux-backed session persistence: run each PTY inside a tmux session so it survives
 // the mulmoterminal server dying (crash / restart) and reattaches when the server comes
-// back — like `screen`/`tmux` do. When tmux isn't installed, callers fall back to a
-// direct pty.spawn (non-persistent, current behavior).
+// back — like `screen`/`tmux` do. Terminal sessions require tmux; only explicitly
+// non-persistent command runners use a direct pty.spawn.
 //
-// Isolation: we use our OWN tmux server (`-L mulmoterminal`) and config file, so none
+// Isolation: we use our OWN tmux server (`-L mulmoterminal-core`) and config file, so none
 // of this touches the user's own tmux sessions, keybindings, or status bar.
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -22,8 +22,7 @@ const tmuxAsync = (args: string[]) => spawnCaptureAsync("tmux", ["-L", SERVER_SO
 
 let cachedAvailable: boolean | null = null;
 
-// Detected once. Absent (or non-unix) → callers use a direct pty.spawn. On first
-// detection the isolated config is written so `new-session` picks it up via `-f`.
+// Detected once. On first detection the isolated config is written for the dedicated server.
 export function tmuxAvailable(): boolean {
   if (cachedAvailable === null) {
     cachedAvailable = spawnCapture("tmux", ["-V"]).status === 0;

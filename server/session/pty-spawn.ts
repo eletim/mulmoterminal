@@ -43,6 +43,60 @@ export function spawnPty(bin: string, args: string[], cwd: string, unset: readon
   return pty.spawn(launch.file, launch.args, { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd, env });
 }
 
+/** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
+export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
+  const onExit: IPty["onExit"] = (listener) => {
+    let fired = false;
+    const watches: { native?: { dispose(): void }; core?: { dispose(): void } } = {};
+    const emit: Parameters<IPty["onExit"]>[0] = (event) => {
+      if (fired) return;
+      fired = true;
+      watches.core?.dispose();
+      watches.native?.dispose();
+      listener(event);
+    };
+    watches.native = term.onExit(emit);
+    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
+      emit({ exitCode: exitCode ?? 0, signal: 0 });
+    });
+    return {
+      dispose() {
+        fired = true;
+        watches.core?.dispose();
+        watches.native?.dispose();
+      },
+    };
+  };
+  return {
+    get pid() {
+      return term.pid;
+    },
+    get cols() {
+      return term.cols;
+    },
+    get rows() {
+      return term.rows;
+    },
+    get process() {
+      return term.process;
+    },
+    get handleFlowControl() {
+      return term.handleFlowControl;
+    },
+    set handleFlowControl(value) {
+      term.handleFlowControl = value;
+    },
+    onData: (listener) => term.onData(listener),
+    onExit,
+    resize: (cols, rows) => term.resize(cols, rows),
+    clear: () => term.clear(),
+    write: (data) => term.write(data),
+    kill: (signal) => term.kill(signal),
+    pause: () => term.pause(),
+    resume: () => term.resume(),
+  };
+}
+
 /** How a spawn's environment differs from ours. One object so ptySpawn keeps a readable arity. */
 export interface PtySpawnEnv {
   /** Variables the session must NOT inherit (a provider session's ANTHROPIC_API_KEY). */
@@ -169,7 +223,7 @@ export function ptySpawn(
       coreSessions.createSync({ id: sessionId, command, cwd, agent }, ptyEnv(unset, env));
       configureCoreTmuxServer();
     }
-    return { term: spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), tmux: true, reattached };
+    return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };
   }
   if (persistent) throw new SpawnRefusedError("tmux is required for persistent terminal sessions");
   return { term: spawnPty(file, args, cwd, unset, env), tmux: false, reattached };

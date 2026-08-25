@@ -73,6 +73,8 @@ export interface SessionRouteDeps {
   getCoreSession?: (sessionId: string) => Promise<CoreSession | null>;
   /** Process-local transport state only; never contributes ids to the list. */
   hasLivePty?: (sessionId: string) => boolean;
+  /** Browser ownership is UI state only; it prevents cross-browser adoption/supersession. */
+  hasViewer?: (sessionId: string) => boolean;
   setCoreMemo?: (sessionId: string, memo: string) => Promise<boolean>;
 }
 
@@ -334,11 +336,9 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   // Compatibility endpoint for the grid's adoption loop. Placement is browser-only UI state;
   // every existing terminal comes from Core, so this returns the same canonical membership.
   app.get("/api/sessions/unplaced", async (_req, res) => {
-    const sessions = (await visibleCoreSessions(await deps.listCoreSessions())).map((session) => ({
-      id: session.id,
-      agent: session.agent,
-      cwd: session.cwd,
-    }));
+    const sessions = (await visibleCoreSessions(await deps.listCoreSessions()))
+      .filter((session) => !deps.hasViewer?.(session.id))
+      .map((session) => ({ id: session.id, agent: session.agent, cwd: session.cwd }));
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);

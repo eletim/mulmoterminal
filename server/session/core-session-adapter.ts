@@ -29,6 +29,10 @@ export interface CoreSessionAdapterOptions {
   createSync?: (options: CreateCoreSessionOptions, environment: NodeJS.ProcessEnv, serverName: string) => void;
 }
 
+export interface CoreSessionExit {
+  exitCode: number | null;
+}
+
 const syncCreateScript = String.raw`
 import { SessionCore } from "tmux-session-core-ts";
 const payload = JSON.parse(process.env.MULMOTERMINAL_CORE_CREATE_PAYLOAD);
@@ -70,6 +74,10 @@ export class CoreSessionAdapter {
   private readonly core: SessionCore;
   private readonly createSyncImpl: NonNullable<CoreSessionAdapterOptions["createSync"]>;
   private readonly inputTails = new Map<string, Promise<void>>();
+  private readonly exitWatchers = new Map<string, Set<(event: CoreSessionExit) => void>>();
+  private exitPollTimer: ReturnType<typeof setTimeout> | undefined;
+  private exitPollMs = 250;
+  private exitPollInFlight = false;
 
   constructor(options: CoreSessionAdapterOptions = {}) {
     this.serverName = options.serverName ?? CORE_TMUX_SERVER;
@@ -134,6 +142,28 @@ export class CoreSessionAdapter {
     await this.core.delete(id);
   }
 
+  /**
+   * Observe remain-on-exit panes. Their tmux client stays attached after the child exits, so
+   * node-pty cannot supply the lifecycle event MulmoTerminal needs for activity and hook cleanup.
+   */
+  watchExit(id: string, listener: (event: CoreSessionExit) => void, pollMs = 250): { dispose(): void } {
+    const listeners = this.exitWatchers.get(id) ?? new Set<(event: CoreSessionExit) => void>();
+    listeners.add(listener);
+    this.exitWatchers.set(id, listeners);
+    this.exitPollMs = Math.min(this.exitPollMs, pollMs);
+    void this.pollExits();
+    return {
+      dispose: () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) this.exitWatchers.delete(id);
+        if (this.exitWatchers.size === 0 && this.exitPollTimer) {
+          clearTimeout(this.exitPollTimer);
+          this.exitPollTimer = undefined;
+        }
+      },
+    };
+  }
+
   async setTitle(id: string, title: string): Promise<void> {
     await this.setOptionalMetadata(id, TITLE_METADATA_KEY, title);
   }
@@ -160,6 +190,32 @@ export class CoreSessionAdapter {
       return;
     }
     await this.core.setMetadata(id, key, value);
+  }
+
+  private async pollExits(): Promise<void> {
+    if (this.exitPollInFlight || this.exitWatchers.size === 0) return;
+    this.exitPollInFlight = true;
+    try {
+      const sessions = await this.core.list();
+      for (const session of sessions) {
+        if (!session.exited) continue;
+        const listeners = this.exitWatchers.get(session.id);
+        if (!listeners) continue;
+        this.exitWatchers.delete(session.id);
+        for (const listener of listeners) listener({ exitCode: session.exitCode });
+      }
+    } catch {
+      // A transient tmux probe failure is retried. Absence never synthesizes a child exit.
+    } finally {
+      this.exitPollInFlight = false;
+      if (this.exitWatchers.size > 0) {
+        this.exitPollTimer = setTimeout(() => {
+          this.exitPollTimer = undefined;
+          void this.pollExits();
+        }, this.exitPollMs);
+        this.exitPollTimer.unref?.();
+      }
+    }
   }
 }
 

@@ -107,6 +107,7 @@ const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRou
     }
   },
   hasLivePty: (id) => ptys.has(id),
+  hasViewer: (id) => !!ptys.get(id)?.ws,
   setCoreMemo: async (id, memo) => {
     try {
       await coreSessions.setMemo(id, memo);
