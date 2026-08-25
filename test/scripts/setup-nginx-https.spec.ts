@@ -181,6 +181,29 @@ describe("setup-nginx-https.sh", () => {
     expect(existsSync(path.join(root, ".mulmoterminal-nginx-validated"))).toBe(false);
   });
 
+  it("keeps reload pending after --no-reload", () => {
+    dir = makeTempDir("nginx-https-no-reload-");
+    const root = nginxRoot();
+    const { executable, logFile } = writeFakeNginx();
+    const serverConf = path.join(currentTempDir(), "site.conf");
+    writeFileSync(serverConf, ["server {", "    listen 443 ssl;", "    server_name dev.tail.ts.net;", "}"].join("\n"));
+    const env = {
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_SERVER_CONF: serverConf,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+    };
+
+    const withoutReload = runScript(env, ["--no-reload"]);
+    expect(withoutReload.status).toBe(0);
+    expect(existsSync(path.join(root, ".mulmoterminal-nginx-validated"))).toBe(false);
+
+    const nextStartup = runScript(env);
+    expect(nextStartup.status).toBe(0);
+    expect(readFileSync(logFile, "utf8").trim().split("\n")).toEqual(["-t", "-t", "-s reload"]);
+    expect(existsSync(path.join(root, ".mulmoterminal-nginx-validated"))).toBe(true);
+  });
+
   it("auto-discovers an exact server_name in the same TLS server block", () => {
     dir = makeTempDir("nginx-https-discovery-");
     const root = nginxRoot();

@@ -495,11 +495,11 @@ test_and_reload() {
   if [[ "$RELOAD" == "1" ]]; then
     "$NGINX_BIN" -s reload
     echo "[mulmoterminal] nginx reloaded"
+    mkdir -p "$(dirname -- "$VALIDATION_STAMP")"
+    install -m 0644 /dev/null "$VALIDATION_STAMP"
   else
     echo "[mulmoterminal] nginx -t passed; reload skipped"
   fi
-  mkdir -p "$(dirname -- "$VALIDATION_STAMP")"
-  install -m 0644 /dev/null "$VALIDATION_STAMP"
 }
 
 echo "[mulmoterminal] nginx HTTPS mode ${MODE}"
