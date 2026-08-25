@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import DirConfigPreview from "../DirConfigPreview.vue";
-import SkillLaunchButton from "../SkillLaunchButton.vue";
 import { SECTION_HEADING } from "./sectionClasses";
-import type { BundledSkillName } from "../../../common/bundledSkills";
 
 defineProps<{ dirPaths?: string[] | undefined }>();
-const emit = defineEmits<{ (e: "launch-skill", skill: BundledSkillName): void }>();
 </script>
 
 <template>
@@ -15,8 +12,4 @@ const emit = defineEmits<{ (e: "launch-skill", skill: BundledSkillName): void }>
     recognise — a setting that never took effect looks the same as one you never made until you can see this.
   </p>
   <DirConfigPreview :paths="dirPaths ?? []" />
-  <p class="mb-3 mt-2.5 text-[12px] text-dim">
-    This lists what is wrong; the skill reads the same thing and says why, then fixes it or points you at whichever skill owns that key.
-  </p>
-  <SkillLaunchButton skill="mulmoterminal-config" icon="troubleshoot" label="Explain my settings…" @launch="emit('launch-skill', $event)" />
 </template>

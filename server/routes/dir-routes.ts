@@ -8,7 +8,7 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { existingWorkspaceFromQuery } from "../config/workspace.js";
 import { normalizeAgent, workspaceForRoute } from "./routeParams.js";
 import { getHeaderConfig, getIssueWorkComments } from "../config/config-routes.js";
-import { publicDirConfig, dirSoundFor, loadDirConfig, dirConfigDetail, MISSING_DIR_CONFIG_DETAIL } from "../config/dir-config.js";
+import { publicDirConfig, dirSoundFor, dirConfigDetail, MISSING_DIR_CONFIG_DETAIL } from "../config/dir-config.js";
 import { readSoundPreset } from "../config/sound-presets.js";
 import { isNotifyKind } from "../../common/notifyKinds.js";
 import { buildHeaderContext, loadHeaderConfig } from "../config/header-context.js";
@@ -22,7 +22,6 @@ import { ensureWorkComment } from "../git/work-comment.js";
 import { workCommentDirLabel } from "../../common/workComment.js";
 import { isRecord } from "../../common/isRecord.js";
 import { prUrlForBranch } from "../git/pr-for-branch.js";
-import { applySkillFilter, discoverSkills } from "../skills/discovery.js";
 
 // "This comment should exist on that issue" (#979 Phase 2). A POST, not a GET, because it writes
 // on GitHub — and idempotent, because the caller is a poll: every tab re-asks on every tick, and
@@ -90,19 +89,6 @@ export function mountDirRoutes(app: Express): void {
     const cwd = workspaceForRoute(req.query.cwd, res);
     if (cwd === null) return;
     res.json({ cwd, scripts: loadScripts(cwd).map((s, index) => ({ index, label: s.label, command: s.command, cwd: s.cwd })) });
-  });
-
-  // The `.claude/skills` (user + project scope) discoverable for ?cwd=<dir>, so the
-  // terminal header's Skill menu can list them — working-dir skills first. Mirrors
-  // /api/scripts: the picked skill is invoked in the running session by typing its
-  // /<slug> (agent-side), so the browser only needs the slug + a description tooltip.
-  // A per-dir `.mulmoterminal.json` `skills` allowlist narrows/orders the list;
-  // absent => show all.
-  app.get("/api/skills", async (req, res) => {
-    const cwd = workspaceForRoute(req.query.cwd, res);
-    if (cwd === null) return;
-    const skills = applySkillFilter(await discoverSkills({ workspaceRoot: cwd }), loadDirConfig(cwd).skills);
-    res.json({ cwd, skills });
   });
 
   // Per-directory overrides (<cwd>/.mulmoterminal.json): the badge/name/theme a

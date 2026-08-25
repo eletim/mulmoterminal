@@ -5,8 +5,6 @@
 // auto-allowed (allowedToolNames); index.ts mounts their dispatch route itself,
 // before plugins-registry's catch-all /api/plugin/:toolName.
 import type { ToolDefinition } from "gui-chat-protocol";
-import { MANAGE_ACCOUNTING } from "./accounting-tool.js";
-import { MANAGE_COLLECTION } from "./collection-tool.js";
 
 // Mirrors MulmoClaude's spawnBackgroundChat signature (message/role/hidden) so the
 // tool is a drop-in from the model's point of view — but the implementation is
@@ -46,10 +44,4 @@ export const SPAWN_BACKGROUND_CHAT: ToolDefinition = {
   },
 };
 
-// manageAccounting is a host tool (not a plugins.json package): the accounting
-// package ships only the Vue View + the Express router, so the tool definition lives
-// here and its dispatch route (server/index.ts) passes through to POST /api/accounting.
-// manageCollection is the shared collection data plane from
-// @mulmoclaude/core/collection/server, bound in collection-tool.ts; its dispatch
-// route calls the engine handler in-process.
-export const HOST_TOOL_DEFINITIONS: ToolDefinition[] = [SPAWN_BACKGROUND_CHAT, MANAGE_ACCOUNTING, MANAGE_COLLECTION];
+export const HOST_TOOL_DEFINITIONS: ToolDefinition[] = [SPAWN_BACKGROUND_CHAT];

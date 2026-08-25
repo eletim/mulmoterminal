@@ -18,7 +18,7 @@ describe("badArrayField", () => {
   });
 
   it("passes arrays, including empty ones (clearing a list is a real edit)", () => {
-    expect(badArrayField({ cwdPresets: [], prRepos: ["acme/web"], providers: [] })).toBeNull();
+    expect(badArrayField({ cwdPresets: [], providers: [] })).toBeNull();
   });
 
   it.each(ARRAY_FIELDS)("rejects %s when it is present but not an array", (field) => {
@@ -41,7 +41,6 @@ describe("badArrayField", () => {
   it("guards exactly these fields — a removal here is a field that can be silently wiped", () => {
     expect([...ARRAY_FIELDS]).toEqual([
       "cwdPresets",
-      "prRepos",
       "gitlabHosts",
       "launchers",
       "quickCommands",
@@ -66,7 +65,7 @@ describe("badArrayField", () => {
   });
 
   it("names only the first offender — the response reports one field", () => {
-    expect(badArrayField({ prRepos: {}, providers: {} })).toBe("prRepos");
+    expect(badArrayField({ providers: {}, themes: {} })).toBe("providers");
   });
 
   it("treats null as malformed for a non-nullable list", () => {

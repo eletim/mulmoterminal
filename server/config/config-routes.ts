@@ -37,15 +37,9 @@ export const APP_CONFIG_FILE = path.join(os.homedir(), ".mulmoterminal", "config
 const CONFIG_FILE = APP_CONFIG_FILE;
 let config: AppConfig = loadAppConfig(CONFIG_FILE);
 
-// The repos the cross-repo PR view aggregates — read live so a POST /api/config that
-// changes them takes effect on the next /api/prs without a restart.
-export function getPrRepos(): string[] {
-  return config.prRepos;
-}
-
 // The hosts declared as self-hosted GitLab (#1332) — read live, like the repos above, so a POST
 // that changes them reaches the next `glab` call without a restart. A hand edit of config.json
-// still needs one, exactly as `prRepos` does.
+// still needs one.
 export function getGitlabHosts(): string[] {
   return config.gitlabHosts;
 }
@@ -56,15 +50,8 @@ export function getGitlabHosts(): string[] {
 // on purpose — forge-host must not import this module back (see setDeclaredGitlabHosts).
 setDeclaredGitlabHosts(getGitlabHosts);
 
-// The saved directories and the recorded clone-per-repo choices, for the repo -> dir reverse
-// lookup (#1172). Read live for the same reason as the repos above: choosing a clone writes the
-// config, and the next lookup has to see it without a restart.
 export function getCwdPresets(): CwdPreset[] {
   return config.cwdPresets;
-}
-
-export function getRepoDirs(): Record<string, string> {
-  return config.repoDirs;
 }
 
 // The launch commands a grid cell offers — read live so /ws/launch resolves a launcher
@@ -112,20 +99,10 @@ export function getIssueWorkComments(): boolean {
 }
 
 // Read live so toggling the setting takes effect on the next timer tick, without a restart.
-export function getDecisionDigestEnabled(): boolean {
-  return config.decisionDigest;
-}
-
 // Which kinds of push the user wants (#850). Read live so unticking one in Settings takes
 // effect on the very next hook, without a restart.
 export function getPushKinds(): PushKind[] {
   return config.pushKinds;
-}
-
-// The periodic dev-work-log settings — read live so a toggle takes effect on the next
-// scheduler wiring (a restart, currently). Off by default.
-export function getWorklogConfig(): { enabled: boolean; intervalHours: number } {
-  return { enabled: config.worklogEnabled, intervalHours: config.worklogIntervalHours };
 }
 
 // The Enter-key submit/newline byte mapping — read live so the phone remote-view submit

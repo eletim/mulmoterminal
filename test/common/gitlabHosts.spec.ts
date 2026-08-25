@@ -2,7 +2,7 @@
 // two things that matter are that a plausible spelling is accepted and that a wrong one is dropped
 // rather than half-read.
 import { describe, it, expect } from "vitest";
-import { isGitlabHost, normalizeGitlabHost, sanitizeGitlabHosts, unknownForgeReason } from "../../common/gitlabHosts";
+import { isGitlabHost, normalizeGitlabHost, sanitizeGitlabHosts } from "../../common/gitlabHosts";
 
 describe("normalizeGitlabHost", () => {
   it.each([
@@ -20,8 +20,7 @@ describe("normalizeGitlabHost", () => {
   it.each([
     ["an empty string", ""],
     ["something that is not a string", 5],
-    // A project path is a different mistake. Keeping only its host would hide it, and the entry
-    // that names the project belongs in `prRepos`.
+    // A project path is a different mistake. Keeping only its host would hide it.
     ["a project path", "gitlab.hogefuga.com/group/project"],
     ["a URL with a path", "https://gitlab.hogefuga.com/group/project"],
     ["a space inside", "gitlab hogefuga com"],
@@ -65,14 +64,5 @@ describe("isGitlabHost", () => {
   // is also the easiest to write by accident, so it is refused here rather than at each caller.
   it("refuses github.com however it is declared", () => {
     expect(isGitlabHost("github.com", ["github.com"])).toBe(false);
-  });
-});
-
-describe("unknownForgeReason", () => {
-  it("says which host, and what to add where", () => {
-    const reason = unknownForgeReason("gitea.example.com");
-    expect(reason).toContain("gitea.example.com");
-    expect(reason).toContain("gitlabHosts");
-    expect(reason).toContain("~/.mulmoterminal/config.json");
   });
 });

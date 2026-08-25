@@ -5,17 +5,15 @@ import { useSoundVolume } from "../../composables/useSoundVolume";
 import { customSoundLabel, isCustomSound, toggledKinds, withKindSound, type SoundMap } from "../../composables/soundSettings";
 import SettingsButton from "../SettingsButton.vue";
 import SettingsField from "../SettingsField.vue";
-import SkillLaunchButton from "../SkillLaunchButton.vue";
 import { SELECT_CONTROL } from "../selectClasses";
 import { SECTION_HEADING } from "./sectionClasses";
 import { NOTIFY_KINDS, type NotifyKind } from "../../../common/notifyKinds";
 import { presetRef, SOUND_PRESETS } from "../../../common/notifySounds";
-import type { BundledSkillName } from "../../../common/bundledSkills";
 import type { SoundEmits } from "./soundEmits";
 import { isRecord } from "../../../common/isRecord";
 
 const props = defineProps<{ soundFile?: string | null | undefined; soundKinds?: NotifyKind[] | undefined; sounds?: SoundMap | undefined }>();
-const emit = defineEmits<SoundEmits & { (e: "launch-skill", skill: BundledSkillName): void }>();
+const emit = defineEmits<SoundEmits>();
 const { volume: soundVolume, setVolume: setSoundVolume } = useSoundVolume();
 const volumeLabel = computed(() => `${soundVolume.value}%`);
 
@@ -193,9 +191,4 @@ async function browseSound() {
     <SettingsButton @click="browseSound">Browse…</SettingsButton>
     <SettingsButton :disabled="!soundPath" title="Use the built-in chime" @click="clearSound">Use chime</SettingsButton>
   </div>
-  <p class="mb-3 mt-3 text-[12px] text-dim">
-    These are the sounds for every session. The skill also gives one project its own sound, picks which moments push to your phone, and works out which of them
-    is the one waking you up.
-  </p>
-  <SkillLaunchButton skill="mulmoterminal-notify" icon="notifications_active" label="Configure notifications…" @launch="emit('launch-skill', $event)" />
 </template>

@@ -45,7 +45,7 @@ const toHeaders = (raw: Record<string, string | string[] | number | undefined>):
 
 /**
  * A `fetch`-shaped caller bound to `app`: `const call = appRequest(app)` then
- * `await call("/api/wiki?slug=alpha")`. The answer is a real `Response`, so `status`,
+ * `await call("/api/example?slug=alpha")`. The answer is a real `Response`, so `status`,
  * `headers.get()`, `json()`, `text()` and `arrayBuffer()` read exactly as they did when
  * these specs went over the wire.
  */

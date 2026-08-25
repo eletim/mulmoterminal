@@ -9,10 +9,9 @@
 
 // The groups, ordered by how much damage a call can do.
 //   render   — draws into the Canvas panel and stops there. No side effect outside it.
-//   data     — reads/writes the workspace's structured data (collections, accounting).
 //   media    — generation that is slow, costly, and lands files on disk.
 //   external — reaches a third-party account or API.
-export const TOOL_GROUPS = ["render", "data", "media", "external"] as const;
+export const TOOL_GROUPS = ["render", "media", "external"] as const;
 
 export type ToolGroup = (typeof TOOL_GROUPS)[number];
 
@@ -46,7 +45,6 @@ export const hasCanvasGroup = (groups: unknown): boolean =>
 // call it should fail to compile, not ship a switch labelled "external".
 export const TOOL_GROUP_HEADINGS: Record<ToolGroup, string> = {
   render: "Canvas",
-  data: "Workspace data",
   media: "Canvas",
   external: "External accounts",
 };
@@ -70,12 +68,6 @@ const GROUP_BY_TOOL = new Map<string, ToolGroup>([
   ["presentForm", "render"],
   ["presentChart", "render"],
   ["presentHtml", "render"],
-
-  // presentCollection RENDERS, but it renders collection data and only makes sense next to
-  // manageCollection — a cell offered the view without the store gets a tool it cannot fill.
-  ["presentCollection", "data"],
-  ["manageCollection", "data"],
-  ["manageAccounting", "data"],
 
   ["generateImage", "media"],
   ["presentMulmoScript", "media"],

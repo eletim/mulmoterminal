@@ -91,7 +91,7 @@ export interface CmEditor {
 
 // `onChange` fires only on USER edits — loading a file (setDoc) is programmatic and
 // must not mark the buffer dirty, so it's suppressed with a flag.
-export function createEditor(parent: HTMLElement, onChange: () => void): CmEditor {
+export function createEditor(parent: HTMLElement, onChange: () => void, readOnly = false): CmEditor {
   const lang = new Compartment();
   let loading = false;
   const view = new EditorView({
@@ -102,6 +102,7 @@ export function createEditor(parent: HTMLElement, onChange: () => void): CmEdito
         basicSetup,
         oneDark,
         lang.of([]),
+        ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
         EditorView.lineWrapping,
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !loading) onChange();

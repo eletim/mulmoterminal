@@ -23,8 +23,7 @@ import { guiCallRecorderFor, historyIsGuiOnly } from "../mcp/gui-call-history.js
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import { mountSessionRoutes } from "../routes/session-routes.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
-import { mountRepoRoutes } from "../routes/repo-routes.js";
-import { mountIssueWorkRoutes } from "../routes/issue-work-routes.js";
+import { mountGithubStarRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
 import { mountGuiMcpRoutes } from "../routes/gui-mcp-routes.js";
 import { mountDropRoutes } from "../routes/drop-routes.js";
@@ -34,12 +33,7 @@ import { mountWorktreeRoutes } from "../git/worktree-routes.js";
 import { mountPickFileRoute } from "../files/pick-file.js";
 import { mountCommandSummaryRoute } from "../session/command-summary.js";
 import { mountCostRoute } from "../session/cost.js";
-import { mountCollectionRoutes } from "../backends/collections.js";
 import { mountGoogleRoutes } from "../backends/google.js";
-import { mountWikiRoutes } from "../backends/wiki.js";
-import { mountAccountingRoutes } from "../backends/accounting.js";
-import { mountFeedsRoutes } from "../backends/feeds.js";
-import { mountCalendarPushRoutes } from "../backends/calendarPush.js";
 import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
@@ -54,8 +48,6 @@ import {
   hasAllGuiTools,
   allToolsSessionsHydrated,
 } from "../session/registry.js";
-import { mountShortcutsRoutes } from "../backends/shortcuts.js";
-import { mountDecisionRoutes } from "./decision-routes.js";
 import { mountMobileModeRoute } from "./mobile-mode-route.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
@@ -63,7 +55,7 @@ import { mountPresentPathRoot } from "../backends/presentPathRoot.js";
 import { cwdForSession } from "../session/session-cwd.js";
 import { sessionExistsOnDisk } from "../session/session-reads.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
-import { CLAUDE_CWD, MULMOTERMINAL_HOME, PORT, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "../config/env.js";
+import { CLAUDE_CWD, PORT, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "../config/env.js";
 import { FILE_WRITE_CHANNEL, type FileWriteEvent } from "../../common/fileWriteChannel.js";
 import type { createToolStores } from "../session/tool-store.js";
 import { stripBasePath } from "../../common/basePath.js";
@@ -149,8 +141,8 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // and all of them must see the same, already-absolute value.
   mountPresentPathRoot(app, { cwdForSession, workspace: CLAUDE_CWD });
 
-  // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat,
-  // manageAccounting, manageCollection (routes/plugin-routes.ts). ALL of them must precede
+  // The GUI-plugin tool routes this server answers itself: spawnBackgroundChat
+  // (routes/plugin-routes.ts). It must precede
   // mountAllRoutes' /api/plugin/:toolName catch-all below, which would otherwise take them.
   mountPluginRoutes(app, {
     spawnClaudePty: deps.spawnClaudePty,
@@ -175,35 +167,6 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // POST /api/form). The GUI MCP server dispatches tool calls to these.
   mountAllRoutes(app);
 
-  // Read-side collection routes (GET /api/collections/list + /:slug/detail) over the
-  // shared workspace, backing the @mulmoclaude/collection-plugin presentCollection
-  // card and (later) the collections toolbar. The engine itself is configured below
-  // once CLAUDE_CWD is the confirmed workspace.
-  mountCollectionRoutes(app);
-
-  // Read-only wiki routes (GET /api/wiki[?slug=] + /graph + /lint) over the shared
-  // workspace, thin consumers of @mulmoclaude/core/wiki/server. Claude authors the wiki
-  // via the real CLI in the terminal; MT's overlay only browses. Mounted before the /api
-  // SPA fallback.
-  mountWikiRoutes(app, { workspace: CLAUDE_CWD });
-
-  // Accounting dispatch route (POST /api/accounting) from @mulmoclaude/accounting-plugin.
-  // Drives BOTH the AccountingView (configureAccountingHost.apiCall) and the
-  // manageAccounting host tool below. The engine is configured (workspace + pub/sub)
-  // further down, once CLAUDE_CWD + pubsub exist.
-  mountAccountingRoutes(app);
-
-  // Collection Refresh route (POST /api/collections/:slug/refresh) from
-  // @mulmoclaude/core/feeds — fetches declarative feeds or dispatches an agent-ingest
-  // worker. Backs the collection-view Refresh button. The engine is configured below.
-  mountFeedsRoutes(app);
-
-  // The other direction: POST /api/collections/:slug/calendar-push writes a collection's
-  // records to the Google calendar its schema declares (path per MulmoClaude's
-  // API_ROUTES.collections.calendarPush). Backs the collection-view Push button; reads the
-  // workspace from the collection host configured below.
-  mountCalendarPushRoutes(app);
-
   // Notification REST surface (list active / history, dismiss one) — backs the toolbar
   // bell. The engine is configured below once pubsub + the workspace exist.
   mountNotificationRoutes(app);
@@ -224,14 +187,6 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // The same, for a page presentHtml was POINTED at rather than wrote (GET
   // /htmlfile/<scope>/…, built by htmlFileUrl). No containment root — see the route.
   mountHtmlFileRoute(app);
-
-  // Shared launcher favorites (GET/PUT /api/shortcuts) over the same
-  // <workspace>/config/shortcuts.json MulmoClaude uses — backs the collections toolbar.
-  mountShortcutsRoutes(app, { workspace: CLAUDE_CWD });
-
-  // Read-only decision log (GET /api/decisions?cwd=) — the questions a human was asked in this
-  // project and what they chose, read back out of Claude's own transcripts. Writes nothing.
-  mountDecisionRoutes(app);
 
   // GET /api/mobile-mode — read-only compatibility shape for the local mobile terminal page.
   mountMobileModeRoute(app);
@@ -318,21 +273,19 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     sessionChannel: deps.sessionChannel,
   });
 
-  // The /prs and /issues views (see routes/repo-routes.ts).
-  mountRepoRoutes(app);
-
-  // Starting work FROM an issue row in that view: the worktree plus its seeded session (#1173).
-  mountIssueWorkRoutes(app, { spawnClaudePty: deps.spawnClaudePty, isAllowedOrigin: deps.isAllowedOrigin });
+  // Header-only GitHub affordances, such as starring this project. Cross-repo PR/issue
+  // dashboards are intentionally not mounted.
+  mountGithubStarRoutes(app);
 
   // GET/POST /api/config (workspace dir + directory presets) — in its own module.
   // GRID-ONLY (dev_tool): backs the grid launcher's default dir + the settings
   // modal's directory presets. The single view never calls it.
   mountConfigRoutes(app, CLAUDE_CWD);
 
-  // Project-scoped file browsing + editing for the full-screen Files view
-  // (GET /api/files/browse/{list,text,md}, PUT .../write — all ?cwd=&path=). Each
-  // terminal browses its own session's project dir; paths are contained within it.
-  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD, backupRoot: path.join(MULMOTERMINAL_HOME, "backups") });
+  // Project-scoped read-only file browsing for the full-screen Files view
+  // (GET /api/files/browse/{list,text,version,md,json,table} — all ?cwd=&path=).
+  // Each terminal browses its own session's project dir; paths are contained within it.
+  mountFilesBrowseRoutes(app, { defaultCwd: CLAUDE_CWD });
 
   // Browser-native working-directory picker. It lists directories only, and the server keeps
   // navigation inside the user's home or the configured workspace root.
@@ -386,12 +339,8 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // codex's own sessions (see routes/session-routes.ts).
   mountSessionRoutes(app, sessionRouteDeps(deps));
 
-  // Explicit close (reliable deps.reap over HTTP) + one-shot orphan cleanup. Extracted to a
+  // Explicit close (reliable HTTP fallback for logical deletion) + one-shot orphan cleanup. Extracted to a
   // module so the origin guard / id validation / orphan-selection boundary are testable.
-  // Shared by the orphan cleanup (which must never deps.reap a resumable session) and the phone's
-  // session picker (which must never OFFER a non-resumable one) — the same rule read from
-  // both directions, so they can't drift apart.
-
   mountTmuxRoutes(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),

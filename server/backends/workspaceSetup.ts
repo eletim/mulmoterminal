@@ -1,24 +1,17 @@
 // Boot-time workspace seeding, shared with MulmoClaude via @mulmoclaude/core. On a
-// MulmoTerminal-alone run the workspace would otherwise be empty: no help docs and
-// no preset skills. This seeds both so the workspace experience matches a run that
-// booted MulmoClaude first.
+// MulmoTerminal-alone run the workspace would otherwise be empty: no help docs.
 //
 // Seeding is GATED to the managed mulmoclaude workspace (~/mulmoclaude, or
 // MULMOCLAUDE_WORKSPACE_PATH). The launcher often runs the terminal in an arbitrary
 // project directory (bin/mulmoterminal.js defaults CLAUDE_CWD to the cwd it ran
-// from), and we must NOT write mulmoclaude presets/helps there — especially into
-// .claude/skills, which many dev repos already own.
+// from), and we must NOT write mulmoclaude helps there.
 //
 // Destinations match MulmoClaude's WORKSPACE_DIRS exactly so both apps share one
 // on-disk layout:
 //   <ws>/config/helps                 — seeded help docs
-//   <ws>/data/skills/catalog/preset   — preset skills catalog (UI-visible)
-//   <ws>/.claude/skills               — active (starred) preset skills (Claude-visible)
 import path from "node:path";
 import os from "node:os";
-import { mkdirSync } from "node:fs";
-import { seedHelps, syncPresetSkills, syncActivePresetSkills, presetSkillsAssetDir } from "@mulmoclaude/core/workspace-setup";
-import { syncCodexSkills, codexSkillsRoot } from "../agents/codex-skills.js";
+import { seedHelps } from "@mulmoclaude/core/workspace-setup";
 import { isSamePath } from "../infra/path-within.js";
 
 // Console-backed logger, matching the prefix style other backends use.
@@ -54,7 +47,7 @@ function safeStep(label: string, run: () => void): void {
   }
 }
 
-/** Seed help docs + preset skills into the workspace, but only when it is the
+/** Seed help docs into the workspace, but only when it is the
  *  managed mulmoclaude workspace. Each step is fault-isolated so a single FS failure
  *  cannot abort boot. */
 export function initWorkspaceSetup(deps: { workspace: string }): void {
@@ -64,37 +57,9 @@ export function initWorkspaceSetup(deps: { workspace: string }): void {
     return;
   }
 
-  const onInfo = (message: string, data?: Record<string, unknown>) => log.info(message, data);
-  const onWarn = (message: string, data?: Record<string, unknown>) => log.warn(message, data);
-
   safeStep("seedHelps", () => {
     const dest = path.join(workspace, "config", "helps");
     seedHelps({ destDir: dest });
     log.info("seeded help docs", { dest });
-  });
-
-  // Resolve the bundled preset source INSIDE each step that needs it, not once
-  // up front: presetSkillsAssetDir() can throw if core's assets are missing /
-  // mispackaged, and that must log + continue like any other step rather than
-  // abort boot before fault isolation engages.
-  safeStep("syncPresetSkills", () => {
-    const dest = path.join(workspace, "data", "skills", "catalog", "preset");
-    mkdirSync(dest, { recursive: true });
-    const result = syncPresetSkills({ sourceDir: presetSkillsAssetDir(), destDir: dest, onInfo, onWarn });
-    log.info("synced preset skills catalog", { copied: result.copied.length, removed: result.removed.length, skipped: result.skipped.length });
-  });
-
-  safeStep("syncActivePresetSkills", () => {
-    const active = path.join(workspace, ".claude", "skills");
-    mkdirSync(active, { recursive: true });
-    const result = syncActivePresetSkills({ sourceDir: presetSkillsAssetDir(), activeDir: active, onInfo, onWarn });
-    log.info("refreshed active preset skills", { updated: result.updated.length, removed: result.removed.length, skipped: result.skipped.length });
-  });
-
-  // Mirror the workspace's skills into codex's own skills dir (~/.codex/skills) so codex loads them
-  // by description — codex has no /<slug> command, so a codex chat seed names the skill instead.
-  safeStep("mirrorCodexSkills", () => {
-    const result = syncCodexSkills(path.join(workspace, ".claude", "skills"), codexSkillsRoot());
-    log.info("mirrored skills to codex", { mirrored: result.mirrored.length, skipped: result.skipped.length, removed: result.removed.length });
   });
 }

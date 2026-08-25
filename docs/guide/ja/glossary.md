@@ -79,8 +79,7 @@ MulmoTerminal はこのやり方を**ターミナルで**やるための画面�
 サーバの**既定の作業ディレクトリ**（`CLAUDE_CWD`）。
 決まり方は `--cwd` > 環境変数 `CLAUDE_CWD` > `npx mulmoterminal` を実行したディレクトリ の順で、サーバを直接起動したときは `~/mulmoclaude` です。
 起動時に `Workspace: …` と表示されるのがその答えです。
-Collections・Wiki・Accounting が読み書きするのはここで、MulmoClaude と併用するなら**両者で同じディレクトリ**（既定 `~/mulmoclaude`）にします。
-MulmoClaude を clone したディレクトリのことではありません。
+新しい session の既定 cwd であり、session 固有のディレクトリが選ばれていないときに read-only Files view が使うルートでもあります。
 
 プロジェクトのディレクトリとは扱いが違い、**ワークスペースで起動した Claude のセルだけ**が GUI MCP をフルで持ちます（3.x までの単一ビューと同じ状態）。
 

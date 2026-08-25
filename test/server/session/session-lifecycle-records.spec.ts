@@ -13,8 +13,10 @@ vi.mock("node:fs", () => ({
 }));
 
 import {
+  deletedSessionRecordIds,
   recordSessionDetached,
   recordKnownSessionStopped,
+  recordSessionDeleted,
   recordSessionLive,
   recordSessionStarting,
   recordSessionStopped,
@@ -26,6 +28,7 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   sessionLifecycleRecords.clear();
+  deletedSessionRecordIds.clear();
 });
 
 describe("session lifecycle writer", () => {
@@ -144,5 +147,21 @@ describe("session lifecycle writer", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(String(fsMock.appendFile.mock.calls[0]?.[1])).toContain(`${id} active`);
+  });
+
+  it("clears an explicit deletion tombstone when the same session id is started again", async () => {
+    const id = "01234567-89ab-cdef-0123-456789abcdef";
+
+    recordSessionDeleted(id);
+    expect(deletedSessionRecordIds.has(id)).toBe(true);
+
+    recordSessionStarting({ id, agent: "claude", cwd: "/repo", now: 20 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const deleteLogWrites = fsMock.appendFile.mock.calls
+      .filter((call) => String(call[0]).endsWith("deleted-session-records.log"))
+      .map((call) => String(call[1]));
+    expect(deletedSessionRecordIds.has(id)).toBe(false);
+    expect(deleteLogWrites).toEqual([expect.stringContaining(`${id} deleted`), expect.stringContaining(`${id} active`)]);
   });
 });

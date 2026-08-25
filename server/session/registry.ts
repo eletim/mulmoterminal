@@ -237,11 +237,9 @@ export function isBackgroundSession(id: string): boolean {
 
 // Visible sessions the SERVER spawned that no grid cell has taken yet.
 //
-// A chat started from the collections UI is placed by the browser that asked for it, which covers
-// the common case and only that case: an agent calling spawnBackgroundChat, a scheduled task, or
-// the phone can all start a visible chat while no tab is open at all — and once the single view is
-// gone there is nowhere for such a session to appear. This is the durable half: the server
-// remembers that one is waiting, and the next grid to load adopts it.
+// A visible chat can be started while no tab is open at all — an agent calling
+// spawnBackgroundChat, a scheduled task, or the phone can all do that. This is the durable
+// half: the server remembers that one is waiting, and the next grid to load adopts it.
 //
 // UNPLACED is the whole meaning, so the mark is cleared the moment a grid cell attaches (see
 // ws-routes, the one choke point for every grid attach). That keeps it server-side state with one

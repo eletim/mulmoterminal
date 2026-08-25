@@ -64,14 +64,17 @@ export function createShellSpawners(deps: SpawnDeps) {
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: launcherAgent(command) };
     ptys.set(sessionId, entry);
     recordSessionLive({ id: sessionId, agent: entry.agent, cwd });
+    deps.inputReadiness?.markSessionLive(sessionId, entry.agent);
     startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking, setWaiting: deps.setWaiting });
 
     term.onData((data) => {
       entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
       sendFrame(entry.ws, { type: "output", data });
+      deps.inputReadiness?.noteOutput(sessionId, entry.agent, data);
     });
     term.onExit(({ exitCode, signal }) => {
       stopShellTaskWatch(sessionId);
+      deps.inputReadiness?.markSessionStopped(sessionId);
       console.log(ptyExitLine({ agent: "launcher", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
       sendExitAndClose(entry.ws, exitCode, signal);
       deps.reap(sessionId);

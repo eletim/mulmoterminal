@@ -9,7 +9,7 @@
 //
 // and a plain-text regex over raw pty data never matches. That is how the draft readiness
 // marker became dead code: every claude spawn fell through to the 6-second quiet fallback,
-// which is why a chat started from the collection UI sat ~10s before its prompt appeared.
+// which made seeded background chats sit ~10s before their prompt appeared.
 // The trust-dialog guard was matched the same way and had the same hole.
 //
 // So markers are matched against a SQUASHED form: escape sequences, control bytes and ALL

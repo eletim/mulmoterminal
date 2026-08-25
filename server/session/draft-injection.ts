@@ -25,7 +25,7 @@ type DraftTarget = Pick<PtyEntry, "agent"> & { term: Pick<IPty, "write"> };
 // "?ESC[24GforESC[28Gshortcuts" and the trust dialog as "Yes,ESC[12GIESC[14Gtrust…".
 // Both were written as spaced regexes over raw data and therefore matched NOTHING — the
 // readiness one silently cost every claude spawn the full DRAFT_QUIET_MS below (~10s to a
-// visible prompt in a chat started from the collection UI), and the trust guard was
+// visible prompt in seeded background chats), and the trust guard was
 // holding only because a dialog screen is also a quiet one.
 const DRAFT_READY_MARKER = claudeAdapter.draftReadyMarker;
 const DRAFT_SETTLE_MS = 250;

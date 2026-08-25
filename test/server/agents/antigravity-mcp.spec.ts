@@ -32,6 +32,12 @@ describe("mergeAntigravityMcpServers", () => {
   it("drops the legacy all-tools entry", () => {
     expect(mergeAntigravityMcpServers({ "mulmoterminal-gui": { command: "old" } }, [])).toEqual({});
   });
+
+  it("drops the retired data tool-group entry", () => {
+    expect(mergeAntigravityMcpServers({ "mulmoterminal-data": { command: "old" }, theirs: { command: "keep" } }, [])).toEqual({
+      theirs: { command: "keep" },
+    });
+  });
 });
 
 describe("syncAntigravityMcpConfig", () => {

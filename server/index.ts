@@ -10,7 +10,7 @@ import { toolSummaries } from "./infra/plugins-registry.js";
 import { initMarkdownBackend } from "./backends/markdown.js";
 import { initArtifactsBackend } from "./backends/artifacts.js";
 import { initOpenPathBackend } from "./backends/openPath.js";
-import { getUserMcpServers, getWorklogConfig, getTerminalSubmit, getQuickCommands, APP_CONFIG_FILE } from "./config/config-routes.js";
+import { getUserMcpServers, getTerminalSubmit, getQuickCommands, getCwdPresets, APP_CONFIG_FILE } from "./config/config-routes.js";
 import { enforceKeymap } from "./config/keymap-check.js";
 import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
@@ -44,6 +44,7 @@ import { newProbeSessionId } from "./agents/probe-session.js";
 import { writeProbeScreen } from "./agents/probe-stall.js";
 import { removeProbeTranscript, sweepLegacyProbeTranscriptsOnce } from "./agents/probe-transcript.js";
 import { removeLegacySandboxCredentials, removeLegacySandboxContainers } from "./infra/fs-cleanup.js";
+import { runUpgradeCleanup } from "./infra/upgrade-cleanup.js";
 import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/codex-rollout.js";
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
@@ -57,24 +58,10 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import {
-  activity,
-  aiTitles,
-  backgroundMarkers,
-  codexRolloutIds,
-  knownSessions,
-  lastPrompts,
-  ptys,
-  sessionCwd,
-  sessionMemos,
-  sessionMemosHydrated,
-} from "./session/registry.js";
+import { activity, aiTitles, codexRolloutIds, knownSessions, lastPrompts, ptys, sessionCwd, sessionMemos, sessionMemosHydrated } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
-import { runWithHiddenMarker } from "./session/hiddenMarker.js";
-import { registerCompletionHook } from "./session/completion-hooks.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
-import { writeDecisionDigest } from "./session/decision-digest-file.js";
 import { createScheduledSessionRegistry, scheduledSessionInUse, scheduledSessionsDir } from "./session/scheduled-sessions.js";
 import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
@@ -106,29 +93,21 @@ import { repoForDir } from "./git/forge-support.js";
 import { resolveGithubUrl } from "./git/gitRemote.js";
 import { canClearInputBox } from "./mobileTerminal/terminalInput.js";
 import { createTerminalSessionOperations } from "./mobileTerminal/sessionOperations.js";
-import { initCollectionsBackend } from "./backends/collections.js";
 import { initGoogleBackend } from "./backends/google.js";
 import { initPluginRuntime } from "./infra/pluginRuntime.js";
-import { initAccountingBackend } from "./backends/accounting.js";
-import { initFeedsBackend } from "./backends/feeds.js";
 import { createMobileWebPushFeature, mobileWebPushActivityLifecycleDeps } from "./mobile-web-push/feature.js";
 import { normalizeActivity } from "./session/activity-transition.js";
 import { mountConfiguredMobileTransport } from "./mobileTerminalTransport.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
-import { type AgentWorkerRunner } from "@mulmoclaude/core/feeds/server";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
-import { installBundledSkills } from "./infra/install-bundled-skills.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
 import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
-import { startCollectionCompletionWatchers } from "./backends/collectionWatchers.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
-import { buildSystemTasks } from "./backends/system-tasks.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
-import { resumableSessionPredicate } from "./session/resumable-sessions.js";
 import { readSessionSummary, sessionExistsOnDisk } from "./session/session-reads.js";
 import { codexSessionsRoot } from "./agents/codex-session.js";
 import { readCodexSessionSummary } from "./agents/codex-sessions.js";
@@ -137,7 +116,9 @@ import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
-import { currentMobileSessionRecordSources, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
+import { currentSessionRecords, currentTerminalSessionRecordSources, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
+import { createInputReadinessTracker } from "./session/input-readiness.js";
+import { inputReadinessForRecord, mountOrchestratorSessionRoutes, orchestratorSessionStatus } from "./routes/orchestrator-session-routes.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -161,16 +142,17 @@ const CLAUDE_PERMISSION_MODE = process.env.CLAUDE_PERMISSION_MODE || "auto";
 // session state, so it must exist before we spawn anything into it.
 await fs.mkdir(CLAUDE_CWD, { recursive: true });
 
-// Seed help docs + preset skills so a MulmoTerminal-alone run gets the full
-// workspace experience. Gated to the managed mulmoclaude workspace and
+// Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
+// Gated to the managed mulmoclaude workspace and
 // fault-isolated per step, so it never aborts boot (see workspaceSetup.ts).
 initWorkspaceSetup({ workspace: CLAUDE_CWD });
 
-// Install the skills we ship into the user's global skills roots so any launched terminal can run
-// `/mulmoterminal-config` (the settings entry point, which routes to -dirs / -theme / -header /
-// -keys / -model / -notify) and `/mulmoterminal-bug-report`.
-// Best-effort + never clobbers a user's own same-named skill (see install-bundled-skills.ts).
-installBundledSkills();
+const upgradeCleanup = runUpgradeCleanup({ knownDirs: [CLAUDE_CWD, ...getCwdPresets().map((preset) => preset.path)] });
+if (upgradeCleanup.ownedSkillsRemoved > 0 || upgradeCleanup.mcpRegistrationsRemoved > 0 || upgradeCleanup.notificationsRemoved > 0) {
+  console.log(
+    `[cleanup] removed ${upgradeCleanup.ownedSkillsRemoved} retired skill(s), ${upgradeCleanup.mcpRegistrationsRemoved} retired MCP registration(s), and ${upgradeCleanup.notificationsRemoved} retired notification(s)`,
+  );
+}
 
 // Pub/sub channel the sidebar subscribes to for live session-activity changes.
 
@@ -251,7 +233,7 @@ const tmuxSizeSync = createTmuxSizeSync({
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
   cancelReap: (id) => cancelReap(id),
-  reap: (id) => reap(id),
+  deleteSession: (id) => deleteSession(id),
   setWaiting: (id, waiting) => setWaiting(id, waiting),
   armReapForDetached: (id) => armReapForDetached(id),
   terminalModesOf: (id) => tmuxTerminalModes(id),
@@ -276,7 +258,8 @@ const lifecycle = createSessionLifecycle({
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
   ...mobileWebPushActivityDeps,
 });
-const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
+const { cancelReap, reap, deleteSession, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
+const inputReadiness = createInputReadinessTracker();
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
@@ -308,6 +291,7 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" }),
+  inputReadiness,
 };
 const { spawnClaudePty } = createClaudeSpawner(spawnDeps);
 const { spawnCodexPty } = createCodexSpawner(spawnDeps);
@@ -523,10 +507,6 @@ initOpenPathBackend({ workspace: CLAUDE_CWD });
 // the ops' save/update kinds run against the artifacts FileOps.
 initMulmoScriptBackend({ workspace: CLAUDE_CWD, pubsub });
 
-// Configure the collection engine against the shared workspace (CLAUDE_CWD). The
-// path layout matches MulmoClaude's so discovery sees the same collection skills.
-initCollectionsBackend({ workspace: CLAUDE_CWD });
-
 // Give factory-style gui-chat-protocol plugins their scoped runtime (per-package
 // data/config under <workspace>, namespaced pub/sub, prefixed log) — see
 // infra/pluginRuntime.ts. This necessarily lands AFTER the plugin registry built
@@ -538,39 +518,6 @@ initPluginRuntime({ workspace: CLAUDE_CWD, publish: (channel, data) => pubsub?.p
 // Bind @mulmoclaude/core/google's logger. Token/secret storage is core's own and is
 // shared with MulmoClaude (~/.config/mulmo, ~/.secrets), so a machine links once.
 initGoogleBackend();
-
-// Configure the accounting engine against the shared workspace + pub/sub. Books live
-// under <workspace>/data/accounting; the publisher drives the View's live-refresh.
-// Single pinned workspace root — exactly what the focused freelance product wants.
-initAccountingBackend({ workspace: CLAUDE_CWD, pubsub });
-
-// Configure the feeds engine (collection Refresh). The agent-ingest worker launcher is
-// MulmoTerminal's own session spawn — adapted to @mulmoclaude/core/feeds' AgentWorkerRunner
-// shape here (where spawnClaudePty lives) and injected, so the feeds backend never imports
-// the session layer. A MANUAL refresh spawns a VISIBLE session (hidden:false) the user can
-// watch, and the engine sends no `onComplete` for one — watching it IS the report.
-// `roleId` is ignored (no role system).
-//
-// A hidden one gets two things a watched session doesn't need. It goes on the scheduled-session
-// retention (#541), because the chat list keeps it behind the Background filter so nobody is
-// waiting for it to finish and nothing else would ever end it. And it carries the engine's
-// completion hook (#1070), which is what turns a failed refresh into a bell instead of silence.
-// `scheduledSessions` is defined further down, which is safe because the system task that calls
-// this is registered later still (initUserTaskScheduler).
-const feedsSpawnWorker: AgentWorkerRunner = async ({ message, hidden, onComplete }) => {
-  const sessionId = randomUUID();
-  try {
-    runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => spawnClaudePty(sessionId, null, null, { initialPrompt: message }));
-    if (hidden) scheduledSessions.register(sessionId);
-    // AFTER a successful spawn: a launch that threw has no session to report on, and
-    // registering first would leave a hook nothing will ever fire or clear.
-    if (hidden && onComplete) registerCompletionHook(sessionId, onComplete);
-    return { ok: true, chatId: sessionId };
-  } catch (err) {
-    return { ok: false, error: messageOf(err) };
-  }
-};
-initFeedsBackend({ workspace: CLAUDE_CWD, spawnWorker: feedsSpawnWorker });
 
 // The mobile terminal view (#435). Both accessors live here because the PTY table
 // and the title/activity side-tables do; the backend only sees the two functions.
@@ -606,7 +553,7 @@ const mobileListTerminalSessions = async () => {
   const allTmuxIds = tmuxListSessionIds();
   await sessionMemosHydrated;
   await hydrateSessionRecordSnapshotInputs();
-  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentMobileSessionRecordSources({
+  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentTerminalSessionRecordSources({
     tmuxIds: allTmuxIds,
     paneCommandOf: tmuxPaneCommand,
     claudeTranscriptExists: sessionExistsOnDisk,
@@ -628,8 +575,6 @@ const mobileListTerminalSessions = async () => {
     candidateIds,
     liveIds,
     tmuxIds,
-    isResumable: await resumableSessionPredicate(),
-    isGridSession: (id) => recordById.get(id)?.visibility === "grid",
     // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
     // to drop the long tail of finished sessions the phone can't meaningfully offer.
     detailOf: (id) => {
@@ -758,6 +703,30 @@ const sharedMobileTerminalDeps = {
 const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
 const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
 
+const orchestratorSessionStatusOf = async (id: string) => {
+  await hydrateSessionRecordSnapshotInputs();
+  const record = currentSessionRecords({
+    ids: [id],
+    tmuxIds: tmuxListSessionIds(),
+    paneCommandOf: tmuxPaneCommand,
+    claudeTranscriptExists: sessionExistsOnDisk,
+  })[0];
+  if (
+    !record ||
+    (record.lifecycle === "stopped" &&
+      record.createdAt === null &&
+      record.updatedAt === 0 &&
+      record.agent === null &&
+      record.cwd === null &&
+      !record.runtime.pty &&
+      !record.runtime.tmux)
+  ) {
+    return null;
+  }
+  const readiness = inputReadinessForRecord(record, inputReadiness.stateOf(id));
+  return orchestratorSessionStatus(record, workPhaseTracker.phaseOf(id), readiness);
+};
+
 mountConfiguredMobileTransport({
   app,
   isAllowedOrigin,
@@ -772,11 +741,12 @@ mountConfiguredMobileTransport({
   },
 });
 
-// Mount per-collection fs.watchers → completion bells via the notifier. After the
-// engine host + notifier are configured. Fire-and-forget + non-fatal: a watcher
-// failure must never abort startup.
-startCollectionCompletionWatchers().catch((err) => {
-  console.error("[collection-watchers] failed to start — completion bells disabled", err);
+mountOrchestratorSessionRoutes(app, {
+  ...sharedMobileTerminalDeps,
+  createTerminalAtCwd: localMobileTerminalCreator,
+  setWaiting,
+  statusOf: orchestratorSessionStatusOf,
+  isAllowedOrigin,
 });
 
 // User-task scheduler: cron tasks from config/scheduler/tasks.json fire on schedule
@@ -808,20 +778,6 @@ const SCHEDULED_SWEEP_INTERVAL_MS = 60 * 60_000;
 void scheduledSessions.sweep();
 setInterval(() => void scheduledSessions.sweep(), SCHEDULED_SWEEP_INTERVAL_MS).unref();
 
-// The decision digest (#1015): rewritten at startup and every few hours, but only for the
-// directories this host actually works in, and only while the setting is on (checked inside
-// writeDecisionDigest, so turning it off stops the next tick rather than needing a restart).
-// Hours rather than minutes because a decision is a human act — a handful a day at most.
-const DECISION_DIGEST_INTERVAL_MS = 6 * 60 * 60_000;
-
-function refreshDecisionDigests(): void {
-  const dirs = new Set<string>([CLAUDE_CWD, ...[...ptys.values()].map((entry) => entry.cwd)]);
-  for (const dir of dirs) void writeDecisionDigest(dir, new Date()).catch(() => {});
-}
-
-refreshDecisionDigests();
-setInterval(refreshDecisionDigests, DECISION_DIGEST_INTERVAL_MS).unref();
-
 // A user's scheduled task runs as a BACKGROUND WORKER — see scheduled-chat.ts for why, and for
 // what follows from it (no grid cell, but a failed one still says so).
 function spawnScheduledChat(message: string): void {
@@ -836,17 +792,10 @@ function spawnScheduledChat(message: string): void {
   }
 }
 try {
-  // Which tasks and why: system-tasks.ts. Both hosts are already configured above
-  // (initFeedsBackend, initGoogleBackend, initCollectionsBackend), so both engines can run.
-  const systemTasks = buildSystemTasks({
-    workspaceRoot: CLAUDE_CWD,
-    worklog: getWorklogConfig(),
-    spawnChat: spawnScheduledChat,
-  });
   initUserTaskScheduler({
     workspace: CLAUDE_CWD,
     spawnChat: spawnScheduledChat,
-    systemTasks,
+    systemTasks: [],
   });
 } catch (err) {
   console.error("[scheduler] init failed (non-fatal)", err);

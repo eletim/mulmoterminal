@@ -9,9 +9,9 @@ const isValidId = (id: string) => /^[0-9a-f-]{36}$/i.test(id);
 
 describe("parseSessionToolGroups", () => {
   it("reads one entry per line", () => {
-    expect(parseSessionToolGroups(`${ID} render\n${ID} data\n${ID2} media`, isValidId)).toEqual([
+    expect(parseSessionToolGroups(`${ID} render\n${ID} external\n${ID2} media`, isValidId)).toEqual([
       { sessionId: ID, group: "render" },
-      { sessionId: ID, group: "data" },
+      { sessionId: ID, group: "external" },
       { sessionId: ID2, group: "media" },
     ]);
   });
@@ -32,7 +32,7 @@ describe("parseSessionToolGroups", () => {
   });
 
   it("drops an unknown group", () => {
-    expect(parseSessionToolGroups(`${ID} everything\n${ID} data`, isValidId)).toEqual([{ sessionId: ID, group: "data" }]);
+    expect(parseSessionToolGroups(`${ID} everything\n${ID} media`, isValidId)).toEqual([{ sessionId: ID, group: "media" }]);
   });
 
   it("drops a line carrying more than the two fields", () => {
@@ -73,11 +73,11 @@ describe("sessionToolGroupLine", () => {
 // asserted for the life of the log.
 describe("the reset marker", () => {
   it("drops what the session learned before it", () => {
-    expect(parseSessionToolGroups(`${ID} render\n${ID} data\n${ID} -`, isValidId)).toEqual([]);
+    expect(parseSessionToolGroups(`${ID} render\n${ID} external\n${ID} -`, isValidId)).toEqual([]);
   });
 
   it("keeps what the session learns after it", () => {
-    expect(parseSessionToolGroups(`${ID} render\n${ID} -\n${ID} data`, isValidId)).toEqual([{ sessionId: ID, group: "data" }]);
+    expect(parseSessionToolGroups(`${ID} render\n${ID} -\n${ID} external`, isValidId)).toEqual([{ sessionId: ID, group: "external" }]);
   });
 
   // The log is shared, so one session's restart must not disturb another's.

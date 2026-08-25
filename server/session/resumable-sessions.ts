@@ -16,12 +16,24 @@ import {
   unplacedSessionRows,
   unplacedSessionsHydrated,
 } from "./registry.js";
-import { sessionLifecycleRecordRows, sessionLifecycleRecordsHydrated } from "./session-lifecycle-records.js";
+import {
+  deletedSessionRecordIds,
+  deletedSessionRecordsHydrated,
+  sessionLifecycleRecordRows,
+  sessionLifecycleRecordsHydrated,
+} from "./session-lifecycle-records.js";
 import { isResumableTmuxSession } from "../infra/tmux.js";
 export const resumableSessionPredicate = async (): Promise<(id: string) => boolean> => {
-  await Promise.all([devTerminalSessionsHydrated, unplacedSessionsHydrated, codexRolloutIdsHydrated, sessionLifecycleRecordsHydrated]);
+  await Promise.all([
+    devTerminalSessionsHydrated,
+    unplacedSessionsHydrated,
+    codexRolloutIdsHydrated,
+    sessionLifecycleRecordsHydrated,
+    deletedSessionRecordsHydrated,
+  ]);
   const live = new Set(ptys.keys());
   const unplaced = new Set(unplacedSessionRows().map((row) => row.id));
+  const deleted = new Set(deletedSessionRecordIds);
   const inactive = new Set(
     sessionLifecycleRecordRows()
       .filter((record) => record.lifecycle === "stopped" || record.lifecycle === "failed")
@@ -31,6 +43,7 @@ export const resumableSessionPredicate = async (): Promise<(id: string) => boole
   const codexRoot = codexSessionsRoot();
   return (id) =>
     live.has(id) ||
-    (!inactive.has(id) &&
+    (!deleted.has(id) &&
+      !inactive.has(id) &&
       isResumableTmuxSession(id, live, devTerminalSessions, unplaced, claudeOnDisk, (i) => codexRolloutExists(codexRoot, codexRolloutIds.get(i) ?? i)));
 };

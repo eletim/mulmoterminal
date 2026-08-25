@@ -27,4 +27,9 @@ export interface SpawnDeps {
   uiPort: string;
   /** Surface a brand-new session in the sidebar before it is persisted. */
   publishSessionCreated: (sessionId: string) => void;
+  inputReadiness?: {
+    markSessionLive: (sessionId: string, agent: import("../../common/sessionAgent.js").SessionAgent) => void;
+    noteOutput: (sessionId: string, agent: import("../../common/sessionAgent.js").SessionAgent, data: string) => void;
+    markSessionStopped: (sessionId: string) => void;
+  };
 }

@@ -10,11 +10,9 @@
 // card that is still on screen.
 import { documentPathOf, type MarkdownToolData } from "@mulmoclaude/markdown-plugin/vue";
 import { isRecord } from "../../common/isRecord";
-import { collectionSlugOf } from "../../common/collectionSeed";
 
 // A tool result's payload travels in `data` and `jsonData` both. Read through both because a
-// partial update (a view persisting its state) may carry only one — the same lookup, for the same
-// reason, as common/collectionSeed.ts's `collectionSlugOf`.
+// partial update (a view persisting its state) may carry only one.
 function payloadsOf(result: unknown): Record<string, unknown>[] {
   if (!isRecord(result)) return [];
   return [result.data, result.jsonData].filter(isRecord);
@@ -63,20 +61,4 @@ export function documentIdentity(result: unknown): string | null {
  */
 export function filePathIdentity(result: unknown): string | null {
   return payloadString(result, "filePath");
-}
-
-/**
- * presentCollection: the collection, by slug alone — NOT slug+itemId.
- *
- * Editing a collection's schema and editing one of its records are one piece of work on one
- * subject, and the View self-fetches from the slug, so whichever card survives renders the
- * current state. Owner's call on the feedback behind this change (see the PR).
- *
- * The same key `reconcileCollectionCard` uses, deliberately. That rule drops a browser-seeded
- * placeholder from the STORE once the agent's real card lands (a placeholder is not history);
- * this one collapses real cards for display only. Two rules, one notion of "the same collection"
- * — hence one accessor.
- */
-export function collectionIdentity(result: unknown): string | null {
-  return collectionSlugOf(result) ?? null;
 }

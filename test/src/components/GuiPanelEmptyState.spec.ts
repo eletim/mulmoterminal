@@ -76,13 +76,12 @@ describe("the canvas pane's empty state", () => {
     expect(items.some((item) => item.includes("searchX"))).toBe(false);
   });
 
-  // A session that reached data / external tools can be asked for those in the same
+  // A session that reached external tools can be asked for those in the same
   // conversation, and this list is the only place they are named.
-  it("lists the non-drawing groups too when the session has them", async () => {
+  it("lists the external group too when the session has it", async () => {
     const w = mountPanel();
     await flushPromises();
     const items = itemsOf(w);
-    expect(items.some((item) => item.includes("manageCollection"))).toBe(true);
     expect(items.some((item) => item.includes("searchX"))).toBe(true);
   });
 
@@ -123,5 +122,19 @@ describe("the canvas pane's empty state", () => {
     const w = mountPanel();
     await flushPromises();
     expect(w.find('[data-testid="canvas-empty"]').exists()).toBe(false);
+  });
+
+  it("ignores retired cards when deciding whether there is content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/api/tools")) return { ok: true, json: async () => ({ tools: [{ toolName: "presentHtml", title: "presentHtml" }] }) };
+        return { ok: true, json: async () => ({ toolResults: [{ uuid: "old", toolName: "presentCollection", data: {} }] }) };
+      }),
+    );
+    const w = mountPanel();
+    await flushPromises();
+    expect(w.find('[data-testid="canvas-empty"]').exists()).toBe(true);
+    expect(w.find('[data-testid="canvas-empty"]').text()).toContain("presentHtml");
   });
 });

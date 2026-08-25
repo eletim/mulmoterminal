@@ -2170,7 +2170,7 @@ describe("TerminalCell", () => {
           posted.push(JSON.parse(String(init.body)));
           return { ok: true, json: async () => ({ ok: true }) };
         }
-        return { ok: true, json: async () => ({ groups: ["data"] }) };
+        return { ok: true, json: async () => ({ groups: ["media"] }) };
       }
       if (u.includes("/api/worktrees")) return { ok: true, json: async () => ({ isGit: false, worktrees: [] }) };
       if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/home/me/proj", scripts: [] }) };
@@ -2183,7 +2183,7 @@ describe("TerminalCell", () => {
 
     for (const group of TOOL_GROUPS) expect(w.find(`[data-testid="cell-mcp-toggle-${group}"]`).exists()).toBe(true);
     // A group registered on disk comes back ticked, whichever group it is.
-    expect((w.find('[data-testid="cell-mcp-toggle-data"]').element as HTMLInputElement).checked).toBe(true);
+    expect((w.find('[data-testid="cell-mcp-toggle-media"]').element as HTMLInputElement).checked).toBe(true);
     expect((w.find('[data-testid="cell-mcp-toggle-external"]').element as HTMLInputElement).checked).toBe(false);
 
     await w.find('[data-testid="cell-mcp-toggle-external"]').setValue(true);

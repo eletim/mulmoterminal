@@ -1,163 +1,56 @@
 ---
-title: GitHub — cross-repo PRs & Issues
+title: GitHub and GitLab PR links
 layout: default
 parent: English
 nav_order: 9
-description: See every registered repository's open PRs and issues in one cross-repo view.
+description: How MulmoTerminal links a terminal session to the pull request or merge request for its current branch.
 ---
 
-# GitHub — cross-repo PRs & Issues
+# GitHub and GitLab PR links
 {: .no_toc }
 
 - TOC
 {:toc}
 
-**See open Pull Requests and Issues across several repositories on one screen.** Which repo has
-something waiting for review, whether CI is red — all at a glance, without hopping between sessions.
-You choose which repos show up by **registering** them (just a list of `owner/repo`).
+MulmoTerminal no longer has a cross-repository PRs & Issues dashboard. Pull request integration is
+session-scoped: a terminal cell can show and open the PR or MR for the branch that session is
+working on.
 
-- A full-screen view opened from the toolbar's **Pull requests** button (`call_merge` icon).
-- Shows **both open PRs and Issues**, grouped **per repository**.
-- Data comes through the **GitHub CLI (`gh`)** — it **uses your `gh` login**, so no token is stored in the app.
+## What Remains
 
----
+- A worktree/session header can open the PR or MR for its current branch.
+- The cockpit roster can show the branch's PR phase: draft, CI failing, changes requested, ready,
+  merged, closed, or none.
+- Git actions from a worktree cell can still push and open/create a PR or MR.
+- Issue-work comments remain tied to the session/worktree when that option is enabled.
 
-## 1. Register the repos you want to see
+There is no `/prs` route, no toolbar-wide Pull requests view, and no `prRepos` or `repoDirs`
+configuration for aggregating repositories.
 
-Only the repos you **register** appear (nothing is auto-added from worktrees or sessions). Two ways,
-both effective **immediately** (no restart).
+## GitHub
 
-### From the Settings modal (recommended)
+GitHub support uses the `gh` CLI already logged in on the host. A cell resolves its own repository
+from `origin`, then asks `gh` about the current branch.
 
-1. Open **Settings → Pull request repos**.
-2. Type an **`owner/repo`** (e.g. `receptron/mulmoterminal`) and click **Add**.
-3. Added repos are listed; remove any with its **✕**.
+## GitLab
 
-> The format is `owner/repo` only (no spaces, paths, or `https://…`). The value is passed straight
-> to `gh --repo`, so only a bare `owner/repo` slug is valid.
+`gitlab.com` repositories and declared self-hosted GitLab hosts use `glab` for the same
+session-scoped operations.
 
-### By editing the config file
-
-Add to **`prRepos`** (an array of `"owner/repo"` strings) in `~/.mulmoterminal/config.json`:
-
-```json
-{
-  "prRepos": ["acme/web", "acme/api"]
-}
-```
-
-An entry may also name its host — `"gitlab.com/group/project"`. **GitLab projects are read too**,
-with `glab` in the same role `gh` plays for GitHub: the list, starting work from an issue, work
-comments, and opening a merge request all work. GitLab groups nest, so
-`gitlab.com/group/sub/project` is fine. A bare `owner/repo` still means github.com, so nothing you
-already have changes.
-
-An entry on any OTHER host shows a row naming that host, rather than silently contributing nothing.
-
-One difference worth knowing: a GitLab row's CI dot is usually blank, because GitLab's
-merge-request list carries no pipeline status and reading it costs one call per merge request. A
-cell watching a single branch does read it, so the phase pill in the cockpit is accurate.
-
-### A GitLab of your own (self-hosted)
-
-`gitlab.example.com` cannot be recognised from its address — nothing in the name says whether that
-host runs GitLab, Gitea or a wiki. So you say so once, in the same file:
+For a self-hosted GitLab, declare the host in `~/.mulmoterminal/config.json` and restart the
+server:
 
 ```json
 {
-  "gitlabHosts": ["gitlab.example.com"],
-  "prRepos": ["gitlab.example.com/group/project"]
+  "gitlabHosts": ["gitlab.example.com"]
 }
 ```
 
-A declared host then behaves **exactly like gitlab.com**: the list, starting work from an issue,
-work comments, and opening a merge request. Two things it needs:
+Then log in with:
 
-1. **`glab` logged in to that host** — `glab auth login --hostname gitlab.example.com`. This app
-   stores no token of its own; it runs your `glab`, the same arrangement as `gh`.
-2. **A server restart** after editing `config.json` by hand — the same as `prRepos` written by
-   hand, since the file is read at start-up.
-
-Until the host is declared, its row says so and names the key to add. Not covered yet: a port in
-the host name (`gitlab.example.com:8443`), an http-only instance, and GitHub Enterprise.
-
-→ See [Configuration](config.html) for the full key list.
-
-## 2. Open the view and read it
-
-Click **Pull requests** (`call_merge`) in the toolbar to open the **PRs & Issues** view (it sits
-between **Accounting** and **Wiki**).
-
-- A **Pull requests** section on top, an **Issues** section below. Both are grouped **per repository**
-  (an `owner/repo` heading with a count).
-- Only **open** items are shown. Order is your registration order (repos) and whatever `gh` returns (items).
-- **Clicking a row opens it on GitHub in a new tab** (nothing opens in-app).
-- **↻ (Reload)** at the top re-fetches. **There is no auto-refresh** — it loads once when you open the
-  view, then only on Reload.
-
-### What a PR row shows
-
-| Element | Meaning |
-|---|---|
-| **● CI dot** | green = checks passing / red = failing / amber = running / dim = no checks |
-| **#number · title** | the PR number and title |
-| **draft** | shown for draft PRs |
-| **approved / changes requested / review required** | review state |
-| **author · relative time** | e.g. `alice · 2h ago` (last updated) |
-
-An Issue row shows **#number · title · author · relative time**, plus a **▶ start** button on the
-right — see below.
-
-> Up to **100 PRs / 20 Issues per repo**. Beyond that, a "there are more" note appears with a link to GitHub.
-
-## 3. Start work on an issue from its row
-
-The **▶** button at the end of an issue row does the whole setup in one click:
-
-1. reads the issue (title and body),
-2. creates a **`issue/<number>-<slug>` worktree** in your clone of that repo, forked from a freshly
-   fetched `origin/<base>`,
-3. starts **Claude** in that worktree as a grid cell, with the issue **already typed into the input
-   box** — and **not sent**. You read it, edit it if you like, and press Enter yourself.
-
-Because the branch carries the issue number, everything downstream follows without being told again:
-the ⧉ Open PR button writes `Fixes #<number>` into the PR body, and the header's work-item chip, the
-issue work comment and the merge-time auto-close all read the same number.
-
-**If you keep several clones of one repo**, the button asks which one the first time and remembers
-your answer (`repoDirs` in the config); after that it is one click. **If you have no clone of that
-repo**, the button is disabled and says so — register the directory in Settings → directory presets
-to enable it.
-
-**Pressing it again for the same issue does not make a second worktree.** One issue has one
-worktree: the existing one opens, along with the session left in it if there is one. If that
-session is still open in another terminal, nothing happens and the button says so — the same
-one-session-per-worktree rule as everywhere else.
-
-> The issue body is text written by whoever opened the issue, which is often not you. That is why it
-> is left in the input box rather than sent: the Enter is yours. A **resumed** session gets nothing
-> typed into it — it already has a conversation of its own.
-
-## Prerequisite: sign in to the GitHub CLI
-
-The view runs the **`gh`** command behind the scenes. On the machine running the server:
-
-```bash
-gh auth login
+```sh
+glab auth login --hostname gitlab.example.com
 ```
 
-- The app stores/reads no token — it works with **your `gh` login**.
-- Repos always come from **server-side config** (never from the request).
-- Each repo is fetched **in parallel**; only a **failing repo** shows its error (the others still load).
-
-## If nothing shows up
-
-- **"No repositories configured…"** → nothing registered yet. Add `owner/repo` under **Settings → Pull request repos**.
-- **"gh not found…"** → install the GitHub CLI and run `gh auth login`.
-- **One repo errors** → check the spelling (`owner/repo`) and your **`gh` access** to it (private repos need permission).
-- **A PR you just opened is missing** → there's no auto-refresh, so hit **↻ Reload**. Still missing? Confirm it's open and the `owner/repo` is right.
-- **Counts are capped** → the limits are 100 PRs / 20 Issues per repo; see the rest via the GitHub links.
-
----
-
-← [Feature reference](features.html) / [Configuration](config.html) / [English guide index](index.html)
+The declaration only tells MulmoTerminal which forge a remote belongs to. It does not create a
+cross-repository dashboard.

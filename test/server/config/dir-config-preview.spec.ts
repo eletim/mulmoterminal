@@ -33,7 +33,6 @@ const FIXTURES: Record<string, unknown> = {
   sounds: { waiting: "preset:coin" },
   buttons: [{ id: "b1", label: "Deploy", run: "shell", cmd: "make deploy" }],
   chips: ["git"],
-  skills: ["review"],
   provider: "openrouter",
   model: "opus",
   addDirs: ["./sibling"], // created below — a path that doesn't exist is dropped by the loader

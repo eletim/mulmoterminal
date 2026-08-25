@@ -78,7 +78,8 @@ panel moved to the zoomed cell, which is the same thing — one agent with the w
 
 The server's **default working directory** (`CLAUDE_CWD`) — settled in the order `--cwd`, the `CLAUDE_CWD` environment variable, then the directory you ran `npx mulmoterminal` in; a server started directly falls back to `~/mulmoclaude`.
 It is printed as `Workspace: …` at startup.
-Collections, Wiki and Accounting read and write there, and if you also run MulmoClaude it should be **the same directory for both** (`~/mulmoclaude` by default) — not the directory you cloned MulmoClaude into.
+It is the default cwd for new sessions and the root the read-only Files view uses when no
+session-specific directory is selected.
 
 It is treated differently from a project directory: **only a Claude cell launched in the workspace** carries the whole GUI MCP, the way the single view in 3.x did.
 

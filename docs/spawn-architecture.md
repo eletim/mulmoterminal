@@ -39,7 +39,7 @@ pty.spawn(CLAUDE_BIN, [
 | # | Setting | Value / source | Purpose | Risk if changed / removed |
 |---|---------|----------------|---------|---------------------------|
 | 1 | program | `CLAUDE_BIN` (env, default `claude`) — on Windows resolved to an absolute `.exe`, else to a `.cmd`/`.bat` shim run under `cmd.exe` (`infra/resolve-bin.ts`, `infra/cmd-escape.ts`) | The binary run in the PTY | Wrong/missing → spawn fails (now caught: the connection closes with an error instead of crashing the server) |
-| 2 | `cwd` | `CLAUDE_CWD` (launcher `--cwd` / env, default `~/mulmoclaude`) | Directory claude runs in. **Also scopes** which `.claude/skills` and (if enabled) `.mcp.json` are picked up, and which `~/.claude/projects/<encoded cwd>` session list the sidebar shows | Change → a different project + session list; missing dir is `mkdir -p`'d |
+| 2 | `cwd` | `CLAUDE_CWD` (launcher `--cwd` / env, default `~/mulmoclaude`) | Directory claude runs in. Also scopes the `.mcp.json` Claude may pick up if strict MCP scoping is relaxed, and which `~/.claude/projects/<encoded cwd>` session list the sidebar shows | Change → a different project + session list; missing dir is `mkdir -p`'d |
 | 3 | `env` | `process.env` (full passthrough) | claude finds the CLI + tools via `PATH`, and sees `CLAUDE_CWD` / any API keys present | Narrowing risks breaking `PATH` / auth; full passthrough also exposes all server env to the child |
 | 4 | `--session-id <uuid>` | new sessions | Server picks the id up front, so it knows the session before claude writes any file | Must be a fresh UUID; reuse collides with an existing session |
 | 5 | `--resume <uuid>` | existing sessions | Continue a prior conversation | The session must exist **in this cwd's project**; resuming under the wrong cwd → "not found" |
@@ -53,16 +53,11 @@ pty.spawn(CLAUDE_BIN, [
 | 13 | `cols` / `rows` | `120` / `30` | Initial PTY size; the client sends a `resize` on connect | Cosmetic initial value only |
 | 14 | `name` | `xterm-256color` | `TERM` type for the PTY | Standard; rarely changed |
 
-## How skills & MCP get scoped (the `cwd` story)
+## How MCP gets scoped (the `cwd` story)
 
-Both are resolved by claude **relative to its `cwd`**, which is the key to
+Claude resolves project MCP **relative to its `cwd`**, which is the key to
 per-workspace behaviour:
 
-- **Skills** — claude loads `.claude/skills` (project, relative to `cwd`) **plus**
-  `~/.claude/skills` (user). Because we spawn with `cwd = the workspace`, a
-  workspace's skills are active **only for that workspace's sessions** — no
-  cross-project mixing. This is automatic, and the directory-switch feature
-  preserves it (each session keeps its own `cwd`).
 - **MCP** — claude would normally also load user MCP (`~/.claude.json`) and
   project MCP (`.mcp.json`, relative to `cwd`). **But `--strict-mcp-config`
   disables all of that** — today **only the GUI MCP runs**. So "workspace-assuming
@@ -73,7 +68,7 @@ per-workspace behaviour:
 | | A. Keep `--strict-mcp-config` (current) | B. Drop `--strict-mcp-config` (like mulmoclaude) |
 |---|---|---|
 | MCP loaded | GUI MCP only | GUI MCP **+** user (`~/.claude.json`) **+** project (`.mcp.json`), all `cwd`-scoped |
-| Workspace MCP | ❌ not available | ✅ works, naturally **per-workspace** (same isolation as skills) |
+| Workspace MCP | ❌ not available | ✅ works, naturally **per-workspace** |
 | Predictability | ✅ minimal, fixed surface | ⚠️ depends on each project's `.mcp.json` |
 | Trust prompts | none | project `.mcp.json` triggers a "trust this server?" prompt (handled in the interactive terminal) |
 | GUI MCP coexistence | n/a | must verify GUI + user/project MCP coexist (mulmoclaude confirmed on recent CLI) |
@@ -81,15 +76,15 @@ per-workspace behaviour:
 | Permission interaction | simple | verify behaviour with `--permission-mode auto`/`bypass` |
 
 **Recommendation:** for the "open any directory" direction, **B** is the
-consistent choice — a workspace then means *its skills **and** its MCP*. Before
-committing, **spike B** locally to confirm GUI + project MCP coexistence, the
-trust-prompt flow, and the interaction with `--permission-mode`.
+consistent choice if workspace MCP needs to be supported. Before committing,
+**spike B** locally to confirm GUI + project MCP coexistence, the trust-prompt
+flow, and the interaction with `--permission-mode`.
 
 ## Interaction with the directory-switch feature
 
-- A new session inherits the **active workspace's `cwd`** → its skills (and, under
-  B, its MCP). A **resumed** session keeps its **original `cwd`**. So switching
-  workspaces never mixes skills/MCP across projects.
+- A new session inherits the **active workspace's `cwd`** → under B, its MCP. A
+  **resumed** session keeps its **original `cwd`**. So switching workspaces never
+  mixes project MCP across projects.
 - GUI stores (`.toolresults` / `.toolcalls`) were centralized to
   `~/.mulmoterminal/` (#42), so they're directory-independent. `artifacts/`
   (generated docs/charts) intentionally stays under the workspace `cwd` because

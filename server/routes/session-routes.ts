@@ -50,8 +50,8 @@ import { parseActivityIds, selectSessionRows } from "../session/session-list.js"
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
-import { currentSessionRecords, currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
-import { activeSessionRecordLifecycle, type SessionRecord } from "../session/session-records.js";
+import { currentTerminalSessionRecords, currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
+import type { SessionRecord } from "../session/session-records.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -148,7 +148,7 @@ const gridSessionRecordRow = (record: SessionRecord) => ({
   lifecycle: record.lifecycle,
   runtime: record.runtime,
   placement: record.placement,
-  active: record.visibility === "grid" && activeSessionRecordLifecycle(record.lifecycle),
+  active: true,
 });
 
 // PC grid placement lives in browser localStorage, but whether a persisted session still exists
@@ -157,7 +157,7 @@ const gridSessionRecordRow = (record: SessionRecord) => ({
 async function gridSessionRecords(req: Request, res: Response, deps: SessionRouteDeps) {
   await hydrateSessionRecordSnapshotInputs();
   const ids = parseActivityIds(req.query.ids, (id) => SESSION_ID_RE.test(id), GRID_RECORD_IDS_LIMIT);
-  const records = currentSessionRecords({
+  const records = currentTerminalSessionRecords({
     ids,
     tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
     paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
@@ -333,11 +333,13 @@ export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
       tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
       paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
       claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
-    }).map((record) => ({
-      id: record.id,
-      agent: record.agent ?? "claude",
-      cwd: record.cwd,
-    }));
+    })
+      .filter((record) => record.cwd !== null)
+      .map((record) => ({
+        id: record.id,
+        agent: record.agent ?? "claude",
+        cwd: record.cwd,
+      }));
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);

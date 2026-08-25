@@ -16,7 +16,7 @@ const appended: string[] = [];
 vi.mock("node:fs", () => {
   const promises = {
     // Every hydrator in the registry reads through this; only the tool-group log has content.
-    readFile: vi.fn(async (file: string) => (String(file).endsWith("session-tool-groups.json") ? `${ID} render\n${OTHER} data` : "")),
+    readFile: vi.fn(async (file: string) => (String(file).endsWith("session-tool-groups.json") ? `${ID} render\n${OTHER} external` : "")),
     appendFile: vi.fn(async (_file: string, data: string) => {
       appended.push(data);
     }),
@@ -58,7 +58,7 @@ describe("resetSessionToolGroups against hydration", () => {
     const registry = await freshRegistry();
     registry.resetSessionToolGroups(ID);
     await registry.sessionToolGroupsHydrated;
-    expect(registry.sessionToolGroups(OTHER)).toEqual(["data"]);
+    expect(registry.sessionToolGroups(OTHER)).toEqual(["external"]);
   });
 
   // A cell whose MCP client connects fast can learn a group before hydration finishes; that is

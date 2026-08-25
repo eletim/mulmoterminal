@@ -41,7 +41,7 @@ import { stopShellTaskWatch } from "./shell-task-watch.js";
 import { messageOf } from "../errors.js";
 import { tmuxKillSession } from "../infra/tmux.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
-import { recordSessionStopped } from "./session-lifecycle-records.js";
+import { recordSessionDeleted, recordSessionStopped } from "./session-lifecycle-records.js";
 import {
   forgetMobileWebPushActivitySession,
   mobileWebPushKindForActivityTransition,
@@ -234,6 +234,11 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
 }
 
+function deleteSession(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string): void {
+  reap(deps, mobileWebPushActivityState, id);
+  recordSessionDeleted(id);
+}
+
 function cleanupManagedLiveSessions(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState): string[] {
   const ids = [...ptys.keys()];
   for (const id of ids) {
@@ -384,6 +389,7 @@ export function createSessionLifecycle(deps: SessionLifecycleDeps) {
     scheduleReap: (id: string, delayMs?: number) => scheduleReap(deps, mobileWebPushActivityState, id, delayMs),
     armReapForDetached: (id: string) => armReapForDetached(deps, mobileWebPushActivityState, id),
     reap: (id: string) => reap(deps, mobileWebPushActivityState, id),
+    deleteSession: (id: string) => deleteSession(deps, mobileWebPushActivityState, id),
     cleanupManagedLiveSessions: () => cleanupManagedLiveSessions(deps, mobileWebPushActivityState),
     publishActivity: (id: string) => publishActivity(deps, id),
     acknowledgeShellDone: (id: string) => acknowledgeShellDone(deps, mobileWebPushActivityState, id),

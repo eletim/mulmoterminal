@@ -29,8 +29,6 @@ const undefinedPaths = (value: unknown, path = "$"): string[] => {
 const listInput = (over: Partial<SessionListInput> = {}): SessionListInput => ({
   liveIds: [],
   tmuxIds: [],
-  isResumable: () => true,
-  isGridSession: () => true,
   detailOf: (id) => ({ title: id, cwd: "/w", agent: "shell" as const }),
   ...over,
 });
@@ -130,24 +128,9 @@ describe("buildSessionList", () => {
     expect(sessions[0].live).toBe(true);
   });
 
-  // Without this the picker fills with long-dead tmux shells.
-  it("drops sessions an orphan cleanup would reap", () => {
-    const sessions = buildSessionList(listInput({ tmuxIds: ["keep", "dead"], isResumable: (id) => id === "keep" }));
-    expect(sessions.map((s) => s.id)).toEqual(["keep"]);
-  });
-
-  // The phone drives the grid's cells: a live single-view chat session is not one of them
-  // and must not show up, even though it is live and resumable.
-  it("drops a live session that is not a grid cell", () => {
-    const sessions = buildSessionList(listInput({ liveIds: ["grid", "chat"], isGridSession: (id) => id === "grid" }));
-    expect(sessions.map((s) => s.id)).toEqual(["grid"]);
-  });
-
-  // A grid cell that outlived a restart lives only in tmux; the persisted dev-terminal set
-  // still names it, so it stays offerable while a non-grid tmux shell alongside it is dropped.
-  it("keeps a tmux-only grid session and drops a non-grid tmux shell", () => {
-    const sessions = buildSessionList(listInput({ tmuxIds: ["grid", "shell"], isGridSession: (id) => id === "grid" }));
-    expect(sessions.map((s) => s.id)).toEqual(["grid"]);
+  it("does not decide existence from resumability or grid placement", () => {
+    const sessions = buildSessionList(listInput({ candidateIds: ["history"], liveIds: ["chat"], tmuxIds: ["shell"] }));
+    expect(sessions.map((s) => s.id)).toEqual(["chat", "history", "shell"]);
   });
 
   // Resumable keeps anything with a transcript on disk, which on a working machine is
@@ -563,8 +546,6 @@ describe("buildSessionList — defined JSON shape (#1042)", () => {
     buildSessionList({
       liveIds: ["with-work", "without-work"],
       tmuxIds: [],
-      isResumable: () => true,
-      isGridSession: () => true,
       detailOf: (id) => {
         const summary = work.get(`/work/${id}`);
         return { title: `session ${id}`, cwd: `/work/${id}`, agent: "claude" as const, ...(summary ? { work: summary } : {}) };

@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSessionRecords,
   selectBackgroundSessionRecords,
-  selectCurrentMobileCandidateRecords,
-  selectCurrentPcGridCandidateIds,
+  selectCurrentTerminalSessionRecords,
   selectGridVisibleSessionRecords,
   selectHistorySessionRecords,
   selectInternalSessionRecords,
@@ -24,7 +23,10 @@ describe("buildSessionRecords", () => {
         { id: "live", working: true, event: "Notification", at: 101 },
         { id: "waiting", waiting: true, event: "Stop", at: 80 },
       ],
-      lifecycle: [{ id: "waiting", lifecycle: "detached", agent: "codex", cwd: null, createdAt: 70, updatedAt: 80 }],
+      lifecycle: [
+        { id: "waiting", lifecycle: "detached", agent: "codex", cwd: null, createdAt: 70, updatedAt: 80 },
+        { id: "placed", lifecycle: "stopped", agent: "claude", cwd: null, createdAt: 60, updatedAt: 70 },
+      ],
       devTerminalIds: ["live", "cell-only"],
       unplaced: [
         { id: "waiting", agent: "codex" },
@@ -82,12 +84,7 @@ describe("buildSessionRecords", () => {
       lifecycle: "stopped",
       resume: { claudeTranscript: true },
     });
-    expect(byId.get("codex-disk")).toMatchObject({
-      agent: "codex",
-      visibility: "history",
-      lifecycle: "stopped",
-      resume: { codexRolloutId: "rollout-1" },
-    });
+    expect(byId.has("codex-disk")).toBe(false);
     expect(byId.get("agy-disk")).toMatchObject({
       agent: "antigravity",
       cwd: "/repo/agy",
@@ -270,7 +267,7 @@ describe("buildSessionRecords", () => {
 });
 
 describe("SessionRecord selectors", () => {
-  it("selects grid-visible sessions without treating stopped or failed records as active grid existence", () => {
+  it("selects grid-visible sessions without treating stopped runtime state as non-existence", () => {
     const records = buildSessionRecords({
       live: [{ id: "live", cwd: "/repo/live", agent: "claude" }],
       devTerminalIds: ["live", "stopped", "failed"],
@@ -278,11 +275,12 @@ describe("SessionRecord selectors", () => {
       claudeTranscriptIds: ["stopped"],
     });
 
-    expect(ids(selectGridVisibleSessionRecords(records))).toEqual(["live"]);
+    expect(new Set(ids(selectGridVisibleSessionRecords(records)))).toEqual(new Set(["live", "stopped", "failed"]));
   });
 
   it("selects history records from resumable non-grid sources", () => {
     const records = buildSessionRecords({
+      ids: ["claude-chat", "codex-chat", "grid-transcript"],
       codexRolloutIds: new Map([["codex-chat", "rollout-2"]]),
       devTerminalIds: ["grid-transcript"],
       claudeTranscriptIds: ["claude-chat", "grid-transcript"],
@@ -291,7 +289,7 @@ describe("SessionRecord selectors", () => {
     expect(ids(selectHistorySessionRecords(records))).toEqual(["claude-chat", "codex-chat"]);
   });
 
-  it("models the current PC grid bootstrap as persisted cells plus unplaced sessions", () => {
+  it("selects current unplaced sessions without using placement as existence", () => {
     const records = buildSessionRecords({
       live: [{ id: "live-not-in-grid", cwd: "/repo/live", agent: "shell" }],
       tmuxIds: ["tmux-only"],
@@ -306,11 +304,12 @@ describe("SessionRecord selectors", () => {
       backgroundIds: ["background-spawn"],
     });
 
-    expect(ids(selectUnplacedSessionRecords(records))).toEqual(["phone-spawn"]);
-    expect(selectCurrentPcGridCandidateIds(records, ["cell-a", "cell-b"])).toEqual(["cell-a", "cell-b", "phone-spawn"]);
+    const current = selectCurrentTerminalSessionRecords(records);
+    expect(ids(current)).toEqual(["phone-spawn"]);
+    expect(ids(selectUnplacedSessionRecords(current))).toEqual(["phone-spawn"]);
   });
 
-  it("does not promote marker-only or activity-only stale records to active grid existence", () => {
+  it("does not create records or current membership from placement markers", () => {
     const records = buildSessionRecords({
       devTerminalIds: ["grid-marker", "activity-marker", "stopped-marker"],
       lifecycle: [{ id: "stopped-marker", lifecycle: "stopped", agent: "claude", cwd: "/repo/stopped", createdAt: 10, updatedAt: 20 }],
@@ -321,12 +320,12 @@ describe("SessionRecord selectors", () => {
       activity: [{ id: "activity-marker", waiting: true, at: 40 }],
     });
 
-    expect(ids(selectGridVisibleSessionRecords(records))).toEqual([]);
-    expect(ids(selectUnplacedSessionRecords(records))).toEqual([]);
-    expect(ids(selectCurrentMobileCandidateRecords(records))).toEqual([]);
+    expect(new Set(ids(selectGridVisibleSessionRecords(records)))).toEqual(new Set(["activity-marker", "stopped-marker"]));
+    expect(ids(selectUnplacedSessionRecords(records))).toEqual(["stopped-marker"]);
+    expect(ids(selectCurrentTerminalSessionRecords(records))).toEqual([]);
   });
 
-  it("models the target shared grid existence as visibility plus active lifecycle", () => {
+  it("models shared grid existence as grid visibility independent of lifecycle", () => {
     const records = buildSessionRecords({
       live: [
         { id: "live-grid", cwd: "/repo/live", agent: "claude" },
@@ -339,10 +338,10 @@ describe("SessionRecord selectors", () => {
       claudeTranscriptIds: ["stopped-grid"],
     });
 
-    expect(ids(selectGridVisibleSessionRecords(records))).toEqual(["live-grid", "tmux-survivor"]);
+    expect(new Set(ids(selectGridVisibleSessionRecords(records)))).toEqual(new Set(["live-grid", "stopped-grid", "failed-grid", "tmux-survivor"]));
   });
 
-  it("models the current Mobile list source as grid-gated active lifecycle records", () => {
+  it("defines current terminal membership independently of placement and history metadata", () => {
     const records = buildSessionRecords({
       live: [
         { id: "live-grid", cwd: "/repo/live-grid", agent: "claude" },
@@ -358,6 +357,58 @@ describe("SessionRecord selectors", () => {
       ],
     });
 
-    expect(ids(selectCurrentMobileCandidateRecords(records))).toEqual(["live-grid", "tmux-grid", "starting-grid"]);
+    expect(ids(selectCurrentTerminalSessionRecords(records))).toEqual(["live-grid", "tmux-grid", "starting-grid"]);
+  });
+
+  it("keeps canonical membership unchanged when placement metadata changes", () => {
+    const runtime = {
+      live: [{ id: "live", cwd: "/repo/live", agent: "shell" as const }],
+      tmuxIds: ["tmux"],
+      lifecycle: [{ id: "starting", lifecycle: "starting" as const, agent: "codex" as const, cwd: "/repo/starting", createdAt: 10, updatedAt: 20 }],
+    };
+    const classified = buildSessionRecords({ ...runtime, devTerminalIds: ["live", "tmux", "starting"] });
+    const withPlacement = buildSessionRecords({
+      ...runtime,
+      devTerminalIds: ["live", "tmux", "starting", "marker-only"],
+      unplaced: [
+        { id: "live", agent: "shell" },
+        { id: "marker-only", agent: "claude" },
+      ],
+      placedIds: ["tmux"],
+    });
+
+    expect(ids(selectCurrentTerminalSessionRecords(withPlacement))).toEqual(ids(selectCurrentTerminalSessionRecords(classified)));
+    expect(ids(withPlacement)).not.toContain("marker-only");
+  });
+
+  it("excludes stopped, failed, background, and internal records from current membership", () => {
+    const records = buildSessionRecords({
+      lifecycle: [
+        { id: "stopped", lifecycle: "stopped", agent: "claude", cwd: "/repo/stopped", createdAt: 10, updatedAt: 20 },
+        { id: "failed", lifecycle: "failed", agent: "codex", cwd: "/repo/failed", createdAt: 10, updatedAt: 20 },
+        { id: "starting", lifecycle: "starting", agent: "shell", cwd: "/repo/starting", createdAt: 10, updatedAt: 20 },
+      ],
+      live: [
+        { id: "background", cwd: "/repo/background", agent: "codex" },
+        { id: "internal", cwd: "/repo/internal", agent: "claude" },
+      ],
+      backgroundIds: ["background"],
+      internalIds: ["internal"],
+      devTerminalIds: ["stopped", "failed", "starting", "background", "internal"],
+    });
+
+    expect(ids(selectCurrentTerminalSessionRecords(records))).toEqual(["starting"]);
+  });
+
+  it("excludes explicitly deleted records from every SessionRecord source", () => {
+    const records = buildSessionRecords({
+      live: [{ id: "live", cwd: "/repo/live", agent: "shell" }],
+      tmuxIds: ["tmux"],
+      lifecycle: [{ id: "stopped", lifecycle: "stopped", agent: "codex", cwd: "/repo/stopped", createdAt: 10, updatedAt: 20 }],
+      devTerminalIds: ["live", "tmux", "stopped"],
+      deletedIds: ["live", "tmux", "stopped"],
+    });
+
+    expect(records).toEqual([]);
   });
 });

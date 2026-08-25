@@ -6,30 +6,21 @@ import NotificationBell from "./NotificationBell.vue";
 import MobileQrButton from "./MobileQrButton.vue";
 import RateLimitGauge from "./RateLimitGauge.vue";
 import LauncherButton from "./LauncherButton.vue";
-import { CONTENT_ROUTES } from "../composables/overlayOrigin";
-import { useCollectionBrowse, browseGotoIndex } from "../composables/useCollectionBrowse";
 import { filesGotoIndex } from "../composables/useFilesView";
-import { useAccountingView, accountingViewOpen } from "../composables/useAccountingView";
-import { useWikiBrowse, wikiGotoIndex, wikiGotoTag } from "../composables/useWikiBrowse";
-import { usePrsView, prsGotoIndex } from "../composables/usePrsView";
 import { useSoundEnabled } from "../composables/useSoundEnabled";
 import { audioBlocked } from "../composables/audioUnlockState";
 import { soundButtonState } from "./soundButtonState";
 import { useUpdateStatus } from "../composables/useUpdateStatus";
 import { useGithubStar } from "../composables/useGithubStar";
 import { useDropdownMenu } from "../composables/useDropdownMenu";
-import { parseTagQuery } from "./wikiTagFilter";
 import type { SortMode, StatusCounts } from "./gridTabs";
 import { gridStatusSummary } from "./gridTabs";
 import { sortModeButton } from "./sortModeButton";
 
-// The standard header, shared by the single (App.vue) and grid (GridView.vue) views so
-// both show one identical toolbar. Every launcher button now just pushes a route — the
-// surface (single shell vs grid, which overlay) is derived from the URL — so navigating
-// to a single-view surface (collections / accounting) inherently leaves the grid. The
-// active states re-derive from route.name (via the route-backed browse/accounting
-// stores). Grid-only state (`addTerminalActive`, `sortMode`) is still passed in, and
-// the grid-only actions (add-terminal / toggle-sort) and settings stay emits.
+// The standard header, shared by the single (App.vue) and grid (GridView.vue) views so both show
+// one identical toolbar. Buttons push routes and active states re-derive from route.name. Grid-only
+// state (`addTerminalActive`, `sortMode`) is still passed in, and the grid-only actions
+// (add-terminal / toggle-sort) and settings stay emits.
 const props = defineProps<{
   addTerminalActive?: boolean;
   sortMode?: SortMode;
@@ -47,10 +38,6 @@ const route = useRoute();
 const summary = computed(() => gridStatusSummary(props.statusCounts));
 const summaryTitle = computed(() => summary.value.title);
 const hasSummary = computed(() => summary.value.show);
-const { view: browseView } = useCollectionBrowse();
-const { isOpen: accountingOpen } = useAccountingView();
-const { isOpen: wikiOpen } = useWikiBrowse();
-const { isOpen: prsOpen } = usePrsView();
 const { enabled: soundEnabled, toggle: toggleSound } = useSoundEnabled();
 const soundButton = computed(() => soundButtonState(soundEnabled.value, audioBlocked.value));
 const { badge: updateBadge } = useUpdateStatus();
@@ -85,50 +72,14 @@ async function copyUpdateCommand(): Promise<void> {
 //   - which button is HIGHLIGHTED, and whether the grid is the screen: the route itself,
 //     because an open overlay is not the grid even when the grid is underneath
 const onGridRoute = computed(() => route.name === "terminals");
-// Lit on the DETAIL pages too, not just the index. A door that goes dark the moment you open one
-// of the things behind it leaves the toolbar with nothing selected while you are plainly still
-// inside that section — and since the grid's own controls hide under an overlay, nothing else
-// would be lit either (Codex, PR #1201). The index/detail distinction belongs to the view, not to
-// which section you are in.
-const collectionsActive = computed(() => browseView.value.mode !== "closed" && browseView.value.kind === "collection");
-const feedsActive = computed(() => browseView.value.mode !== "closed" && browseView.value.kind === "feed");
 const filesActive = computed(() => route.name === "files");
-// Inside the content section — which is what reveals the siblings below. Answered from the ROUTE
-// rather than from "is some overlay open", so moving between them (collections → wiki → files)
-// never blinks the row that got you there.
-const inContent = computed(() => CONTENT_ROUTES.has(String(route.name)));
-const accountingActive = computed(() => accountingOpen.value);
-const wikiActive = computed(() => wikiOpen.value);
-const prsActive = computed(() => prsOpen.value);
 function showGrid(): void {
   void router.push("/terminals");
-}
-function showCollections(): void {
-  browseGotoIndex("collection");
-}
-function showAccounting(): void {
-  accountingViewOpen();
-}
-function showFeeds(): void {
-  browseGotoIndex("feed");
 }
 // No cwd: from here the Files view opens on the workspace, where a terminal header's Files button
 // opens on that terminal's own directory. The route carries the difference (`?cwd=`).
 function showFiles(): void {
   filesGotoIndex(null);
-}
-function showWiki(): void {
-  wikiGotoIndex();
-}
-// Grid-only shortcut to the dev worklog: the wiki filtered to the #worklog tag (the weekly
-// dev-log pages the scheduled worklog task writes).
-const WORKLOG_TAG = "worklog";
-const worklogActive = computed(() => wikiOpen.value && parseTagQuery(route.query.tag).has(WORKLOG_TAG));
-function showWorklog(): void {
-  wikiGotoTag(WORKLOG_TAG);
-}
-function showPrs(): void {
-  prsGotoIndex();
 }
 </script>
 
@@ -142,36 +93,15 @@ function showPrs(): void {
            treatment as the status tally at the other end of the nav. -->
       <span class="mr-1.5 inline-flex flex-none items-center gap-[3px] border-r border-border pr-2.5" role="group" aria-label="Switch view">
         <LauncherButton icon="grid_view" title="Grid (multiple terminals)" label="Grid view" :active="onGridRoute" @click="showGrid" />
-        <!-- The way IN to the workspace's own data, beside the views it is a peer of — the content
-             surfaces used to be reachable only from the single view (#886), which left them with
-             no door at all once that view goes. One button here rather than four: the rest appear
-             below once you are inside, so the row a terminal user sees does not grow by four. -->
-        <LauncherButton icon="apps" title="Collections" label="Collections" :active="collectionsActive" @click="showCollections" />
-      </span>
-      <!-- The other content surfaces, revealed by being IN the section rather than always present.
-           Same reasoning as the fence above: everything here acts within the view you are in. -->
-      <template v-if="inContent">
-        <LauncherButton icon="rss_feed" title="Feeds" label="Feeds" :active="feedsActive" @click="showFeeds" />
-        <LauncherButton icon="menu_book" title="Wiki" label="Wiki" :active="wikiActive" @click="showWiki" />
-        <LauncherButton icon="account_balance" title="Accounting" label="Accounting" :active="accountingActive" @click="showAccounting" />
         <LauncherButton icon="folder_open" title="Files" label="Files" :active="filesActive" @click="showFiles" />
-      </template>
+      </span>
       <!-- The grid's OWN controls, and only while the grid is on screen. They act on cells the user
            cannot see once a full-screen overlay covers them — a new terminal appearing behind the
            wiki, an ordering change nobody watches — and the rate gauge below is status for a view
            that is not showing. The switch group above never hides, so this never strands anyone:
            Grid view brings the terminals back and these with them.
-           Work under supervision: PRs and the worklog sit with the terminals rather than behind the
-           Collections door, which is why they are not in CONTENT_ROUTES. -->
+           Work under supervision stays in the session headers, not a cross-repo app view. -->
       <template v-if="onGridRoute">
-        <LauncherButton icon="call_merge" title="Pull requests" label="Pull requests" :active="prsActive" @click="showPrs" />
-        <LauncherButton
-          icon="history_edu"
-          title="Worklog — the dev work log in the wiki (#worklog)"
-          label="Worklog"
-          :active="worklogActive"
-          @click="showWorklog"
-        />
         <LauncherButton
           icon="add"
           :title="addTerminalActive ? 'Cancel adding a terminal' : 'New terminal (overflows to a new tab when full)'"

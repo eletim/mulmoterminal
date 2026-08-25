@@ -310,9 +310,9 @@ const { subscribe: subscribeSession } = usePubSub();
 let unsubscribeDrawn: (() => void) | undefined;
 
 // Only a result that will actually RENDER counts. Every GUI tool result publishes on this channel,
-// including ones with no view of their own (manageCollection, google) — taking over the pane for
-// those would be a switch with nothing behind it to explain itself. Same question the panel asks
-// before rendering a card, so the two cannot disagree about what "drew something" means.
+// including ones with no view of their own — taking over the pane for those would be a switch with
+// nothing behind it to explain itself. Same question the panel asks before rendering a card, so the
+// two cannot disagree about what "drew something" means.
 function isDrawnResult(data: unknown): boolean {
   if (!isRecord(data)) return false;
   return typeof data.toolName === "string" && Boolean(getPlugin(data.toolName));
@@ -373,9 +373,8 @@ watch(
       // Late reply for a cell we have since walked away from would show the wrong button.
       if (sessionId !== expandedSessionId.value) return;
       // The GROUPS, not the tool names. Every cell here is a grid cell, so "has a canvas group"
-      // is the whole question — and matching on a `present*` prefix would count
-      // presentCollection, which belongs to `data` and draws nothing without the collection
-      // store behind it.
+      // is the whole question; matching only a tool-name prefix would count tools that do not
+      // actually render in this app.
       canvasAvailable.value = hasCanvasGroup(body.groups);
       canvasChecked.value = true;
     } catch {

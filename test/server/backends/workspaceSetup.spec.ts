@@ -55,7 +55,7 @@ describe("isManagedWorkspace", () => {
 });
 
 describe("initWorkspaceSetup", () => {
-  it("seeds helps + preset-skills catalog into a managed workspace", () => {
+  it("seeds help docs into a managed workspace", () => {
     const workspace = makeTempDir();
     process.env[ENV_KEY] = workspace;
 
@@ -63,10 +63,7 @@ describe("initWorkspaceSetup", () => {
 
     // Help docs land under config/helps.
     expect(existsSync(path.join(workspace, "config", "helps", "index.md"))).toBe(true);
-    // Preset skills land in the catalog half (UI-visible, not Claude-visible).
-    const presetDir = path.join(workspace, "data", "skills", "catalog", "preset");
-    expect(existsSync(path.join(presetDir, "mc-library", "SKILL.md"))).toBe(true);
-    expect(readdirSync(presetDir).every((slug) => slug.startsWith("mc-"))).toBe(true);
+    expect(existsSync(path.join(workspace, "data", "skills"))).toBe(false);
   });
 
   it("writes nothing into a non-managed workspace", () => {

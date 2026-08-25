@@ -1,12 +1,9 @@
 // Raw file serving — GET /api/files/raw?path=<rel>[&cwd=<session dir>].
 //
-// Consumers: the collection plugin's image/file fields (the binding's imageSrc maps
-// here) and its custom views, whose LLM-authored HTML builds
-// `<img src="<origin>/api/files/raw?path=...">` for poster/thumbnail fields; and the
-// terminal's clickable file-path links, which pass the session's cwd so a path an agent
-// printed inside its own project (possibly a sibling repo outside the workspace root)
-// resolves. Mirrors MulmoClaude's server/api/routes/files.ts GET /files/raw (the path the
-// gallery view hardcodes), trimmed to what MulmoTerminal needs.
+// Consumers: terminal file-path links and GUI-plugin views that reference file artifacts. Terminal
+// links pass the session cwd so a path an agent printed inside its own project (possibly a sibling
+// repo outside the workspace root) resolves. Mirrors MulmoClaude's server/api/routes/files.ts GET
+// /files/raw, trimmed to what MulmoTerminal needs.
 //
 // Security (this serves arbitrary files under a base dir):
 //   - Base: the workspace root by default, or the `?cwd=` dir when given — but only if

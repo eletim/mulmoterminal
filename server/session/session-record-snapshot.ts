@@ -1,6 +1,6 @@
 import {
   buildSessionRecords,
-  selectCurrentMobileCandidateRecords,
+  selectCurrentTerminalSessionRecords,
   selectUnplacedSessionRecords,
   type ActivityRecordSource,
   type KnownSessionRecordSource,
@@ -27,21 +27,23 @@ import {
   sessionMemosHydrated,
   unplacedSessionsHydrated,
 } from "./registry.js";
-import { sessionLifecycleRecordRows, sessionLifecycleRecordsHydrated } from "./session-lifecycle-records.js";
+import {
+  deletedSessionRecordIds,
+  deletedSessionRecordsHydrated,
+  sessionLifecycleRecordRows,
+  sessionLifecycleRecordsHydrated,
+} from "./session-lifecycle-records.js";
 import { hydrateTmuxSurvivorRecordSources } from "./tmux-survivor-records.js";
-
-export const MOBILE_SESSION_ACTIVITY_CANDIDATE_LIMIT = 50;
 
 export interface CurrentSessionRecordOptions {
   ids?: readonly string[];
   tmuxIds?: readonly string[];
   now?: number;
-  activityCandidateLimit?: number;
   paneCommandOf?: (id: string) => string | null;
   claudeTranscriptExists?: (id: string, cwd: string) => boolean;
 }
 
-export interface CurrentMobileSessionRecordSources {
+export interface CurrentTerminalSessionRecordSources {
   recordById: Map<string, SessionRecord>;
   ids: string[];
   liveIds: string[];
@@ -57,6 +59,7 @@ export async function hydrateSessionRecordSnapshotInputs(): Promise<void> {
     devTerminalCwdsHydrated,
     devTerminalSessionsHydrated,
     sessionLifecycleRecordsHydrated,
+    deletedSessionRecordsHydrated,
     unplacedSessionsHydrated,
     placedSessionsHydrated,
     backgroundSessionsHydrated,
@@ -82,12 +85,6 @@ function knownSessionSources(): KnownSessionRecordSource[] {
 
 function activitySources(): ActivityRecordSource[] {
   return [...activity].map(([id, value]) => ({ id, ...value }));
-}
-
-function activeLifecycleIds(): string[] {
-  return sessionLifecycleRecordRows()
-    .filter((record) => record.lifecycle === "starting" || record.lifecycle === "live" || record.lifecycle === "detached")
-    .map((record) => record.id);
 }
 
 function titleSources(ids: readonly string[]): Map<string, string> {
@@ -121,6 +118,7 @@ function recordsFromSnapshot(
   return buildSessionRecords({
     ...(ids !== undefined ? { ids } : {}),
     now,
+    deletedIds: [...deletedSessionRecordIds],
     live,
     tmuxIds,
     tmuxSurvivors: hydrateTmuxSurvivorRecordSources({
@@ -145,26 +143,19 @@ export function currentSessionRecords(options: CurrentSessionRecordOptions = {})
   return recordsFromSnapshot(sessionRecordRegistrySnapshot(), options);
 }
 
-export function currentUnplacedSessionRecords(options: CurrentSessionRecordOptions = {}): SessionRecord[] {
-  const registry = sessionRecordRegistrySnapshot();
-  return selectUnplacedSessionRecords(recordsFromSnapshot(registry, { ...options, ids: registry.unplaced.map((record) => record.id) }));
+export function currentTerminalSessionRecords(options: CurrentSessionRecordOptions = {}): SessionRecord[] {
+  return selectCurrentTerminalSessionRecords(recordsFromSnapshot(sessionRecordRegistrySnapshot(), options));
 }
 
-export function currentMobileSessionRecordSources(options: CurrentSessionRecordOptions = {}): CurrentMobileSessionRecordSources {
+export function currentUnplacedSessionRecords(options: CurrentSessionRecordOptions = {}): SessionRecord[] {
   const registry = sessionRecordRegistrySnapshot();
-  const runtimeIds = [...new Set([...ptys.keys(), ...(options.tmuxIds ?? []), ...activeLifecycleIds()])];
-  const activityLimit = options.activityCandidateLimit ?? MOBILE_SESSION_ACTIVITY_CANDIDATE_LIMIT;
-  const records = selectCurrentMobileCandidateRecords(recordsFromSnapshot(registry, { ...options, ids: runtimeIds }));
-  const activityCandidates = records
-    .filter((record) => !record.runtime.pty && !record.runtime.tmux)
-    .sort((a, b) => (b.activity.at ?? 0) - (a.activity.at ?? 0))
-    .slice(0, activityLimit);
-  const recordById = new Map(
-    [...records.filter((record) => record.runtime.pty), ...records.filter((record) => record.runtime.tmux), ...activityCandidates].map((record) => [
-      record.id,
-      record,
-    ]),
-  );
+  return selectUnplacedSessionRecords(currentTerminalSessionRecords({ ...options, ids: registry.unplaced.map((record) => record.id) }));
+}
+
+export function currentTerminalSessionRecordSources(options: CurrentSessionRecordOptions = {}): CurrentTerminalSessionRecordSources {
+  const records = currentTerminalSessionRecords(options);
+  const orderedRecords = records.toSorted((a, b) => b.updatedAt - a.updatedAt);
+  const recordById = new Map(orderedRecords.map((record) => [record.id, record]));
   const ids = [...recordById.keys()];
   return {
     recordById,

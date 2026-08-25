@@ -323,7 +323,12 @@ describe("useTerminalConnections — detached-slot state replay", () => {
   });
 
   it("does not capture last-command copy text for non-Shell launcher cells and clears it on retarget", () => {
-    conn.attach("cell-shell-mix", { ...target(null), launcher: { shell: true as const } }, { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    conn.attach(
+      "cell-shell-mix",
+      { ...target(null), launcher: { shell: true as const } },
+      { onSession: vi.fn(), onCwd: vi.fn() },
+      document.createElement("div"),
+    );
     const ws = FakeWebSocket.instances.at(-1);
     if (!ws) throw new Error("no socket created");
     ws.onopen?.();

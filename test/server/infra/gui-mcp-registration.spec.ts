@@ -16,7 +16,7 @@ describe("guiMcpUrlTemplate", () => {
   });
 
   it("puts the group in the path, so one server id maps to one group", () => {
-    expect(guiMcpUrlTemplate("data")).toContain("/api/mcp/data/");
+    expect(guiMcpUrlTemplate("media")).toContain("/api/mcp/media/");
     expect(guiMcpUrlTemplate("external")).toContain("/api/mcp/external/");
   });
 
@@ -75,8 +75,8 @@ describe("registeredGuiMcpGroups", () => {
   // The three scopes `claude mcp list` merges are the three the session will actually get.
   it("also counts user scope and the repo's .mcp.json", async () => {
     writeClaudeConfig({ mcpServers: { "mulmoterminal-media": {} } });
-    writeFileSync(path.join(cwd, ".mcp.json"), JSON.stringify({ mcpServers: { "mulmoterminal-data": {} } }));
-    expect((await registeredGuiMcpGroups(cwd, TOOL_GROUPS)).sort()).toEqual(["data", "media"]);
+    writeFileSync(path.join(cwd, ".mcp.json"), JSON.stringify({ mcpServers: { "mulmoterminal-render": {} } }));
+    expect((await registeredGuiMcpGroups(cwd, TOOL_GROUPS)).sort()).toEqual(["media", "render"]);
   });
 
   // Project scope is a WALK, not a single file: measured against the real CLI, a cell launched in
@@ -95,8 +95,8 @@ describe("registeredGuiMcpGroups", () => {
     const deep = path.join(cwd, "packages", "app");
     mkdirSync(deep, { recursive: true });
     writeFileSync(path.join(cwd, ".mcp.json"), JSON.stringify({ mcpServers: { "mulmoterminal-render": {} } }));
-    writeFileSync(path.join(deep, ".mcp.json"), JSON.stringify({ mcpServers: { "mulmoterminal-data": {} } }));
-    expect((await registeredGuiMcpGroups(deep, TOOL_GROUPS)).sort()).toEqual(["data", "render"]);
+    writeFileSync(path.join(deep, ".mcp.json"), JSON.stringify({ mcpServers: { "mulmoterminal-media": {} } }));
+    expect((await registeredGuiMcpGroups(deep, TOOL_GROUPS)).sort()).toEqual(["media", "render"]);
   });
 
   // Claude Code keys local scope by its own resolved cwd; ours is canonicalized only lexically.

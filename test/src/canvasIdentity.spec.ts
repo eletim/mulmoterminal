@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { collectionIdentity, documentIdentity, filePathIdentity, payloadString } from "../../src/utils/canvasIdentity";
+import { documentIdentity, filePathIdentity, payloadString } from "../../src/utils/canvasIdentity";
 
 // What each tool calls "the same thing". These decide whether a card on screen is REPLACED, so
 // the cases that must return null (nothing durable behind the result, an unrecognised shape) are
@@ -73,26 +73,5 @@ describe("documentIdentity", () => {
   it("returns null for shapes with no payload", () => {
     expect(documentIdentity({})).toBeNull();
     expect(documentIdentity(null)).toBeNull();
-  });
-});
-
-describe("collectionIdentity", () => {
-  it("identifies a collection by its slug", () => {
-    expect(collectionIdentity({ data: { collectionSlug: "books" } })).toBe("books");
-  });
-
-  it("ignores itemId, so editing a record and editing the collection are one subject", () => {
-    // The owner's decision behind this change: slug alone, not slug+itemId.
-    expect(collectionIdentity({ data: { collectionSlug: "books", itemId: "42" } })).toBe("books");
-    expect(collectionIdentity({ data: { collectionSlug: "books" } })).toBe(collectionIdentity({ data: { collectionSlug: "books", itemId: "42" } }));
-  });
-
-  it("keeps two collections apart", () => {
-    expect(collectionIdentity({ data: { collectionSlug: "books" } })).not.toBe(collectionIdentity({ data: { collectionSlug: "films" } }));
-  });
-
-  it("returns null when there is no slug", () => {
-    expect(collectionIdentity({ data: {} })).toBeNull();
-    expect(collectionIdentity(null)).toBeNull();
   });
 });
