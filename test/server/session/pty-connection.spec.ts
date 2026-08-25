@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame } from "../../../server/session/pty-connection.js";
-import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
+import { deletedSessionRecordIds, sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 
 const OPEN = 1;
@@ -53,7 +53,7 @@ function setup(terminalModes: readonly number[] = []) {
   const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
     cancelReap: (id) => calls.push(`cancelReap:${id}`),
-    reap: (id) => calls.push(`reap:${id}`),
+    deleteSession: (id) => calls.push(`deleteSession:${id}`),
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
     armReapForDetached: (id) => calls.push(`armReap:${id}`),
     terminalModesOf: (id) => {
@@ -77,6 +77,7 @@ function entryWith(over: Partial<PtyEntry> = {}) {
 
 beforeEach(() => {
   sessionLifecycleRecords.clear();
+  deletedSessionRecordIds.clear();
 });
 
 describe("handleClientFrame", () => {
@@ -160,12 +161,12 @@ describe("handleClientFrame", () => {
     expect(t.resizes).toEqual([]);
   });
 
-  it("reaps immediately on terminate rather than waiting out the grace window", () => {
+  it("deletes immediately on terminate rather than waiting out the grace window", () => {
     const { handleClientFrame, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "terminate" }), SESSION);
-    expect(calls).toEqual([`reap:${SESSION}`]);
+    expect(calls).toEqual([`deleteSession:${SESSION}`]);
   });
 
   it("does not turn a reaped session back into detached when its socket closes later", () => {

@@ -147,8 +147,6 @@ describe("trackCodexActivity resume baseline", () => {
     const sessions = buildSessionList({
       liveIds: [SESSION],
       tmuxIds: [],
-      isResumable: () => true,
-      isGridSession: () => true,
       detailOf: (id) => ({
         title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
         cwd: "/repo",
@@ -196,8 +194,6 @@ describe("trackCodexActivity resume baseline", () => {
     const sessions = buildSessionList({
       liveIds: [SESSION],
       tmuxIds: [],
-      isResumable: () => true,
-      isGridSession: () => true,
       detailOf: (id) => ({
         title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
         cwd: "/repo",

@@ -21,8 +21,8 @@ export type WireFrame = { toString(): string };
 export interface ConnectionDeps {
   /** A reattach inside the grace window keeps the session alive. */
   cancelReap: (id: string) => void;
-  /** Explicit close from the client — tear down now, don't wait out the grace. */
-  reap: (id: string) => void;
+  /** Explicit close from the client — delete the logical session and tear down runtime. */
+  deleteSession: (id: string) => void;
   setWaiting: (id: string, waiting: boolean) => void;
   /** Socket gone: keep, grace, or reap according to what the session was doing. */
   armReapForDetached: (id: string) => void;
@@ -135,9 +135,9 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     if (!msg) return;
     try {
       if (msg.type === "terminate") {
-        // Explicit close (the cell's close button) — reap now instead of waiting out the
+        // Explicit close (the cell's close button) — delete now instead of waiting out the
         // disconnect grace window, so the session slot frees immediately.
-        deps.reap(sessionId);
+        deps.deleteSession(sessionId);
       } else if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
       } else if (msg.type === "input" && typeof msg.data === "string") {

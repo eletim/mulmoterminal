@@ -99,13 +99,6 @@ export interface SessionListInput {
   candidateIds?: readonly string[];
   liveIds: readonly string[];
   tmuxIds: readonly string[];
-  // Excludes sessions an orphan cleanup would reap — without it the picker fills with
-  // long-dead tmux shells (66 of them on the author's machine when this was written).
-  isResumable: (id: string) => boolean;
-  // Keeps only multi-terminal GRID sessions (the dev-terminal set). The phone drives the
-  // grid's cells, so the single-view chat session and any tmux shell that was never a grid
-  // cell are excluded — even while they are live and resumable.
-  isGridSession: (id: string) => boolean;
   detailOf: (id: string) => SessionDetailDraft;
 }
 
@@ -133,15 +126,14 @@ export function sessionFallbackTitle(agent: SessionAgent | null, cwd: string, ho
   return `${agentName} ${truncateFront(pathName, pathMax)}`;
 }
 
-// Resumable is the right rule for "don't reap this", but too weak for "offer this":
-// it keeps every session with a transcript on disk, which on a working machine is
-// dozens of long-finished ones the host can no longer name. A row showing nothing but
-// a UUID is not a choice the user can make, so a nameless session earns its place only
-// by being live — where the id at least identifies something currently running.
-export function buildSessionList({ candidateIds = [], liveIds, tmuxIds, isResumable, isGridSession, detailOf }: SessionListInput): TerminalSessionSummary[] {
+// Session existence is decided before this function: callers pass the SessionRecord ids the
+// surface should show. A row showing nothing but a UUID is still not a useful choice, so a
+// nameless session earns its place only by being live — where the fallback can name what is
+// currently running.
+export function buildSessionList({ candidateIds = [], liveIds, tmuxIds, detailOf }: SessionListInput): TerminalSessionSummary[] {
   const live = new Set(liveIds);
   const tmux = new Set(tmuxIds);
-  const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])].filter(isResumable).filter(isGridSession);
+  const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])];
   return (
     ids
       .map((id) => ({ id, ...detailOf(id), live: live.has(id), inputAvailable: live.has(id) || tmux.has(id) }))

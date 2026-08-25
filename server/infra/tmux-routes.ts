@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { requestOriginAllowed } from "../routes/same-origin-guard.js";
-import { recordSessionStopped } from "../session/session-lifecycle-records.js";
+import { recordSessionDeleted, recordSessionStopped } from "../session/session-lifecycle-records.js";
 
 // Deps injected from index.ts so the origin guard, session-id validation, and the
 // orphan-selection boundary are unit-testable without booting the server (mirrors
@@ -43,8 +43,8 @@ export function mountTmuxRoutes(app: Express, deps: TmuxRouteDeps): void {
     deps.reapSession(id); // live entry → kills pty + tmux + cleanup
     if (deps.hasTmux(id)) {
       deps.killTmux(id); // orphan (e.g. post-restart) → kill directly
-      recordSessionStopped({ id });
     }
+    recordSessionDeleted(id);
     return res.json({ ok: true });
   });
 
