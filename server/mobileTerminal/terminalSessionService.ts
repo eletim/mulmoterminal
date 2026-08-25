@@ -20,10 +20,10 @@ type TerminalScreenResult = { status: 200; body: SessionScreen } | TerminalError
 
 export interface TerminalSessionServiceDeps {
   captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
-  writeToSession: (sessionId: string, chunk: string) => boolean;
+  writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
   canClearBox: (sessionId: string) => boolean;
-  submitSequence: (sessionId: string) => string;
-  sessionAgent: (sessionId: string) => SessionAgent | undefined;
+  submitSequence: (sessionId: string) => string | Promise<string>;
+  sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   setWaiting: (sessionId: string, waiting: boolean, event?: string) => void;
 }
@@ -70,7 +70,7 @@ export async function sendTerminalSessionInput(
   }
 
   try {
-    const beforeScreen = deps.sessionAgent(id) === "shell" ? await deps.captureTerminalScreen(id).catch(() => null) : null;
+    const beforeScreen = (await deps.sessionAgent(id)) === "shell" ? await deps.captureTerminalScreen(id).catch(() => null) : null;
     const result = await deps.sendInput(id, text);
     if (beforeScreen) options.onShellCommand?.(id, { command: safe, beforeScreen: beforeScreen.screen });
     deps.setWaiting(id, false);
@@ -108,14 +108,32 @@ export async function resolveStyledScreen(
   }
 }
 
-export function interruptTerminalSession(id: string, interruptSession: (sessionId: string) => boolean): TerminalRouteResult {
+export async function interruptTerminalSession(id: string, interruptSession: (sessionId: string) => Promise<void>): Promise<TerminalRouteResult> {
   if (!SESSION_ID_RE.test(id)) return { status: 400, body: { error: "invalid session id" } };
-  if (!interruptSession(id)) return { status: 409, body: { error: "session is not live" } };
-  return { status: 200, body: { interrupted: true } };
+  try {
+    await interruptSession(id);
+    return { status: 200, body: { interrupted: true } };
+  } catch (error) {
+    return { status: 409, body: { error: messageOf(error) } };
+  }
 }
 
-export function stopTerminalSession(id: string, stopSession: (sessionId: string) => void): TerminalRouteResult {
+export async function stopTerminalSession(id: string, stopSession: (sessionId: string) => Promise<void>): Promise<TerminalRouteResult> {
   if (!SESSION_ID_RE.test(id)) return { status: 400, body: { error: "invalid session id" } };
-  stopSession(id);
-  return { status: 200, body: { stopped: true } };
+  try {
+    await stopSession(id);
+    return { status: 200, body: { stopped: true } };
+  } catch (error) {
+    return { status: 409, body: { error: messageOf(error) } };
+  }
+}
+
+export async function deleteTerminalSession(id: string, deleteSession: (sessionId: string) => Promise<void>): Promise<TerminalRouteResult> {
+  if (!SESSION_ID_RE.test(id)) return { status: 400, body: { error: "invalid session id" } };
+  try {
+    await deleteSession(id);
+    return { status: 200, body: { deleted: true } };
+  } catch (error) {
+    return { status: 409, body: { error: messageOf(error) } };
+  }
 }

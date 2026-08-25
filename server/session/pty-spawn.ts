@@ -10,7 +10,10 @@ import { resolvePtyLaunchForEnv } from "../infra/resolve-bin.js";
 import { binaryProblemMessage, diagnoseBinary, type BinaryDiagnosis } from "../infra/has-binary.js";
 import { cwdProblemMessage, diagnoseSpawnCwd, type CwdDiagnosis } from "../infra/spawn-cwd.js";
 import { withoutUnset } from "./provider-env.js";
-import { tmuxAvailable, tmuxHasSession, tmuxNewSessionArgs, tmuxScrubEnvNames } from "../infra/tmux.js";
+import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxHasSession, tmuxScrubEnvNames } from "../infra/tmux.js";
+import { shellQuoteFor } from "../config/header-resolve.js";
+import { coreSessions } from "./core-session-adapter.js";
+import type { LaunchAgent } from "../../common/launchAgent.js";
 
 const PTY_COLS = 120;
 const PTY_ROWS = 30;
@@ -146,9 +149,9 @@ export function ptySpawn(
   args: string[],
   cwd: string,
   persistent: boolean,
-  options: PtySpawnEnv = {},
+  options: PtySpawnEnv & { agent?: LaunchAgent } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
-  const { unset = [], env = {}, binEnvVar } = options;
+  const { unset = [], env = {}, binEnvVar, agent = "shell" } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
   const reattached = ptyWouldReattach(sessionId, persistent);
@@ -159,7 +162,15 @@ export function ptySpawn(
     // enough — the server may already carry the name from an earlier session. For the same
     // reason `env` goes to `new-session -e` rather than onto the tmux CLIENT we spawn here.
     if (unset.length > 0) tmuxScrubEnvNames(unset);
-    return { term: spawnPty("tmux", tmuxNewSessionArgs(sessionId, file, args, cwd, env), cwd, unset), tmux: true, reattached };
+    if (!reattached) {
+      const quote = shellQuoteFor(process.platform);
+      const environment = Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`);
+      const command = ["exec", "env", ...environment, quote(file), ...args.map(quote)].join(" ");
+      coreSessions.createSync({ id: sessionId, command, cwd, agent }, ptyEnv(unset, env));
+      configureCoreTmuxServer();
+    }
+    return { term: spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), tmux: true, reattached };
   }
+  if (persistent) throw new SpawnRefusedError("tmux is required for persistent terminal sessions");
   return { term: spawnPty(file, args, cwd, unset, env), tmux: false, reattached };
 }

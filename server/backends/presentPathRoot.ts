@@ -100,14 +100,14 @@ function undisplayableHtmlPath(absPath: string): string {
  *  resolves to the workspace anyway. (A document in ANOTHER project still loses its
  *  relative images; there is no way to say "this cwd" in that URL, and today those refs
  *  resolve against the wrong project entirely.) */
-export function mountPresentPathRoot(app: Express, deps: { cwdForSession: (id: string | null) => string; workspace: string }): void {
-  app.post("/api/plugin/:toolName", (req: Request, res: Response, next: NextFunction) => {
+export function mountPresentPathRoot(app: Express, deps: { cwdForSession: (id: string | null) => string | Promise<string>; workspace: string }): void {
+  app.post("/api/plugin/:toolName", async (req: Request, res: Response, next: NextFunction) => {
     const toolName = req.params.toolName;
     const extensions = typeof toolName === "string" ? PRESENT_PATH_EXTENSIONS.get(toolName) : undefined;
     if (!extensions) return next();
     const header = req.get(SESSION_HEADER);
     const sessionId = header && SESSION_ID_RE.test(header) ? header : null;
-    const cwd = deps.cwdForSession(sessionId);
+    const cwd = await deps.cwdForSession(sessionId);
     if (isSamePath(cwd, deps.workspace)) return next();
 
     const rewritten = absolutizePresentPath(req.body, cwd, extensions);

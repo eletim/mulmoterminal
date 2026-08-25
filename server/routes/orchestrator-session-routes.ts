@@ -2,12 +2,20 @@ import type { Express, Request, Response } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
-import type { SessionRecord } from "../session/session-records.js";
 import type { WorkPhase } from "../session/workPhase.js";
-import { localServerToServerAllowed, sessionApiBearerToken, terminalInputReadiness, type TerminalInputReadiness } from "../session/input-readiness.js";
+import {
+  localServerToServerAllowed,
+  sessionApiBearerToken,
+  terminalInputReadiness,
+  type InputReadinessSession,
+  type TerminalInputReadiness,
+  type TerminalSessionLifecycle,
+  type TerminalSessionRuntime,
+} from "../session/input-readiness.js";
 import {
   createTerminalSessionFromBody,
   createTerminalSessionInputSender,
+  deleteTerminalSession,
   interruptTerminalSession,
   readTerminalSessionScreen,
   sendTerminalSessionInput,
@@ -20,9 +28,9 @@ export interface OrchestratorSessionStatus {
   sessionId: string;
   agent: SessionAgent | null;
   cwd: string | null;
-  lifecycle: SessionRecord["lifecycle"];
-  runtime: SessionRecord["runtime"];
-  activity: SessionRecord["activity"] & { workPhase: WorkPhase | null };
+  lifecycle: TerminalSessionLifecycle;
+  runtime: TerminalSessionRuntime;
+  activity: { working: boolean; waiting: boolean; event: string | null; at: number; workPhase: WorkPhase | null };
   input: TerminalInputReadiness;
   inputAvailable: boolean;
   readyForInput: boolean;
@@ -31,13 +39,14 @@ export interface OrchestratorSessionStatus {
 export interface OrchestratorSessionRouteDeps {
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
-  writeToSession: (sessionId: string, chunk: string) => boolean;
+  writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
   canClearBox: (sessionId: string) => boolean;
-  submitSequence: (sessionId: string) => string;
-  sessionAgent: (sessionId: string) => SessionAgent | undefined;
+  submitSequence: (sessionId: string) => string | Promise<string>;
+  sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   setWaiting: (sessionId: string, waiting: boolean, event?: string) => void;
-  interruptSession: (sessionId: string) => boolean;
-  stopSession: (sessionId: string) => void;
+  interruptSession: (sessionId: string) => Promise<void>;
+  stopSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   statusOf: (sessionId: string) => Promise<OrchestratorSessionStatus | null>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   apiToken?: string | undefined;
@@ -67,7 +76,15 @@ function readinessOnly(status: OrchestratorSessionStatus | null): { ready: boole
   return { ready: status.readyForInput, reason: status.input.reason };
 }
 
-export function orchestratorSessionStatus(record: SessionRecord, workPhase: WorkPhase | null, input: TerminalInputReadiness): OrchestratorSessionStatus {
+export function orchestratorSessionStatus(
+  record: InputReadinessSession & {
+    id: string;
+    cwd: string | null;
+    activity: { working: boolean; waiting: boolean; event: string | null; at: number };
+  },
+  workPhase: WorkPhase | null,
+  input: TerminalInputReadiness,
+): OrchestratorSessionStatus {
   return {
     ok: true,
     sessionId: record.id,
@@ -82,7 +99,7 @@ export function orchestratorSessionStatus(record: SessionRecord, workPhase: Work
   };
 }
 
-export function inputReadinessForRecord(record: SessionRecord, tracked: Parameters<typeof terminalInputReadiness>[1]): TerminalInputReadiness {
+export function inputReadinessForRecord(record: InputReadinessSession, tracked: Parameters<typeof terminalInputReadiness>[1]): TerminalInputReadiness {
   return terminalInputReadiness(record, tracked);
 }
 
@@ -130,15 +147,21 @@ export function mountOrchestratorSessionRoutes(app: Express, deps: OrchestratorS
     res.status(result.status).json(result.body);
   });
 
-  app.post("/api/sessions/:id/interrupt", (req: Request<{ id: string }>, res: Response) => {
+  app.post("/api/sessions/:id/interrupt", async (req: Request<{ id: string }>, res: Response) => {
     if (rejectUnauthorized(req, res, deps)) return;
-    const result = interruptTerminalSession(req.params.id, deps.interruptSession);
+    const result = await interruptTerminalSession(req.params.id, deps.interruptSession);
     res.status(result.status).json(result.body);
   });
 
-  app.post("/api/sessions/:id/stop", (req: Request<{ id: string }>, res: Response) => {
+  app.post("/api/sessions/:id/stop", async (req: Request<{ id: string }>, res: Response) => {
     if (rejectUnauthorized(req, res, deps)) return;
-    const result = stopTerminalSession(req.params.id, deps.stopSession);
+    const result = await stopTerminalSession(req.params.id, deps.stopSession);
+    res.status(result.status).json(result.body);
+  });
+
+  app.delete("/api/sessions/:id", async (req: Request<{ id: string }>, res: Response) => {
+    if (rejectUnauthorized(req, res, deps)) return;
+    const result = await deleteTerminalSession(req.params.id, deps.deleteSession);
     res.status(result.status).json(result.body);
   });
 }

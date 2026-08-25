@@ -69,11 +69,13 @@ function appFor(overrides: Partial<LocalMobileTerminalRouteDeps> = {}, isAllowed
       writes.push({ id, chunk });
       return id !== TMUX_ONLY;
     },
-    interruptSession: (id) => {
+    interruptSession: async (id) => {
       writes.push({ id, chunk: "\x03" });
-      return id !== TMUX_ONLY;
     },
-    stopSession: (id) => {
+    stopSession: async (id) => {
+      stops.push(id);
+    },
+    deleteSession: async (id) => {
       stops.push(id);
     },
     canClearBox: () => false,
@@ -611,11 +613,11 @@ describe("POST /api/mobile/terminal-sessions/:id/interrupt", () => {
     expect(writes).toEqual([{ id: other, chunk: "\x03" }]);
   });
 
-  it("409s a session with no live PTY to interrupt", async () => {
+  it("interrupts a Core session even when this process has no transient PTY", async () => {
     const { app } = appFor();
     const res = await request(app).post(`/api/mobile/terminal-sessions/${TMUX_ONLY}/interrupt`);
-    expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: "session is not live" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ interrupted: true });
   });
 
   it("400s an id that is not a session id", async () => {
@@ -662,6 +664,16 @@ describe("POST /api/mobile/terminal-sessions/:id/stop", () => {
     const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/stop`).set("Origin", "https://evil.example");
     expect(res.status).toBe(403);
     expect(stops).toEqual([]);
+  });
+});
+
+describe("DELETE /api/mobile/terminal-sessions/:id", () => {
+  it("deletes the same Core session id exposed by mobile", async () => {
+    const { app, stops } = appFor();
+    const res = await request(app).delete(`/api/mobile/terminal-sessions/${LIVE}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: true });
+    expect(stops).toEqual([LIVE]);
   });
 });
 

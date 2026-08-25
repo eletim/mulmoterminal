@@ -16,7 +16,6 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { recordSessionStopped } from "./session-lifecycle-records.js";
 import { createHash } from "node:crypto";
 import { writeFileAtomic } from "../files/atomic-write.js";
 import { isRecord } from "../../common/isRecord.js";
@@ -108,10 +107,10 @@ export interface ScheduledSessionRegistryDeps {
    *  process holding it? Must account for BOTH: two servers can share a workspace, and a
    *  process-local check would happily tear down a session live in the other one. */
   isInUse: (id: string) => boolean;
-  /** Reap a live session (pty + tmux + cleanup); a no-op once no live entry is left. */
+  /** Reap this process's transient PTY and UI bookkeeping. */
   reapSession: (id: string) => void;
-  hasTmux: (id: string) => boolean;
-  killTmux: (id: string) => void;
+  /** Delete canonical membership through Core; missing sessions are a safe no-op. */
+  deleteSession: (id: string) => Promise<void>;
   policy?: RetentionPolicy;
   now?: () => number;
 }
@@ -146,8 +145,8 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
     return entries.filter((entry): entry is ScheduledSessionRecord => entry !== null);
   };
 
-  // The expired session may be live (kill the pty + its tmux), or a tmux left behind by a
-  // previous server run (kill it directly) — the same two-step the close button / terminate route uses.
+  // The expired session may or may not have a transient client in this process. Core owns the
+  // canonical delete either way; reap only clears process-local transport and UI bookkeeping.
   // Reports whether it actually went, since the in-use check can spare it.
   const evict = async (record: ScheduledSessionRecord): Promise<boolean> => {
     // Checked HERE rather than over the whole set first: sweeping several sessions costs a
@@ -156,10 +155,7 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
     // stays on disk, so a later sweep retries it.
     if (deps.isInUse(record.id)) return false;
     deps.reapSession(record.id);
-    if (deps.hasTmux(record.id)) {
-      deps.killTmux(record.id);
-      recordSessionStopped({ id: record.id });
-    }
+    await deps.deleteSession(record.id);
     await fs.rm(entryFile(record.id), { force: true });
     return true;
   };

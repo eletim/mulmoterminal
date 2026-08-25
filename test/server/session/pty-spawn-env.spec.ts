@@ -9,8 +9,12 @@ const scrub = vi.fn();
 vi.mock("../../../server/infra/tmux.js", () => ({
   tmuxAvailable: () => tmuxOn,
   tmuxHasSession: (id: string) => liveTmuxSessions.has(id),
-  tmuxNewSessionArgs: (id: string, file: string, args: string[]) => ["new-session", id, file, ...args],
+  tmuxAttachSessionArgs: (id: string) => ["attach-session", id],
+  configureCoreTmuxServer: vi.fn(),
   tmuxScrubEnvNames: (names: readonly string[]) => scrub(names),
+}));
+vi.mock("../../../server/session/core-session-adapter.js", () => ({
+  coreSessions: { createSync: vi.fn() },
 }));
 
 let tmuxOn = false;

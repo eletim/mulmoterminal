@@ -18,8 +18,6 @@ import {
   antigravityConversationsHydrated,
   backgroundSessionsHydrated,
   failedWorkersHydrated,
-  devTerminalSessions,
-  devTerminalSessionsHydrated,
   isBackgroundSession,
   lastPrompts,
   lastResponses,
@@ -32,7 +30,6 @@ import {
   collectOnDiskSessionStats,
   collectPendingSessions,
   readSessionMeta,
-  sessionExistsOnDisk,
   readSessionSummary,
   sessionLastTurn,
   sessionTimeline,
@@ -40,7 +37,7 @@ import {
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
 import { sessionAttached } from "../session/dir-session.js";
-import { tmuxAttachedCounts, tmuxListSessionIds, tmuxPaneCommand } from "../infra/tmux.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import { antigravityBrainRoot } from "../agents/antigravity-session.js";
@@ -50,8 +47,7 @@ import { parseActivityIds, selectSessionRows } from "../session/session-list.js"
 import { sessionDetailView } from "../session/session-detail-view.js";
 import { clearedTranscripts } from "../session/cleared-transcripts.js";
 import { requestBody } from "./requestBody.js";
-import { currentTerminalSessionRecords, currentUnplacedSessionRecords, hydrateSessionRecordSnapshotInputs } from "../session/session-record-snapshot.js";
-import type { SessionRecord } from "../session/session-records.js";
+import type { CoreSession } from "../session/core-session-adapter.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -70,12 +66,12 @@ export interface SessionRouteDeps {
   /** Fan a session's row out on the "sessions" channel, so every OTHER open cell, tab and
    *  phone sees an edited memo without asking. */
   publishActivity: (sessionId: string) => void;
-  /** The tmux sessions that survived this node process. Injected so route specs never touch tmux. */
-  listTmuxIds?: () => string[];
-  /** Current pane command for a tmux-backed survivor; auxiliary metadata, never an existence source. */
-  paneCommandOf?: (sessionId: string) => string | null;
-  /** Claude transcript check for tmux survivors whose cwd is known from persisted metadata. */
-  claudeTranscriptExists?: (sessionId: string, cwd: string) => boolean;
+  /** Canonical terminal membership and reconstruction data from Core.list(). */
+  listCoreSessions: () => Promise<CoreSession[]>;
+  getCoreSession?: (sessionId: string) => Promise<CoreSession | null>;
+  /** Process-local transport state only; never contributes ids to the list. */
+  hasLivePty?: (sessionId: string) => boolean;
+  setCoreMemo?: (sessionId: string, memo: string) => Promise<boolean>;
 }
 
 // GRID-ONLY (dev_tool): initial per-session status + last prompt, so a grid cell
@@ -83,7 +79,7 @@ export interface SessionRouteDeps {
 // pub/sub channel). The single view reads activity straight from that channel.
 // ?cwd= locates the transcript so a freshly-resumed session shows its most recent
 // prompt; the live in-memory prompt (this process run) takes precedence.
-async function sessionDetail(req: Request<{ id: string }>, res: Response, freshenRosterTitle: SessionRouteDeps["freshenRosterTitle"]) {
+async function sessionDetail(req: Request<{ id: string }>, res: Response, deps: SessionRouteDeps) {
   const { id } = req.params;
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const cwd = workspaceForRoute(req.query.cwd, res);
@@ -91,10 +87,16 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, freshe
   await activityStateHydrated; // a reconnect re-fetch must see the restored working/waiting, not idle
   const { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse, userTurns, usage, context, workPhase } = await readSessionSummary(cwd, id);
   // If we haven't titled it yet, kick off a summary; sessionDetailView falls back meanwhile.
-  freshenRosterTitle(id, cwd, userTurns);
+  deps.freshenRosterTitle(id, cwd, userTurns);
   await sessionMemosHydrated; // a cell seeding on boot must not be told its memo is gone
+  const core = await deps.getCoreSession?.(id);
   const view = sessionDetailView(
-    { lastPrompt: lastPrompts.get(id), lastResponse: lastResponses.get(id), aiTitle: aiTitles.get(id), memo: sessionMemos.get(id) },
+    {
+      lastPrompt: lastPrompts.get(id),
+      lastResponse: lastResponses.get(id),
+      aiTitle: core?.title ?? aiTitles.get(id),
+      memo: core?.memo ?? sessionMemos.get(id),
+    },
     { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse },
     activity.get(id) ?? {},
     clearedTranscripts.has(id),
@@ -104,19 +106,24 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, freshe
 
 // The user's one-line note on a session (#1084). An empty text ERASES it — the same route, so a
 // cleared input box needs no second endpoint and cannot be half-applied.
-async function setMemo(req: Request<{ id: string }>, res: Response, publishActivity: SessionRouteDeps["publishActivity"]) {
+async function setMemo(req: Request<{ id: string }>, res: Response, deps: SessionRouteDeps) {
   const { id } = req.params;
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const { text } = requestBody(req.body);
   if (typeof text !== "string") return res.status(400).json({ error: "text must be a string" });
   await sessionMemosHydrated; // or a write during startup is undone by the file it raced
   try {
+    if (await deps.setCoreMemo?.(id, text)) {
+      publishCoreMemo(id, text);
+      deps.publishActivity(id);
+      return res.json({ id, memo: text });
+    }
     // Awaited: acknowledging before the append lands would show the user a note that is not saved
     // anywhere, and it would then disappear at the next restart with nothing having reported an
     // error. The store rolls its own in-memory value back on failure, so a 500 leaves both sides
     // agreeing that the memo was not written.
     const memo = await setSessionMemo(id, text);
-    publishActivity(id);
+    deps.publishActivity(id);
     // The STORED memo, not the request's: normalization collapses and caps what was typed, and a
     // client that echoed its own text would show something the next reload disagrees with.
     res.json({ id, memo });
@@ -124,6 +131,11 @@ async function setMemo(req: Request<{ id: string }>, res: Response, publishActiv
     console.error("[api] /api/session/:id/memo failed:", err);
     res.status(500).json({ error: "failed to save the memo" });
   }
+}
+
+function publishCoreMemo(id: string, memo: string): void {
+  if (memo) sessionMemos.set(id, memo);
+  else sessionMemos.delete(id);
 }
 
 // Attention state (working / waiting / event) for an explicit set of session ids.
@@ -141,29 +153,28 @@ async function activitySnapshot(req: Request, res: Response) {
   res.json(out);
 }
 
-const gridSessionRecordRow = (record: SessionRecord) => ({
-  id: record.id,
-  agent: record.agent ?? "claude",
-  cwd: record.cwd,
-  lifecycle: record.lifecycle,
-  runtime: record.runtime,
-  placement: record.placement,
+const coreLifecycle = (session: CoreSession): "stopped" | "live" | "detached" => {
+  if (session.exited) return "stopped";
+  return session.attached ? "live" : "detached";
+};
+
+const gridSessionRecordRow = (session: CoreSession, hasLivePty: (id: string) => boolean) => ({
+  id: session.id,
+  agent: session.agent,
+  cwd: session.cwd,
+  lifecycle: coreLifecycle(session),
+  runtime: { pty: hasLivePty(session.id), tmux: true, attached: session.attached },
   active: true,
 });
 
 // PC grid placement lives in browser localStorage, but whether a persisted session still exists
-// comes from SessionRecord. This route answers only the ids the grid already has cells for, so a
+// comes from Core.list(). This route answers only the ids the grid already has cells for, so a
 // reload can decide which cells may attach without rediscovering sessions from placement state.
 async function gridSessionRecords(req: Request, res: Response, deps: SessionRouteDeps) {
-  await hydrateSessionRecordSnapshotInputs();
   const ids = parseActivityIds(req.query.ids, (id) => SESSION_ID_RE.test(id), GRID_RECORD_IDS_LIMIT);
-  const records = currentTerminalSessionRecords({
-    ids,
-    tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
-    paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
-    claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
-  });
-  res.json({ sessions: records.map(gridSessionRecordRow) });
+  const requested = new Set(ids);
+  const sessions = (await deps.listCoreSessions()).filter((session) => requested.has(session.id));
+  res.json({ sessions: sessions.map((session) => gridSessionRecordRow(session, deps.hasLivePty ?? (() => false))) });
 }
 
 // The tool-activity timeline for a session (what the agent ran, newest last), so a
@@ -198,7 +209,7 @@ async function lastTurn(req: Request, res: Response) {
 
 // List the chat sessions for the current project (CLAUDE_CWD), including
 // newly-created sessions that aren't persisted to disk yet.
-async function sessionList(req: Request, res: Response) {
+async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) {
   try {
     await activityStateHydrated; // list working/waiting from the restored state, not a racing idle
     // Optional ?cwd= scopes the list to that project's on-disk sessions (the grid
@@ -215,7 +226,7 @@ async function sessionList(req: Request, res: Response) {
     // `failed` especially: the whole value of persisting it is finding out LATER, and the most
     // likely "later" is the first list after a restart. Serving it as false while its log is
     // still being read would lose exactly the case the record exists for (Codex, PR #1188).
-    if (includePending) await devTerminalSessionsHydrated;
+    const coreIds = includePending ? new Set((await deps.listCoreSessions()).map((session) => session.id)) : new Set<string>();
     await backgroundSessionsHydrated;
     await failedWorkersHydrated;
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
@@ -237,7 +248,7 @@ async function sessionList(req: Request, res: Response) {
     // workers are dropped first — they're transient internal helpers, not user chats.
     const top = selectSessionRows([...onDiskStats, ...pending], {
       isInternalHelper: (id) => translationWorkerIds.has(id) || isProbeSessionId(id),
-      isDevTerminal: (id) => devTerminalSessions.has(id),
+      isDevTerminal: (id) => coreIds.has(id),
       isBackground: (id) => isBackgroundSession(id),
       includePending,
       limit: SESSION_LIST_LIMIT,
@@ -310,36 +321,17 @@ async function antigravitySessionList(req: Request, res: Response) {
 }
 
 export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
-  app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps.freshenRosterTitle));
-  app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps.publishActivity));
+  app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps));
+  app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps));
   app.get("/api/activity", activitySnapshot);
   app.get("/api/sessions/grid-records", (req, res) => gridSessionRecords(req, res, deps));
   app.get("/api/transcript/timeline", toolTimeline);
   app.get("/api/transcript/last-turn", lastTurn);
-  app.get("/api/sessions", sessionList);
-  // The sessions a loading grid should adopt: spawned VISIBLE by the server and never taken by a
-  // cell (a scheduled task's chat, one the phone started, one an agent started from another
-  // session). Deliberately its own endpoint answering a server-side marker, rather than the grid
-  // diffing "all sessions" against its own state: a diff would sweep up ordinary sessions and
-  // change what a reload does to a normal cell, which is the one thing this whole line of work
-  // must not do.
-  //
-  // Hidden workers are absent by construction — the mark is only ever set for a visible spawn —
-  // and a spec pins that, since "it happens not to be marked" and "it cannot be marked" read the
-  // same until someone adds a caller.
+  app.get("/api/sessions", (req, res) => sessionList(req, res, deps));
+  // Compatibility endpoint for the grid's adoption loop. Placement is browser-only UI state;
+  // every existing terminal comes from Core, so this returns the same canonical membership.
   app.get("/api/sessions/unplaced", async (_req, res) => {
-    await hydrateSessionRecordSnapshotInputs();
-    const sessions = currentUnplacedSessionRecords({
-      tmuxIds: (deps.listTmuxIds ?? tmuxListSessionIds)(),
-      paneCommandOf: deps.paneCommandOf ?? tmuxPaneCommand,
-      claudeTranscriptExists: deps.claudeTranscriptExists ?? sessionExistsOnDisk,
-    })
-      .filter((record) => record.cwd !== null)
-      .map((record) => ({
-        id: record.id,
-        agent: record.agent ?? "claude",
-        cwd: record.cwd,
-      }));
+    const sessions = (await deps.listCoreSessions()).map((session) => ({ id: session.id, agent: session.agent, cwd: session.cwd }));
     res.json({ sessions });
   });
   app.get("/api/codex/sessions", codexSessionList);

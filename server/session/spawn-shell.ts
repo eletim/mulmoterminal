@@ -15,7 +15,6 @@ import { startShellTaskWatch, stopShellTaskWatch } from "./shell-task-watch.js";
 import { appendBoundedOutput } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
-import { recordSessionLive } from "./session-lifecycle-records.js";
 
 export function createShellSpawners(deps: SpawnDeps) {
   // Run an arbitrary shell command in a PTY and relay its I/O to the browser. Unlike
@@ -52,7 +51,8 @@ export function createShellSpawners(deps: SpawnDeps) {
   function spawnLauncherPty(sessionId: string, ws: WebSocket | null, command: string, cwd: string): PtyEntry {
     // Persistent: reattaches a surviving tmux session (command ignored) or creates one.
     const { shell, args } = shellInvocation(command, true, process.platform, process.env.SHELL);
-    const { term, tmux, reattached } = ptySpawn(sessionId, shell, args, cwd, true);
+    const agent = launcherAgent(command);
+    const { term, tmux, reattached } = ptySpawn(sessionId, shell, args, cwd, true, { agent });
     const spawnedAtMs = Date.now();
     // The command is only what a FRESH session runs — an attach picked up whatever was already
     // there — so naming it on that line would describe a program nobody started.
@@ -61,9 +61,8 @@ export function createShellSpawners(deps: SpawnDeps) {
     // A launcher that runs an agent IS that agent, and recording it says so: the worktree limit
     // then counts this session as the worktree's occupant, the phone offers input that suits it,
     // and a draft is submitted the way that agent expects. Anything else stays a shell (#1208).
-    const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: launcherAgent(command) };
+    const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent };
     ptys.set(sessionId, entry);
-    recordSessionLive({ id: sessionId, agent: entry.agent, cwd });
     deps.inputReadiness?.markSessionLive(sessionId, entry.agent);
     startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking, setWaiting: deps.setWaiting });
 

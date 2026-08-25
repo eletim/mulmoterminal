@@ -20,7 +20,7 @@ const READY_STATUS: OrchestratorSessionStatus = {
   cwd: "/work/project",
   lifecycle: "live",
   runtime: { pty: true, tmux: true, attached: false },
-  activity: { working: false, waiting: false, event: null, at: null, workPhase: null },
+  activity: { working: false, waiting: false, event: null, at: 0, workPhase: null },
   input: { available: true, ready: true, known: true, reason: "codex startup output settled", source: "quiet", checkedAt: 1 },
   inputAvailable: true,
   readyForInput: true,
@@ -41,11 +41,13 @@ function appFor(overrides: Partial<OrchestratorSessionRouteDeps> = {}) {
     submitSequence: () => "\r",
     sessionAgent: () => "codex",
     setWaiting: (id, value) => waiting.push({ id, value }),
-    interruptSession: (id) => {
+    interruptSession: async (id) => {
       writes.push({ id, chunk: "\x03" });
-      return true;
     },
-    stopSession: (id) => {
+    stopSession: async (id) => {
+      stops.push(id);
+    },
+    deleteSession: async (id) => {
       stops.push(id);
     },
     statusOf: async () => READY_STATUS,
@@ -64,6 +66,14 @@ describe("orchestrator session routes", () => {
     const res = await request(app).post("/api/sessions").send({ agent: "codex", cwd: process.cwd() });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, sessionId: ID });
+  });
+
+  it("deletes canonical Core membership", async () => {
+    const { app, stops } = appFor();
+    const res = await request(app).delete(`/api/sessions/${ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: true });
+    expect(stops).toEqual([ID]);
   });
 
   it("reports lifecycle, runtime, activity and input readiness", async () => {

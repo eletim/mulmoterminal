@@ -38,22 +38,12 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
-import {
-  hookedSessions,
-  ptys,
-  sessionToolGroups,
-  sessionToolGroupsHydrated,
-  devTerminalSessions,
-  devTerminalSessionsHydrated,
-  hasAllGuiTools,
-  allToolsSessionsHydrated,
-} from "../session/registry.js";
+import { hookedSessions, ptys, sessionToolGroups, sessionToolGroupsHydrated, hasAllGuiTools, allToolsSessionsHydrated } from "../session/registry.js";
 import { mountMobileModeRoute } from "./mobile-mode-route.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
 import { mountPresentPathRoot } from "../backends/presentPathRoot.js";
 import { cwdForSession } from "../session/session-cwd.js";
-import { sessionExistsOnDisk } from "../session/session-reads.js";
 import { mountMulmoScriptDispatchRoute, mountMulmoScriptMediaRoute } from "../backends/mulmoscript.js";
 import { CLAUDE_CWD, PORT, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "../config/env.js";
 import { FILE_WRITE_CHANNEL, type FileWriteEvent } from "../../common/fileWriteChannel.js";
@@ -64,13 +54,12 @@ import type { createCodexSpawner } from "../session/spawn-codex.js";
 import type { createAntigravitySpawner } from "../session/spawn-antigravity.js";
 import type { createTranslationWorker } from "../session/translation-worker.js";
 import type { createTitleManager } from "../session/session-title.js";
-import { tmuxHasSession, tmuxKillSession, tmuxListSessionIds, tmuxAttachedClientCount, tmuxPaneCommand } from "../infra/tmux.js";
-import { resumableSessionPredicate } from "../session/resumable-sessions.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
 import { mountBasePathAssetCss, mountSpaFallback } from "../infra/spa-fallback.js";
 import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-limit-routes.js";
 import { workspaceForRoute } from "./routeParams.js";
 import type { MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
+import { coreSessions, CoreSessionNotFoundError } from "../session/core-session-adapter.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
@@ -108,9 +97,25 @@ const sessionCallReporting = (deps: AppRouteDeps, sessionId: string) => ({
 const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
   freshenRosterTitle: deps.freshenRosterTitle,
   publishActivity: deps.publishActivity,
-  listTmuxIds: tmuxListSessionIds,
-  paneCommandOf: tmuxPaneCommand,
-  claudeTranscriptExists: sessionExistsOnDisk,
+  listCoreSessions: () => coreSessions.list(),
+  getCoreSession: async (id) => {
+    try {
+      return await coreSessions.get(id);
+    } catch (error) {
+      if (error instanceof CoreSessionNotFoundError) return null;
+      throw error;
+    }
+  },
+  hasLivePty: (id) => ptys.has(id),
+  setCoreMemo: async (id, memo) => {
+    try {
+      await coreSessions.setMemo(id, memo);
+      return true;
+    } catch (error) {
+      if (error instanceof CoreSessionNotFoundError) return false;
+      throw error;
+    }
+  },
 });
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
@@ -263,8 +268,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     sessionToolGroupsHydrated,
     hasAllGuiTools,
     allToolsSessionsHydrated,
-    isGridSession: (id) => devTerminalSessions.has(id),
-    devTerminalSessionsHydrated,
+    isGridSession: () => true,
     // Built from the same two signals as the broker's recorder, but with the stricter rule the
     // user-facing claim needs — see historyIsGuiOnly for why the pane must not answer this the
     // moment a session id exists.
@@ -344,11 +348,9 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   mountTmuxRoutes(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
-    reapSession: deps.reap,
-    hasTmux: tmuxHasSession,
-    killTmux: tmuxKillSession,
-    listTmuxIds: tmuxListSessionIds,
-    attachedClientCount: tmuxAttachedClientCount,
-    resumablePredicate: resumableSessionPredicate,
+    deleteSession: async (id) => {
+      deps.reap(id);
+      await coreSessions.delete(id);
+    },
   });
 }

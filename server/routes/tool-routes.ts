@@ -31,7 +31,6 @@ export interface ToolRouteDeps {
    * "no groups learned" means the opposite thing for each — see narrowedTools.
    */
   isGridSession: (sessionId: string) => boolean;
-  devTerminalSessionsHydrated: Promise<void>;
   /**
    * Is this session's tool-call history fed by the MCP broker rather than by hooks — i.e. does it
    * hold the GUI tools ALONE? The pane says so, because an empty GUI-only history looks exactly
@@ -115,7 +114,7 @@ export function mountToolRoutes(app: Express, deps: ToolRouteDeps): void {
     if (sessionId === null || !SESSION_ID_RE.test(sessionId)) return res.json({ tools: deps.toolSummaries, guiOnlyHistory: false });
     // Both sets are persisted and hydrated at boot; asked before either resolves, a grid cell
     // would read as having nothing and a resumed one as having lost its groups.
-    await Promise.all([deps.sessionToolGroupsHydrated, deps.devTerminalSessionsHydrated, deps.allToolsSessionsHydrated]);
+    await Promise.all([deps.sessionToolGroupsHydrated, deps.allToolsSessionsHydrated]);
     const groups = deps.sessionToolGroups(sessionId);
     const isGrid = deps.isGridSession(sessionId);
     const hasAllTools = deps.hasAllGuiTools(sessionId);

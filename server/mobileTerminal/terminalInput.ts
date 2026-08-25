@@ -74,7 +74,7 @@ export interface TerminalInputDeps {
   // Write a chunk to the session's live PTY. False when no PTY is attached in this
   // process — a tmux session that outlived a restart is viewable (capture-pane) but
   // not writable from here.
-  writeToSession: (sessionId: string, chunk: string) => boolean;
+  writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
   // Whether the box can be emptied before pasting (see CLEAR_BOX). True only where the
   // host KNOWS the session is idle, because Ctrl-C mid-turn interrupts the turn and in
   // a shell it kills whatever is running. Omitted means no — the old behaviour of
@@ -84,11 +84,11 @@ export interface TerminalInputDeps {
   // host's Claude binding, so it applies only to Claude sessions — resolved per session id
   // (a shell/codex session in the picker stays on plain CR). Read per send so a config edit
   // applies without a restart. Omitted defaults to CR — the historical behaviour.
-  submitSequence?: (sessionId: string) => string;
+  submitSequence?: (sessionId: string) => string | Promise<string>;
   // Which agent runs in this session, for the completion-menu guard below — only Claude Code has
   // the menu, and only there is a trailing space not real input (#1142). Omitted, or an agent the
   // host cannot name, means no guard: the bytes stay exactly what the sender wrote.
-  sessionAgent?: (sessionId: string) => SessionAgent | undefined;
+  sessionAgent?: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   // Injected so tests don't wait on real time.
   scheduleSubmit?: (submit: () => void) => void;
 }
@@ -102,19 +102,16 @@ const defaultSchedule = (submit: () => void): void => {
 // A Claude session's pasted line ends with submittableLine's space, so no completion menu is
 // holding the submit byte(s). The space rides INSIDE the paste, where the TUI takes it as text:
 // sent after the terminator it would be a keystroke, which an open menu is exactly what reads.
-const typeAndSubmit = (deps: TerminalInputDeps, sessionId: string, safe: string): Promise<void> => {
+const typeAndSubmit = async (deps: TerminalInputDeps, sessionId: string, safe: string): Promise<void> => {
   const clear = deps.canClearBox?.(sessionId) ? CLEAR_BOX : "";
-  const line = submittableLineForAgent(deps.sessionAgent?.(sessionId), safe);
-  if (!deps.writeToSession(sessionId, `${clear}${PASTE_START}${line}${PASTE_END}`)) {
-    return Promise.reject(new Error(`session ${sessionId} has no live terminal on this host`));
+  const line = submittableLineForAgent(await deps.sessionAgent?.(sessionId), safe);
+  if (!(await deps.writeToSession(sessionId, `${clear}${PASTE_START}${line}${PASTE_END}`))) {
+    throw new Error(`session ${sessionId} is not writable`);
   }
-  const submit = deps.submitSequence?.(sessionId) ?? "\r";
-  return new Promise((resolve) => {
+  const submit = (await deps.submitSequence?.(sessionId)) ?? "\r";
+  await new Promise<void>((resolve, reject) => {
     (deps.scheduleSubmit ?? defaultSchedule)(() => {
-      // Best-effort: the session can end between the paste and the Enter, and there
-      // is nothing to report by then — the paste already landed.
-      deps.writeToSession(sessionId, submit);
-      resolve();
+      void Promise.resolve(deps.writeToSession(sessionId, submit)).then(() => resolve(), reject);
     });
   });
 };

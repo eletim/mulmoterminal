@@ -18,9 +18,6 @@ import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
 import {
   tmuxAvailable,
-  tmuxHasSession,
-  tmuxKillSession,
-  tmuxListSessionIds,
   tmuxPaneCommand,
   tmuxAttachedClientCount,
   tmuxCaptureStyledPane,
@@ -50,7 +47,6 @@ import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
 import { createShellSpawners } from "./session/spawn-shell.js";
-import { createAdoptingTerminalWriter } from "./session/tmux-adopt.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
 import { createTitleManager } from "./session/session-title.js";
 import { generateTitleFromTurns } from "./config/header-title.js";
@@ -58,7 +54,7 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, codexRolloutIds, knownSessions, lastPrompts, ptys, sessionCwd, sessionMemos, sessionMemosHydrated } from "./session/registry.js";
+import { activity, aiTitles, knownSessions, lastPrompts, ptys } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -67,7 +63,7 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { antigravityAdapter } from "./agents/antigravity.js";
 import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
-import { renderScreen, renderAnsiRows } from "./session/headlessScreen.js";
+import { renderAnsiRows } from "./session/headlessScreen.js";
 import { ansiScreenWindow, parseAnsiRows } from "./session/ansiSegments.js";
 import type { AnsiRow } from "../common/ansiStyle.js";
 import {
@@ -75,14 +71,13 @@ import {
   SCREEN_HISTORY_ROWS,
   buildScreenMeta,
   buildSessionList,
-  captureSessionScreen,
+  coreTerminalScreen,
   type SessionDetailDraft,
   sessionWorkSummary,
   TerminalSessionNotFoundError,
   type SessionScreenMeta,
   type SessionWorkSummary,
 } from "./mobileTerminal/terminalScreen.js";
-import { idsNeedingPersistentDetail, persistentMobileDetails } from "./mobileTerminal/mobileSessionList.js";
 import type { SessionAgent } from "../common/sessionAgent.js";
 import { quickCommandsForAgent } from "./mobileTerminal/quickCommands.js";
 import { createLaunchTerminalPublisher } from "./mobileTerminal/launchTerminalPublisher.js";
@@ -108,17 +103,14 @@ import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
-import { readSessionSummary, sessionExistsOnDisk } from "./session/session-reads.js";
-import { codexSessionsRoot } from "./agents/codex-session.js";
-import { readCodexSessionSummary } from "./agents/codex-sessions.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
-import { currentSessionRecords, currentTerminalSessionRecordSources, hydrateSessionRecordSnapshotInputs } from "./session/session-record-snapshot.js";
 import { createInputReadinessTracker } from "./session/input-readiness.js";
-import { inputReadinessForRecord, mountOrchestratorSessionRoutes, orchestratorSessionStatus } from "./routes/orchestrator-session-routes.js";
+import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
+import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -233,7 +225,15 @@ const tmuxSizeSync = createTmuxSizeSync({
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
   cancelReap: (id) => cancelReap(id),
-  deleteSession: (id) => deleteSession(id),
+  deleteSession: async (id) => {
+    reap(id);
+    await coreSessions.delete(id);
+  },
+  input: (id, data) => coreSessions.input(id, data),
+  resize: async (id, cols, rows) => {
+    ptys.get(id)?.term.resize(cols, rows);
+    await coreSessions.resize(id, cols, rows);
+  },
   setWaiting: (id, waiting) => setWaiting(id, waiting),
   armReapForDetached: (id) => armReapForDetached(id),
   terminalModesOf: (id) => tmuxTerminalModes(id),
@@ -258,7 +258,7 @@ const lifecycle = createSessionLifecycle({
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
   ...mobileWebPushActivityDeps,
 });
-const { cancelReap, reap, deleteSession, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
+const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
 const inputReadiness = createInputReadinessTracker();
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
@@ -267,6 +267,13 @@ const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = c
   publishActivity: (id) => publishActivity(id),
   now: () => Date.now(),
   generateTitle: (turns) => generateTitleFromTurns(turns),
+  persistTitle: async (id, title) => {
+    try {
+      await coreSessions.setTitle(id, title);
+    } catch (error) {
+      if (!(error instanceof CoreSessionNotFoundError)) throw error;
+    }
+  },
 });
 
 // The PTY spawners (session/spawn-*.ts). They take what index.ts still owns — the session
@@ -290,7 +297,11 @@ const spawnDeps: SpawnDeps = {
   setWaiting: (id, waiting, event) => setWaiting(id, waiting, event),
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
-  publishSessionCreated: (sessionId) => pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" }),
+  publishSessionCreated: (sessionId) => {
+    const title = knownSessions.get(sessionId)?.title;
+    if (title) void coreSessions.setTitle(sessionId, title).catch(() => undefined);
+    pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" });
+  },
   inputReadiness,
 };
 const { spawnClaudePty } = createClaudeSpawner(spawnDeps);
@@ -550,47 +561,22 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
 };
 
 const mobileListTerminalSessions = async () => {
-  const allTmuxIds = tmuxListSessionIds();
-  await sessionMemosHydrated;
-  await hydrateSessionRecordSnapshotInputs();
-  const { recordById, ids, liveIds, tmuxIds, candidateIds } = currentTerminalSessionRecordSources({
-    tmuxIds: allTmuxIds,
-    paneCommandOf: tmuxPaneCommand,
-    claudeTranscriptExists: sessionExistsOnDisk,
-  });
-  const cwdOfSession = (id: string) => recordById.get(id)?.cwd ?? ptys.get(id)?.cwd ?? sessionCwd(id) ?? "";
-  const memoryTitleOf = (id: string) => sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title);
-  const persistentDetails = await persistentMobileDetails(idsNeedingPersistentDetail(ids, memoryTitleOf), cwdOfSession, {
-    rolloutIdOf: (id) => codexRolloutIds.get(id),
-    readCodex: (rolloutId) => readCodexSessionSummary(codexSessionsRoot(), rolloutId),
-    readClaude: async (id, cwd) => {
-      const summary = await readSessionSummary(cwd, id);
-      const title = sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), summary.aiTitle, summary.lastPrompt);
-      return title ? { title } : null;
-    },
-  });
-  const cwdForDetail = (id: string) => persistentDetails.get(id)?.cwd ?? cwdOfSession(id);
-  const work = await workByCwd(ids.map(cwdForDetail));
+  const sessions = await coreSessions.list();
+  const runningIds = sessions.filter((session) => !session.exited).map((session) => session.id);
+  const work = await workByCwd(sessions.map((session) => session.cwd));
+  const byId = new Map(sessions.map((session) => [session.id, session]));
   return buildSessionList({
-    candidateIds,
-    liveIds,
-    tmuxIds,
-    // Empty title rather than the id as a fallback — buildSessionList uses "nameless"
-    // to drop the long tail of finished sessions the phone can't meaningfully offer.
+    candidateIds: sessions.map((session) => session.id),
+    liveIds: runningIds,
+    tmuxIds: runningIds,
     detailOf: (id) => {
-      const persistent = persistentDetails.get(id);
-      // Spread the work item in only when there IS one. `work: map.get(...)` leaves the key behind
-      // holding undefined, which leaves clients guessing whether the field was intentionally set.
-      const cwd = cwdForDetail(id);
-      const summary = work.get(cwd);
+      const session = byId.get(id);
+      if (!session) return { title: "", cwd: "", agent: null };
+      const summary = work.get(session.cwd);
       const detail: SessionDetailDraft = {
-        // The same precedence as the cell header and the sidebar, through the same helper: the
-        // phone is where "which of these is which" is hardest, and it renders `title` and nothing
-        // else — so riding in that field is also what puts a memo on a phone with no core release
-        // and no schema change.
-        title: sessionDisplayName(sessionMemos.get(id), aiTitles.get(id), lastPrompts.get(id), persistent?.title, knownSessions.get(id)?.title),
-        cwd,
-        agent: agentOfSession(id) ?? persistent?.agent ?? recordById.get(id)?.agent ?? null,
+        title: sessionDisplayName(session.memo, session.title, aiTitles.get(id), lastPrompts.get(id), knownSessions.get(id)?.title),
+        cwd: session.cwd,
+        agent: session.agent,
         ...(summary ? { work: summary } : {}),
       };
       return detail;
@@ -598,22 +584,23 @@ const mobileListTerminalSessions = async () => {
   });
 };
 
-// Write a chunk to a session from the phone. A tmux session that outlived this server has no
-// in-process PtyEntry until someone reattaches; adopt it here so mobile can type into the same
-// Shell/task it can already list and capture (#74).
-const mobileWriteToSession = createAdoptingTerminalWriter({
-  entryOf: (id) => ptys.get(id),
-  hasTmux: tmuxHasSession,
-  cwdOf: (id) => sessionCwd(id) ?? CLAUDE_CWD,
-  spawnLauncherPty,
-  commandOf: (id) => agentOfSession(id) ?? process.env.SHELL ?? "/bin/sh",
-});
+const mobileWriteToSession = async (sessionId: string, chunk: string): Promise<boolean> => {
+  try {
+    await coreSessions.input(sessionId, chunk);
+    return true;
+  } catch (error) {
+    if (error instanceof CoreSessionNotFoundError) return false;
+    throw error;
+  }
+};
 
 const mobileSessionOperations = createTerminalSessionOperations({
-  writeToSession: mobileWriteToSession,
-  reapSession: reap,
-  hasTmux: tmuxHasSession,
-  killTmux: tmuxKillSession,
+  interrupt: (id) => coreSessions.stop(id),
+  stop: (id) => coreSessions.stop(id),
+  delete: async (id) => {
+    reap(id);
+    await coreSessions.delete(id);
+  },
 });
 
 // Whether the phone's typing may empty the input box before pasting, so only the
@@ -624,9 +611,10 @@ const mobileCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.
 // dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
 // answers from. A session that outlived a restart has no PtyEntry, so it falls back to the
 // persisted cwd written when the session was launched or attached.
-const mobileSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> =>
-  buildScreenMeta(sessionId, {
-    cwdOf: (id) => ptys.get(id)?.cwd ?? sessionCwd(id) ?? "",
+const mobileSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
+  const session = await coreSessions.get(sessionId);
+  return buildScreenMeta(sessionId, {
+    cwdOf: () => session.cwd,
     branchOf: async (cwd) => (await currentBranch(cwd)).branch,
     // The repository root, never /tree/<branch>: whether a branch is still ON GitHub cannot
     // be known without asking GitHub. `refs/remotes/origin/*` is a local cache, so a merged
@@ -635,28 +623,23 @@ const mobileSessionScreenMeta = (sessionId: string): Promise<SessionScreenMeta> 
     // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
     // on a screen the phone polls (#832).
     githubUrlOf: resolveGithubUrl,
-    memoOf: (id) => sessionMemos.get(id) ?? "", // beside the summary, never instead of it — see SessionScreenMeta (#1110)
-    summaryOf: (id) => aiTitles.get(id) ?? "",
+    memoOf: () => session.memo ?? "",
+    summaryOf: (id) => session.title ?? aiTitles.get(id) ?? "",
     promptOf: (id) => lastPrompts.get(id) ?? "",
-    memosHydrated: sessionMemosHydrated,
+    memosHydrated: Promise.resolve(),
   });
+};
 
-const mobileCaptureTerminalScreen = (sessionId: string) =>
-  captureSessionScreen(sessionId, {
-    // Both capture paths are asked for the same history; how much of it the phone actually
-    // gets is captureSessionScreen's call, so the two agree (mulmoserver#139).
-    captureStyledPane: (id) => tmuxCaptureStyledPane(id, SCREEN_HISTORY_ROWS),
-    sourceOf: (id) => {
-      const entry = ptys.get(id);
-      return entry ? { buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows } : undefined;
-    },
-    render: (source) => renderScreen({ ...source, historyLines: SCREEN_HISTORY_ROWS }),
-    metaOf: mobileSessionScreenMeta,
-    // Read from config on every screen so an edit in Settings reaches the phone without a
-    // restart; scoped here rather than on the phone, which then needs no notion of session
-    // kinds (#830).
-    quickCommandsOf: (id) => quickCommandsForAgent(getQuickCommands(), agentOfSession(id)),
-  });
+const mobileCaptureTerminalScreen = async (sessionId: string) => {
+  try {
+    const session = await coreSessions.get(sessionId);
+    const [screen, meta] = await Promise.all([coreSessions.screen(sessionId), mobileSessionScreenMeta(sessionId)]);
+    return coreTerminalScreen(screen, meta, quickCommandsForAgent(getQuickCommands(), session.agent));
+  } catch (error) {
+    if (error instanceof CoreSessionNotFoundError) throw new TerminalSessionNotFoundError(sessionId);
+    throw error;
+  }
+};
 
 // The LOCAL mobile route's colour layer (#7). Deliberately its own capture rather than a field
 // added to SessionScreen: the plain screen response stays compact and older clients can ignore
@@ -680,11 +663,12 @@ const mobileTerminalLauncher = createLaunchTerminalPublisher({ pubsub, cwdOfSess
 const localMobileTerminalCreator = createLocalMobileTerminalCreator({ spawnClaudePty, spawnCodexPty, spawnAntigravityPty, spawnLauncherPty });
 
 // The byte(s) that submit for a given session (#772), resolved live from config per agent.
-const sessionSubmitSequence = (sessionId: string) => submitSequenceForAgent(ptys.get(sessionId)?.agent, getTerminalSubmit());
+const sessionSubmitSequence = async (sessionId: string) =>
+  submitSequenceForAgent(ptys.get(sessionId)?.agent ?? (await coreSessions.get(sessionId)).agent, getTerminalSubmit());
 // Which agent the typed text is going to, for the completion-menu guard (#1142) — only Claude
 // Code has the menu that eats a submit, and only there is the guard's trailing space not real
 // input. Same lookup as sessionSubmitSequence above; shared for the same reason.
-const sessionAgentFor = (sessionId: string) => ptys.get(sessionId)?.agent;
+const sessionAgentFor = async (sessionId: string) => ptys.get(sessionId)?.agent ?? (await coreSessions.get(sessionId)).agent;
 const sharedMobileTerminalDeps = {
   listTerminalSessions: mobileListTerminalSessions,
   captureTerminalScreen: mobileCaptureTerminalScreen,
@@ -703,28 +687,33 @@ const sharedMobileTerminalDeps = {
 const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
 const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
 
+const coreLifecycle = (session: { exited: boolean; attached: boolean }) => {
+  if (session.exited) return "stopped" as const;
+  return session.attached ? ("live" as const) : ("detached" as const);
+};
+
 const orchestratorSessionStatusOf = async (id: string) => {
-  await hydrateSessionRecordSnapshotInputs();
-  const record = currentSessionRecords({
-    ids: [id],
-    tmuxIds: tmuxListSessionIds(),
-    paneCommandOf: tmuxPaneCommand,
-    claudeTranscriptExists: sessionExistsOnDisk,
-  })[0];
-  if (
-    !record ||
-    (record.lifecycle === "stopped" &&
-      record.createdAt === null &&
-      record.updatedAt === 0 &&
-      record.agent === null &&
-      record.cwd === null &&
-      !record.runtime.pty &&
-      !record.runtime.tmux)
-  ) {
-    return null;
+  try {
+    const session = await coreSessions.get(id);
+    const inputAvailable = !session.exited;
+    return {
+      ok: true as const,
+      sessionId: session.id,
+      agent: session.agent,
+      cwd: session.cwd,
+      lifecycle: coreLifecycle(session),
+      runtime: { pty: ptys.has(id), tmux: true, attached: session.attached },
+      activity: { ...normalizeActivity(activity.get(id)), at: activity.get(id)?.at ?? 0, workPhase: workPhaseTracker.phaseOf(id) },
+      input: inputAvailable
+        ? { available: true, ready: true, known: true, source: "quiet" as const, checkedAt: Date.now(), reason: "Core session is running" }
+        : { available: false, ready: false, known: true, source: "unavailable" as const, checkedAt: Date.now(), reason: "Core session has exited" },
+      inputAvailable,
+      readyForInput: inputAvailable,
+    };
+  } catch (error) {
+    if (error instanceof CoreSessionNotFoundError) return null;
+    throw error;
   }
-  const readiness = inputReadinessForRecord(record, inputReadiness.stateOf(id));
-  return orchestratorSessionStatus(record, workPhaseTracker.phaseOf(id), readiness);
 };
 
 mountConfiguredMobileTransport({
@@ -769,8 +758,13 @@ const scheduledSessions = createScheduledSessionRegistry({
   isValidId: (id) => SESSION_ID_RE.test(id),
   isInUse: sessionInUse,
   reapSession: reap,
-  hasTmux: tmuxHasSession,
-  killTmux: tmuxKillSession,
+  deleteSession: async (id) => {
+    try {
+      await coreSessions.delete(id);
+    } catch (error) {
+      if (!(error instanceof CoreSessionNotFoundError)) throw error;
+    }
+  },
 });
 // Sweep at startup (catching sessions that outlived a restart — tmux survives one by
 // design) and hourly, so the age cap holds even after the schedule is turned off.
@@ -829,12 +823,14 @@ server.on("error", (err) => {
 
 // Number(): PORT comes from the environment as a string, and the (port, host, cb) overload
 // takes a number — the (port, cb) form we used before accepted either.
-server.listen(Number(PORT), BIND_HOST, () => {
+// Express types the listen callback as void, but startup discovery is necessarily asynchronous.
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
+server.listen(Number(PORT), BIND_HOST, async () => {
   console.log(`mulmoterminal running at http://localhost:${PORT}`);
   if (!isLoopbackBinding(server.address())) {
     console.warn(bindSecurityWarning(BIND_HOST, PORT, browserHostnames));
   }
-  const surviving = tmuxAvailable() ? tmuxListSessionIds() : [];
+  const surviving = tmuxAvailable() ? (await coreSessions.list()).map((session) => session.id) : [];
   if (tmuxAvailable()) {
     const detail = surviving.length ? ` — ${surviving.length} session(s) survived; reattach on connect` : "";
     console.log(`[tmux] persistence on${detail}`);

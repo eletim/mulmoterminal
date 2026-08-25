@@ -2,9 +2,8 @@
 import { describe, it, expect } from "vitest";
 import {
   tmuxSessionName,
-  tmuxNewSessionArgs,
+  tmuxAttachSessionArgs,
   TMUX_CONF_LINES,
-  isResumableTmuxSession,
   parseTmuxEnvironment,
   parseAttachedClientCount,
   parseTmuxClientSessions,
@@ -17,50 +16,14 @@ import {
 } from "../../../server/infra/tmux";
 
 describe("tmuxSessionName", () => {
-  it("prefixes the session id", () => {
-    expect(tmuxSessionName("abc-123")).toBe("mt-abc-123");
+  it("uses the Core session id unchanged", () => {
+    expect(tmuxSessionName("abc-123")).toBe("abc-123");
   });
 });
 
-describe("tmuxNewSessionArgs", () => {
-  const args = tmuxNewSessionArgs("id1", "/bin/zsh", ["-lc", "exec codex"], "/proj");
-
-  it("targets our isolated tmux server and config", () => {
-    expect(args.slice(0, 4)).toEqual(["-L", "mulmoterminal", "-f", expect.stringMatching(/tmux\.conf$/)]);
-  });
-  it("uses new-session -A (create-or-attach) with the mt- session name and cwd", () => {
-    expect(args).toContain("new-session");
-    expect(args).toContain("-A");
-    expect(args[args.indexOf("-s") + 1]).toBe("mt-id1");
-    expect(args[args.indexOf("-c") + 1]).toBe("/proj");
-  });
-  it("passes the program + its args after `--` (so flags aren't parsed by tmux)", () => {
-    const dashdash = args.indexOf("--");
-    expect(dashdash).toBeGreaterThan(0);
-    expect(args.slice(dashdash + 1)).toEqual(["/bin/zsh", "-lc", "exec codex"]);
-  });
-
-  it("passes no -e when there is no per-session environment", () => {
-    expect(args).not.toContain("-e");
-  });
-
-  // A pane takes the tmux SERVER's environment, which outlives any one session — so a
-  // per-session value has to be set ON the session with -e, never exported into our own env.
-  describe("with a per-session environment", () => {
-    const withEnv = tmuxNewSessionArgs("id1", "/bin/zsh", ["-lc", "exec claude"], "/proj", { MULMOTERMINAL_PORT: "34567", MULMOTERMINAL_SESSION_ID: "abc" });
-
-    it("sets each variable with -e KEY=VALUE", () => {
-      expect(withEnv).toContain("-e");
-      expect(withEnv).toContain("MULMOTERMINAL_PORT=34567");
-      expect(withEnv).toContain("MULMOTERMINAL_SESSION_ID=abc");
-    });
-
-    // After `--` they would be arguments to the program, not tmux flags.
-    it("keeps them before `--`, and the program after it", () => {
-      const dashdash = withEnv.indexOf("--");
-      expect(withEnv.indexOf("MULMOTERMINAL_PORT=34567")).toBeLessThan(dashdash);
-      expect(withEnv.slice(dashdash + 1)).toEqual(["/bin/zsh", "-lc", "exec claude"]);
-    });
+describe("tmuxAttachSessionArgs", () => {
+  it("attaches to the Core id on the dedicated server", () => {
+    expect(tmuxAttachSessionArgs("id1")).toEqual(["-L", "mulmoterminal-core", "attach-session", "-t", "id1"]);
   });
 });
 
@@ -164,23 +127,6 @@ describe("planMsOverride", () => {
   });
 });
 
-describe("isResumableTmuxSession", () => {
-  const none = () => false;
-  const empty = new Set<string>();
-
-  it("keeps a session that is live, a grid session, or has a Claude/Codex transcript", () => {
-    expect(isResumableTmuxSession("a", new Set(["a"]), empty, empty, empty, none)).toBe(true); // live pty
-    expect(isResumableTmuxSession("b", empty, new Set(["b"]), empty, empty, none)).toBe(true); // persisted grid session
-    expect(isResumableTmuxSession("u", empty, empty, new Set(["u"]), empty, none)).toBe(true); // visible unplaced session
-    expect(isResumableTmuxSession("c", empty, empty, empty, new Set(["c"]), none)).toBe(true); // Claude transcript on disk
-    expect(isResumableTmuxSession("d", empty, empty, empty, empty, (id) => id === "d")).toBe(true); // Codex rollout on disk
-  });
-
-  it("treats a session tracked nowhere as a pure orphan (reap-able)", () => {
-    expect(isResumableTmuxSession("z", new Set(["a"]), new Set(["b"]), new Set(["u"]), new Set(["c"]), (id) => id === "d")).toBe(false);
-  });
-});
-
 describe("parseTmuxEnvironment", () => {
   it("reads plain NAME=value lines", () => {
     const env = parseTmuxEnvironment("HOME=/Users/u\nPATH=/usr/bin:/bin\n");
@@ -254,7 +200,7 @@ describe("parseTmuxClientSessions", () => {
   // One line per CLIENT, so the count of a session is how many times its name appears — two
   // mulmoterminal processes on one session is exactly the case this has to see (#1207).
   it("counts the clients on each of our sessions", () => {
-    expect(parseTmuxClientSessions("mt-a\nmt-b\nmt-a\n")).toEqual(
+    expect(parseTmuxClientSessions("a\nb\na\n")).toEqual(
       new Map([
         ["a", 2],
         ["b", 1],
@@ -262,19 +208,18 @@ describe("parseTmuxClientSessions", () => {
     );
   });
 
-  it("ignores sessions that are not ours, and empty output", () => {
-    expect(parseTmuxClientSessions("someone-elses\nmt-a\n")).toEqual(new Map([["a", 1]]));
+  it("ignores empty output", () => {
     expect(parseTmuxClientSessions("")).toEqual(new Map());
   });
 
   // A session with no client does not appear at all, which is what makes "absent" mean zero
   // rather than unknown — the caller can only tell the two apart from the CALL failing.
   it("has no entry for a session nobody holds", () => {
-    expect(parseTmuxClientSessions("mt-a\n").has("b")).toBe(false);
+    expect(parseTmuxClientSessions("a\n").has("b")).toBe(false);
   });
 
   it("survives CRLF", () => {
-    expect(parseTmuxClientSessions("mt-a\r\nmt-a\r\n")).toEqual(new Map([["a", 2]]));
+    expect(parseTmuxClientSessions("a\r\na\r\n")).toEqual(new Map([["a", 2]]));
   });
 });
 

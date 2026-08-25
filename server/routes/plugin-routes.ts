@@ -9,8 +9,7 @@ import type { Express } from "express";
 
 import { CLAUDE_CWD } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { backgroundMarkers, markFailedWorker, markUnplacedSession } from "../session/registry.js";
-import { recordSessionStarting, recordSessionStopped } from "../session/session-lifecycle-records.js";
+import { backgroundMarkers, markFailedWorker } from "../session/registry.js";
 import { runWithHiddenMarker } from "../session/hiddenMarker.js";
 import { registerCompletionHook } from "../session/completion-hooks.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";
@@ -59,7 +58,6 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
     if (!parsed.ok) return res.json({ message: parsed.message });
     const { agent, draft, hidden, message } = parsed.request;
     const sessionId = randomUUID();
-    recordSessionStarting({ id: sessionId, agent, cwd: CLAUDE_CWD });
     // agy reads its GUI MCP servers from a file in the working directory, shared with every other
     // session there, so the groups have to be resolved BEFORE the spawn rewrites it — passing none
     // would clear the entries those sessions are using (#1095 review).
@@ -77,7 +75,6 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
       // places it immediately (useChatLauncher), and this covers every other caller — an agent
       // calling the tool from another session, with no tab open at all. The mark is cleared the
       // moment any cell attaches, so the browser-placed case does not come back as a duplicate.
-      if (!hidden) markUnplacedSession(sessionId, agent, CLAUDE_CWD);
       if (hidden) {
         deps.registerBackgroundSession(sessionId);
         // A hidden worker is invisible on purpose, which is exactly why a FAILED one needs a
@@ -110,7 +107,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
         }
       }
     } catch (err) {
-      if (!spawned) recordSessionStopped({ id: sessionId, agent, cwd: CLAUDE_CWD });
+      if (!spawned) console.warn(`[plugin] Core session ${sessionId} failed before attach`);
       console.error(`[spawnBackgroundChat] failed for ${sessionId}: ${messageOf(err)}`);
       return res.json({ message: `Failed to spawn a new session: ${messageOf(err)}` });
     }
