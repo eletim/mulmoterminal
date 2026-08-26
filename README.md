@@ -511,13 +511,14 @@ Example `.env` (gitignored):
 CLAUDE_CWD=/Users/you/my-project
 ```
 
-For local development, prefer the checked-in helper:
+For local development, use the checked-in startup entrypoint:
 
 ```bash
-./scripts/start-tailscale-dev.sh
+./scripts/start-dev.sh
+# or: yarn start:dev
 ```
 
-It starts `yarn dev` with these helper defaults:
+It starts `yarn dev` with these defaults:
 
 ```bash
 PORT=34568
@@ -526,69 +527,44 @@ MULMOTERMINAL_BASE_PATH=/mulmoterminal/
 MULMOTERMINAL_MOBILE_MODE=local
 ```
 
-Open `http://localhost:6857/mulmoterminal/` for localhost use. In the default
-`auto` mode, the helper configures Tailscale Serve when Tailscale is available.
-If Tailscale itself is missing or not running, an interactive shell asks whether
-to continue without Tailscale in `local` mode; a non-interactive shell does not
-prompt, so set `MULMOTERMINAL_TAILSCALE_MODE=local` explicitly there.
+`MULMOTERMINAL_MODE` selects one of three top-level startup modes:
 
-`MULMOTERMINAL_TAILSCALE_MODE` controls the network mode:
-
-| Value       | Meaning |
-| ----------- | ------- |
-| `auto`      | Default. Use Tailscale Serve when it works. If Serve fails but a Tailscale IPv4 address is available, ask before falling back to direct Tailscale HTTP. If Tailscale itself is unavailable, ask before falling back to `local`. |
-| `local`     | Do not use Tailscale. No Tailscale DNS name, Tailscale IP address, or `tailscale serve` route is required. |
-| `http`      | Use direct HTTP over an already-working Tailscale VPN. The helper detects `tailscale ip -4`, binds Vite to `0.0.0.0`, and allows `http://<tailscale-ip>:6857`. |
-| `https`     | Require Tailscale Serve HTTPS. If `tailscale serve` cannot be configured, startup exits. |
-| `tailscale` | Alias for `https`. |
+| Value | Meaning |
+| ----- | ------- |
+| `nginx` | **Default.** Start MulmoTerminal on local HTTP and use nginx as the HTTPS reverse proxy. Startup checks the managed nginx configuration and runs setup only when it is missing or stale. |
+| `tailscale-serve` | Configure the existing Tailscale Serve route, then start MulmoTerminal. |
+| `local-only` | Start on localhost without checking or invoking nginx or Tailscale. |
 
 Common examples:
 
 ```bash
-# 1. Normal Tailscale use: auto-detect and use Tailscale when available.
-./scripts/start-tailscale-dev.sh
+# Normal startup (nginx HTTPS).
+./scripts/start-dev.sh
 ```
 
 ```bash
-# 2. No Tailscale, localhost only.
-MULMOTERMINAL_TAILSCALE_MODE=local ./scripts/start-tailscale-dev.sh
+# Tailscale Serve HTTPS.
+MULMOTERMINAL_MODE=tailscale-serve ./scripts/start-dev.sh
 ```
 
 ```bash
-# 3. No Tailscale, open from another device on your LAN.
-# Replace 192.168.1.20 with this machine's LAN address.
-MULMOTERMINAL_TAILSCALE_MODE=local \
-MULMOTERMINAL_VITE_HOST=0.0.0.0 \
-MULMOTERMINAL_ALLOWED_ORIGINS=http://192.168.1.20:6857 \
-./scripts/start-tailscale-dev.sh
+# Localhost only; open http://localhost:6857/mulmoterminal/.
+MULMOTERMINAL_MODE=local-only ./scripts/start-dev.sh
 ```
 
-```bash
-# 4. Behind nginx HTTPS on the same machine.
-# Configure nginx with scripts/setup-nginx-https.sh first.
-MULMOTERMINAL_TAILSCALE_MODE=local \
-MULMOTERMINAL_BASE_PATH=/mulmoterminal/ \
-MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.example.test \
-./scripts/start-tailscale-dev.sh
+Persist the mode and machine-specific HTTPS settings in the existing shared
+user config (recommended), for example:
+
+```dotenv
+MULMOTERMINAL_MODE=nginx
+MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.example.test
+MULMOTERMINAL_NGINX_SERVER_CONF=/etc/nginx/sites-available/default
+MULMOTERMINAL_NGINX_SERVER_NAME=dev.example.test
 ```
 
-```bash
-# 5. Require Tailscale Serve HTTPS.
-MULMOTERMINAL_TAILSCALE_MODE=https ./scripts/start-tailscale-dev.sh
-```
-
-If you change the path your browser opens, keep `MULMOTERMINAL_BASE_PATH` in
-sync with it:
-
-```bash
-MULMOTERMINAL_TAILSCALE_MODE=local \
-MULMOTERMINAL_BASE_PATH=/mt/ \
-MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.example.test \
-./scripts/start-tailscale-dev.sh
-```
-
-The helper reads env files in this order, with later files overriding earlier
-ones and shell variables overriding all files:
+The startup entrypoint reads env files in this order. Later files override
+earlier files, while variables explicitly exported by the invoking shell win
+over every file:
 
 1. Repo `.env`
 2. User shared env: `MULMOTERMINAL_LOCAL_ENV_FILE` when set, otherwise
@@ -596,17 +572,16 @@ ones and shell variables overriding all files:
    `~/.config/mulmoterminal/local.env`
 3. Repo `.env.local`
 
-Set `MULMOTERMINAL_ENV_FILES=/path/a.env:/path/b.env` to replace that default
-list. In the default env-file mode, an interactive first run can create the user
-shared env for Tailscale HTTPS or direct Tailscale HTTP setup. Worktree-specific
-overrides belong in `.env.local`; settings you want every worktree to share
-belong in the user shared env.
+Set `MULMOTERMINAL_ENV_FILES=/path/a.env:/path/b.env` to replace the default
+list. An interactive first run can create the shared user env and initialize Web
+Push settings. Worktree-specific overrides belong in `.env.local`; settings for
+all worktrees belong in the shared user env. No additional `config.sh` is used.
 
 The main startup env vars are:
 
 | Variable | When to set it |
 | -------- | -------------- |
-| `MULMOTERMINAL_TAILSCALE_MODE` | Choose `auto`, `local`, `http`, `https`, or `tailscale`. |
+| `MULMOTERMINAL_MODE` | Choose `nginx`, `tailscale-serve`, or `local-only`; defaults to `nginx`. |
 | `PORT` | Backend port. With the helper, default is `34568`; Vite proxies `/api`, `/ws`, and related routes to it. |
 | `CLIENT_PORT` | Vite frontend port and the port you usually open in dev. With the helper, default is `6857`. |
 | `MULMOTERMINAL_BASE_PATH` | Browser path prefix. Helper default is `/mulmoterminal/`; set it to `/` or another path only when the URL/proxy path matches. |
@@ -615,12 +590,12 @@ The main startup env vars are:
 | `MULMOTERMINAL_HOST` | Backend bind address. Usually leave unset with the helper; set it only when clients or a proxy connect directly to `PORT` instead of the Vite dev server. |
 | `MULMOTERMINAL_MOBILE_WEB_PUSH_PUBLIC_KEY`, `MULMOTERMINAL_MOBILE_WEB_PUSH_PRIVATE_KEY`, `MULMOTERMINAL_MOBILE_WEB_PUSH_SUBJECT` | Enable mobile Web Push. Subject must start with `mailto:` or `https://`. |
 
-Local mode is plain HTTP. That is fine for `localhost`, but phones and other
+`local-only` is plain HTTP. That is fine for `localhost`, but phones and other
 external devices treat many browser features as secure-context only. PWA install,
 Service Worker, Web Push, clipboard, and similar features may require HTTPS when
 you are not on localhost. Tailscale Serve HTTPS is one way to provide that.
 
-### Nginx HTTPS over Tailscale DNS
+### nginx HTTPS setup
 
 Use this when Tailscale VPN and MagicDNS work, but you cannot or do not want to
 use `tailscale serve` for HTTPS termination. The browser still opens an HTTPS
@@ -634,16 +609,21 @@ Browser / PWA
   -> http://127.0.0.1:6857/mulmoterminal/
 ```
 
-This is a separate mode from the existing Tailscale Serve HTTPS path. Keep using
-`MULMOTERMINAL_TAILSCALE_MODE=https` or `auto` when `tailscale serve` is the
-HTTPS endpoint. For nginx, start MulmoTerminal with
-`MULMOTERMINAL_TAILSCALE_MODE=local`; Tailscale is still used for VPN routing and
-MagicDNS name resolution, but not for `tailscale serve`.
+In `nginx` mode, `start-dev.sh` calls `setup-nginx-https.sh --check`. If all
+managed files and the server include are current, startup continues without
+`sudo`, rewriting files, testing nginx, or reloading it. When setup is required,
+the entrypoint runs it directly for a writable custom nginx root or uses `sudo`
+for system configuration. Changed configuration is reloaded only after
+`nginx -t` succeeds.
 
-The helper below writes only MulmoTerminal-managed nginx files. It always writes
-the WebSocket `map` under `conf.d`, writes the MulmoTerminal `location` block
-under `snippets`, runs `nginx -t`, and reloads only if the test succeeds.
-Re-running it updates the managed files and does not duplicate the include.
+Set the nginx variables below in the shared user env. When
+`MULMOTERMINAL_NGINX_MODE` is omitted, startup uses `existing` only when it finds
+an HTTPS server whose `server_name` exactly matches the target host; otherwise it
+uses `new`. An unrelated HTTPS server such as `server_name localhost` is never
+modified. An explicit `existing` or `new` value always takes precedence. In
+`existing` mode, `MULMOTERMINAL_NGINX_SERVER_CONF` may be omitted when the
+matching 443 server can be found under the normal nginx configuration
+directories.
 
 #### Existing nginx server
 
@@ -652,25 +632,7 @@ Use this when nginx already owns `listen 443 ssl`, certificates, and the
 existing HTTPS `server { ... }` block; the script backs it up and adds only a
 managed `include` before the block's final `}`.
 
-```bash
-sudo scripts/setup-nginx-https.sh \
-  --mode existing \
-  --server-conf /etc/nginx/sites-available/default \
-  --server-name dev.tail.ts.net \
-  --base-path /mulmoterminal/ \
-  --upstream http://127.0.0.1:6857/mulmoterminal/
-```
-
-Then start MulmoTerminal:
-
-```bash
-MULMOTERMINAL_TAILSCALE_MODE=local \
-MULMOTERMINAL_BASE_PATH=/mulmoterminal/ \
-MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.tail.ts.net \
-./scripts/start-tailscale-dev.sh
-```
-
-Open:
+Start normally and open:
 
 ```text
 https://dev.tail.ts.net/mulmoterminal/
@@ -694,38 +656,25 @@ sudo systemctl enable --now nginx
 ```
 
 For Tailscale MagicDNS names, use Tailscale HTTPS certificates rather than a
-self-signed certificate. Tailscale documents this as MagicDNS plus HTTPS
-Certificates in the admin console, followed by `tailscale cert` on the machine:
+self-signed certificate. Enable HTTPS Certificates in the Tailscale admin
+console before the first startup:
 https://tailscale.com/docs/how-to/set-up-https-certificates
 
 Certificates issued this way are public-CA certificates for the full MagicDNS
 name, so browsers accept PWA, Service Worker, Web Push, Clipboard API, and
 `wss://` WebSocket use without local CA enrollment. The certificate name is
 published to Certificate Transparency logs, and file-based certificates must be
-renewed before expiry.
+renewed before expiry. In `new` mode, when the certificate or key is missing and
+the target server name matches this device's MagicDNS name, normal startup uses
+the installed `tailscale` CLI to create both files automatically. It uses
+`sudo` only when their directories require privileged writes. If certificate
+issuance is disabled for the tailnet, startup explains what to enable and can be
+rerun after the admin-console change; running `tailscale cert` manually is not a
+normal setup step.
 
-```bash
-TS_NAME=dev.tail.ts.net
-sudo mkdir -p /etc/ssl/mulmoterminal
-sudo tailscale cert \
-  --cert-file /etc/ssl/mulmoterminal/${TS_NAME}.crt \
-  --key-file /etc/ssl/mulmoterminal/${TS_NAME}.key \
-  ${TS_NAME}
-```
-
-Create and enable the nginx server:
-
-```bash
-sudo scripts/setup-nginx-https.sh \
-  --mode new \
-  --server-name ${TS_NAME} \
-  --base-path /mulmoterminal/ \
-  --upstream http://127.0.0.1:6857/mulmoterminal/ \
-  --cert-file /etc/ssl/mulmoterminal/${TS_NAME}.crt \
-  --key-file /etc/ssl/mulmoterminal/${TS_NAME}.key
-```
-
-Then start MulmoTerminal with the same env as the existing-nginx case and open:
+Set `MULMOTERMINAL_NGINX_MODE=new`, the server name, and certificate paths in
+the shared user env. The normal startup command creates and enables the nginx
+server, then opens the same URL shape:
 
 ```text
 https://dev.tail.ts.net/mulmoterminal/
@@ -735,7 +684,7 @@ Useful nginx setup env vars:
 
 | Variable | When to set it |
 | -------- | -------------- |
-| `MULMOTERMINAL_NGINX_MODE` | `existing` to add an include to an existing TLS server, `new` to create a MulmoTerminal HTTPS server. |
+| `MULMOTERMINAL_NGINX_MODE` | Optional override: `existing` adds an include to a matching TLS server and `new` creates a MulmoTerminal HTTPS server. When omitted, the target `server_name` selects `existing` only on an exact HTTPS match, otherwise `new`. |
 | `MULMOTERMINAL_NGINX_SERVER_CONF` | Existing nginx server file to edit in `existing` mode. |
 | `MULMOTERMINAL_NGINX_SERVER_NAME` | Tailscale MagicDNS FQDN, such as `dev.tail.ts.net`. |
 | `MULMOTERMINAL_NGINX_BASE_PATH` | Browser path prefix for generated nginx config. Defaults to `MULMOTERMINAL_BASE_PATH` or `/mulmoterminal/`. |
@@ -744,20 +693,17 @@ Useful nginx setup env vars:
 | `MULMOTERMINAL_NGINX_DRY_RUN` | Set `1` to print planned config and commands without writing. |
 | `MULMOTERMINAL_NGINX_RELOAD` | Set `0` to run `nginx -t` but skip reload. |
 
-For a different browser path, set both sides consistently:
+For a different browser path, set the application path; nginx inherits it by
+default:
 
-```bash
-sudo scripts/setup-nginx-https.sh \
-  --mode existing \
-  --server-conf /etc/nginx/sites-available/default \
-  --server-name dev.tail.ts.net \
-  --base-path /mt/
-
-MULMOTERMINAL_TAILSCALE_MODE=local \
-MULMOTERMINAL_BASE_PATH=/mt/ \
-MULMOTERMINAL_ALLOWED_ORIGINS=https://dev.tail.ts.net \
-./scripts/start-tailscale-dev.sh
+```dotenv
+MULMOTERMINAL_BASE_PATH=/mt/
 ```
+
+The legacy `scripts/start-tailscale-dev.sh` entrypoint remains as a compatibility
+wrapper and keeps its historical Tailscale-first behavior. Legacy
+`MULMOTERMINAL_TAILSCALE_MODE=auto|tailscale|https|http|local` settings continue
+to work; new configuration should use `MULMOTERMINAL_MODE`.
 
 ### UI settings (`~/.mulmoterminal/config.json`)
 
