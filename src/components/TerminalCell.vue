@@ -601,15 +601,25 @@ onUnmounted(() => {
   exchangeStop = true; // never leave an exchange typing into terminals after this cell is gone
 });
 
-// Reap the session and reset the cell back to the empty launcher. The cell isn't
-// remounted (stable key), so the dir/diff state is reset explicitly — otherwise the
-// launch form would still show the closed session's directory.
-function teardown() {
-  const id = sessionId.value; // capture before the reset below nulls it
+// The one close-button deletion operation. The request starts before the viewer disconnects,
+// and callers that must know the process is gone (Windows worktree removal) can await it.
+async function deleteTerminal(): Promise<boolean> {
+  const id = sessionId.value;
+  const request = id ? fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }) : Promise.resolve(null);
   // The close button has ONE deletion transport: this HTTP request. The terminal connection is
   // only a viewer and may already be dead/disconnected, so it must not own a second delete path.
-  if (id) fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }).catch(() => {});
   termRef.value?.disconnect();
+  try {
+    const response = await request;
+    return response === null || response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Reset the cell back to the empty launcher. The cell isn't remounted (stable key), so the
+// dir/diff state is reset explicitly — otherwise the launcher would show the closed cwd.
+function resetCell() {
   launched.value = false;
   recordNextCwd = false; // drop any pending fresh-launch record from a torn-down session
   sessionId.value = null;
@@ -635,6 +645,11 @@ function teardown() {
   emit("close");
   // The launch form is mounted fresh by the `v-else` this just switched back to, and reads its
   // own lists for the directory above on the way in.
+}
+
+function teardown() {
+  void deleteTerminal();
+  resetCell();
 }
 
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
@@ -693,14 +708,19 @@ async function removeAndClose() {
     return;
   }
   closeError.value = null;
-  termRef.value?.disconnect(); // free the worktree dir first (Windows locks a process's cwd)
+  // Core deletion force-stops the process that owns this cwd. Await it before asking Windows to
+  // remove the directory; merely disconnecting the browser leaves the PTY alive through its grace.
+  if (!(await deleteTerminal())) {
+    closeError.value = "Couldn't stop the terminal — the worktree was not removed.";
+    return;
+  }
   try {
     const res = await fetch("/api/worktrees/remove", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ repoDir: dir, path: dir, deleteBranch: true, force: true }),
     });
-    if (res.ok) return teardown();
+    if (res.ok) return resetCell();
     closeError.value = "Couldn't remove the worktree — it may need manual cleanup.";
   } catch {
     closeError.value = "Couldn't reach the server to remove the worktree.";

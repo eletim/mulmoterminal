@@ -1700,7 +1700,8 @@ describe("TerminalCell", () => {
 
   it("Remove worktree posts a forced remove (path+repoDir = the worktree) then closes", async () => {
     const posts = mockFetchCloseCleanup(cleanWtDiff);
-    const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: WT_CWD });
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: WT_CWD });
     await flushPromises();
     await w.find(".cell-close").trigger("click");
     await flushPromises(); // the close() diff refresh enables the Remove button
@@ -1708,8 +1709,36 @@ describe("TerminalCell", () => {
     await flushPromises();
     const rm = posts.find((p) => p.url.includes("/api/worktrees/remove"));
     if (!rm) throw new Error("remove not called");
+    const terminateIndex = posts.findIndex((p) => p.url.includes(`/api/session/${id}/terminate`));
+    const removeIndex = posts.findIndex((p) => p.url.includes("/api/worktrees/remove"));
+    expect(terminateIndex).toBeGreaterThanOrEqual(0);
+    expect(terminateIndex).toBeLessThan(removeIndex);
+    expect(posts.filter((p) => p.url.includes(`/api/session/${id}/terminate`))).toHaveLength(1);
     expect(JSON.parse(rm.body)).toMatchObject({ repoDir: WT_CWD, path: WT_CWD, deleteBranch: true, force: true });
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("does not remove the worktree when terminal deletion fails", async () => {
+    const posts: string[] = [];
+    const id = "66666666-6666-6666-6666-666666666666";
+    globalThis.fetch = vi.fn(async (url: string, init?: { method?: string }) => {
+      const u = String(url);
+      if (init?.method === "POST") posts.push(u);
+      if (u.includes(`/api/session/${id}/terminate`)) return { ok: false, json: async () => ({ error: "tmux unavailable" }) };
+      if (u.includes("/api/worktrees/diff")) return { ok: true, json: async () => cleanWtDiff };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+    const w = mountCell(id, { initialCwd: WT_CWD });
+    await flushPromises();
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+    await w.find('[data-testid="ccx-remove"]').trigger("click");
+    await flushPromises();
+
+    expect(posts.some((url) => url.includes("/api/worktrees/remove"))).toBe(false);
+    expect(w.find('[data-testid="ccx-warn"]').text()).toContain("Couldn't stop the terminal");
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(false);
   });
 
   it("holds Remove (Checking…) until the fresh diff load completes", async () => {

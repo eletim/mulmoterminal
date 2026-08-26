@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { CoreSessionNotFoundError } from "../../../server/session/core-session-adapter.js";
 import { forceDeleteTerminalSession } from "../../../server/session/terminal-deletion.js";
 
 describe("forceDeleteTerminalSession", () => {
@@ -27,16 +28,29 @@ describe("forceDeleteTerminalSession", () => {
     expect(deleteCoreSession).toHaveBeenCalledExactlyOnceWith("dead-or-disconnected");
   });
 
-  it("still reaps local runtime when Core reports the session missing", async () => {
+  it("treats already-missing Core membership as successful and still reaps local runtime", async () => {
     const reapLocalSession = vi.fn();
 
     await expect(
       forceDeleteTerminalSession("already-gone", {
         reapLocalSession,
-        deleteCoreSession: async () => Promise.reject(new Error("session not found")),
+        deleteCoreSession: async () => Promise.reject(new CoreSessionNotFoundError("already-gone")),
       }),
-    ).rejects.toThrow("session not found");
+    ).resolves.toBeUndefined();
 
     expect(reapLocalSession).toHaveBeenCalledExactlyOnceWith("already-gone");
+  });
+
+  it("still reaps local runtime but reports unexpected Core deletion failures", async () => {
+    const reapLocalSession = vi.fn();
+
+    await expect(
+      forceDeleteTerminalSession("broken", {
+        reapLocalSession,
+        deleteCoreSession: async () => Promise.reject(new Error("tmux unavailable")),
+      }),
+    ).rejects.toThrow("tmux unavailable");
+
+    expect(reapLocalSession).toHaveBeenCalledExactlyOnceWith("broken");
   });
 });

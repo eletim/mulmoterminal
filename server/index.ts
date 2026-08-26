@@ -266,11 +266,6 @@ const lifecycle = createSessionLifecycle({
   ...mobileWebPushActivityDeps,
 });
 const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
-const deleteTerminalSession = (id: string) =>
-  forceDeleteTerminalSession(id, {
-    reapLocalSession: reap,
-    deleteCoreSession: (sessionId) => coreSessions.delete(sessionId),
-  });
 const inputReadiness = createInputReadinessTracker();
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
@@ -493,7 +488,11 @@ mountAppRoutes(app, {
   noteTitleTurn,
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
   maybeGenerateTitle,
-  deleteTerminalSession,
+  deleteTerminalSession: (id) =>
+    forceDeleteTerminalSession(id, {
+      reapLocalSession: reap,
+      deleteCoreSession: (sessionId) => coreSessions.delete(sessionId),
+    }),
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
   agentOfSession: (id: string) => agentOfSession(id),
