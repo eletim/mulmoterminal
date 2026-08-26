@@ -10,7 +10,7 @@ import { buildClaudeArgs } from "../agents/claude-args.js";
 import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
 import { hookedSessions, ptys, resetSessionToolGroups } from "./registry.js";
-import { ptySpawn, ptyWouldReattach } from "./pty-spawn.js";
+import { isCoreSessionExitEvent, ptySpawn, ptyWouldReattach } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { attachDraftInjection } from "./draft-injection.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
@@ -73,14 +73,9 @@ function newSessionTitle(seed: string | undefined): string {
   return (seed ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 }
 
-function recordClaudeLive(sessionId: string, deps: SpawnDeps): void {
-  deps.inputReadiness?.markSessionLive(sessionId, "claude");
-}
-
-function relayClaudeOutput(entry: PtyEntry, sessionId: string, data: string, deps: SpawnDeps): void {
+function relayClaudeOutput(entry: PtyEntry, data: string, deps: SpawnDeps): void {
   entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
   sendFrame(entry.ws, { type: "output", data });
-  deps.inputReadiness?.noteOutput(sessionId, "claude", data);
 }
 
 // What this session runs, and the directory config it runs under (#579). A refusal THROWS:
@@ -208,7 +203,6 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
     ptys.set(sessionId, entry);
-    recordClaudeLive(sessionId, deps);
     // Every spawn carries the hooks, so the MCP broker must not record its GUI calls again
     // (mcp/gui-call-history.ts).
     hookedSessions.add(sessionId);
@@ -224,17 +218,17 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     // PTY -> browser (buffering a bounded tail for reattach).
     entry.term.onData((data) => {
-      relayClaudeOutput(entry, sessionId, data, deps);
+      relayClaudeOutput(entry, data, deps);
       scanForDraftReady(data);
     });
 
-    entry.term.onExit(({ exitCode, signal }) => {
+    entry.term.onExit((event) => {
+      const { exitCode, signal } = event;
       console.log(ptyExitLine({ agent: "claude", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
-      deps.inputReadiness?.markSessionStopped(sessionId);
+      if (isCoreSessionExitEvent(event)) deps.endSessionActivity(sessionId);
       sendExitAndClose(entry.ws, exitCode, signal);
       // Clear the activity dot and release this process's viewer transport. Core membership
       // remains discoverable independently of transcript persistence.
-      deps.setWorking(sessionId, false);
       deps.reap(sessionId);
     });
 

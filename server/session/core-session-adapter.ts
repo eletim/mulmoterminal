@@ -243,6 +243,12 @@ export class CoreSessionAdapter {
     this.exitPollInFlight = true;
     try {
       const sessions = await this.core.list();
+      const memberIds = new Set(sessions.map((session) => session.id));
+      // Explicit Delete is not a process-exit event. Drop observers for vanished membership
+      // without notifying activity/process-exit consumers or retaining an idle poll forever.
+      for (const id of this.exitWatchers.keys()) {
+        if (!memberIds.has(id)) this.exitWatchers.delete(id);
+      }
       for (const session of sessions) {
         if (!session.exited) continue;
         const listeners = this.exitWatchers.get(session.id);

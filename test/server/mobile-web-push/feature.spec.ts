@@ -18,14 +18,14 @@ vi.mock("../../../server/config/config-routes.js", async (importOriginal) => ({
 vi.mock("../../../server/session/registry.js", () => registry);
 vi.mock("../../../server/session/core-session-adapter.js", () => ({ coreSessions: core }));
 
-const { mobileWebPushActivityLifecycleDeps } = await import("../../../server/mobile-web-push/feature.js");
+const { mobileWebPushActivityDeps } = await import("../../../server/mobile-web-push/feature.js");
 
 const sender = (): MobileWebPushSender => ({
   sendTest: vi.fn(),
   sendActivity: vi.fn(async (): Promise<MobileWebPushSendResult> => ({ ok: true, sent: 1, failed: 0, targets: 1, removed: 0 })),
 });
 
-describe("mobileWebPushActivityLifecycleDeps", () => {
+describe("mobileWebPushActivityDeps", () => {
   beforeEach(() => {
     pushKinds = ["finished", "waiting"];
     registry.isUserScheduledSession.mockReturnValue(false);
@@ -35,7 +35,7 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
   it("sends selected local Web Push activity kinds without a master switch", async () => {
     pushKinds = ["waiting"];
     const mobileWebPush = sender();
-    const deps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush });
+    const deps = mobileWebPushActivityDeps({ sender: mobileWebPush });
 
     deps.notifyMobileWebPushActivity?.({ kind: "waiting", sessionId: "session-a", agent: "codex" });
     deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "session-a", agent: "codex" });
@@ -48,7 +48,7 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
   it("sends no local Web Push activity when no kinds are selected", async () => {
     pushKinds = [];
     const mobileWebPush = sender();
-    const deps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush });
+    const deps = mobileWebPushActivityDeps({ sender: mobileWebPush });
 
     deps.notifyMobileWebPushActivity?.({ kind: "waiting", sessionId: "session-a", agent: "codex" });
     deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "session-a", agent: "codex" });
@@ -59,7 +59,7 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
 
   it("uses the same background and translation-worker suppression as existing task push", async () => {
     const mobileWebPush = sender();
-    const deps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush });
+    const deps = mobileWebPushActivityDeps({ sender: mobileWebPush });
 
     core.find.mockResolvedValueOnce({ visibility: "background" });
     deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "background-session", agent: "claude" });
@@ -74,10 +74,10 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
     expect(mobileWebPush.sendActivity).toHaveBeenCalledWith("finished", { kind: "finished", sessionId: "scheduled-session", agent: "claude" });
   });
 
-  it("does not let async send failures escape lifecycle notification dispatch", async () => {
+  it("does not let async send failures escape activity notification dispatch", async () => {
     const mobileWebPush = sender();
     vi.mocked(mobileWebPush.sendActivity).mockRejectedValueOnce(new Error("push failed"));
-    const deps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush });
+    const deps = mobileWebPushActivityDeps({ sender: mobileWebPush });
 
     expect(() => deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "session-a", agent: "claude" })).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));

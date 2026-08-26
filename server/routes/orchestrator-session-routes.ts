@@ -3,15 +3,7 @@ import { SESSION_ID_RE } from "../config/env.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
 import type { WorkPhase } from "../session/workPhase.js";
-import {
-  localServerToServerAllowed,
-  sessionApiBearerToken,
-  terminalInputReadiness,
-  type InputReadinessSession,
-  type TerminalInputReadiness,
-  type TerminalSessionLifecycle,
-  type TerminalSessionRuntime,
-} from "../session/input-readiness.js";
+import { localServerToServerAllowed, sessionApiBearerToken } from "./session-api-auth.js";
 import {
   createTerminalSessionFromBody,
   createTerminalSessionInputSender,
@@ -28,10 +20,10 @@ export interface OrchestratorSessionStatus {
   sessionId: string;
   agent: SessionAgent | null;
   cwd: string | null;
-  lifecycle: TerminalSessionLifecycle;
-  runtime: TerminalSessionRuntime;
+  lifecycle: "starting" | "live" | "detached" | "stopped" | "failed";
+  runtime: { pty: boolean; tmux: boolean; attached: boolean };
   activity: { working: boolean; waiting: boolean; event: string | null; at: number; workPhase: WorkPhase | null };
-  input: TerminalInputReadiness;
+  input: { available: boolean; ready: boolean; known: boolean; reason: string; source: string; checkedAt: number | null };
   inputAvailable: boolean;
   readyForInput: boolean;
 }
@@ -74,33 +66,6 @@ function rejectUnauthorized(req: Request, res: Response, deps: OrchestratorSessi
 function readinessOnly(status: OrchestratorSessionStatus | null): { ready: boolean; reason: string } {
   if (!status) return { ready: false, reason: "session not found" };
   return { ready: status.readyForInput, reason: status.input.reason };
-}
-
-export function orchestratorSessionStatus(
-  record: InputReadinessSession & {
-    id: string;
-    cwd: string | null;
-    activity: { working: boolean; waiting: boolean; event: string | null; at: number };
-  },
-  workPhase: WorkPhase | null,
-  input: TerminalInputReadiness,
-): OrchestratorSessionStatus {
-  return {
-    ok: true,
-    sessionId: record.id,
-    agent: record.agent,
-    cwd: record.cwd,
-    lifecycle: record.lifecycle,
-    runtime: record.runtime,
-    activity: { ...record.activity, workPhase },
-    input,
-    inputAvailable: input.available,
-    readyForInput: input.available && input.ready,
-  };
-}
-
-export function inputReadinessForRecord(record: InputReadinessSession, tracked: Parameters<typeof terminalInputReadiness>[1]): TerminalInputReadiness {
-  return terminalInputReadiness(record, tracked);
 }
 
 export function mountOrchestratorSessionRoutes(app: Express, deps: OrchestratorSessionRouteDeps): void {

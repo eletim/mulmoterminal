@@ -96,7 +96,6 @@ export function createCodexSpawner(deps: SpawnDeps) {
     console.log(ptyStartLine({ agent: "codex", pid: term.pid, cwd, tmux, reattached, sessionId, note }));
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "codex" };
     ptys.set(sessionId, entry);
-    deps.inputReadiness?.markSessionLive(sessionId, "codex");
     if (resumeRolloutId) {
       rememberCodexRolloutId(sessionId, resumeRolloutId);
       const file = codexRolloutPath(root, resumeRolloutId);
@@ -110,7 +109,6 @@ export function createCodexSpawner(deps: SpawnDeps) {
     // attachCodexAutoRun), so a long collection-action prompt can't overflow tmux's command limit.
     const autoRun = initialPrompt ? attachCodexAutoRun(entry, initialPrompt) : undefined;
     wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps, (data) => {
-      deps.inputReadiness?.noteOutput(sessionId, "codex", data);
       autoRun?.(data);
     });
     return entry;

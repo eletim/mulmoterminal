@@ -66,6 +66,7 @@ const deps = {
   publishActivity: vi.fn(),
   uiPort: "3000",
   publishSessionCreated: vi.fn(),
+  endSessionActivity: vi.fn(),
 };
 
 // `ws` is null throughout: every case here spawns headless, and the socket was only ever passed

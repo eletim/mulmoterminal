@@ -6,7 +6,8 @@
 // unreachable without booting the server.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { createSessionLifecycle, type SessionLifecycleDeps } from "../../../server/session/lifecycle.js";
+import { createSessionLifecycle as createViewerLifecycle, type SessionLifecycleDeps } from "../../../server/session/lifecycle.js";
+import { createSessionActivity, type ActivityServiceDeps } from "../../../server/session/session-activity.js";
 import { activity, antigravityConversations, codexRolloutIds, lastPrompts, lastResponses, ptys, sessionMemos } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
@@ -25,12 +26,17 @@ const ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_ID = "22222222-3333-4444-8555-666666666666";
 const THIRD_ID = "33333333-4444-4555-8666-777777777777";
 
-const makeDeps = (overrides: Partial<SessionLifecycleDeps> = {}) => ({
+type TestDeps = SessionLifecycleDeps & ActivityServiceDeps;
+const makeDeps = (overrides: Partial<TestDeps> = {}): TestDeps => ({
   publish: vi.fn(),
   forgetWorkPhase: vi.fn(),
   forgetTerminalSize: vi.fn(),
   ...overrides,
 });
+
+// The implementations are intentionally separate; this combined test facade lets the historical
+// behavior assertions exercise each owner while lifecycle.ts itself exposes no activity API.
+const createSessionLifecycle = (deps: TestDeps) => ({ ...createViewerLifecycle(deps), ...createSessionActivity(deps) });
 
 // A pty entry with just the fields the lifecycle reads.
 const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: null, cwd: "/work", tmux: false, agent: "claude", ...over }) as never;
@@ -74,13 +80,13 @@ describe("reap", () => {
     expect(deps.forgetTerminalSize).toHaveBeenCalledWith(ID);
   });
 
-  it("kills the pty and tells subscribers the session closed", () => {
+  it("kills the viewer pty without publishing an activity lifecycle event", () => {
     const deps = makeDeps();
     const entry = fakeEntry();
     ptys.set(ID, entry);
     createSessionLifecycle(deps).reap(ID);
     expect((entry as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
-    expect(deps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, event: "closed" }));
+    expect(deps.publish).not.toHaveBeenCalled();
   });
 
   // The mark says "our transcript is frozen on a conversation that ended". Teardown is where
@@ -98,9 +104,7 @@ describe("reap", () => {
     expect(deps.publish).not.toHaveBeenCalled();
   });
 
-  // The bold-until-viewed behaviour: a finished background session keeps its activity record
-  // so it stays flagged for the user, while an idle one is dropped to bound the map.
-  it("keeps a waiting session's activity record but drops an idle one's", () => {
+  it("never changes activity records during viewer teardown", () => {
     const deps = makeDeps();
     const lifecycle = createSessionLifecycle(deps);
 
@@ -112,7 +116,7 @@ describe("reap", () => {
     activity.set(ID, { working: false, waiting: false, event: "Stop", at: 1 });
     ptys.set(ID, fakeEntry());
     lifecycle.reap(ID);
-    expect(activity.has(ID)).toBe(false);
+    expect(activity.has(ID)).toBe(true);
   });
 });
 
@@ -325,7 +329,7 @@ describe("setWorking / setWaiting", () => {
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" });
   });
 
-  it("keeps working while a Stop leaves reviewer child processes alive", () => {
+  it("applies Stop immediately without polling reviewer child processes", () => {
     vi.useFakeTimers();
     const hasNewChildren = vi.mocked(hasNewSessionChildProcess);
     vi.mocked(sessionChildProcessPids).mockReturnValue(new Set([200]));
@@ -340,17 +344,14 @@ describe("setWorking / setWaiting", () => {
     lifecycle.setWaiting(ID, true, "Stop");
     lifecycle.setWorking(ID, false, "Stop");
 
-    expect(activity.get(ID)).toMatchObject({ working: true });
-    expect(activity.get(ID)?.waiting).not.toBe(true);
-    expect(notifyMobileWebPushActivity).not.toHaveBeenCalled();
-    expect(hasNewChildren).toHaveBeenCalledWith(ID, expect.anything(), new Set([200]));
+    expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
+    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
+    expect(hasNewChildren).not.toHaveBeenCalled();
 
     hasNewChildren.mockReturnValue(false);
     vi.advanceTimersByTime(1000);
 
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
-    expect(deps.publish).toHaveBeenLastCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Stop" }));
-    expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
   });
 
   it("cancels a deferred Stop clear when a later turn starts", () => {
@@ -369,7 +370,7 @@ describe("setWorking / setWaiting", () => {
     vi.advanceTimersByTime(1000);
 
     expect(activity.get(ID)).toMatchObject({ working: true });
-    expect(activity.get(ID)?.waiting).not.toBe(true);
+    expect(activity.get(ID)?.waiting).toBe(true);
   });
 
   it("does not keep working for child processes that were already present at turn start", () => {
@@ -390,7 +391,7 @@ describe("setWorking / setWaiting", () => {
     expect(deps.publish).toHaveBeenLastCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: true, event: "Stop" }));
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "claude" });
     vi.advanceTimersByTime(1000);
-    expect(vi.mocked(hasNewSessionChildProcess)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(hasNewSessionChildProcess)).not.toHaveBeenCalled();
   });
 
   it("keeps activity updates working when a local mobile Web Push notification throws", () => {
@@ -449,18 +450,17 @@ describe("the reap timer", () => {
     expect(ptys.has(ID)).toBe(true);
   });
 
-  // "Clearly working — don't close it."
-  it("keeps a detached session that is still working", () => {
+  it("uses the fixed viewer grace even while activity says working", () => {
     vi.useFakeTimers();
     const deps = makeDeps();
     ptys.set(ID, fakeEntry());
     activity.set(ID, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
     createSessionLifecycle(deps).armReapForDetached(ID);
     vi.advanceTimersByTime(60 * 60_000);
-    expect(ptys.has(ID)).toBe(true);
+    expect(ptys.has(ID)).toBe(false);
   });
 
-  it("keeps a detached shell while it still has a foreground child process", () => {
+  it("does not inspect shell child processes for viewer lifetime", () => {
     vi.useFakeTimers();
     const deps = makeDeps();
     vi.mocked(hasSessionChildProcess).mockReturnValue(true);
@@ -469,11 +469,11 @@ describe("the reap timer", () => {
     createSessionLifecycle(deps).armReapForDetached(ID);
     vi.advanceTimersByTime(5 * 60_000);
 
-    expect(ptys.has(ID)).toBe(true);
-    expect(hasSessionChildProcess).toHaveBeenCalled();
+    expect(ptys.has(ID)).toBe(false);
+    expect(hasSessionChildProcess).not.toHaveBeenCalled();
   });
 
-  it("reaps a detached shell after its foreground child process is gone", () => {
+  it("reaps a detached shell after one fixed grace", () => {
     vi.useFakeTimers();
     const deps = makeDeps();
     vi.mocked(hasSessionChildProcess).mockReturnValueOnce(true).mockReturnValueOnce(false);
@@ -481,13 +481,10 @@ describe("the reap timer", () => {
 
     createSessionLifecycle(deps).armReapForDetached(ID);
     vi.advanceTimersByTime(30_000);
-    expect(ptys.has(ID)).toBe(true);
-
-    vi.advanceTimersByTime(30_000);
     expect(ptys.has(ID)).toBe(false);
   });
 
-  it("keeps an unacknowledged finished shell past the waiting grace, then reaps after acknowledgement", () => {
+  it("does not use unacknowledged shell activity as viewer retention", () => {
     vi.useFakeTimers();
     const notifyMobileWebPushActivity = vi.fn();
     const deps = makeDeps({ notifyMobileWebPushActivity });
@@ -500,7 +497,7 @@ describe("the reap timer", () => {
     lifecycle.armReapForDetached(ID);
     vi.advanceTimersByTime(31 * 60_000);
 
-    expect(ptys.has(ID)).toBe(true);
+    expect(ptys.has(ID)).toBe(false);
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: true, event: "Stop" });
     expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "finished", sessionId: ID, agent: "shell" });
@@ -508,8 +505,6 @@ describe("the reap timer", () => {
     lifecycle.acknowledgeShellDone(ID);
     expect(activity.get(ID)).toMatchObject({ working: false, waiting: false, event: "Stop" });
     expect(notifyMobileWebPushActivity).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(30_001);
-
     expect(ptys.has(ID)).toBe(false);
   });
 
@@ -532,7 +527,7 @@ describe("the reap timer", () => {
     expect(ptys.has(ID)).toBe(false);
   });
 
-  it("does not turn Codex or Claude waiting sessions into unacknowledged shell Done", () => {
+  it("does not let waiting activity arm or alter viewer cleanup", () => {
     vi.useFakeTimers();
     const deps = makeDeps();
     ptys.set(ID, fakeEntry({ agent: "codex" }));
@@ -540,6 +535,9 @@ describe("the reap timer", () => {
     createSessionLifecycle(deps).setWaiting(ID, true, "Notification");
     vi.advanceTimersByTime(30 * 60_000 + 1);
 
+    expect(ptys.has(ID)).toBe(true);
+    createSessionLifecycle(deps).armReapForDetached(ID);
+    vi.advanceTimersByTime(30_001);
     expect(ptys.has(ID)).toBe(false);
   });
 
