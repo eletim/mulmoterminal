@@ -1602,6 +1602,37 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
+  it("serializes repeated Stop and close clicks into one deletion and one close", async () => {
+    const gate = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
+    const id = "66666666-6666-6666-6666-666666666666";
+    let terminateCalls = 0;
+    globalThis.fetch = vi.fn((url: string) => {
+      const u = String(url);
+      if (u.includes(`/api/session/${id}/terminate`)) {
+        terminateCalls += 1;
+        return gate.promise;
+      }
+      if (u.includes("/api/sessions")) return Promise.resolve({ ok: true, json: async () => ({ sessions: [] }) });
+      return Promise.resolve({ ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) });
+    }) as unknown as typeof fetch;
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: true, waiting: false });
+    await nextTick();
+    await w.find(".cell-close").trigger("click");
+
+    const stop = w.find('[data-testid="rcx-stop"]');
+    await stop.trigger("click");
+    expect(stop.attributes("disabled")).toBeDefined();
+    await stop.trigger("click");
+    expect(terminateCalls).toBe(1);
+
+    gate.resolve({ ok: true, json: async () => ({ ok: true }) });
+    await flushPromises();
+    expect(terminalDisconnect).toHaveBeenCalledTimes(1);
+    expect(w.emitted("close")).toHaveLength(1);
+  });
+
   it("does not auto-close if the session goes idle while the running close prompt is open", async () => {
     const posts = mockFetchCloseCleanup(cleanWtDiff);
     const id = "66666666-6666-6666-6666-666666666666";
@@ -1717,6 +1748,38 @@ describe("TerminalCell", () => {
     await flushPromises();
     expect(posts.some((p) => p.url.includes("/api/worktrees/remove"))).toBe(false);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("does not let Remove race a pending Keep worktree deletion", async () => {
+    const gate = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
+    const id = "66666666-6666-6666-6666-666666666666";
+    let removeCalls = 0;
+    globalThis.fetch = vi.fn((url: string) => {
+      const u = String(url);
+      if (u.includes(`/api/session/${id}/terminate`)) return gate.promise;
+      if (u.includes("/api/worktrees/remove")) {
+        removeCalls += 1;
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      }
+      if (u.includes("/api/worktrees/diff")) return Promise.resolve({ ok: true, json: async () => cleanWtDiff });
+      if (u.includes("/api/sessions")) return Promise.resolve({ ok: true, json: async () => ({ sessions: [] }) });
+      return Promise.resolve({ ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) });
+    }) as unknown as typeof fetch;
+    const w = mountCell(id, { initialCwd: WT_CWD });
+    await flushPromises();
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    await w.find('[data-testid="ccx-keep"]').trigger("click");
+    const remove = w.find('[data-testid="ccx-remove"]');
+    expect(remove.attributes("disabled")).toBeDefined();
+    await remove.trigger("click");
+    expect(removeCalls).toBe(0);
+
+    gate.resolve({ ok: true, json: async () => ({ ok: true }) });
+    await flushPromises();
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(removeCalls).toBe(0);
   });
 
   it("Remove worktree posts a forced remove (path+repoDir = the worktree) then closes", async () => {

@@ -649,13 +649,19 @@ function resetCell() {
 }
 
 async function teardown() {
-  closeError.value = null;
-  if (!(await deleteTerminal())) {
-    closeError.value = "Couldn't stop the terminal. Retry or cancel to keep it open.";
-    if (!isWorktreeCell.value) runningCloseConfirm.value = true;
-    return;
+  if (closeDeleting.value) return;
+  closeDeleting.value = true;
+  try {
+    closeError.value = null;
+    if (!(await deleteTerminal())) {
+      closeError.value = "Couldn't stop the terminal. Retry or cancel to keep it open.";
+      if (!isWorktreeCell.value) runningCloseConfirm.value = true;
+      return;
+    }
+    resetCell();
+  } finally {
+    closeDeleting.value = false;
   }
-  resetCell();
 }
 
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
@@ -671,6 +677,7 @@ const dismissTidy = () => (dismissedTidyPr.value = workItem.value.pr);
 const closeConfirm = ref(false);
 const runningCloseConfirm = ref(false);
 const closeChecking = ref(false); // refreshing dirty/ahead — the destructive action is held until it's accurate
+const closeDeleting = ref(false); // serialize the destructive request and every completion path
 const closeError = ref<string | null>(null);
 const unsaved = computed(() => unsavedWork(diff.value));
 const hasUnsaved = computed(() => unsaved.value.has);
@@ -694,6 +701,7 @@ async function close() {
   closeChecking.value = false;
 }
 function cancelClose() {
+  if (closeDeleting.value) return;
   closeConfirm.value = false;
   runningCloseConfirm.value = false;
   closeChecking.value = false;
@@ -712,14 +720,16 @@ async function removeAndClose() {
     await teardown();
     return;
   }
-  closeError.value = null;
-  // Core deletion force-stops the process that owns this cwd. Await it before asking Windows to
-  // remove the directory; merely disconnecting the browser leaves the PTY alive through its grace.
-  if (!(await deleteTerminal())) {
-    closeError.value = "Couldn't stop the terminal — the worktree was not removed.";
-    return;
-  }
+  if (closeDeleting.value) return;
+  closeDeleting.value = true;
   try {
+    closeError.value = null;
+    // Core deletion force-stops the process that owns this cwd. Await it before asking Windows to
+    // remove the directory; merely disconnecting the browser leaves the PTY alive through its grace.
+    if (!(await deleteTerminal())) {
+      closeError.value = "Couldn't stop the terminal — the worktree was not removed.";
+      return;
+    }
     const res = await fetch("/api/worktrees/remove", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -729,6 +739,8 @@ async function removeAndClose() {
     closeError.value = "Couldn't remove the worktree — it may need manual cleanup.";
   } catch {
     closeError.value = "Couldn't reach the server to remove the worktree.";
+  } finally {
+    closeDeleting.value = false;
   }
 }
 
@@ -1410,6 +1422,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               <button
                 data-testid="rcx-cancel"
                 class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                :disabled="closeDeleting"
                 @click="cancelClose"
               >
                 Cancel
@@ -1417,6 +1430,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               <button
                 data-testid="rcx-stop"
                 class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+                :disabled="closeDeleting"
                 @click="stopAndClose"
               >
                 {{ closeError ? "Retry close" : "Stop and close" }}
@@ -1446,6 +1460,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 <button
                   data-testid="ccx-keep"
                   class="cursor-pointer rounded-md border border-accent bg-elevated px-3 py-1.5 font-sans text-[12px] text-fg hover:bg-hover hover:text-fg"
+                  :disabled="closeDeleting"
                   @click="teardown"
                 >
                   Keep worktree
@@ -1453,7 +1468,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 <button
                   data-testid="ccx-remove"
                   class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-                  :disabled="closeChecking"
+                  :disabled="closeChecking || closeDeleting"
                   @click="removeAndClose"
                 >
                   {{ closeChecking ? "Checking…" : hasUnsaved ? "Discard &amp; remove" : "Remove worktree" }}
@@ -1461,6 +1476,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 <button
                   data-testid="ccx-cancel"
                   class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  :disabled="closeDeleting"
                   @click="cancelClose"
                 >
                   Cancel
@@ -1473,12 +1489,14 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 <button
                   data-testid="ccx-remove"
                   class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+                  :disabled="closeDeleting"
                   @click="removeAndClose"
                 >
                   Retry
                 </button>
                 <button
                   class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                  :disabled="closeDeleting"
                   @click="teardown"
                 >
                   Close cell
