@@ -102,7 +102,7 @@ import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
 import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
-import { visibleCoreSessions } from "./session/core-session-visibility.js";
+import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./session/core-session-visibility.js";
 import { legacyMemoForCoreSession, legacySessionMemosHydrated, migrateLegacyMemoToCore } from "./session/core-session-legacy-ui.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
@@ -134,6 +134,11 @@ if (!tmuxAvailable()) {
 // CLAUDE_CWD is the workspace used as the PTY cwd and as the root for persisted
 // session state, so it must exist before we spawn anything into it.
 await fs.mkdir(CLAUDE_CWD, { recursive: true });
+
+const migratedBackgroundSessions = await migrateLegacyBackgroundVisibility(coreSessions);
+if (migratedBackgroundSessions > 0) {
+  console.log(`[upgrade] migrated ${migratedBackgroundSessions} background session classification(s) to Core metadata`);
+}
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
 // Gated to the managed mulmoclaude workspace and

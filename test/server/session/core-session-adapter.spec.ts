@@ -95,6 +95,15 @@ describe("CoreSessionAdapter", () => {
     ]);
   });
 
+  it("updates visibility in Core metadata", async () => {
+    const setMetadata = vi.fn(async () => undefined);
+    const core = { setMetadata } as unknown as SessionCore;
+
+    await new CoreSessionAdapter({ core }).setVisibility(native.id, "internal");
+
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "visibility", "internal");
+  });
+
   it("routes interactive input through Core without an implicit submit", async () => {
     const input = vi.fn(async () => undefined);
     const core = { input } as unknown as SessionCore;

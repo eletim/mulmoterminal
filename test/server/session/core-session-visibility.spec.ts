@@ -1,7 +1,16 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreSession } from "../../../server/session/core-session-adapter.js";
-import { visibleCoreSessions } from "../../../server/session/core-session-visibility.js";
+import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "../../../server/session/core-session-visibility.js";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+});
 
 const session = (id: string): CoreSession => ({
   id,
@@ -26,5 +35,19 @@ describe("visibleCoreSessions", () => {
     const background = { ...session("background"), visibility: "background" as const };
     const internal = { ...session("translation"), visibility: "internal" as const };
     await expect(visibleCoreSessions([session("user"), background, internal])).resolves.toEqual([session("user")]);
+  });
+
+  it("moves legacy background classifications into Core once and removes the retired log", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mulmoterminal-visibility-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "background-sessions.json");
+    const backgroundId = "11111111-2222-4333-8444-555555555555";
+    const ordinaryId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await fs.writeFile(file, JSON.stringify([backgroundId, "missing-session"]));
+    const setVisibility = vi.fn(async () => undefined);
+
+    await expect(migrateLegacyBackgroundVisibility({ list: async () => [session(backgroundId), session(ordinaryId)], setVisibility }, file)).resolves.toBe(1);
+    expect(setVisibility).toHaveBeenCalledWith(backgroundId, "background");
+    await expect(fs.stat(file)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

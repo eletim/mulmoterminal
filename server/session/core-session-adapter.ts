@@ -211,6 +211,10 @@ export class CoreSessionAdapter {
     await this.core.setMetadata(id, RESUME_SOURCE_METADATA_KEY, sourceId);
   }
 
+  async setVisibility(id: string, visibility: CoreSessionVisibility): Promise<void> {
+    await this.core.setMetadata(id, VISIBILITY_METADATA_KEY, visibility);
+  }
+
   private async withMetadata(session: Session): Promise<CoreSession> {
     const metadata = await this.core.listMetadata(session.id);
     const agent = isLaunchAgent(metadata[AGENT_METADATA_KEY]) ? metadata[AGENT_METADATA_KEY] : "shell";
