@@ -39,9 +39,7 @@ import { cleanupSessionDrops } from "./session-drops.js";
 import { runCompletionHook } from "./completion-hooks.js";
 import { stopShellTaskWatch } from "./shell-task-watch.js";
 import { messageOf } from "../errors.js";
-import { tmuxKillSession } from "../infra/tmux.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "./child-processes.js";
-import { recordSessionDeleted, recordSessionStopped } from "./session-lifecycle-records.js";
 import {
   forgetMobileWebPushActivitySession,
   mobileWebPushKindForActivityTransition,
@@ -184,7 +182,6 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
-  recordSessionStopped({ id, agent: entry.agent, cwd: entry.cwd });
   // An unpersisted new session vanishes with its pty; a persisted one stays
   // visible via its on-disk record.
   knownSessions.delete(id);
@@ -209,10 +206,8 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   } catch {
     // already gone
   }
-  // Killing the pty only DETACHES a tmux client — end the tmux session too so an
-  // explicit close / idle reap actually stops the program (no orphan within a live
-  // server). A server crash never runs this, so sessions survive that (the point).
-  if (entry.tmux) tmuxKillSession(id);
+  // This tears down only MulmoTerminal's transient tmux client. Core/tmux membership remains
+  // until the explicit Core.delete() path runs, including for exited remain-on-exit panes.
   // A provider session's settings file holds its token — drop it with the session (#579).
   cleanupSessionSettings(id);
   // Files dropped into this session were copied to tmp for it alone; nothing else refers to them.
@@ -236,7 +231,6 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
 
 function deleteSession(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState, id: string): void {
   reap(deps, mobileWebPushActivityState, id);
-  recordSessionDeleted(id);
 }
 
 function cleanupManagedLiveSessions(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebPushActivityState): string[] {

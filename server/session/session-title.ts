@@ -30,6 +30,15 @@ export interface TitleDeps {
   // Turns, not the raw transcript: the file reaches 585 MB here and cannot be held as a string
   // at all (#998). The title only reads the last few turns anyway.
   generateTitle: (turns: ConversationTurn[]) => Promise<string | null>;
+  /** Persist the reconstruction title beside the Core session, when this is a terminal session. */
+  persistTitle?: (id: string, title: string) => Promise<void>;
+}
+
+function forgetSessionTitle(sessionId: string): void {
+  aiTitles.delete(sessionId);
+  titleTurnCounts.delete(sessionId);
+  titlePending.delete(sessionId);
+  titleEpoch.set(sessionId, (titleEpoch.get(sessionId) ?? 0) + 1);
 }
 
 export function createTitleManager(deps: TitleDeps) {
@@ -37,10 +46,7 @@ export function createTitleManager(deps: TitleDeps) {
   // voids any in-flight generation started before this reset — its (now pre-clear) title
   // must not resurface after the header was cleared.
   function forgetTitle(sessionId: string): void {
-    aiTitles.delete(sessionId);
-    titleTurnCounts.delete(sessionId);
-    titlePending.delete(sessionId);
-    titleEpoch.set(sessionId, (titleEpoch.get(sessionId) ?? 0) + 1);
+    forgetSessionTitle(sessionId);
   }
 
   // Count a user turn and flag the session for a title (re)generation at the next Stop when
@@ -82,6 +88,7 @@ export function createTitleManager(deps: TitleDeps) {
       const title = read && turns.length ? await deps.generateTitle(turns) : null;
       if (title && (titleEpoch.get(sessionId) ?? 0) === epoch) {
         aiTitles.set(sessionId, title);
+        await deps.persistTitle?.(sessionId, title).catch(() => undefined);
         titleTurnCounts.set(sessionId, 0);
         lastTitledUserTurns.set(sessionId, turns.filter((t) => t.role === "user").length);
         deps.publishActivity(sessionId);

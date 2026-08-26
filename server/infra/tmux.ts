@@ -1,9 +1,9 @@
 // tmux-backed session persistence: run each PTY inside a tmux session so it survives
 // the mulmoterminal server dying (crash / restart) and reattaches when the server comes
-// back — like `screen`/`tmux` do. When tmux isn't installed, callers fall back to a
-// direct pty.spawn (non-persistent, current behavior).
+// back — like `screen`/`tmux` do. Terminal sessions require tmux; only explicitly
+// non-persistent command runners use a direct pty.spawn.
 //
-// Isolation: we use our OWN tmux server (`-L mulmoterminal`) and config file, so none
+// Isolation: we use our OWN tmux server (`-L mulmoterminal-core`) and config file, so none
 // of this touches the user's own tmux sessions, keybindings, or status bar.
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -11,9 +11,10 @@ import os from "node:os";
 import { isLauncherEnvVar } from "./pty-env.js";
 import { spawnCapture, spawnCaptureAsync } from "./spawnCapture.js";
 import { splitLines } from "./split-lines.js";
+import { CORE_TMUX_SERVER } from "../session/core-session-config.js";
 
-const SERVER_SOCKET = "mulmoterminal";
-const SESSION_PREFIX = "mt-";
+const SERVER_SOCKET = CORE_TMUX_SERVER;
+const SESSION_PREFIX = "";
 const CONF_FILE = path.join(os.homedir(), ".mulmoterminal", "tmux.conf");
 
 const tmux = (args: string[]) => spawnCapture("tmux", ["-L", SERVER_SOCKET, ...args]);
@@ -21,8 +22,7 @@ const tmuxAsync = (args: string[]) => spawnCaptureAsync("tmux", ["-L", SERVER_SO
 
 let cachedAvailable: boolean | null = null;
 
-// Detected once. Absent (or non-unix) → callers use a direct pty.spawn. On first
-// detection the isolated config is written so `new-session` picks it up via `-f`.
+// Detected once. On first detection the isolated config is written for the dedicated server.
 export function tmuxAvailable(): boolean {
   if (cachedAvailable === null) {
     cachedAvailable = spawnCapture("tmux", ["-V"]).status === 0;
@@ -130,6 +130,10 @@ export function planMsOverride(showStdout: string): MsOverridePlan {
 // Ms override is appended when absent and rewritten in place when a previous version
 // stored the broken value (a server can outlive the upgrade that fixed it).
 function applyLiveTmuxOptions(): void {
+  tmux(["set", "-g", "escape-time", "0"]);
+  tmux(["set", "-g", "history-limit", "20000"]);
+  tmux(["set", "-g", "window-size", "latest"]);
+  tmux(["set", "-g", "destroy-unattached", "off"]);
   tmux(["set", "-g", "mouse", "on"]);
   tmux(["set", "-g", "set-clipboard", "on"]);
   // The status bar is off in CONF_FILE for looks, but the size check (session/tmux-size-sync.ts)
@@ -240,22 +244,15 @@ function ensureConf(): void {
   }
 }
 
+/** Apply MulmoTerminal's presentation options after Core creates the dedicated server. */
+export function configureCoreTmuxServer(): void {
+  ensureConf();
+}
+
 export const tmuxSessionName = (id: string): string => `${SESSION_PREFIX}${id}`;
 
-// argv for `tmux new-session -A`: create the session running `file args` (in `cwd`) if
-// it doesn't exist, else ATTACH to the running one (the command is ignored). This one
-// primitive covers both first launch and reattach-after-restart. Returned as the args
-// for pty.spawn("tmux", ...).
-// `env` is set on the new session with `-e`, NOT inherited from our own process: a tmux pane
-// takes the tmux SERVER's environment, and that server outlives any one session, so a variable
-// exported here would either be missing or — worse — hold a previous session's value.
-//
-// With `-A` the flag only applies when the session is CREATED; reattaching an existing one
-// keeps the environment it was created with, which is what we want (its claude process is
-// already running with the value it was given).
-export function tmuxNewSessionArgs(id: string, file: string, args: string[], cwd: string, env: Readonly<Record<string, string>> = {}): string[] {
-  const envArgs = Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
-  return ["-L", SERVER_SOCKET, "-f", CONF_FILE, "new-session", "-A", "-s", tmuxSessionName(id), "-c", cwd, ...envArgs, "--", file, ...args];
+export function tmuxAttachSessionArgs(id: string): string[] {
+  return ["-L", SERVER_SOCKET, "attach-session", "-t", tmuxSessionName(id)];
 }
 
 // Is a persistent session for this id currently alive in our tmux server?
@@ -265,10 +262,6 @@ export function tmuxHasSession(id: string): boolean {
 
 // End a persistent session (explicit close / reap). Killing the pty only detaches our
 // client — the session (and its program) would otherwise keep running.
-export function tmuxKillSession(id: string): void {
-  tmux(["kill-session", "-t", tmuxSessionName(id)]);
-}
-
 // The rendered contents of a session's pane — the visible screen plus `historyLines` of
 // scrollback above it — available even while the session is DETACHED and across a server
 // restart (tmux outlives the node process). Null when tmux has no such session, which is
@@ -437,6 +430,7 @@ export function parseTmuxClientSessions(stdout: string): Map<string, number> {
   const counts = new Map<string, number>();
   for (const line of splitLines(stdout)) {
     const name = line.trim();
+    if (!name) continue;
     if (!name.startsWith(SESSION_PREFIX)) continue;
     const id = name.slice(SESSION_PREFIX.length);
     counts.set(id, (counts.get(id) ?? 0) + 1);
@@ -454,28 +448,4 @@ export function parseTmuxClientSessions(stdout: string): Map<string, number> {
 export function tmuxAttachedCounts(): Map<string, number> | null {
   const r = tmux(["list-clients", "-F", "#{session_name}"]);
   return r.status === 0 ? parseTmuxClientSessions(r.stdout) : null;
-}
-
-// Ids of sessions that survived (e.g. across a crash), for startup visibility.
-export function tmuxListSessionIds(): string[] {
-  const r = tmux(["list-sessions", "-F", "#{session_name}"]);
-  if (r.status !== 0) return [];
-  return r.stdout
-    .split("\n")
-    .filter((n) => n.startsWith(SESSION_PREFIX))
-    .map((n) => n.slice(SESSION_PREFIX.length));
-}
-
-// A tmux `mt-<id>` is resumable — an orphan cleanup must NOT reap it — when it's live
-// (an attached pty), a persisted grid/unplaced session, or has a Claude/Codex transcript on disk.
-// Pure so the safe-cleanup rule ("never kill a resumable session") is unit-testable.
-export function isResumableTmuxSession(
-  id: string,
-  live: ReadonlySet<string>,
-  grid: ReadonlySet<string>,
-  unplaced: ReadonlySet<string>,
-  claudeOnDisk: ReadonlySet<string>,
-  codexOnDisk: (id: string) => boolean,
-): boolean {
-  return live.has(id) || grid.has(id) || unplaced.has(id) || claudeOnDisk.has(id) || codexOnDisk(id);
 }

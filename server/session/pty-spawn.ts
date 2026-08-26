@@ -10,7 +10,10 @@ import { resolvePtyLaunchForEnv } from "../infra/resolve-bin.js";
 import { binaryProblemMessage, diagnoseBinary, type BinaryDiagnosis } from "../infra/has-binary.js";
 import { cwdProblemMessage, diagnoseSpawnCwd, type CwdDiagnosis } from "../infra/spawn-cwd.js";
 import { withoutUnset } from "./provider-env.js";
-import { tmuxAvailable, tmuxHasSession, tmuxNewSessionArgs, tmuxScrubEnvNames } from "../infra/tmux.js";
+import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxHasSession, tmuxScrubEnvNames } from "../infra/tmux.js";
+import { shellQuoteFor } from "../config/header-resolve.js";
+import { coreSessions } from "./core-session-adapter.js";
+import type { LaunchAgent } from "../../common/launchAgent.js";
 
 const PTY_COLS = 120;
 const PTY_ROWS = 30;
@@ -38,6 +41,60 @@ export function spawnPty(bin: string, args: string[], cwd: string, unset: readon
   // shim has to be run through cmd.exe (#798). See infra/resolve-bin.ts.
   const launch = resolvePtyLaunchForEnv(bin, args, env);
   return pty.spawn(launch.file, launch.args, { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd, env });
+}
+
+/** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
+export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
+  const onExit: IPty["onExit"] = (listener) => {
+    let fired = false;
+    const watches: { native?: { dispose(): void }; core?: { dispose(): void } } = {};
+    const emit: Parameters<IPty["onExit"]>[0] = (event) => {
+      if (fired) return;
+      fired = true;
+      watches.core?.dispose();
+      watches.native?.dispose();
+      listener(event);
+    };
+    watches.native = term.onExit(emit);
+    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
+      emit({ exitCode: exitCode ?? 0, signal: 0 });
+    });
+    return {
+      dispose() {
+        fired = true;
+        watches.core?.dispose();
+        watches.native?.dispose();
+      },
+    };
+  };
+  return {
+    get pid() {
+      return term.pid;
+    },
+    get cols() {
+      return term.cols;
+    },
+    get rows() {
+      return term.rows;
+    },
+    get process() {
+      return term.process;
+    },
+    get handleFlowControl() {
+      return term.handleFlowControl;
+    },
+    set handleFlowControl(value) {
+      term.handleFlowControl = value;
+    },
+    onData: (listener) => term.onData(listener),
+    onExit,
+    resize: (cols, rows) => term.resize(cols, rows),
+    clear: () => term.clear(),
+    write: (data) => term.write(data),
+    kill: (signal) => term.kill(signal),
+    pause: () => term.pause(),
+    resume: () => term.resume(),
+  };
 }
 
 /** How a spawn's environment differs from ours. One object so ptySpawn keeps a readable arity. */
@@ -146,9 +203,9 @@ export function ptySpawn(
   args: string[],
   cwd: string,
   persistent: boolean,
-  options: PtySpawnEnv = {},
+  options: PtySpawnEnv & { agent?: LaunchAgent } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
-  const { unset = [], env = {}, binEnvVar } = options;
+  const { unset = [], env = {}, binEnvVar, agent = "shell" } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
   const reattached = ptyWouldReattach(sessionId, persistent);
@@ -159,7 +216,15 @@ export function ptySpawn(
     // enough — the server may already carry the name from an earlier session. For the same
     // reason `env` goes to `new-session -e` rather than onto the tmux CLIENT we spawn here.
     if (unset.length > 0) tmuxScrubEnvNames(unset);
-    return { term: spawnPty("tmux", tmuxNewSessionArgs(sessionId, file, args, cwd, env), cwd, unset), tmux: true, reattached };
+    if (!reattached) {
+      const quote = shellQuoteFor(process.platform);
+      const environment = Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`);
+      const command = ["exec", "env", ...environment, quote(file), ...args.map(quote)].join(" ");
+      coreSessions.createSync({ id: sessionId, command, cwd, agent }, ptyEnv(unset, env));
+      configureCoreTmuxServer();
+    }
+    return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };
   }
+  if (persistent) throw new SpawnRefusedError("tmux is required for persistent terminal sessions");
   return { term: spawnPty(file, args, cwd, unset, env), tmux: false, reattached };
 }

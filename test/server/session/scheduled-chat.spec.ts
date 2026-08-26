@@ -39,15 +39,6 @@ describe("a scheduled task's chat", () => {
     expect(registry.isBackgroundSession(ID)).toBe(true);
   });
 
-  it("takes NO grid cell, however often the task fires", async () => {
-    // THE reason this changed. A visible spawn is marked unplaced so the next grid adopts it, and
-    // an hourly task would then add a cell per firing until MAX_TERMINALS — with nobody having
-    // asked for a single terminal.
-    const { registry, spawnScheduledWorker } = await fresh();
-    for (let i = 0; i < 5; i++) spawnScheduledWorker(ID, noop);
-    expect(registry.unplacedSessionRows()).toEqual([]);
-  });
-
   // The one thing it does NOT inherit from being a background session. Suppressing this would
   // silence exactly the case the setting exists for: a task running while the user is away.
   it("stays reachable by Web Push", async () => {

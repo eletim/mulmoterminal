@@ -102,7 +102,7 @@ This fits in one browser tab, and the same view is reachable from your phone.
 
 ### Does it work on Windows?
 
-**Yes.** Windows, macOS and Linux.
+**Yes, through WSL.** MulmoTerminal's terminal sessions require tmux, so Windows users run it inside WSL. macOS and Linux run natively.
 
 CI runs Linux and macOS on every PR, and Windows nightly. There are Windows-specific test cases as well — path separators, `realpathSync` behaviour, `fs.watch` differences.
 
@@ -110,7 +110,7 @@ CI runs Linux and macOS on every PR, and Windows nightly. There are Windows-spec
 
 - **Node.js 22.9+**
 - `claude` or `codex` on your `PATH`
-- optional: `tmux`, for session persistence
+- `tmux`, as the terminal-session runtime and persistence layer
 
 ```bash
 npx mulmoterminal@latest

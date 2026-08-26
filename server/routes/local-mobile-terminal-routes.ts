@@ -20,6 +20,7 @@ import { shellCommandCopyFromScreens } from "../../common/shellCommandCopy.js";
 import {
   createTerminalSessionFromBody,
   createTerminalSessionInputSender,
+  deleteTerminalSession,
   interruptTerminalSession,
   readTerminalSessionScreen,
   resolveStyledScreen,
@@ -43,12 +44,13 @@ export interface LocalMobileTerminalRouteDeps {
   listTerminalSessions: () => Promise<TerminalSessionSummary[]>;
   captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
   acknowledgeTerminalView?: (sessionId: string) => void;
-  writeToSession: (sessionId: string, chunk: string) => boolean;
-  interruptSession: (sessionId: string) => boolean;
-  stopSession: (sessionId: string) => void;
+  writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
+  interruptSession: (sessionId: string) => Promise<void>;
+  stopSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   canClearBox: (sessionId: string) => boolean;
-  submitSequence: (sessionId: string) => string;
-  sessionAgent: (sessionId: string) => SessionAgent | undefined;
+  submitSequence: (sessionId: string) => string | Promise<string>;
+  sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string };
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
@@ -133,7 +135,7 @@ interface InputRouteDeps {
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"];
   sendInput: ReturnType<typeof createTerminalSessionInputSender>;
   captureTerminalScreen: LocalMobileTerminalRouteDeps["captureTerminalScreen"];
-  sessionAgent: (sessionId: string) => SessionAgent | undefined;
+  sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   setWaiting: LocalMobileTerminalRouteDeps["setWaiting"];
   pendingShellCommandCopies: Map<string, PendingShellCommandCopy>;
 }
@@ -165,18 +167,24 @@ function mountSessionOperationRoutes(
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
   interruptSession: LocalMobileTerminalRouteDeps["interruptSession"],
   stopSession: LocalMobileTerminalRouteDeps["stopSession"],
+  deleteSession: LocalMobileTerminalRouteDeps["deleteSession"],
 ) {
-  app.post("/api/mobile/terminal-sessions/:id/interrupt", (req: Request<{ id: string }>, res: Response) => {
+  app.post("/api/mobile/terminal-sessions/:id/interrupt", async (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
-    const result = interruptTerminalSession(id, interruptSession);
+    const result = await interruptTerminalSession(id, interruptSession);
     res.status(result.status).json(result.body);
   });
 
-  app.post("/api/mobile/terminal-sessions/:id/stop", (req: Request<{ id: string }>, res: Response) => {
+  app.post("/api/mobile/terminal-sessions/:id/stop", async (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
-    const result = stopTerminalSession(id, stopSession);
+    const result = await stopTerminalSession(id, stopSession);
+    res.status(result.status).json(result.body);
+  });
+  app.delete("/api/mobile/terminal-sessions/:id", async (req: Request<{ id: string }>, res: Response) => {
+    if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
+    const result = await deleteTerminalSession(req.params.id, deleteSession);
     res.status(result.status).json(result.body);
   });
 }
@@ -199,7 +207,7 @@ function mountScreenRoute(
       // failure or a mismatch resolving styled rows must not cost the phone the screen it
       // already has (resolveStyledScreen's own comment covers both cases).
       const styledScreen = await resolveStyledScreen(id, screen, deps.captureStyledScreen);
-      const pendingCopy = deps.sessionAgent(id) === "shell" ? pendingShellCommandCopies.get(id) : undefined;
+      const pendingCopy = (await deps.sessionAgent(id)) === "shell" ? pendingShellCommandCopies.get(id) : undefined;
       const lastCommandCopy = pendingCopy ? shellCommandCopyFromScreens(pendingCopy.beforeScreen, screen.screen, pendingCopy.command) : null;
       res.json({
         ...screen,
@@ -241,6 +249,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     writeToSession,
     interruptSession,
     stopSession,
+    deleteSession,
     canClearBox,
     submitSequence,
     sessionAgent,
@@ -272,7 +281,7 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
   mountCreateTerminalRoute(app, isAllowedOrigin, createTerminalAtCwd);
   mountMobileWebPushRoutes(app, isAllowedOrigin, mobileWebPush);
   mountInputRoute(app, { isAllowedOrigin, sendInput, captureTerminalScreen, sessionAgent, setWaiting, pendingShellCommandCopies });
-  mountSessionOperationRoutes(app, isAllowedOrigin, interruptSession, stopSession);
+  mountSessionOperationRoutes(app, isAllowedOrigin, interruptSession, stopSession, deleteSession);
   mountScreenRoute(app, { captureTerminalScreen, acknowledgeTerminalView, captureStyledScreen, sessionAgent }, pendingShellCommandCopies);
   mountLaunchRoute(app, isAllowedOrigin, launchTerminal);
 }

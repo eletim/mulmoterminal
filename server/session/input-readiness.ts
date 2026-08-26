@@ -1,8 +1,20 @@
 import { claudeAdapter } from "../agents/claude.js";
 import { isLoopbackAddress } from "../infra/loopback.js";
 import { squashForMarker, trustDialogIsUp } from "./pty-scan.js";
-import type { SessionRecord, SessionRecordLifecycle, SessionRecordRuntime } from "./session-records.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
+
+export type TerminalSessionLifecycle = "starting" | "live" | "detached" | "stopped" | "failed";
+export interface TerminalSessionRuntime {
+  pty: boolean;
+  tmux: boolean;
+  attached: boolean;
+}
+export interface InputReadinessSession {
+  agent: SessionAgent | null;
+  lifecycle: TerminalSessionLifecycle;
+  runtime: TerminalSessionRuntime;
+  activity: { working: boolean; waiting: boolean };
+}
 
 export type InputReadinessSource = "shell" | "agent-marker" | "quiet" | "activity" | "unknown" | "unavailable";
 
@@ -137,15 +149,15 @@ export function createInputReadinessTracker(): InputReadinessTracker {
   };
 }
 
-function active(lifecycle: SessionRecordLifecycle): boolean {
+function active(lifecycle: TerminalSessionLifecycle): boolean {
   return lifecycle === "starting" || lifecycle === "live" || lifecycle === "detached";
 }
 
-export function terminalInputAvailable(runtime: SessionRecordRuntime): boolean {
+export function terminalInputAvailable(runtime: TerminalSessionRuntime): boolean {
   return runtime.pty || runtime.tmux;
 }
 
-export function terminalInputReadiness(record: SessionRecord, tracked: TrackedInputReadiness | null): TerminalInputReadiness {
+export function terminalInputReadiness(record: InputReadinessSession, tracked: TrackedInputReadiness | null): TerminalInputReadiness {
   const available = terminalInputAvailable(record.runtime);
   if (!active(record.lifecycle)) {
     return { available, ...notReady("unavailable", `session lifecycle is ${record.lifecycle}`) };

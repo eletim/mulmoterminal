@@ -11,8 +11,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
 import type { DirModelChoice } from "./provider-env.js";
-import { asTerminalAgent } from "../../common/sessionAgent.js";
-import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
@@ -26,7 +24,6 @@ import {
 import { applySessionMemo, createMemoWriteGuard, sessionMemoLine, sessionMemoRecord } from "./session-memos.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
-import { devTerminalCwdLine, hydrateCwdsInto } from "./dev-terminal-cwds.js";
 import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
 import type { Activity, KnownSession, PtyEntry } from "./types.js";
@@ -184,32 +181,6 @@ function idLogAppender(file: string, label: string): (id: string) => void {
   };
 }
 
-// Session ids that belong to the multi-terminal GRID — dev terminals, spawned with
-// gui=0 (no GUI MCP; see the ?gui handling in the WS connection handler). They're
-// FILTERED OUT of the chat sidebar's /api/sessions so a grid terminal never surfaces
-// as a clickable chat row: selecting it in chat would reattach its live PTY and
-// SUPERSEDE the grid cell (the "chat hijacked my multi-terminal session" bug). The
-// set is persisted so the exclusion survives a reboot and outlives the live PTY — a
-// reaped grid session's on-disk transcript still shouldn't reappear as a chat. NOTE:
-// the exclusion applies ONLY to the unscoped (chat) query; the grid's OWN cwd-scoped
-// resume picker (/api/sessions?cwd=…) must keep listing these so they stay resumable.
-export const devTerminalSessions = new Set<string>();
-const DEV_TERMINAL_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-sessions.json");
-export const devTerminalSessionsHydrated = hydrateIdLog(DEV_TERMINAL_SESSIONS_FILE, devTerminalSessions);
-const appendDevTerminalSession = idLogAppender(DEV_TERMINAL_SESSIONS_FILE, "dev-terminal-sessions");
-
-// Record a grid/dev-terminal session id, then persist. A no-op once the id is known,
-// so repeated reattaches of the same cell — or a reconnect after a reboot — don't
-// rewrite the file.
-export function markDevTerminalSession(id: string, cwd?: string): void {
-  // The cwd is recorded even for an id we already knew: this is the one place that sees a cell's
-  // directory, and a session relaunched somewhere else must not keep answering with the old one.
-  if (SESSION_ID_RE.test(id) && cwd) rememberSessionCwd(id, cwd);
-  if (!SESSION_ID_RE.test(id) || devTerminalSessions.has(id)) return;
-  devTerminalSessions.add(id);
-  appendDevTerminalSession(id);
-}
-
 // Session ids spawned as background workers: the scheduled collection refresh, and any
 // `spawnBackgroundChat hidden:true`. The chat list keeps them, but behind the Background
 // filter rather than among the user's own chats (#1060).
@@ -233,101 +204,6 @@ function markBackgroundSession(id: string): void {
  *  background once stays background. */
 export function isBackgroundSession(id: string): boolean {
   return hiddenSessions.has(id) || backgroundSessions.has(id);
-}
-
-// Visible sessions the SERVER spawned that no grid cell has taken yet.
-//
-// A visible chat can be started while no tab is open at all — an agent calling
-// spawnBackgroundChat, a scheduled task, or the phone can all do that. This is the durable
-// half: the server remembers that one is waiting, and the next grid to load adopts it.
-//
-// UNPLACED is the whole meaning, so the mark is cleared the moment a grid cell attaches (see
-// ws-routes, the one choke point for every grid attach). That keeps it server-side state with one
-// writer, rather than a dismissed-set growing in each tab — and it is why a browser-placed chat
-// does not come back as a second cell on the next load.
-//
-// Persisted because the case it exists for is precisely "nobody was looking": a mark held only in
-// memory would be lost by the restart that happens before anyone opens a tab.
-// `<session id> <launch agent>` per line, because the ID ALONE is not enough to reconnect. A cell
-// adopting a codex session over claude's endpoint attaches to the wrong agent, and a mobile-created
-// shell must come back as a shell launcher rather than being disguised as an agent. The live
-// PtyEntry that would have said so is exactly what is gone in the case this exists for — the server
-// restarted, or the pty was reaped, before anyone opened a tab.
-const unplacedSessions = new Map<string, LaunchAgent>();
-const UNPLACED_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "unplaced-sessions.json");
-const asUnplacedLaunchAgent = (value: unknown): LaunchAgent => (typeof value === "string" && isLaunchAgent(value) ? value : asTerminalAgent(value));
-export const unplacedSessionsHydrated = (async () => {
-  try {
-    const contents = await fs.readFile(UNPLACED_SESSIONS_FILE, "utf8");
-    for (const line of contents.split("\n")) {
-      const [id, agent] = line.trim().split(/\s+/);
-      // A line with no agent is one written before this field existed; claude is what those were.
-      if (id && isValidSessionId(id)) unplacedSessions.set(id, asUnplacedLaunchAgent(agent));
-    }
-  } catch {
-    // absent on first run / unreadable => nothing waiting
-  }
-})();
-let unplacedPersist: Promise<void> = Promise.resolve();
-function appendUnplacedSession(id: string, agent: LaunchAgent): void {
-  unplacedPersist = unplacedPersist
-    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
-    .then(() => fs.appendFile(UNPLACED_SESSIONS_FILE, `\n${id} ${agent}`))
-    .catch((e) => console.error(`[unplaced-sessions] failed to persist: ${messageOf(e)}`));
-}
-// Ids whose mark has been cleared this process. The log is append-only (MULMOTERMINAL_HOME is
-// shared between server instances, so a read-merge-write loses one of them), and hydration reads
-// it as it was BEFORE a clear could be appended — so without this a session adopted during startup
-// would be handed back as unplaced.
-const placedSessions = new Set<string>();
-
-/** Note that the server spawned a VISIBLE session nobody has a cell for yet. The launch agent
- *  travels with the id for the same reason it does everywhere else: the cell has to reconnect on
- *  the right endpoint, and by the time this is read the running process may be gone. */
-export function markUnplacedSession(id: string, agent: LaunchAgent = "claude", cwd?: string): void {
-  if (isValidSessionId(id) && cwd) rememberSessionCwd(id, cwd);
-  if (!isValidSessionId(id) || unplacedSessions.has(id)) return;
-  unplacedSessions.set(id, agent);
-  appendUnplacedSession(id, agent);
-}
-
-/** A grid cell has taken this session — or the user closed it. Either way it is no longer waiting
- *  for a home, and must not be adopted again on the next load. */
-export function markSessionPlaced(id: string): void {
-  if (!isValidSessionId(id)) return;
-  unplacedSessions.delete(id);
-  // A no-op once known, like every other mark in this file — and here it is not just tidiness.
-  // This runs at ALL FOUR ws attach points, so a long-lived session reconnecting (a reload, a
-  // network blip, a page switch in the grid) would otherwise append a line every time: the log
-  // would grow with ATTACH count rather than session count, and /api/sessions/unplaced waits on
-  // hydrating it (Codex, PR #1189).
-  if (placedSessions.has(id)) return;
-  placedSessions.add(id);
-  appendPlacedSession(id);
-}
-const PLACED_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "placed-sessions.json");
-export const placedSessionsHydrated = hydrateIdLog(PLACED_SESSIONS_FILE, placedSessions);
-const appendPlacedSession = idLogAppender(PLACED_SESSIONS_FILE, "placed-sessions");
-
-/**
- * A viewer now has this session, so it stops waiting for a home (see the unplaced marker).
- *
- * BOTH ids. The resolvers mint a FRESH one when the requested session can be served neither from a
- * live pty nor from a transcript — a spawn that died before writing one, which is exactly the kind
- * that ends up unplaced. Clearing only the new id would leave the requested one marked forever, so
- * every activate would adopt it again and mint another session, accumulating cells (Codex, #1189).
- *
- * Cleared for ANY attach, not only a grid one: "unplaced" means nobody is looking, and a viewer is
- * a viewer.
- */
-export function markAttachedSessionPlaced(sessionId: string, requested: string | null): void {
-  markSessionPlaced(sessionId);
-  if (requested && requested !== sessionId) markSessionPlaced(requested);
-}
-
-/** The sessions a loading grid should adopt: spawned visible by the server, never taken. */
-export function unplacedSessionRows(): { id: string; agent: LaunchAgent }[] {
-  return [...unplacedSessions].filter(([id]) => !placedSessions.has(id)).map(([id, agent]) => ({ id, agent }));
 }
 
 // Sessions that connected on the ALL-TOOLS MCP url (`/api/mcp/:sessionId`). That url is handed
@@ -447,32 +323,6 @@ export const backgroundMarkers = {
 
 // Where each grid session was started, for the sessions this process did not spawn (#1021). Live
 // ones answer from `ptys`, which is the truer source — it knows where claude actually runs.
-const sessionCwds = new Map<string, string>();
-const DEV_TERMINAL_CWDS_FILE = path.join(MULMOTERMINAL_HOME, "dev-terminal-cwds.json");
-
-export const devTerminalCwdsHydrated: Promise<void> = (async () => {
-  try {
-    hydrateCwdsInto(sessionCwds, await fs.readFile(DEV_TERMINAL_CWDS_FILE, "utf8"), isValidSessionId);
-  } catch {
-    // absent on first run, unreadable => nothing remembered; the list degrades to today's behaviour
-  }
-})();
-
-/** The remembered directory for a session, or null. */
-export function sessionCwd(id: string): string | null {
-  return sessionCwds.get(id) ?? null;
-}
-
-let devTerminalCwdPersist: Promise<void> = Promise.resolve();
-function rememberSessionCwd(id: string, cwd: string): void {
-  if (sessionCwds.get(id) === cwd) return; // already the answer; appending would only grow the log
-  sessionCwds.set(id, cwd);
-  devTerminalCwdPersist = devTerminalCwdPersist
-    .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
-    .then(() => fs.appendFile(DEV_TERMINAL_CWDS_FILE, devTerminalCwdLine(id, cwd)))
-    .catch((e) => console.error(`[dev-terminal-cwds] failed to persist: ${messageOf(e)}`));
-}
-
 // Which agy conversation each antigravity session runs, so a cold reconnect can resume it with
 // `--conversation <id>`. Persisted because agy mints the id and we discover it after the spawn: a
 // map that dies with the process leaves the conversation on disk with nothing pointing at it.
@@ -515,21 +365,8 @@ export function rememberAntigravityConversation(sessionId: string, conversationI
     .catch((e) => console.error(`[antigravity-conversations] failed to persist: ${messageOf(e)}`));
 }
 
-/** A read-only copy of the registry facts SessionRecord needs. The registry remains the writer
- *  for these facts until the lifecycle writer lands; this keeps #114 from adding another SoT. */
-export function sessionRecordRegistrySnapshot() {
-  return {
-    devTerminalIds: [...devTerminalSessions],
-    unplaced: [...unplacedSessions].map(([id, agent]) => ({ id, agent })),
-    placedIds: [...placedSessions],
-    backgroundIds: [...new Set([...hiddenSessions, ...backgroundSessions])],
-    failedIds: [...failedWorkers],
-    cwdBySession: new Map(sessionCwds),
-    antigravityConversations: [...antigravityConversations.values()],
-    internalIds: [...translationWorkerIds],
-  };
-}
-
+// UI and conversation auxiliary state below never establishes terminal membership. Core is the
+// only authority for whether a terminal session exists.
 // The one-line note the user wrote on a session (#1084). Their own words about what a cell is
 // for, which is the one thing nothing else here knows: lastPrompt and aiTitle both describe what
 // the agent said. Kept across reap and across a restart — a note the user typed is theirs, and

@@ -1,18 +1,16 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { buildSessionRecords, type SessionRecord } from "../../../server/session/session-records";
-import { createInputReadinessTracker, terminalInputReadiness } from "../../../server/session/input-readiness";
+import { createInputReadinessTracker, terminalInputReadiness, type InputReadinessSession } from "../../../server/session/input-readiness";
 
-function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
-  const id = randomUUID();
-  const base = buildSessionRecords({
-    ids: [id],
-    live: [{ id, agent: "codex", cwd: "/work", tmux: true }],
-    now: 100,
-  })[0];
-  if (!base) throw new Error("expected a session record");
-  return { ...base, ...overrides };
+function record(overrides: Partial<InputReadinessSession> = {}): InputReadinessSession {
+  return {
+    agent: "codex",
+    lifecycle: "live",
+    runtime: { pty: true, tmux: true, attached: false },
+    activity: { working: false, waiting: false },
+    ...overrides,
+  };
 }
 
 describe("input readiness", () => {
@@ -56,7 +54,7 @@ describe("input readiness", () => {
       agent: "codex",
       lifecycle: "detached",
       runtime: { pty: false, tmux: true, attached: false },
-      activity: { working: false, waiting: false, event: null, at: null },
+      activity: { working: false, waiting: false },
     });
 
     expect(terminalInputReadiness(session, null)).toMatchObject({
@@ -72,7 +70,7 @@ describe("input readiness", () => {
       agent: "claude",
       lifecycle: "live",
       runtime: { pty: true, tmux: true, attached: false },
-      activity: { working: false, waiting: true, event: "Stop", at: 10 },
+      activity: { working: false, waiting: true },
     });
 
     expect(terminalInputReadiness(session, null)).toMatchObject({ available: true, ready: true, source: "activity" });
@@ -83,7 +81,7 @@ describe("input readiness", () => {
       agent: "codex",
       lifecycle: "live",
       runtime: { pty: true, tmux: true, attached: false },
-      activity: { working: true, waiting: false, event: "SessionStart", at: 10 },
+      activity: { working: true, waiting: false },
     });
 
     expect(terminalInputReadiness(session, { ready: true, known: true, reason: "settled", source: "quiet", checkedAt: 10 })).toMatchObject({

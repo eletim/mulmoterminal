@@ -13,7 +13,6 @@ import {
   SCHEDULED_SESSION_RETENTION,
   type ScheduledSessionRecord,
 } from "../../../server/session/scheduled-sessions.js";
-import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 
 const HOUR = 60 * 60_000;
 const NOW = 1_000 * HOUR;
@@ -201,8 +200,7 @@ describe("createScheduledSessionRegistry", () => {
   let dir = "";
   let clockMs = NOW;
   const reapSession = vi.fn();
-  const killTmux = vi.fn();
-  const hasTmux = vi.fn(() => true);
+  const deleteSession = vi.fn(async () => undefined);
   const isInUse = vi.fn<(id: string) => boolean>(() => false);
 
   const registry = () =>
@@ -211,8 +209,7 @@ describe("createScheduledSessionRegistry", () => {
       isValidId: (id) => id.startsWith("s"),
       isInUse,
       reapSession,
-      hasTmux,
-      killTmux,
+      deleteSession,
       policy: { keep: 2, ttlMs: 24 * HOUR },
       now: () => clockMs,
     });
@@ -225,8 +222,6 @@ describe("createScheduledSessionRegistry", () => {
     dir = scheduledSessionsDir("/ws/app", home);
     clockMs = NOW;
     vi.clearAllMocks();
-    sessionLifecycleRecords.clear();
-    hasTmux.mockReturnValue(true);
     isInUse.mockReturnValue(false);
   });
 
@@ -250,8 +245,7 @@ describe("createScheduledSessionRegistry", () => {
     r.register("s3");
     await r.sweep();
     expect(reapSession).toHaveBeenCalledExactlyOnceWith("s1");
-    expect(killTmux).toHaveBeenCalledExactlyOnceWith("s1");
-    expect(sessionLifecycleRecords.get("s1")).toMatchObject({ id: "s1", lifecycle: "stopped" });
+    expect(deleteSession).toHaveBeenCalledExactlyOnceWith("s1");
     expect(await registered()).toEqual(["s2.json", "s3.json"]);
   });
 
@@ -274,18 +268,16 @@ describe("createScheduledSessionRegistry", () => {
     clockMs += 25 * HOUR;
     await registry().sweep();
     // reap() is a no-op without a live entry, so the direct kill is what frees the tmux.
-    expect(killTmux).toHaveBeenCalledWith("s1");
-    expect(sessionLifecycleRecords.get("s1")).toMatchObject({ id: "s1", lifecycle: "stopped" });
+    expect(deleteSession).toHaveBeenCalledWith("s1");
   });
 
-  it("does not kill tmux for a session whose tmux is already gone", async () => {
+  it("asks Core to delete even when no transient PTY exists", async () => {
     const r = registry();
     r.register("s1");
     clockMs += 25 * HOUR;
-    hasTmux.mockReturnValue(false);
     await r.sweep();
     expect(reapSession).toHaveBeenCalledWith("s1");
-    expect(killTmux).not.toHaveBeenCalled();
+    expect(deleteSession).toHaveBeenCalledWith("s1");
   });
 
   it("spares an expired session that is still in use, and reaps it once it is not", async () => {
@@ -341,7 +333,7 @@ describe("createScheduledSessionRegistry", () => {
     await r.sweep();
     await r.sweep();
     expect(reapSession).not.toHaveBeenCalled();
-    expect(killTmux).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
   });
 
   // PORT is configurable, so two servers CAN share a workspace. Neither may drop the
