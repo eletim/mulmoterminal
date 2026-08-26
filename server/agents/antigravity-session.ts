@@ -54,13 +54,13 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 export async function watchForAntigravitySession(
   root: string,
   before: ReadonlySet<string>,
-  opts: { pollMs?: number; maxWaitMs?: number; isCancelled?: () => boolean; claimed?: ReadonlySet<string> } = {},
+  opts: { pollMs?: number; maxWaitMs?: number; isCancelled?: () => boolean | Promise<boolean>; claimed?: ReadonlySet<string> } = {},
 ): Promise<string | null> {
   const pollMs = opts.pollMs ?? WATCH_POLL_MS;
   const deadline = Date.now() + (opts.maxWaitMs ?? WATCH_MAX_WAIT_MS);
   const isCancelled = opts.isCancelled ?? (() => false);
   let result = pickFreshAntigravitySession(root, before, opts.claimed);
-  while (!result && Date.now() < deadline && !isCancelled()) {
+  while (!result && Date.now() < deadline && !(await isCancelled())) {
     await delay(pollMs);
     result = pickFreshAntigravitySession(root, before, opts.claimed);
   }

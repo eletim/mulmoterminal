@@ -107,14 +107,14 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 export async function watchForCodexSession(
   root: string,
   before: Set<string>,
-  opts: { cwd?: string | null; pollMs?: number; maxWaitMs?: number; isCancelled?: () => boolean; claimed?: Set<string> } = {},
+  opts: { cwd?: string | null; pollMs?: number; maxWaitMs?: number; isCancelled?: () => boolean | Promise<boolean>; claimed?: Set<string> } = {},
 ): Promise<RolloutMeta | null> {
   const pollMs = opts.pollMs ?? WATCH_POLL_MS;
   const deadline = Date.now() + (opts.maxWaitMs ?? WATCH_MAX_WAIT_MS);
   const isCancelled = opts.isCancelled ?? (() => false);
   const cwd = opts.cwd ?? null;
   let result = pickFreshSession(root, before, cwd, opts.claimed);
-  while (!result && Date.now() < deadline && !isCancelled()) {
+  while (!result && Date.now() < deadline && !(await isCancelled())) {
     await delay(pollMs);
     result = pickFreshSession(root, before, cwd, opts.claimed);
   }

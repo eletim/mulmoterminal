@@ -338,7 +338,8 @@ interface LaunchStart {
 }
 
 function startLaunchEntry(deps: WsRouteDeps, ws: WebSocket, start: LaunchStart): PtyEntry {
-  const { sessionId, live, command, cwd, coreSessionExists } = start;
+  const { sessionId, command, cwd, coreSessionExists } = start;
+  const live = ptys.get(sessionId);
   if (live) return deps.reattachPty(live, ws, sessionId);
   return deps.spawnLauncherPty(sessionId, ws, command, cwd, coreSessionExists);
 }
@@ -399,7 +400,8 @@ interface CodexStart {
 }
 
 function startCodexEntry(deps: WsRouteDeps, ws: WebSocket, start: CodexStart): PtyEntry {
-  const { sessionId, live, resumeRolloutId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
+  const { sessionId, resumeRolloutId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
+  const live = ptys.get(sessionId);
   if (live) return deps.reattachPty(live, ws, sessionId);
   return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, { mcpGroups, coreSessionExists }); // interactive: no seed
 }
@@ -454,8 +456,11 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
     err instanceof ProviderRefusedError || err instanceof SpawnRefusedError ? err.message : `Failed to start Claude: ${messageOf(err)}`;
 
   startAndWire(deps, ws, { id: sessionId, tag: "claude", early, startFailureMessage, stopLifecycleOnStartFailure: !core, size }, () => {
-    const entry = live
-      ? deps.reattachPty(live, ws, sessionId)
+    // Admission above awaits worktree/provider checks. Re-read after that boundary: the captured
+    // viewer may have been released by its old socket while this reconnect was waiting.
+    const current = ptys.get(sessionId);
+    const entry = current
+      ? deps.reattachPty(current, ws, sessionId)
       : deps.spawnClaudePty(sessionId, resume, ws, { cwd: effectiveCwd, attachGuiMcp, launch, coreSessionExists: !!core });
     // Single view (gui) = the attached session IS the actively-viewed pane, so mark it
     // read. A grid dev-terminal cell (gui=0) is only "viewed" once focused/zoomed (the
@@ -653,7 +658,8 @@ interface AntigravityStart {
 // on it left a reloaded terminal printing output while ignoring every keystroke, and never
 // detaching or reaping when the socket closed.
 function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: AntigravityStart): PtyEntry {
-  const { sessionId, live, resumeConversationId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
+  const { sessionId, resumeConversationId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
+  const live = ptys.get(sessionId);
   const entry = live
     ? deps.reattachPty(live, ws, sessionId)
     : deps.spawnAntigravityPty(sessionId, ws, resumeConversationId, cwd, { mcpGroups, coreSessionExists });

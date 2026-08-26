@@ -19,6 +19,8 @@ import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
 
+const coreSessionEnded = (sessionId: string) => async () => (await coreSessions.find(sessionId))?.exited !== false;
+
 const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
   setWorking: deps.setWorking,
   setWaiting: deps.setWaiting,
@@ -30,10 +32,10 @@ const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
 
 export function createCodexSpawner(deps: SpawnDeps) {
   // codex persists its rollout only after the first user turn, so watch a FRESH session's lifetime
-  // (stop once its pty is gone) and capture the minted id so a later cold reconnect can
+  // (stop once Core exits) and capture the minted id so a later cold reconnect can
   // `codex resume <id>`. Attribution is unambiguous-only (see pickFreshSession).
   function rememberCodexRollout(sessionId: string, root: string, before: Set<string>, cwd: string): void {
-    watchForCodexSession(root, before, { cwd, claimed: claimedCodexRollouts, isCancelled: () => !ptys.has(sessionId) })
+    watchForCodexSession(root, before, { cwd, claimed: claimedCodexRollouts, isCancelled: coreSessionEnded(sessionId) })
       .then((meta) => {
         if (!meta) return;
         claimedCodexRollouts.add(meta.file);
