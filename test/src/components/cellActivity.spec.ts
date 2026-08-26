@@ -13,6 +13,10 @@ describe("applyActivityPush", () => {
     expect(applyActivityPush(shown, { aiTitle: "New title" })).toMatchObject({ working: true, waiting: false });
   });
 
+  it("clears both flags on a complete closed publication", () => {
+    expect(applyActivityPush({ ...shown, waiting: true }, { working: false, waiting: false, event: "closed" })).toMatchObject({ working: false, waiting: false });
+  });
+
   // The opposite for the text: absent means no news…
   it("keeps the prompt and title a push says nothing about", () => {
     expect(applyActivityPush(shown, {})).toMatchObject({ lastPrompt: "fix the login bug", aiTitle: "Login fix" });

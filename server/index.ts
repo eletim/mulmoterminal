@@ -323,7 +323,7 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => {
-    pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" });
+    pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, waiting: false, event: "created" });
   },
   inputReadiness,
 };

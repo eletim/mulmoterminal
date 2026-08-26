@@ -23,7 +23,11 @@ export interface ActivityNotifyState {
   announced: boolean;
 }
 
-export const isActivityNotifyMsg = (d: unknown): d is ActivityNotifyMsg => typeof d === "object" && d !== null && "id" in d;
+export const isActivityNotifyMsg = (d: unknown): d is ActivityNotifyMsg => {
+  if (typeof d !== "object" || d === null) return false;
+  const value = d as Record<string, unknown>;
+  return typeof value.id === "string" && (typeof value.working === "boolean" || typeof value.waiting === "boolean" || "event" in value);
+};
 
 function rawKind(was: ActivityNotifyState, now: ActivityNotifyState, event: string | null): NotifyKind | null {
   const attentionRose = !was.waiting && now.waiting;

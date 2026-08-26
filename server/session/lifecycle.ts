@@ -210,7 +210,7 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   // channel keys on to drop a reaped session (sessionActivity.ts); the outcome rides along as a
   // field. Publishing a second "worker-failed" message instead let the generic teardown
   // notification race ahead of the specific one, and beeped twice for one event (Codex, #1188).
-  deps.publish(SESSIONS_CHANNEL, { id, working: false, event: "closed", failed: isFailedWorker(id) });
+  deps.publish(SESSIONS_CHANNEL, { id, working: false, waiting: false, event: "closed", failed: isFailedWorker(id) });
   forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
 }
 
