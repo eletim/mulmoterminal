@@ -538,9 +538,8 @@ initGoogleBackend();
 
 // The mobile terminal view (#435). Both accessors live here because the PTY table
 // and the title/activity side-tables do; the backend only sees the two functions.
-// A live session knows what it spawned. One that outlived us has no PtyEntry left, so ask
-// tmux what is running in it now — which is also the truer answer when the user started a
-// shell and ran an agent inside it. Null when neither can say.
+// The Core metadata records the kind of Terminal that was launched. A shell remains a shell
+// Terminal when its foreground command changes; pane command is runtime activity, not identity.
 const agentOfSession = async (id: string): Promise<SessionAgent | null> => {
   return (await coreSessions.find(id))?.agent ?? null;
 };
