@@ -213,7 +213,7 @@ Needs **Node ≥ 22.9**, plus these CLIs on your `PATH`:
 | **Required** | `git` | [worktree isolation](#git-worktrees--pull-requests), each cell's branch / unsaved-dot / diff readout, the PR footer | `brew install git` · `sudo apt install git` · `sudo dnf install git` · Windows: [git-scm.com](https://git-scm.com/download/win) |
 | **Required** | `gh` | the cross-repo **PRs & Issues** view and one-click PR creation — it uses your `gh` login, so no token is stored | [cli.github.com](https://cli.github.com), then `gh auth login` |
 | Optional | `glab` | the same for **GitLab** projects (#981) — gitlab.com, and a self-hosted instance you declare in `gitlabHosts` (#1332). Same arrangement: the CLI holds the credentials, this app stores no token | `brew install glab`, then `glab auth login` (self-hosted: `glab auth login --hostname gitlab.example.com`) |
-| Recommended | `tmux` | [session persistence](#session-persistence-tmux) — terminals survive a server restart | `brew install tmux` · `sudo apt install tmux` · `sudo dnf install tmux` · no native Windows build (falls back to plain PTYs) |
+| **Required** | `tmux` | the terminal-session runtime and persistence layer | `brew install tmux` · `sudo apt install tmux` · `sudo dnf install tmux` · on Windows, run MulmoTerminal inside WSL |
 | Optional | `codex` | [Codex sessions](#agents-claude--codex) in a cell, alongside Claude | `npm i -g @openai/codex` |
 | Optional | `ffmpeg` | video rendering from the [mulmo-script panel](#wiki-collections--the-gui-panel) (its plugin ships enabled) | `brew install ffmpeg` · `sudo apt install ffmpeg` · `sudo dnf install ffmpeg` |
 | Optional | `ollama` | [`claude-ollama`](https://receptron.github.io/mulmoterminal/guide/en/claude-ollama.html) — Claude Code against a fully local model | [ollama.com/download](https://ollama.com/download) |
@@ -431,18 +431,18 @@ back to Anthropic. Full walkthrough — setup, the measured model list, adding y
 
 ## Session persistence (tmux)
 
-If **`tmux` is installed**, MulmoTerminal runs each Claude session and launcher inside
-a tmux session, so **a server crash or restart doesn't kill your terminals** — the
+MulmoTerminal runs each Claude session and launcher inside a tmux session, so **a server
+crash or restart doesn't kill your terminals** — the
 processes keep running and reattach when the server comes back (like `screen`/`tmux`).
 A long build, a dev server, or a mid-turn Claude session all survive `node --watch`
-reloads and crashes. It uses its **own** tmux server (`-L mulmoterminal`) and config, so
+reloads and crashes. It uses its **own** tmux server (`-L mulmoterminal-core`) and config, so
 it never touches your personal tmux sessions or keybindings.
 
-**No tmux? No problem** — terminals fall back to plain (non-persistent) PTYs, exactly as
-before. An explicit close (a cell's ✕) ends the tmux session; a machine reboot does not
-survive (tmux itself is gone). Command-cell scripts are ephemeral and not persisted.
+tmux is required because the dedicated tmux server, accessed through
+`tmux-session-core-ts`, is the sole source of truth for terminal existence. An explicit
+close (a cell's ✕) deletes the Core/tmux session. Command-cell scripts are ephemeral.
 
-**Installing tmux** (optional):
+**Installing tmux**:
 
 ```bash
 brew install tmux            # macOS (Homebrew)
@@ -450,9 +450,7 @@ sudo apt install tmux        # Debian / Ubuntu
 sudo dnf install tmux        # Fedora
 ```
 
-On Windows there's no native tmux, so sessions use the non-persistent fallback — run the
-server under **WSL** if you want persistence. Nothing else is required: MulmoTerminal
-detects `tmux` on `PATH` at startup and uses it automatically when present.
+On Windows there is no native tmux build, so run MulmoTerminal under **WSL**.
 
 ---
 

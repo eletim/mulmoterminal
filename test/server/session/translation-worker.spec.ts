@@ -18,9 +18,13 @@ afterEach(() => {
 // Captures the id the worker spawns with, and lets the test answer as that worker would.
 function harness(answer?: (sessionId: string) => void) {
   const reaped: string[] = [];
+  const deleted: string[] = [];
   const spawned: Array<{ sessionId: string; prompt: string }> = [];
   const { translateViaHiddenChat } = createTranslationWorker({
     reap: (id) => reaped.push(id),
+    deleteSession: async (id) => {
+      deleted.push(id);
+    },
     spawnHiddenChat: (sessionId, prompt) => {
       spawned.push({ sessionId, prompt });
       // The real spawner registers a pending sidebar row for a brand-new session; the
@@ -29,7 +33,7 @@ function harness(answer?: (sessionId: string) => void) {
       answer?.(sessionId);
     },
   });
-  return { translateViaHiddenChat, reaped, spawned };
+  return { translateViaHiddenChat, reaped, deleted, spawned };
 }
 
 describe("translateViaHiddenChat", () => {
@@ -51,11 +55,13 @@ describe("translateViaHiddenChat", () => {
     const ok = harness((id) => submitTranslation(id, ["x"]));
     await ok.translateViaHiddenChat("ja", ["hello"]);
     expect(ok.reaped).toEqual([ok.spawned[0].sessionId]);
+    expect(ok.deleted).toEqual([ok.spawned[0].sessionId]);
 
     // A worker that never submits still has to be cleaned up on the way out.
     const bad = harness((id) => failPendingTranslation(id, "boom"));
     await expect(bad.translateViaHiddenChat("ja", ["hello"])).rejects.toThrow();
     expect(bad.reaped).toHaveLength(bad.spawned.length);
+    expect(bad.deleted).toHaveLength(bad.spawned.length);
   });
 
   it("keeps the worker out of the sidebar", async () => {
@@ -110,6 +116,7 @@ describe("translateViaHiddenChat", () => {
   it("surfaces a spawn failure instead of hanging", async () => {
     const { translateViaHiddenChat } = createTranslationWorker({
       reap: () => {},
+      deleteSession: async () => {},
       spawnHiddenChat: () => {
         throw new Error("claude not on PATH");
       },

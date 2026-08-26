@@ -1,21 +1,13 @@
-import { recordSessionDeleted } from "../session/session-lifecycle-records.js";
-
 export interface TerminalSessionOperationDeps {
-  writeToSession: (sessionId: string, chunk: string) => boolean;
-  reapSession: (sessionId: string) => void;
-  hasTmux: (sessionId: string) => boolean;
-  killTmux: (sessionId: string) => void;
+  interrupt: (sessionId: string) => Promise<void>;
+  stop: (sessionId: string) => Promise<void>;
+  delete: (sessionId: string) => Promise<void>;
 }
 
-export function createTerminalSessionOperations({ writeToSession, reapSession, hasTmux, killTmux }: TerminalSessionOperationDeps) {
+export function createTerminalSessionOperations(deps: TerminalSessionOperationDeps) {
   return {
-    interruptSession: (sessionId: string): boolean => writeToSession(sessionId, "\x03"),
-    stopSession: (sessionId: string): void => {
-      reapSession(sessionId);
-      if (hasTmux(sessionId)) {
-        killTmux(sessionId);
-      }
-      recordSessionDeleted(sessionId);
-    },
+    interruptSession: (sessionId: string): Promise<void> => deps.interrupt(sessionId),
+    stopSession: (sessionId: string): Promise<void> => deps.stop(sessionId),
+    deleteSession: (sessionId: string): Promise<void> => deps.delete(sessionId),
   };
 }

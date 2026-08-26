@@ -3,14 +3,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // node-pty is a native module and spawning is the whole point of the file under test, so
 // the pty itself is mocked: what matters here is the ENVIRONMENT handed to it.
-const spawn = vi.fn(() => ({ pid: 1, onData: vi.fn(), onExit: vi.fn(), write: vi.fn(), kill: vi.fn() }));
+const nativeExitDispose = vi.fn();
+const spawn = vi.fn(() => ({ pid: 1, onData: vi.fn(), onExit: vi.fn(() => ({ dispose: nativeExitDispose })), write: vi.fn(), kill: vi.fn() }));
 vi.mock("node-pty", () => ({ default: { spawn: (...args: unknown[]) => spawn(...(args as [])) } }));
 const scrub = vi.fn();
 vi.mock("../../../server/infra/tmux.js", () => ({
   tmuxAvailable: () => tmuxOn,
   tmuxHasSession: (id: string) => liveTmuxSessions.has(id),
-  tmuxNewSessionArgs: (id: string, file: string, args: string[]) => ["new-session", id, file, ...args],
+  tmuxAttachSessionArgs: (id: string) => ["attach-session", id],
+  configureCoreTmuxServer: vi.fn(),
   tmuxScrubEnvNames: (names: readonly string[]) => scrub(names),
+}));
+let coreExitListener: ((event: { exitCode: number | null }) => void) | undefined;
+const coreExitDispose = vi.fn();
+vi.mock("../../../server/session/core-session-adapter.js", () => ({
+  coreSessions: {
+    createSync: vi.fn(),
+    watchExit: vi.fn((_id: string, listener: typeof coreExitListener) => {
+      coreExitListener = listener;
+      return { dispose: coreExitDispose };
+    }),
+  },
 }));
 
 let tmuxOn = false;
@@ -29,6 +42,9 @@ const envOf = (call: number = 0): NodeJS.ProcessEnv => (spawn.mock.calls[call] a
 beforeEach(() => {
   spawn.mockClear();
   scrub.mockClear();
+  nativeExitDispose.mockClear();
+  coreExitDispose.mockClear();
+  coreExitListener = undefined;
   tmuxOn = false;
   liveTmuxSessions.clear();
   process.env.ANTHROPIC_API_KEY = "sk-ant-leftover";
@@ -95,6 +111,19 @@ describe("ptySpawn — carries the removal down both paths", () => {
     const result = ptySpawn("s1", "claude", [], EXISTING_CWD, true, { unset: ["ANTHROPIC_API_KEY"] });
     expect(result.tmux).toBe(true);
     expect(envOf()).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+
+  it("turns Core remain-on-exit into the PTY exit event used by session lifecycle", () => {
+    tmuxOn = true;
+    const { term } = ptySpawn("s1", "claude", [], EXISTING_CWD, true);
+    const listener = vi.fn();
+    term.onExit(listener);
+
+    coreExitListener?.({ exitCode: 9 });
+
+    expect(listener).toHaveBeenCalledWith({ exitCode: 9, signal: 0 });
+    expect(nativeExitDispose).toHaveBeenCalledOnce();
+    expect(coreExitDispose).toHaveBeenCalledOnce();
   });
 });
 

@@ -1,7 +1,6 @@
 // @vitest-environment node
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame } from "../../../server/session/pty-connection.js";
-import { deletedSessionRecordIds, sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 
 const OPEN = 1;
@@ -53,7 +52,17 @@ function setup(terminalModes: readonly number[] = []) {
   const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
     cancelReap: (id) => calls.push(`cancelReap:${id}`),
-    deleteSession: (id) => calls.push(`deleteSession:${id}`),
+    deleteSession: (id) => {
+      calls.push(`deleteSession:${id}`);
+    },
+    input: async (id, data) => {
+      calls.push(`input:${id}:${data}`);
+      currentEntries.get(id)?.term.write(data);
+    },
+    resize: async (id, cols, rows) => {
+      calls.push(`resize:${id}:${cols}x${rows}`);
+      currentEntries.get(id)?.term.resize(cols, rows);
+    },
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
     armReapForDetached: (id) => calls.push(`armReap:${id}`),
     terminalModesOf: (id) => {
@@ -75,30 +84,25 @@ function entryWith(over: Partial<PtyEntry> = {}) {
   return { term, ws: null, buffer: "", cwd: "/ws", active: false, agent: "claude", ...over } as unknown as PtyEntry;
 }
 
-beforeEach(() => {
-  sessionLifecycleRecords.clear();
-  deletedSessionRecordIds.clear();
-});
-
 describe("handleClientFrame", () => {
   const frame = (o: unknown) => JSON.stringify(o);
 
   it("writes an input frame to the pty", () => {
-    const { handleClientFrame } = setup();
+    const { handleClientFrame, calls } = setup();
     const t = fakeTerm();
     const s = fakeSocket();
     const entry = entryWith({ term: t.term as never, ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "input", data: "ls\r" }), SESSION);
-    expect(t.writes).toEqual(["ls\r"]);
+    expect(calls).toContain(`input:${SESSION}:ls\r`);
   });
 
   it("resizes on a valid resize frame", () => {
-    const { handleClientFrame } = setup();
+    const { handleClientFrame, calls } = setup();
     const t = fakeTerm();
     const s = fakeSocket();
     const entry = entryWith({ term: t.term as never, ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 40 }), SESSION);
-    expect(t.resizes).toEqual([[100, 40]]);
+    expect(calls).toContain(`resize:${SESSION}:100x40`);
   });
 
   // The redraw waits for this frame on purpose: it is where the client reports the size it
@@ -111,10 +115,8 @@ describe("handleClientFrame", () => {
     reattachPty(entry, s.ws as never, SESSION);
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
-    expect(t.resizes).toEqual([
-      [100, 30],
-      [120, 40],
-    ]);
+    expect(calls).toContain(`resize:${SESSION}:100x30`);
+    expect(calls).toContain(`resize:${SESSION}:120x40`);
     // The pid is the pty's own — it is what picks OUR tmux client out of a session that several
     // servers may have attached (#1099 review).
     expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([`redraw:${SESSION}:4242`]);
@@ -169,17 +171,14 @@ describe("handleClientFrame", () => {
     expect(calls).toEqual([`deleteSession:${SESSION}`]);
   });
 
-  it("does not turn a reaped session back into detached when its socket closes later", () => {
+  it("ignores a stale socket close after its transient pty was removed", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never });
-    sessionLifecycleRecords.set(SESSION, { id: SESSION, lifecycle: "stopped", agent: "claude", cwd: "/ws", createdAt: 1, updatedAt: 2 });
-
     handleClientClose(entry, s.ws as never, SESSION);
 
     expect(calls).toEqual([]);
     expect(currentEntries.has(SESSION)).toBe(false);
-    expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({ lifecycle: "stopped" });
   });
 
   it("marks an activated pane read, and only tracks the flag when deactivated", () => {
@@ -335,19 +334,6 @@ describe("reattachPty", () => {
     expect(entry.ws).toBe(s.ws);
   });
 
-  it("records the session as live with runtime metadata", () => {
-    const { reattachPty } = setup();
-    const s = fakeSocket();
-    const entry = entryWith({ ws: null, agent: "codex", cwd: "/repo" });
-    reattachPty(entry, s.ws as never, SESSION);
-    expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({
-      id: SESSION,
-      lifecycle: "live",
-      agent: "codex",
-      cwd: "/repo",
-    });
-  });
-
   it("replays the buffered tail so the reattached view has context", () => {
     const { reattachPty } = setup();
     const s = fakeSocket();
@@ -469,20 +455,6 @@ describe("handleClientClose", () => {
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.ws).toBeNull();
     expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `armReap:${SESSION}`]);
-  });
-
-  it("records the session as detached when the current socket closes", () => {
-    const { handleClientClose, currentEntries } = setup();
-    const s = fakeSocket();
-    const entry = entryWith({ ws: s.ws as never, agent: "shell", cwd: "/repo" });
-    currentEntries.set(SESSION, entry);
-    handleClientClose(entry, s.ws as never, SESSION);
-    expect(sessionLifecycleRecords.get(SESSION)).toMatchObject({
-      id: SESSION,
-      lifecycle: "detached",
-      agent: "shell",
-      cwd: "/repo",
-    });
   });
 
   it("drops a settling size check, which has nobody left to repair the screen for", () => {

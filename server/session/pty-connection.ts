@@ -12,7 +12,6 @@ import { isResizeFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
-import { recordSessionDetached, recordSessionLive } from "./session-lifecycle-records.js";
 
 /** A frame as it arrives off the socket. Only `toString()` is used — ws hands us a
  *  Buffer, and narrowing to this lets a test pass one without a live connection. */
@@ -22,7 +21,9 @@ export interface ConnectionDeps {
   /** A reattach inside the grace window keeps the session alive. */
   cancelReap: (id: string) => void;
   /** Explicit close from the client — delete the logical session and tear down runtime. */
-  deleteSession: (id: string) => void;
+  deleteSession: (id: string) => void | Promise<void>;
+  input: (id: string, data: string) => Promise<void>;
+  resize: (id: string, cols: number, rows: number) => Promise<void>;
   setWaiting: (id: string, waiting: boolean) => void;
   /** Socket gone: keep, grace, or reap according to what the session was doing. */
   armReapForDetached: (id: string) => void;
@@ -95,7 +96,6 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
   function reattachPty(entry: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
     deps.cancelReap(sessionId); // a reattach within the grace window keeps the session
     console.log(`[ws] reattach ${sessionId} (pid=${entry.term.pid})`);
-    recordSessionLive({ id: sessionId, agent: entry.agent, cwd: entry.cwd });
     // Drop any socket still attached (e.g. the same session open in another tab).
     // Tell it it's been superseded FIRST so it stops instead of auto-reconnecting —
     // otherwise two clients on one session ping-pong (each reattach kicks the other,
@@ -137,13 +137,13 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
       if (msg.type === "terminate") {
         // Explicit close (the cell's close button) — delete now instead of waiting out the
         // disconnect grace window, so the session slot frees immediately.
-        deps.deleteSession(sessionId);
+        void Promise.resolve(deps.deleteSession(sessionId)).catch((error) => console.warn(`[ws] delete failed for ${sessionId}: ${messageOf(error)}`));
       } else if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
       } else if (msg.type === "input" && typeof msg.data === "string") {
-        entry.term.write(msg.data);
+        void deps.input(sessionId, msg.data).catch((error) => console.warn(`[ws] input dropped for ${sessionId}: ${messageOf(error)}`));
       } else if (isResizeFrame(msg)) {
-        entry.term.resize(msg.cols, msg.rows);
+        void deps.resize(sessionId, msg.cols, msg.rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves
         // it silent, and the reattached browser would keep the half-built screen forever — the
         // alternate buffer it now restores into does not reflow, so no later resize repairs it.
@@ -170,7 +170,6 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     // not rewrite the stopped lifecycle back to detached.
     if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) return;
     entry.ws = null;
-    recordSessionDetached({ id: sessionId, agent: entry.agent, cwd: entry.cwd });
     deps.cancelTerminalSizeCheck(sessionId);
     // A session with no live socket is by definition not being viewed. Clear `active`
     // so an UNCLEAN disconnect (crash / network drop / killed tab, where the client

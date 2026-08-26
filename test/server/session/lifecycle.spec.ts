@@ -22,10 +22,6 @@ import {
 } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
-import { sessionLifecycleRecords } from "../../../server/session/session-lifecycle-records.js";
-import { tmuxKillSession } from "../../../server/infra/tmux.js";
-
-vi.mock("../../../server/infra/tmux.js", () => ({ tmuxKillSession: vi.fn() }));
 vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSettings: vi.fn() }));
 vi.mock("../../../server/session/session-drops.js", () => ({ cleanupSessionDrops: vi.fn() }));
 vi.mock("../../../server/session/child-processes.js", () => ({
@@ -72,13 +68,11 @@ const clearRegistry = () => {
     map.clear();
   }
   hiddenSessions.clear();
-  sessionLifecycleRecords.clear();
   clearedTranscripts.clear();
 };
 
 beforeEach(() => {
   clearRegistry();
-  vi.mocked(tmuxKillSession).mockReset();
   vi.mocked(hasNewSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(hasSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(sessionChildProcessPids).mockReset().mockReturnValue(new Set());
@@ -121,7 +115,6 @@ describe("reap", () => {
     createSessionLifecycle(deps).reap(ID);
     expect((entry as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
     expect(deps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, event: "closed" }));
-    expect(sessionLifecycleRecords.get(ID)).toMatchObject({ id: ID, lifecycle: "stopped", agent: "claude", cwd: "/work" });
   });
 
   // The mark says "our transcript is frozen on a conversation that ended". Teardown is where
@@ -174,37 +167,26 @@ describe("cleanupManagedLiveSessions", () => {
     expect((claude as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
     expect((codex as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
     expect((shell as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
-    expect(tmuxKillSession).toHaveBeenCalledWith(ID);
-    expect(tmuxKillSession).toHaveBeenCalledWith(OTHER_ID);
-    expect(tmuxKillSession).not.toHaveBeenCalledWith(THIRD_ID);
   });
 
-  it("continues cleanup when one session fails", () => {
+  it("continues cleanup across all transient clients", () => {
     const first = fakeEntry({ tmux: true });
     const second = fakeEntry({ tmux: true });
     ptys.set(ID, first);
     ptys.set(OTHER_ID, second);
-    vi.mocked(tmuxKillSession).mockImplementation((id: string) => {
-      if (id === ID) throw new Error("tmux refused");
-    });
-
     createSessionLifecycle(makeDeps()).cleanupManagedLiveSessions();
 
     expect(ptys.size).toBe(0);
     expect((first as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
     expect((second as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalled();
-    expect(tmuxKillSession).toHaveBeenCalledWith(ID);
-    expect(tmuxKillSession).toHaveBeenCalledWith(OTHER_ID);
   });
 
-  it("does not kill unmanaged tmux sessions", () => {
+  it("does not kill Core sessions when transient clients are cleaned up", () => {
     ptys.set(ID, fakeEntry({ tmux: true }));
 
     createSessionLifecycle(makeDeps()).cleanupManagedLiveSessions();
 
-    expect(tmuxKillSession).toHaveBeenCalledTimes(1);
-    expect(tmuxKillSession).toHaveBeenCalledWith(ID);
-    expect(tmuxKillSession).not.toHaveBeenCalledWith(OTHER_ID);
+    expect(ptys.size).toBe(0);
   });
 
   it("does not delete persistent conversation history state", () => {
@@ -229,7 +211,6 @@ describe("cleanupManagedLiveSessions", () => {
     expect(lifecycle.cleanupManagedLiveSessions()).toEqual([]);
 
     expect((entry as { term: { kill: ReturnType<typeof vi.fn> } }).term.kill).toHaveBeenCalledTimes(1);
-    expect(tmuxKillSession).toHaveBeenCalledTimes(1);
   });
 });
 

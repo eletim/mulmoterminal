@@ -25,8 +25,7 @@ vi.mock("node:fs", () => {
 
 const { mountPluginRoutes } = await import("../../../server/routes/plugin-routes.js");
 const { runCompletionHook } = await import("../../../server/session/completion-hooks.js");
-const { isFailedWorker, unplacedSessionRows } = await import("../../../server/session/registry.js");
-const { sessionLifecycleRecords } = await import("../../../server/session/session-lifecycle-records.js");
+const { isFailedWorker } = await import("../../../server/session/registry.js");
 
 const app = express();
 app.use(express.json());
@@ -42,32 +41,6 @@ async function spawn(hidden: boolean, agent = "claude"): Promise<string> {
   const res = await request(app).post("/api/plugin/spawnBackgroundChat").send({ message: "do the thing", hidden, agent });
   return String((res.body as { jsonData?: { chatId?: string } }).jsonData?.chatId);
 }
-
-// PR3b: a VISIBLE spawn is marked as waiting for a grid cell. A hidden worker must never be —
-// it has no business taking a cell, and the grid adopts whatever this list holds. Pinned because
-// "it happens not to be marked" and "it cannot be marked" read identically until someone adds a
-// caller, and the difference is a background refresh silently opening a terminal.
-describe("what a spawn leaves waiting for a cell", () => {
-  it("marks a visible chat as unplaced", async () => {
-    const id = await spawn(false);
-    expect(unplacedSessionRows().map((r) => r.id)).toContain(id);
-  });
-
-  it("records the spawned background chat as starting", async () => {
-    sessionLifecycleRecords.clear();
-    const id = await spawn(false, "codex");
-    expect(sessionLifecycleRecords.get(id)).toMatchObject({
-      id,
-      lifecycle: "starting",
-      agent: "codex",
-    });
-  });
-
-  it("does NOT mark a hidden worker", async () => {
-    const id = await spawn(true);
-    expect(unplacedSessionRows().map((r) => r.id)).not.toContain(id);
-  });
-});
 
 describe("a hidden worker that ends badly", () => {
   it("is recorded when its run reaches teardown unfinished", async () => {

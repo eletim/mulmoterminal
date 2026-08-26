@@ -19,6 +19,8 @@ import { buildTranslationPrompt, isValidTranslationResult } from "./translation-
 export interface TranslationWorkerDeps {
   /** Tear down the worker's pty and session bookkeeping. */
   reap: (id: string) => void;
+  /** Remove the disposable worker from Core after its answer has been collected. */
+  deleteSession: (id: string) => Promise<void>;
   /** Start a headless claude session (no socket, no viewer) seeded with `prompt`. */
   spawnHiddenChat: (sessionId: string, prompt: string) => void;
 }
@@ -54,14 +56,21 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
   // Tear down a finished/failed translation worker: kill any lingering pty and drop its
   // bookkeeping + transcript so the activity maps and the workspace don't accumulate
   // throwaway translation sessions.
-  function cleanupTranslationWorker(sessionId: string): void {
+  async function cleanupTranslationWorker(sessionId: string): Promise<void> {
     deps.reap(sessionId); // idempotent — already reaped if Stop fired
-    activity.delete(sessionId);
-    hiddenSessions.delete(sessionId);
-    translationWorkerIds.delete(sessionId);
-    lastPrompts.delete(sessionId);
-    pendingTranslations.delete(sessionId);
-    fs.rm(path.join(projectSessionsDir(CLAUDE_CWD), `${sessionId}.jsonl`), { force: true }).catch(() => {});
+    // Ordinary reap only detaches MulmoTerminal's transient client: user terminals must survive
+    // Node shutdown and idle disconnects. Translation workers are disposable, so their cleanup is
+    // the explicit exception that also removes the Core/tmux session and its remain-on-exit pane.
+    try {
+      await deps.deleteSession(sessionId);
+    } finally {
+      activity.delete(sessionId);
+      hiddenSessions.delete(sessionId);
+      translationWorkerIds.delete(sessionId);
+      lastPrompts.delete(sessionId);
+      pendingTranslations.delete(sessionId);
+      fs.rm(path.join(projectSessionsDir(CLAUDE_CWD), `${sessionId}.jsonl`), { force: true }).catch(() => {});
+    }
   }
 
   // Most a worker request retries before failing. The model occasionally answers in
@@ -98,7 +107,7 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
       return translations;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
-      cleanupTranslationWorker(sessionId);
+      await cleanupTranslationWorker(sessionId);
     }
   }
 

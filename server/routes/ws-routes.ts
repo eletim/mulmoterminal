@@ -21,14 +21,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { antigravityBrainRoot, antigravityConversationExists } from "../agents/antigravity-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
-import {
-  antigravityConversations,
-  antigravityConversationsHydrated,
-  codexRolloutIds,
-  markDevTerminalSession,
-  markAttachedSessionPlaced,
-  ptys,
-} from "../session/registry.js";
+import { antigravityConversations, antigravityConversationsHydrated, codexRolloutIds, ptys } from "../session/registry.js";
 import { SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp, launcherRunsAgent } from "../session/launcher-gui-mcp.js";
@@ -49,7 +42,6 @@ import { agentResumeId } from "../agents/agent-resume.js";
 import { claimLaunch, worktreeOccupancy } from "../session/worktree-session-limit.js";
 import { worktreeRefusal } from "../../common/worktreeSession.js";
 import { stripBasePath } from "../../common/basePath.js";
-import { recordKnownSessionStopped, recordSessionDetached, recordSessionLive, recordSessionStarting } from "../session/session-lifecycle-records.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 
 export interface WsRouteDeps {
@@ -221,9 +213,7 @@ async function refuseSecondWorktreeSession(
  * the four of them (claude, launch, codex, antigravity) already ran it in.
  *
  * The order is the fragile part: the worktree refusal has to happen BEFORE the browser is told a
- * session id (#1207), and the dev-terminal mark has to be recorded on every attach — new, resumed
- * or reattached — which is what makes this the single choke point for the chat sidebar's exclusion
- * list (see devTerminalSessions).
+ * session id (#1207). Terminal membership itself is read only from Core.list().
  *
  * Returns null when the socket was refused and closed: the caller must return without spawning.
  */
@@ -243,13 +233,8 @@ async function admitAgentSession(
     worktreeLimited?: boolean;
   },
 ): Promise<EarlyFrames | null> {
-  const { requested, sessionId, live, tmuxAlive = false, cwd, devTerminal, worktreeLimited = true } = session;
+  const { requested, sessionId, live, cwd, worktreeLimited = true } = session;
   if (worktreeLimited && (await refuseSecondWorktreeSession(ws, kind, cwd, { requested, sessionId }))) return null;
-  if (devTerminal) markDevTerminalSession(sessionId, effectiveSessionCwd(live?.cwd, cwd));
-  markAttachedSessionPlaced(sessionId, requested);
-  if (live) recordSessionLive({ id: sessionId, agent: live.agent, cwd: effectiveSessionCwd(live.cwd, cwd) });
-  else if (tmuxAlive) recordSessionDetached({ id: sessionId, cwd, agent: sessionAgentForWsKind(kind) });
-  else recordSessionStarting({ id: sessionId, cwd, agent: sessionAgentForWsKind(kind) });
   // The EFFECTIVE cwd, not this request's: on a reattach the live PTY's own directory is where the
   // agent really runs, and the request's `?cwd=` is ignored by everything downstream.
   return announceSession(ws, sessionId, live?.cwd ?? cwd);
@@ -486,7 +471,6 @@ export function startAndWire(
   try {
     entry = start();
   } catch (err) {
-    if (session.stopLifecycleOnStartFailure !== false) recordKnownSessionStopped({ id: session.id });
     console.error(`[ws/${session.tag}] failed to start ${session.id}: ${messageOf(err)}`);
     session.early.discard();
     return closeWithError(ws, session.startFailureMessage(err));
@@ -550,7 +534,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // other command is passed through untouched (see launcher-gui-mcp.ts).
   const groups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
   const launchCommand = launcherCommandWithGuiMcp(command, codexGuiMcpServers({ sessionId, port: PORT, groups, allTools: false }), process.platform);
-  if (!clientStillConnected(ws, "launch", sessionId, early, !live && !tmuxAlive ? () => recordKnownSessionStopped({ id: sessionId }) : undefined)) return;
+  if (!clientStillConnected(ws, "launch", sessionId, early)) return;
 
   // A launcher runs the user's own command line, so there is no binary pre-flight — but its cwd
   // is checked like every other spawn's, and that refusal is already a sentence.
@@ -577,7 +561,7 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   // spawn, so the answer has to be read here, before the pty exists. Only for a spawn: a reattach
   // keeps the tools its running process was started with.
   const mcpGroups = !attachGuiMcp && !live ? await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []) : [];
-  if (!clientStillConnected(ws, "codex", sessionId, early, !live && !tmuxAlive ? () => recordKnownSessionStopped({ id: sessionId }) : undefined)) return;
+  if (!clientStillConnected(ws, "codex", sessionId, early)) return;
 
   const startFailureMessage = startFailureMessageFor("codex");
   startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage, stopLifecycleOnStartFailure: !live && !tmuxAlive, size }, () =>
@@ -651,7 +635,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   // process was started with, and rewriting the shared file on a reattach would speak for every
   // other session in the directory.
   const mcpGroups = live ? [] : await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
-  if (!clientStillConnected(ws, "antigravity", sessionId, early, !live && !tmuxAlive ? () => recordKnownSessionStopped({ id: sessionId }) : undefined)) return;
+  if (!clientStillConnected(ws, "antigravity", sessionId, early)) return;
   // The reattach goes THROUGH startAndWire like the spawn, not around it: reattachPty only swaps
   // the socket and replays the buffer, so returning early here left a reloaded terminal printing
   // output while ignoring every keystroke, and never detaching or reaping on close.

@@ -126,7 +126,7 @@ export function sessionFallbackTitle(agent: SessionAgent | null, cwd: string, ho
   return `${agentName} ${truncateFront(pathName, pathMax)}`;
 }
 
-// Session existence is decided before this function: callers pass the SessionRecord ids the
+// Session existence is decided before this function: callers pass the Core session ids the
 // surface should show. A row showing nothing but a UUID is still not a useful choice, so a
 // nameless session earns its place only by being live — where the fallback can name what is
 // currently running.
@@ -216,6 +216,17 @@ export interface SessionScreen extends SessionScreenMeta {
   // Kept OUT of SessionScreenMeta on purpose: definedScreenMeta trims its values, which
   // only makes sense for strings.
   quickCommands: QuickCommandChip[];
+}
+
+export function coreTerminalScreen(screen: string, meta: SessionScreenMeta, quickCommands: QuickCommandChip[] = []): SessionScreen {
+  const rows = parseStyledRows(screen);
+  const windowRows = screenWindow(rows);
+  return {
+    ...meta,
+    screen: rowsToScreen(windowRows).trimEnd(),
+    suggestion: suggestionFromRows(windowRows),
+    quickCommands,
+  };
 }
 
 // A field the host can't answer is dropped entirely rather than sent as "": the phone renders

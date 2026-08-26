@@ -94,7 +94,7 @@ const PATH_TOOLS = [
     why: "the PRs & Issues view for gitlab.com projects",
     hint: "brew install glab  (then: glab auth login)",
   },
-  { cmd: "tmux", versionArg: "-V", required: false, why: "sessions survive a restart", hint: "brew install tmux  ·  apt install tmux" },
+  { cmd: "tmux", versionArg: "-V", required: true, why: "terminal sessions", hint: "brew install tmux  ·  apt install tmux  ·  Windows: use WSL" },
   { cmd: "codex", versionArg: "--version", required: false, why: "run OpenAI Codex as an agent", hint: "npm install -g @openai/codex" },
   {
     cmd: "ffmpeg",
@@ -397,6 +397,13 @@ async function main() {
     process.exit(1);
   }
   log("Claude Code CLI ✓");
+
+  if (!hasCommand("tmux", "-V")) {
+    error("tmux not found. MulmoTerminal requires tmux as its terminal-session runtime.");
+    error("Install it first: brew install tmux  ·  sudo apt install tmux  ·  Windows: run inside WSL");
+    process.exit(1);
+  }
+  log("tmux ✓");
 
   if (!existsSync(SERVER_ENTRY)) {
     error(`Server entry not found at ${SERVER_ENTRY}`);

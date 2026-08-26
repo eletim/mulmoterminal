@@ -26,7 +26,6 @@ import { requireResolution, resolveProvider, type DirModelChoice } from "./provi
 import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
 import { ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
-import { recordSessionLive } from "./session-lifecycle-records.js";
 
 export interface SpawnClaudeOptions {
   // Passed to claude as the first turn, so the session starts working before anyone
@@ -70,8 +69,7 @@ function newSessionTitle(seed: string | undefined): string {
   return (seed ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 }
 
-function recordClaudeLive(sessionId: string, cwd: string, deps: SpawnDeps): void {
-  recordSessionLive({ id: sessionId, agent: "claude", cwd });
+function recordClaudeLive(sessionId: string, deps: SpawnDeps): void {
   deps.inputReadiness?.markSessionLive(sessionId, "claude");
 }
 
@@ -211,13 +209,13 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     function spawnEntry(): PtyEntry {
       resetToolGroupsUnlessReattaching();
-      const spawnEnv = { unset: resolved.unset, env: guiMcpEnv(sessionId, PORT), binEnvVar: claudeAdapter.binEnvVar };
+      const spawnEnv = { agent: "claude" as const, unset: resolved.unset, env: guiMcpEnv(sessionId, PORT), binEnvVar: claudeAdapter.binEnvVar };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
       console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
     ptys.set(sessionId, entry);
-    recordClaudeLive(sessionId, cwd, deps);
+    recordClaudeLive(sessionId, deps);
     // Every claude spawn above carries `--settings` with the Pre/PostToolUse hooks, so from here
     // on this session reports its own tool calls — which is what stops the MCP broker recording
     // its GUI calls a second time (mcp/gui-call-history.ts).

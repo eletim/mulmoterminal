@@ -15,7 +15,6 @@ import { ptyStartLine } from "./pty-exit-log.js";
 import { claimedAntigravityConversations, ptys, rememberAntigravityConversation } from "./registry.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
-import { recordSessionLive } from "./session-lifecycle-records.js";
 
 export function createAntigravitySpawner(deps: SpawnDeps) {
   function captureAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>, cwd: string): void {
@@ -58,6 +57,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
     // The session id reaches the GUI MCP bridge through this environment and nowhere else — the
     // config file agy reads is shared by every session in the directory (see antigravity-mcp.ts).
     const { term, tmux, reattached } = ptySpawn(sessionId, deps.antigravityBin, args, cwd, true, {
+      agent: "antigravity",
       env: guiMcpEnv(sessionId, PORT),
       binEnvVar: antigravityAdapter.binEnvVar,
     });
@@ -67,7 +67,6 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
 
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "antigravity" };
     ptys.set(sessionId, entry);
-    recordSessionLive({ id: sessionId, agent: "antigravity", cwd });
     deps.inputReadiness?.markSessionLive(sessionId, "antigravity");
 
     if (resumeConversationId) {

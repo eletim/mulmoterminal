@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
-import { markDevTerminalSession, markUnplacedSession } from "../session/registry.js";
 import type { SpawnAntigravityPty, SpawnClaudePty, SpawnCodexPty, SpawnLauncherPty } from "../session/spawners.js";
 import { claimLaunch, type WorktreeClaim, worktreeOccupancy } from "../session/worktree-session-limit.js";
 import { SpawnRefusedError } from "../session/pty-spawn.js";
 import { TOOL_GROUPS } from "../../common/toolGroups.js";
 import { worktreeRefusal } from "../../common/worktreeSession.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
-import { recordSessionStarting, recordSessionStopped } from "../session/session-lifecycle-records.js";
 
 export type LocalMobileTerminalCreateResult = { ok: true; sessionId: string } | { ok: false; error: string };
 
@@ -39,33 +37,24 @@ export function createLocalMobileTerminalCreator(deps: LocalMobileTerminalCreato
       if (refusal) return { ok: false, error: refusal };
 
       sessionId = randomUUID();
-      recordSessionStarting({ id: sessionId, agent, cwd });
       if (agent === "shell") {
         deps.spawnLauncherPty(sessionId, null, DEFAULT_LAUNCH_CMD, cwd);
         spawned = true;
-        markDevTerminalSession(sessionId, cwd);
-        markUnplacedSession(sessionId, "shell", cwd);
       } else if (agent === "claude") {
         deps.spawnClaudePty(sessionId, null, null, { cwd, attachGuiMcp: false });
         spawned = true;
-        markDevTerminalSession(sessionId, cwd);
-        markUnplacedSession(sessionId, agent, cwd);
       } else if (agent === "codex") {
         const groups = await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
         deps.spawnCodexPty(sessionId, null, null, cwd, false, { mcpGroups: groups });
         spawned = true;
-        markDevTerminalSession(sessionId, cwd);
-        markUnplacedSession(sessionId, agent, cwd);
       } else {
         const groups = await registeredGuiMcpGroups(cwd, TOOL_GROUPS).catch(() => []);
         deps.spawnAntigravityPty(sessionId, null, null, cwd, { mcpGroups: groups });
         spawned = true;
-        markDevTerminalSession(sessionId, cwd);
-        markUnplacedSession(sessionId, agent, cwd);
       }
       return { ok: true, sessionId };
     } catch (err) {
-      if (sessionId && !spawned) recordSessionStopped({ id: sessionId, agent, cwd });
+      if (sessionId && !spawned) console.warn(`[mobile] Core session ${sessionId} failed before attach`);
       return { ok: false, error: startError(err) };
     } finally {
       claim?.release();
