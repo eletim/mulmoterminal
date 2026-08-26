@@ -19,7 +19,7 @@ import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
 
-const coreSessionEnded = (sessionId: string) => async () => (await coreSessions.find(sessionId))?.exited !== false;
+const coreSessionEnded = (sessionId: string) => async () => !(await coreSessions.isRunning(sessionId));
 
 const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
   setWorking: deps.setWorking,
@@ -27,7 +27,7 @@ const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
   publishActivity: deps.publishActivity,
   isActive: () => ptys.get(sessionId)?.active ?? false,
   uiPort: deps.uiPort,
-  isAlive: async () => (await coreSessions.find(sessionId))?.exited === false,
+  isAlive: () => coreSessions.isRunning(sessionId),
 });
 
 export function createCodexSpawner(deps: SpawnDeps) {

@@ -17,7 +17,7 @@ import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
 
-const coreSessionEnded = (sessionId: string) => async () => (await coreSessions.find(sessionId))?.exited !== false;
+const coreSessionEnded = (sessionId: string) => async () => !(await coreSessions.isRunning(sessionId));
 
 export function createAntigravitySpawner(deps: SpawnDeps) {
   function captureAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>, cwd: string): void {

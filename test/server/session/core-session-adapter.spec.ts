@@ -58,6 +58,21 @@ describe("CoreSessionAdapter", () => {
     await expect(new CoreSessionAdapter({ core: missingCore }).find("missing")).resolves.toBeNull();
   });
 
+  it("checks running state from native Core data without loading metadata", async () => {
+    const listMetadata = vi.fn();
+    const core = { get: vi.fn(async () => native), listMetadata } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).isRunning(native.id)).resolves.toBe(true);
+    expect(listMetadata).not.toHaveBeenCalled();
+
+    const exitedCore = { get: vi.fn(async () => ({ ...native, exited: true })), listMetadata } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: exitedCore }).isRunning(native.id)).resolves.toBe(false);
+
+    const missingCore = { get: vi.fn(async () => Promise.reject(new SessionNotFoundError("missing"))), listMetadata } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: missingCore }).isRunning("missing")).resolves.toBe(false);
+    expect(listMetadata).not.toHaveBeenCalled();
+  });
+
   it("resolves a history identity back to its owning Core member", async () => {
     const core = {
       get: vi.fn(async () => Promise.reject(new SessionNotFoundError("history-1"))),
