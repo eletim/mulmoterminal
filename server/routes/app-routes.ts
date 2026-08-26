@@ -219,6 +219,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     // the tools pane's history. Claude's do NOT come through here — it would double every entry
     // its own PreToolUse/PostToolUse already writes.
     guiCallHistory: async (sessionId) => guiCallRecorderFor(sessionId, await sessionCallReporting(deps, sessionId), deps.toolStores),
+    isInternalSession: async (sessionId) => (await coreSessions.find(sessionId))?.visibility === "internal",
   });
 
   // Serve Vite build output. CSS is mounted first so a package built for "/" can

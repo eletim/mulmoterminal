@@ -3,11 +3,8 @@
 // that serve this data cannot move until the readers do — every one of them would
 // otherwise need the whole set injected.
 //
-// The readers touch the registry (a live in-memory title beats the on-disk one, and a
-// row carries its session's activity flags), which is fine now that the registry is its
-// own module: the dependency runs one way. One of them also WRITES — collectPendingSessions
-// drops a session from knownSessions once disk has it — so "reads" describes the direction
-// of the data, not a guarantee of purity.
+// The readers touch UI activity/title state, but transcript rows never create Terminal
+// membership. A live Core session may project its UI state onto its history row.
 import { existsSync, readdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -25,15 +22,15 @@ import {
 import { createFileCache, type FileStamp } from "./file-cache.js";
 import { classifyWorkPhase, type WorkPhase } from "./workPhase.js";
 import { sessionListTitle } from "./sessionListTitle.js";
-import { activity, aiTitles, codexRolloutIds, isBackgroundSession, isFailedWorker, knownSessions, sessionMemos } from "./registry.js";
+import { activity, aiTitles, codexRolloutIds, isFailedWorker, sessionMemos } from "./registry.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
 import { forEachJsonlRecord, readTailRecords } from "../infra/jsonl-file.js";
 import { createSummaryScan } from "./summary-scan.js";
-import { partitionPending } from "./partitionPending.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
-import type { DiskStat, PendingSession, SessionMeta } from "./types.js";
+import type { DiskStat, SessionMeta } from "./types.js";
+import type { CoreSessionVisibility } from "./core-session-adapter.js";
 import { readString } from "../../common/readString.js";
 
 // Bytes of an assistant reply kept for the roster; the same cap the push body uses.
@@ -216,7 +213,7 @@ export async function sessionLastTurn(cwd: string, id: string, agent: "claude" |
 }
 
 // Scan a session JSONL for a human-friendly title and last activity.
-export async function readSessionMeta(dir: string, file: string, liveId?: string): Promise<SessionMeta> {
+export async function readSessionMeta(dir: string, file: string, liveId?: string, visibility: CoreSessionVisibility = "normal"): Promise<SessionMeta> {
   const full = path.join(dir, file);
 
   let aiTitle: string | null = null;
@@ -257,7 +254,7 @@ export async function readSessionMeta(dir: string, file: string, liveId?: string
     working: a?.working ?? false,
     waiting: a?.waiting ?? false,
     event: a?.event ?? null,
-    hidden: isBackgroundSession(stateId),
+    hidden: visibility === "background",
     failed: isFailedWorker(stateId),
   };
 }
@@ -276,18 +273,4 @@ export async function collectOnDiskSessionStats(dir: string, files: string[]): P
     }),
   );
   return stats.filter((s): s is DiskStat => s !== null);
-}
-
-// In-memory sessions not yet written to disk. Prune (delete from knownSessions) any that
-// have since been persisted — the on-disk record (with its real title) wins.
-export function collectPendingSessions(onDisk: Set<string>, includePending: boolean): PendingSession[] {
-  const known = includePending ? knownSessions : [];
-  const { keep, persisted } = partitionPending(
-    known,
-    onDisk,
-    (id) => activity.get(id),
-    (id) => isBackgroundSession(id),
-  );
-  persisted.forEach((id) => knownSessions.delete(id));
-  return keep;
 }

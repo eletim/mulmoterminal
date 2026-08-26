@@ -10,7 +10,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { MULMOTERMINAL_HOME, SESSION_ID_RE } from "../config/env.js";
-import type { DirModelChoice } from "./provider-env.js";
 import { messageOf } from "../errors.js";
 import { buildActivitySnapshot, mergeOwnedActivity, parseActivityState, type PersistedActivity } from "./activity-state.js";
 import { parseSessionIdLog, sessionIdLogLine } from "./session-id-log.js";
@@ -26,7 +25,7 @@ import { normalizeMemo } from "../../common/sessionMemo.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { parseSessionToolGroups, sessionToolGroupLine, TOOL_GROUP_RESET, type SessionToolGroup } from "./session-tool-groups.js";
 import type { ToolGroup } from "../../common/toolGroups.js";
-import type { Activity, KnownSession, PtyEntry } from "./types.js";
+import type { Activity, PtyEntry } from "./types.js";
 
 // Per-session "working" state, driven by Claude hooks (see /api/hook):
 // UserPromptSubmit => Claude started thinking; Stop => it finished.
@@ -37,25 +36,6 @@ export const activity = new Map<string, Activity>(); // id -> { working, event, 
 // is reaped once the session goes idle (Stop hook) or the process exits. `ws`
 // is null while the session runs in the background.
 export const ptys = new Map<string, PtyEntry>(); // id -> { term, ws, buffer }
-
-// New sessions started in this process that have no .jsonl on disk yet (Claude
-// only writes the file on the first prompt). Merged into /api/sessions so a
-// freshly created session shows in the sidebar immediately. An entry is dropped
-// once the file exists (the on-disk record takes over) or the pty is reaped.
-export const knownSessions = new Map<string, KnownSession>(); // id -> { createdAt, title }
-
-// What each session was STARTED on, when the launch form picked it rather than the
-// directory (#584). Read back on resume: the browser re-sends its cell's pick on every
-// reconnect, and that value belongs to the session the cell launched, not necessarily to
-// the one being resumed. Process-lifetime only — after a restart a resumed session falls
-// back to the directory's default, same as one this server never started.
-export const launchChoices = new Map<string, DirModelChoice>(); // id -> { provider, model }
-
-// Sessions spawned as hidden background workers (spawnBackgroundChat hidden:true) that are
-// still LIVE. Process-lifetime only, and tied to `activity`'s lifecycle in reap(). Ask
-// `isBackgroundSession()` rather than this set when the question is "does this row belong
-// behind the Background filter" — that survives the reap and a restart; this does not.
-export const hiddenSessions = new Set<string>(); // id
 
 // Latest MEANINGFUL user prompt per session (from the UserPromptSubmit hook), shown
 // on the grid cell header so you can tell at a glance what each terminal is about. A
@@ -150,7 +130,6 @@ export const claimedAntigravityConversations = new Set<string>();
 // untrusted dir (no input ever comes, so the worker would hang). Their session ids
 // are tracked here so they're FILTERED OUT of /api/sessions: a translation worker is
 // a transient internal helper, not a chat the user should see in the sidebar.
-export const translationWorkerIds = new Set<string>();
 
 // Hydrate one id log once at boot (best-effort — absent on first run / unreadable => empty).
 // Exposed as a promise so readers/writers can wait for it: a request served (or a mark
@@ -179,31 +158,6 @@ function idLogAppender(file: string, label: string): (id: string) => void {
       .then(() => fs.appendFile(file, sessionIdLogLine(id)))
       .catch((e) => console.error(`[${label}] failed to persist: ${messageOf(e)}`));
   };
-}
-
-// Session ids spawned as background workers: the scheduled collection refresh, and any
-// `spawnBackgroundChat hidden:true`. The chat list keeps them, but behind the Background
-// filter rather than among the user's own chats (#1060).
-//
-// Persisted for the same reason the grid's set is: `hiddenSessions` is dropped on reap and
-// gone after a restart, so a live-only flag would put every finished worker BACK among the
-// chats the moment it completed — the one state the user is guaranteed to see it in.
-const backgroundSessions = new Set<string>();
-const BACKGROUND_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "background-sessions.json");
-export const backgroundSessionsHydrated = hydrateIdLog(BACKGROUND_SESSIONS_FILE, backgroundSessions);
-const appendBackgroundSession = idLogAppender(BACKGROUND_SESSIONS_FILE, "background-sessions");
-
-function markBackgroundSession(id: string): void {
-  if (!isValidSessionId(id) || backgroundSessions.has(id)) return;
-  backgroundSessions.add(id);
-  appendBackgroundSession(id);
-}
-
-/** Does this session belong behind the Background filter? Live workers answer from
- *  `hiddenSessions`, everything else from the persisted log — a session that has been
- *  background once stays background. */
-export function isBackgroundSession(id: string): boolean {
-  return hiddenSessions.has(id) || backgroundSessions.has(id);
 }
 
 // Sessions that connected on the ALL-TOOLS MCP url (`/api/mcp/:sessionId`). That url is handed
@@ -274,10 +228,6 @@ export function isUserScheduledSession(id: string): boolean {
  * tmux, so its turn finishing moments after boot is the ordinary case here, not a corner (Codex,
  * PR #1196).
  */
-export async function pushClassification(id: string): Promise<{ background: boolean; userScheduled: boolean }> {
-  await Promise.all([backgroundSessionsHydrated, userScheduledSessionsHydrated]);
-  return { background: isBackgroundSession(id), userScheduled: isUserScheduledSession(id) };
-}
 
 // Background workers whose run ENDED BADLY: reached teardown without ever reporting a finished
 // turn. A worker is invisible on purpose, so a failed one is the single case where that design
@@ -305,21 +255,6 @@ export function markFailedWorker(id: string): void {
 export function isFailedWorker(id: string): boolean {
   return failedWorkers.has(id);
 }
-
-/** What a hidden spawn marks itself with (see runWithHiddenMarker). Both halves of "hidden"
- *  are set from ONE place because there are two spawn sites, and a site that remembered the
- *  live flag but not the log would produce a worker that is background until it finishes and
- *  an ordinary chat afterwards. `delete` only undoes the live half: the log is append-only,
- *  and a spawn that threw never wrote a transcript, so its id never reaches a listing. */
-export const backgroundMarkers = {
-  add(id: string): void {
-    hiddenSessions.add(id);
-    markBackgroundSession(id);
-  },
-  delete(id: string): void {
-    hiddenSessions.delete(id);
-  },
-};
 
 // Where each grid session was started, for the sessions this process did not spawn (#1021). Live
 // ones answer from `ptys`, which is the truer source — it knows where claude actually runs.
@@ -555,11 +490,9 @@ async function readPersistedActivity(): Promise<Record<string, PersistedActivity
 
 // Serialize writes into one chain (like appendDevTerminalSession). Read the current file and
 // rewrite only the entries THIS instance owns, so a second instance's sessions are neither
-// dropped nor revived. `isHidden` comes from the caller rather than closing over
-// `hiddenSessions`: which sessions are hidden is the session layer's policy, and this module
-// owns storage, not policy.
+// dropped nor revived.
 let activityPersist: Promise<void> = Promise.resolve();
-export function persistActivityState(isHidden: (id: string) => boolean): void {
+export function persistActivityState(): void {
   activityPersist = activityPersist
     .then(() => activityStateHydrated)
     .then(() => fs.mkdir(MULMOTERMINAL_HOME, { recursive: true }))
@@ -567,7 +500,7 @@ export function persistActivityState(isHidden: (id: string) => boolean): void {
       const onDisk = await readPersistedActivity();
       const owned = buildActivitySnapshot(
         [...activity].filter(([id]) => ownedActivityIds.has(id)),
-        isHidden,
+        () => false,
       );
       const next = mergeOwnedActivity(onDisk, owned, (id) => ownedActivityIds.has(id));
       await fs.writeFile(ACTIVITY_STATE_FILE, JSON.stringify(next));

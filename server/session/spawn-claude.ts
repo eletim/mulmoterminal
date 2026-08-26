@@ -1,6 +1,6 @@
 // Starting a claude session in a PTY and wiring it to the browser. The most entangled
 // piece of index.ts (#548 step 3c): it spans the CLI args, the
-// sidebar's optimistic row, the draft typed into the input box, and teardown on exit.
+// Core metadata, the draft typed into the input box, and teardown on exit.
 import type { WebSocket } from "ws";
 import { CLAUDE_CWD, PORT, isWorkspaceCwd } from "../config/env.js";
 import { guiMcpEnv } from "./mcp-config.js";
@@ -9,7 +9,7 @@ import { submitSequenceForAgent } from "../../common/terminalSubmit.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
 import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
-import { hookedSessions, knownSessions, launchChoices, ptys, resetSessionToolGroups } from "./registry.js";
+import { hookedSessions, ptys, resetSessionToolGroups } from "./registry.js";
 import { ptySpawn, ptyWouldReattach } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { attachDraftInjection } from "./draft-injection.js";
@@ -26,6 +26,7 @@ import { requireResolution, resolveProvider, type DirModelChoice } from "./provi
 import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
 import { ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
+import type { CoreSessionVisibility } from "./core-session-adapter.js";
 
 export interface SpawnClaudeOptions {
   // Passed to claude as the first turn, so the session starts working before anyone
@@ -44,6 +45,7 @@ export interface SpawnClaudeOptions {
   launch?: DirModelChoice | undefined;
   /** This id is already a Core member; attach its pane instead of creating a session. */
   coreSessionExists?: boolean;
+  visibility?: CoreSessionVisibility;
 }
 
 // The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
@@ -92,14 +94,12 @@ function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?:
   const dir = loadDirConfig(input.cwd);
   const choice = effectiveChoice({
     launch: input.launch,
-    remembered: launchChoices.get(input.sessionId),
     dir: { provider: dir.provider, model: dir.model },
     resuming: input.canResume,
   });
   const resolved = requireResolution(resolveProvider(choice, getProviders(), process.env));
   // Remembered so a later resume continues on the backend this session began on, instead of
   // silently moving to the directory's default mid-conversation.
-  if (input.launch) launchChoices.set(input.sessionId, choice);
   return { dir, resolved };
 }
 
@@ -140,13 +140,12 @@ export const carriesFullGuiMcp = (attachGuiMcp: boolean, cwd: string | undefined
 export function createClaudeSpawner(deps: SpawnDeps) {
   // `ws` may be null for a session spawned without a viewer; output buffers until attach.
   function spawnClaudePty(sessionId: string, resume: string | null, ws: WebSocket | null, options: SpawnClaudeOptions = {}): PtyEntry {
-    const { initialPrompt, cwd = CLAUDE_CWD, attachGuiMcp = true, draft, launch, coreSessionExists = false } = options;
+    const { initialPrompt, cwd = CLAUDE_CWD, attachGuiMcp = true, draft, launch, coreSessionExists = false, visibility = "normal" } = options;
     const fullGuiMcp = carriesFullGuiMcp(attachGuiMcp, cwd);
     // fullGuiMcp picks the MCP mode (see buildClaudeArgs, and its own doc for who earns it): the
     // GUI MCP + --strict-mcp-config; a project-directory cell attaches neither, so its own load.
     // Claude can resume only after its conversation exists on disk.
     const canResume = resume !== null && sessionExistsOnDisk(resume, cwd);
-
     const { dir, resolved } = resolveSessionBackend({ cwd, sessionId, launch, canResume });
 
     const hookSettings = deps.hookSettingsJson("localhost", sessionId, resolved.env);
@@ -201,6 +200,8 @@ export function createClaudeSpawner(deps: SpawnDeps) {
         binEnvVar: claudeAdapter.binEnvVar,
         coreSessionExists,
         resumeSource: canResume ? resume : null,
+        visibility,
+        ...(!canResume ? { title: newSessionTitle(initialPrompt ?? draft) } : {}),
       };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
       console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));
@@ -208,16 +209,11 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     }
     ptys.set(sessionId, entry);
     recordClaudeLive(sessionId, deps);
-    // Every claude spawn above carries `--settings` with the Pre/PostToolUse hooks, so from here
-    // on this session reports its own tool calls — which is what stops the MCP broker recording
-    // its GUI calls a second time (mcp/gui-call-history.ts).
+    // Every spawn carries the hooks, so the MCP broker must not record its GUI calls again
+    // (mcp/gui-call-history.ts).
     hookedSessions.add(sessionId);
 
-    if (!canResume) {
-      // Brand-new (or restarted-idle) session: surface it in the sidebar before it's persisted.
-      knownSessions.set(sessionId, { createdAt: Date.now(), title: newSessionTitle(initialPrompt ?? draft) });
-      deps.publishSessionCreated(sessionId);
-    }
+    if (!canResume) deps.publishSessionCreated(sessionId);
 
     // The auto-run prompt / editable draft is typed into the input box once ready (see
     // attachDraftInjection) — its scanner is fed the pty output below. The submit byte(s)
@@ -236,10 +232,8 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       console.log(ptyExitLine({ agent: "claude", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
       deps.inputReadiness?.markSessionStopped(sessionId);
       sendExitAndClose(entry.ws, exitCode, signal);
-      // Clear the dot if it died mid-turn, then tear down everything (deletes
-      // ptys/knownSessions/activity and publishes "closed") so a process that
-      // exits on its own — e.g. a brand-new session that never persisted —
-      // doesn't linger in the sidebar.
+      // Clear the activity dot and release this process's viewer transport. Core membership
+      // remains discoverable independently of transcript persistence.
       deps.setWorking(sessionId, false);
       deps.reap(sessionId);
     });

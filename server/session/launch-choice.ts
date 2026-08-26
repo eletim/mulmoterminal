@@ -39,8 +39,6 @@ export function launchChoiceFromParams(params: URLSearchParams): DirModelChoice 
 export interface ChoiceInputs {
   // What the browser picked for the session it is starting now.
   launch?: DirModelChoice | undefined;
-  // What THIS session id was started on, when this server is the one that started it.
-  remembered?: DirModelChoice | undefined;
   // The directory's own default.
   dir: DirModelChoice;
   // Continuing an existing conversation rather than beginning one.
@@ -55,17 +53,9 @@ export interface ChoiceInputs {
 //
 // A resume ignores the picker entirely. The browser re-sends whatever its cell still holds
 // on every reconnect, and that value belongs to the session that cell launched — not
-// necessarily to the one being resumed. What the session was actually started on is the
-// only defensible answer; the directory's default is the fallback when this server never
-// saw it start.
-//
-// Only the PICKER'S choice is remembered, and the asymmetry is deliberate. That choice has
-// nowhere else to live, so losing it drops the session onto a backend its user never chose
-// for it. The directory's default IS that backend — and like every other field in
-// .mulmoterminal.json (theme, colours, the skill list) it is read fresh on each spawn, so
-// editing the file takes effect. Making these two keys uniquely sticky would also read
-// differently either side of a server restart, since this memory is in-process.
-export function effectiveChoice({ launch, remembered, dir, resuming }: ChoiceInputs): DirModelChoice {
-  if (resuming) return remembered ?? dir;
+// necessarily to the one being resumed. There is no process-local session cache: the directory's
+// current configuration is the restart-stable answer when history starts a new Core session.
+export function effectiveChoice({ launch, dir, resuming }: ChoiceInputs): DirModelChoice {
+  if (resuming) return dir;
   return launch ?? dir;
 }

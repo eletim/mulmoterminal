@@ -12,7 +12,7 @@ import { cwdProblemMessage, diagnoseSpawnCwd, type CwdDiagnosis } from "../infra
 import { withoutUnset } from "./provider-env.js";
 import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxScrubEnvNames } from "../infra/tmux.js";
 import { shellQuoteFor } from "../config/header-resolve.js";
-import { coreSessions } from "./core-session-adapter.js";
+import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
 
 const PTY_COLS = 120;
@@ -203,9 +203,15 @@ export function ptySpawn(
   args: string[],
   cwd: string,
   persistent: boolean,
-  options: PtySpawnEnv & { agent?: LaunchAgent; coreSessionExists?: boolean; resumeSource?: string | null } = {},
+  options: PtySpawnEnv & {
+    agent?: LaunchAgent;
+    coreSessionExists?: boolean;
+    resumeSource?: string | null;
+    title?: string;
+    visibility?: CoreSessionVisibility;
+  } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
-  const { unset = [], env = {}, binEnvVar, agent = "shell", coreSessionExists = false, resumeSource = null } = options;
+  const { unset = [], env = {}, binEnvVar, agent = "shell", coreSessionExists = false, resumeSource = null, title, visibility = "normal" } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
   const reattached = ptyWouldReattach(coreSessionExists, persistent);
@@ -220,7 +226,10 @@ export function ptySpawn(
       const quote = shellQuoteFor(process.platform);
       const environment = Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`);
       const command = ["exec", "env", ...environment, quote(file), ...args.map(quote)].join(" ");
-      coreSessions.createSync({ id: sessionId, command, cwd, agent, ...(resumeSource ? { resumeSource } : {}) }, ptyEnv(unset, env));
+      coreSessions.createSync(
+        { id: sessionId, command, cwd, agent, visibility, ...(title ? { title } : {}), ...(resumeSource ? { resumeSource } : {}) },
+        ptyEnv(unset, env),
+      );
       configureCoreTmuxServer();
     }
     return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };

@@ -17,7 +17,7 @@ import { wireAgentPtyRelay } from "./pty-relay.js";
 import { attachCodexAutoRun } from "./draft-injection.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
-import { coreSessions } from "./core-session-adapter.js";
+import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
 
 // Bound to ONE pty: `ptys.has(id)` would keep a stale tail alive after a reap-then-
 // respawn under the same id, and both tails would report the same boundaries.
@@ -63,9 +63,10 @@ export function createCodexSpawner(deps: SpawnDeps) {
        *  the caller because the lookup reads Claude Code's config files, and this is sync. */
       mcpGroups?: readonly ToolGroup[];
       coreSessionExists?: boolean;
+      visibility?: CoreSessionVisibility;
     } = {},
   ): PtyEntry {
-    const { initialPrompt = null, mcpGroups = [], coreSessionExists = false } = options;
+    const { initialPrompt = null, mcpGroups = [], coreSessionExists = false, visibility = "normal" } = options;
     const root = codexSessionsRoot();
     const before = snapshotSessions(root);
     // Two surfaces, the same two claude has:
@@ -88,6 +89,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
       binEnvVar: codexAdapter.binEnvVar,
       coreSessionExists,
       resumeSource: resumeRolloutId,
+      visibility,
     });
     const spawnedAtMs = Date.now();
     const note = resumeRolloutId ? `resume ${resumeRolloutId}` : null;

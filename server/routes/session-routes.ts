@@ -16,24 +16,14 @@ import {
   aiTitles,
   antigravityConversations,
   antigravityConversationsHydrated,
-  backgroundSessionsHydrated,
   failedWorkersHydrated,
-  isBackgroundSession,
   lastPrompts,
   lastResponses,
   sessionMemos,
   sessionMemosHydrated,
   setSessionMemo,
-  translationWorkerIds,
 } from "../session/registry.js";
-import {
-  collectOnDiskSessionStats,
-  collectPendingSessions,
-  readSessionMeta,
-  readSessionSummary,
-  sessionLastTurn,
-  sessionTimeline,
-} from "../session/session-reads.js";
+import { collectOnDiskSessionStats, readSessionMeta, readSessionSummary, sessionLastTurn, sessionTimeline } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
@@ -238,10 +228,10 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     await activityStateHydrated; // list working/waiting from the restored state, not a racing idle
     // Optional ?cwd= scopes the list to that project's on-disk sessions (the grid
     // cell's resume picker). Without it, the classic single view's behavior is
-    // unchanged: CLAUDE_CWD + in-memory pending sessions.
+    // unchanged: CLAUDE_CWD history.
     const cwd = workspaceForRoute(req.query.cwd, res);
     if (cwd === null) return;
-    const includePending = !req.query.cwd;
+    const unscoped = !req.query.cwd;
     // Wait for the persisted grid-session set before filtering (below), so a chat
     // request racing server boot can't leak previously-hidden grid transcripts. The
     // background and failed sets are awaited for BOTH queries — they decide a flag on the row
@@ -254,8 +244,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     const coreById = new Map(coreSessions.map((session) => [session.id, session]));
     const coreByReference = new Map(coreById);
     for (const core of coreSessions) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
-    const coreIds = includePending ? new Set(coreById.keys()) : new Set<string>();
-    await backgroundSessionsHydrated;
+    const coreIds = unscoped ? new Set(coreById.keys()) : new Set<string>();
     await failedWorkersHydrated;
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
     const dir = projectSessionsDir(cwd);
@@ -267,39 +256,23 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     }
 
     const onDiskStats = await collectOnDiskSessionStats(dir, files);
-    const onDisk = new Set(onDiskStats.map((s) => s.id));
-    // Pending is skipped for a cwd-scoped query (pending sessions aren't tracked per dir).
-    const pending = collectPendingSessions(onDisk, includePending);
-
     // Keep only the most-recent N, then read & parse contents for just those
     // on-disk files (a deleted/corrupt file is dropped, not fatal). Hidden translation
     // workers are dropped first — they're transient internal helpers, not user chats.
-    const top = selectSessionRows([...onDiskStats, ...pending], {
-      isInternalHelper: (id) => translationWorkerIds.has(id) || isProbeSessionId(id),
+    const top = selectSessionRows(onDiskStats, {
+      isInternalHelper: (id) => coreByReference.get(id)?.visibility === "internal" || isProbeSessionId(id),
       isDevTerminal: (id) => coreIds.has(id),
-      isBackground: (id) => isBackgroundSession(id),
-      includePending,
+      isBackground: (id) => coreByReference.get(id)?.visibility === "background",
+      unscoped,
       limit: SESSION_LIST_LIMIT,
       backgroundLimit: BACKGROUND_SESSION_LIST_LIMIT,
     });
     const sessions = (
       await Promise.all(
-        top.map((s) =>
-          s.kind === "pending"
-            ? // Wrapped rather than handed to Promise.all bare: a pending row is already the whole
-              // answer, and spelling it as a promise says the two branches meet at the same type.
-              Promise.resolve({
-                id: s.id,
-                title: s.title,
-                mtime: s.mtime,
-                working: s.working,
-                waiting: s.waiting,
-                event: s.event,
-                hidden: s.hidden,
-                failed: s.failed,
-              })
-            : readSessionMeta(dir, s.file, coreByReference.get(s.id)?.id).catch(() => null),
-        ),
+        top.map((s) => {
+          const core = coreByReference.get(s.id);
+          return readSessionMeta(dir, s.file, core?.id, core?.visibility).catch(() => null);
+        }),
       )
     )
       .filter((s): s is SessionMeta => s !== null)

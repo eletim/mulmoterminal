@@ -12,11 +12,8 @@ import {
   aiTitles,
   antigravityConversations,
   codexRolloutIds,
-  hiddenSessions,
-  knownSessions,
   lastPrompts,
   lastResponses,
-  launchChoices,
   ptys,
   sessionMemos,
 } from "../../../server/session/registry.js";
@@ -53,21 +50,9 @@ const clearRegistry = () => {
   lifecycle.reap(ID);
   lifecycle.reap(OTHER_ID);
   lifecycle.reap(THIRD_ID);
-  for (const map of [
-    ptys,
-    activity,
-    knownSessions,
-    lastPrompts,
-    lastResponses,
-    aiTitles,
-    launchChoices,
-    codexRolloutIds,
-    antigravityConversations,
-    sessionMemos,
-  ]) {
+  for (const map of [ptys, activity, lastPrompts, lastResponses, aiTitles, codexRolloutIds, antigravityConversations, sessionMemos]) {
     map.clear();
   }
-  hiddenSessions.clear();
   clearedTranscripts.clear();
 };
 
@@ -83,25 +68,17 @@ afterEach(() => {
 });
 
 describe("reap", () => {
-  it("removes every trace of the session", () => {
+  it("removes viewer-owned transient state", () => {
     const deps = makeDeps();
     ptys.set(ID, fakeEntry());
-    knownSessions.set(ID, { createdAt: 1, title: "t" });
     lastPrompts.set(ID, "p");
     lastResponses.set(ID, "r");
-    launchChoices.set(ID, { provider: "openrouter", model: "m" });
 
     createSessionLifecycle(deps).reap(ID);
 
     // A leak here is a session that lingers in the sidebar, or a provider token's settings
     // file left on disk.
-    expect([ptys.has(ID), knownSessions.has(ID), lastPrompts.has(ID), lastResponses.has(ID), launchChoices.has(ID)]).toEqual([
-      false,
-      false,
-      false,
-      false,
-      false,
-    ]);
+    expect([ptys.has(ID), lastPrompts.has(ID), lastResponses.has(ID)]).toEqual([false, false, false]);
     expect(deps.forgetTitle).toHaveBeenCalledWith(ID);
     // A socket close only pauses the tmux size bookkeeping (a detached session can reattach);
     // teardown is the one place that frees it, or it grows for the server's whole life (#957).

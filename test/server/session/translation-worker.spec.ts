@@ -1,16 +1,13 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createTranslationWorker, submitTranslation, failPendingTranslation } from "../../../server/session/translation-worker.js";
-import { hiddenSessions, translationWorkerIds, knownSessions, activity, lastPrompts } from "../../../server/session/registry.js";
+import { activity, lastPrompts } from "../../../server/session/registry.js";
 
 // The worker's answer arrives on a different code path (POST /api/translation/submit)
 // than the request waiting for it, so these two functions are the whole handoff. A
 // missed settle hangs the caller until the 2-minute timeout.
 afterEach(() => {
   vi.useRealTimers();
-  hiddenSessions.clear();
-  translationWorkerIds.clear();
-  knownSessions.clear();
   activity.clear();
   lastPrompts.clear();
 });
@@ -19,17 +16,14 @@ afterEach(() => {
 function harness(answer?: (sessionId: string) => void) {
   const reaped: string[] = [];
   const deleted: string[] = [];
-  const spawned: Array<{ sessionId: string; prompt: string }> = [];
+  const spawned: Array<{ sessionId: string; prompt: string; visibility: "internal" }> = [];
   const { translateViaHiddenChat } = createTranslationWorker({
     reap: (id) => reaped.push(id),
     deleteSession: async (id) => {
       deleted.push(id);
     },
-    spawnHiddenChat: (sessionId, prompt) => {
-      spawned.push({ sessionId, prompt });
-      // The real spawner registers a pending sidebar row for a brand-new session; the
-      // worker is expected to drop it again, so the fake has to create one to drop.
-      knownSessions.set(sessionId, { createdAt: 0, title: "New session" });
+    spawnHiddenChat: (sessionId, prompt, visibility) => {
+      spawned.push({ sessionId, prompt, visibility });
       answer?.(sessionId);
     },
   });
@@ -64,21 +58,10 @@ describe("translateViaHiddenChat", () => {
     expect(bad.deleted).toHaveLength(bad.spawned.length);
   });
 
-  it("keeps the worker out of the sidebar", async () => {
-    // A hidden worker that surfaced as a session row would look like a chat the user
-    // never started; the registry marks are what the /api/sessions filter reads.
-    let seenWorkerId = "";
-    const h = harness((id) => {
-      seenWorkerId = id;
-      expect(hiddenSessions.has(id)).toBe(true);
-      expect(translationWorkerIds.has(id)).toBe(true);
-      submitTranslation(id, ["x"]);
-    });
+  it("creates the worker with internal Core visibility", async () => {
+    const h = harness((id) => submitTranslation(id, ["x"]));
     await h.translateViaHiddenChat("ja", ["hello"]);
-    expect(knownSessions.has(seenWorkerId)).toBe(false);
-    // Teardown drops the marks so they don't accumulate across requests.
-    expect(hiddenSessions.has(seenWorkerId)).toBe(false);
-    expect(translationWorkerIds.has(seenWorkerId)).toBe(false);
+    expect(h.spawned[0].visibility).toBe("internal");
   });
 
   it("rejects an answer with the wrong number of strings", async () => {

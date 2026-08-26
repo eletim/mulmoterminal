@@ -1,5 +1,3 @@
-import { isProbeSessionId } from "../agents/probe-session.js";
-import { backgroundSessionsHydrated, isBackgroundSession, translationWorkerIds } from "./registry.js";
 import type { CoreSession } from "./core-session-adapter.js";
 
 /**
@@ -8,6 +6,5 @@ import type { CoreSession } from "./core-session-adapter.js";
  * user terminal rows. Placement is deliberately absent because it is browser-local layout state.
  */
 export async function visibleCoreSessions(sessions: readonly CoreSession[]): Promise<CoreSession[]> {
-  await backgroundSessionsHydrated;
-  return sessions.filter((session) => !translationWorkerIds.has(session.id) && !isProbeSessionId(session.id) && !isBackgroundSession(session.id));
+  return sessions.filter((session) => session.visibility === "normal");
 }

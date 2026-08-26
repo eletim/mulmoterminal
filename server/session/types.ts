@@ -37,11 +37,6 @@ export interface PtyEntry {
   agent: SessionAgent;
 }
 
-export interface KnownSession {
-  createdAt: number;
-  title: string;
-}
-
 // A GUI plugin result, deduped by uuid; the rest of the payload is opaque here.
 export interface ToolResult {
   uuid: string;
@@ -61,7 +56,7 @@ export interface ToolCall {
   at: number;
 }
 
-// A sidebar session row (resolved from disk or a pending in-memory session).
+// A history sidebar row resolved from agent-owned storage.
 export interface SessionMeta extends WorkerStatus {
   id: string;
   title: string;
@@ -80,9 +75,4 @@ export interface DiskStat {
   id: string;
   file: string;
   mtime: number;
-}
-
-// An in-memory session not yet persisted to disk.
-export interface PendingSession extends SessionMeta {
-  kind: "pending";
 }

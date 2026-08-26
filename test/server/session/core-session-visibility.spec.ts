@@ -1,8 +1,7 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { CoreSession } from "../../../server/session/core-session-adapter.js";
 import { visibleCoreSessions } from "../../../server/session/core-session-visibility.js";
-import { hiddenSessions, translationWorkerIds } from "../../../server/session/registry.js";
 
 const session = (id: string): CoreSession => ({
   id,
@@ -19,18 +18,13 @@ const session = (id: string): CoreSession => ({
   title: null,
   memo: null,
   resumeSource: null,
-});
-
-afterEach(() => {
-  hiddenSessions.clear();
-  translationWorkerIds.clear();
+  visibility: "normal",
 });
 
 describe("visibleCoreSessions", () => {
   it("keeps Core membership but excludes internal and background display rows", async () => {
-    hiddenSessions.add("background");
-    translationWorkerIds.add("translation");
-
-    await expect(visibleCoreSessions([session("user"), session("background"), session("translation")])).resolves.toEqual([session("user")]);
+    const background = { ...session("background"), visibility: "background" as const };
+    const internal = { ...session("translation"), visibility: "internal" as const };
+    await expect(visibleCoreSessions([session("user"), background, internal])).resolves.toEqual([session("user")]);
   });
 });

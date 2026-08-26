@@ -31,12 +31,11 @@ const noop = { spawn: () => {}, retain: () => {} };
 beforeEach(() => vi.clearAllMocks());
 
 describe("a scheduled task's chat", () => {
-  it("is a background worker, not a chat the user started", async () => {
-    // It was already half of one — scheduledSessions.register puts it on the background retention,
-    // whose reason is that nobody is waiting for it. The classification now agrees with that.
-    const { registry, spawnScheduledWorker } = await fresh();
-    spawnScheduledWorker(ID, noop);
-    expect(registry.isBackgroundSession(ID)).toBe(true);
+  it("creates a background Core session, not a normal user terminal", async () => {
+    const { spawnScheduledWorker } = await fresh();
+    const spawn = vi.fn();
+    spawnScheduledWorker(ID, { spawn, retain: () => {} });
+    expect(spawn).toHaveBeenCalledWith(ID, "background");
   });
 
   // The one thing it does NOT inherit from being a background session. Suppressing this would
@@ -45,8 +44,6 @@ describe("a scheduled task's chat", () => {
     const { registry, spawnScheduledWorker } = await fresh();
     spawnScheduledWorker(ID, noop);
     expect(registry.isUserScheduledSession(ID)).toBe(true);
-    // Both facts together are what the push rule reads — background, and yet the user's own task.
-    expect(registry.isBackgroundSession(ID)).toBe(true);
   });
 
   it("still says so when it fails", async () => {

@@ -15,14 +15,11 @@
 import {
   activity,
   aiTitles,
-  hiddenSessions,
-  knownSessions,
   lastPrompts,
   lastResponses,
   lastTitleAttemptMs,
   claimActivityOwnership,
   lastTitledUserTurns,
-  launchChoices,
   persistActivityState,
   ptys,
   sessionMemos,
@@ -182,10 +179,6 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
-  // An unpersisted new session vanishes with its pty; a persisted one stays
-  // visible via its on-disk record.
-  knownSessions.delete(id);
-  launchChoices.delete(id); // the picked backend dies with the session that used it
   lastPrompts.delete(id); // don't leak prompt text for torn-down sessions
   lastResponses.delete(id); // ditto, and keep this map from growing across closed sessions
   // The transcript stops being frozen here: the next claude on this id (`--resume`, or a restart
@@ -199,7 +192,6 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   lastTitleAttemptMs.delete(id);
   if (shouldForgetActivity(activity.get(id))) {
     activity.delete(id);
-    hiddenSessions.delete(id); // the hidden flag rides with the record — see shouldForgetActivity
   }
   try {
     entry.term.kill();
@@ -363,7 +355,7 @@ function setFlag(
   claimActivityOwnership(id); // this instance drives this session — persist may write/remove it
   publishActivity(deps, id);
   // Persist so an in-progress turn / the blocked-or-done set survives a restart (ACTIVITY_STATE_FILE).
-  persistActivityState((id) => hiddenSessions.has(id));
+  persistActivityState();
   notifyMobileWebPushTransition(deps, mobileWebPushActivityState, id, prev, effect.next, event);
   if (effect.rearmReap) armReapForDetached(deps, mobileWebPushActivityState, id);
 }

@@ -24,7 +24,7 @@ describe("CoreSessionAdapter", () => {
 
     const sessions = await new CoreSessionAdapter({ core }).list();
 
-    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review", resumeSource: null }]);
+    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review", resumeSource: null, visibility: "normal" }]);
   });
 
   it("restores cwd metadata when an exited tmux pane no longer reports a cwd", async () => {
@@ -83,6 +83,7 @@ describe("CoreSessionAdapter", () => {
       agent: "codex",
       title: "Fix #149",
       resumeSource: "history-1",
+      visibility: "background",
     });
 
     expect(setMetadata.mock.calls).toEqual([
@@ -90,6 +91,7 @@ describe("CoreSessionAdapter", () => {
       [native.id, "cwd", native.cwd],
       [native.id, "title", "Fix #149"],
       [native.id, "resume-source", "history-1"],
+      [native.id, "visibility", "background"],
     ]);
   });
 

@@ -46,7 +46,7 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, knownSessions, lastPrompts, ptys } from "./session/registry.js";
+import { activity, aiTitles, lastPrompts, ptys } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -296,8 +296,6 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => {
-    const title = knownSessions.get(sessionId)?.title;
-    if (title) void coreSessions.setTitle(sessionId, title).catch(() => undefined);
     void migrateLegacyMemoToCore(sessionId).catch(() => undefined);
     pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" });
   },
@@ -320,9 +318,9 @@ const { translateViaHiddenChat } = createTranslationWorker({
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }
   },
-  spawnHiddenChat: (sessionId, prompt) => {
+  spawnHiddenChat: (sessionId, prompt, visibility) => {
     // ws=null → headless; the worker buffers output nobody reads. Default cwd = CLAUDE_CWD (trusted).
-    spawnClaudePty(sessionId, null, null, { initialPrompt: prompt });
+    spawnClaudePty(sessionId, null, null, { initialPrompt: prompt, visibility });
   },
 });
 
@@ -584,14 +582,7 @@ const mobileListTerminalSessions = async () => {
       if (!session) return { title: "", cwd: "", agent: null };
       const summary = work.get(session.cwd);
       const detail: SessionDetailDraft = {
-        title: sessionDisplayName(
-          session.memo,
-          legacyMemoForCoreSession(id),
-          session.title,
-          aiTitles.get(id),
-          lastPrompts.get(id),
-          knownSessions.get(id)?.title,
-        ),
+        title: sessionDisplayName(session.memo, legacyMemoForCoreSession(id), session.title, aiTitles.get(id), lastPrompts.get(id), null),
         cwd: session.cwd,
         agent: session.agent,
         ...(summary ? { work: summary } : {}),
@@ -792,7 +783,7 @@ function spawnScheduledChat(message: string): void {
   const sessionId = randomUUID();
   try {
     spawnScheduledWorker(sessionId, {
-      spawn: (id) => spawnClaudePty(id, null, null, { initialPrompt: message }),
+      spawn: (id, visibility) => spawnClaudePty(id, null, null, { initialPrompt: message, visibility }),
       retain: (id) => scheduledSessions.register(id),
     });
   } catch (err) {

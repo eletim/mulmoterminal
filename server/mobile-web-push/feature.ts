@@ -1,7 +1,8 @@
 import { getPushKinds } from "../config/config-routes.js";
 import { messageOf } from "../errors.js";
 import type { SessionLifecycleDeps } from "../session/lifecycle.js";
-import { pushClassification, translationWorkerIds } from "../session/registry.js";
+import { isUserScheduledSession, userScheduledSessionsHydrated } from "../session/registry.js";
+import { coreSessions } from "../session/core-session-adapter.js";
 import { shouldSuppressPush } from "../session/taskPushRules.js";
 import { mobileWebPushConfigFromEnv } from "./config.js";
 import { createMobileWebPushSender, type MobileWebPushSender } from "./sender.js";
@@ -25,8 +26,9 @@ export function mobileWebPushActivityLifecycleDeps({
     notifyMobileWebPushActivity: (notification) => {
       if (!getPushKinds().includes(notification.kind)) return;
       void (async () => {
-        const { background, userScheduled } = await pushClassification(notification.sessionId);
-        if (shouldSuppressPush(background, translationWorkerIds.has(notification.sessionId), userScheduled)) return;
+        const [session] = await Promise.all([coreSessions.find(notification.sessionId), userScheduledSessionsHydrated]);
+        const visibility = session?.visibility ?? "normal";
+        if (shouldSuppressPush(visibility === "background", visibility === "internal", isUserScheduledSession(notification.sessionId))) return;
         await sender.sendActivity(notification.kind, notification);
       })().catch((err) => {
         console.warn(`[mobile-web-push] activity notification failed for ${notification.sessionId}: ${messageOf(err)}`);
