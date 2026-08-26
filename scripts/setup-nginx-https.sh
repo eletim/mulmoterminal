@@ -200,11 +200,23 @@ detect_existing_server_conf() {
         }
         if (in_server) {
           if (line ~ /listen/ && line ~ /(^|[[:space:]:])443([[:space:];]|$)/) has_443 = 1
-          if (line ~ /server_name/ && has_name(line)) has_target_name = 1
+          if (collecting_server_name) {
+            server_name_value = server_name_value " " line
+          } else if (line ~ /^[[:space:]]*server_name([[:space:]]|$)/) {
+            collecting_server_name = 1
+            server_name_value = line
+          }
+          if (collecting_server_name && line ~ /;/) {
+            if (has_name(server_name_value)) has_target_name = 1
+            collecting_server_name = 0
+            server_name_value = ""
+          }
           depth += brace_delta(line)
           if (depth == 0) {
             if (has_443 && has_target_name) found = 1
             in_server = 0
+            collecting_server_name = 0
+            server_name_value = ""
           }
         }
       }
@@ -402,7 +414,7 @@ install_include_once() {
       closes = gsub(/\}/, "}", copy)
       return opens - closes
     }
-    function has_server_name(value, fields, count, i) {
+    function has_server_name_token(value, fields, count, i) {
       sub(/#.*/, "", value)
       gsub(/[;[:space:]]+/, " ", value)
       count = split(value, fields, " ")
@@ -422,7 +434,19 @@ install_include_once() {
       delta = in_server ? brace_delta($0) : 0
       if (in_server) {
         if ($0 ~ /listen/ && $0 ~ /(^|[[:space:]:])443([[:space:];]|$)/) has_443 = 1
-        if (server_name != "" && $0 ~ /server_name/ && has_server_name($0)) has_name = 1
+        line = $0
+        sub(/#.*/, "", line)
+        if (collecting_server_name) {
+          server_name_value = server_name_value " " line
+        } else if (line ~ /^[[:space:]]*server_name([[:space:]]|$)/) {
+          collecting_server_name = 1
+          server_name_value = line
+        }
+        if (collecting_server_name && line ~ /;/) {
+          if (server_name != "" && has_server_name_token(server_name_value)) has_name = 1
+          collecting_server_name = 0
+          server_name_value = ""
+        }
         if (!inserted && has_443 && has_name && depth + delta == 0) {
           print block
           inserted = 1
@@ -433,7 +457,11 @@ install_include_once() {
 
       if (in_server) {
         depth += delta
-        if (depth == 0) in_server = 0
+        if (depth == 0) {
+          in_server = 0
+          collecting_server_name = 0
+          server_name_value = ""
+        }
       }
     }
     END {

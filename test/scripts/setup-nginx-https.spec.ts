@@ -247,7 +247,17 @@ describe("setup-nginx-https.sh", () => {
     const correct = path.join(availableDir, "zzz-correct.conf");
     const enabledCorrect = path.join(enabledDir, "zzz-correct.conf");
     writeFileSync(misleading, ["server { listen 443 ssl; server_name notdev.tail.ts.net; }", "server { listen 80; server_name dev.tail.ts.net; }"].join("\n"));
-    writeFileSync(correct, ["server {", "    listen 443 ssl;", "    server_name dev.tail.ts.net;", "}"].join("\n"));
+    writeFileSync(
+      correct,
+      [
+        "server {",
+        "    listen 443 ssl;",
+        "    server_name first.tail.ts.net",
+        "                dev.tail.ts.net",
+        "                third.tail.ts.net;",
+        "}",
+      ].join("\n"),
+    );
     symlinkSync(correct, enabledCorrect);
 
     const result = runScript({
