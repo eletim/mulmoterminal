@@ -274,6 +274,10 @@ const { cancelReap, reap, armReapForDetached } = lifecycle;
 const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessionActivity } = createSessionActivity({
   publish: (channel, data) => pubsub?.publish(channel, data),
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
+  coreMetadataOf: async (id) => {
+    const session = await coreSessions.find(id);
+    return session ? { cwd: session.cwd, agent: session.agent } : null;
+  },
   ...mobileWebPushActivityDeps,
 });
 

@@ -33,8 +33,10 @@ const makeDeps = (overrides: Partial<TestDeps> = {}): TestDeps => ({
   publish: vi.fn(),
   forgetWorkPhase: vi.fn(),
   forgetTerminalSize: vi.fn(),
+  coreMetadataOf: vi.fn(() => ({ cwd: "/work", agent: "claude" as const })),
   ...overrides,
 });
+const coreAgent = (agent: "claude" | "codex" | "shell") => vi.fn(() => ({ cwd: "/work", agent }));
 
 // The implementations are intentionally separate; this combined test facade lets the historical
 // behavior assertions exercise each owner while lifecycle.ts itself exposes no activity API.
@@ -228,7 +230,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies local mobile Web Push when a running session starts waiting for input", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps({ notifyMobileWebPushActivity });
+    const deps = makeDeps({ coreMetadataOf: coreAgent("codex"), notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -290,7 +292,10 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies independently for separate sessions", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps({ notifyMobileWebPushActivity });
+    const deps = makeDeps({
+      coreMetadataOf: vi.fn((id) => ({ cwd: "/work", agent: id === OTHER_ID ? ("codex" as const) : ("claude" as const) })),
+      notifyMobileWebPushActivity,
+    });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "claude" }));
     ptys.set(OTHER_ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
@@ -308,7 +313,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies again after a viewed session starts a later turn and blocks again", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps({ notifyMobileWebPushActivity });
+    const deps = makeDeps({ coreMetadataOf: coreAgent("codex"), notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -327,7 +332,7 @@ describe("setWorking / setWaiting", () => {
 
   it("notifies again after the previous input wait is answered in the same turn", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps({ notifyMobileWebPushActivity });
+    const deps = makeDeps({ coreMetadataOf: coreAgent("codex"), notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ ws: {}, agent: "codex" }));
     const lifecycle = createSessionLifecycle(deps);
 
@@ -500,7 +505,7 @@ describe("the reap timer", () => {
   it("does not use unacknowledged shell activity as viewer retention", () => {
     vi.useFakeTimers();
     const notifyMobileWebPushActivity = vi.fn();
-    const deps = makeDeps({ notifyMobileWebPushActivity });
+    const deps = makeDeps({ coreMetadataOf: coreAgent("shell"), notifyMobileWebPushActivity });
     ptys.set(ID, fakeEntry({ agent: "shell" }));
     const lifecycle = createSessionLifecycle(deps);
 

@@ -22,8 +22,12 @@ export interface CodexActivityTrackDeps {
   /** False once THIS pty is gone. Must identify the pty, not just its session id: a
    *  session reaped and respawned under the same id within one poll would otherwise
    *  leave this tail running beside the new one, reporting every boundary twice. */
-  isAlive: () => boolean;
+  isAlive: () => boolean | Promise<boolean>;
 }
+
+// Agent-owned worker identity: reattach replaces the rollout tail for this session, while
+// viewer release alone leaves the current tail alive until Core exits or membership is deleted.
+const activeTracks = new Map<string, symbol>();
 
 const readSliceOf =
   (file: string) =>
@@ -97,6 +101,8 @@ export function restoreCodexPromptBaselineForHeader(sessionId: string, baseline:
 // resumed rollout's history — replaying it would flag the cell from turns that finished
 // days ago.
 export function trackCodexActivity(sessionId: string, file: string, startAtEnd: boolean, deps: CodexActivityTrackDeps): void {
+  const token = Symbol(sessionId);
+  activeTracks.set(sessionId, token);
   let baseline: string | null = null;
   watchCodexActivity({
     fileSize: sizeOf(file),
@@ -107,8 +113,13 @@ export function trackCodexActivity(sessionId: string, file: string, startAtEnd: 
     },
     onPrompt: (prompt) => recordCodexPromptForHeader(sessionId, prompt, deps, baseline),
     onBoundary: (boundary) => applyBoundary(sessionId, boundary, deps),
-    isAlive: deps.isAlive,
+    isAlive: async () => activeTracks.get(sessionId) === token && (await deps.isAlive()),
     startAtEnd,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  }).catch(() => {}); // a rollout that vanishes mid-session just stops reporting
+  })
+    .catch(() => {})
+    .finally(() => {
+      // eslint-disable-next-line security/detect-possible-timing-attacks -- opaque in-process Symbol identity, not secret data
+      if (activeTracks.get(sessionId) === token) activeTracks.delete(sessionId);
+    }); // a rollout that vanishes mid-session just stops reporting
 }

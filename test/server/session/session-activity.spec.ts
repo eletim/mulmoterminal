@@ -7,7 +7,12 @@ import { clearedTranscripts } from "../../../server/session/cleared-transcripts.
 vi.mock("../../../server/session/session-reads.js", () => ({ readLatestResponse: vi.fn(() => "reply on disk") }));
 
 const ID = "11111111-2222-4333-8444-555555555555";
-const makeDeps = (overrides: Partial<ActivityServiceDeps> = {}): ActivityServiceDeps => ({ publish: vi.fn(), forgetWorkPhase: vi.fn(), ...overrides });
+const makeDeps = (overrides: Partial<ActivityServiceDeps> = {}): ActivityServiceDeps => ({
+  publish: vi.fn(),
+  forgetWorkPhase: vi.fn(),
+  coreMetadataOf: vi.fn(() => ({ cwd: "/work", agent: "claude" as const })),
+  ...overrides,
+});
 const entry = (over: Record<string, unknown> = {}) => ({ cwd: "/work", agent: "claude", ...over }) as never;
 
 beforeEach(() => {
@@ -44,7 +49,7 @@ describe("session activity", () => {
   it("keeps Web Push as an activity consumer", () => {
     const notifyMobileWebPushActivity = vi.fn();
     ptys.set(ID, entry({ agent: "codex" }));
-    const service = createSessionActivity(makeDeps({ notifyMobileWebPushActivity }));
+    const service = createSessionActivity(makeDeps({ coreMetadataOf: vi.fn(() => ({ cwd: "/work", agent: "codex" as const })), notifyMobileWebPushActivity }));
     service.setWorking(ID, true, "UserPromptSubmit");
     service.setWaiting(ID, true, "Notification");
     expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" });
@@ -90,15 +95,32 @@ describe("session activity", () => {
     expect(core.list()).toEqual([ID]);
   });
 
-  it("publishes explicit Delete as closed before forgetting activity", () => {
+  it("publishes explicit Delete as closed before forgetting activity", async () => {
     const serviceDeps = makeDeps();
     activity.set(ID, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
     const service = createSessionActivity(serviceDeps);
 
     service.endSessionActivity(ID, "closed");
 
-    expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: false, event: "closed" }));
+    await vi.waitFor(() =>
+      expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: false, event: "closed" })),
+    );
     expect(activity.has(ID)).toBe(false);
+  });
+
+  it("uses Core cwd and agent when no viewer entry exists", async () => {
+    const notifyMobileWebPushActivity = vi.fn();
+    const serviceDeps = makeDeps({
+      coreMetadataOf: vi.fn(async () => ({ cwd: "/core/work", agent: "codex" as const })),
+      notifyMobileWebPushActivity,
+    });
+    const service = createSessionActivity(serviceDeps);
+
+    service.setWorking(ID, true, "UserPromptSubmit");
+    service.setWaiting(ID, true, "Notification");
+
+    await vi.waitFor(() => expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, cwd: "/core/work" })));
+    await vi.waitFor(() => expect(notifyMobileWebPushActivity).toHaveBeenCalledWith({ kind: "waiting", sessionId: ID, agent: "codex" }));
   });
 
   it("acknowledges shell output by changing only waiting display state", () => {
