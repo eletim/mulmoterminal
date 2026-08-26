@@ -335,14 +335,23 @@ export const sessionMemosHydrated: Promise<void> = (async () => {
 export async function migrateHistoryMemosToCore(
   sessions: readonly { id: string; memo: string | null }[],
   setCoreMemo: (id: string, memo: string) => Promise<void>,
+  eraseHistoryMemo: (id: string, text: string) => Promise<string> = setSessionMemo,
 ): Promise<number> {
   await sessionMemosHydrated;
   const candidates = sessions.flatMap((session) => {
     const memo = sessionMemos.get(session.id);
-    return !session.memo && memo ? [{ id: session.id, memo }] : [];
+    return memo ? [{ id: session.id, memo, alreadyInCore: !!session.memo }] : [];
   });
-  const migrated = await Promise.allSettled(candidates.map(({ id, memo }) => setCoreMemo(id, memo)));
-  return migrated.filter((result) => result.status === "fulfilled").length;
+  const migrated = await Promise.allSettled(
+    candidates.map(async ({ id, memo, alreadyInCore }) => {
+      if (!alreadyInCore) await setCoreMemo(id, memo);
+      // Once Core owns the value, retire the legacy copy so a later user clear cannot migrate
+      // stale history metadata back into Core on restart.
+      await eraseHistoryMemo(id, "");
+      return !alreadyInCore;
+    }),
+  );
+  return migrated.filter((result) => result.status === "fulfilled" && result.value).length;
 }
 
 /** Transfer a live note to its history owner immediately before explicit Core deletion.

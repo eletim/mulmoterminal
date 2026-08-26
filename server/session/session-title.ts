@@ -33,7 +33,7 @@ export interface TitleDeps {
   /** Read/write the sole live title source: Core metadata. History-only ids return false. */
   hasTitle: (id: string) => Promise<boolean>;
   persistTitle: (id: string, title: string) => Promise<boolean>;
-  clearTitle: (id: string) => Promise<void>;
+  clearTitle: (id: string) => Promise<boolean>;
 }
 
 function forgetSessionTitle(sessionId: string): void {
@@ -48,8 +48,7 @@ export function createTitleManager(deps: TitleDeps) {
   // must not resurface after the header was cleared.
   async function forgetTitle(sessionId: string): Promise<void> {
     forgetSessionTitle(sessionId);
-    await deps.clearTitle(sessionId).catch(() => undefined);
-    deps.publishTitle(sessionId, null);
+    if (await deps.clearTitle(sessionId)) deps.publishTitle(sessionId, null);
   }
 
   // Count a user turn and flag the session for a title (re)generation at the next Stop when
@@ -95,7 +94,7 @@ export function createTitleManager(deps: TitleDeps) {
         // `/clear` may have landed while the Core metadata write was in flight. Its incremented
         // epoch wins; remove the stale write before anything can publish it.
         if ((titleEpoch.get(sessionId) ?? 0) !== epoch) {
-          await deps.clearTitle(sessionId).catch(() => undefined);
+          await deps.clearTitle(sessionId);
           return;
         }
         titleTurnCounts.set(sessionId, 0);

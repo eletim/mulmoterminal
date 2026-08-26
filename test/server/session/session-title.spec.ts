@@ -55,6 +55,10 @@ function setup(
     coreTitles.set(id, title);
     return true;
   },
+  clearTitle: (id: string) => Promise<boolean> = async (id) => {
+    coreTitles.delete(id);
+    return true;
+  },
 ) {
   const published: Array<[string, string | null]> = [];
   // Turns, not a raw transcript — the manager streams the file now (#998), so what the generator
@@ -69,9 +73,7 @@ function setup(
     },
     hasTitle: async (id) => coreTitles.has(id),
     persistTitle,
-    clearTitle: async (id) => {
-      coreTitles.delete(id);
-    },
+    clearTitle,
   });
   return { ...mgr, published, summarized };
 }
@@ -127,6 +129,16 @@ describe("forgetTitle", () => {
     await forgetTitle(SESSION);
     await forgetTitle(SESSION);
     expect(titleEpoch.get(SESSION)).toBe(2);
+  });
+
+  it("does not publish a clear when Core rejects it", async () => {
+    const { forgetTitle, published } = setup(undefined, undefined, undefined, async () => {
+      throw new Error("Core unavailable");
+    });
+    coreTitles.set(SESSION, "Still in Core");
+    await expect(forgetTitle(SESSION)).rejects.toThrow("Core unavailable");
+    expect(coreTitles.get(SESSION)).toBe("Still in Core");
+    expect(published).toEqual([]);
   });
 });
 

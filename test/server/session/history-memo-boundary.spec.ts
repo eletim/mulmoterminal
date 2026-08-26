@@ -13,6 +13,7 @@ describe("history/live memo boundary", () => {
     sessionMemos.set(LEGACY, "move me");
     sessionMemos.set(ALREADY_CORE, "stale history value");
     const setCoreMemo = vi.fn(async () => undefined);
+    const eraseHistoryMemo = vi.fn(async (_id: string, text: string) => text);
 
     await expect(
       migrateHistoryMemosToCore(
@@ -21,11 +22,13 @@ describe("history/live memo boundary", () => {
           { id: ALREADY_CORE, memo: "Core wins" },
         ],
         setCoreMemo,
+        eraseHistoryMemo,
       ),
     ).resolves.toBe(1);
 
     expect(setCoreMemo).toHaveBeenCalledExactlyOnceWith(LEGACY, "move me");
-    expect(sessionMemos.get(ALREADY_CORE)).toBe("stale history value");
+    expect(eraseHistoryMemo).toHaveBeenCalledWith(LEGACY, "");
+    expect(eraseHistoryMemo).toHaveBeenCalledWith(ALREADY_CORE, "");
   });
 
   it("isolates a Core deletion racing the one-way migration", async () => {
@@ -33,9 +36,13 @@ describe("history/live memo boundary", () => {
     sessionMemos.set(LEGACY, "move me");
 
     await expect(
-      migrateHistoryMemosToCore([{ id: LEGACY, memo: null }], async () => {
-        throw new Error("deleted concurrently");
-      }),
+      migrateHistoryMemosToCore(
+        [{ id: LEGACY, memo: null }],
+        async () => {
+          throw new Error("deleted concurrently");
+        },
+        async (_id, text) => text,
+      ),
     ).resolves.toBe(0);
   });
 

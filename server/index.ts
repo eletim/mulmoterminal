@@ -295,8 +295,10 @@ const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = c
   clearTitle: async (id) => {
     try {
       await coreSessions.setTitle(id, "");
+      return true;
     } catch (error) {
-      if (!(error instanceof CoreSessionNotFoundError)) throw error;
+      if (error instanceof CoreSessionNotFoundError) return false;
+      throw error;
     }
   },
 });
