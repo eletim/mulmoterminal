@@ -37,6 +37,7 @@
     "node": ">=22.9"
   },
   "scripts": {
+    "start:dev": "./scripts/start-dev.sh",
     "dev": "concurrently -n server,vite -c blue,green \"node scripts/dev-server.mjs\" \"vite\"",
     "dev:server": "node scripts/dev-server.mjs",
     "dev:client": "vite",
