@@ -84,7 +84,7 @@ export class CoreSessionAdapter {
   private readonly core: SessionCore;
   private readonly createSyncImpl: NonNullable<CoreSessionAdapterOptions["createSync"]>;
   private readonly inputTails = new Map<string, Promise<void>>();
-  private readonly exitWatchers = new Map<string, Set<(event: CoreSessionExit) => void>>();
+  private readonly exitWatchers = new Map<string, (event: CoreSessionExit) => void>();
   private exitPollTimer: ReturnType<typeof setTimeout> | undefined;
   private exitPollMs = 250;
   private exitPollInFlight = false;
@@ -182,15 +182,12 @@ export class CoreSessionAdapter {
    * node-pty cannot supply the lifecycle event MulmoTerminal needs for activity and hook cleanup.
    */
   watchExit(id: string, listener: (event: CoreSessionExit) => void, pollMs = 250): { dispose(): void } {
-    const listeners = this.exitWatchers.get(id) ?? new Set<(event: CoreSessionExit) => void>();
-    listeners.add(listener);
-    this.exitWatchers.set(id, listeners);
+    this.exitWatchers.set(id, listener);
     this.exitPollMs = Math.min(this.exitPollMs, pollMs);
     void this.pollExits();
     return {
       dispose: () => {
-        listeners.delete(listener);
-        if (listeners.size === 0) this.exitWatchers.delete(id);
+        if (this.exitWatchers.get(id) === listener) this.exitWatchers.delete(id);
         if (this.exitWatchers.size === 0 && this.exitPollTimer) {
           clearTimeout(this.exitPollTimer);
           this.exitPollTimer = undefined;
@@ -243,12 +240,18 @@ export class CoreSessionAdapter {
     this.exitPollInFlight = true;
     try {
       const sessions = await this.core.list();
+      const memberIds = new Set(sessions.map((session) => session.id));
+      // Explicit Delete is not a process-exit event. Drop observers for vanished membership
+      // without notifying activity/process-exit consumers or retaining an idle poll forever.
+      for (const id of this.exitWatchers.keys()) {
+        if (!memberIds.has(id)) this.exitWatchers.delete(id);
+      }
       for (const session of sessions) {
         if (!session.exited) continue;
-        const listeners = this.exitWatchers.get(session.id);
-        if (!listeners) continue;
+        const listener = this.exitWatchers.get(session.id);
+        if (!listener) continue;
         this.exitWatchers.delete(session.id);
-        for (const listener of listeners) listener({ exitCode: session.exitCode });
+        listener({ exitCode: session.exitCode });
       }
     } catch {
       // A transient tmux probe failure is retried. Absence never synthesizes a child exit.

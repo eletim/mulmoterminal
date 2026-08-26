@@ -21,8 +21,8 @@ export interface CodexActivityDeps {
   onBoundary: (boundary: CodexTurnBoundary) => void;
   onPrompt?: (prompt: string) => void;
   onResumeBaseline?: () => Promise<void>;
-  /** False once the session's pty is gone — the loop stops on the next tick. */
-  isAlive: () => boolean;
+  /** False once the owning Core session is no longer live — the loop stops on the next tick. */
+  isAlive: () => boolean | Promise<boolean>;
   /** Resume only: skip what the rollout already holds. A fresh session starts at 0 so its
    *  first turn isn't missed; a resumed one would otherwise REPLAY every past turn and
    *  leave the cell flagged from history rather than from what is happening now. */
@@ -34,9 +34,9 @@ export async function watchCodexActivity(deps: CodexActivityDeps): Promise<void>
   let offset = deps.startAtEnd ? await startingOffset(deps) : 0;
   if (deps.startAtEnd && offset > 0) await deps.onResumeBaseline?.();
   let pending = "";
-  while (deps.isAlive()) {
+  while (await deps.isAlive()) {
     await deps.sleep(CODEX_ACTIVITY_POLL_MS);
-    if (!deps.isAlive()) return;
+    if (!(await deps.isAlive())) return;
     const size = await deps.fileSize();
     if (size === null) continue; // rollout not written yet (codex creates it on the first turn)
     const range = nextReadRange(offset, size);

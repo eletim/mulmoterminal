@@ -17,6 +17,14 @@ import type { LaunchAgent } from "../../common/launchAgent.js";
 
 const PTY_COLS = 120;
 const PTY_ROWS = 30;
+const CORE_EXIT_EVENT = Symbol("core-exit-event");
+
+type CoreAwareExitEvent = Parameters<Parameters<IPty["onExit"]>[0]>[0] & { [CORE_EXIT_EVENT]?: true };
+
+/** Distinguish a Core process exit from the tmux client used by one viewer going away. */
+export function isCoreSessionExitEvent(event: Parameters<Parameters<IPty["onExit"]>[0]>[0]): boolean {
+  return CORE_EXIT_EVENT in event && event[CORE_EXIT_EVENT] === true;
+}
 
 // The environment a PTY will run with. Its own function because "can this binary be launched"
 // has to be answered against exactly this and not process.env — the PATH they disagree on is the
@@ -46,22 +54,28 @@ export function spawnPty(bin: string, args: string[], cwd: string, unset: readon
 /** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
 export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
   const onExit: IPty["onExit"] = (listener) => {
-    let fired = false;
+    let disposed = false;
+    let nativeFired = false;
+    let coreFired = false;
     const watches: { native?: { dispose(): void }; core?: { dispose(): void } } = {};
-    const emit: Parameters<IPty["onExit"]>[0] = (event) => {
-      if (fired) return;
-      fired = true;
+    watches.native = term.onExit((event) => {
+      if (disposed || nativeFired || coreFired) return;
+      nativeFired = true;
+      // A viewer's tmux client can exit while its Core member keeps running. Keep only the
+      // Core watcher so activity can still be terminalized if that process exits detached.
+      listener(event);
+    });
+    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
+      if (disposed || coreFired) return;
+      coreFired = true;
       watches.core?.dispose();
       watches.native?.dispose();
+      const event: CoreAwareExitEvent = { exitCode: exitCode ?? 0, signal: 0, [CORE_EXIT_EVENT]: true };
       listener(event);
-    };
-    watches.native = term.onExit(emit);
-    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
-      emit({ exitCode: exitCode ?? 0, signal: 0 });
     });
     return {
       dispose() {
-        fired = true;
+        disposed = true;
         watches.core?.dispose();
         watches.native?.dispose();
       },

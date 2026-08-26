@@ -1,6 +1,6 @@
 // What index.ts still owns after the PTY machinery moved out (#548 step 3c). The json
-// builders read config it holds; `reap` and `setWorking` drive a session lifecycle that
-// reaches well beyond spawning, so they arrive as deps rather than as imports.
+// builders read config it holds; viewer release and UI activity have separate owners, so both
+// arrive as explicit dependencies rather than being hidden behind a lifecycle manager.
 export interface SpawnDeps {
   claudeBin: string;
   codexBin: string;
@@ -18,6 +18,8 @@ export interface SpawnDeps {
   hookSettingsJson: (host: string, sessionId: string, env?: Record<string, string>) => string;
   mcpConfigJson: (sessionId: string, host?: string) => string;
   reap: (id: string) => void;
+  /** Clean resources owned by a process that Core has reported exited. */
+  cleanupSessionResources: (id: string) => void;
   setWorking: (id: string, working: boolean, event?: string) => void;
   /** Needed alongside setWorking because a finished codex turn flags the cell for attention,
    *  exactly as claude's Stop hook does — see codex-activity-watch. */
@@ -27,9 +29,6 @@ export interface SpawnDeps {
   uiPort: string;
   /** Surface a brand-new session in the sidebar before it is persisted. */
   publishSessionCreated: (sessionId: string) => void;
-  inputReadiness?: {
-    markSessionLive: (sessionId: string, agent: import("../../common/sessionAgent.js").SessionAgent) => void;
-    noteOutput: (sessionId: string, agent: import("../../common/sessionAgent.js").SessionAgent, data: string) => void;
-    markSessionStopped: (sessionId: string) => void;
-  };
+  /** End UI activity when Core reports process exit. Membership remains in Core. */
+  endSessionActivity: (sessionId: string) => void;
 }

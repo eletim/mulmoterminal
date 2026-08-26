@@ -81,7 +81,7 @@ import { canClearInputBox } from "./mobileTerminal/terminalInput.js";
 import { createCoreSessionOperations } from "./mobileTerminal/coreSessionOperations.js";
 import { initGoogleBackend } from "./backends/google.js";
 import { initPluginRuntime } from "./infra/pluginRuntime.js";
-import { createMobileWebPushFeature, mobileWebPushActivityLifecycleDeps } from "./mobile-web-push/feature.js";
+import { createMobileWebPushFeature, mobileWebPushActivityDeps as createMobileWebPushActivityDeps } from "./mobile-web-push/feature.js";
 import { normalizeActivity } from "./session/activity-transition.js";
 import { mountConfiguredMobileTransport } from "./mobileTerminalTransport.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
@@ -91,7 +91,8 @@ import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
-import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
+import { createSessionLifecycle } from "./session/lifecycle.js";
+import { createSessionActivity, SESSIONS_CHANNEL } from "./session/session-activity.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -99,8 +100,8 @@ import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
 import { pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
-import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
+import { createOrchestratorStatusReader } from "./routes/orchestrator-session-status.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
 import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./session/core-session-visibility.js";
 
@@ -148,11 +149,13 @@ await migrateHistoryMemosToCore(await coreSessions.list(), (id, memo) => coreSes
 
 // Explicit user Delete changes the metadata owner from a live Core membership to its retained
 // conversation history. Persist that handoff once, then let Core perform the only membership write.
-const deleteTerminalSession = async (id: string): Promise<void> => {
+async function deleteTerminalSession(id: string): Promise<void> {
   const session = await coreSessions.find(id);
   if (session) await handoffCoreMemoToHistory(session);
   await coreSessions.delete(id);
-};
+  lifecycle.deleteSession(id);
+  endSessionActivity(id, "closed");
+}
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
 // Gated to the managed mulmoclaude workspace and
@@ -262,19 +265,21 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
-const mobileWebPushActivityDeps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush.sender });
+const mobileWebPushActivityDeps = createMobileWebPushActivityDeps({ sender: mobileWebPush.sender });
 
-// Session teardown + activity publishing (session/lifecycle.ts).
 const workPhaseTracker = createWorkPhaseTracker();
+const lifecycle = createSessionLifecycle({ forgetTerminalSize: (id) => tmuxSizeSync.forget(id) });
+const { cancelReap, reap, armReapForDetached } = lifecycle;
 
-const lifecycle = createSessionLifecycle({
+const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessionActivity } = createSessionActivity({
   publish: (channel, data) => pubsub?.publish(channel, data),
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
-  forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
+  coreMetadataOf: async (id) => {
+    const session = await coreSessions.find(id);
+    return session ? { cwd: session.cwd, agent: session.agent } : null;
+  },
   ...mobileWebPushActivityDeps,
 });
-const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
-const inputReadiness = createInputReadinessTracker();
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
@@ -320,6 +325,7 @@ const spawnDeps: SpawnDeps = {
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
   mcpConfigJson: (sessionId, host) => mcpConfigJson({ sessionId, host, port: PORT, userMcpServers: getUserMcpServers() }),
   reap: (id) => reap(id),
+  cleanupSessionResources: (id) => lifecycle.cleanupSessionResources(id),
   setWorking: (id, working, event) => setWorking(id, working, event),
   setWaiting: (id, waiting, event) => setWaiting(id, waiting, event),
   publishActivity: (id) => publishActivity(id),
@@ -327,7 +333,7 @@ const spawnDeps: SpawnDeps = {
   publishSessionCreated: (sessionId) => {
     pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, waiting: false, event: "created" });
   },
-  inputReadiness,
+  endSessionActivity,
 };
 const { spawnClaudePty } = createClaudeSpawner(spawnDeps);
 const { spawnCodexPty } = createCodexSpawner(spawnDeps);
@@ -341,6 +347,8 @@ const { translateViaHiddenChat } = createTranslationWorker({
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
+      lifecycle.deleteSession(id);
+      endSessionActivity(id, "closed");
     } catch (error) {
       // A launch can fail before Core creates the session, while cleanup must stay idempotent.
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
@@ -722,34 +730,12 @@ const sharedMobileTerminalDeps = {
 const localMobileActivityOf = (id: string) => normalizeActivity(activity.get(id));
 const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
 
-const coreLifecycle = (session: { exited: boolean; attached: boolean }) => {
-  if (session.exited) return "stopped" as const;
-  return session.attached ? ("live" as const) : ("detached" as const);
-};
-
-const orchestratorSessionStatusOf = async (id: string) => {
-  try {
-    const session = await coreSessions.get(id);
-    const inputAvailable = !session.exited;
-    return {
-      ok: true as const,
-      sessionId: session.id,
-      agent: session.agent,
-      cwd: session.cwd,
-      lifecycle: coreLifecycle(session),
-      runtime: { pty: ptys.has(id), tmux: true, attached: session.attached },
-      activity: { ...normalizeActivity(activity.get(id)), at: activity.get(id)?.at ?? 0, workPhase: workPhaseTracker.phaseOf(id) },
-      input: inputAvailable
-        ? { available: true, ready: true, known: true, source: "quiet" as const, checkedAt: Date.now(), reason: "Core session is running" }
-        : { available: false, ready: false, known: true, source: "unavailable" as const, checkedAt: Date.now(), reason: "Core session has exited" },
-      inputAvailable,
-      readyForInput: inputAvailable,
-    };
-  } catch (error) {
-    if (error instanceof CoreSessionNotFoundError) return null;
-    throw error;
-  }
-};
+const orchestratorSessionStatusOf = createOrchestratorStatusReader({
+  getSession: (id) => coreSessions.find(id),
+  hasViewer: (id) => ptys.has(id),
+  activityOf: (id) => activity.get(id),
+  workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
+});
 
 mountConfiguredMobileTransport({
   app,
@@ -796,6 +782,8 @@ const scheduledSessions = createScheduledSessionRegistry({
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
+      lifecycle.deleteSession(id);
+      endSessionActivity(id, "closed");
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }

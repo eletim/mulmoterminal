@@ -70,6 +70,12 @@ describe("notifyKindOf", () => {
     expect(notifyKindOf(fresh(), { id: "never-seen", event: "closed" })).toBeNull();
   });
 
+  it("reports a retained Core process exit without treating it as explicit Delete", () => {
+    const prev = fresh();
+    notifyKindOf(prev, msg("a", true, false));
+    expect(notifyKindOf(prev, { id: "a", working: false, event: "exited" })).toBe("session-exited");
+  });
+
   it("is baseline-only on first sight", () => {
     expect(notifyKindOf(fresh(), msg("a", false, true, "Notification"))).toBeNull();
     expect(notifyKindOf(fresh(), msg("a", true, false))).toBeNull();

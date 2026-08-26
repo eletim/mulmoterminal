@@ -1,6 +1,6 @@
 import { getPushKinds } from "../config/config-routes.js";
 import { messageOf } from "../errors.js";
-import type { SessionLifecycleDeps } from "../session/lifecycle.js";
+import type { ActivityServiceDeps } from "../session/session-activity.js";
 import { isUserScheduledSession, userScheduledSessionsHydrated } from "../session/registry.js";
 import { coreSessions } from "../session/core-session-adapter.js";
 import { shouldSuppressPush } from "../session/taskPushRules.js";
@@ -17,11 +17,11 @@ export function createMobileWebPushFeature(home: string) {
   };
 }
 
-export function mobileWebPushActivityLifecycleDeps({
+export function mobileWebPushActivityDeps({
   sender,
 }: {
   sender: MobileWebPushSender;
-}): Pick<SessionLifecycleDeps, "notifyMobileWebPushActivity"> | Record<string, never> {
+}): Pick<ActivityServiceDeps, "notifyMobileWebPushActivity"> | Record<string, never> {
   return {
     notifyMobileWebPushActivity: (notification) => {
       if (!getPushKinds().includes(notification.kind)) return;

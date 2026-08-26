@@ -22,7 +22,7 @@ import { mountMcpRoutes } from "../routes/mcp-routes.js";
 import { guiCallRecorderFor, historyIsGuiOnly } from "../mcp/gui-call-history.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import { mountSessionRoutes } from "../routes/session-routes.js";
-import { SESSIONS_CHANNEL } from "../session/lifecycle.js";
+import { SESSIONS_CHANNEL } from "../session/session-activity.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountGithubStarRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";

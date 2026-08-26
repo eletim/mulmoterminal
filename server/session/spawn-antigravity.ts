@@ -74,7 +74,6 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
 
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "antigravity" };
     ptys.set(sessionId, entry);
-    deps.inputReadiness?.markSessionLive(sessionId, "antigravity");
 
     if (resumeConversationId) {
       // Recorded on resume too, not just on the spawn that discovered it: a session resumed by the
@@ -86,7 +85,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
       captureAntigravityConversation(sessionId, root, before, cwd);
     }
 
-    wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps, (data) => deps.inputReadiness?.noteOutput(sessionId, "antigravity", data));
+    wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps);
     return entry;
   }
 
