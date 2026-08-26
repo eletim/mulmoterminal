@@ -107,8 +107,8 @@ export interface ScheduledSessionRegistryDeps {
    *  process holding it? Must account for BOTH: two servers can share a workspace, and a
    *  process-local check would happily tear down a session live in the other one. */
   isInUse: (id: string) => boolean;
-  /** Reap this process's transient PTY and UI bookkeeping. */
-  reapSession: (id: string) => void;
+  /** Release this process's transient viewer transport. */
+  releaseViewer: (id: string) => void;
   /** Delete canonical membership through Core; missing sessions are a safe no-op. */
   deleteSession: (id: string) => Promise<void>;
   policy?: RetentionPolicy;
@@ -118,7 +118,7 @@ export interface ScheduledSessionRegistryDeps {
 export interface ScheduledSessionRegistry {
   /** Record a freshly spawned scheduled session, then sweep. */
   register: (id: string) => void;
-  /** Reap every registered session past the retention policy. */
+  /** Delete every registered session past the retention policy. */
   sweep: () => Promise<void>;
 }
 
@@ -146,7 +146,7 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
   };
 
   // The expired session may or may not have a transient client in this process. Core owns the
-  // canonical delete either way; reap only clears process-local transport and UI bookkeeping.
+  // canonical delete either way; viewer release only clears process-local transport.
   // Reports whether it actually went, since the in-use check can spare it.
   const evict = async (record: ScheduledSessionRecord): Promise<boolean> => {
     // Checked HERE rather than over the whole set first: sweeping several sessions costs a
@@ -154,7 +154,7 @@ export function createScheduledSessionRegistry(deps: ScheduledSessionRegistryDep
     // from the instant before the kill, with nothing awaited in between. A spared entry
     // stays on disk, so a later sweep retries it.
     if (deps.isInUse(record.id)) return false;
-    deps.reapSession(record.id);
+    deps.releaseViewer(record.id);
     await deps.deleteSession(record.id);
     await fs.rm(entryFile(record.id), { force: true });
     return true;

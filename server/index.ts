@@ -43,7 +43,7 @@ import { createTranslationWorker } from "./session/translation-worker.js";
 import { createTitleManager } from "./session/session-title.js";
 import { generateTitleFromTurns } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
-import { createConnectionHandlers } from "./session/pty-connection.js";
+import { createConnectionHandlers, releaseAllViewers, releaseViewer } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
 import { activity, handoffCoreMemoToHistory, lastPrompts, migrateHistoryMemosToCore, ptys } from "./session/registry.js";
@@ -153,7 +153,8 @@ async function deleteTerminalSession(id: string): Promise<void> {
   const session = await coreSessions.find(id);
   if (session) await handoffCoreMemoToHistory(session);
   await coreSessions.delete(id);
-  lifecycle.deleteSession(id);
+  lifecycle.cleanupSessionResources(id);
+  releaseTerminalViewer(id);
   endSessionActivity(id, "closed");
 }
 
@@ -244,10 +245,11 @@ const tmuxSizeSync = createTmuxSizeSync({
   },
 });
 
-// Per-connection plumbing (session/pty-connection.ts). The reap decisions stay here —
-// they read activity state and schedule timers that outlive any one connection.
+const viewerReleaseDeps = { forgetTerminalSize: (id: string) => tmuxSizeSync.forget(id) };
+const releaseTerminalViewer = (id: string, expected?: Parameters<typeof releaseViewer>[2]) => releaseViewer(viewerReleaseDeps, id, expected);
+
+// Per-connection plumbing (session/pty-connection.ts): attach, detach and release only.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
-  cancelReap: (id) => cancelReap(id),
   deleteSession: deleteTerminalSession,
   input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
@@ -255,7 +257,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
     await coreSessions.resize(id, cols, rows);
   },
   setWaiting: (id, waiting) => setWaiting(id, waiting),
-  armReapForDetached: (id) => armReapForDetached(id),
+  releaseViewer: releaseTerminalViewer,
   terminalModesOf: (id) => tmuxTerminalModes(id),
   redrawTerminal: (id, clientPid) => tmuxRedrawClient(id, clientPid),
   checkTerminalSize: (id, size) => tmuxSizeSync.requestCheck(id, size),
@@ -268,8 +270,7 @@ const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
 const mobileWebPushActivityDeps = createMobileWebPushActivityDeps({ sender: mobileWebPush.sender });
 
 const workPhaseTracker = createWorkPhaseTracker();
-const lifecycle = createSessionLifecycle({ forgetTerminalSize: (id) => tmuxSizeSync.forget(id) });
-const { cancelReap, reap, armReapForDetached } = lifecycle;
+const lifecycle = createSessionLifecycle();
 
 const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessionActivity } = createSessionActivity({
   publish: (channel, data) => pubsub?.publish(channel, data),
@@ -324,7 +325,7 @@ const spawnDeps: SpawnDeps = {
   hookSettingsJson: (host, sessionId, env) => hookSettingsJson({ host, port: PORT, sessionId, env }),
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
   mcpConfigJson: (sessionId, host) => mcpConfigJson({ sessionId, host, port: PORT, userMcpServers: getUserMcpServers() }),
-  reap: (id) => reap(id),
+  releaseViewer: releaseTerminalViewer,
   cleanupSessionResources: (id) => lifecycle.cleanupSessionResources(id),
   setWorking: (id, working, event) => setWorking(id, working, event),
   setWaiting: (id, waiting, event) => setWaiting(id, waiting, event),
@@ -341,13 +342,14 @@ const { spawnAntigravityPty } = createAntigravitySpawner(spawnDeps);
 const { spawnCommandPty, spawnLauncherPty, resolveLauncher } = createShellSpawners(spawnDeps);
 
 // The hidden translation worker (session/translation-worker.ts). It drives a headless
-// claude session, so it needs the spawner above and the reap this file owns.
+// claude session, so it needs the spawner above and explicit viewer/Core cleanup.
 const { translateViaHiddenChat } = createTranslationWorker({
-  reap: (id) => reap(id),
+  releaseViewer: releaseTerminalViewer,
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
-      lifecycle.deleteSession(id);
+      lifecycle.cleanupSessionResources(id);
+      releaseTerminalViewer(id);
       endSessionActivity(id, "closed");
     } catch (error) {
       // A launch can fail before Core creates the session, while cleanup must stay idempotent.
@@ -778,11 +780,12 @@ const scheduledSessions = createScheduledSessionRegistry({
   dir: scheduledSessionsDir(CLAUDE_CWD, MULMOTERMINAL_HOME),
   isValidId: (id) => SESSION_ID_RE.test(id),
   isInUse: sessionInUse,
-  reapSession: reap,
+  releaseViewer: releaseTerminalViewer,
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
-      lifecycle.deleteSession(id);
+      lifecycle.cleanupSessionResources(id);
+      releaseTerminalViewer(id);
       endSessionActivity(id, "closed");
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
@@ -890,7 +893,7 @@ server.listen(Number(PORT), BIND_HOST, async () => {
 installGracefulShutdown({
   server,
   stopSidecars: stopWhisperSidecar,
-  cleanupManagedLiveSessions: lifecycle.cleanupManagedLiveSessions,
+  releaseAllViewers: () => releaseAllViewers(viewerReleaseDeps),
   closeRealtime: () => void (terminalWebSockets.close(), pubsub?.close()),
   exit: (code) => process.exit(code),
 });

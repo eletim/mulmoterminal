@@ -20,7 +20,7 @@ describe("createAntigravitySpawner", () => {
     antigravityBin: "agy",
     antigravityModel: null,
     outputBufferLimit: 10000,
-    reap: vi.fn(),
+    releaseViewer: vi.fn(),
   } as unknown as SpawnDeps;
 
   beforeEach(() => {

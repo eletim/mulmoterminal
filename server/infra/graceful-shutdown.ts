@@ -4,7 +4,7 @@ import { messageOf } from "../errors.js";
 export interface GracefulShutdownDeps {
   server: HttpServer;
   stopSidecars: () => void;
-  cleanupManagedLiveSessions: () => string[];
+  releaseAllViewers: () => string[];
   closeRealtime: () => void;
   exit: (code: number) => never;
   log?: (message: string) => void;
@@ -38,11 +38,11 @@ export function createGracefulShutdown(deps: GracefulShutdownDeps): (signal: Nod
   return async (signal) => {
     if (started) return;
     started = true;
-    log(`[shutdown] received ${signal}; closing live sessions`);
+    log(`[shutdown] received ${signal}; releasing viewers`);
     const closeServer = closeHttpServer(deps.server, warn);
     deps.stopSidecars();
-    const cleaned = deps.cleanupManagedLiveSessions();
-    if (cleaned.length) log(`[shutdown] cleaned ${cleaned.length} managed live session(s)`);
+    const released = deps.releaseAllViewers();
+    if (released.length) log(`[shutdown] released ${released.length} viewer(s)`);
     deps.closeRealtime();
     await closeServer;
     deps.exit(0);

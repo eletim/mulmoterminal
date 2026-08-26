@@ -143,6 +143,17 @@ export class CoreSessionAdapter {
     }
   }
 
+  /** Lightweight native lifecycle query. It deliberately avoids metadata reconstruction so
+   * high-frequency activity/resume watchers issue only Core's membership lookup. */
+  async isRunning(id: string): Promise<boolean> {
+    try {
+      return !(await this.core.get(id)).exited;
+    } catch (error) {
+      if (error instanceof SessionNotFoundError) return false;
+      throw error;
+    }
+  }
+
   /** Resolve either current membership identity or the history identity it resumed. */
   async findByReference(id: string): Promise<CoreSession | null> {
     const direct = await this.find(id);

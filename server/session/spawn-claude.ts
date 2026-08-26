@@ -234,7 +234,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       sendExitAndClose(entry.ws, exitCode, signal);
       // Clear the activity dot and release this process's viewer transport. Core membership
       // remains discoverable independently of transcript persistence.
-      deps.reap(sessionId);
+      deps.releaseViewer(sessionId, entry);
     });
 
     return entry;

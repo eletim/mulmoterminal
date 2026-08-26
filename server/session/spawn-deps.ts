@@ -1,6 +1,8 @@
 // What index.ts still owns after the PTY machinery moved out (#548 step 3c). The json
 // builders read config it holds; viewer release and UI activity have separate owners, so both
 // arrive as explicit dependencies rather than being hidden behind a lifecycle manager.
+import type { PtyEntry } from "./types.js";
+
 export interface SpawnDeps {
   claudeBin: string;
   codexBin: string;
@@ -17,7 +19,7 @@ export interface SpawnDeps {
   outputBufferLimit: number;
   hookSettingsJson: (host: string, sessionId: string, env?: Record<string, string>) => string;
   mcpConfigJson: (sessionId: string, host?: string) => string;
-  reap: (id: string) => void;
+  releaseViewer: (id: string, expected?: PtyEntry) => void;
   /** Clean resources owned by a process that Core has reported exited. */
   cleanupSessionResources: (id: string) => void;
   setWorking: (id: string, working: boolean, event?: string) => void;

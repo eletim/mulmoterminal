@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
-import { createConnectionHandlers, handleCommandFrame } from "../../../server/session/pty-connection.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
+import { activity, ptys } from "../../../server/session/registry.js";
 
 const OPEN = 1;
 const CLOSED = 3;
@@ -17,6 +18,7 @@ function fakeTerm() {
     resizes,
     term: {
       pid: 4242,
+      kill: vi.fn(),
       write: (d: string) => {
         writes.push(d);
       },
@@ -51,7 +53,6 @@ function setup(terminalModes: readonly number[] = []) {
   const calls: string[] = [];
   const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
-    cancelReap: (id) => calls.push(`cancelReap:${id}`),
     deleteSession: (id) => {
       calls.push(`deleteSession:${id}`);
     },
@@ -64,7 +65,7 @@ function setup(terminalModes: readonly number[] = []) {
       currentEntries.get(id)?.term.resize(cols, rows);
     },
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
-    armReapForDetached: (id) => calls.push(`armReap:${id}`),
+    releaseViewer: (id) => calls.push(`releaseViewer:${id}`),
     terminalModesOf: (id) => {
       calls.push(`terminalModes:${id}`);
       return terminalModes;
@@ -325,12 +326,12 @@ describe("handleCommandFrame", () => {
 });
 
 describe("reattachPty", () => {
-  it("cancels the pending reap and swaps in the new socket", () => {
+  it("swaps in the new socket without a lifetime timer", () => {
     const { reattachPty, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: null });
     reattachPty(entry, s.ws as never, SESSION);
-    expect(calls).toEqual([`cancelReap:${SESSION}`]);
+    expect(calls).toEqual([]);
     expect(entry.ws).toBe(s.ws);
   });
 
@@ -380,7 +381,7 @@ describe("reattachPty", () => {
     const { reattachPty, calls } = setup([1049]);
     const s = fakeSocket();
     reattachPty(entryWith({ ws: null, buffer: "sandboxed output" }), s.ws as never, SESSION);
-    expect(calls).toEqual([`cancelReap:${SESSION}`]);
+    expect(calls).toEqual([]);
     expect(s.parsed()).toEqual([{ type: "output", data: "sandboxed output" }]);
   });
 
@@ -410,7 +411,7 @@ describe("reattachPty", () => {
     const { reattachPty, calls } = setup([1049]);
     const s = fakeSocket(CLOSED);
     reattachPty(entryWith({ ws: null, buffer: "x", tmux: true }), s.ws as never, SESSION);
-    expect(calls).toEqual([`cancelReap:${SESSION}`]);
+    expect(calls).toEqual([]);
     expect(s.sent).toEqual([]);
   });
 
@@ -447,14 +448,14 @@ describe("reattachPty", () => {
 });
 
 describe("handleClientClose", () => {
-  it("detaches the socket and arms the reap", () => {
+  it("detaches the socket and releases the viewer immediately", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never, active: true });
     currentEntries.set(SESSION, entry);
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.ws).toBeNull();
-    expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `armReap:${SESSION}`]);
+    expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `releaseViewer:${SESSION}`]);
   });
 
   it("drops a settling size check, which has nobody left to repair the screen for", () => {
@@ -486,5 +487,48 @@ describe("handleClientClose", () => {
     expect(entry.ws).toBe(current.ws); // the live socket must survive the old one's close
     expect(entry.active).toBe(true);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("viewer release", () => {
+  afterEach(() => {
+    ptys.clear();
+    activity.clear();
+  });
+
+  it("removes only viewer transport and leaves activity/Core-owned state untouched", () => {
+    const entry = entryWith({ tmux: true });
+    ptys.set(SESSION, entry);
+    activity.set(SESSION, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
+    const forgetTerminalSize = vi.fn();
+
+    expect(releaseViewer({ forgetTerminalSize }, SESSION)).toBe(true);
+
+    expect(ptys.has(SESSION)).toBe(false);
+    expect(activity.has(SESSION)).toBe(true);
+    expect(entry.term.kill).toHaveBeenCalledOnce();
+    expect(forgetTerminalSize).toHaveBeenCalledWith(SESSION);
+  });
+
+  it("releases every viewer during shutdown without inventing session cleanup", () => {
+    const other = "22222222-3333-4444-8555-666666666666";
+    ptys.set(SESSION, entryWith({ tmux: true }));
+    ptys.set(other, entryWith({ tmux: true }));
+
+    expect(releaseAllViewers({ forgetTerminalSize: vi.fn() })).toEqual([SESSION, other]);
+    expect(ptys.size).toBe(0);
+  });
+
+  it("does not let an old PTY exit release a replacement viewer with the same id", () => {
+    const old = entryWith({ tmux: true });
+    const replacement = entryWith({ tmux: true });
+    ptys.set(SESSION, replacement);
+    const forgetTerminalSize = vi.fn();
+
+    expect(releaseViewer({ forgetTerminalSize }, SESSION, old)).toBe(false);
+
+    expect(ptys.get(SESSION)).toBe(replacement);
+    expect(replacement.term.kill).not.toHaveBeenCalled();
+    expect(forgetTerminalSize).not.toHaveBeenCalled();
   });
 });

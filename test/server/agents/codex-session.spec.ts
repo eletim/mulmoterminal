@@ -142,6 +142,11 @@ describe("watchForCodexSession", () => {
     const found = await watchForCodexSession(root, before, { pollMs: 10, maxWaitMs: 5000, isCancelled: () => true });
     expect(found).toBeNull();
   });
+  it("supports an asynchronous Core lifetime check", async () => {
+    const before = snapshotSessions(root);
+    const found = await watchForCodexSession(root, before, { pollMs: 10, maxWaitMs: 5000, isCancelled: async () => true });
+    expect(found).toBeNull();
+  });
   it("resolves null when nothing appears before the timeout", async () => {
     const before = snapshotSessions(root);
     const found = await watchForCodexSession(root, before, { pollMs: 10, maxWaitMs: 40 });

@@ -18,7 +18,7 @@ function harness(answer?: (sessionId: string) => void) {
   const deleted: string[] = [];
   const spawned: Array<{ sessionId: string; prompt: string; visibility: "internal" }> = [];
   const { translateViaHiddenChat } = createTranslationWorker({
-    reap: (id) => reaped.push(id),
+    releaseViewer: (id) => reaped.push(id),
     deleteSession: async (id) => {
       deleted.push(id);
     },
@@ -98,7 +98,7 @@ describe("translateViaHiddenChat", () => {
 
   it("surfaces a spawn failure instead of hanging", async () => {
     const { translateViaHiddenChat } = createTranslationWorker({
-      reap: () => {},
+      releaseViewer: () => {},
       deleteSession: async () => {},
       spawnHiddenChat: () => {
         throw new Error("claude not on PATH");
