@@ -23,6 +23,7 @@ const deps = {
   publishDirConfig: vi.fn(),
   publishFileWrite: vi.fn(),
   notifyMobileWebPushActivity: vi.fn(),
+  sessionCwd: vi.fn(async () => "/work"),
   sessionAgent: vi.fn(async () => "codex" as const),
   uiPort: "34567",
 };
@@ -87,6 +88,14 @@ describe("local mobile Web Push from Claude hooks", () => {
 
     expect(deps.setWaiting).toHaveBeenCalledWith(ID, true, "Notification");
     expect(deps.notifyMobileWebPushActivity).not.toHaveBeenCalled();
+  });
+
+  it("keeps work-phase tracking for a Core member after its viewer is released", async () => {
+    ptys.delete(ID);
+
+    await postHook({ hook_event_name: "PreToolUse", tool_name: "Edit" });
+
+    expect(deps.noteWorkPhase).toHaveBeenCalledWith(ID, "PreToolUse", "Edit");
   });
 
   it("keeps hook handling isolated from local mobile Web Push dispatch failures", async () => {
