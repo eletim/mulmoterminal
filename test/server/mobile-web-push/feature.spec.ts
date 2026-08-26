@@ -6,15 +6,17 @@ import type { MobileWebPushSendResult, MobileWebPushSender } from "../../../serv
 
 let pushKinds: PushKind[] = ["finished", "waiting"];
 const registry = vi.hoisted(() => ({
-  pushClassification: vi.fn(async () => ({ background: false, userScheduled: false })),
-  translationWorkerIds: new Set<string>(),
+  isUserScheduledSession: vi.fn<(id: string) => boolean>().mockReturnValue(false),
+  userScheduledSessionsHydrated: Promise.resolve(),
 }));
+const core = vi.hoisted(() => ({ find: vi.fn(async () => ({ visibility: "normal" })) }));
 
 vi.mock("../../../server/config/config-routes.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../server/config/config-routes.js")>()),
   getPushKinds: () => pushKinds,
 }));
 vi.mock("../../../server/session/registry.js", () => registry);
+vi.mock("../../../server/session/core-session-adapter.js", () => ({ coreSessions: core }));
 
 const { mobileWebPushActivityLifecycleDeps } = await import("../../../server/mobile-web-push/feature.js");
 
@@ -26,8 +28,8 @@ const sender = (): MobileWebPushSender => ({
 describe("mobileWebPushActivityLifecycleDeps", () => {
   beforeEach(() => {
     pushKinds = ["finished", "waiting"];
-    registry.pushClassification.mockResolvedValue({ background: false, userScheduled: false });
-    registry.translationWorkerIds.clear();
+    registry.isUserScheduledSession.mockReturnValue(false);
+    core.find.mockResolvedValue({ visibility: "normal" });
   });
 
   it("sends selected local Web Push activity kinds without a master switch", async () => {
@@ -59,11 +61,12 @@ describe("mobileWebPushActivityLifecycleDeps", () => {
     const mobileWebPush = sender();
     const deps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush });
 
-    registry.pushClassification.mockResolvedValueOnce({ background: true, userScheduled: false });
+    core.find.mockResolvedValueOnce({ visibility: "background" });
     deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "background-session", agent: "claude" });
-    registry.translationWorkerIds.add("translation-session");
+    core.find.mockResolvedValueOnce({ visibility: "internal" });
     deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "translation-session", agent: "claude" });
-    registry.pushClassification.mockResolvedValueOnce({ background: true, userScheduled: true });
+    core.find.mockResolvedValueOnce({ visibility: "background" });
+    registry.isUserScheduledSession.mockImplementation((id: string) => id === "scheduled-session");
     deps.notifyMobileWebPushActivity?.({ kind: "finished", sessionId: "scheduled-session", agent: "claude" });
     await new Promise((resolve) => setTimeout(resolve, 0));
 

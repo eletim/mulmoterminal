@@ -79,6 +79,8 @@ const coreSession = (cwd: string, agent = "claude", attached = true) => ({
   currentCommand: agent,
   title: null,
   memo: null,
+  resumeSource: null,
+  visibility: "normal" as const,
 });
 const occupyWorktree = () => {
   coreRows.push(coreSession(worktree));

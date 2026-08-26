@@ -13,7 +13,7 @@ import type { Express, Request, Response } from "express";
 import { PORT, SESSION_ID_RE } from "../config/env.js";
 import { buildGuiMcpServer } from "../mcp/broker.js";
 import type { GuiCallRecorder } from "../mcp/gui-call-history.js";
-import { translationWorkerIds, markSessionToolGroup, sessionToolGroups, markAllToolsSession } from "../session/registry.js";
+import { markSessionToolGroup, sessionToolGroups, markAllToolsSession } from "../session/registry.js";
 import { isToolGroup, TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups.js";
 import { submitTranslation } from "../session/translation-worker.js";
 import { translationSubmitOutcome } from "../session/translation-submit.js";
@@ -40,6 +40,7 @@ export interface McpRouteDeps {
    * for which agents get one and why claude must not.
    */
   guiCallHistory: (sessionId: string) => Promise<GuiCallRecorder | null>;
+  isInternalSession: (sessionId: string) => Promise<boolean>;
 }
 
 // Sessions whose MCP client has made contact, so the announcement below is sent once per session
@@ -97,7 +98,7 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
     // tool, so a normal chat's tool list stays clean.
     // A translation worker is a hidden claude session with no pane to feed, so it never gets a
     // recorder — asking would only be an extra lookup for a guaranteed null.
-    const isWorker = translationWorkerIds.has(sessionId);
+    const isWorker = await deps.isInternalSession(sessionId);
     const server = buildGuiMcpServer(sessionId, `http://127.0.0.1:${PORT}`, {
       submitTranslationTool: isWorker,
       group,

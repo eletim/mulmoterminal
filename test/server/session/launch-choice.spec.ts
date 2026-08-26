@@ -120,27 +120,14 @@ describe("effectiveChoice", () => {
 describe("effectiveChoice while resuming", () => {
   const DIR = { provider: null, model: null };
   const STALE = { provider: "openrouter", model: "z-ai/glm-5.2" };
-  const STARTED_ON = { provider: "openrouter", model: "moonshotai/kimi-k2.7-code" };
 
-  it("ignores the browser's pick and continues on what the session started on", () => {
-    expect(effectiveChoice({ launch: STALE, remembered: STARTED_ON, dir: DIR, resuming: true })).toEqual(STARTED_ON);
-  });
-
-  // The dangerous shape: a cell holding a stale pick reattaches a session that was never
-  // started on a provider at all. Resuming it must not move the conversation elsewhere.
-  it("does not apply a stale pick to a session this server never started on one", () => {
-    expect(effectiveChoice({ launch: STALE, remembered: undefined, dir: DIR, resuming: true })).toEqual(DIR);
+  it("ignores the browser's stale pick and uses the directory's current choice", () => {
+    expect(effectiveChoice({ launch: STALE, dir: DIR, resuming: true })).toEqual(DIR);
   });
 
   it("falls back to the directory's default, not to nothing, when the memory is gone", () => {
     const dir = { provider: "openrouter", model: "moonshotai/kimi-k2.6" };
     expect(effectiveChoice({ dir, resuming: true })).toEqual(dir);
-  });
-
-  // A resume keeps the provider it began on rather than silently sliding to the directory
-  // default halfway through a conversation.
-  it("keeps a remembered provider even when the directory names none", () => {
-    expect(effectiveChoice({ remembered: STARTED_ON, dir: DIR, resuming: true })).toEqual(STARTED_ON);
   });
 
   // Pinned as a decision rather than left to fall out of the code (Codex asked for the

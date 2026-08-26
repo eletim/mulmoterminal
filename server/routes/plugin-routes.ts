@@ -9,8 +9,7 @@ import type { Express } from "express";
 
 import { CLAUDE_CWD } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { backgroundMarkers, markFailedWorker } from "../session/registry.js";
-import { runWithHiddenMarker } from "../session/hiddenMarker.js";
+import { markBackgroundHistory, markFailedWorker } from "../session/registry.js";
 import { registerCompletionHook } from "../session/completion-hooks.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
@@ -35,13 +34,15 @@ function spawnBackgroundChatSession(
   agent: TerminalAgent,
   draft: boolean,
   message: string,
-  mcpGroups: readonly ToolGroup[],
+  options: { mcpGroups: readonly ToolGroup[]; hidden: boolean },
 ): void {
+  const { mcpGroups, hidden } = options;
   const mode = spawnModeFor(agent, draft);
-  if (mode === "codex-run") deps.spawnCodexPty(sessionId, null, null, CLAUDE_CWD, true, { initialPrompt: message });
-  else if (mode === "antigravity-run") deps.spawnAntigravityPty(sessionId, null, null, CLAUDE_CWD, { mcpGroups, initialPrompt: message });
-  else if (mode === "claude-draft") deps.spawnClaudePty(sessionId, null, null, { draft: message });
-  else deps.spawnClaudePty(sessionId, null, null, { initialPrompt: message });
+  const visibility = hidden ? "background" : "normal";
+  if (mode === "codex-run") deps.spawnCodexPty(sessionId, null, null, CLAUDE_CWD, true, { initialPrompt: message, visibility });
+  else if (mode === "antigravity-run") deps.spawnAntigravityPty(sessionId, null, null, CLAUDE_CWD, { mcpGroups, initialPrompt: message, visibility });
+  else if (mode === "claude-draft") deps.spawnClaudePty(sessionId, null, null, { draft: message, visibility });
+  else deps.spawnClaudePty(sessionId, null, null, { initialPrompt: message, visibility });
 }
 
 export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
@@ -69,7 +70,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
     // codex positionally, agy through `--prompt-interactive`.
     let spawned = false;
     try {
-      runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => spawnBackgroundChatSession(deps, sessionId, agent, draft, message, mcpGroups));
+      spawnBackgroundChatSession(deps, sessionId, agent, draft, message, { mcpGroups, hidden });
       spawned = true;
       // Visible: somebody should be able to SEE this session. The browser that asked for it
       // places it immediately (useChatLauncher), and this covers every other caller — an agent
@@ -77,6 +78,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
       // moment any cell attaches, so the browser-placed case does not come back as a duplicate.
       if (hidden) {
         deps.registerBackgroundSession(sessionId);
+        markBackgroundHistory(sessionId);
         // A hidden worker is invisible on purpose, which is exactly why a FAILED one needs a
         // record: nothing pulls the user's attention and nothing waits to be clicked, so the
         // failure is otherwise never learned. The completion hook is the existing seam for it —

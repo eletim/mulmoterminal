@@ -4,23 +4,12 @@ import { parseActivityIds, selectSessionRows, type SessionRow } from "../../../s
 
 const never = () => false;
 const disk = (id: string, mtime: number): SessionRow => ({ kind: "disk", id, file: `${id}.jsonl`, mtime });
-const pending = (id: string, mtime: number): SessionRow => ({
-  kind: "pending",
-  id,
-  title: id,
-  mtime,
-  working: false,
-  waiting: false,
-  event: null,
-  hidden: false,
-  failed: false,
-});
 const ids = (rows: SessionRow[]) => rows.map((r) => r.id);
 const filter = (over: Partial<Parameters<typeof selectSessionRows>[1]> = {}) => ({
   isInternalHelper: never,
   isDevTerminal: never,
   isBackground: never,
-  includePending: true,
+  unscoped: true,
   limit: 50,
   backgroundLimit: 10,
   ...over,
@@ -29,10 +18,6 @@ const filter = (over: Partial<Parameters<typeof selectSessionRows>[1]> = {}) => 
 describe("selectSessionRows", () => {
   it("orders newest first, whatever order they arrive in", () => {
     expect(ids(selectSessionRows([disk("old", 1), disk("new", 3), disk("mid", 2)], filter()))).toEqual(["new", "mid", "old"]);
-  });
-
-  it("interleaves pending rows with on-disk ones by recency", () => {
-    expect(ids(selectSessionRows([disk("a", 1), pending("b", 3), disk("c", 2)], filter()))).toEqual(["b", "c", "a"]);
   });
 
   it("drops translation workers — they are internal helpers, not chats", () => {
@@ -44,12 +29,12 @@ describe("selectSessionRows", () => {
   // from the grid's OWN cwd-scoped resume picker, or they stop being resumable there.
   it("hides grid sessions from the unscoped chat listing", () => {
     const rows = [disk("chat", 2), disk("grid", 3)];
-    expect(ids(selectSessionRows(rows, filter({ isDevTerminal: (id) => id === "grid", includePending: true })))).toEqual(["chat"]);
+    expect(ids(selectSessionRows(rows, filter({ isDevTerminal: (id) => id === "grid", unscoped: true })))).toEqual(["chat"]);
   });
 
   it("keeps grid sessions in a cwd-scoped listing (the grid's own resume picker)", () => {
     const rows = [disk("chat", 2), disk("grid", 3)];
-    expect(ids(selectSessionRows(rows, filter({ isDevTerminal: (id) => id === "grid", includePending: false })))).toEqual(["grid", "chat"]);
+    expect(ids(selectSessionRows(rows, filter({ isDevTerminal: (id) => id === "grid", unscoped: false })))).toEqual(["grid", "chat"]);
   });
 
   it("caps the listing, keeping the newest", () => {

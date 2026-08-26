@@ -7,6 +7,7 @@ const AGENT_METADATA_KEY = "agent";
 const TITLE_METADATA_KEY = "title";
 const MEMO_METADATA_KEY = "memo";
 const RESUME_SOURCE_METADATA_KEY = "resume-source";
+const VISIBILITY_METADATA_KEY = "visibility";
 // tmux clears pane_current_path once a remain-on-exit pane is dead. This is the one native
 // session fact that must be copied so an exited session can still be reconstructed after restart.
 const CWD_METADATA_KEY = "cwd";
@@ -16,7 +17,10 @@ export interface CoreSession extends Session {
   title: string | null;
   memo: string | null;
   resumeSource: string | null;
+  visibility: CoreSessionVisibility;
 }
+
+export type CoreSessionVisibility = "normal" | "background" | "internal";
 
 export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id"> {
   id: string;
@@ -24,6 +28,7 @@ export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id
   title?: string;
   memo?: string;
   resumeSource?: string;
+  visibility?: CoreSessionVisibility;
 }
 
 export interface CoreSessionAdapterOptions {
@@ -54,13 +59,14 @@ try {
 `;
 
 function defaultCreateSync(options: CreateCoreSessionOptions, environment: NodeJS.ProcessEnv, serverName: string): void {
-  const { agent, title, memo, resumeSource, ...session } = options;
+  const { agent, title, memo, resumeSource, visibility = "normal", ...session } = options;
   const metadata = {
     [AGENT_METADATA_KEY]: agent,
     [CWD_METADATA_KEY]: session.cwd,
     ...(title ? { [TITLE_METADATA_KEY]: title } : {}),
     ...(memo ? { [MEMO_METADATA_KEY]: memo } : {}),
     ...(resumeSource ? { [RESUME_SOURCE_METADATA_KEY]: resumeSource } : {}),
+    [VISIBILITY_METADATA_KEY]: visibility,
   };
   const payload = JSON.stringify({ serverName, session, metadata });
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", syncCreateScript], {
@@ -94,7 +100,7 @@ export class CoreSessionAdapter {
   }
 
   async create(options: CreateCoreSessionOptions): Promise<CoreSession> {
-    const { agent, title, memo, resumeSource, ...session } = options;
+    const { agent, title, memo, resumeSource, visibility = "normal", ...session } = options;
     let created = false;
     try {
       const native = await this.core.create(session);
@@ -104,6 +110,7 @@ export class CoreSessionAdapter {
       if (title) await this.core.setMetadata(session.id, TITLE_METADATA_KEY, title);
       if (memo) await this.core.setMetadata(session.id, MEMO_METADATA_KEY, memo);
       if (resumeSource) await this.core.setMetadata(session.id, RESUME_SOURCE_METADATA_KEY, resumeSource);
+      await this.core.setMetadata(session.id, VISIBILITY_METADATA_KEY, visibility);
       return this.withMetadata(native);
     } catch (error) {
       if (created) await this.core.delete(session.id).catch(() => undefined);
@@ -204,6 +211,10 @@ export class CoreSessionAdapter {
     await this.core.setMetadata(id, RESUME_SOURCE_METADATA_KEY, sourceId);
   }
 
+  async setVisibility(id: string, visibility: CoreSessionVisibility): Promise<void> {
+    await this.core.setMetadata(id, VISIBILITY_METADATA_KEY, visibility);
+  }
+
   private async withMetadata(session: Session): Promise<CoreSession> {
     const metadata = await this.core.listMetadata(session.id);
     const agent = isLaunchAgent(metadata[AGENT_METADATA_KEY]) ? metadata[AGENT_METADATA_KEY] : "shell";
@@ -214,6 +225,8 @@ export class CoreSessionAdapter {
       title: metadata[TITLE_METADATA_KEY] || null,
       memo: metadata[MEMO_METADATA_KEY] || null,
       resumeSource: metadata[RESUME_SOURCE_METADATA_KEY] || null,
+      visibility:
+        metadata[VISIBILITY_METADATA_KEY] === "background" || metadata[VISIBILITY_METADATA_KEY] === "internal" ? metadata[VISIBILITY_METADATA_KEY] : "normal",
     };
   }
 

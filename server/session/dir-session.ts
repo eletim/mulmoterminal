@@ -7,8 +7,7 @@
 import { canonicalPath } from "../git/worktrees.js";
 import { isSessionAttached, type SessionOccupancy } from "../../common/sessionOccupancy.js";
 import { isTerminalAgent, type TerminalAgent } from "../../common/sessionAgent.js";
-import { isProbeSessionId } from "../agents/probe-session.js";
-import { isBackgroundSession, ptys, translationWorkerIds } from "./registry.js";
+import { ptys } from "./registry.js";
 import type { CoreSession } from "./core-session-adapter.js";
 
 export interface DirSession extends SessionOccupancy {
@@ -19,8 +18,6 @@ export interface DirSession extends SessionOccupancy {
 export interface DirSessionCandidate extends DirSession {
   createdAt: number;
 }
-
-const isUserSession = (id: string): boolean => !isProbeSessionId(id) && !translationWorkerIds.has(id) && !isBackgroundSession(id);
 
 const beats = (candidate: DirSessionCandidate, best: DirSessionCandidate): boolean =>
   (candidate.attached ? 1 : 0) > (best.attached ? 1 : 0) || (candidate.attached === best.attached && candidate.createdAt > best.createdAt);
@@ -45,7 +42,7 @@ export function sessionAttached(id: string, tmuxCounts: Map<string, number> | nu
 export function dirSession(dir: string, sessions: readonly CoreSession[], tmuxCounts: Map<string, number> | null): DirSession | null {
   const target = canonicalPath(dir);
   const candidates = sessions.flatMap<DirSessionCandidate>((session) => {
-    if (!isUserSession(session.id) || !isTerminalAgent(session.agent) || canonicalPath(session.cwd) !== target) return [];
+    if (session.visibility !== "normal" || !isTerminalAgent(session.agent) || canonicalPath(session.cwd) !== target) return [];
     return [{ id: session.id, agent: session.agent, attached: sessionAttached(session.id, tmuxCounts), createdAt: session.createdAt.getTime() }];
   });
   return pickDirSession(candidates);

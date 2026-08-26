@@ -46,7 +46,7 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, knownSessions, lastPrompts, ptys } from "./session/registry.js";
+import { activity, aiTitles, lastPrompts, ptys } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -102,7 +102,7 @@ import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
 import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
-import { visibleCoreSessions } from "./session/core-session-visibility.js";
+import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./session/core-session-visibility.js";
 import { legacyMemoForCoreSession, legacySessionMemosHydrated, migrateLegacyMemoToCore } from "./session/core-session-legacy-ui.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
@@ -134,6 +134,14 @@ if (!tmuxAvailable()) {
 // CLAUDE_CWD is the workspace used as the PTY cwd and as the root for persisted
 // session state, so it must exist before we spawn anything into it.
 await fs.mkdir(CLAUDE_CWD, { recursive: true });
+
+const migratedBackgroundSessions = await migrateLegacyBackgroundVisibility(coreSessions).catch((error) => {
+  console.warn(`[upgrade] could not migrate background visibility: ${messageOf(error)}`);
+  return 0;
+});
+if (migratedBackgroundSessions > 0) {
+  console.log(`[upgrade] migrated ${migratedBackgroundSessions} background session classification(s) to Core metadata`);
+}
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
 // Gated to the managed mulmoclaude workspace and
@@ -296,8 +304,6 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => {
-    const title = knownSessions.get(sessionId)?.title;
-    if (title) void coreSessions.setTitle(sessionId, title).catch(() => undefined);
     void migrateLegacyMemoToCore(sessionId).catch(() => undefined);
     pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" });
   },
@@ -320,9 +326,9 @@ const { translateViaHiddenChat } = createTranslationWorker({
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }
   },
-  spawnHiddenChat: (sessionId, prompt) => {
+  spawnHiddenChat: (sessionId, prompt, visibility) => {
     // ws=null → headless; the worker buffers output nobody reads. Default cwd = CLAUDE_CWD (trusted).
-    spawnClaudePty(sessionId, null, null, { initialPrompt: prompt });
+    spawnClaudePty(sessionId, null, null, { initialPrompt: prompt, visibility });
   },
 });
 
@@ -584,14 +590,7 @@ const mobileListTerminalSessions = async () => {
       if (!session) return { title: "", cwd: "", agent: null };
       const summary = work.get(session.cwd);
       const detail: SessionDetailDraft = {
-        title: sessionDisplayName(
-          session.memo,
-          legacyMemoForCoreSession(id),
-          session.title,
-          aiTitles.get(id),
-          lastPrompts.get(id),
-          knownSessions.get(id)?.title,
-        ),
+        title: sessionDisplayName(session.memo, legacyMemoForCoreSession(id), session.title, aiTitles.get(id), lastPrompts.get(id), null),
         cwd: session.cwd,
         agent: session.agent,
         ...(summary ? { work: summary } : {}),
@@ -792,7 +791,7 @@ function spawnScheduledChat(message: string): void {
   const sessionId = randomUUID();
   try {
     spawnScheduledWorker(sessionId, {
-      spawn: (id) => spawnClaudePty(id, null, null, { initialPrompt: message }),
+      spawn: (id, visibility) => spawnClaudePty(id, null, null, { initialPrompt: message, visibility }),
       retain: (id) => scheduledSessions.register(id),
     });
   } catch (err) {

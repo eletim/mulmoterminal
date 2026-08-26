@@ -31,6 +31,7 @@ describe("resumed history row metadata", () => {
         waiting: false,
         event: "UserPromptSubmit",
       });
+      await expect(readSessionMeta(dir, `${HISTORY}.jsonl`, undefined, "background")).resolves.toMatchObject({ id: HISTORY, hidden: true });
     } finally {
       await fs.rm(dir, { recursive: true });
     }

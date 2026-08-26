@@ -19,13 +19,12 @@
 //
 // And one thing it does NOT inherit: Web Push still fires for it. See markUserScheduledSession —
 // "quiet" here means out of the chat list and off the grid, not unreachable.
-import { backgroundMarkers, markFailedWorker, markUserScheduledSession } from "./registry.js";
-import { runWithHiddenMarker } from "./hiddenMarker.js";
+import { markBackgroundHistory, markFailedWorker, markUserScheduledSession } from "./registry.js";
 import { registerCompletionHook } from "./completion-hooks.js";
 
 export interface ScheduledChatDeps {
   /** Start the PTY. Separate so the policy can be exercised without spawning anything. */
-  spawn: (sessionId: string) => void;
+  spawn: (sessionId: string, visibility: "background") => void;
   /** Put it on the scheduled-session retention — nothing else would ever end it. */
   retain: (sessionId: string) => void;
 }
@@ -41,8 +40,9 @@ export interface ScheduledChatDeps {
  * report success would mark every successful run as failed.
  */
 export function spawnScheduledWorker(sessionId: string, deps: ScheduledChatDeps): void {
-  runWithHiddenMarker(true, sessionId, backgroundMarkers, () => deps.spawn(sessionId));
+  deps.spawn(sessionId, "background");
   deps.retain(sessionId);
+  markBackgroundHistory(sessionId);
   // Background in every respect EXCEPT the phone. A background session's finished turn never
   // pushes, on the reasoning that it "isn't a real user task" — and a task the user configured to
   // run while they are away is exactly that, with the phone the only way they would hear about it

@@ -4,9 +4,9 @@
 //
 // Worth isolating because the rules are quiet — a row that should have been hidden still
 // looks like a plausible response, so a regression here reads as correct output.
-import type { DiskStat, PendingSession } from "./types.js";
+import type { DiskStat } from "./types.js";
 
-export type SessionRow = DiskStat | PendingSession;
+export type SessionRow = DiskStat;
 
 export interface SessionRowFilter {
   /** Transient internal helpers, never user-visible chats: translation workers, and the
@@ -18,7 +18,7 @@ export interface SessionRowFilter {
    *  but the client shows them under their own filter rather than among the chats. */
   isBackground: (id: string) => boolean;
   /** True for the unscoped (chat sidebar) query, false for a cwd-scoped one. */
-  includePending: boolean;
+  unscoped: boolean;
   limit: number;
   /** Cap for background rows, counted separately from `limit`. */
   backgroundLimit: number;
@@ -36,7 +36,7 @@ export interface SessionRowFilter {
 export function selectSessionRows(rows: readonly SessionRow[], filter: SessionRowFilter): SessionRow[] {
   const visible = rows
     .filter((row) => !filter.isInternalHelper(row.id))
-    .filter((row) => !filter.includePending || !filter.isDevTerminal(row.id))
+    .filter((row) => !filter.unscoped || !filter.isDevTerminal(row.id))
     .sort((a, b) => b.mtime - a.mtime);
   const chats = visible.filter((row) => !filter.isBackground(row.id)).slice(0, filter.limit);
   const background = visible.filter((row) => filter.isBackground(row.id)).slice(0, filter.backgroundLimit);
