@@ -273,7 +273,9 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
       await Promise.all(
         top.map((s) => {
           const core = coreByReference.get(s.id);
-          return readSessionMeta(dir, s.file, core?.id, core?.visibility).catch(() => null);
+          let visibility = core?.visibility ?? "normal";
+          if (visibility !== "internal" && isBackgroundHistory(s.id)) visibility = "background";
+          return readSessionMeta(dir, s.file, core?.id, visibility).catch(() => null);
         }),
       )
     )
