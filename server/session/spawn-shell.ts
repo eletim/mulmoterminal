@@ -1,6 +1,6 @@
 // The two PTYs that run a shell rather than an agent: the Run menu's one-off command
 // (ephemeral, no session identity) and a configured launcher (persistent and reattachable,
-// sharing the session lifecycle but with no hooks, transcript, or resume).
+// sharing Core/viewer transport but with no hooks, transcript, or resume).
 // Split from index.ts (#548 step 3c).
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";

@@ -37,7 +37,7 @@ export function buildActivitySnapshot(
 // leaving entries owned by another instance untouched. The file is shared by every server
 // rooted at the same MULMOTERMINAL_HOME, so writing a full in-memory snapshot would drop the
 // other instance's sessions (they're not in this map) and revive ones it already cleared.
-// Owned ids present in `owned` are written; owned ids absent from it (gone idle / reaped) are
+// Owned ids present in `owned` are written; owned ids absent from it (activity ended) are
 // removed; every foreign id on disk is preserved as-is.
 export function mergeOwnedActivity(
   onDisk: Record<string, PersistedActivity>,

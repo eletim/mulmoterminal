@@ -90,7 +90,7 @@ describe("mergeOwnedActivity", () => {
   });
 
   it("removes an owned session that is no longer active, even if still stale on disk", () => {
-    // a1 is ours and reaped: gone from `owned`, but a stale entry lingers on disk. Ours wins.
+    // a1 is ours and its activity ended: gone from `owned`, but a stale entry lingers on disk. Ours wins.
     expect(mergeOwnedActivity({ a1: P({ working: true }) }, {}, ownedBy("a1"))).toEqual({});
   });
 

@@ -19,8 +19,8 @@ export interface CodexActivityTrackDeps {
   isActive: () => boolean;
   /** Which port this host's UI answers on, so a notification can open it. */
   uiPort: string;
-  /** False once THIS pty is gone. Must identify the pty, not just its session id: a
-   *  session reaped and respawned under the same id within one poll would otherwise
+  /** False once THIS agent process is gone. Must identify the process, not just its session id: a
+   *  process replaced under the same id within one poll would otherwise
    *  leave this tail running beside the new one, reporting every boundary twice. */
   isAlive: () => boolean | Promise<boolean>;
 }

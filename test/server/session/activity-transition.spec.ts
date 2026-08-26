@@ -137,7 +137,7 @@ describe("sessionRow", () => {
     expect(sessionRow("S", undefined, null, {})).not.toHaveProperty("memo");
   });
 
-  it("keeps a null cwd, which is what a reaped session has", () => {
+  it("keeps a null cwd when no Core metadata is available", () => {
     expect(sessionRow("S", { working: true }, null, {}).cwd).toBeNull();
   });
 });

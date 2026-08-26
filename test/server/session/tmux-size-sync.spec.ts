@@ -251,7 +251,7 @@ describe("createTmuxSizeSync", () => {
     });
 
     it("cannot be revived by a session id that comes back after being forgotten", async () => {
-      // `--resume` brings an id back after a reap, so `forget` must not reopen the door either.
+      // A replacement viewer can reuse an id after release, so `forget` must not reopen the door either.
       const { sync, events } = setup([{ cols: 80, rows: 24 }], PROBE_MS);
       sync.requestCheck(SESSION, { cols: 120, rows: 40 });
       await vi.advanceTimersByTimeAsync(SETTLE_MS);

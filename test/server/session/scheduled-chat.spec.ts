@@ -49,7 +49,7 @@ describe("a scheduled task's chat", () => {
 
   it("still says so when it fails", async () => {
     // The other half of being quiet: nothing pulls the user's attention, so without the hook a
-    // failed task is never learned. This is what reap does for a session that never reported a
+    // failed task is never learned. This is what the process owner does for a session that never reported a
     // finished turn.
     const { registry, spawnScheduledWorker, runCompletionHook } = await fresh();
     spawnScheduledWorker(ID, noop);
@@ -63,7 +63,7 @@ describe("a scheduled task's chat", () => {
     const { registry, spawnScheduledWorker, runCompletionHook } = await fresh();
     spawnScheduledWorker(ID, noop);
     await runCompletionHook(ID, { didError: false });
-    await runCompletionHook(ID, { didError: true }); // reap, moments later
+    await runCompletionHook(ID, { didError: true }); // process exit, moments later
     expect(registry.isFailedWorker(ID)).toBe(false);
   });
 

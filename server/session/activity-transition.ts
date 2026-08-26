@@ -1,6 +1,6 @@
 // Pure derivations from a session's activity record: what a flag change makes it, and what
 // the row published to subscribers looks like. The decisions only — no publish, no
-// persistence, no reap. Split from index.ts (#548 step 3h):
+// persistence, and no Core/viewer lifetime decisions. Split from index.ts (#548 step 3h):
 // setWorking and setWaiting differed by one field but each re-derived the same rules, and
 // both are load-bearing. The "unchanged" answer is what keeps an idle session from
 // republishing on every hook, and the event fallback is what keeps a row labelled with the

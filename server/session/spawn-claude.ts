@@ -162,7 +162,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     const hookSettings = deps.hookSettingsJson("localhost", sessionId, resolved.env);
     // File-ized only when it is actually passed (fullGuiMcp), so a cell that never carries
-    // the GUI MCP leaves no file behind for reap to clean up.
+    // the GUI MCP leaves no settings file for the Claude process owner to clean up.
     const args = buildClaudeArgs({
       model: resolved.model,
       sessionId,
@@ -188,8 +188,8 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);
 
     // The settings file is already on disk and may hold a provider token, so a failed
-    // spawn has to take it with it — a session that never starts never reaches reap(),
-    // where the cleanup normally happens (#579).
+    // spawn has to take it with it — a session that never starts cannot reach the process-exit
+    // cleanup path (#579).
     const entry = withSettingsCleanup(sessionId, spawnEntry);
     const spawnedAtMs = Date.now();
 

@@ -31,11 +31,11 @@ describe("runCompletionHook", () => {
 
   // The rule that keeps a successful refresh from being reported as failed: a finished turn
   // (Stop) reports success, and the teardown of that same session comes along afterwards.
-  it("does not let the reap's failure overwrite a finished turn's success", async () => {
+  it("does not let process-exit failure overwrite a finished turn's success", async () => {
     const outcomes: boolean[] = [];
     registerCompletionHook(A, ({ didError }) => void outcomes.push(didError));
     await runCompletionHook(A, { didError: false }); // Stop
-    await runCompletionHook(A, { didError: true }); // reap, later
+    await runCompletionHook(A, { didError: true }); // process exit, later
     expect(outcomes).toEqual([false]);
   });
 
@@ -43,7 +43,7 @@ describe("runCompletionHook", () => {
   it("reports failure when teardown is the first thing to fire", async () => {
     const outcomes: boolean[] = [];
     registerCompletionHook(A, ({ didError }) => void outcomes.push(didError));
-    await runCompletionHook(A, { didError: true }); // reaped without ever reaching Stop
+    await runCompletionHook(A, { didError: true }); // exited without ever reaching Stop
     expect(outcomes).toEqual([true]);
   });
 

@@ -150,8 +150,8 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
     if (tickets.knows(id)) tickets.next(id);
   }
 
-  /** The session is gone for good (reaped). A `cancel` alone keeps the ticket, because a detached
-   *  session can still reattach; this is the teardown that actually frees the state. */
+  /** The viewer is released. A `cancel` alone keeps the ticket for a replacement attachment;
+   *  this operation actually frees the process-local size state. */
   function forget(id: string): void {
     cancel(id);
     tickets.forget(id);
@@ -182,7 +182,7 @@ export function createTmuxSizeSync(deps: TmuxSizeSyncDeps) {
     );
   }
 
-  // `trackedSessionCount` exists so "a cancel must not allocate, and a reap must free" is tested
+  // `trackedSessionCount` exists so "a cancel must not allocate, and release must free" is tested
   // rather than asserted in a comment — nothing in the app reads it.
   return { requestCheck, cancel, forget, trackedSessionCount: tickets.size };
 }

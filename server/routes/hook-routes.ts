@@ -65,7 +65,7 @@ async function handleActivityHook(deps: HookDeps, sessionId: string, event: stri
   // A finished turn is the ONLY success signal a PTY-hosted agent gives us (#1070). It is not
   // a process exit — `claude` sits at its prompt afterwards — so a worker that never reaches
   // Stop (blocked on a permission dialog nobody can answer, or dead before its first turn) is
-  // exactly the failed refresh, and reap reports it as such. No-op unless a hook is registered,
+  // exactly the failed refresh, and the agent process owner reports it as such on exit. No-op unless a hook is registered,
   // which a hidden feeds worker does — and, since #1188, a hidden CLAUDE spawnBackgroundChat.
   // Only claude: this endpoint is Claude Code's hook mechanism, so it is the only agent that can
   // ever reach here to report success, and a hook registered for another one could only ever

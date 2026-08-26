@@ -772,7 +772,7 @@ mountOrchestratorSessionRoutes(app, {
 // Non-fatal: a scheduler failure must never abort startup.
 //
 // Nobody ever presses close on a scheduled session, and one blocked on a permission prompt
-// never finishes a turn, so the hook-driven reap can miss it entirely — hence the
+// may never finish a turn, so its dedicated retention owner handles expiry — hence the
 // registry, which bounds them by count and age whatever their hooks did (#541).
 
 // The rule lives with heldByAnotherProcess (pure/tested); this only reads the live facts.
@@ -866,7 +866,7 @@ server.listen(Number(PORT), BIND_HOST, async () => {
   const unregisterInstance = registerInstance(Number(PORT));
   process.on("exit", unregisterInstance);
 
-  // A crash never reaches reap(), so settings files — one of which may hold a provider's API
+  // A crash never reaches process-owner cleanup, so settings files — one of which may hold a provider's API
   // token — outlive the sessions that used them. Anything not backed by a surviving tmux
   // session is an orphan: a PTY without tmux died with the server that owned it.
   //

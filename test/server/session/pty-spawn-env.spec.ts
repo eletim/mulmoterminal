@@ -146,7 +146,7 @@ describe("ptySpawn — carries the removal down both paths", () => {
     expect(spawn).toHaveBeenCalledWith("tmux", ["attach-session", "s1"], expect.any(Object));
   });
 
-  it("turns Core remain-on-exit into the PTY exit event used by session lifecycle", () => {
+  it("turns Core remain-on-exit into the PTY exit event used by viewer and process owners", () => {
     tmuxOn = true;
     const { term } = ptySpawn("s1", "claude", [], EXISTING_CWD, true);
     const listener = vi.fn();

@@ -25,8 +25,8 @@ export interface PtyEntry {
   // stand in for "the user is looking at THIS cell". Set at attach (by gui mode) and
   // updated by the client's `view` frame.
   active: boolean;
-  // True when `term` is a tmux client (persistent): killing it only detaches, so reap
-  // must kill the tmux session to actually end the program.
+  // True when `term` is a tmux client: killing it releases only this viewer. Core Stop/Delete
+  // remain the only process and membership operations.
   tmux?: boolean;
   // A reattach replayed a delta tail, so the browser's screen is only as complete as that window
   // (see tmuxRedrawClient). Cleared by the first resize frame after the reattach — waiting for it

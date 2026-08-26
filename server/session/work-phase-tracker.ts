@@ -31,8 +31,8 @@ export function createWorkPhaseTracker() {
   const turnTools = new Map<string, string[]>();
 
   // Only allocate when there is something to remember. /api/hook accepts any well-formed uuid
-  // (the id is shape-checked, not looked up), and an entry is only reclaimed by reap — which
-  // never runs for a session that has no pty. Storing an empty turn for an unrelated event would
+  // (the id is shape-checked, not looked up), and an entry is reclaimed only by its activity
+  // owner. Storing an empty turn for an unrelated event would
   // therefore leave a permanent entry per uuid ever posted, so those are dropped here instead.
   const note = (sessionId: string, event: string, toolName?: string): void => {
     const prev = turnTools.get(sessionId);
