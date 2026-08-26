@@ -91,8 +91,8 @@ describe("nextActivity", () => {
   });
 });
 
-// The row every subscribed client renders from. Defaults are applied here so a session
-// with no activity yet reads as idle rather than arriving with holes the UI must guess at.
+// The activity fields are always complete. Core-owned metadata is optional: absence means
+// "no metadata update", so an activity event cannot clear a title or memo it does not own.
 describe("sessionRow", () => {
   it("fills every field for a session with no activity yet", () => {
     expect(sessionRow("S", undefined, null, {})).toEqual({
@@ -102,9 +102,7 @@ describe("sessionRow", () => {
       waiting: false,
       event: null,
       lastPrompt: null,
-      aiTitle: null,
       lastResponse: null,
-      memo: null,
     });
   });
 
@@ -117,12 +115,12 @@ describe("sessionRow", () => {
     expect(Object.keys(sessionRow("S", { working: true, at: 999 }, null, {}))).not.toContain("at");
   });
 
-  it("carries the roster texts, defaulting each missing one to null", () => {
+  it("carries activity-owned texts without inventing Core metadata", () => {
     expect(sessionRow("S", undefined, null, { lastPrompt: "p", lastResponse: "r" })).toMatchObject({
       lastPrompt: "p",
-      aiTitle: null,
       lastResponse: "r",
     });
+    expect(sessionRow("S", undefined, null, { lastPrompt: "p", lastResponse: "r" })).not.toHaveProperty("aiTitle");
   });
 
   it("keeps an empty text as empty rather than turning it into null", () => {
@@ -134,11 +132,9 @@ describe("sessionRow", () => {
     });
   });
 
-  // A memo is what the cell header, the sidebar and the phone all name the session by, and this
-  // row is how an edit in one tab reaches the others.
-  it("carries the memo, and publishes null for a session with none", () => {
+  it("carries an explicit memo but omits it when the activity producer has no metadata update", () => {
     expect(sessionRow("S", undefined, null, { memo: "release check" }).memo).toBe("release check");
-    expect(sessionRow("S", undefined, null, {}).memo).toBeNull();
+    expect(sessionRow("S", undefined, null, {})).not.toHaveProperty("memo");
   });
 
   it("keeps a null cwd, which is what a reaped session has", () => {

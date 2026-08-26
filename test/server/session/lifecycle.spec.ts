@@ -7,16 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { createSessionLifecycle, type SessionLifecycleDeps } from "../../../server/session/lifecycle.js";
-import {
-  activity,
-  aiTitles,
-  antigravityConversations,
-  codexRolloutIds,
-  lastPrompts,
-  lastResponses,
-  ptys,
-  sessionMemos,
-} from "../../../server/session/registry.js";
+import { activity, antigravityConversations, codexRolloutIds, lastPrompts, lastResponses, ptys, sessionMemos } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
 vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSettings: vi.fn() }));
@@ -36,7 +27,6 @@ const THIRD_ID = "33333333-4444-4555-8666-777777777777";
 
 const makeDeps = (overrides: Partial<SessionLifecycleDeps> = {}) => ({
   publish: vi.fn(),
-  forgetTitle: vi.fn(),
   forgetWorkPhase: vi.fn(),
   forgetTerminalSize: vi.fn(),
   ...overrides,
@@ -50,7 +40,7 @@ const clearRegistry = () => {
   lifecycle.reap(ID);
   lifecycle.reap(OTHER_ID);
   lifecycle.reap(THIRD_ID);
-  for (const map of [ptys, activity, lastPrompts, lastResponses, aiTitles, codexRolloutIds, antigravityConversations, sessionMemos]) {
+  for (const map of [ptys, activity, lastPrompts, lastResponses, codexRolloutIds, antigravityConversations, sessionMemos]) {
     map.clear();
   }
   clearedTranscripts.clear();
@@ -79,7 +69,6 @@ describe("reap", () => {
     // A leak here is a session that lingers in the sidebar, or a provider token's settings
     // file left on disk.
     expect([ptys.has(ID), lastPrompts.has(ID), lastResponses.has(ID)]).toEqual([false, false, false]);
-    expect(deps.forgetTitle).toHaveBeenCalledWith(ID);
     // A socket close only pauses the tmux size bookkeeping (a detached session can reattach);
     // teardown is the one place that frees it, or it grows for the server's whole life (#957).
     expect(deps.forgetTerminalSize).toHaveBeenCalledWith(ID);

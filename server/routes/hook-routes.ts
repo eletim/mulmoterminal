@@ -125,8 +125,7 @@ async function trackPromptForHeader(sessionId: string, transcriptId: string, pro
 // `/clear` restarts the conversation, so the header must stop showing the pre-clear prompt. Blank it
 // (empty string beats the `?? transcriptPrompt` fallback in /api/session, so the old transcript can't
 // resurface) and publish; the next UserPromptSubmit sets the new query. `forgetTitle` drops the AI title
-// so it's regenerated fresh on the next turn (leaving it in `aiTitles` — even as "" — would read as
-// "already titled" and suppress that regeneration). The cockpit's last reply is blanked the same way as
+// so Core metadata is cleared and it is regenerated fresh on the next turn. The cockpit's last reply is blanked the same way as
 // the prompt (empty beats `?? transcriptResponse`) so it can't show the pre-clear answer.
 //
 // Blanking alone does not hold: claude has just moved to a NEW transcript, so ours is frozen on the
@@ -139,7 +138,7 @@ async function clearHeaderPrompt(deps: HookDeps, sessionId: string, cwd: string 
   lastPrompts.set(sessionId, "");
   lastResponses.set(sessionId, "");
   await markTranscriptCleared(sessionId, cwd);
-  deps.forgetTitle(sessionId);
+  await deps.forgetTitle(sessionId);
   deps.publishActivity(sessionId);
 }
 
@@ -160,7 +159,7 @@ async function applyHeaderHooks(
   if (!effect) return;
   if (effect.kind === "prompt") {
     await trackPromptForHeader(sessionId, transcriptId, effect.text, cwd);
-    deps.noteTitleTurn(sessionId, effect.text);
+    await deps.noteTitleTurn(sessionId, effect.text);
     return;
   }
   if (effect.kind === "clear") return clearHeaderPrompt(deps, sessionId, cwd);

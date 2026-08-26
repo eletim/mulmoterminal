@@ -20,10 +20,10 @@ export interface LiveSessionState {
   // process knows nothing" — only then does the transcript speak.
   lastPrompt?: string | undefined;
   lastResponse?: string | undefined;
-  aiTitle?: string | undefined;
+  aiTitle?: string | null | undefined;
   // The user's own note. Absent means there is none — an erased memo is DELETED from the store
   // rather than kept as "", so there is no cleared-vs-unknown distinction to preserve here.
-  memo?: string | undefined;
+  memo?: string | null | undefined;
 }
 
 export interface TranscriptSessionState {

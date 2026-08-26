@@ -46,7 +46,7 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, aiTitles, lastPrompts, ptys } from "./session/registry.js";
+import { activity, lastPrompts, migrateHistoryMemosToCore, ptys } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -103,7 +103,6 @@ import { createInputReadinessTracker } from "./session/input-readiness.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
 import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./session/core-session-visibility.js";
-import { legacyMemoForCoreSession, legacySessionMemosHydrated, migrateLegacyMemoToCore } from "./session/core-session-legacy-ui.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -142,6 +141,10 @@ const migratedBackgroundSessions = await migrateLegacyBackgroundVisibility(coreS
 if (migratedBackgroundSessions > 0) {
   console.log(`[upgrade] migrated ${migratedBackgroundSessions} background session classification(s) to Core metadata`);
 }
+
+// One-way upgrade of the old history memo store for sessions that still have Core membership.
+// Request paths never fall back to this store for live sessions after startup.
+await migrateHistoryMemosToCore(await coreSessions.list(), (id, memo) => coreSessions.setMemo(id, memo));
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
 // Gated to the managed mulmoclaude workspace and
@@ -253,13 +256,11 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
 const mobileWebPushActivityDeps = mobileWebPushActivityLifecycleDeps({ sender: mobileWebPush.sender });
 
-// Session teardown + activity publishing (session/lifecycle.ts). `forgetTitle` is bound
-// lazily because the title manager below needs publishActivity — the cycle is real.
+// Session teardown + activity publishing (session/lifecycle.ts).
 const workPhaseTracker = createWorkPhaseTracker();
 
 const lifecycle = createSessionLifecycle({
   publish: (channel, data) => pubsub?.publish(channel, data),
-  forgetTitle: (id) => forgetTitle(id),
   forgetWorkPhase: (id) => workPhaseTracker.forget(id),
   forgetTerminalSize: (id) => tmuxSizeSync.forget(id),
   ...mobileWebPushActivityDeps,
@@ -270,12 +271,22 @@ const inputReadiness = createInputReadinessTracker();
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
 const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = createTitleManager({
-  publishActivity: (id) => publishActivity(id),
+  publishTitle: (id, title) => pubsub?.publish(SESSIONS_CHANNEL, { id, aiTitle: title }),
   now: () => Date.now(),
   generateTitle: (turns) => generateTitleFromTurns(turns),
+  hasTitle: async (id) => !!(await coreSessions.find(id))?.title,
   persistTitle: async (id, title) => {
     try {
       await coreSessions.setTitle(id, title);
+      return true;
+    } catch (error) {
+      if (error instanceof CoreSessionNotFoundError) return false;
+      throw error;
+    }
+  },
+  clearTitle: async (id) => {
+    try {
+      await coreSessions.setTitle(id, "");
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }
@@ -304,7 +315,6 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => {
-    void migrateLegacyMemoToCore(sessionId).catch(() => undefined);
     pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, event: "created" });
   },
   inputReadiness,
@@ -574,7 +584,6 @@ const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWo
 };
 
 const mobileListTerminalSessions = async () => {
-  await legacySessionMemosHydrated;
   // Core owns existence; this filter is display policy shared with the desktop grid. Internal
   // helpers remain directly addressable for their completion/push flows but are not terminal rows.
   const sessions = await visibleCoreSessions(await coreSessions.list());
@@ -590,7 +599,7 @@ const mobileListTerminalSessions = async () => {
       if (!session) return { title: "", cwd: "", agent: null };
       const summary = work.get(session.cwd);
       const detail: SessionDetailDraft = {
-        title: sessionDisplayName(session.memo, legacyMemoForCoreSession(id), session.title, aiTitles.get(id), lastPrompts.get(id), null),
+        title: sessionDisplayName(session.memo, session.title, lastPrompts.get(id), null),
         cwd: session.cwd,
         agent: session.agent,
         ...(summary ? { work: summary } : {}),
@@ -622,7 +631,6 @@ const mobileCanClearBox = async (sessionId: string): Promise<boolean> =>
 // answers from. A session that outlived a restart has no PtyEntry, so it falls back to the
 // persisted cwd written when the session was launched or attached.
 const mobileSessionScreenMeta = async (sessionId: string): Promise<SessionScreenMeta> => {
-  await legacySessionMemosHydrated;
   const session = await coreSessions.get(sessionId);
   return buildScreenMeta(sessionId, {
     cwdOf: () => session.cwd,
@@ -634,8 +642,8 @@ const mobileSessionScreenMeta = async (sessionId: string): Promise<SessionScreen
     // does not. A per-poll `ls-remote` is the only local fix and costs a network round trip
     // on a screen the phone polls (#832).
     githubUrlOf: resolveGithubUrl,
-    memoOf: () => session.memo ?? legacyMemoForCoreSession(sessionId) ?? "",
-    summaryOf: (id) => session.title ?? aiTitles.get(id) ?? "",
+    memoOf: () => session.memo ?? "",
+    summaryOf: () => session.title ?? "",
     promptOf: (id) => lastPrompts.get(id) ?? "",
     memosHydrated: Promise.resolve(),
   });

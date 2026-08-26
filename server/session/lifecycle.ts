@@ -9,12 +9,9 @@
 // Three things arrive as deps rather than imports, for the same reason each did in index.ts:
 //
 //   publish — pub/sub only exists once the HTTP server does, and this is built before it.
-//   forgetTitle — the title manager needs publishActivity, and reap needs forgetTitle. The
-//     cycle is real; binding it late is how index.ts already broke it.
 // Everything else is the shared session registry, which is imported directly.
 import {
   activity,
-  aiTitles,
   lastPrompts,
   lastResponses,
   lastTitleAttemptMs,
@@ -22,7 +19,6 @@ import {
   lastTitledUserTurns,
   persistActivityState,
   ptys,
-  sessionMemos,
   titleInFlight,
   isFailedWorker,
 } from "./registry.js";
@@ -50,8 +46,6 @@ export const SESSIONS_CHANNEL = "sessions";
 export interface SessionLifecycleDeps {
   /** Fan a row out to subscribers; a no-op before pub/sub exists. */
   publish: (channel: string, data: unknown) => void;
-  /** Drop a session's AI title so the next turn regenerates it. */
-  forgetTitle: (id: string) => void;
   /** Drop that tracking when the session is torn down. */
   forgetWorkPhase: (id: string) => void;
   /** Free the tmux window/client size bookkeeping. Unlike a socket close — which a reattach
@@ -184,7 +178,6 @@ function reap(deps: SessionLifecycleDeps, mobileWebPushActivityState: MobileWebP
   // The transcript stops being frozen here: the next claude on this id (`--resume`, or a restart
   // after `/exit` — which reaches reap through term.onExit) appends to that file again.
   forgetClearedTranscript(id);
-  deps.forgetTitle(id);
   deps.forgetWorkPhase(id); // the live turn dies with the session
   deps.forgetTerminalSize(id);
   titleInFlight.delete(id);
@@ -296,9 +289,7 @@ function publishActivity(deps: SessionLifecycleDeps, id: string) {
   if (shouldRefreshReply(a, cwd, clearedTranscripts.has(id))) refreshLastResponse(id, cwd);
   const row = sessionRow(id, a, cwd, {
     lastPrompt: lastPrompts.get(id),
-    aiTitle: aiTitles.get(id),
     lastResponse: lastResponses.get(id),
-    memo: sessionMemos.get(id),
   });
   deps.publish(SESSIONS_CHANNEL, row);
 }

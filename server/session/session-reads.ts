@@ -22,7 +22,7 @@ import {
 import { createFileCache, type FileStamp } from "./file-cache.js";
 import { classifyWorkPhase, type WorkPhase } from "./workPhase.js";
 import { sessionListTitle } from "./sessionListTitle.js";
-import { activity, aiTitles, codexRolloutIds, isFailedWorker, sessionMemos } from "./registry.js";
+import { activity, codexRolloutIds, isFailedWorker, sessionMemos } from "./registry.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
 import { forEachJsonlRecord, readTailRecords } from "../infra/jsonl-file.js";
@@ -213,7 +213,14 @@ export async function sessionLastTurn(cwd: string, id: string, agent: "claude" |
 }
 
 // Scan a session JSONL for a human-friendly title and last activity.
-export async function readSessionMeta(dir: string, file: string, liveId?: string, visibility: CoreSessionVisibility = "normal"): Promise<SessionMeta> {
+export async function readSessionMeta(
+  dir: string,
+  file: string,
+  liveId?: string,
+  visibility: CoreSessionVisibility = "normal",
+  liveTitle?: string | null,
+  liveMemo?: string | null,
+): Promise<SessionMeta> {
   const full = path.join(dir, file);
 
   let aiTitle: string | null = null;
@@ -240,8 +247,8 @@ export async function readSessionMeta(dir: string, file: string, liveId?: string
   // file. Live UI state follows the Core id; transcript identity remains the row id.
   const stateId = liveId ?? id;
   const title = sessionListTitle({
-    memo: sessionMemos.get(stateId),
-    liveAiTitle: aiTitles.get(stateId),
+    memo: liveId ? liveMemo : sessionMemos.get(id),
+    liveAiTitle: liveId ? liveTitle : undefined,
     diskAiTitle: aiTitle,
     diskLastPrompt: lastPrompt,
     firstUserMsg,

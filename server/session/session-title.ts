@@ -12,7 +12,7 @@ import path from "node:path";
 import { conversationTurnsFromParsed, isTrivialPrompt, type ConversationTurn } from "./transcript.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { shouldFreshenViewedTitle, shouldRegenerateTitle, TITLE_REGEN_EVERY_TURNS, VIEW_TITLE_REGEN_TURNS } from "../config/header-title.js";
-import { aiTitles, lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "./registry.js";
+import { lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "./registry.js";
 import { clearedTranscripts } from "./cleared-transcripts.js";
 import { projectSessionsDir } from "./project-dir.js";
 
@@ -21,8 +21,8 @@ import { projectSessionsDir } from "./project-dir.js";
 const VIEW_TITLE_RETRY_MS = 30_000;
 
 export interface TitleDeps {
-  /** Push the session's row (with its new title) to subscribers. */
-  publishActivity: (id: string) => void;
+  /** Push the Core title change to subscribers without mirroring it in Backend state. */
+  publishTitle: (id: string, title: string) => void;
   /** Injected so the retry floor can be tested without waiting out 30 seconds. */
   now: () => number;
   /** Summarize a transcript into a title. Injected because the real one shells out to
@@ -30,12 +30,13 @@ export interface TitleDeps {
   // Turns, not the raw transcript: the file reaches 585 MB here and cannot be held as a string
   // at all (#998). The title only reads the last few turns anyway.
   generateTitle: (turns: ConversationTurn[]) => Promise<string | null>;
-  /** Persist the reconstruction title beside the Core session, when this is a terminal session. */
-  persistTitle?: (id: string, title: string) => Promise<void>;
+  /** Read/write the sole live title source: Core metadata. History-only ids return false. */
+  hasTitle: (id: string) => Promise<boolean>;
+  persistTitle: (id: string, title: string) => Promise<boolean>;
+  clearTitle: (id: string) => Promise<void>;
 }
 
 function forgetSessionTitle(sessionId: string): void {
-  aiTitles.delete(sessionId);
   titleTurnCounts.delete(sessionId);
   titlePending.delete(sessionId);
   titleEpoch.set(sessionId, (titleEpoch.get(sessionId) ?? 0) + 1);
@@ -45,17 +46,18 @@ export function createTitleManager(deps: TitleDeps) {
   // Drop all AI-title bookkeeping for a session (on /clear or teardown). Bumping the epoch
   // voids any in-flight generation started before this reset — its (now pre-clear) title
   // must not resurface after the header was cleared.
-  function forgetTitle(sessionId: string): void {
+  async function forgetTitle(sessionId: string): Promise<void> {
     forgetSessionTitle(sessionId);
+    await deps.clearTitle(sessionId).catch(() => undefined);
   }
 
   // Count a user turn and flag the session for a title (re)generation at the next Stop when
   // one is due (no title yet, a trivial/stale-inducing ack, or every N turns).
-  function noteTitleTurn(sessionId: string, prompt: string): void {
+  async function noteTitleTurn(sessionId: string, prompt: string): Promise<void> {
     const turnsSinceTitle = (titleTurnCounts.get(sessionId) ?? 0) + 1;
     titleTurnCounts.set(sessionId, turnsSinceTitle);
     const due = shouldRegenerateTitle({
-      hasTitle: aiTitles.has(sessionId),
+      hasTitle: await deps.hasTitle(sessionId),
       promptIsTrivial: isTrivialPrompt(prompt),
       turnsSinceTitle,
       maxTurns: TITLE_REGEN_EVERY_TURNS,
@@ -87,11 +89,11 @@ export function createTitleManager(deps: TitleDeps) {
       }).catch(() => (read = false));
       const title = read && turns.length ? await deps.generateTitle(turns) : null;
       if (title && (titleEpoch.get(sessionId) ?? 0) === epoch) {
-        aiTitles.set(sessionId, title);
-        await deps.persistTitle?.(sessionId, title).catch(() => undefined);
+        const stored = await deps.persistTitle(sessionId, title).catch(() => false);
+        if (!stored) return;
         titleTurnCounts.set(sessionId, 0);
         lastTitledUserTurns.set(sessionId, turns.filter((t) => t.role === "user").length);
-        deps.publishActivity(sessionId);
+        deps.publishTitle(sessionId, title);
       }
     } finally {
       titleInFlight.delete(sessionId);
