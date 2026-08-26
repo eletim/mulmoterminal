@@ -681,6 +681,8 @@ function cancelClose() {
 
 function stopAndClose() {
   runningCloseConfirm.value = false;
+  // `working` decides only whether the UI asks. Once confirmed, deletion is the same
+  // explicit operation for a live process, a dead remain-on-exit pane, or stale activity.
   teardown();
 }
 

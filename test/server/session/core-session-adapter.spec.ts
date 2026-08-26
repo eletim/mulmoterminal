@@ -62,6 +62,17 @@ describe("CoreSessionAdapter", () => {
     expect(input).toHaveBeenCalledWith(native.id, "\u001b[A", { submit: false });
   });
 
+  it("delegates explicit deletion directly to Core without probing runtime state", async () => {
+    const deleteSession = vi.fn(async () => undefined);
+    const core = { delete: deleteSession, get: vi.fn(), list: vi.fn() } as unknown as SessionCore;
+
+    await new CoreSessionAdapter({ core }).delete(native.id);
+
+    expect(deleteSession).toHaveBeenCalledExactlyOnceWith(native.id);
+    expect(core.get).not.toHaveBeenCalled();
+    expect(core.list).not.toHaveBeenCalled();
+  });
+
   it("reports child exit from a remain-on-exit Core pane", async () => {
     const core = {
       list: vi
