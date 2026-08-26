@@ -154,4 +154,17 @@ describe("CoreSessionAdapter", () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it("supersedes the detached viewer observer when the same Core member is reattached", async () => {
+    const core = { list: vi.fn(async () => [{ ...native, exited: true, exitCode: 4 }]) } as unknown as SessionCore;
+    const staleViewer = vi.fn();
+    const currentViewer = vi.fn();
+    const adapter = new CoreSessionAdapter({ core });
+
+    adapter.watchExit(native.id, staleViewer, 1);
+    adapter.watchExit(native.id, currentViewer, 1);
+    await vi.waitFor(() => expect(currentViewer).toHaveBeenCalledWith({ exitCode: 4 }));
+
+    expect(staleViewer).not.toHaveBeenCalled();
+  });
 });

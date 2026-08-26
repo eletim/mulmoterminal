@@ -69,7 +69,10 @@ describe("session activity", () => {
     service.setWorking(ID, true, "UserPromptSubmit");
     (serviceDeps.publish as ReturnType<typeof vi.fn>).mockClear();
     service.endSessionActivity(ID);
-    expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: false, event: "exited" }));
+    expect(serviceDeps.publish).toHaveBeenCalledWith(
+      "sessions",
+      expect.objectContaining({ id: ID, working: false, waiting: false, event: "exited", failed: false }),
+    );
     expect(activity.has(ID)).toBe(false);
     expect(serviceDeps.forgetWorkPhase).toHaveBeenCalledWith(ID);
     expect(ptys.has(ID)).toBe(true);

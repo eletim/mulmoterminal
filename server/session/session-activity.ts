@@ -1,6 +1,6 @@
 // UI activity and notification state. This module never creates, stops, deletes, retains, or
 // releases a Core session/viewer; it only derives display state from agent/shell events.
-import { activity, claimActivityOwnership, lastPrompts, lastResponses, persistActivityState, ptys } from "./registry.js";
+import { activity, claimActivityOwnership, isFailedWorker, lastPrompts, lastResponses, persistActivityState, ptys } from "./registry.js";
 import { clearedTranscripts } from "./cleared-transcripts.js";
 import { nextActivity, sessionRow, shouldRefreshReply } from "./activity-transition.js";
 import { readLatestResponse } from "./session-reads.js";
@@ -30,17 +30,17 @@ function refreshLastResponse(id: string, cwd: string): void {
 export function createSessionActivity(deps: ActivityServiceDeps) {
   const mobileWebPushActivityState: MobileWebPushActivityState = new Map();
 
-  function publishActivity(id: string): void {
+  function publishActivity(id: string, terminal?: { failed: boolean }): void {
     const current = activity.get(id);
     const cwd = ptys.get(id)?.cwd ?? null;
     if (shouldRefreshReply(current, cwd, clearedTranscripts.has(id))) refreshLastResponse(id, cwd);
-    deps.publish(
-      SESSIONS_CHANNEL,
-      sessionRow(id, current, cwd, {
+    deps.publish(SESSIONS_CHANNEL, {
+      ...sessionRow(id, current, cwd, {
         lastPrompt: lastPrompts.get(id),
         lastResponse: lastResponses.get(id),
       }),
-    );
+      ...terminal,
+    });
   }
 
   function notifyTransition(
@@ -74,7 +74,7 @@ export function createSessionActivity(deps: ActivityServiceDeps) {
     const next = { ...prev, working: false, waiting: false, event, at: Date.now() };
     activity.set(id, next);
     claimActivityOwnership(id);
-    publishActivity(id);
+    publishActivity(id, { failed: isFailedWorker(id) });
     activity.delete(id);
     persistActivityState();
     forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);

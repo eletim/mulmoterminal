@@ -73,8 +73,8 @@ export function createShellSpawners(deps: SpawnDeps) {
       const { exitCode, signal } = event;
       stopShellTaskWatch(sessionId);
       if (isCoreSessionExitEvent(event)) {
-        deps.endSessionActivity(sessionId);
         deps.cleanupSessionResources(sessionId);
+        deps.endSessionActivity(sessionId);
       }
       console.log(ptyExitLine({ agent: "launcher", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
       sendExitAndClose(entry.ws, exitCode, signal);

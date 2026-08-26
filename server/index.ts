@@ -153,8 +153,8 @@ async function deleteTerminalSession(id: string): Promise<void> {
   const session = await coreSessions.find(id);
   if (session) await handoffCoreMemoToHistory(session);
   await coreSessions.delete(id);
-  endSessionActivity(id, "closed");
   lifecycle.deleteSession(id);
+  endSessionActivity(id, "closed");
 }
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
@@ -343,8 +343,8 @@ const { translateViaHiddenChat } = createTranslationWorker({
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
-      endSessionActivity(id, "closed");
       lifecycle.deleteSession(id);
+      endSessionActivity(id, "closed");
     } catch (error) {
       // A launch can fail before Core creates the session, while cleanup must stay idempotent.
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
@@ -778,8 +778,8 @@ const scheduledSessions = createScheduledSessionRegistry({
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
-      endSessionActivity(id, "closed");
       lifecycle.deleteSession(id);
+      endSessionActivity(id, "closed");
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }

@@ -29,8 +29,8 @@ import { effectiveChoice } from "./launch-choice.js";
 import type { CoreSessionVisibility } from "./core-session-adapter.js";
 
 function cleanupExitedCoreSession(deps: SpawnDeps, sessionId: string): void {
-  deps.endSessionActivity(sessionId);
   deps.cleanupSessionResources(sessionId);
+  deps.endSessionActivity(sessionId);
 }
 
 export interface SpawnClaudeOptions {

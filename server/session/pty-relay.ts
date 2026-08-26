@@ -30,8 +30,8 @@ export function wireAgentPtyRelay(entry: PtyEntry, sessionId: string, spawnedAtM
     const { exitCode, signal } = event;
     console.log(ptyExitLine({ agent: entry.agent ?? "agent", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd: entry.cwd, sessionId }));
     if (isCoreSessionExitEvent(event)) {
-      deps.endSessionActivity(sessionId);
       deps.cleanupSessionResources(sessionId);
+      deps.endSessionActivity(sessionId);
     }
     sendExitAndClose(entry.ws, exitCode, signal);
     deps.reap(sessionId);
