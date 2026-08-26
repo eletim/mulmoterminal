@@ -111,6 +111,13 @@ export class CoreSessionAdapter {
     return Promise.all(sessions.map((session) => this.withMetadata(session)));
   }
 
+  /** Lightweight membership projection for file authorization. Live cwd comes from Core's
+   * native list; only remain-on-exit panes whose native cwd is gone need one metadata read. */
+  async listCwds(): Promise<string[]> {
+    const sessions = await this.core.list();
+    return Promise.all(sessions.map(async (session) => session.cwd || (await this.core.listMetadata(session.id))[CWD_METADATA_KEY] || ""));
+  }
+
   async get(id: string): Promise<CoreSession> {
     return this.withMetadata(await this.core.get(id));
   }

@@ -10,6 +10,7 @@ import { requestOriginAllowed } from "../routes/same-origin-guard.js";
 import { isIssueNumber } from "../../common/prPhase.js";
 import { dirSession } from "../session/dir-session.js";
 import type { CoreSession } from "../session/core-session-adapter.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { requestBody } from "../routes/requestBody.js";
 
 interface WorktreeRouteOptions {
@@ -40,7 +41,8 @@ export function mountWorktreeRoutes(app: Express, { isAllowedOrigin, listCoreSes
     if (!repo) return res.json({ isGit: false, base: null, worktrees: [] });
     const list = await listWorktrees(repo);
     const sessions = await listCoreSessions();
-    const worktrees = await Promise.all(list.map(async (w) => ({ ...w, dirty: await isDirty(w.path), session: dirSession(w.path, sessions) })));
+    const tmuxCounts = tmuxAttachedCounts();
+    const worktrees = await Promise.all(list.map(async (w) => ({ ...w, dirty: await isDirty(w.path), session: dirSession(w.path, sessions, tmuxCounts) })));
     res.json({ isGit: true, base: await defaultBaseBranch(repo), worktrees });
   });
 

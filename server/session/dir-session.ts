@@ -5,10 +5,10 @@
 // matching terminal session; deleting that Core member makes the worktree free.
 
 import { canonicalPath } from "../git/worktrees.js";
-import type { SessionOccupancy } from "../../common/sessionOccupancy.js";
+import { isSessionAttached, type SessionOccupancy } from "../../common/sessionOccupancy.js";
 import { isTerminalAgent, type TerminalAgent } from "../../common/sessionAgent.js";
 import { isProbeSessionId } from "../agents/probe-session.js";
-import { isBackgroundSession, translationWorkerIds } from "./registry.js";
+import { isBackgroundSession, ptys, translationWorkerIds } from "./registry.js";
 import type { CoreSession } from "./core-session-adapter.js";
 
 export interface DirSession extends SessionOccupancy {
@@ -30,12 +30,23 @@ export function pickDirSession(candidates: readonly DirSessionCandidate[]): DirS
   return best === null ? null : { id: best.id, attached: best.attached, agent: best.agent };
 }
 
+/** Viewer/peer occupancy for an id already proven to be a Core member. The process-local tmux
+ * client is transport, not a viewer, and is subtracted from the shared client count. */
+export function sessionAttached(id: string, tmuxCounts: Map<string, number> | null): boolean {
+  const entry = ptys.get(id);
+  return isSessionAttached({
+    viewedHere: !!entry?.ws && entry.ws.readyState === entry.ws.OPEN,
+    tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(id) ?? 0),
+    holdsTmuxClient: !!entry?.tmux,
+  });
+}
+
 /** Pick only from the canonical Core membership snapshot supplied by the caller. */
-export function dirSession(dir: string, sessions: readonly CoreSession[]): DirSession | null {
+export function dirSession(dir: string, sessions: readonly CoreSession[], tmuxCounts: Map<string, number> | null): DirSession | null {
   const target = canonicalPath(dir);
   const candidates = sessions.flatMap<DirSessionCandidate>((session) => {
     if (!isUserSession(session.id) || !isTerminalAgent(session.agent) || canonicalPath(session.cwd) !== target) return [];
-    return [{ id: session.id, agent: session.agent, attached: session.attached, createdAt: session.createdAt.getTime() }];
+    return [{ id: session.id, agent: session.agent, attached: sessionAttached(session.id, tmuxCounts), createdAt: session.createdAt.getTime() }];
   });
   return pickDirSession(candidates);
 }

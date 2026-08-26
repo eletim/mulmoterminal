@@ -185,7 +185,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // Raw file serving (GET /api/files/raw?path=[&cwd=]) — backs collection image/file
   // fields, custom-view <img> URLs, and terminal file-path links. Rooted at the shared
   // workspace; a `?cwd=` is honoured only for a live session's own directory.
-  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: async () => (await coreSessions.list()).map((session) => session.cwd) });
+  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: () => coreSessions.listCwds() });
 
   // Serve presentHtml pages for the View's iframe (GET /artifacts/html/<rest>) with an
   // HTML preview CSP. The View navigates the iframe to this URL (htmlArtifactPreviewUrl).

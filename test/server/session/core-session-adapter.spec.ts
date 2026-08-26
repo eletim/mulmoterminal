@@ -36,6 +36,17 @@ describe("CoreSessionAdapter", () => {
     await expect(new CoreSessionAdapter({ core }).get(native.id)).resolves.toMatchObject({ cwd: "/finished/repo", agent: "claude", exited: true });
   });
 
+  it("lists live cwd values without rebuilding unrelated metadata", async () => {
+    const listMetadata = vi.fn(async () => ({ cwd: "/finished/repo", title: "unused" }));
+    const core = {
+      list: vi.fn(async () => [native, { ...native, id: "dead", cwd: "", exited: true }]),
+      listMetadata,
+    } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).listCwds()).resolves.toEqual([native.cwd, "/finished/repo"]);
+    expect(listMetadata).toHaveBeenCalledExactlyOnceWith("dead");
+  });
+
   it("finds membership through Core get and returns null only for Core absence", async () => {
     const existingCore = {
       get: vi.fn(async () => native),

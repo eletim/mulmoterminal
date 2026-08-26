@@ -12,6 +12,7 @@
 import { canonicalPath, isManagedWorktree, repoRoot } from "../git/worktrees.js";
 import { dirSession, type DirSession } from "./dir-session.js";
 import { coreSessions } from "./core-session-adapter.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 
 export interface WorktreeOccupancy {
   /** Whether the directory is a managed worktree at all. Only those are limited. */
@@ -32,7 +33,7 @@ const NOT_A_WORKTREE: WorktreeOccupancy = { isWorktree: false, session: null };
 export async function worktreeOccupancy(cwd: string): Promise<WorktreeOccupancy> {
   const repo = await repoRoot(cwd).catch(() => null);
   if (!repo || !isManagedWorktree(repo, cwd)) return NOT_A_WORKTREE;
-  return { isWorktree: true, session: dirSession(cwd, await coreSessions.list()) };
+  return { isWorktree: true, session: dirSession(cwd, await coreSessions.list(), tmuxAttachedCounts()) };
 }
 
 // Launches on their way into a directory but not yet visible as a pty, counted by canonical path.

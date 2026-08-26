@@ -10,9 +10,14 @@ import { makeTempDir } from "../../support/tempDir.js";
 import { rmDirRetrying, GIT_TEST_TIMEOUT_MS } from "../git/wtTestUtil.js";
 
 const coreRows = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+const tmuxCounts = vi.hoisted(() => new Map<string, number>());
 vi.mock("../../../server/session/core-session-adapter.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../server/session/core-session-adapter.js")>()),
   coreSessions: { list: async () => coreRows },
+}));
+vi.mock("../../../server/infra/tmux.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../server/infra/tmux.js")>()),
+  tmuxAttachedCounts: () => tmuxCounts,
 }));
 
 const { claimLaunch, worktreeOccupancy } = await import("../../../server/session/worktree-session-limit.js");
@@ -36,6 +41,7 @@ let worktree = "";
 
 beforeEach(async () => {
   coreRows.length = 0;
+  tmuxCounts.clear();
   home = makeTempDir("wt-limit-home-");
   process.env.MULMOTERMINAL_HOME = home;
   repo = makeTempDir("wt-limit-repo-");
@@ -74,7 +80,10 @@ const coreSession = (cwd: string, agent = "claude", attached = true) => ({
   title: null,
   memo: null,
 });
-const occupyWorktree = () => coreRows.push(coreSession(worktree));
+const occupyWorktree = () => {
+  coreRows.push(coreSession(worktree));
+  tmuxCounts.set(SESSION, 1);
+};
 
 describe.skipIf(!hasGit)("worktreeOccupancy", () => {
   it(
@@ -148,6 +157,7 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
         return; // Windows without the privilege to create one — the rule is the same, unobservable here
       }
       coreRows.push(coreSession(link, "codex"));
+      tmuxCounts.set(SESSION, 1);
       expect((await worktreeOccupancy(worktree)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
       expect((await worktreeOccupancy(link)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
     },

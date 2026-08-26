@@ -48,6 +48,8 @@ import { requestBody } from "./requestBody.js";
 import type { CoreSession } from "../session/core-session-adapter.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
 import { visibleCoreSessions } from "../session/core-session-visibility.js";
+import { isSessionAttached } from "../../common/sessionOccupancy.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -210,6 +212,20 @@ async function lastTurn(req: Request, res: Response) {
   res.json({ ...turn, text: formatHandoff({ label: agent, cwd }, turn, undefined, shape) });
 }
 
+function withViewerOccupancy(sessions: readonly SessionMeta[], coreById: ReadonlyMap<string, CoreSession>, deps: SessionRouteDeps) {
+  const tmuxCounts = tmuxAttachedCounts();
+  return sessions.map((session) => ({
+    ...session,
+    attached:
+      coreById.has(session.id) &&
+      isSessionAttached({
+        viewedHere: deps.hasViewer?.(session.id) ?? false,
+        tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(session.id) ?? 0),
+        holdsTmuxClient: deps.hasLivePty?.(session.id) ?? false,
+      }),
+  }));
+}
+
 // List the chat sessions for the current project (CLAUDE_CWD), including
 // newly-created sessions that aren't persisted to disk yet.
 async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) {
@@ -286,7 +302,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // picker used to answer this from the current page's own grid, which is blind to a second
     // browser tab and to a second mulmoterminal process — the two ways a running session got
     // taken over without anything warning first.
-    res.json({ cwd, sessions: sessions.map((s) => ({ ...s, attached: coreById.get(s.id)?.attached ?? false })) });
+    res.json({ cwd, sessions: withViewerOccupancy(sessions, coreById, deps) });
   } catch (err) {
     console.error("[api] /api/sessions failed:", err);
     res.status(500).json({ error: String(err) });
