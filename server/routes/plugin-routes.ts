@@ -9,7 +9,7 @@ import type { Express } from "express";
 
 import { CLAUDE_CWD } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { markFailedWorker } from "../session/registry.js";
+import { markBackgroundHistory, markFailedWorker } from "../session/registry.js";
 import { registerCompletionHook } from "../session/completion-hooks.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
@@ -78,6 +78,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
       // moment any cell attaches, so the browser-placed case does not come back as a duplicate.
       if (hidden) {
         deps.registerBackgroundSession(sessionId);
+        markBackgroundHistory(sessionId);
         // A hidden worker is invisible on purpose, which is exactly why a FAILED one needs a
         // record: nothing pulls the user's attention and nothing waits to be clicked, so the
         // failure is otherwise never learned. The completion hook is the existing seam for it —

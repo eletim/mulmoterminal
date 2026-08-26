@@ -44,6 +44,7 @@ describe("a scheduled task's chat", () => {
     const { registry, spawnScheduledWorker } = await fresh();
     spawnScheduledWorker(ID, noop);
     expect(registry.isUserScheduledSession(ID)).toBe(true);
+    expect(registry.isBackgroundHistory(ID)).toBe(true);
   });
 
   it("still says so when it fails", async () => {

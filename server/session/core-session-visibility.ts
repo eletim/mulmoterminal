@@ -7,9 +7,9 @@ import type { CoreSession, CoreSessionAdapter } from "./core-session-adapter.js"
 const LEGACY_BACKGROUND_SESSIONS_FILE = path.join(MULMOTERMINAL_HOME, "background-sessions.json");
 
 /**
- * One-time upgrade from the retired background id log. The log is never consulted by request
- * paths: classifications that still have Core membership are copied into Core metadata, then the
- * legacy file is removed so Core remains the sole live visibility source.
+ * Upgrade live sessions recorded by the history visibility owner before Core metadata existed.
+ * Request paths never use the history record to classify live Terminal membership; this copies
+ * the classification into Core so Core remains the sole live visibility source.
  */
 export async function migrateLegacyBackgroundVisibility(
   core: Pick<CoreSessionAdapter, "list" | "setVisibility">,
@@ -26,7 +26,6 @@ export async function migrateLegacyBackgroundVisibility(
   const sessions = await core.list();
   const migrating = sessions.filter((session) => legacyIds.has(session.id));
   await Promise.all(migrating.map((session) => core.setVisibility(session.id, "background")));
-  await fs.rm(file, { force: true });
   return migrating.length;
 }
 

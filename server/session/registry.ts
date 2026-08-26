@@ -190,6 +190,25 @@ export function hasAllGuiTools(id: string): boolean {
   return allToolsSessions.has(id);
 }
 
+// Visibility metadata for transcript/history rows after their Core membership has been
+// explicitly deleted. This never contributes Terminal membership or classifies a live session;
+// live visibility comes only from Core metadata. The filename is retained to upgrade existing
+// installations without losing the history classification they already recorded.
+const backgroundHistoryIds = new Set<string>();
+const BACKGROUND_HISTORY_FILE = path.join(MULMOTERMINAL_HOME, "background-sessions.json");
+export const backgroundHistoryHydrated = hydrateIdLog(BACKGROUND_HISTORY_FILE, backgroundHistoryIds);
+const appendBackgroundHistory = idLogAppender(BACKGROUND_HISTORY_FILE, "background-history");
+
+export function markBackgroundHistory(id: string): void {
+  if (!isValidSessionId(id) || backgroundHistoryIds.has(id)) return;
+  backgroundHistoryIds.add(id);
+  appendBackgroundHistory(id);
+}
+
+export function isBackgroundHistory(id: string): boolean {
+  return backgroundHistoryIds.has(id);
+}
+
 // Sessions the SCHEDULER started — a user's own configured task, as opposed to a collection
 // refresh or an internal helper.
 //
@@ -216,18 +235,6 @@ export function markUserScheduledSession(id: string): void {
 export function isUserScheduledSession(id: string): boolean {
   return userScheduledSessions.has(id);
 }
-
-/**
- * The two durable answers the Web Push gate needs, read TOGETHER and only once both logs have
- * hydrated.
- *
- * One function rather than two calls, because the HAZARD IS THE COMBINATION. Read separately
- * during startup, `background` can hydrate before `userScheduled` — and `(background: true,
- * userScheduled: false)` is precisely "a background session that is not the user's task", so the
- * push is suppressed for the one run that most needs it. A scheduled session survives a restart in
- * tmux, so its turn finishing moments after boot is the ordinary case here, not a corner (Codex,
- * PR #1196).
- */
 
 // Background workers whose run ENDED BADLY: reached teardown without ever reporting a finished
 // turn. A worker is invisible on purpose, so a failed one is the single case where that design

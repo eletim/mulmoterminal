@@ -16,7 +16,9 @@ import {
   aiTitles,
   antigravityConversations,
   antigravityConversationsHydrated,
+  backgroundHistoryHydrated,
   failedWorkersHydrated,
+  isBackgroundHistory,
   lastPrompts,
   lastResponses,
   sessionMemos,
@@ -245,7 +247,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     const coreByReference = new Map(coreById);
     for (const core of coreSessions) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
     const coreIds = unscoped ? new Set(coreById.keys()) : new Set<string>();
-    await failedWorkersHydrated;
+    await Promise.all([backgroundHistoryHydrated, failedWorkersHydrated]);
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
     const dir = projectSessionsDir(cwd);
     let files: string[] = [];
@@ -262,7 +264,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     const top = selectSessionRows(onDiskStats, {
       isInternalHelper: (id) => coreByReference.get(id)?.visibility === "internal" || isProbeSessionId(id),
       isDevTerminal: (id) => coreIds.has(id),
-      isBackground: (id) => coreByReference.get(id)?.visibility === "background",
+      isBackground: (id) => coreByReference.get(id)?.visibility === "background" || isBackgroundHistory(id),
       unscoped,
       limit: SESSION_LIST_LIMIT,
       backgroundLimit: BACKGROUND_SESSION_LIST_LIMIT,

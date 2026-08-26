@@ -37,7 +37,7 @@ describe("visibleCoreSessions", () => {
     await expect(visibleCoreSessions([session("user"), background, internal])).resolves.toEqual([session("user")]);
   });
 
-  it("moves legacy background classifications into Core once and removes the retired log", async () => {
+  it("copies history background classifications into Core without consuming history metadata", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mulmoterminal-visibility-"));
     tempDirs.push(dir);
     const file = path.join(dir, "background-sessions.json");
@@ -48,6 +48,6 @@ describe("visibleCoreSessions", () => {
 
     await expect(migrateLegacyBackgroundVisibility({ list: async () => [session(backgroundId), session(ordinaryId)], setVisibility }, file)).resolves.toBe(1);
     expect(setVisibility).toHaveBeenCalledWith(backgroundId, "background");
-    await expect(fs.stat(file)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.readFile(file, "utf8")).resolves.toContain(backgroundId);
   });
 });
