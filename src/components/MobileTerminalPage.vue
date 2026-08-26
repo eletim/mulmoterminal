@@ -581,6 +581,7 @@ async function deleteConfirmedSession(requestedId: string): Promise<void> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await jsonBody(res);
     if (!isMobileDeleteResult(body)) throw new Error("invalid DELETE /api/mobile/terminal-sessions/:id response");
+    await waitForSessionListIdle();
     await refreshSessionList();
     deleteStatus.value = "idle";
   } catch {
