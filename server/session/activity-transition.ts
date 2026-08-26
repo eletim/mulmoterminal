@@ -49,9 +49,9 @@ export interface SessionRow {
   waiting: boolean;
   event: string | null;
   lastPrompt: string | null;
-  aiTitle: string | null;
+  aiTitle?: string | null;
   lastResponse: string | null;
-  memo: string | null;
+  memo?: string | null;
 }
 
 export function sessionRow(
@@ -65,11 +65,11 @@ export function sessionRow(
     cwd,
     ...normalizeActivity(activity),
     lastPrompt: texts.lastPrompt ?? null,
-    aiTitle: texts.aiTitle ?? null,
+    ...(texts.aiTitle !== undefined ? { aiTitle: texts.aiTitle || null } : {}),
     lastResponse: texts.lastResponse ?? null,
     // Null is "this session has no memo", which is exactly what an erase should publish: the
     // receiving header falls back to the AI title on it.
-    memo: texts.memo ?? null,
+    ...(texts.memo !== undefined ? { memo: texts.memo || null } : {}),
   };
 }
 

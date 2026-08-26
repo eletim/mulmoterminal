@@ -21,7 +21,7 @@ describe("parseSessionActivityPayload", () => {
   });
 
   it("defaults missing flags to false / null", () => {
-    expect(parseSessionActivityPayload({ id: "a" })).toEqual({ id: "a", activity: { working: false, waiting: false, event: null } });
+    expect(parseSessionActivityPayload({ id: "a", aiTitle: "metadata only" })).toBeNull();
   });
 
   it("rejects payloads without a string id", () => {

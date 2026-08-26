@@ -9,7 +9,7 @@ import { computed, onUnmounted, ref, watch, type Ref } from "vue";
 import { usePubSub } from "./usePubSub";
 import { useDynamicFavicon } from "./useDynamicFavicon";
 import type { Session } from "./useSessions";
-import { isRecord } from "../../common/isRecord";
+import { isActivityNotifyMsg } from "../../common/activityNotifyKind";
 
 export type FaviconState = "idle" | "working" | "attention";
 
@@ -17,13 +17,6 @@ interface Activity {
   working: boolean;
   waiting: boolean;
 }
-interface ActivityMsg {
-  id: string;
-  working?: boolean;
-  waiting?: boolean;
-  event?: string | null;
-}
-const isActivityMsg = (d: unknown): d is ActivityMsg => isRecord(d) && "id" in d;
 
 // attention(waiting) wins over working wins over idle — matching the grid cell's own
 // status priority, so the tab icon agrees with the cell border.
@@ -47,7 +40,7 @@ export function useFaviconState(sessions: Ref<Session[]>): void {
 
   const { subscribe } = usePubSub();
   const unsubscribe = subscribe("sessions", (d) => {
-    if (!isActivityMsg(d)) return;
+    if (!isActivityNotifyMsg(d)) return;
     const next = new Map(live.value);
     if (d.event === "closed") next.delete(d.id);
     else next.set(d.id, { working: d.working ?? false, waiting: d.waiting ?? false });

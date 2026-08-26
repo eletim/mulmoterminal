@@ -22,6 +22,7 @@ import { mountMcpRoutes } from "../routes/mcp-routes.js";
 import { guiCallRecorderFor, historyIsGuiOnly } from "../mcp/gui-call-history.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import { mountSessionRoutes } from "../routes/session-routes.js";
+import { SESSIONS_CHANNEL } from "../session/lifecycle.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountGithubStarRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
@@ -76,6 +77,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   spawnCodexPty: ReturnType<typeof createCodexSpawner>["spawnCodexPty"];
   spawnAntigravityPty: ReturnType<typeof createAntigravitySpawner>["spawnAntigravityPty"];
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
+  deleteTerminalSession: (id: string) => Promise<void>;
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
   registerBackgroundSession: (id: string) => void;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
@@ -95,7 +97,7 @@ const sessionCallReporting = async (deps: AppRouteDeps, sessionId: string) => ({
 
 const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
   freshenRosterTitle: deps.freshenRosterTitle,
-  publishActivity: deps.publishActivity,
+  publishMemo: (id, memo) => deps.publish(SESSIONS_CHANNEL, { id, memo: memo || null }),
   listCoreSessions: () => coreSessions.list(),
   getCoreSession: async (id) => {
     try {
@@ -354,6 +356,6 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   mountTmuxRoutes(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
-    deleteSession: (id) => coreSessions.delete(id),
+    deleteSession: deps.deleteTerminalSession,
   });
 }

@@ -8,8 +8,8 @@ export interface SessionActivityDeps {
   setWorking: (id: string, working: boolean, event?: string) => void;
   setWaiting: (id: string, waiting: boolean, event?: string) => void;
   publishActivity: (id: string) => void;
-  forgetTitle: (id: string) => void;
-  noteTitleTurn: (id: string, prompt: string) => void;
+  forgetTitle: (id: string) => Promise<void>;
+  noteTitleTurn: (id: string, prompt: string) => Promise<void>;
   /** Feed the live turn's tool names, so the published status can say planning vs editing (#727). */
   noteWorkPhase: (id: string, event: string, toolName?: string) => void;
   maybeGenerateTitle: (id: string, cwd: string | undefined, transcriptId?: string) => Promise<void>;

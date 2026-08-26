@@ -13,7 +13,6 @@ import { isProbeSessionId } from "../agents/probe-session.js";
 import {
   activity,
   activityStateHydrated,
-  aiTitles,
   antigravityConversations,
   antigravityConversationsHydrated,
   backgroundHistoryHydrated,
@@ -57,9 +56,8 @@ const GRID_RECORD_IDS_LIMIT = 200;
 export interface SessionRouteDeps {
   /** Kick off a re-title for a session the roster just showed, when it has moved on enough. */
   freshenRosterTitle: (sessionId: string, cwd: string, currentUserTurns: number) => void;
-  /** Fan a session's row out on the "sessions" channel, so every OTHER open cell, tab and
-   *  phone sees an edited memo without asking. */
-  publishActivity: (sessionId: string) => void;
+  /** Fan only the changed memo out; activity publishers do not own Core metadata. */
+  publishMemo: (sessionId: string, memo: string) => void;
   /** Canonical terminal membership and reconstruction data from Core.list(). */
   listCoreSessions: () => Promise<CoreSession[]>;
   getCoreSession?: (sessionId: string) => Promise<CoreSession | null>;
@@ -84,14 +82,14 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, deps: 
   const { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse, userTurns, usage, context, workPhase } = await readSessionSummary(cwd, id);
   // If we haven't titled it yet, kick off a summary; sessionDetailView falls back meanwhile.
   deps.freshenRosterTitle(id, cwd, userTurns);
-  await sessionMemosHydrated; // a cell seeding on boot must not be told its memo is gone
   const core = await deps.getCoreSession?.(id);
+  if (!core) await sessionMemosHydrated; // history-only metadata must finish loading before it is read
   const view = sessionDetailView(
     {
       lastPrompt: lastPrompts.get(id),
       lastResponse: lastResponses.get(id),
-      aiTitle: core?.title ?? aiTitles.get(id),
-      memo: core?.memo ?? sessionMemos.get(id),
+      aiTitle: core?.title,
+      memo: core ? core.memo : sessionMemos.get(id),
     },
     { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse },
     activity.get(id) ?? {},
@@ -107,20 +105,19 @@ async function setMemo(req: Request<{ id: string }>, res: Response, deps: Sessio
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const { text } = requestBody(req.body);
   if (typeof text !== "string") return res.status(400).json({ error: "text must be a string" });
-  await sessionMemosHydrated; // or a write during startup is undone by the file it raced
   try {
     const memo = normalizeMemo(text);
     if (await deps.setCoreMemo?.(id, memo)) {
-      publishCoreMemo(id, memo);
-      deps.publishActivity(id);
+      deps.publishMemo(id, memo);
       return res.json({ id, memo });
     }
+    await sessionMemosHydrated; // a history write during startup must not race its persisted owner
     // Awaited: acknowledging before the append lands would show the user a note that is not saved
     // anywhere, and it would then disappear at the next restart with nothing having reported an
     // error. The store rolls its own in-memory value back on failure, so a 500 leaves both sides
     // agreeing that the memo was not written.
     const storedMemo = await setSessionMemo(id, text);
-    deps.publishActivity(id);
+    deps.publishMemo(id, storedMemo);
     // The STORED memo, not the request's: normalization collapses and caps what was typed, and a
     // client that echoed its own text would show something the next reload disagrees with.
     res.json({ id, memo: storedMemo });
@@ -128,11 +125,6 @@ async function setMemo(req: Request<{ id: string }>, res: Response, deps: Sessio
     console.error("[api] /api/session/:id/memo failed:", err);
     res.status(500).json({ error: "failed to save the memo" });
   }
-}
-
-function publishCoreMemo(id: string, memo: string): void {
-  if (memo) sessionMemos.set(id, memo);
-  else sessionMemos.delete(id);
 }
 
 // Attention state (working / waiting / event) for an explicit set of session ids.
@@ -275,7 +267,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
           const core = coreByReference.get(s.id);
           let visibility = core?.visibility ?? "normal";
           if (visibility !== "internal" && isBackgroundHistory(s.id)) visibility = "background";
-          return readSessionMeta(dir, s.file, core?.id, visibility).catch(() => null);
+          return readSessionMeta(dir, s.file, core?.id, visibility, core?.title, core?.memo).catch(() => null);
         }),
       )
     )

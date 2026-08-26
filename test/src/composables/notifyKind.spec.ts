@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { notifyKindOf, type ActivityState } from "../../../src/composables/notifyKind";
+import { isActivityMsg, notifyKindOf, type ActivityState } from "../../../src/composables/notifyKind";
 
 // Each field is spread only when given, so the fixture is the frame the server actually
 // sends: an unobserved flag arrives as an ABSENT key, never as one holding undefined.
@@ -12,6 +12,11 @@ const msg = (id: string, working?: boolean, waiting?: boolean, event?: string) =
 const fresh = () => new Map<string, ActivityState>();
 
 describe("notifyKindOf", () => {
+  it("rejects metadata-only messages on the shared channel", () => {
+    expect(isActivityMsg({ id: "a", aiTitle: "New title" })).toBe(false);
+    expect(isActivityMsg({ id: "a", memo: "Release note" })).toBe(false);
+    expect(isActivityMsg({ id: "a", working: true })).toBe(true);
+  });
   it("reports finished when a turn ends (working true→false)", () => {
     const prev = fresh();
     notifyKindOf(prev, msg("a", true, false)); // working baseline

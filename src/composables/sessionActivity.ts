@@ -26,6 +26,8 @@ export function parseSessionActivityPayload(data: unknown): SessionActivityUpdat
   if (typeof d.id !== "string") return null;
   // A "closed" push means the session's PTY was reaped — drop it (no attention).
   if (d.event === "closed") return { id: d.id, closed: true };
+  // Title/memo publications share the channel but own no activity state.
+  if (typeof d.working !== "boolean" && typeof d.waiting !== "boolean" && d.event === undefined) return null;
   return {
     id: d.id,
     activity: {
