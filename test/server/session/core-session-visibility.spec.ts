@@ -50,4 +50,25 @@ describe("visibleCoreSessions", () => {
     expect(setVisibility).toHaveBeenCalledWith(backgroundId, "background");
     await expect(fs.readFile(file, "utf8")).resolves.toContain(backgroundId);
   });
+
+  it("isolates a Core deletion racing the visibility upgrade", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mulmoterminal-visibility-"));
+    tempDirs.push(dir);
+    const file = path.join(dir, "background-sessions.json");
+    const first = "11111111-2222-4333-8444-555555555555";
+    const deleted = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    await fs.writeFile(file, `${first}\n${deleted}`);
+
+    await expect(
+      migrateLegacyBackgroundVisibility(
+        {
+          list: async () => [session(first), session(deleted)],
+          setVisibility: async (id) => {
+            if (id === deleted) throw new Error("deleted concurrently");
+          },
+        },
+        file,
+      ),
+    ).resolves.toBe(1);
+  });
 });

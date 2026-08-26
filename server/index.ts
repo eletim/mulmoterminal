@@ -135,7 +135,10 @@ if (!tmuxAvailable()) {
 // session state, so it must exist before we spawn anything into it.
 await fs.mkdir(CLAUDE_CWD, { recursive: true });
 
-const migratedBackgroundSessions = await migrateLegacyBackgroundVisibility(coreSessions);
+const migratedBackgroundSessions = await migrateLegacyBackgroundVisibility(coreSessions).catch((error) => {
+  console.warn(`[upgrade] could not migrate background visibility: ${messageOf(error)}`);
+  return 0;
+});
 if (migratedBackgroundSessions > 0) {
   console.log(`[upgrade] migrated ${migratedBackgroundSessions} background session classification(s) to Core metadata`);
 }

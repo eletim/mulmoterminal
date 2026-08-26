@@ -25,8 +25,8 @@ export async function migrateLegacyBackgroundVisibility(
   const legacyIds = new Set(parseSessionIdLog(contents, (id) => SESSION_ID_RE.test(id)));
   const sessions = await core.list();
   const migrating = sessions.filter((session) => legacyIds.has(session.id));
-  await Promise.all(migrating.map((session) => core.setVisibility(session.id, "background")));
-  return migrating.length;
+  const migrated = await Promise.allSettled(migrating.map((session) => core.setVisibility(session.id, "background")));
+  return migrated.filter((result) => result.status === "fulfilled").length;
 }
 
 /**
