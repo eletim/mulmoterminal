@@ -50,15 +50,16 @@ function fakeSocket(readyState = OPEN) {
 function setup(terminalModes: readonly number[] = []) {
   const calls: string[] = [];
   const currentEntries = new Map<string, PtyEntry>();
-  const handlers = createConnectionHandlers({
+  // Kept on the runtime object even though it is deliberately absent from ConnectionDeps. This
+  // is the old Core/send-keys pane-injection route; asserting it stays untouched prevents the
+  // interactive transport from crossing that boundary again (#157).
+  const paneInput = vi.fn(async () => undefined);
+  const deps: Parameters<typeof createConnectionHandlers>[0] & { input: typeof paneInput } = {
     cancelReap: (id) => calls.push(`cancelReap:${id}`),
     deleteSession: (id) => {
       calls.push(`deleteSession:${id}`);
     },
-    input: async (id, data) => {
-      calls.push(`input:${id}:${data}`);
-      currentEntries.get(id)?.term.write(data);
-    },
+    input: paneInput,
     resize: async (id, cols, rows) => {
       calls.push(`resize:${id}:${cols}x${rows}`);
       currentEntries.get(id)?.term.resize(cols, rows);
@@ -74,8 +75,9 @@ function setup(terminalModes: readonly number[] = []) {
     recheckTerminalSize: (id) => calls.push(`sizeRecheck:${id}`),
     cancelTerminalSizeCheck: (id) => calls.push(`sizeCheckCancel:${id}`),
     currentEntryOf: (id) => currentEntries.get(id),
-  });
-  return { ...handlers, calls, currentEntries };
+  };
+  const handlers = createConnectionHandlers(deps);
+  return { ...handlers, calls, currentEntries, paneInput };
 }
 
 // PtyEntry carries fields these handlers never touch; the fakes model the ones they do.
@@ -87,13 +89,29 @@ function entryWith(over: Partial<PtyEntry> = {}) {
 describe("handleClientFrame", () => {
   const frame = (o: unknown) => JSON.stringify(o);
 
-  it("writes an input frame to the pty", () => {
-    const { handleClientFrame, calls } = setup();
+  it.each([
+    ["ordinary keyboard input", "ls\r"],
+    ["raw control and UTF-8 input", "\x1b[200~λ\0\x1b[201~"],
+    ["an SGR mouse press", "\x1b[<0;95;14M"],
+    ["an SGR mouse release", "\x1b[<0;95;14m"],
+  ])("writes %s unchanged to the attached terminal client, never to the pane", (_label, data) => {
+    const { handleClientFrame, paneInput } = setup();
     const t = fakeTerm();
     const s = fakeSocket();
     const entry = entryWith({ term: t.term as never, ws: s.ws as never });
-    handleClientFrame(entry, s.ws as never, frame({ type: "input", data: "ls\r" }), SESSION);
-    expect(calls).toContain(`input:${SESSION}:ls\r`);
+    handleClientFrame(entry, s.ws as never, frame({ type: "input", data }), SESSION);
+    expect(t.writes).toEqual([data]);
+    expect(paneInput).not.toHaveBeenCalled();
+  });
+
+  it.each(["claude", "codex", "shell"] as const)("uses the same attached-client input path for %s sessions", (agent) => {
+    const { handleClientFrame, paneInput } = setup();
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const entry = entryWith({ agent, term: t.term as never, ws: s.ws as never });
+    handleClientFrame(entry, s.ws as never, frame({ type: "input", data: "echo ok\r" }), SESSION);
+    expect(t.writes).toEqual(["echo ok\r"]);
+    expect(paneInput).not.toHaveBeenCalled();
   });
 
   it("resizes on a valid resize frame", () => {
