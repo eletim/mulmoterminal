@@ -48,7 +48,14 @@ afterEach(async () => {
 
 // The real generator shells out to the claude CLI; the fake keeps these tests fast,
 // deterministic, and runnable without an API key.
-function setup(now = () => 1_000_000, generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title") {
+function setup(
+  now = () => 1_000_000,
+  generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title",
+  persistTitle: (id: string, title: string) => Promise<boolean> = async (id, title) => {
+    coreTitles.set(id, title);
+    return true;
+  },
+) {
   const published: Array<[string, string | null]> = [];
   // Turns, not a raw transcript — the manager streams the file now (#998), so what the generator
   // receives is what came out of that stream.
@@ -61,10 +68,7 @@ function setup(now = () => 1_000_000, generateTitle: (turns: ConversationTurn[])
       return generateTitle(turns);
     },
     hasTitle: async (id) => coreTitles.has(id),
-    persistTitle: async (id, title) => {
-      coreTitles.set(id, title);
-      return true;
-    },
+    persistTitle,
     clearTitle: async (id) => {
       coreTitles.delete(id);
     },
@@ -189,6 +193,27 @@ describe("maybeGenerateTitle", () => {
     titlePending.add(SESSION);
     const running = maybeGenerateTitle(SESSION, cwd);
     await forgetTitle(SESSION); // /clear lands mid-generation
+    await running;
+    expect(coreTitles.has(SESSION)).toBe(false);
+    expect(published).toEqual([[SESSION, null]]);
+  });
+
+  it("removes a stale Core title when /clear lands during persistence", async () => {
+    let releasePersist: () => void = () => {};
+    const persistStarted = vi.fn();
+    const persistTitle = async (id: string, title: string) => {
+      persistStarted();
+      await new Promise<void>((resolve) => (releasePersist = resolve));
+      coreTitles.set(id, title);
+      return true;
+    };
+    const { maybeGenerateTitle, forgetTitle, published } = setup(undefined, async () => "Generated title", persistTitle);
+    await writeTranscript([userTurn("add a retry to the uploader")]);
+    titlePending.add(SESSION);
+    const running = maybeGenerateTitle(SESSION, cwd);
+    await vi.waitFor(() => expect(persistStarted).toHaveBeenCalledOnce());
+    await forgetTitle(SESSION);
+    releasePersist();
     await running;
     expect(coreTitles.has(SESSION)).toBe(false);
     expect(published).toEqual([[SESSION, null]]);

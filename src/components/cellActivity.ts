@@ -1,11 +1,7 @@
 // How a live activity push updates what a grid cell shows, and what the header says.
 //
-// Two different treatments of "absent", and the difference is the whole rule:
-//
-//   working / waiting — absent means FALSE. A push that omits them is saying the session is
-//   not doing that; defaulting to the previous value would leave a finished session pulsing.
-//
-//   lastPrompt / aiTitle / memo — absent means "no news, keep what is shown", but an explicit
+// Every field treats absent as "no news". Activity publishers send both boolean flags explicitly,
+// while metadata-only title/memo pushes intentionally omit them. An explicit
 //   NULL means "there is none now". Collapse the two and a cleared or restarted session keeps
 //   displaying the prompt and title from the conversation the user just ended — and an erased
 //   memo comes back on the next push.
@@ -32,8 +28,8 @@ export interface CellActivityState {
 
 export function applyActivityPush(previous: CellActivityState, push: ActivityPush): CellActivityState {
   return {
-    working: push.working ?? false,
-    waiting: push.waiting ?? false,
+    working: push.working ?? previous.working,
+    waiting: push.waiting ?? previous.waiting,
     event: push.event !== undefined ? push.event : previous.event,
     lastPrompt: push.lastPrompt !== undefined ? push.lastPrompt : previous.lastPrompt,
     aiTitle: push.aiTitle !== undefined ? push.aiTitle : previous.aiTitle,

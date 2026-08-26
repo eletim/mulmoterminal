@@ -41,14 +41,15 @@ describe("history/live memo boundary", () => {
 
   it("hands a live memo to the retained history identity only at Delete", async () => {
     await sessionMemosHydrated;
-    await handoffCoreMemoToHistory({ id: ALREADY_CORE, memo: "Core note", resumeSource: LEGACY });
-    expect(sessionMemos.get(LEGACY)).toBe("Core note");
-    expect(sessionMemos.has(ALREADY_CORE)).toBe(false);
+    const persist = vi.fn(async (_id: string, text: string) => text);
+    await handoffCoreMemoToHistory({ id: ALREADY_CORE, memo: "Core note", resumeSource: LEGACY }, persist);
+    expect(persist).toHaveBeenCalledExactlyOnceWith(LEGACY, "Core note");
   });
 
-  it("does not create history metadata for a live session without a memo", async () => {
+  it("erases stale history metadata when the live memo was cleared", async () => {
     await sessionMemosHydrated;
-    await handoffCoreMemoToHistory({ id: ALREADY_CORE, memo: null, resumeSource: LEGACY });
-    expect(sessionMemos.size).toBe(0);
+    const persist = vi.fn(async (_id: string, text: string) => text);
+    await handoffCoreMemoToHistory({ id: ALREADY_CORE, memo: null, resumeSource: LEGACY }, persist);
+    expect(persist).toHaveBeenCalledExactlyOnceWith(LEGACY, "");
   });
 });

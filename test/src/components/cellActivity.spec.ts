@@ -9,10 +9,8 @@ describe("applyActivityPush", () => {
     expect(applyActivityPush(shown, { working: false, waiting: true })).toMatchObject({ working: false, waiting: true });
   });
 
-  // Absent means FALSE for the flags: a push that omits them is saying the session is not
-  // doing that. Keep the previous value and a finished session goes on pulsing.
-  it("treats an omitted flag as not-doing-that, not as no-news", () => {
-    expect(applyActivityPush(shown, {})).toMatchObject({ working: false, waiting: false });
+  it("keeps activity when a metadata-only push omits the flags", () => {
+    expect(applyActivityPush(shown, { aiTitle: "New title" })).toMatchObject({ working: true, waiting: false });
   });
 
   // The opposite for the text: absent means no news…

@@ -347,9 +347,11 @@ export async function migrateHistoryMemosToCore(
 
 /** Transfer a live note to its history owner immediately before explicit Core deletion.
  * This is a one-time ownership handoff, never a live metadata mirror. */
-export async function handoffCoreMemoToHistory(session: { id: string; memo: string | null; resumeSource: string | null }): Promise<void> {
-  if (!session.memo) return;
-  await setSessionMemo(session.resumeSource ?? session.id, session.memo);
+export async function handoffCoreMemoToHistory(
+  session: { id: string; memo: string | null; resumeSource: string | null },
+  persistHistoryMemo: (id: string, text: string) => Promise<string> = setSessionMemo,
+): Promise<void> {
+  await persistHistoryMemo(session.resumeSource ?? session.id, session.memo ?? "");
 }
 
 let memoPersist: Promise<void> = Promise.resolve();

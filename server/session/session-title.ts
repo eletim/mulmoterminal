@@ -92,6 +92,12 @@ export function createTitleManager(deps: TitleDeps) {
       if (title && (titleEpoch.get(sessionId) ?? 0) === epoch) {
         const stored = await deps.persistTitle(sessionId, title).catch(() => false);
         if (!stored) return;
+        // `/clear` may have landed while the Core metadata write was in flight. Its incremented
+        // epoch wins; remove the stale write before anything can publish it.
+        if ((titleEpoch.get(sessionId) ?? 0) !== epoch) {
+          await deps.clearTitle(sessionId).catch(() => undefined);
+          return;
+        }
         titleTurnCounts.set(sessionId, 0);
         lastTitledUserTurns.set(sessionId, turns.filter((t) => t.role === "user").length);
         deps.publishTitle(sessionId, title);
