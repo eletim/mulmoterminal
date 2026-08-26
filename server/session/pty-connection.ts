@@ -22,7 +22,6 @@ export interface ConnectionDeps {
   cancelReap: (id: string) => void;
   /** Explicit close from the client — delete the logical session and tear down runtime. */
   deleteSession: (id: string) => void | Promise<void>;
-  input: (id: string, data: string) => Promise<void>;
   resize: (id: string, cols: number, rows: number) => Promise<void>;
   setWaiting: (id: string, waiting: boolean) => void;
   /** Socket gone: keep, grace, or reap according to what the session was doing. */
@@ -141,7 +140,11 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
       } else if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
       } else if (msg.type === "input" && typeof msg.data === "string") {
-        void deps.input(sessionId, msg.data).catch((error) => console.warn(`[ws] input dropped for ${sessionId}: ${messageOf(error)}`));
+        // This PTY is the attached tmux CLIENT: tmux wrote its terminal modes to it, so raw
+        // replies (mouse reports included) must come back through the same endpoint. Sending the
+        // bytes to the pane with Core/send-keys bypasses tmux's client-side protocol parser and
+        // turns reports such as CSI < ... M into literal shell input (#157).
+        entry.term.write(msg.data);
       } else if (isResizeFrame(msg)) {
         void deps.resize(sessionId, msg.cols, msg.rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves

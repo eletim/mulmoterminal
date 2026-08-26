@@ -239,7 +239,6 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
     reap(id);
     await coreSessions.delete(id);
   },
-  input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
     ptys.get(id)?.term.resize(cols, rows);
     await coreSessions.resize(id, cols, rows);
