@@ -9,11 +9,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { WebSocket } from "ws";
 
-let tmuxSessions = new Set<string>();
-vi.mock("../../../server/infra/tmux.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../server/infra/tmux.js")>()),
-  tmuxHasSession: (id: string) => tmuxSessions.has(id),
-}));
+const coreIds = vi.hoisted(() => new Set<string>());
+vi.mock("../../../server/session/core-session-adapter.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../server/session/core-session-adapter.js")>();
+  return {
+    ...actual,
+    coreSessions: {
+      find: async (id: string) => (coreIds.has(id) ? { id, cwd: "/wherever" } : null),
+      findByReference: async (id: string) => (coreIds.has(id) ? { id, cwd: "/wherever" } : null),
+    },
+  };
+});
 
 const { workspaceFromUrl, refuseUnusableWorkspace } = await import("../../../server/routes/ws-routes.js");
 const { ptys } = await import("../../../server/session/registry.js");
@@ -45,7 +51,7 @@ const SESSION = "11111111-2222-3333-4444-555555555555";
 let dir = "";
 
 beforeEach(() => {
-  tmuxSessions = new Set();
+  coreIds.clear();
   ptys.clear();
   dir = mkdtempSync(path.join(tmpdir(), "mt-wscwd-"));
 });
@@ -84,43 +90,43 @@ describe("workspaceFromUrl", () => {
 });
 
 describe("refuseUnusableWorkspace", () => {
-  it("lets a connection through when the directory is fine", () => {
+  it("lets a connection through when the directory is fine", async () => {
     const ws = fakeWs();
-    expect(refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", null, null)).toBe(false);
+    expect(await refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", null, null)).toBe(false);
     expect(ws.sent).toEqual([]);
   });
 
   // The bug this exists for: a FRESH start in a directory that is not there used to open the
   // default workspace instead. The reason reaches the cell as an error frame, which the browser
   // renders as the red banner and does not retry.
-  it("refuses a fresh start and sends the reason to the cell", () => {
+  it("refuses a fresh start and sends the reason to the cell", async () => {
     const ws = fakeWs();
-    const refused = refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", "The directory /gone no longer exists…", null);
+    const refused = await refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", "The directory /gone no longer exists…", null);
     expect(refused).toBe(true);
     expect(errorFrom(ws)).toEqual({ type: "error", message: "The directory /gone no longer exists…" });
     expect(ws.closed).toBe(true);
   });
 
-  it("refuses a fresh start even when a session id is offered but nothing is running under it", () => {
+  it("refuses a fresh start even when a session id is offered but Core has no member", async () => {
     const ws = fakeWs();
-    expect(refuseUnusableWorkspace(ws as unknown as WebSocket, "codex", "gone", SESSION)).toBe(true);
+    expect(await refuseUnusableWorkspace(ws as unknown as WebSocket, "codex", "gone", SESSION)).toBe(true);
     expect(ws.closed).toBe(true);
   });
 
   // Refusing here would shut someone out of an agent that is still running because they moved or
   // renamed its directory — a worse bug than the one being reported. The same call `ptySpawn`
   // makes for a reattach (refuseUnusableCwd) reaches the same verdict.
-  it("lets a live PTY reattach despite an unusable directory", () => {
+  it("does not let a stray PTY manufacture membership", async () => {
     const ws = fakeWs();
     ptys.set(SESSION, { cwd: "/wherever" } as never);
-    expect(refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", "gone", SESSION)).toBe(false);
-    expect(ws.sent).toEqual([]);
+    expect(await refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", "gone", SESSION)).toBe(true);
+    expect(ws.closed).toBe(true);
   });
 
-  it("lets a surviving tmux session reattach despite an unusable directory", () => {
+  it("lets a surviving Core session reattach despite an unusable directory", async () => {
     const ws = fakeWs();
-    tmuxSessions.add(SESSION);
-    expect(refuseUnusableWorkspace(ws as unknown as WebSocket, "launch", "gone", SESSION)).toBe(false);
+    coreIds.add(SESSION);
+    expect(await refuseUnusableWorkspace(ws as unknown as WebSocket, "launch", "gone", SESSION)).toBe(false);
     expect(ws.sent).toEqual([]);
   });
 });

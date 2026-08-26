@@ -151,7 +151,7 @@ describe("hydrateAntigravityConversationInto", () => {
 // mapping feeds agentResumeId's `mappedId`. `agy` cannot be run here, so this pins the decision
 // rather than the resume itself — and the decision is the only part #1096 changes.
 describe("a hydrated log as agentResumeId's mappedId", () => {
-  const coldFacts = { conversationExists: () => false, hasLivePty: false, tmuxAlive: false };
+  const coldFacts = { conversationExists: () => false, coreExists: false };
 
   it("resumes a session whose mapping only exists on disk — the restart this log is for", async () => {
     const conversations = await foldLog(antigravityConversationLine(record()));
@@ -179,7 +179,7 @@ describe("a hydrated log as agentResumeId's mappedId", () => {
 
   it("does not carry a resume id into a reattach of a live session", async () => {
     const conversations = await foldLog(antigravityConversationLine(record()));
-    const facts = { ...coldFacts, hasLivePty: true, mappedId: conversations.get(SESSION_A)?.conversationId };
+    const facts = { ...coldFacts, coreExists: true, mappedId: conversations.get(SESSION_A)?.conversationId };
     expect(agentResumeId(SESSION_A, facts)).toBeNull();
   });
 });

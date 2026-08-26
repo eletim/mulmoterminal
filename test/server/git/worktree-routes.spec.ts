@@ -52,7 +52,7 @@ function routes(isAllowedOrigin: (o?: string) => boolean): Record<string, Handle
       map[`${method} ${p}`] = (req, res) => h({ ...req, method, path: p }, res);
     };
   const app = { get: capture("GET"), post: capture("POST") } as unknown as Express;
-  mountWorktreeRoutes(app, { isAllowedOrigin });
+  mountWorktreeRoutes(app, { isAllowedOrigin, listCoreSessions: async () => [] });
   return map;
 }
 

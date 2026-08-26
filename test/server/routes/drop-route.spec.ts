@@ -6,27 +6,26 @@ import { describe, it, expect, afterEach, afterAll } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import os from "node:os";
 import express from "express";
 import request from "supertest";
 import { mountDropRoutes } from "../../../server/routes/drop-routes";
 import { cleanupSessionDrops } from "../../../server/session/session-drops";
-import { ptys } from "../../../server/session/registry";
 
 const app = express();
-mountDropRoutes(app);
+const coreIds = new Set<string>();
+mountDropRoutes(app, { hasSession: async (id) => coreIds.has(id) });
 
 const LIVE = randomUUID();
 const NOT_RUNNING = randomUUID();
 
 // A pty entry with just the fields this route reads — which is only its presence in the map
 // (same stand-in as test/server/session/lifecycle.spec.ts).
-ptys.set(LIVE, { term: { kill: () => undefined }, ws: null, buffer: "", cwd: os.tmpdir(), active: false, agent: "claude" } as never);
+coreIds.add(LIVE);
 
 const post = (id: string) => request(app).post(`/api/session/${id}/drop`);
 
 afterEach(() => cleanupSessionDrops(LIVE));
-afterAll(() => ptys.delete(LIVE));
+afterAll(() => coreIds.delete(LIVE));
 
 describe("POST /api/session/:id/drop", () => {
   it("saves the bytes and answers with a path inside the session's own directory", async () => {
@@ -74,9 +73,7 @@ describe("POST /api/session/:id/drop", () => {
     expect(res.status).toBe(400);
   });
 
-  // Granting the directory happens at spawn, so a session this server is not running has nowhere
-  // the file could be read from even if it were saved.
-  it("refuses a session this server is not running", async () => {
+  it("refuses an id that is absent from Core", async () => {
     const res = await post(NOT_RUNNING).set("content-type", "text/plain").send(Buffer.from("x"));
     expect(res.status).toBe(404);
   });

@@ -48,11 +48,11 @@ export function createShellSpawners(deps: SpawnDeps) {
   // transcript, or resume. The command is run via the login shell with `exec` so it
   // becomes the single foreground process ($SHELL, codex, etc.) — env vars in the
   // command (e.g. $SHELL) expand, and the process stays interactive in the PTY.
-  function spawnLauncherPty(sessionId: string, ws: WebSocket | null, command: string, cwd: string): PtyEntry {
+  function spawnLauncherPty(sessionId: string, ws: WebSocket | null, command: string, cwd: string, coreSessionExists = false): PtyEntry {
     // Persistent: reattaches a surviving tmux session (command ignored) or creates one.
     const { shell, args } = shellInvocation(command, true, process.platform, process.env.SHELL);
     const agent = launcherAgent(command);
-    const { term, tmux, reattached } = ptySpawn(sessionId, shell, args, cwd, true, { agent });
+    const { term, tmux, reattached } = ptySpawn(sessionId, shell, args, cwd, true, { agent, coreSessionExists });
     const spawnedAtMs = Date.now();
     // The command is only what a FRESH session runs — an attach picked up whatever was already
     // there — so naming it on that line would describe a program nobody started.

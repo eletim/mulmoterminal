@@ -13,7 +13,7 @@ import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
 import { activity, lastPrompts, lastResponses, ptys } from "../session/registry.js";
 import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
-import { latestUserPrompt } from "../session/session-reads.js";
+import { latestUserPrompt, readLatestResponse } from "../session/session-reads.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
 import { failPendingTranslation } from "../session/translation-worker.js";
 import type { SessionActivityDeps } from "../session/session-activity-deps.js";
@@ -31,6 +31,10 @@ export interface HookDeps extends SessionActivityDeps {
   /** Which port this host's UI answers on, so a receiver can open it instead of guessing. */
   uiPort: string;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
+  sessionCwd?: (sessionId: string) => Promise<string | undefined>;
+  sessionAgent?: (sessionId: string) => Promise<MobileWebPushActivityNotification["agent"]>;
+  /** Transcript/history identity associated with this live Core membership. */
+  sessionHistoryId?: (sessionId: string) => Promise<string | undefined>;
 }
 
 const activeWaitingMobileWebPushSent = new Set<string>();
@@ -46,7 +50,7 @@ function notifyMobileWebPushActivity(deps: HookDeps, notification: MobileWebPush
 // Activity hooks update a session's working / needs-attention flags. `active` (this
 // session is the user's actively-viewed pane) suppresses the attention flag — see
 // activityHookEffects for why a mere attached socket doesn't count in the grid.
-function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, _message: string, notificationType?: string) {
+async function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, _message: string, notificationType?: string) {
   if (event !== "Notification") activeWaitingMobileWebPushSent.delete(sessionId);
   for (const eff of activityHookEffects(event, active, notificationType)) {
     if (eff.kind === "working") deps.setWorking(sessionId, eff.value, event);
@@ -56,7 +60,7 @@ function handleActivityHook(deps: HookDeps, sessionId: string, event: string, ac
   const currentActivity = activity.get(sessionId);
   if (active && kind === "waiting" && currentActivity?.working === true && currentActivity.waiting !== true && !activeWaitingMobileWebPushSent.has(sessionId)) {
     activeWaitingMobileWebPushSent.add(sessionId);
-    notifyMobileWebPushActivity(deps, { kind, sessionId, agent: ptys.get(sessionId)?.agent ?? null });
+    notifyMobileWebPushActivity(deps, { kind, sessionId, agent: (await deps.sessionAgent?.(sessionId)) ?? null });
   }
   // A finished turn is the ONLY success signal a PTY-hosted agent gives us (#1070). It is not
   // a process exit — `claude` sits at its prompt afterwards — so a worker that never reaches
@@ -107,12 +111,12 @@ async function handleToolHook(deps: HookDeps, sessionId: string, event: string, 
 // transcript yet => null => the new prompt becomes the first shown.) Then keep the
 // last MEANINGFUL prompt (preferredHeaderPrompt) while still tracking the latest for
 // an all-trivial session.
-async function trackPromptForHeader(sessionId: string, prompt: string, cwd: string | undefined) {
+async function trackPromptForHeader(sessionId: string, transcriptId: string, prompt: string, cwd: string | undefined) {
   // Not for a cleared session: there is no task to restore there, and the transcript this would
   // read is the conversation the user ended. The mark outlives the restart that emptied
   // `lastPrompts`, which is the only time this branch is reached after a clear (#1085).
   if (!lastPrompts.has(sessionId) && !clearedTranscripts.has(sessionId)) {
-    const seeded = cwd ? await latestUserPrompt(cwd, sessionId) : null;
+    const seeded = cwd ? await latestUserPrompt(cwd, transcriptId) : null;
     if (seeded) lastPrompts.set(sessionId, seeded);
   }
   lastPrompts.set(sessionId, preferredHeaderPrompt(lastPrompts.get(sessionId) ?? null, prompt));
@@ -144,16 +148,23 @@ async function clearHeaderPrompt(deps: HookDeps, sessionId: string, cwd: string 
 // AI title once a turn's reply is on disk (Stop). Kept out of the route so its branching
 // doesn't inflate the handler. Runs before handleActivityHook so the activity publish it
 // triggers already carries the new lastPrompt.
-async function applyHeaderHooks(deps: HookDeps, sessionId: string, event: string, body: Record<string, unknown>, cwd: string | undefined): Promise<void> {
+async function applyHeaderHooks(
+  deps: HookDeps,
+  sessionId: string,
+  transcriptId: string,
+  event: string,
+  body: Record<string, unknown>,
+  cwd: string | undefined,
+): Promise<void> {
   const effect = headerHookEffect(event, body);
   if (!effect) return;
   if (effect.kind === "prompt") {
-    await trackPromptForHeader(sessionId, effect.text, cwd);
+    await trackPromptForHeader(sessionId, transcriptId, effect.text, cwd);
     deps.noteTitleTurn(sessionId, effect.text);
     return;
   }
   if (effect.kind === "clear") return clearHeaderPrompt(deps, sessionId, cwd);
-  void deps.maybeGenerateTitle(sessionId, cwd);
+  void deps.maybeGenerateTitle(sessionId, cwd, transcriptId);
 }
 
 // The scalar fields the handler reads straight off a hook body, checked once here so the flow
@@ -186,15 +197,23 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
   if (sessionId) {
     const entry = ptys.get(sessionId);
     const active = !!(entry && entry.active);
-    const cwd = resolveHookCwd(body.cwd, entry?.cwd);
-    await applyHeaderHooks(deps, sessionId, event, body, cwd);
+    const coreCwd = await deps.sessionCwd?.(sessionId);
+    const cwd = resolveHookCwd(body.cwd, coreCwd);
+    const transcriptId = (await deps.sessionHistoryId?.(sessionId)) ?? sessionId;
+    await applyHeaderHooks(deps, sessionId, transcriptId, event, body, cwd);
+    // Lifecycle publishing remains keyed by live Core membership. Seed its reply cache from the
+    // associated history before it publishes so resumed rows carry the current answer.
+    if (event === "Stop" && cwd) {
+      const response = readLatestResponse(transcriptId, cwd);
+      if (response) lastResponses.set(sessionId, response);
+    }
     // Before the activity publish below, so the row it mirrors to the phone already carries this
     // hook's phase (a turn's first Edit must read as "editing" in the same push, not the next one).
     // Live sessions only: a tracked turn is reclaimed by reap, which itself does nothing without a
     // pty — so tracking an id with no pty (any well-formed uuid may be posted here) would never be
     // reclaimed. A session whose pty is gone simply reports no phase, as it does before its first tool.
     if (entry) deps.noteWorkPhase(sessionId, event, toolName);
-    handleActivityHook(deps, sessionId, event, active, message, notificationType);
+    await handleActivityHook(deps, sessionId, event, active, message, notificationType);
     await handleToolHook(deps, sessionId, event, toolPayload(body), cwd);
     // A hidden translation worker that ends its turn while still pending never called
     // submitTranslation — fail it now rather than hang until the timeout. (When it DID

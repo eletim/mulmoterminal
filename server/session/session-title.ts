@@ -67,7 +67,7 @@ export function createTitleManager(deps: TitleDeps) {
   // Epoch-guarded: a /clear or teardown mid-generation bumps the epoch, so the now-stale
   // result is dropped. In-flight-guarded so overlapping triggers (a Stop hook and a roster
   // view) don't both summarize. Never throws — a failed/timed-out CLI just leaves the prior title.
-  async function generateAndStoreTitle(sessionId: string, cwd: string): Promise<void> {
+  async function generateAndStoreTitle(sessionId: string, cwd: string, transcriptId = sessionId): Promise<void> {
     if (titleInFlight.has(sessionId)) return;
     // A cleared session has no transcript to title from: claude moved to a new one and ours is
     // frozen on the conversation the user just ended, so this is where the pre-clear title kept
@@ -82,7 +82,7 @@ export function createTitleManager(deps: TitleDeps) {
       // needs (how many user turns there were), so the transcript is never held as a string.
       const turns: ConversationTurn[] = [];
       let read = true;
-      await forEachJsonlRecord(path.join(projectSessionsDir(cwd), `${sessionId}.jsonl`), (record) => {
+      await forEachJsonlRecord(path.join(projectSessionsDir(cwd), `${transcriptId}.jsonl`), (record) => {
         turns.push(...conversationTurnsFromParsed([record]));
       }).catch(() => (read = false));
       const title = read && turns.length ? await deps.generateTitle(turns) : null;
@@ -100,10 +100,10 @@ export function createTitleManager(deps: TitleDeps) {
 
   // At Stop (the assistant's reply is now on disk), regenerate a pending title from the
   // recent turns and publish it. Fire-and-forget; a failure leaves the last prompt showing.
-  async function maybeGenerateTitle(sessionId: string, cwd: string | undefined): Promise<void> {
+  async function maybeGenerateTitle(sessionId: string, cwd: string | undefined, transcriptId = sessionId): Promise<void> {
     if (!cwd || !titlePending.has(sessionId) || titleInFlight.has(sessionId)) return;
     titlePending.delete(sessionId);
-    await generateAndStoreTitle(sessionId, cwd);
+    await generateAndStoreTitle(sessionId, cwd, transcriptId);
   }
 
   // The grid roster summarizes on our side even for sessions the hook path never runs on

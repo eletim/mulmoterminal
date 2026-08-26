@@ -12,5 +12,5 @@ export interface SessionActivityDeps {
   noteTitleTurn: (id: string, prompt: string) => void;
   /** Feed the live turn's tool names, so the published status can say planning vs editing (#727). */
   noteWorkPhase: (id: string, event: string, toolName?: string) => void;
-  maybeGenerateTitle: (id: string, cwd: string | undefined) => Promise<void>;
+  maybeGenerateTitle: (id: string, cwd: string | undefined, transcriptId?: string) => Promise<void>;
 }

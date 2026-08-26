@@ -48,10 +48,10 @@ export interface LocalMobileTerminalRouteDeps {
   interruptSession: (sessionId: string) => Promise<void>;
   stopSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
-  canClearBox: (sessionId: string) => boolean;
+  canClearBox: (sessionId: string) => boolean | Promise<boolean>;
   submitSequence: (sessionId: string) => string | Promise<string>;
   sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
-  launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string };
+  launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string } | Promise<{ ok: true } | { ok: false; error: string }>;
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
@@ -227,7 +227,7 @@ function mountLaunchRoute(
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
   launchTerminal: LocalMobileTerminalRouteDeps["launchTerminal"],
 ) {
-  app.post("/api/mobile/terminal-sessions/:id/launch", (req: Request<{ id: string }>, res: Response) => {
+  app.post("/api/mobile/terminal-sessions/:id/launch", async (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
@@ -235,7 +235,7 @@ function mountLaunchRoute(
     // phone never sends one (#831's rule, unchanged here).
     const { agent } = requestBody(req.body);
     const validAgent = isLaunchAgent(agent);
-    const decision = launchTerminal(agent, id);
+    const decision = await launchTerminal(agent, id);
     if (!decision.ok) return res.status(validAgent ? 409 : 400).json({ error: decision.error });
     res.json({ ok: true });
   });

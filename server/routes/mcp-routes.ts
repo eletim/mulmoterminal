@@ -39,7 +39,7 @@ export interface McpRouteDeps {
    * exists, and the same id is asked about again on every later call. See mcp/gui-call-history.ts
    * for which agents get one and why claude must not.
    */
-  guiCallHistory: (sessionId: string) => GuiCallRecorder | null;
+  guiCallHistory: (sessionId: string) => Promise<GuiCallRecorder | null>;
 }
 
 // Sessions whose MCP client has made contact, so the announcement below is sent once per session
@@ -101,7 +101,7 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
     const server = buildGuiMcpServer(sessionId, `http://127.0.0.1:${PORT}`, {
       submitTranslationTool: isWorker,
       group,
-      history: isWorker ? null : deps.guiCallHistory(sessionId),
+      history: isWorker ? null : await deps.guiCallHistory(sessionId),
     });
     // No sessionIdGenerator at all is the SDK's stateless mode. Spelling it `undefined` says
     // the same thing to the runtime but not to the type — the option is exact-optional.

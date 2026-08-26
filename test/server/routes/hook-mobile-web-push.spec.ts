@@ -23,6 +23,7 @@ const deps = {
   publishDirConfig: vi.fn(),
   publishFileWrite: vi.fn(),
   notifyMobileWebPushActivity: vi.fn(),
+  sessionAgent: vi.fn(async () => "codex" as const),
   uiPort: "34567",
 };
 

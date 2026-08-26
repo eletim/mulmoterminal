@@ -18,6 +18,7 @@ const session = (id: string): CoreSession => ({
   agent: "shell",
   title: null,
   memo: null,
+  resumeSource: null,
 });
 
 afterEach(() => {

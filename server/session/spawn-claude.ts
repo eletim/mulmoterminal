@@ -42,6 +42,8 @@ export interface SpawnClaudeOptions {
   // as a PAIR: a provider from one source with a model from the other is a combination
   // neither of them asked for. Absent — the usual case — means "use the directory's".
   launch?: DirModelChoice | undefined;
+  /** This id is already a Core member; attach its pane instead of creating a session. */
+  coreSessionExists?: boolean;
 }
 
 // The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
@@ -115,6 +117,11 @@ function sessionAddDirs(sessionId: string, configured: string[] | null | undefin
   return dropsDirectory ? [...(configured ?? []), dropsDirectory] : configured;
 }
 
+function sessionMcpConfig(deps: SpawnDeps, sessionId: string, fullGuiMcp: boolean): string {
+  const json = deps.mcpConfigJson(sessionId, "127.0.0.1");
+  return fullGuiMcp ? mcpConfigArgument(sessionId, json) : json;
+}
+
 /**
  * Does this session carry the WHOLE GUI MCP on `--mcp-config`, the way the single view always
  * has? Two ways to earn it, and they are different facts that used to be one flag:
@@ -131,29 +138,20 @@ function sessionAddDirs(sessionId: string, configured: string[] | null | undefin
 export const carriesFullGuiMcp = (attachGuiMcp: boolean, cwd: string | undefined): boolean => attachGuiMcp || isWorkspaceCwd(cwd);
 
 export function createClaudeSpawner(deps: SpawnDeps) {
-  // Spawn a fresh claude PTY for this session, register it, and wire its output /
-  // exit back to the browser socket. `ws` may be null for a session spawned without
-  // a viewer yet (e.g. spawnBackgroundChat) — output just buffers until a client
-  // reattaches.
+  // `ws` may be null for a session spawned without a viewer; output buffers until attach.
   function spawnClaudePty(sessionId: string, resume: string | null, ws: WebSocket | null, options: SpawnClaudeOptions = {}): PtyEntry {
-    const { initialPrompt, cwd = CLAUDE_CWD, attachGuiMcp = true, draft, launch } = options;
+    const { initialPrompt, cwd = CLAUDE_CWD, attachGuiMcp = true, draft, launch, coreSessionExists = false } = options;
     const fullGuiMcp = carriesFullGuiMcp(attachGuiMcp, cwd);
     // fullGuiMcp picks the MCP mode (see buildClaudeArgs, and its own doc for who earns it): the
     // GUI MCP + --strict-mcp-config; a project-directory cell attaches neither, so its own load.
-    // Only --resume when the session has an on-disk transcript — claude doesn't write
-    // a session's .jsonl until its first prompt, so a started-but-unused session can't
-    // be resumed; we restart fresh (reusing the id via --session-id) instead.
+    // Claude can resume only after its conversation exists on disk.
     const canResume = resume !== null && sessionExistsOnDisk(resume, cwd);
 
     const { dir, resolved } = resolveSessionBackend({ cwd, sessionId, launch, canResume });
 
-    const addDirs = sessionAddDirs(sessionId, dir.addDirs);
-
     const hookSettings = deps.hookSettingsJson("localhost", sessionId, resolved.env);
-    const mcpJson = deps.mcpConfigJson(sessionId, "127.0.0.1");
     // File-ized only when it is actually passed (fullGuiMcp), so a cell that never carries
     // the GUI MCP leaves no file behind for reap to clean up.
-    const mcpConfig = fullGuiMcp ? mcpConfigArgument(sessionId, mcpJson) : mcpJson;
     const args = buildClaudeArgs({
       model: resolved.model,
       sessionId,
@@ -164,7 +162,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       settings: settingsArgument(sessionId, hookSettings, Object.keys(resolved.env).length > 0),
       permissionMode: deps.permissionMode,
       attachGuiMcp: fullGuiMcp,
-      mcpConfig,
+      mcpConfig: sessionMcpConfig(deps, sessionId, fullGuiMcp),
       // Carrying the whole GUI MCP: auto-allow the GUI tools + the user's own configured MCP
       // servers (mcp__<id>), so their tools don't trip a permission prompt on every call.
       // A project-directory cell: no --mcp-config at all, so there is nothing of ours to name —
@@ -172,14 +170,12 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       // blind (see GRID_MCP_TOOLS). The user's own servers keep their normal prompts there, since
       // that path never went through our allowlist before.
       allowedTools: fullGuiMcp ? [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(",") : deps.gridMcpTools,
-      addDirs,
+      addDirs: sessionAddDirs(sessionId, dir.addDirs),
       appendedPrompt: sessionAppendedPrompt(cwd, dir.appendSystemPrompt),
     });
 
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);
 
-    // Sandbox → run claude inside a fresh container (no tmux). Otherwise the host path:
-    // a live tmux session for this id (survived a restart) reattaches; else create it.
     // The settings file is already on disk and may hold a provider token, so a failed
     // spawn has to take it with it — a session that never starts never reaches reap(),
     // where the cleanup normally happens (#579).
@@ -196,20 +192,16 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     // resetting would drop a capability with no way left to relearn it, and the panel would tell a
     // cell that is still drawing that Canvas is not enabled for it. Surviving exactly that is what
     // the persisted log is FOR; the unconditional reset was undoing it on every restart.
-    //
-    // Asked HERE, one statement before the spawn, rather than up with the other decisions: the
-    // answer stops being true the moment the tmux session ends, and everything between the two
-    // (the provider resolution, the git probes, the settings file) is time in which it can. The
-    // remaining window is irreducible without tmux reporting which branch `-A` took, and what
-    // survives it is an over-reported group on a session that lost it — the next genuinely new
-    // process clears that, whereas the reverse mistake could not be undone at all.
-    function resetToolGroupsUnlessReattaching(): void {
-      if (!ptyWouldReattach(sessionId, true)) resetSessionToolGroups(sessionId);
-    }
-
     function spawnEntry(): PtyEntry {
-      resetToolGroupsUnlessReattaching();
-      const spawnEnv = { agent: "claude" as const, unset: resolved.unset, env: guiMcpEnv(sessionId, PORT), binEnvVar: claudeAdapter.binEnvVar };
+      if (!ptyWouldReattach(coreSessionExists, true)) resetSessionToolGroups(sessionId);
+      const spawnEnv = {
+        agent: "claude" as const,
+        unset: resolved.unset,
+        env: guiMcpEnv(sessionId, PORT),
+        binEnvVar: claudeAdapter.binEnvVar,
+        coreSessionExists,
+        resumeSource: canResume ? resume : null,
+      };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
       console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };

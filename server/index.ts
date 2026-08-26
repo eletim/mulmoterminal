@@ -16,15 +16,7 @@ import { readFileSync } from "node:fs";
 import { submitSequenceForAgent } from "../common/terminalSubmit.js";
 import { sessionDisplayName } from "../common/sessionMemo.js";
 import { refreshUpdateStatus } from "./config/update-status.js";
-import {
-  tmuxAvailable,
-  tmuxPaneCommand,
-  tmuxAttachedClientCount,
-  tmuxCaptureStyledPane,
-  tmuxTerminalModes,
-  tmuxRedrawClient,
-  tmuxWindowSize,
-} from "./infra/tmux.js";
+import { tmuxAvailable, tmuxAttachedClientCount, tmuxCaptureStyledPane, tmuxTerminalModes, tmuxRedrawClient, tmuxWindowSize } from "./infra/tmux.js";
 import { bindSecurityWarning, browserOriginHostnames, createIsAllowedOrigin } from "./infra/allowed-origin.js";
 import { serverErrorExit } from "./infra/server-exit.js";
 import { PORT, BIND_HOST, CLAUDE_CWD, MULMOTERMINAL_HOME, SESSION_ID_RE, MULMOTERMINAL_BASE_PATH } from "./config/env.js";
@@ -67,7 +59,6 @@ import { renderAnsiRows } from "./session/headlessScreen.js";
 import { ansiScreenWindow, parseAnsiRows } from "./session/ansiSegments.js";
 import type { AnsiRow } from "../common/ansiStyle.js";
 import {
-  agentFromPaneCommand,
   SCREEN_HISTORY_ROWS,
   buildScreenMeta,
   buildSessionList,
@@ -547,10 +538,11 @@ initGoogleBackend();
 
 // The mobile terminal view (#435). Both accessors live here because the PTY table
 // and the title/activity side-tables do; the backend only sees the two functions.
-// A live session knows what it spawned. One that outlived us has no PtyEntry left, so ask
-// tmux what is running in it now — which is also the truer answer when the user started a
-// shell and ran an agent inside it. Null when neither can say.
-const agentOfSession = (id: string): SessionAgent | null => ptys.get(id)?.agent ?? agentFromPaneCommand(tmuxPaneCommand(id));
+// The Core metadata records the kind of Terminal that was launched. A shell remains a shell
+// Terminal when its foreground command changes; pane command is runtime activity, not identity.
+const agentOfSession = async (id: string): Promise<SessionAgent | null> => {
+  return (await coreSessions.find(id))?.agent ?? null;
+};
 
 // What each session's directory is working on, resolved once per DIRECTORY before the list is
 // built: `detailOf` below is synchronous, and cells sharing a checkout share an answer (#1014).
@@ -623,7 +615,8 @@ const mobileSessionOperations = createCoreSessionOperations();
 
 // Whether the phone's typing may empty the input box before pasting, so only the
 // phone's text is submitted (#572). The rule itself lives with the sender.
-const mobileCanClearBox = (sessionId: string): boolean => canClearInputBox(ptys.get(sessionId)?.agent, activity.get(sessionId)?.working);
+const mobileCanClearBox = async (sessionId: string): Promise<boolean> =>
+  canClearInputBox((await coreSessions.get(sessionId)).agent, activity.get(sessionId)?.working);
 
 // What the phone's per-session view heads the screen with (#786, mulmoserver#107): the same
 // dir / branch / memo / summary / prompt the grid cell shows, read from the tables /api/sessions
@@ -678,16 +671,18 @@ const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRo
   return ansiScreenWindow(rows);
 };
 
-const mobileTerminalLauncher = createLaunchTerminalPublisher({ pubsub, cwdOfSession: (id) => ptys.get(id)?.cwd ?? null });
+const mobileTerminalLauncher = createLaunchTerminalPublisher({
+  pubsub,
+  cwdOfSession: async (id) => (await coreSessions.find(id))?.cwd ?? null,
+});
 const localMobileTerminalCreator = createLocalMobileTerminalCreator({ spawnClaudePty, spawnCodexPty, spawnAntigravityPty, spawnLauncherPty });
 
 // The byte(s) that submit for a given session (#772), resolved live from config per agent.
-const sessionSubmitSequence = async (sessionId: string) =>
-  submitSequenceForAgent(ptys.get(sessionId)?.agent ?? (await coreSessions.get(sessionId)).agent, getTerminalSubmit());
+const sessionSubmitSequence = async (sessionId: string) => submitSequenceForAgent((await coreSessions.get(sessionId)).agent, getTerminalSubmit());
 // Which agent the typed text is going to, for the completion-menu guard (#1142) — only Claude
 // Code has the menu that eats a submit, and only there is the guard's trailing space not real
 // input. Same lookup as sessionSubmitSequence above; shared for the same reason.
-const sessionAgentFor = async (sessionId: string) => ptys.get(sessionId)?.agent ?? (await coreSessions.get(sessionId)).agent;
+const sessionAgentFor = async (sessionId: string) => (await coreSessions.get(sessionId)).agent;
 const sharedMobileTerminalDeps = {
   listTerminalSessions: mobileListTerminalSessions,
   captureTerminalScreen: mobileCaptureTerminalScreen,

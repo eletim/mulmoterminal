@@ -255,11 +255,6 @@ export function tmuxAttachSessionArgs(id: string): string[] {
   return ["-L", SERVER_SOCKET, "attach-session", "-t", tmuxSessionName(id)];
 }
 
-// Is a persistent session for this id currently alive in our tmux server?
-export function tmuxHasSession(id: string): boolean {
-  return tmux(["has-session", "-t", tmuxSessionName(id)]).status === 0;
-}
-
 // End a persistent session (explicit close / reap). Killing the pty only detaches our
 // client — the session (and its program) would otherwise keep running.
 // The rendered contents of a session's pane — the visible screen plus `historyLines` of

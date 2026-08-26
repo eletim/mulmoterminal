@@ -4,12 +4,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // node-pty is a native module and spawning is the whole point of the file under test, so
 // the pty itself is mocked: what matters here is the ENVIRONMENT handed to it.
 const nativeExitDispose = vi.fn();
+const coreCreateSync = vi.hoisted(() => vi.fn());
 const spawn = vi.fn(() => ({ pid: 1, onData: vi.fn(), onExit: vi.fn(() => ({ dispose: nativeExitDispose })), write: vi.fn(), kill: vi.fn() }));
 vi.mock("node-pty", () => ({ default: { spawn: (...args: unknown[]) => spawn(...(args as [])) } }));
 const scrub = vi.fn();
 vi.mock("../../../server/infra/tmux.js", () => ({
   tmuxAvailable: () => tmuxOn,
-  tmuxHasSession: (id: string) => liveTmuxSessions.has(id),
   tmuxAttachSessionArgs: (id: string) => ["attach-session", id],
   configureCoreTmuxServer: vi.fn(),
   tmuxScrubEnvNames: (names: readonly string[]) => scrub(names),
@@ -18,7 +18,7 @@ let coreExitListener: ((event: { exitCode: number | null }) => void) | undefined
 const coreExitDispose = vi.fn();
 vi.mock("../../../server/session/core-session-adapter.js", () => ({
   coreSessions: {
-    createSync: vi.fn(),
+    createSync: coreCreateSync,
     watchExit: vi.fn((_id: string, listener: typeof coreExitListener) => {
       coreExitListener = listener;
       return { dispose: coreExitDispose };
@@ -27,7 +27,6 @@ vi.mock("../../../server/session/core-session-adapter.js", () => ({
 }));
 
 let tmuxOn = false;
-const liveTmuxSessions = new Set<string>();
 
 // ptySpawn stats the cwd and refuses a spawn into a directory that is not there, so this cannot
 // be a literal: "/tmp" is not a directory on Windows, which failed only in the Windows job. Our
@@ -44,9 +43,9 @@ beforeEach(() => {
   scrub.mockClear();
   nativeExitDispose.mockClear();
   coreExitDispose.mockClear();
+  coreCreateSync.mockClear();
   coreExitListener = undefined;
   tmuxOn = false;
-  liveTmuxSessions.clear();
   process.env.ANTHROPIC_API_KEY = "sk-ant-leftover";
   process.env.MT_KEEP_ME = "kept";
 });
@@ -77,24 +76,21 @@ describe("spawnPty — the environment it hands the pty", () => {
 // it: a reattached claude never re-reads the user's MCP config, so resetting its learned tool
 // groups there would drop them with nothing left to relearn from.
 describe("ptyWouldReattach", () => {
-  it("is true only when tmux is holding this exact session", () => {
+  it("is true only when Core reports membership and tmux is available", () => {
     tmuxOn = true;
-    liveTmuxSessions.add("s1");
-    expect(ptyWouldReattach("s1", true)).toBe(true);
-    expect(ptyWouldReattach("s2", true)).toBe(false);
+    expect(ptyWouldReattach(true, true)).toBe(true);
+    expect(ptyWouldReattach(false, true)).toBe(false);
   });
 
   it("is false without tmux — every spawn there starts a new process", () => {
     tmuxOn = false;
-    liveTmuxSessions.add("s1");
-    expect(ptyWouldReattach("s1", true)).toBe(false);
+    expect(ptyWouldReattach(true, true)).toBe(false);
   });
 
   // Matches ptySpawn's own branch: a non-persistent spawn never consults tmux at all.
   it("is false for a non-persistent spawn", () => {
     tmuxOn = true;
-    liveTmuxSessions.add("s1");
-    expect(ptyWouldReattach("s1", false)).toBe(false);
+    expect(ptyWouldReattach(true, false)).toBe(false);
   });
 });
 
@@ -111,6 +107,26 @@ describe("ptySpawn — carries the removal down both paths", () => {
     const result = ptySpawn("s1", "claude", [], EXISTING_CWD, true, { unset: ["ANTHROPIC_API_KEY"] });
     expect(result.tmux).toBe(true);
     expect(envOf()).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+
+  it("creates a Core member for a fresh persistent terminal", () => {
+    tmuxOn = true;
+    ptySpawn("s1", "claude", [], EXISTING_CWD, true);
+    expect(coreCreateSync).toHaveBeenCalledOnce();
+  });
+
+  it("stores the history identity on the newly created Core member", () => {
+    tmuxOn = true;
+    ptySpawn("s2", "claude", [], EXISTING_CWD, true, { resumeSource: "s1" });
+    expect(coreCreateSync).toHaveBeenCalledWith(expect.objectContaining({ id: "s2", resumeSource: "s1" }), expect.any(Object));
+  });
+
+  it("attaches without creating when Core already owns the member", () => {
+    tmuxOn = true;
+    const result = ptySpawn("s1", "claude", [], EXISTING_CWD, true, { coreSessionExists: true });
+    expect(result.reattached).toBe(true);
+    expect(coreCreateSync).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledWith("tmux", ["attach-session", "s1"], expect.any(Object));
   });
 
   it("turns Core remain-on-exit into the PTY exit event used by session lifecycle", () => {

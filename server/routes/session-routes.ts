@@ -36,8 +36,6 @@ import {
 } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
-import { sessionAttached } from "../session/dir-session.js";
-import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import { antigravityBrainRoot } from "../agents/antigravity-session.js";
@@ -50,6 +48,8 @@ import { requestBody } from "./requestBody.js";
 import type { CoreSession } from "../session/core-session-adapter.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
 import { visibleCoreSessions } from "../session/core-session-visibility.js";
+import { isSessionAttached } from "../../common/sessionOccupancy.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -212,6 +212,25 @@ async function lastTurn(req: Request, res: Response) {
   res.json({ ...turn, text: formatHandoff({ label: agent, cwd }, turn, undefined, shape) });
 }
 
+function withViewerOccupancy(sessions: readonly SessionMeta[], coreById: ReadonlyMap<string, CoreSession>, deps: SessionRouteDeps) {
+  const tmuxCounts = tmuxAttachedCounts();
+  const coreByReference = new Map(coreById);
+  for (const core of coreById.values()) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
+  return sessions.map((session) => {
+    const core = coreByReference.get(session.id);
+    return {
+      ...session,
+      attached:
+        !!core &&
+        isSessionAttached({
+          viewedHere: deps.hasViewer?.(core.id) ?? false,
+          tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(core.id) ?? 0),
+          holdsTmuxClient: deps.hasLivePty?.(core.id) ?? false,
+        }),
+    };
+  });
+}
+
 // List the chat sessions for the current project (CLAUDE_CWD), including
 // newly-created sessions that aren't persisted to disk yet.
 async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) {
@@ -231,7 +250,11 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // `failed` especially: the whole value of persisting it is finding out LATER, and the most
     // likely "later" is the first list after a restart. Serving it as false while its log is
     // still being read would lose exactly the case the record exists for (Codex, PR #1188).
-    const coreIds = includePending ? new Set((await deps.listCoreSessions()).map((session) => session.id)) : new Set<string>();
+    const coreSessions = await deps.listCoreSessions();
+    const coreById = new Map(coreSessions.map((session) => [session.id, session]));
+    const coreByReference = new Map(coreById);
+    for (const core of coreSessions) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
+    const coreIds = includePending ? new Set(coreById.keys()) : new Set<string>();
     await backgroundSessionsHydrated;
     await failedWorkersHydrated;
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
@@ -275,7 +298,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
                 hidden: s.hidden,
                 failed: s.failed,
               })
-            : readSessionMeta(dir, s.file).catch(() => null),
+            : readSessionMeta(dir, s.file, coreByReference.get(s.id)?.id).catch(() => null),
         ),
       )
     )
@@ -286,8 +309,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // picker used to answer this from the current page's own grid, which is blind to a second
     // browser tab and to a second mulmoterminal process — the two ways a running session got
     // taken over without anything warning first.
-    const tmuxCounts = tmuxAttachedCounts();
-    res.json({ cwd, sessions: sessions.map((s) => ({ ...s, attached: sessionAttached(s.id, tmuxCounts) })) });
+    res.json({ cwd, sessions: withViewerOccupancy(sessions, coreById, deps) });
   } catch (err) {
     console.error("[api] /api/sessions failed:", err);
     res.status(500).json({ error: String(err) });

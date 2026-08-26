@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SessionCore } from "tmux-session-core-ts";
+import { SessionNotFoundError, type SessionCore } from "tmux-session-core-ts";
 import { CoreSessionAdapter } from "../../../server/session/core-session-adapter.js";
 
 const native = {
@@ -24,7 +24,7 @@ describe("CoreSessionAdapter", () => {
 
     const sessions = await new CoreSessionAdapter({ core }).list();
 
-    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review" }]);
+    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review", resumeSource: null }]);
   });
 
   it("restores cwd metadata when an exited tmux pane no longer reports a cwd", async () => {
@@ -36,6 +36,38 @@ describe("CoreSessionAdapter", () => {
     await expect(new CoreSessionAdapter({ core }).get(native.id)).resolves.toMatchObject({ cwd: "/finished/repo", agent: "claude", exited: true });
   });
 
+  it("lists live cwd values without rebuilding unrelated metadata", async () => {
+    const listMetadata = vi.fn(async () => ({ cwd: "/finished/repo", title: "unused" }));
+    const core = {
+      list: vi.fn(async () => [native, { ...native, id: "dead", cwd: "", exited: true }]),
+      listMetadata,
+    } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).listCwds()).resolves.toEqual([native.cwd, "/finished/repo"]);
+    expect(listMetadata).toHaveBeenCalledExactlyOnceWith("dead");
+  });
+
+  it("finds membership through Core get and returns null only for Core absence", async () => {
+    const existingCore = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: existingCore }).find(native.id)).resolves.toMatchObject({ id: native.id, agent: "claude" });
+
+    const missingCore = { get: vi.fn(async () => Promise.reject(new SessionNotFoundError("missing"))) } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: missingCore }).find("missing")).resolves.toBeNull();
+  });
+
+  it("resolves a history identity back to its owning Core member", async () => {
+    const core = {
+      get: vi.fn(async () => Promise.reject(new SessionNotFoundError("history-1"))),
+      list: vi.fn(async () => [native]),
+      listMetadata: vi.fn(async () => ({ agent: "claude", "resume-source": "history-1" })),
+    } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).findByReference("history-1")).resolves.toMatchObject({ id: native.id, resumeSource: "history-1" });
+  });
+
   it("creates native membership first and stores only reconstruction metadata", async () => {
     const setMetadata = vi.fn(async () => undefined);
     const core = {
@@ -44,12 +76,20 @@ describe("CoreSessionAdapter", () => {
       listMetadata: vi.fn(async () => ({ agent: "codex", cwd: native.cwd, title: "Fix #149" })),
     } as unknown as SessionCore;
 
-    await new CoreSessionAdapter({ core }).create({ id: native.id, command: "codex", cwd: native.cwd, agent: "codex", title: "Fix #149" });
+    await new CoreSessionAdapter({ core }).create({
+      id: native.id,
+      command: "codex",
+      cwd: native.cwd,
+      agent: "codex",
+      title: "Fix #149",
+      resumeSource: "history-1",
+    });
 
     expect(setMetadata.mock.calls).toEqual([
       [native.id, "agent", "codex"],
       [native.id, "cwd", native.cwd],
       [native.id, "title", "Fix #149"],
+      [native.id, "resume-source", "history-1"],
     ]);
   });
 

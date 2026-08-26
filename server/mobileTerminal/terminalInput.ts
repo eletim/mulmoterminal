@@ -79,7 +79,7 @@ export interface TerminalInputDeps {
   // host KNOWS the session is idle, because Ctrl-C mid-turn interrupts the turn and in
   // a shell it kills whatever is running. Omitted means no — the old behaviour of
   // pasting on top of whatever is there.
-  canClearBox?: ((sessionId: string) => boolean) | undefined;
+  canClearBox?: ((sessionId: string) => boolean | Promise<boolean>) | undefined;
   // The byte(s) that SUBMIT for this session (#772). The `terminalSubmit` mapping is the
   // host's Claude binding, so it applies only to Claude sessions — resolved per session id
   // (a shell/codex session in the picker stays on plain CR). Read per send so a config edit
@@ -103,7 +103,7 @@ const defaultSchedule = (submit: () => void): void => {
 // holding the submit byte(s). The space rides INSIDE the paste, where the TUI takes it as text:
 // sent after the terminator it would be a keystroke, which an open menu is exactly what reads.
 const typeAndSubmit = async (deps: TerminalInputDeps, sessionId: string, safe: string): Promise<void> => {
-  const clear = deps.canClearBox?.(sessionId) ? CLEAR_BOX : "";
+  const clear = (await deps.canClearBox?.(sessionId)) ? CLEAR_BOX : "";
   const line = submittableLineForAgent(await deps.sessionAgent?.(sessionId), safe);
   if (!(await deps.writeToSession(sessionId, `${clear}${PASTE_START}${line}${PASTE_END}`))) {
     throw new Error(`session ${sessionId} is not writable`);
