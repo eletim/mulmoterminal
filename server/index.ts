@@ -149,7 +149,7 @@ await migrateHistoryMemosToCore(await coreSessions.list(), (id, memo) => coreSes
 
 // Explicit user Delete changes the metadata owner from a live Core membership to its retained
 // conversation history. Persist that handoff once, then let Core perform the only membership write.
-async function deleteTerminalSession(id: string): Promise<void> {
+async function deleteTerminalSession(id: string, allowMissing = false): Promise<void> {
   const session = await coreSessions.find(id);
   if (session) await handoffCoreMemoToHistory(session);
   try {
@@ -157,7 +157,7 @@ async function deleteTerminalSession(id: string): Promise<void> {
   } catch (error) {
     // Internal owners also call this after a spawn that may have failed before Core create.
     // Their process-local files still need cleanup; any real Core failure remains fatal.
-    if (!(error instanceof CoreSessionNotFoundError)) throw error;
+    if (!(allowMissing && error instanceof CoreSessionNotFoundError)) throw error;
   }
   if (session?.agent === "claude") cleanupClaudeProcessResources(id);
   cleanupSessionDrops(id);
@@ -355,7 +355,7 @@ const { translateViaHiddenChat } = createTranslationWorker({
   releaseViewer: releaseTerminalViewer,
   deleteSession: async (id) => {
     try {
-      await deleteTerminalSession(id);
+      await deleteTerminalSession(id, true);
     } catch (error) {
       // A launch can fail before Core creates the session, while cleanup must stay idempotent.
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
@@ -788,7 +788,7 @@ const scheduledSessions = createScheduledSessionRegistry({
   releaseViewer: releaseTerminalViewer,
   deleteSession: async (id) => {
     try {
-      await deleteTerminalSession(id);
+      await deleteTerminalSession(id, true);
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }
