@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe("reap", () => {
-  it("removes viewer-owned transient state", () => {
+  it("releases only viewer-owned transport state", () => {
     const deps = makeDeps();
     ptys.set(ID, fakeEntry());
     lastPrompts.set(ID, "p");
@@ -72,9 +72,7 @@ describe("reap", () => {
 
     createSessionLifecycle(deps).reap(ID);
 
-    // A leak here is a session that lingers in the sidebar, or a provider token's settings
-    // file left on disk.
-    expect([ptys.has(ID), lastPrompts.has(ID), lastResponses.has(ID)]).toEqual([false, false, false]);
+    expect([ptys.has(ID), lastPrompts.has(ID), lastResponses.has(ID)]).toEqual([false, true, true]);
     // A socket close only pauses the tmux size bookkeeping (a detached session can reattach);
     // teardown is the one place that frees it, or it grows for the server's whole life (#957).
     expect(deps.forgetTerminalSize).toHaveBeenCalledWith(ID);
@@ -89,13 +87,11 @@ describe("reap", () => {
     expect(deps.publish).not.toHaveBeenCalled();
   });
 
-  // The mark says "our transcript is frozen on a conversation that ended". Teardown is where
-  // that stops being true: the next claude on this id appends to that file again (#1085).
-  it("stops treating the transcript as cleared", () => {
+  it("does not change transcript state during viewer release", () => {
     ptys.set(ID, fakeEntry());
     clearedTranscripts.add(ID);
     createSessionLifecycle(makeDeps()).reap(ID);
-    expect(clearedTranscripts.has(ID)).toBe(false);
+    expect(clearedTranscripts.has(ID)).toBe(true);
   });
 
   it("does nothing for a session that was already reaped", () => {
@@ -117,6 +113,18 @@ describe("reap", () => {
     ptys.set(ID, fakeEntry());
     lifecycle.reap(ID);
     expect(activity.has(ID)).toBe(true);
+  });
+});
+
+describe("process/delete resource cleanup", () => {
+  it("clears process-owned display and transcript resources independently of a viewer", () => {
+    lastPrompts.set(ID, "p");
+    lastResponses.set(ID, "r");
+    clearedTranscripts.add(ID);
+
+    createViewerLifecycle(makeDeps()).cleanupSessionResources(ID);
+
+    expect([lastPrompts.has(ID), lastResponses.has(ID), clearedTranscripts.has(ID)]).toEqual([false, false, false]);
   });
 });
 

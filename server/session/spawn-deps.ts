@@ -18,6 +18,8 @@ export interface SpawnDeps {
   hookSettingsJson: (host: string, sessionId: string, env?: Record<string, string>) => string;
   mcpConfigJson: (sessionId: string, host?: string) => string;
   reap: (id: string) => void;
+  /** Clean resources owned by a process that Core has reported exited. */
+  cleanupSessionResources: (id: string) => void;
   setWorking: (id: string, working: boolean, event?: string) => void;
   /** Needed alongside setWorking because a finished codex turn flags the cell for attention,
    *  exactly as claude's Stop hook does — see codex-activity-watch. */

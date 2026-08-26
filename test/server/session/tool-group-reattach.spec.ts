@@ -61,6 +61,7 @@ const deps = {
   hookSettingsJson: () => "{}",
   mcpConfigJson: () => "{}",
   reap: vi.fn(),
+  cleanupSessionResources: vi.fn(),
   setWorking: vi.fn(),
   setWaiting: vi.fn(),
   publishActivity: vi.fn(),

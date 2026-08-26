@@ -87,6 +87,17 @@ describe("session activity", () => {
     expect(core.list()).toEqual([ID]);
   });
 
+  it("publishes explicit Delete as closed before forgetting activity", () => {
+    const serviceDeps = makeDeps();
+    activity.set(ID, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
+    const service = createSessionActivity(serviceDeps);
+
+    service.endSessionActivity(ID, "closed");
+
+    expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: false, waiting: false, event: "closed" }));
+    expect(activity.has(ID)).toBe(false);
+  });
+
   it("acknowledges shell output by changing only waiting display state", () => {
     ptys.set(ID, entry({ agent: "shell" }));
     const service = createSessionActivity(makeDeps());

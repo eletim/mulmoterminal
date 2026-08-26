@@ -57,21 +57,25 @@ function armReapForDetached(deps: SessionLifecycleDeps, id: string) {
   scheduleReap(deps, id);
 }
 
+function cleanupSessionResources(id: string) {
+  stopShellTaskWatch(id);
+  lastPrompts.delete(id);
+  lastResponses.delete(id);
+  forgetClearedTranscript(id);
+  titleInFlight.delete(id);
+  lastTitledUserTurns.delete(id);
+  lastTitleAttemptMs.delete(id);
+  cleanupSessionSettings(id);
+  cleanupSessionDrops(id);
+  void runCompletionHook(id, { didError: true }).catch((err) => console.error(`[completion-hook] ${messageOf(err)}`));
+}
+
 function reap(deps: SessionLifecycleDeps, id: string) {
   cancelReap(id);
-  stopShellTaskWatch(id);
   const entry = ptys.get(id);
   if (!entry) return; // already reaped
   ptys.delete(id);
-  lastPrompts.delete(id); // don't leak prompt text for torn-down sessions
-  lastResponses.delete(id); // ditto, and keep this map from growing across closed sessions
-  // The transcript stops being frozen here: the next claude on this id (`--resume`, or a restart
-  // after `/exit` — which reaches reap through term.onExit) appends to that file again.
-  forgetClearedTranscript(id);
   deps.forgetTerminalSize(id);
-  titleInFlight.delete(id);
-  lastTitledUserTurns.delete(id); // teardown only — kept across /clear as the re-title baseline
-  lastTitleAttemptMs.delete(id);
   try {
     entry.term.kill();
   } catch {
@@ -79,22 +83,10 @@ function reap(deps: SessionLifecycleDeps, id: string) {
   }
   // This tears down only MulmoTerminal's transient tmux client. Core/tmux membership remains
   // until the explicit Core.delete() path runs, including for exited remain-on-exit panes.
-  // A provider session's settings file holds its token — drop it with the session (#579).
-  cleanupSessionSettings(id);
-  // Files dropped into this session were copied to tmp for it alone; nothing else refers to them.
-  cleanupSessionDrops(id);
-  // The session is gone, so this is its last chance to report an outcome (#1070). Failure is
-  // the right answer HERE because the hook is one-shot and a finished turn already claimed it
-  // on the way past: reaching teardown with the hook still unfired means no Stop ever came —
-  // a worker blocked on a dialog nobody can answer, or one that died before its first turn.
-  //
-  // BEFORE the announcement below, so that announcement can carry the outcome. The recorder this
-  // fires is synchronous (it sets a flag), so the mark is in place by the time it is read — a
-  // contract pinned in test/server/routes/worker-failure-wiring.spec.ts rather than left implied.
-  void runCompletionHook(id, { didError: true }).catch((err) => console.error(`[completion-hook] ${messageOf(err)}`));
 }
 
 function deleteSession(deps: SessionLifecycleDeps, id: string): void {
+  cleanupSessionResources(id);
   reap(deps, id);
 }
 
@@ -116,6 +108,7 @@ export function createSessionLifecycle(deps: SessionLifecycleDeps) {
     scheduleReap: (id: string, delayMs?: number) => scheduleReap(deps, id, delayMs),
     armReapForDetached: (id: string) => armReapForDetached(deps, id),
     reap: (id: string) => reap(deps, id),
+    cleanupSessionResources,
     deleteSession: (id: string) => deleteSession(deps, id),
     cleanupManagedLiveSessions: () => cleanupManagedLiveSessions(deps),
   };

@@ -28,6 +28,11 @@ import { ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
 import type { CoreSessionVisibility } from "./core-session-adapter.js";
 
+function cleanupExitedCoreSession(deps: SpawnDeps, sessionId: string): void {
+  deps.endSessionActivity(sessionId);
+  deps.cleanupSessionResources(sessionId);
+}
+
 export interface SpawnClaudeOptions {
   // Passed to claude as the first turn, so the session starts working before anyone
   // opens it. Mutually exclusive with `draft`.
@@ -225,7 +230,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     entry.term.onExit((event) => {
       const { exitCode, signal } = event;
       console.log(ptyExitLine({ agent: "claude", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
-      if (isCoreSessionExitEvent(event)) deps.endSessionActivity(sessionId);
+      if (isCoreSessionExitEvent(event)) cleanupExitedCoreSession(deps, sessionId);
       sendExitAndClose(entry.ws, exitCode, signal);
       // Clear the activity dot and release this process's viewer transport. Core membership
       // remains discoverable independently of transcript persistence.

@@ -149,11 +149,13 @@ await migrateHistoryMemosToCore(await coreSessions.list(), (id, memo) => coreSes
 
 // Explicit user Delete changes the metadata owner from a live Core membership to its retained
 // conversation history. Persist that handoff once, then let Core perform the only membership write.
-const deleteTerminalSession = async (id: string): Promise<void> => {
+async function deleteTerminalSession(id: string): Promise<void> {
   const session = await coreSessions.find(id);
   if (session) await handoffCoreMemoToHistory(session);
   await coreSessions.delete(id);
-};
+  endSessionActivity(id, "closed");
+  lifecycle.deleteSession(id);
+}
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
 // Gated to the managed mulmoclaude workspace and
@@ -319,6 +321,7 @@ const spawnDeps: SpawnDeps = {
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
   mcpConfigJson: (sessionId, host) => mcpConfigJson({ sessionId, host, port: PORT, userMcpServers: getUserMcpServers() }),
   reap: (id) => reap(id),
+  cleanupSessionResources: (id) => lifecycle.cleanupSessionResources(id),
   setWorking: (id, working, event) => setWorking(id, working, event),
   setWaiting: (id, waiting, event) => setWaiting(id, waiting, event),
   publishActivity: (id) => publishActivity(id),
@@ -340,6 +343,8 @@ const { translateViaHiddenChat } = createTranslationWorker({
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
+      endSessionActivity(id, "closed");
+      lifecycle.deleteSession(id);
     } catch (error) {
       // A launch can fail before Core creates the session, while cleanup must stay idempotent.
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
@@ -773,6 +778,8 @@ const scheduledSessions = createScheduledSessionRegistry({
   deleteSession: async (id) => {
     try {
       await coreSessions.delete(id);
+      endSessionActivity(id, "closed");
+      lifecycle.deleteSession(id);
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }
