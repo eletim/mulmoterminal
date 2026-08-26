@@ -60,7 +60,7 @@ const deps = {
   outputBufferLimit: 1000,
   hookSettingsJson: () => "{}",
   mcpConfigJson: () => "{}",
-  reap: vi.fn(),
+  releaseViewer: vi.fn(),
   cleanupSessionResources: vi.fn(),
   setWorking: vi.fn(),
   setWaiting: vi.fn(),

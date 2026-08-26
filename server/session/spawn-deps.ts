@@ -17,7 +17,7 @@ export interface SpawnDeps {
   outputBufferLimit: number;
   hookSettingsJson: (host: string, sessionId: string, env?: Record<string, string>) => string;
   mcpConfigJson: (sessionId: string, host?: string) => string;
-  reap: (id: string) => void;
+  releaseViewer: (id: string) => void;
   /** Clean resources owned by a process that Core has reported exited. */
   cleanupSessionResources: (id: string) => void;
   setWorking: (id: string, working: boolean, event?: string) => void;

@@ -13,7 +13,7 @@ import { isCoreSessionExitEvent } from "./pty-spawn.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 
-export type PtyRelayDeps = Pick<SpawnDeps, "outputBufferLimit" | "reap" | "cleanupSessionResources" | "endSessionActivity">;
+export type PtyRelayDeps = Pick<SpawnDeps, "outputBufferLimit" | "releaseViewer" | "cleanupSessionResources" | "endSessionActivity">;
 
 /** `spawnedAtMs` is carried in rather than read here: the exit line's most useful field is how long
  *  the process lived, and an agent that dies inside the startup window never started (#1078).
@@ -34,6 +34,6 @@ export function wireAgentPtyRelay(entry: PtyEntry, sessionId: string, spawnedAtM
       deps.endSessionActivity(sessionId);
     }
     sendExitAndClose(entry.ws, exitCode, signal);
-    deps.reap(sessionId);
+    deps.releaseViewer(sessionId);
   });
 }

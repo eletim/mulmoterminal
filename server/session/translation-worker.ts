@@ -17,8 +17,8 @@ import { projectSessionsDir } from "./project-dir.js";
 import { buildTranslationPrompt, isValidTranslationResult } from "./translation-prompt.js";
 
 export interface TranslationWorkerDeps {
-  /** Tear down the worker's pty and session bookkeeping. */
-  reap: (id: string) => void;
+  /** Release the worker's transient viewer transport. */
+  releaseViewer: (id: string) => void;
   /** Remove the disposable worker from Core after its answer has been collected. */
   deleteSession: (id: string) => Promise<void>;
   /** Start a headless claude session (no socket, no viewer) seeded with `prompt`. */
@@ -57,8 +57,8 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
   // bookkeeping + transcript so the activity maps and the workspace don't accumulate
   // throwaway translation sessions.
   async function cleanupTranslationWorker(sessionId: string): Promise<void> {
-    deps.reap(sessionId); // idempotent — already reaped if Stop fired
-    // Ordinary reap only detaches MulmoTerminal's transient client: user terminals must survive
+    deps.releaseViewer(sessionId); // idempotent — already released if Core exit fired
+    // Ordinary viewer release only detaches MulmoTerminal's transient client: user terminals survive
     // Node shutdown and idle disconnects. Translation workers are disposable, so their cleanup is
     // the explicit exception that also removes the Core/tmux session and its remain-on-exit pane.
     try {
