@@ -658,24 +658,21 @@ sudo systemctl enable --now nginx
 ```
 
 For Tailscale MagicDNS names, use Tailscale HTTPS certificates rather than a
-self-signed certificate. Tailscale documents this as MagicDNS plus HTTPS
-Certificates in the admin console, followed by `tailscale cert` on the machine:
+self-signed certificate. Enable HTTPS Certificates in the Tailscale admin
+console before the first startup:
 https://tailscale.com/docs/how-to/set-up-https-certificates
 
 Certificates issued this way are public-CA certificates for the full MagicDNS
 name, so browsers accept PWA, Service Worker, Web Push, Clipboard API, and
 `wss://` WebSocket use without local CA enrollment. The certificate name is
 published to Certificate Transparency logs, and file-based certificates must be
-renewed before expiry.
-
-```bash
-TS_NAME=dev.tail.ts.net
-sudo mkdir -p /etc/ssl/mulmoterminal
-sudo tailscale cert \
-  --cert-file /etc/ssl/mulmoterminal/${TS_NAME}.crt \
-  --key-file /etc/ssl/mulmoterminal/${TS_NAME}.key \
-  ${TS_NAME}
-```
+renewed before expiry. In `new` mode, when the certificate or key is missing and
+the target server name matches this device's MagicDNS name, normal startup uses
+the installed `tailscale` CLI to create both files automatically. It uses
+`sudo` only when their directories require privileged writes. If certificate
+issuance is disabled for the tailnet, startup explains what to enable and can be
+rerun after the admin-console change; running `tailscale cert` manually is not a
+normal setup step.
 
 Set `MULMOTERMINAL_NGINX_MODE=new`, the server name, and certificate paths in
 the shared user env. The normal startup command creates and enables the nginx

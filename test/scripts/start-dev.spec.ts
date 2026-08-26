@@ -133,6 +133,56 @@ describe("start-dev.sh", () => {
     expect(source.indexOf('env_files+=("$USER_LOCAL_ENV_FILE")')).toBeLessThan(source.indexOf('env_files+=("$LOCAL_ENV_FILE")'));
   });
 
+  it("creates a missing Tailscale certificate and starts the app in one nginx startup", () => {
+    dir = makeTempDir("start-dev-nginx-auto-cert-");
+    const binDir = path.join(dir, "bin");
+    const nginxRoot = path.join(dir, "nginx");
+    const certFile = path.join(dir, "certs", "dev.tail.ts.net.crt");
+    const keyFile = path.join(dir, "certs", "dev.tail.ts.net.key");
+    const tailscaleLog = path.join(dir, "tailscale.log");
+    const nginxLog = path.join(dir, "nginx.log");
+    const yarnLog = path.join(dir, "yarn.log");
+    mkdirSync(binDir, { recursive: true });
+    executable(path.join(binDir, "nginx"), `printf '%s\\n' "$*" >> ${JSON.stringify(nginxLog)}`);
+    executable(path.join(binDir, "yarn"), `printf '%s\\n' "$*" >> ${JSON.stringify(yarnLog)}`);
+    executable(
+      path.join(binDir, "tailscale"),
+      [
+        `printf '%s\\n' "$*" >> ${JSON.stringify(tailscaleLog)}`,
+        'if [[ "$1" == "status" ]]; then',
+        '  printf \'%s\\n\' \'{"Self":{"DNSName":"dev.tail.ts.net."}}\'',
+        "  exit 0",
+        "fi",
+        "while [[ $# -gt 0 ]]; do",
+        '  case "$1" in',
+        '    --cert-file) cert_file="$2"; shift 2 ;;',
+        '    --key-file) key_file="$2"; shift 2 ;;',
+        "    *) shift ;;",
+        "  esac",
+        "done",
+        'printf cert > "$cert_file"',
+        'printf key > "$key_file"',
+      ].join("\n"),
+    );
+
+    const result = run({
+      PATH: `${binDir}:/usr/bin:/bin`,
+      MULMOTERMINAL_MODE: "nginx",
+      MULMOTERMINAL_NGINX_MODE: "new",
+      MULMOTERMINAL_NGINX_BIN: path.join(binDir, "nginx"),
+      MULMOTERMINAL_NGINX_ROOT: nginxRoot,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(tailscaleLog, "utf8")).toContain("cert --cert-file");
+    expect(readFileSync(nginxLog, "utf8").trim().split("\n")).toEqual(["-t", "-s reload"]);
+    expect(readFileSync(yarnLog, "utf8").trim()).toBe("dev");
+    expect(readFileSync(path.join(nginxRoot, "sites-available", "mulmoterminal.conf"), "utf8")).toContain("server_name dev.tail.ts.net;");
+  });
+
   it("sets up changed nginx config once and skips test/reload on the next startup", () => {
     dir = makeTempDir("start-dev-nginx-");
     const binDir = path.join(dir, "bin");

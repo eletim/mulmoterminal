@@ -49,6 +49,37 @@ function writeFakeNginx(status = 0) {
   return { executable, logFile };
 }
 
+function writeFakeTailscale(status = 0) {
+  const binDir = path.join(currentTempDir(), "bin");
+  const logFile = path.join(currentTempDir(), "tailscale.log");
+  mkdirSync(binDir, { recursive: true });
+  const executable = path.join(binDir, "tailscale");
+  writeFileSync(
+    executable,
+    [
+      "#!/usr/bin/env bash",
+      `printf '%s\\n' "$*" >> ${JSON.stringify(logFile)}`,
+      'if [[ "$1" == "status" ]]; then',
+      '  printf \'%s\\n\' \'{"Self":{"DNSName":"dev.tail.ts.net."}}\'',
+      "  exit 0",
+      "fi",
+      `[[ ${status} == 0 ]] || exit ${status}`,
+      "while [[ $# -gt 0 ]]; do",
+      '  case "$1" in',
+      '    --cert-file) cert_file="$2"; shift 2 ;;',
+      '    --key-file) key_file="$2"; shift 2 ;;',
+      "    *) shift ;;",
+      "  esac",
+      "done",
+      'printf cert > "$cert_file"',
+      'printf key > "$key_file"',
+      "",
+    ].join("\n"),
+  );
+  chmodSync(executable, 0o755);
+  return { binDir, logFile };
+}
+
 function nginxRoot() {
   const root = path.join(currentTempDir(), "nginx");
   mkdirSync(root, { recursive: true });
@@ -407,23 +438,109 @@ describe("setup-nginx-https.sh", () => {
     expect(result.stdout).not.toContain("proxy_pass http://127.0.0.1:34567/;");
   });
 
-  it("fails new mode before nginx -t when certificate files are missing", () => {
-    dir = makeTempDir("nginx-https-missing-cert-");
+  it("automatically creates a missing Tailscale certificate and completes new-mode setup", () => {
+    dir = makeTempDir("nginx-https-auto-cert-");
     const root = nginxRoot();
     const { executable, logFile } = writeFakeNginx();
+    const tailscale = writeFakeTailscale();
+    const certFile = path.join(currentTempDir(), "certs", "dev.tail.ts.net.crt");
+    const keyFile = path.join(currentTempDir(), "certs", "dev.tail.ts.net.key");
 
-    const result = runScript({
+    const env = {
+      PATH: `${tailscale.binDir}:/usr/bin:/bin`,
       MULMOTERMINAL_NGINX_BIN: executable,
       MULMOTERMINAL_NGINX_ROOT: root,
       MULMOTERMINAL_NGINX_MODE: "new",
       MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
-      MULMOTERMINAL_NGINX_CERT_FILE: path.join(currentTempDir(), "missing.crt"),
-      MULMOTERMINAL_NGINX_KEY_FILE: path.join(currentTempDir(), "missing.key"),
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    };
+    const result = runScript(env);
+    const second = runScript(env);
+
+    expect(result.status).toBe(0);
+    expect(second.status).toBe(0);
+    expect(second.stdout).toContain("nginx configuration is already current; test and reload skipped");
+    expect(result.stdout).toContain("requesting a Tailscale HTTPS certificate");
+    expect(readFileSync(certFile, "utf8")).toBe("cert");
+    expect(readFileSync(keyFile, "utf8")).toBe("key");
+    expect(readFileSync(tailscale.logFile, "utf8")).toContain(`cert --cert-file ${certFile} --key-file ${keyFile} dev.tail.ts.net`);
+    expect(readFileSync(tailscale.logFile, "utf8").match(/^cert /gm)).toHaveLength(1);
+    expect(readFileSync(logFile, "utf8").trim().split("\n")).toEqual(["-t", "-s reload"]);
+  });
+
+  it("does not request a Tailscale certificate when both certificate files already exist", () => {
+    dir = makeTempDir("nginx-https-existing-cert-");
+    const root = nginxRoot();
+    const { executable } = writeFakeNginx();
+    const tailscale = writeFakeTailscale();
+    const certFile = path.join(currentTempDir(), "dev.tail.ts.net.crt");
+    const keyFile = path.join(currentTempDir(), "dev.tail.ts.net.key");
+    writeFileSync(certFile, "cert");
+    writeFileSync(keyFile, "key");
+
+    const result = runScript({
+      PATH: `${tailscale.binDir}:/usr/bin:/bin`,
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_MODE: "new",
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    });
+
+    expect(result.status).toBe(0);
+    expect(existsSync(tailscale.logFile)).toBe(false);
+  });
+
+  it("stops with admin-console guidance when tailscale cert fails", () => {
+    dir = makeTempDir("nginx-https-cert-fail-");
+    const root = nginxRoot();
+    const { executable, logFile } = writeFakeNginx();
+    const tailscale = writeFakeTailscale(1);
+
+    const result = runScript({
+      PATH: `${tailscale.binDir}:/usr/bin:/bin`,
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_MODE: "new",
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: path.join(currentTempDir(), "certs", "dev.tail.ts.net.crt"),
+      MULMOTERMINAL_NGINX_KEY_FILE: path.join(currentTempDir(), "certs", "dev.tail.ts.net.key"),
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("TLS certificate files are missing");
-    expect(result.stderr).toContain("tailscale cert");
+    expect(result.stderr).toContain("Enable HTTPS certificates for this tailnet in the Tailscale admin console");
+    expect(result.stderr).toContain("rerun ./scripts/start-dev.sh");
+    expect(result.stderr).not.toContain("sudo tailscale cert");
     expect(existsSync(logFile)).toBe(false);
+  });
+
+  it("continues new-mode setup when only managed map and location files remain from a previous attempt", () => {
+    dir = makeTempDir("nginx-https-partial-retry-");
+    const root = nginxRoot();
+    const { executable, logFile } = writeFakeNginx();
+    const tailscale = writeFakeTailscale();
+    const certFile = path.join(currentTempDir(), "certs", "dev.tail.ts.net.crt");
+    const keyFile = path.join(currentTempDir(), "certs", "dev.tail.ts.net.key");
+    mkdirSync(path.join(root, "conf.d"), { recursive: true });
+    mkdirSync(path.join(root, "snippets"), { recursive: true });
+    writeFileSync(path.join(root, "conf.d", "mulmoterminal-websocket-map.conf"), "stale map\n");
+    writeFileSync(path.join(root, "snippets", "mulmoterminal-location.conf"), "stale location\n");
+
+    const result = runScript({
+      PATH: `${tailscale.binDir}:/usr/bin:/bin`,
+      MULMOTERMINAL_NGINX_BIN: executable,
+      MULMOTERMINAL_NGINX_ROOT: root,
+      MULMOTERMINAL_NGINX_SERVER_NAME: "dev.tail.ts.net",
+      MULMOTERMINAL_NGINX_CERT_FILE: certFile,
+      MULMOTERMINAL_NGINX_KEY_FILE: keyFile,
+    });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(path.join(root, "conf.d", "mulmoterminal-websocket-map.conf"), "utf8")).toContain("map $http_upgrade");
+    expect(readFileSync(path.join(root, "snippets", "mulmoterminal-location.conf"), "utf8")).toContain("proxy_pass");
+    expect(readFileSync(path.join(root, "sites-available", "mulmoterminal.conf"), "utf8")).toContain("server_name dev.tail.ts.net;");
+    expect(readFileSync(logFile, "utf8").trim().split("\n")).toEqual(["-t", "-s reload"]);
   });
 });

@@ -473,18 +473,73 @@ validate_new_mode_inputs() {
   fi
   CERT_FILE="${CERT_FILE:-/etc/ssl/mulmoterminal/${SERVER_NAME}.crt}"
   KEY_FILE="${KEY_FILE:-/etc/ssl/mulmoterminal/${SERVER_NAME}.key}"
-  if [[ "$DRY_RUN" == "1" || ( "$CHECK_ONLY" == "1" && ! -f "$SERVER_FILE" ) ]]; then
+  if [[ "$DRY_RUN" == "1" ]]; then
     return 0
   fi
   if [[ ! -f "$CERT_FILE" || ! -f "$KEY_FILE" ]]; then
-    echo "[mulmoterminal] TLS certificate files are missing:" >&2
-    echo "  cert: ${CERT_FILE}" >&2
-    echo "  key:  ${KEY_FILE}" >&2
-    echo "[mulmoterminal] For a Tailscale MagicDNS name, enable HTTPS certificates in the Tailscale admin console and run:" >&2
-    echo "  sudo mkdir -p /etc/ssl/mulmoterminal" >&2
-    echo "  sudo tailscale cert --cert-file ${CERT_FILE} --key-file ${KEY_FILE} ${SERVER_NAME}" >&2
+    CHANGED=1
+    [[ "$CHECK_ONLY" == "1" ]] && return 0
+    provision_tailscale_certificate
+  fi
+}
+
+writable_or_creatable_directory() {
+  local path="$1"
+  while [[ ! -e "$path" ]]; do
+    local parent
+    parent="$(dirname -- "$path")"
+    [[ "$parent" != "$path" ]] || return 1
+    path="$parent"
+  done
+  [[ -d "$path" && -w "$path" ]]
+}
+
+provision_tailscale_certificate() {
+  local tailscale_host cert_dir key_dir sudo_bin
+  cert_dir="$(dirname -- "$CERT_FILE")"
+  key_dir="$(dirname -- "$KEY_FILE")"
+
+  if ! command -v tailscale >/dev/null 2>&1; then
+    echo "[mulmoterminal] TLS certificate files are missing, and the tailscale CLI is unavailable." >&2
+    echo "[mulmoterminal] Install Tailscale and sign in, then rerun ./scripts/start-dev.sh." >&2
     exit 1
   fi
+
+  tailscale_host="$(detect_tailscale_host || true)"
+  if [[ -z "$tailscale_host" || "${tailscale_host,,}" != "${SERVER_NAME,,}" ]]; then
+    echo "[mulmoterminal] TLS certificate files are missing, but ${SERVER_NAME} is not this device's Tailscale MagicDNS hostname." >&2
+    echo "[mulmoterminal] Set --server-name to this device's MagicDNS hostname or provide existing certificate paths." >&2
+    exit 1
+  fi
+
+  if writable_or_creatable_directory "$cert_dir" && writable_or_creatable_directory "$key_dir"; then
+    mkdir -p "$cert_dir" "$key_dir"
+    echo "[mulmoterminal] requesting a Tailscale HTTPS certificate for ${SERVER_NAME}"
+    if tailscale cert --cert-file "$CERT_FILE" --key-file "$KEY_FILE" "$SERVER_NAME" && [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
+      echo "[mulmoterminal] created TLS certificate ${CERT_FILE}"
+      return 0
+    fi
+  else
+    if [[ "${MULMOTERMINAL_NGINX_USE_SUDO:-auto}" == "0" ]]; then
+      echo "[mulmoterminal] TLS certificate setup needs privileged writes, but sudo is disabled." >&2
+      exit 1
+    fi
+    sudo_bin="${MULMOTERMINAL_SUDO_BIN:-sudo}"
+    if ! command -v "$sudo_bin" >/dev/null 2>&1; then
+      echo "[mulmoterminal] TLS certificate setup needs privileged writes, but sudo was not found." >&2
+      exit 1
+    fi
+    "$sudo_bin" mkdir -p "$cert_dir" "$key_dir"
+    echo "[mulmoterminal] requesting a Tailscale HTTPS certificate for ${SERVER_NAME}"
+    if "$sudo_bin" tailscale cert --cert-file "$CERT_FILE" --key-file "$KEY_FILE" "$SERVER_NAME" && [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
+      echo "[mulmoterminal] created TLS certificate ${CERT_FILE}"
+      return 0
+    fi
+  fi
+
+  echo "[mulmoterminal] Could not create a Tailscale HTTPS certificate for ${SERVER_NAME}." >&2
+  echo "[mulmoterminal] Enable HTTPS certificates for this tailnet in the Tailscale admin console, then rerun ./scripts/start-dev.sh." >&2
+  exit 1
 }
 
 test_and_reload() {
@@ -520,13 +575,16 @@ echo "[mulmoterminal] nginx HTTPS mode ${MODE}"
 echo "[mulmoterminal] base path ${BASE_PATH}"
 echo "[mulmoterminal] upstream ${UPSTREAM}"
 
+if [[ "$MODE" == "new" ]]; then
+  validate_new_mode_inputs
+fi
+
 write_if_changed "$MAP_FILE" < <(map_config)
 write_if_changed "$LOCATION_FILE" < <(location_config)
 
 if [[ "$MODE" == "existing" ]]; then
   install_include_once "$SERVER_CONF" "$LOCATION_FILE"
 else
-  validate_new_mode_inputs
   write_if_changed "$SERVER_FILE" < <(server_config)
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[mulmoterminal] would enable ${SERVER_FILE} at ${SERVER_LINK}"
