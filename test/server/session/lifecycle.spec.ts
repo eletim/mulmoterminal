@@ -1,18 +1,13 @@
 // @vitest-environment node
 //
-// Transitional process-owned cleanup plus the independent activity service. Viewer transport
-// behavior has its own attach/detach/release tests in pty-connection.spec.ts.
+// Independent activity service. Viewer transport and process-owned cleanup have owner-specific
+// tests in pty-connection.spec.ts and the corresponding agent/resource modules.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { createSessionLifecycle as createProcessResourceCleanup } from "../../../server/session/lifecycle.js";
 import { createSessionActivity, type ActivityServiceDeps } from "../../../server/session/session-activity.js";
 import { activity, lastPrompts, lastResponses, ptys } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
-import { stopShellTaskWatch } from "../../../server/session/shell-task-watch.js";
-vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSettings: vi.fn() }));
-vi.mock("../../../server/session/session-drops.js", () => ({ cleanupSessionDrops: vi.fn() }));
-vi.mock("../../../server/session/shell-task-watch.js", () => ({ stopShellTaskWatch: vi.fn() }));
 vi.mock("../../../server/session/child-processes.js", () => ({
   hasNewSessionChildProcess: vi.fn(() => false),
   sessionChildProcessPids: vi.fn(() => new Set<number>()),
@@ -33,9 +28,7 @@ const makeDeps = (overrides: Partial<TestDeps> = {}): TestDeps => ({
 });
 const coreAgent = (agent: "claude" | "codex" | "shell") => vi.fn(() => ({ cwd: "/work", agent }));
 
-// The implementations are intentionally separate; this combined test facade lets the historical
-// behavior assertions exercise each owner while lifecycle.ts itself exposes no activity API.
-const createSessionLifecycle = (deps: TestDeps) => ({ ...createProcessResourceCleanup(), ...createSessionActivity(deps) });
+const createSessionLifecycle = (deps: TestDeps) => createSessionActivity(deps);
 
 // A pty entry with just the fields the lifecycle reads.
 const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: null, cwd: "/work", tmux: false, agent: "claude", ...over }) as never;
@@ -51,24 +44,10 @@ beforeEach(() => {
   clearRegistry();
   vi.mocked(hasNewSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(sessionChildProcessPids).mockReset().mockReturnValue(new Set());
-  vi.mocked(stopShellTaskWatch).mockReset();
 });
 afterEach(() => {
   vi.useRealTimers();
   clearRegistry();
-});
-
-describe("process/delete resource cleanup", () => {
-  it("clears process-owned display and transcript resources independently of a viewer", () => {
-    lastPrompts.set(ID, "p");
-    lastResponses.set(ID, "r");
-    clearedTranscripts.add(ID);
-
-    createProcessResourceCleanup().cleanupSessionResources(ID);
-
-    expect([lastPrompts.has(ID), lastResponses.has(ID), clearedTranscripts.has(ID)]).toEqual([false, false, false]);
-    expect(stopShellTaskWatch).toHaveBeenCalledWith(ID);
-  });
 });
 
 describe("setWorking / setWaiting", () => {

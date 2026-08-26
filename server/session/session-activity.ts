@@ -30,6 +30,13 @@ function refreshLastResponse(id: string, cwd: string): void {
   if (text) lastResponses.set(id, text);
 }
 
+function forgetActivityDisplayState(id: string): void {
+  activity.delete(id);
+  lastPrompts.delete(id);
+  lastResponses.delete(id);
+  persistActivityState();
+}
+
 function withActivityMetadata(deps: ActivityServiceDeps, id: string, use: (metadata: { cwd: string | null; agent: LaunchAgent | null }) => void): void {
   const core = deps.coreMetadataOf(id);
   if (!(core instanceof Promise)) return use({ cwd: core?.cwd ?? null, agent: core?.agent ?? null });
@@ -89,8 +96,7 @@ export function createSessionActivity(deps: ActivityServiceDeps) {
     activity.set(id, next);
     claimActivityOwnership(id);
     publishActivity(id, { failed: isFailedWorker(id) });
-    activity.delete(id);
-    persistActivityState();
+    forgetActivityDisplayState(id);
     forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
     deps.forgetWorkPhase(id);
   }

@@ -11,15 +11,19 @@ import { ptys } from "./registry.js";
 import { isCoreSessionExitEvent, ptySpawn, spawnPty } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
-import { startShellTaskWatch } from "./shell-task-watch.js";
+import { startShellTaskWatch, stopShellTaskWatch } from "./shell-task-watch.js";
 import { appendBoundedOutput } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { cleanupSessionDrops } from "./session-drops.js";
+
+/** Shell watcher state belongs to the launcher process, not viewer lifetime. */
+export const cleanupShellProcessResources = stopShellTaskWatch;
 
 export function createShellSpawners(deps: SpawnDeps) {
   // Run an arbitrary shell command in a PTY and relay its I/O to the browser. Unlike
   // spawnClaudePty this is NOT a Claude session — no id, no hooks, no transcript, no
-  // reap/grace. It's an ephemeral grid terminal (the Run menu); the caller kills it
+  // persistent viewer lifecycle. It's an ephemeral grid terminal (the Run menu); the caller kills it
   // when the viewer's socket closes.
   function spawnCommandPty(command: string, cwd: string, ws: WebSocket): IPty {
     const { shell, args } = shellInvocation(command, false, process.platform, process.env.SHELL);
@@ -44,7 +48,7 @@ export function createShellSpawners(deps: SpawnDeps) {
   }
 
   // Spawn a configured launcher command as a PERSISTENT, reattachable PTY that shares
-  // the Claude session lifecycle (ptys map, reattach, reap grace) but has NO hooks,
+  // the Core-backed viewer path (ptys map and reattach) but has NO hooks,
   // transcript, or resume. The command is run via the login shell with `exec` so it
   // becomes the single foreground process ($SHELL, codex, etc.) — env vars in the
   // command (e.g. $SHELL) expand, and the process stays interactive in the PTY.
@@ -72,7 +76,8 @@ export function createShellSpawners(deps: SpawnDeps) {
     term.onExit((event) => {
       const { exitCode, signal } = event;
       if (isCoreSessionExitEvent(event)) {
-        deps.cleanupSessionResources(sessionId);
+        cleanupShellProcessResources(sessionId);
+        cleanupSessionDrops(sessionId);
         deps.endSessionActivity(sessionId);
       }
       console.log(ptyExitLine({ agent: "launcher", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));

@@ -45,7 +45,7 @@ export function mcpConfigArgument(sessionId: string, json: string, platform: Nod
 }
 
 // Run a spawn, taking the session's settings file with it if the spawn throws. A session
-// that never starts never reaches reap(), where the cleanup normally happens — so without
+// that never starts never reaches the Claude process-exit owner — so without
 // this a failed spawn leaves a token-bearing file behind (#579).
 export function withSettingsCleanup<T>(sessionId: string, spawn: () => T): T {
   try {
@@ -62,9 +62,9 @@ export function cleanupSessionSettings(sessionId: string): void {
   removeQuietly(mcpConfigFile(sessionId));
 }
 
-/** Drop settings files left behind by a server that never got to reap.
+/** Drop settings files left behind by a server that never observed process exit.
  *
- *  `cleanupSessionSettings` runs from reap(), which a crash — or a machine losing power —
+ *  `cleanupSessionSettings` runs from the Claude process owner, which a crash — or a machine losing power —
  *  never reaches. What stays behind is not inert: a provider session's file holds its API
  *  token, so without this a token outlives the session that used it, survives being rotated
  *  or revoked, and survives the provider being removed from the config entirely.

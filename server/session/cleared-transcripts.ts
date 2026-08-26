@@ -80,7 +80,7 @@ export async function markTranscriptCleared(id: string, cwd: string | undefined,
 const removeMarker = (dir: string, id: string): Promise<void> =>
   fs.rm(markerFile(dir, id), { force: true }).catch((e) => console.error(`[cleared-transcripts] failed to drop ${id}: ${messageOf(e)}`));
 
-/** Drop the mark, on disk too. The removal is fire-and-forget because the caller (reap) is
+/** Drop the mark, on disk too. The removal is fire-and-forget because the process/delete owner is
  *  synchronous; a file that outlives the process is caught by hydration either way. */
 export function forgetClearedTranscript(id: string, dir: string = CLEARED_DIR): void {
   clearedTranscripts.delete(id);
@@ -99,7 +99,7 @@ const readMark = (dir: string, id: string): Promise<unknown> =>
 async function restoreMark(dir: string, file: string): Promise<void> {
   const id = file.endsWith(".json") ? file.slice(0, -".json".length) : "";
   if (!SESSION_ID_RE.test(id)) return; // not ours / not a session id — leave it alone
-  // Awaited, unlike reap's fire-and-forget drop: nothing else is waiting on boot, and a marker
+  // Awaited, unlike process-exit's fire-and-forget drop: nothing else is waiting on boot, and a marker
   // left behind would be re-examined on every restart from here on.
   const mark = parseClearedMark(await readMark(dir, id));
   if (!mark || !markStillHolds(mark, await transcriptSize(mark.cwd, id))) return removeMarker(dir, id);
