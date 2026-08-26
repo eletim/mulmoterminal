@@ -200,6 +200,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
         env: guiMcpEnv(sessionId, PORT),
         binEnvVar: claudeAdapter.binEnvVar,
         coreSessionExists,
+        resumeSource: canResume ? resume : null,
       };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
       console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));

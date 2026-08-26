@@ -24,7 +24,7 @@ describe("CoreSessionAdapter", () => {
 
     const sessions = await new CoreSessionAdapter({ core }).list();
 
-    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review" }]);
+    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review", resumeSource: null }]);
   });
 
   it("restores cwd metadata when an exited tmux pane no longer reports a cwd", async () => {
@@ -58,6 +58,16 @@ describe("CoreSessionAdapter", () => {
     await expect(new CoreSessionAdapter({ core: missingCore }).find("missing")).resolves.toBeNull();
   });
 
+  it("resolves a history identity back to its owning Core member", async () => {
+    const core = {
+      get: vi.fn(async () => Promise.reject(new SessionNotFoundError("history-1"))),
+      list: vi.fn(async () => [native]),
+      listMetadata: vi.fn(async () => ({ agent: "claude", "resume-source": "history-1" })),
+    } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).findByReference("history-1")).resolves.toMatchObject({ id: native.id, resumeSource: "history-1" });
+  });
+
   it("creates native membership first and stores only reconstruction metadata", async () => {
     const setMetadata = vi.fn(async () => undefined);
     const core = {
@@ -66,12 +76,20 @@ describe("CoreSessionAdapter", () => {
       listMetadata: vi.fn(async () => ({ agent: "codex", cwd: native.cwd, title: "Fix #149" })),
     } as unknown as SessionCore;
 
-    await new CoreSessionAdapter({ core }).create({ id: native.id, command: "codex", cwd: native.cwd, agent: "codex", title: "Fix #149" });
+    await new CoreSessionAdapter({ core }).create({
+      id: native.id,
+      command: "codex",
+      cwd: native.cwd,
+      agent: "codex",
+      title: "Fix #149",
+      resumeSource: "history-1",
+    });
 
     expect(setMetadata.mock.calls).toEqual([
       [native.id, "agent", "codex"],
       [native.id, "cwd", native.cwd],
       [native.id, "title", "Fix #149"],
+      [native.id, "resume-source", "history-1"],
     ]);
   });
 

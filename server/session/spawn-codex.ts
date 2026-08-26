@@ -17,6 +17,7 @@ import { wireAgentPtyRelay } from "./pty-relay.js";
 import { attachCodexAutoRun } from "./draft-injection.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { coreSessions } from "./core-session-adapter.js";
 
 // Bound to ONE pty: `ptys.has(id)` would keep a stale tail alive after a reap-then-
 // respawn under the same id, and both tails would report the same boundaries.
@@ -39,6 +40,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
         if (!meta) return;
         claimedCodexRollouts.add(meta.file);
         rememberCodexRolloutId(sessionId, meta.id);
+        void coreSessions.setResumeSource(sessionId, meta.id).catch(() => undefined);
         // A rollout only discovered now is one this session just created, so it is read
         // whole: its first turn is in there and hasn't been reported yet.
         trackCodexActivity(sessionId, meta.file, false, activityDepsFor(sessionId, entry, deps));
@@ -85,6 +87,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
       agent: "codex",
       binEnvVar: codexAdapter.binEnvVar,
       coreSessionExists,
+      resumeSource: resumeRolloutId,
     });
     const spawnedAtMs = Date.now();
     const note = resumeRolloutId ? `resume ${resumeRolloutId}` : null;

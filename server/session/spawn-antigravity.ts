@@ -15,6 +15,7 @@ import { ptyStartLine } from "./pty-exit-log.js";
 import { claimedAntigravityConversations, ptys, rememberAntigravityConversation } from "./registry.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { coreSessions } from "./core-session-adapter.js";
 
 export function createAntigravitySpawner(deps: SpawnDeps) {
   function captureAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>, cwd: string): void {
@@ -23,6 +24,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
         if (!id) return;
         claimedAntigravityConversations.add(id);
         rememberAntigravityConversation(sessionId, id, cwd);
+        void coreSessions.setResumeSource(sessionId, id).catch(() => undefined);
         console.log(`[pty] captured antigravity conversation ${id} for session ${sessionId}`);
       })
       .catch(() => {});
@@ -62,6 +64,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
       env: guiMcpEnv(sessionId, PORT),
       binEnvVar: antigravityAdapter.binEnvVar,
       coreSessionExists,
+      resumeSource: resumeConversationId,
     });
     const spawnedAtMs = Date.now();
     const note = resumeConversationId ? `resume ${resumeConversationId}` : null;

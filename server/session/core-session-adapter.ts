@@ -6,6 +6,7 @@ import { CORE_TMUX_SERVER } from "./core-session-config.js";
 const AGENT_METADATA_KEY = "agent";
 const TITLE_METADATA_KEY = "title";
 const MEMO_METADATA_KEY = "memo";
+const RESUME_SOURCE_METADATA_KEY = "resume-source";
 // tmux clears pane_current_path once a remain-on-exit pane is dead. This is the one native
 // session fact that must be copied so an exited session can still be reconstructed after restart.
 const CWD_METADATA_KEY = "cwd";
@@ -14,6 +15,7 @@ export interface CoreSession extends Session {
   agent: LaunchAgent;
   title: string | null;
   memo: string | null;
+  resumeSource: string | null;
 }
 
 export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id"> {
@@ -21,6 +23,7 @@ export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id
   agent: LaunchAgent;
   title?: string;
   memo?: string;
+  resumeSource?: string;
 }
 
 export interface CoreSessionAdapterOptions {
@@ -51,12 +54,13 @@ try {
 `;
 
 function defaultCreateSync(options: CreateCoreSessionOptions, environment: NodeJS.ProcessEnv, serverName: string): void {
-  const { agent, title, memo, ...session } = options;
+  const { agent, title, memo, resumeSource, ...session } = options;
   const metadata = {
     [AGENT_METADATA_KEY]: agent,
     [CWD_METADATA_KEY]: session.cwd,
     ...(title ? { [TITLE_METADATA_KEY]: title } : {}),
     ...(memo ? { [MEMO_METADATA_KEY]: memo } : {}),
+    ...(resumeSource ? { [RESUME_SOURCE_METADATA_KEY]: resumeSource } : {}),
   };
   const payload = JSON.stringify({ serverName, session, metadata });
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", syncCreateScript], {
@@ -90,7 +94,7 @@ export class CoreSessionAdapter {
   }
 
   async create(options: CreateCoreSessionOptions): Promise<CoreSession> {
-    const { agent, title, memo, ...session } = options;
+    const { agent, title, memo, resumeSource, ...session } = options;
     let created = false;
     try {
       const native = await this.core.create(session);
@@ -99,6 +103,7 @@ export class CoreSessionAdapter {
       await this.core.setMetadata(session.id, CWD_METADATA_KEY, session.cwd);
       if (title) await this.core.setMetadata(session.id, TITLE_METADATA_KEY, title);
       if (memo) await this.core.setMetadata(session.id, MEMO_METADATA_KEY, memo);
+      if (resumeSource) await this.core.setMetadata(session.id, RESUME_SOURCE_METADATA_KEY, resumeSource);
       return this.withMetadata(native);
     } catch (error) {
       if (created) await this.core.delete(session.id).catch(() => undefined);
@@ -129,6 +134,13 @@ export class CoreSessionAdapter {
       if (error instanceof SessionNotFoundError) return null;
       throw error;
     }
+  }
+
+  /** Resolve either current membership identity or the history identity it resumed. */
+  async findByReference(id: string): Promise<CoreSession | null> {
+    const direct = await this.find(id);
+    if (direct) return direct;
+    return (await this.list()).find((session) => session.resumeSource === id) ?? null;
   }
 
   async screen(id: string): Promise<string> {
@@ -188,6 +200,10 @@ export class CoreSessionAdapter {
     await this.setOptionalMetadata(id, MEMO_METADATA_KEY, memo);
   }
 
+  async setResumeSource(id: string, sourceId: string): Promise<void> {
+    await this.core.setMetadata(id, RESUME_SOURCE_METADATA_KEY, sourceId);
+  }
+
   private async withMetadata(session: Session): Promise<CoreSession> {
     const metadata = await this.core.listMetadata(session.id);
     const agent = isLaunchAgent(metadata[AGENT_METADATA_KEY]) ? metadata[AGENT_METADATA_KEY] : "shell";
@@ -197,6 +213,7 @@ export class CoreSessionAdapter {
       agent,
       title: metadata[TITLE_METADATA_KEY] || null,
       memo: metadata[MEMO_METADATA_KEY] || null,
+      resumeSource: metadata[RESUME_SOURCE_METADATA_KEY] || null,
     };
   }
 

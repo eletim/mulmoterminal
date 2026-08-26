@@ -214,16 +214,21 @@ async function lastTurn(req: Request, res: Response) {
 
 function withViewerOccupancy(sessions: readonly SessionMeta[], coreById: ReadonlyMap<string, CoreSession>, deps: SessionRouteDeps) {
   const tmuxCounts = tmuxAttachedCounts();
-  return sessions.map((session) => ({
-    ...session,
-    attached:
-      coreById.has(session.id) &&
-      isSessionAttached({
-        viewedHere: deps.hasViewer?.(session.id) ?? false,
-        tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(session.id) ?? 0),
-        holdsTmuxClient: deps.hasLivePty?.(session.id) ?? false,
-      }),
-  }));
+  const coreByReference = new Map(coreById);
+  for (const core of coreById.values()) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
+  return sessions.map((session) => {
+    const core = coreByReference.get(session.id);
+    return {
+      ...session,
+      attached:
+        !!core &&
+        isSessionAttached({
+          viewedHere: deps.hasViewer?.(core.id) ?? false,
+          tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(core.id) ?? 0),
+          holdsTmuxClient: deps.hasLivePty?.(core.id) ?? false,
+        }),
+    };
+  });
 }
 
 // List the chat sessions for the current project (CLAUDE_CWD), including

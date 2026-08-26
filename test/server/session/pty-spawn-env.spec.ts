@@ -115,6 +115,12 @@ describe("ptySpawn — carries the removal down both paths", () => {
     expect(coreCreateSync).toHaveBeenCalledOnce();
   });
 
+  it("stores the history identity on the newly created Core member", () => {
+    tmuxOn = true;
+    ptySpawn("s2", "claude", [], EXISTING_CWD, true, { resumeSource: "s1" });
+    expect(coreCreateSync).toHaveBeenCalledWith(expect.objectContaining({ id: "s2", resumeSource: "s1" }), expect.any(Object));
+  });
+
   it("attaches without creating when Core already owns the member", () => {
     tmuxOn = true;
     const result = ptySpawn("s1", "claude", [], EXISTING_CWD, true, { coreSessionExists: true });

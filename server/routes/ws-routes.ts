@@ -73,14 +73,14 @@ export function sessionAgentForWsKind(kind: TerminalWsKind): SessionAgent | null
 const DEFAULT_LAUNCH_CMD = process.env.SHELL || "/bin/sh";
 
 async function requestedCoreSession(requested: string | null): Promise<CoreSession | null> {
-  return requested ? coreSessions.find(requested) : null;
+  return requested ? coreSessions.findByReference(requested) : null;
 }
 
 async function resolveClaudeSession(requested: string | null, cwd: string): Promise<SessionResolution & { core: CoreSession | null }> {
   const core = await requestedCoreSession(requested);
-  const hasViewer = !!core && !!requested && ptys.has(requested);
+  const hasViewer = !!core && ptys.has(core.id);
   const onDisk = !core && !!requested && sessionExistsOnDisk(requested, cwd);
-  return { ...resolveSession(requested, { coreExists: !!core, hasViewer, onDisk }, randomUUID), core };
+  return { ...resolveSession(core?.id ?? requested, { coreExists: !!core, hasViewer, onDisk }, randomUUID), core };
 }
 
 // The params every terminal WebSocket reads: the request URL, the validated
@@ -328,12 +328,12 @@ async function resolveLaunchSession(
   shell: boolean,
 ): Promise<{ sessionId: string; live: PtyEntry | undefined; command: string; core: CoreSession | null } | null> {
   const core = await requestedCoreSession(requested);
-  const live = core && requested ? ptys.get(requested) : undefined;
+  const live = core ? ptys.get(core.id) : undefined;
   // A live PTY / surviving tmux session reattaches regardless of the index; only a fresh
   // spawn needs the launcher resolved (the pty already IS the chosen program on reattach).
   const launcher = core ? null : deps.resolveLauncher(index);
   if (!canStartLauncher({ coreExists: !!core, hasLauncher: !!launcher, isShell: shell })) return null;
-  const { sessionId } = resolveReattachableId(requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
+  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
   return { sessionId, live, command: launcher?.command ?? DEFAULT_LAUNCH_CMD, core };
 }
 
@@ -349,13 +349,13 @@ async function resolveCodexSession(requested: string | null): Promise<{
   core: CoreSession | null;
 }> {
   const core = await requestedCoreSession(requested);
-  const live = core && requested ? ptys.get(requested) : undefined;
+  const live = core ? ptys.get(core.id) : undefined;
   const resumeRolloutId = agentResumeId(requested, {
     mappedId: requested ? codexRolloutIds.get(requested) : null,
     conversationExists: () => !!requested && codexRolloutExists(codexSessionsRoot(), requested),
     coreExists: !!core,
   });
-  const { sessionId } = resolveReattachableId(requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
+  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
   return { sessionId, live, resumeRolloutId, core };
 }
 
@@ -414,7 +414,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // frame is the terminal's geometry and it arrives while this handler may still be awaiting the
   // Keychain — /ws was the one route that let it fall on the floor (#1178, see early-frames.ts).
   const early = await admitAgentSession(ws, "claude", {
-    requested,
+    requested: core?.id ?? requested,
     sessionId,
     live,
     cwd: effectiveCwd,
@@ -536,7 +536,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // `codex` is the agent toggle by another name and is held to the same rule, while `yarn dev` or
   // a shell is not an agent editing the tree and stays free (see launcherRunsAgent).
   const early = await admitAgentSession(ws, "launch", {
-    requested,
+    requested: core?.id ?? requested,
     sessionId,
     live,
     cwd: effectiveCwd,
@@ -571,7 +571,7 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   const { sessionId, live, resumeRolloutId, core } = await resolveCodexSession(requested);
   const effectiveCwd = core?.cwd || cwd;
   const early = await admitAgentSession(ws, "codex", {
-    requested,
+    requested: core?.id ?? requested,
     sessionId,
     live,
     cwd: effectiveCwd,
@@ -598,7 +598,7 @@ async function resolveAntigravitySession(requested: string | null): Promise<{
   core: CoreSession | null;
 }> {
   const core = await requestedCoreSession(requested);
-  const live = core && requested ? ptys.get(requested) : undefined;
+  const live = core ? ptys.get(core.id) : undefined;
   // The same rule codex resumes by, including the part that is easy to drop: the key is only
   // treated as a conversation id when a conversation by that name EXISTS. Without the check every
   // key resumes, which means a stale one is handed to `agy --conversation` — agy answers a
@@ -608,7 +608,7 @@ async function resolveAntigravitySession(requested: string | null): Promise<{
     conversationExists: () => !!requested && antigravityConversationExists(antigravityBrainRoot(), requested),
     coreExists: !!core,
   });
-  const { sessionId } = resolveReattachableId(requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
+  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
   return { sessionId, live, resumeConversationId, core };
 }
 
@@ -652,7 +652,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   const { sessionId, live, resumeConversationId, core } = await resolveAntigravitySession(requested);
   const effectiveCwd = core?.cwd || cwd;
   const early = await admitAgentSession(ws, "antigravity", {
-    requested,
+    requested: core?.id ?? requested,
     sessionId,
     live,
     cwd: effectiveCwd,

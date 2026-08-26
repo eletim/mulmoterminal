@@ -16,6 +16,7 @@ vi.mock("../../../server/session/core-session-adapter.js", async (importOriginal
     ...actual,
     coreSessions: {
       find: async (id: string) => (coreIds.has(id) ? { id, cwd: "/wherever" } : null),
+      findByReference: async (id: string) => (coreIds.has(id) ? { id, cwd: "/wherever" } : null),
     },
   };
 });

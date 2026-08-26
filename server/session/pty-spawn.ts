@@ -203,9 +203,9 @@ export function ptySpawn(
   args: string[],
   cwd: string,
   persistent: boolean,
-  options: PtySpawnEnv & { agent?: LaunchAgent; coreSessionExists?: boolean } = {},
+  options: PtySpawnEnv & { agent?: LaunchAgent; coreSessionExists?: boolean; resumeSource?: string | null } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
-  const { unset = [], env = {}, binEnvVar, agent = "shell", coreSessionExists = false } = options;
+  const { unset = [], env = {}, binEnvVar, agent = "shell", coreSessionExists = false, resumeSource = null } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
   const reattached = ptyWouldReattach(coreSessionExists, persistent);
@@ -220,7 +220,7 @@ export function ptySpawn(
       const quote = shellQuoteFor(process.platform);
       const environment = Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`);
       const command = ["exec", "env", ...environment, quote(file), ...args.map(quote)].join(" ");
-      coreSessions.createSync({ id: sessionId, command, cwd, agent }, ptyEnv(unset, env));
+      coreSessions.createSync({ id: sessionId, command, cwd, agent, ...(resumeSource ? { resumeSource } : {}) }, ptyEnv(unset, env));
       configureCoreTmuxServer();
     }
     return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };
