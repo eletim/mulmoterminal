@@ -3,6 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 import { activity, ptys } from "../../../server/session/registry.js";
+import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;
 const CLOSED = 3;
@@ -494,6 +495,7 @@ describe("viewer release", () => {
   afterEach(() => {
     ptys.clear();
     activity.clear();
+    unregisterCompletionHook(SESSION);
   });
 
   it("removes only viewer transport and leaves activity/Core-owned state untouched", () => {
@@ -517,6 +519,17 @@ describe("viewer release", () => {
 
     expect(releaseAllViewers({ forgetTerminalSize: vi.fn() })).toEqual([SESSION, other]);
     expect(ptys.size).toBe(0);
+  });
+
+  it("does not report a worker failure when only its viewer is released", async () => {
+    const outcomes: boolean[] = [];
+    registerCompletionHook(SESSION, ({ didError }) => void outcomes.push(didError));
+    ptys.set(SESSION, entryWith({ tmux: true }));
+
+    releaseViewer({ forgetTerminalSize: vi.fn() }, SESSION);
+    await runCompletionHook(SESSION, { didError: false });
+
+    expect(outcomes).toEqual([false]);
   });
 
   it("does not let an old PTY exit release a replacement viewer with the same id", () => {

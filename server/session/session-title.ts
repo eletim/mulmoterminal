@@ -42,6 +42,22 @@ function forgetSessionTitle(sessionId: string): void {
   titleEpoch.set(sessionId, (titleEpoch.get(sessionId) ?? 0) + 1);
 }
 
+/** Drop process-local title guards when their owning agent process ends or is deleted.
+ * Core title metadata is intentionally untouched. */
+export function cleanupSessionTitleState(sessionId: string): void {
+  forgetSessionTitle(sessionId);
+  titleInFlight.delete(sessionId);
+  lastTitledUserTurns.delete(sessionId);
+  lastTitleAttemptMs.delete(sessionId);
+}
+
+const viewedTitleIsStale = (sessionId: string, currentUserTurns: number): boolean =>
+  shouldFreshenViewedTitle({
+    lastTitledUserTurns: lastTitledUserTurns.get(sessionId) ?? null,
+    currentUserTurns,
+    regenEveryTurns: VIEW_TITLE_REGEN_TURNS,
+  });
+
 export function createTitleManager(deps: TitleDeps) {
   // Drop all AI-title bookkeeping for a session (on /clear or teardown). Bumping the epoch
   // voids any in-flight generation started before this reset — its (now pre-clear) title
@@ -114,17 +130,10 @@ export function createTitleManager(deps: TitleDeps) {
     await generateAndStoreTitle(sessionId, cwd, transcriptId);
   }
 
-  // The grid roster summarizes on our side even for sessions the hook path never runs on
-  // (unmanaged / resumed / post-restart), so it never shows a stale externally-written title.
-  // Fire-and-forget from the view; the freshened title lands on the next roster poll.
+  // The roster also summarizes sessions whose hook path did not run.
   function freshenRosterTitle(sessionId: string, cwd: string, currentUserTurns: number): void {
     if (titleInFlight.has(sessionId)) return;
-    const stale = shouldFreshenViewedTitle({
-      lastTitledUserTurns: lastTitledUserTurns.get(sessionId) ?? null,
-      currentUserTurns,
-      regenEveryTurns: VIEW_TITLE_REGEN_TURNS,
-    });
-    if (!stale) return;
+    if (!viewedTitleIsStale(sessionId, currentUserTurns)) return;
     const now = deps.now();
     if (now - (lastTitleAttemptMs.get(sessionId) ?? 0) < VIEW_TITLE_RETRY_MS) return;
     lastTitleAttemptMs.set(sessionId, now);

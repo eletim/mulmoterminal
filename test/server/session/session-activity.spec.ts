@@ -30,6 +30,8 @@ describe("session activity", () => {
     ptys.set(ID, entry());
     const service = createSessionActivity(serviceDeps);
     service.setWorking(ID, true, "UserPromptSubmit");
+    lastPrompts.set(ID, "prompt");
+    lastResponses.set(ID, "response");
     service.setWorking(ID, true, "UserPromptSubmit");
     expect(activity.get(ID)?.working).toBe(true);
     expect(serviceDeps.publish).toHaveBeenCalledTimes(1);
@@ -79,6 +81,8 @@ describe("session activity", () => {
       expect.objectContaining({ id: ID, working: false, waiting: false, event: "exited", failed: false }),
     );
     expect(activity.has(ID)).toBe(false);
+    expect(lastPrompts.has(ID)).toBe(false);
+    expect(lastResponses.has(ID)).toBe(false);
     expect(serviceDeps.forgetWorkPhase).toHaveBeenCalledWith(ID);
     expect(ptys.has(ID)).toBe(true);
   });

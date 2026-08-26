@@ -23,13 +23,25 @@ import { repoRootSync } from "../git/repo-root-sync.js";
 import { workdirFooter } from "../git/pr-footer.js";
 import { getProviders } from "../config/config-routes.js";
 import { requireResolution, resolveProvider, type DirModelChoice } from "./provider-env.js";
-import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
-import { ensureDropsDir } from "./session-drops.js";
+import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
+import { cleanupSessionDrops, ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
 import type { CoreSessionVisibility } from "./core-session-adapter.js";
+import { failCompletionHook } from "./completion-hooks.js";
+import { cleanupSessionTitleState } from "./session-title.js";
+import { forgetClearedTranscript } from "./cleared-transcripts.js";
+
+/** Resources created only by a Claude process, cleaned on its exit or explicit Delete. */
+export function cleanupClaudeProcessResources(sessionId: string): void {
+  cleanupSessionSettings(sessionId);
+  forgetClearedTranscript(sessionId);
+}
 
 function cleanupExitedCoreSession(deps: SpawnDeps, sessionId: string): void {
-  deps.cleanupSessionResources(sessionId);
+  cleanupClaudeProcessResources(sessionId);
+  cleanupSessionDrops(sessionId);
+  cleanupSessionTitleState(sessionId);
+  failCompletionHook(sessionId);
   deps.endSessionActivity(sessionId);
 }
 

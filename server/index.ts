@@ -24,7 +24,7 @@ import { isLoopbackBinding } from "./infra/loopback.js";
 import { messageOf } from "./errors.js";
 import { hookSettingsJson } from "./session/hook-settings.js";
 import { mcpConfigJson } from "./session/mcp-config.js";
-import { createClaudeSpawner } from "./session/spawn-claude.js";
+import { cleanupClaudeProcessResources, createClaudeSpawner } from "./session/spawn-claude.js";
 import { spawnPty } from "./session/pty-spawn.js";
 import { createRateLimitStore } from "./agents/rate-limit-store.js";
 import { startRateLimitProbe } from "./agents/rate-limit-probe.js";
@@ -38,9 +38,9 @@ import { newestRolloutFile, codexSessionsDir, readRolloutTail } from "./agents/c
 import { latestRateLimitsInRollout } from "./agents/codex-rate-limits.js";
 import { rateLimitCacheFile, readRateLimitCache, createRateLimitCacheWriter } from "./agents/rate-limit-persist.js";
 import { createCodexSpawner } from "./session/spawn-codex.js";
-import { createShellSpawners } from "./session/spawn-shell.js";
+import { cleanupShellProcessResources, createShellSpawners } from "./session/spawn-shell.js";
 import { createTranslationWorker } from "./session/translation-worker.js";
-import { createTitleManager } from "./session/session-title.js";
+import { cleanupSessionTitleState, createTitleManager } from "./session/session-title.js";
 import { generateTitleFromTurns } from "./config/header-title.js";
 import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers, releaseAllViewers, releaseViewer } from "./session/pty-connection.js";
@@ -91,19 +91,19 @@ import { initNotifier } from "./backends/notifier.js";
 import { stopWhisperSidecar } from "./backends/whisper.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
-import { createSessionLifecycle } from "./session/lifecycle.js";
 import { createSessionActivity, SESSIONS_CHANNEL } from "./session/session-activity.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { installProcessGuards } from "./infra/process-guards.js";
 import { pruneOrphanSettings } from "./session/session-settings.js";
 import { earliestStartedAt, liveInstances, registerInstance } from "../bin/instances.js";
-import { pruneOrphanDrops } from "./session/session-drops.js";
+import { cleanupSessionDrops, pruneOrphanDrops } from "./session/session-drops.js";
 import { installGracefulShutdown } from "./infra/graceful-shutdown.js";
 import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-routes.js";
 import { createOrchestratorStatusReader } from "./routes/orchestrator-session-status.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
 import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./session/core-session-visibility.js";
+import { failCompletionHook } from "./session/completion-hooks.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -152,8 +152,18 @@ await migrateHistoryMemosToCore(await coreSessions.list(), (id, memo) => coreSes
 async function deleteTerminalSession(id: string): Promise<void> {
   const session = await coreSessions.find(id);
   if (session) await handoffCoreMemoToHistory(session);
-  await coreSessions.delete(id);
-  lifecycle.cleanupSessionResources(id);
+  try {
+    await coreSessions.delete(id);
+  } catch (error) {
+    // Internal owners also call this after a spawn that may have failed before Core create.
+    // Their process-local files still need cleanup; any real Core failure remains fatal.
+    if (!(error instanceof CoreSessionNotFoundError)) throw error;
+  }
+  if (session?.agent === "claude") cleanupClaudeProcessResources(id);
+  cleanupSessionDrops(id);
+  cleanupShellProcessResources(id);
+  cleanupSessionTitleState(id);
+  failCompletionHook(id);
   releaseTerminalViewer(id);
   endSessionActivity(id, "closed");
 }
@@ -270,7 +280,6 @@ const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
 const mobileWebPushActivityDeps = createMobileWebPushActivityDeps({ sender: mobileWebPush.sender });
 
 const workPhaseTracker = createWorkPhaseTracker();
-const lifecycle = createSessionLifecycle();
 
 const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessionActivity } = createSessionActivity({
   publish: (channel, data) => pubsub?.publish(channel, data),
@@ -326,7 +335,6 @@ const spawnDeps: SpawnDeps = {
   // The user's MCP servers are read per spawn, so a settings edit applies to the next session.
   mcpConfigJson: (sessionId, host) => mcpConfigJson({ sessionId, host, port: PORT, userMcpServers: getUserMcpServers() }),
   releaseViewer: releaseTerminalViewer,
-  cleanupSessionResources: (id) => lifecycle.cleanupSessionResources(id),
   setWorking: (id, working, event) => setWorking(id, working, event),
   setWaiting: (id, waiting, event) => setWaiting(id, waiting, event),
   publishActivity: (id) => publishActivity(id),
@@ -347,10 +355,7 @@ const { translateViaHiddenChat } = createTranslationWorker({
   releaseViewer: releaseTerminalViewer,
   deleteSession: async (id) => {
     try {
-      await coreSessions.delete(id);
-      lifecycle.cleanupSessionResources(id);
-      releaseTerminalViewer(id);
-      endSessionActivity(id, "closed");
+      await deleteTerminalSession(id);
     } catch (error) {
       // A launch can fail before Core creates the session, while cleanup must stay idempotent.
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
@@ -783,10 +788,7 @@ const scheduledSessions = createScheduledSessionRegistry({
   releaseViewer: releaseTerminalViewer,
   deleteSession: async (id) => {
     try {
-      await coreSessions.delete(id);
-      lifecycle.cleanupSessionResources(id);
-      releaseTerminalViewer(id);
-      endSessionActivity(id, "closed");
+      await deleteTerminalSession(id);
     } catch (error) {
       if (!(error instanceof CoreSessionNotFoundError)) throw error;
     }

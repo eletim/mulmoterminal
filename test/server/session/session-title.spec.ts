@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ConversationTurn } from "../../../server/session/transcript.js";
-import { createTitleManager } from "../../../server/session/session-title.js";
+import { cleanupSessionTitleState, createTitleManager } from "../../../server/session/session-title.js";
 import { lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
@@ -349,5 +349,25 @@ describe("freshenRosterTitle", () => {
     titleInFlight.add(SESSION);
     freshenRosterTitle(SESSION, cwd, 99);
     expect(lastTitleAttemptMs.has(SESSION)).toBe(false);
+  });
+
+  it("lets the title owner discard process-local guards without deleting Core metadata", () => {
+    coreTitles.set(SESSION, "Retained Core title");
+    titleTurnCounts.set(SESSION, 2);
+    titlePending.add(SESSION);
+    titleInFlight.add(SESSION);
+    lastTitledUserTurns.set(SESSION, 4);
+    lastTitleAttemptMs.set(SESSION, 123);
+
+    cleanupSessionTitleState(SESSION);
+
+    expect([
+      titleTurnCounts.has(SESSION),
+      titlePending.has(SESSION),
+      titleInFlight.has(SESSION),
+      lastTitledUserTurns.has(SESSION),
+      lastTitleAttemptMs.has(SESSION),
+    ]).toEqual([false, false, false, false, false]);
+    expect(coreTitles.get(SESSION)).toBe("Retained Core title");
   });
 });

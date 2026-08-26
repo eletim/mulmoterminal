@@ -1,7 +1,7 @@
 // Where a dropped file's bytes land when the browser withheld its path.
 //
 // Structured like session-settings.ts, and for the same reason: the files belong to one
-// session, so reap() drops them, and a boot sweep drops what a crash never reached.
+// agent process, so its exit/delete owner drops them, and a boot sweep covers crashes.
 //
 // The directory is what differs. os.tmpdir() is SHARED with every other program and user on
 // the host, which drives two rules here — the tree is 0700, and the sweep only ever removes a
@@ -131,7 +131,7 @@ export function cleanupSessionDrops(sessionId: string): void {
 
 /** Remove the drop directories no surviving session owns.
  *
- *  cleanupSessionDrops runs from reap(), which a crash — or a machine losing power — never
+ *  cleanupSessionDrops runs from process-exit/delete owners, which a crash — or a machine losing power — never
  *  reaches, and what stays behind is a copy of whatever the user dropped. `liveIds` is what
  *  actually survived the restart: the tmux sessions still running. Nothing else can still be
  *  reading its drops, since a PTY without tmux died with the server that owned it.
