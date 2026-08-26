@@ -235,10 +235,7 @@ const tmuxSizeSync = createTmuxSizeSync({
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
   cancelReap: (id) => cancelReap(id),
-  deleteSession: async (id) => {
-    reap(id);
-    await coreSessions.delete(id);
-  },
+  deleteSession: (id) => coreSessions.delete(id),
   input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
     ptys.get(id)?.term.resize(cols, rows);
@@ -491,7 +488,6 @@ mountAppRoutes(app, {
   noteTitleTurn,
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
   maybeGenerateTitle,
-  reap,
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
   agentOfSession: (id: string) => agentOfSession(id),
@@ -623,7 +619,7 @@ const mobileWriteToSession = async (sessionId: string, chunk: string): Promise<b
   }
 };
 
-const mobileSessionOperations = createCoreSessionOperations(reap);
+const mobileSessionOperations = createCoreSessionOperations();
 
 // Whether the phone's typing may empty the input box before pasting, so only the
 // phone's text is submitted (#572). The rule itself lives with the sender.

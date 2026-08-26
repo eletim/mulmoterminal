@@ -2029,15 +2029,18 @@ describe("MobileTerminalPage", () => {
   });
 
   describe("session operations", () => {
-    function operationCallCount(id: string, operation: "interrupt" | "stop"): number {
-      return vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => String(url) === `/api/mobile/terminal-sessions/${id}/${operation}`).length;
+    function operationCallCount(id: string, operation: "interrupt" | "stop" | "delete"): number {
+      const expected = operation === "delete" ? `/api/mobile/terminal-sessions/${id}` : `/api/mobile/terminal-sessions/${id}/${operation}`;
+      return vi.mocked(globalThis.fetch).mock.calls.filter(([url, init]) => String(url) === expected && (operation !== "delete" || init?.method === "DELETE"))
+        .length;
     }
 
-    it("shows Interrupt and Stop for the selected session, with Interrupt disabled for detached sessions", async () => {
+    it("shows Interrupt, Stop, and Delete for the selected session, with Interrupt disabled for detached sessions", async () => {
       mockFetch({ mode: "local", sessions: [session({ id: "a", live: false })], screens: { a: screenOk("screen-a") } });
       const wrapper = await mountPage();
       expect(findButton(wrapper, "Interrupt").attributes("disabled")).toBeDefined();
       expect(findButton(wrapper, "Stop").exists()).toBe(true);
+      expect(findButton(wrapper, "Delete").exists()).toBe(true);
     });
 
     it("interrupts the selected live session, keeps it selected, and refreshes only its screen", async () => {
@@ -2106,15 +2109,13 @@ describe("MobileTerminalPage", () => {
       expect(wrapper.get('[class*="border-accent"]').text()).toContain("keep-a");
     });
 
-    it("stops only after confirmation, refreshes the list, and falls back when the selected session disappears", async () => {
+    it("stops only after confirmation and retains the selected session membership", async () => {
       let stopped = false;
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
         if (url === "/api/mobile/terminal-sessions") {
-          const rows = stopped
-            ? [session({ id: "b", title: "session-b", live: true })]
-            : [session({ id: "a", title: "session-a", live: true }), session({ id: "b", title: "session-b", live: true })];
+          const rows = [session({ id: "a", title: "session-a", live: !stopped }), session({ id: "b", title: "session-b", live: true })];
           return { ok: true, json: async () => ({ sessions: rows }) };
         }
         if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
@@ -2132,9 +2133,86 @@ describe("MobileTerminalPage", () => {
       await flushPromises();
 
       expect(operationCallCount("a", "stop")).toBe(1);
+      expect(wrapper.get('[class*="border-accent"]').text()).toContain("session-a");
+      expect(wrapper.text()).toContain("screen-a");
+    });
+
+    it("deletes only after confirmation and removes the Core membership from the list", async () => {
+      let deleted = false;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          const rows = deleted
+            ? [session({ id: "b", title: "session-b", live: true })]
+            : [session({ id: "a", title: "session-a", live: false }), session({ id: "b", title: "session-b", live: true })];
+          return { ok: true, json: async () => ({ sessions: rows }) };
+        }
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/b/screen") return { ok: true, json: async () => ({ screen: "screen-b" }) };
+        if (url === "/api/mobile/terminal-sessions/a" && init?.method === "DELETE") {
+          deleted = true;
+          return { ok: true, json: async () => ({ deleted: true }) };
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      const sessionA = wrapper.findAll("button").find((candidate) => candidate.text().includes("session-a"));
+      if (!sessionA) throw new Error("session-a button not found");
+      await sessionA.trigger("click");
+      await flushPromises();
+      await findButton(wrapper, "Delete").trigger("click");
+      await flushPromises();
+      expect(wrapper.text()).toContain("このセッションを削除しますか？");
+      expect(operationCallCount("a", "delete")).toBe(0);
+
+      await findButton(wrapper, "削除").trigger("click");
+      await flushPromises();
+
+      expect(operationCallCount("a", "delete")).toBe(1);
       expect(wrapper.text()).not.toContain("session-a");
       expect(wrapper.get('[class*="border-accent"]').text()).toContain("session-b");
       expect(wrapper.text()).toContain("screen-b");
+    });
+
+    it("waits for an in-flight list poll before applying the post-delete list", async () => {
+      let deleted = false;
+      let listCalls = 0;
+      let resolveStalePoll: (value: { ok: true; json: () => Promise<unknown> }) => void = () => {};
+      const stalePoll = new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
+        resolveStalePoll = resolve;
+      });
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/mobile-mode") return { ok: true, json: async () => ({ mode: "local" }) };
+        if (url === "/api/mobile/terminal-sessions") {
+          listCalls += 1;
+          if (listCalls === 2) return stalePoll;
+          return { ok: true, json: async () => ({ sessions: deleted ? [] : [session({ id: "a", title: "session-a", live: true })] }) };
+        }
+        if (url === "/api/mobile/terminal-sessions/a/screen") return { ok: true, json: async () => ({ screen: "screen-a" }) };
+        if (url === "/api/mobile/terminal-sessions/a" && init?.method === "DELETE") {
+          deleted = true;
+          return { ok: true, json: async () => ({ deleted: true }) };
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }) as unknown as typeof fetch;
+
+      const wrapper = await mountPage();
+      fireVisibilityChange("visible");
+      await findButton(wrapper, "Delete").trigger("click");
+      await findButton(wrapper, "削除").trigger("click");
+      await flushPromises();
+      expect(listCalls).toBe(2);
+
+      resolveStalePoll({ ok: true, json: async () => ({ sessions: [session({ id: "a", title: "session-a", live: true })] }) });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await flushPromises();
+
+      expect(listCalls).toBe(3);
+      expect(wrapper.text()).toContain("No terminal sessions.");
+      expect(wrapper.text()).not.toContain("session-a");
     });
 
     it("does not send duplicate Stop requests while confirmation is in flight", async () => {

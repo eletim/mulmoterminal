@@ -62,6 +62,20 @@ describe("CoreSessionAdapter", () => {
     expect(input).toHaveBeenCalledWith(native.id, "\u001b[A", { submit: false });
   });
 
+  it("maps Stop and Delete to distinct Core membership operations", async () => {
+    const stop = vi.fn(async () => undefined);
+    const remove = vi.fn(async () => undefined);
+    const adapter = new CoreSessionAdapter({ core: { stop, delete: remove } as unknown as SessionCore });
+
+    await adapter.stop(native.id);
+    expect(stop).toHaveBeenCalledExactlyOnceWith(native.id);
+    expect(remove).not.toHaveBeenCalled();
+
+    await adapter.delete(native.id);
+    expect(remove).toHaveBeenCalledExactlyOnceWith(native.id);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
   it("reports child exit from a remain-on-exit Core pane", async () => {
     const core = {
       list: vi
