@@ -11,7 +11,7 @@ import { ptys } from "./registry.js";
 import { isCoreSessionExitEvent, ptySpawn, spawnPty } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
-import { startShellTaskWatch, stopShellTaskWatch } from "./shell-task-watch.js";
+import { startShellTaskWatch } from "./shell-task-watch.js";
 import { appendBoundedOutput } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
@@ -71,7 +71,6 @@ export function createShellSpawners(deps: SpawnDeps) {
     });
     term.onExit((event) => {
       const { exitCode, signal } = event;
-      stopShellTaskWatch(sessionId);
       if (isCoreSessionExitEvent(event)) {
         deps.cleanupSessionResources(sessionId);
         deps.endSessionActivity(sessionId);

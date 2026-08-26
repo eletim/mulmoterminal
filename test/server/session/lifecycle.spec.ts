@@ -11,8 +11,10 @@ import { createSessionActivity, type ActivityServiceDeps } from "../../../server
 import { activity, antigravityConversations, codexRolloutIds, lastPrompts, lastResponses, ptys, sessionMemos } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 import { hasNewSessionChildProcess, hasSessionChildProcess, sessionChildProcessPids } from "../../../server/session/child-processes.js";
+import { stopShellTaskWatch } from "../../../server/session/shell-task-watch.js";
 vi.mock("../../../server/session/session-settings.js", () => ({ cleanupSessionSettings: vi.fn() }));
 vi.mock("../../../server/session/session-drops.js", () => ({ cleanupSessionDrops: vi.fn() }));
+vi.mock("../../../server/session/shell-task-watch.js", () => ({ stopShellTaskWatch: vi.fn() }));
 vi.mock("../../../server/session/child-processes.js", () => ({
   hasNewSessionChildProcess: vi.fn(() => false),
   hasSessionChildProcess: vi.fn(() => false),
@@ -57,6 +59,7 @@ beforeEach(() => {
   vi.mocked(hasNewSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(hasSessionChildProcess).mockReset().mockReturnValue(false);
   vi.mocked(sessionChildProcessPids).mockReset().mockReturnValue(new Set());
+  vi.mocked(stopShellTaskWatch).mockReset();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -73,6 +76,7 @@ describe("reap", () => {
     createSessionLifecycle(deps).reap(ID);
 
     expect([ptys.has(ID), lastPrompts.has(ID), lastResponses.has(ID)]).toEqual([false, true, true]);
+    expect(stopShellTaskWatch).not.toHaveBeenCalled();
     // A socket close only pauses the tmux size bookkeeping (a detached session can reattach);
     // teardown is the one place that frees it, or it grows for the server's whole life (#957).
     expect(deps.forgetTerminalSize).toHaveBeenCalledWith(ID);
@@ -125,6 +129,7 @@ describe("process/delete resource cleanup", () => {
     createViewerLifecycle(makeDeps()).cleanupSessionResources(ID);
 
     expect([lastPrompts.has(ID), lastResponses.has(ID), clearedTranscripts.has(ID)]).toEqual([false, false, false]);
+    expect(stopShellTaskWatch).toHaveBeenCalledWith(ID);
   });
 });
 
