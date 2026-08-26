@@ -22,7 +22,7 @@ const VIEW_TITLE_RETRY_MS = 30_000;
 
 export interface TitleDeps {
   /** Push the Core title change to subscribers without mirroring it in Backend state. */
-  publishTitle: (id: string, title: string) => void;
+  publishTitle: (id: string, title: string | null) => void;
   /** Injected so the retry floor can be tested without waiting out 30 seconds. */
   now: () => number;
   /** Summarize a transcript into a title. Injected because the real one shells out to
@@ -49,6 +49,7 @@ export function createTitleManager(deps: TitleDeps) {
   async function forgetTitle(sessionId: string): Promise<void> {
     forgetSessionTitle(sessionId);
     await deps.clearTitle(sessionId).catch(() => undefined);
+    deps.publishTitle(sessionId, null);
   }
 
   // Count a user turn and flag the session for a title (re)generation at the next Stop when

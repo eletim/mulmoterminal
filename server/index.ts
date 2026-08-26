@@ -46,7 +46,7 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, lastPrompts, migrateHistoryMemosToCore, ptys } from "./session/registry.js";
+import { activity, handoffCoreMemoToHistory, lastPrompts, migrateHistoryMemosToCore, ptys } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -146,6 +146,14 @@ if (migratedBackgroundSessions > 0) {
 // Request paths never fall back to this store for live sessions after startup.
 await migrateHistoryMemosToCore(await coreSessions.list(), (id, memo) => coreSessions.setMemo(id, memo));
 
+// Explicit user Delete changes the metadata owner from a live Core membership to its retained
+// conversation history. Persist that handoff once, then let Core perform the only membership write.
+const deleteTerminalSession = async (id: string): Promise<void> => {
+  const session = await coreSessions.find(id);
+  if (session) await handoffCoreMemoToHistory(session);
+  await coreSessions.delete(id);
+};
+
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
 // Gated to the managed mulmoclaude workspace and
 // fault-isolated per step, so it never aborts boot (see workspaceSetup.ts).
@@ -237,7 +245,7 @@ const tmuxSizeSync = createTmuxSizeSync({
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
   cancelReap: (id) => cancelReap(id),
-  deleteSession: (id) => coreSessions.delete(id),
+  deleteSession: deleteTerminalSession,
   input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
     ptys.get(id)?.term.resize(cols, rows);
@@ -490,6 +498,7 @@ mountAppRoutes(app, {
   spawnCodexPty,
   spawnAntigravityPty,
   translateViaHiddenChat,
+  deleteTerminalSession,
   freshenRosterTitle,
   forgetTitle,
   noteTitleTurn,
@@ -619,7 +628,10 @@ const mobileWriteToSession = async (sessionId: string, chunk: string): Promise<b
   }
 };
 
-const mobileSessionOperations = createCoreSessionOperations();
+const mobileSessionOperations = createCoreSessionOperations({
+  stop: (id) => coreSessions.stop(id),
+  delete: deleteTerminalSession,
+});
 
 // Whether the phone's typing may empty the input box before pasting, so only the
 // phone's text is submitted (#572). The rule itself lives with the sender.

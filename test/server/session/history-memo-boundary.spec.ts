@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { migrateHistoryMemosToCore, sessionMemos, sessionMemosHydrated } from "../../../server/session/registry.js";
+import { handoffCoreMemoToHistory, migrateHistoryMemosToCore, sessionMemos, sessionMemosHydrated } from "../../../server/session/registry.js";
 
 const LEGACY = "11111111-2222-4333-8444-555555555555";
 const ALREADY_CORE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -37,5 +37,18 @@ describe("history/live memo boundary", () => {
         throw new Error("deleted concurrently");
       }),
     ).resolves.toBe(0);
+  });
+
+  it("hands a live memo to the retained history identity only at Delete", async () => {
+    await sessionMemosHydrated;
+    await handoffCoreMemoToHistory({ id: ALREADY_CORE, memo: "Core note", resumeSource: LEGACY });
+    expect(sessionMemos.get(LEGACY)).toBe("Core note");
+    expect(sessionMemos.has(ALREADY_CORE)).toBe(false);
+  });
+
+  it("does not create history metadata for a live session without a memo", async () => {
+    await sessionMemosHydrated;
+    await handoffCoreMemoToHistory({ id: ALREADY_CORE, memo: null, resumeSource: LEGACY });
+    expect(sessionMemos.size).toBe(0);
   });
 });

@@ -49,12 +49,12 @@ afterEach(async () => {
 // The real generator shells out to the claude CLI; the fake keeps these tests fast,
 // deterministic, and runnable without an API key.
 function setup(now = () => 1_000_000, generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title") {
-  const published: string[] = [];
+  const published: Array<[string, string | null]> = [];
   // Turns, not a raw transcript — the manager streams the file now (#998), so what the generator
   // receives is what came out of that stream.
   const summarized: ConversationTurn[][] = [];
   const mgr = createTitleManager({
-    publishTitle: (id) => published.push(id),
+    publishTitle: (id, title) => published.push([id, title]),
     now,
     generateTitle: (turns) => {
       summarized.push(turns);
@@ -106,7 +106,7 @@ describe("noteTitleTurn", () => {
 
 describe("forgetTitle", () => {
   it("drops every trace of the title", async () => {
-    const { forgetTitle } = setup();
+    const { forgetTitle, published } = setup();
     coreTitles.set(SESSION, "T");
     titleTurnCounts.set(SESSION, 5);
     titlePending.add(SESSION);
@@ -114,6 +114,7 @@ describe("forgetTitle", () => {
     expect(coreTitles.has(SESSION)).toBe(false);
     expect(titleTurnCounts.has(SESSION)).toBe(false);
     expect(titlePending.has(SESSION)).toBe(false);
+    expect(published).toEqual([[SESSION, null]]);
   });
 
   it("bumps the epoch, which is what voids a generation already in flight", async () => {
@@ -132,7 +133,7 @@ describe("maybeGenerateTitle", () => {
     titlePending.add(SESSION);
     await maybeGenerateTitle(SESSION, cwd);
     expect(coreTitles.get(SESSION)).toBe("Generated title");
-    expect(published).toEqual([SESSION]);
+    expect(published).toEqual([[SESSION, "Generated title"]]);
     expect(titlePending.has(SESSION)).toBe(false);
     expect(titleTurnCounts.get(SESSION)).toBe(0); // the counter restarts from the new title
   });
@@ -190,7 +191,7 @@ describe("maybeGenerateTitle", () => {
     await forgetTitle(SESSION); // /clear lands mid-generation
     await running;
     expect(coreTitles.has(SESSION)).toBe(false);
-    expect(published).toEqual([]);
+    expect(published).toEqual([[SESSION, null]]);
   });
 
   it("does not title a cleared session from its frozen transcript", async () => {
@@ -238,7 +239,7 @@ describe("maybeGenerateTitle", () => {
 
     release("Generated title");
     await first;
-    expect(published).toEqual([SESSION]);
+    expect(published).toEqual([[SESSION, "Generated title"]]);
   });
 
   // The generator is handed the transcript's TURNS, read by streaming the file (#998) rather than
@@ -270,7 +271,7 @@ describe("freshenRosterTitle", () => {
     await writeTranscript([userTurn("add a retry to the uploader")]);
     lastTitledUserTurns.set(SESSION, 0);
     freshenRosterTitle(SESSION, cwd, 99);
-    await vi.waitFor(() => expect(published).toEqual([SESSION]));
+    await vi.waitFor(() => expect(published).toEqual([[SESSION, "Generated title"]]));
   });
 
   it("leaves a freshly-titled session alone", () => {
