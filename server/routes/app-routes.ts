@@ -77,7 +77,6 @@ export interface AppRouteDeps extends SessionActivityDeps {
   spawnAntigravityPty: ReturnType<typeof createAntigravitySpawner>["spawnAntigravityPty"];
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
-  reap: (id: string) => void;
   registerBackgroundSession: (id: string) => void;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
@@ -349,9 +348,6 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   mountTmuxRoutes(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
-    deleteSession: async (id) => {
-      deps.reap(id);
-      await coreSessions.delete(id);
-    },
+    deleteSession: (id) => coreSessions.delete(id),
   });
 }
