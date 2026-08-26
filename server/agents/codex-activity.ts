@@ -114,8 +114,8 @@ export function codexUserPrompts(lines: string[]): string[] {
 // `turn_aborted` is what an INTERRUPTED turn writes (Esc / steer) — verified against real
 // rollouts, where an aborted turn logs task_started … turn_aborted with NO task_complete.
 // An "error" turn still gets task_complete, so only interrupts rely on turn_aborted. Miss
-// it and the working flag set at task_started never clears: the spinner spins forever, no
-// "finished" push fires, and reapDecisionFor keeps the detached session alive.
+// it and the working flag set at task_started never clears: the spinner spins forever and no
+// "finished" push fires. This affects display/notification state only.
 const TURN_END_TYPES = new Set(["task_complete", "turn_aborted"]);
 
 // The turn boundaries in these lines, oldest first. A turn that both starts and finishes

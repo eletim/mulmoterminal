@@ -31,10 +31,9 @@ import type { Activity, PtyEntry } from "./types.js";
 // UserPromptSubmit => Claude started thinking; Stop => it finished.
 export const activity = new Map<string, Activity>(); // id -> { working, event, at }
 
-// Live ptys keyed by session id. A pty outlives its WebSocket while the session
-// is still "working", so switching away doesn't interrupt Claude mid-turn; it
-// is reaped once the session goes idle (Stop hook) or the process exits. `ws`
-// is null while the session runs in the background.
+// Process-local viewer transports keyed by Core session id. `ws` is null only
+// while a viewer is being detached/replaced; release removes the entry. This map
+// is never a source of Core membership.
 export const ptys = new Map<string, PtyEntry>(); // id -> { term, ws, buffer }
 
 // Latest MEANINGFUL user prompt per session (from the UserPromptSubmit hook), shown
@@ -240,8 +239,7 @@ export function isUserScheduledSession(id: string): boolean {
 // without a record the failure is simply never learned.
 //
 // Persisted for the same reason the set above is, and more so: the whole value of this is being
-// able to find out LATER. A live-only flag would be cleared by the very reap that discovers the
-// failure.
+// able to find out LATER. The process owner records this before it clears transient state.
 const failedWorkers = new Set<string>();
 const FAILED_WORKERS_FILE = path.join(MULMOTERMINAL_HOME, "failed-workers.json");
 export const failedWorkersHydrated = hydrateIdLog(FAILED_WORKERS_FILE, failedWorkers);
@@ -508,8 +506,8 @@ export const activityStateHydrated: Promise<void> = (async () => {
 // The sessions THIS process drives (every id it has flagged working/waiting). The file is
 // shared with any other server rooted at the same MULMOTERMINAL_HOME, and hydration pulls the
 // other instance's ids into `activity` too — so a snapshot of the whole map is not this
-// instance's to write back. Ownership is claimed on the flag, not derived from `ptys`, so a
-// just-reaped session (pty already gone) is still recognised as ours and removed from the file.
+// instance's to write back. Ownership is claimed on the flag, not derived from viewers, so Core
+// exit or explicit Delete can remove our activity even after the viewer has been released.
 const ownedActivityIds = new Set<string>();
 export function claimActivityOwnership(id: string): void {
   ownedActivityIds.add(id);

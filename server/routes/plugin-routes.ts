@@ -21,10 +21,8 @@ export interface PluginRouteDeps {
   spawnClaudePty: SpawnClaudePty;
   spawnCodexPty: SpawnCodexPty;
   spawnAntigravityPty: SpawnAntigravityPty;
-  /** Put a hidden spawn on the scheduled-session retention (#541). Nobody watches a
-   *  background worker and the chat list keeps it behind a filter, so the hook-driven reap
-   *  is the only thing that would ever end it — and a worker blocked on a permission prompt
-   *  never fires the hook that starts it. */
+  /** Put a hidden spawn under the scheduled-worker retention owner (#541). Nobody watches a
+   *  background worker, so that owner explicitly deletes expired Core sessions. */
   registerBackgroundSession: (id: string) => void;
 }
 
@@ -93,15 +91,13 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
         // success signal a PTY-hosted agent gives us is a finished turn reported by Claude Code's
         // Stop hook (hook-routes.ts); codex and antigravity have no hook mechanism at all, so
         // they can never report success. Registering for them would mean every SUCCESSFUL hidden
-        // codex worker reached reap unreported and was marked failed — a signal that is wrong
+        // codex worker reached process exit unreported and was marked failed — a signal that is wrong
         // more often than it is right, which is worse than the silence it replaced.
         // (Codex, PR #1188.) A non-claude hidden worker therefore keeps today's behaviour: no
         // failure signal. Giving it one needs a completion signal for those agents first.
         //
-        // RECORDS ONLY, and synchronously. Announcing is reap's job: it publishes one teardown
-        // message carrying this outcome, which is what keeps the generic notification from
-        // racing ahead of the specific one. Staying synchronous is therefore a contract, not an
-        // implementation detail — reap reads the flag immediately after firing this.
+        // RECORDS ONLY, and synchronously. The process owner publishes the terminal activity
+        // after failing this hook, so it must be able to read the flag immediately.
         if (agent === "claude") {
           registerCompletionHook(sessionId, ({ didError }) => {
             if (didError) markFailedWorker(sessionId);

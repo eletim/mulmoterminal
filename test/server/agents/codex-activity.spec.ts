@@ -71,7 +71,7 @@ describe("turnBoundaries", () => {
   // Regression (#742): an interrupted turn (Esc / steer) writes task_started … turn_aborted
   // with NO task_complete — verified against real ~/.codex/sessions rollouts. Without this,
   // the working flag set at task_started never clears: spinner stuck, no finished-push, and
-  // the detached session is never reaped.
+  // the stale activity display never clears.
   it("treats turn_aborted as a completed boundary (interrupted turns clear the working flag)", () => {
     expect(turnBoundaries([started(), agentMessage(), aborted()])).toEqual(["started", "completed"]);
   });

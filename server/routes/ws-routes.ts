@@ -303,7 +303,7 @@ async function startRunTerminal(deps: WsRouteDeps, ws: WebSocket, url: URL): Pro
 // Spawn the ephemeral Run PTY and wire its lifecycle. resolveRunTarget above can await a git
 // subprocess (buildHeaderContext for a button command), and the viewer can leave during that
 // window — before any close handler is wired. Spawning then leaks a PTY nobody reaps (/ws/run
-// is ephemeral: no reattach, no reap/grace, so its only kill is the close handler below). Bail
+// is ephemeral: no reattach, so its only kill is the close handler below). Bail
 // if the socket has since closed — the same guard handleClaudeConnection applies after its
 // keychain refresh.
 export function beginRunTerminal(deps: WsRouteDeps, ws: WebSocket, resolved: { command: string; cwd: string }, size: TerminalSize | null = null): void {
@@ -551,7 +551,7 @@ export function clientStillConnected(ws: WebSocket, tag: string, sessionId: stri
 
 // Launcher terminal (?launcher=<index>&cwd=<dir>, ?session=<id> to reattach): run a
 // configured launch command as a persistent, reattachable PTY. Reuses the /ws session
-// lifecycle (reattach + reap grace + handleClientClose) but with no hooks/transcript,
+// viewer transport (attach + detach + release) but with no hooks/transcript,
 // and is marked a dev-terminal session so it stays out of the chat sidebar.
 async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUpgradeRequest) {
   const { url, requested, cwd, unusable, size } = wsConnectionContext(req);
@@ -656,7 +656,7 @@ interface AntigravityStart {
 // Reattach or spawn, as ONE function handed to startAndWire — the reattach must not take a
 // shortcut around it. `reattachPty` only swaps the socket and replays the buffer; returning early
 // on it left a reloaded terminal printing output while ignoring every keystroke, and never
-// detaching or reaping when the socket closed.
+// detaching or releasing when the socket closed.
 function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: AntigravityStart): PtyEntry {
   const { sessionId, resumeConversationId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
   const live = ptys.get(sessionId);
@@ -699,7 +699,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   if (!clientStillConnected(ws, "antigravity", sessionId, early)) return;
   // The reattach goes THROUGH startAndWire like the spawn, not around it: reattachPty only swaps
   // the socket and replays the buffer, so returning early here left a reloaded terminal printing
-  // output while ignoring every keystroke, and never detaching or reaping on close.
+  // output while ignoring every keystroke, and never detaching or releasing on close.
   const startFailureMessage = startFailureMessageFor("Antigravity");
   startAndWire(deps, ws, { id: sessionId, tag: "antigravity", early, startFailureMessage, stopLifecycleOnStartFailure: !core, size }, () =>
     startAntigravityEntry(deps, ws, {
@@ -724,7 +724,7 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
   const runWss = new WebSocketServer({ noServer: true });
   // Launcher terminals (a plain shell / codex / any configured command) get their own WS
   // too. Unlike /ws/run these are PERSISTENT & reattachable (they share the /ws session
-  // lifecycle — ptys map, reattach, reap grace) but carry no Claude hooks/transcript.
+  // viewer transport — ptys map, attach/detach/release) but carry no Claude hooks/transcript.
   const runLaunchWss = new WebSocketServer({ noServer: true });
   // First-class codex sessions — persistent + reattachable like /ws/launch, but running codex
   // with session discovery + resume. Its own endpoint so /ws stays claude-only.

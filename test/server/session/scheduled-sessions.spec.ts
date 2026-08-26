@@ -143,7 +143,7 @@ describe("scheduledSessionInUse", () => {
 
 describe("heldByAnotherProcess", () => {
   // The leak this registry exists for IS our own detached background pty: it holds a tmux
-  // client, so it must NOT read as somebody else's, or nothing would ever be reaped.
+  // client, so it must NOT read as somebody else's, or nothing would ever be expired.
   it("does not count our own pty as another process", () => {
     expect(heldByAnotherProcess(1, true)).toBe(false);
   });
@@ -267,7 +267,7 @@ describe("createScheduledSessionRegistry", () => {
 
     clockMs += 25 * HOUR;
     await registry().sweep();
-    // reap() is a no-op without a live entry, so the direct kill is what frees the tmux.
+    // Viewer release is a no-op without a local entry, so Core Delete is what removes membership.
     expect(deleteSession).toHaveBeenCalledWith("s1");
   });
 

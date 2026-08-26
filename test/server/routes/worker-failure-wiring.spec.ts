@@ -47,20 +47,20 @@ describe("a hidden worker that ends badly", () => {
     const id = await spawn(true);
     expect(isFailedWorker(id)).toBe(false); // nothing decided while it runs
 
-    // What lifecycle.reap() does for a session that never reported a finished turn.
+    // What the agent process owner does when a session never reported a finished turn.
     await runCompletionHook(id, { didError: true });
 
     expect(isFailedWorker(id)).toBe(true);
   });
 
-  // The contract reap depends on. It fires the hook and then reads the flag on the very next
+  // The process-owner contract depends on synchronous recording before it publishes exit on the next
   // line, so it can put the outcome on the SAME teardown message — which is what stops the
   // generic notification racing ahead of the specific one. If this recorder ever became async,
-  // reap would publish `failed: false` and the failure would go unannounced, silently.
-  it("records SYNCHRONOUSLY, so reap can read the flag on the next line", async () => {
+  // owner step would publish `failed: false` and the failure would go unannounced, silently.
+  it("records SYNCHRONOUSLY, so the process owner can read the flag next", async () => {
     const id = await spawn(true);
 
-    void runCompletionHook(id, { didError: true }); // deliberately NOT awaited, as reap calls it
+    void runCompletionHook(id, { didError: true }); // deliberately NOT awaited, as the exit owner calls it
 
     expect(isFailedWorker(id)).toBe(true);
   });
@@ -71,7 +71,7 @@ describe("a hidden worker that ends badly", () => {
     // be marked failed the moment it was cleaned up.
     const id = await spawn(true);
     await runCompletionHook(id, { didError: false });
-    await runCompletionHook(id, { didError: true }); // reap, moments later
+    await runCompletionHook(id, { didError: true }); // process exit, moments later
 
     expect(isFailedWorker(id)).toBe(false);
   });

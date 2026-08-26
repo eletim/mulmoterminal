@@ -597,7 +597,7 @@ describe("POST /api/mobile/terminal-sessions/:id/input", () => {
 });
 
 describe("POST /api/mobile/terminal-sessions/:id/interrupt", () => {
-  it("sends Ctrl+C through the injected raw interrupt path, without reaping the session", async () => {
+  it("sends Ctrl+C through the injected raw interrupt path, without deleting the session", async () => {
     const { app, writes, stops } = appFor();
     const res = await request(app).post(`/api/mobile/terminal-sessions/${LIVE}/interrupt`);
     expect(res.status).toBe(200);

@@ -103,7 +103,7 @@ describe("createWorkPhaseTracker", () => {
   });
 
   // The leak this guards: /api/hook shape-checks the uuid rather than looking it up, and an entry
-  // is only reclaimed by reap — which does nothing for a session with no pty. An ignored hook must
+  // is only reclaimed by its activity owner. An ignored hook must
   // therefore allocate nothing, or every uuid ever posted would occupy the map for good.
   it("allocates nothing for hooks that carry no turn information", () => {
     const t = createWorkPhaseTracker();

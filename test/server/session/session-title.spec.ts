@@ -246,7 +246,7 @@ describe("maybeGenerateTitle", () => {
   });
 
   it("titles again once the session is no longer cleared", async () => {
-    // reap() drops the mark, so resuming that id (which appends to the file again) restores
+    // process-owner cleanup drops the mark, so resuming that id (which appends to the file again) restores
     // the normal behaviour rather than leaving the roster row blank for good.
     const { maybeGenerateTitle } = setup();
     await writeTranscript([userTurn("add a retry to the uploader")]);

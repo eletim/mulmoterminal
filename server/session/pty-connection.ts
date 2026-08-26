@@ -119,8 +119,8 @@ function applyViewFrame(entry: PtyEntry, sessionId: string, active: boolean, dep
 }
 
 export function createConnectionHandlers(deps: ConnectionDeps) {
-  // Reattach a live background PTY to a new socket: drop any stale socket, swap in
-  // the new one, and replay the buffered tail for context.
+  // Attach a replacement socket to an existing viewer transport: drop any stale socket,
+  // swap in the new one, and replay the buffered tail for context.
   function reattachPty(entry: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
     console.log(`[ws] reattach ${sessionId} (pid=${entry.term.pid})`);
     // Drop any socket still attached (e.g. the same session open in another tab).
@@ -162,8 +162,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     if (!msg) return;
     try {
       if (msg.type === "terminate") {
-        // Explicit close (the cell's close button) — delete now instead of waiting out the
-        // disconnect grace window, so the session slot frees immediately.
+        // Explicit close (the cell's close button) is Delete, unlike an ordinary disconnect.
         void Promise.resolve(deps.deleteSession(sessionId)).catch((error) => console.warn(`[ws] delete failed for ${sessionId}: ${messageOf(error)}`));
       } else if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
@@ -192,8 +191,8 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
   function handleClientClose(entry: PtyEntry, ws: WebSocket, sessionId: string) {
     // Ignore if a newer client already reattached to this session.
     if (entry.ws !== ws) return;
-    // Ignore if this PTY has already been reaped. Its socket may close later, but that close must
-    // not rewrite the stopped lifecycle back to detached.
+    // Ignore if this viewer has already been released. Its socket may close later, but that close
+    // must not detach a replacement viewer.
     if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) return;
     entry.ws = null;
     deps.cancelTerminalSizeCheck(sessionId);

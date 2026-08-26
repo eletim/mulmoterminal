@@ -38,7 +38,7 @@ describe("removeQuietly", () => {
 
   // The reason this exists: on Windows a file another process still holds fails with
   // EPERM/EBUSY rather than being unlinked, and a throw out of a cleanup turns a transient
-  // lock into a broken teardown — a reap that stops halfway, a boot that gives up seeding.
+  // lock into broken owner cleanup or a boot that gives up seeding.
   // POSIX cannot produce that lock, so the failure path is driven directly.
   it("reports a failure instead of throwing it", () => {
     const locked = () => {

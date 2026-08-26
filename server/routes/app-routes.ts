@@ -6,7 +6,7 @@
 // routes must precede mountAllRoutes' /api/plugin/:toolName catch-all, and the SPA fallback
 // must come after the static mount.
 //
-// What arrives as deps is what index.ts owns: the spawners, the session lifecycle, the title
+// What arrives as deps is what index.ts owns: the spawners, activity service, the title
 // manager, the tool stores, and `publish` (pub/sub exists only once the HTTP server does).
 import path from "node:path";
 import { sameOriginGuard } from "./same-origin-guard.js";
@@ -237,7 +237,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // prefix — see server/spa-fallback.ts for why that's sufficient.
   mountSpaFallback(app, distDir, { basePath: MULMOTERMINAL_BASE_PATH });
 
-  // The Claude hook endpoint (routes/hook-routes.ts). Session lifecycle, the title
+  // The Claude hook endpoint (routes/hook-routes.ts). Activity, title
   // bookkeeping and the tool stores stay here; the fan-out that reads them moves out.
   mountSessionFacingRoutes(app, deps);
 }

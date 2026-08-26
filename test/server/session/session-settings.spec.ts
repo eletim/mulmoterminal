@@ -59,7 +59,7 @@ describe("settingsArgument", () => {
 });
 
 describe("withSettingsCleanup", () => {
-  // A session that never starts never reaches reap(), where the cleanup normally happens
+  // A session that never starts never reaches process-exit cleanup
   // — so without this a failed spawn leaves a token-bearing file on disk.
   it("removes the file when the spawn throws, and re-throws", () => {
     settingsArgument(SESSION, '{"env":{"ANTHROPIC_AUTH_TOKEN":"sk-secret"}}', true);
@@ -115,7 +115,7 @@ describe("the Windows reason for a file", () => {
     expect(mcpConfigArgument(SESSION, "{}", "darwin")).toBe("{}");
   });
 
-  // reap() calls this once per session; it has to take BOTH files or the mcp one outlives
+  // The Claude process owner calls this once per session; it has to take BOTH files or the mcp one outlives
   // every Windows session.
   it("cleans up both files", () => {
     settingsArgument(SESSION, json, false, "win32");
@@ -155,7 +155,7 @@ describe("the argv a Windows spawn ends up with", () => {
   });
 });
 
-// A crash never reaches reap(), so its sessions' settings files stay behind — and a provider
+// A crash never reaches process-owner cleanup, so its sessions' settings files stay behind — and a provider
 // session's file holds its API token, which then outlives the session, survives being rotated
 // or revoked, and survives the provider being removed from the config.
 describe("pruneOrphanSettings", () => {

@@ -14,11 +14,11 @@ afterEach(() => {
 
 // Captures the id the worker spawns with, and lets the test answer as that worker would.
 function harness(answer?: (sessionId: string) => void) {
-  const reaped: string[] = [];
+  const released: string[] = [];
   const deleted: string[] = [];
   const spawned: Array<{ sessionId: string; prompt: string; visibility: "internal" }> = [];
   const { translateViaHiddenChat } = createTranslationWorker({
-    releaseViewer: (id) => reaped.push(id),
+    releaseViewer: (id) => released.push(id),
     deleteSession: async (id) => {
       deleted.push(id);
     },
@@ -27,7 +27,7 @@ function harness(answer?: (sessionId: string) => void) {
       answer?.(sessionId);
     },
   });
-  return { translateViaHiddenChat, reaped, deleted, spawned };
+  return { translateViaHiddenChat, released, deleted, spawned };
 }
 
 describe("translateViaHiddenChat", () => {
@@ -48,13 +48,13 @@ describe("translateViaHiddenChat", () => {
   it("tears the worker down once it is done, whether it succeeded or not", async () => {
     const ok = harness((id) => submitTranslation(id, ["x"]));
     await ok.translateViaHiddenChat("ja", ["hello"]);
-    expect(ok.reaped).toEqual([ok.spawned[0].sessionId]);
+    expect(ok.released).toEqual([ok.spawned[0].sessionId]);
     expect(ok.deleted).toEqual([ok.spawned[0].sessionId]);
 
     // A worker that never submits still has to be cleaned up on the way out.
     const bad = harness((id) => failPendingTranslation(id, "boom"));
     await expect(bad.translateViaHiddenChat("ja", ["hello"])).rejects.toThrow();
-    expect(bad.reaped).toHaveLength(bad.spawned.length);
+    expect(bad.released).toHaveLength(bad.spawned.length);
     expect(bad.deleted).toHaveLength(bad.spawned.length);
   });
 

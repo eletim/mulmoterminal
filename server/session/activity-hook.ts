@@ -9,7 +9,7 @@ import type { PushKind } from "../../common/pushKinds.js";
 // or `done` (Stop) among its siblings — the whole point of the parallel grid.
 //
 // Extracted from index.ts so the grid attention semantics are unit-testable; the
-// caller applies the effects via setWorking/setWaiting (which publish + arm reaps).
+// caller applies the effects via setWorking/setWaiting, which only publish UI activity.
 
 export type ActivityEffect = { kind: "working" | "waiting"; value: boolean };
 

@@ -4,7 +4,7 @@
 // until Windows: a file another process still holds open, or a directory something is
 // walking, fails with EPERM/EBUSY/ENOTEMPTY instead. Every caller here is CLEANUP — the work
 // it belongs to has already finished or already failed — so a throw from it can only turn a
-// transient lock into a broken teardown: a reap that stops halfway, a boot that gives up
+// transient lock into broken owner cleanup or a boot that gives up
 // seeding. POSIX never showed this because it lets you unlink an open file.
 //
 // Failing to delete is not silent by accident: `removeQuietly` reports whether it managed it,
@@ -77,7 +77,7 @@ function forgetLegacySandboxDir(home: string): void {
  * Force-remove containers the sandbox left running.
  *
  * `docker run --rm` cleans up when the CONTAINER exits, not when its client dies — killing the
- * client only detaches, which is why reap() force-removed the container explicitly. That call went
+ * client only detaches, which is why the former sandbox owner force-removed the container. That call went
  * with the feature, so a server killed or upgraded mid-session leaves a container running with the
  * workspace and ~/.claude still mounted read-write, and nothing left in the app can reach it
  * (Codex, PR #1195).

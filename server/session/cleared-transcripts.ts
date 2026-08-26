@@ -16,7 +16,7 @@
 //     An id belongs to one server, so per-id files never race.
 //   - the size, because it is what lets a mark expire on its own. A later `--resume` appends to
 //     that file, so a file bigger than the recorded size means claude is writing to it again and
-//     the mark no longer describes anything. Without that, a server killed before reap would
+//     the mark no longer describes anything. Without that, a server killed before owner cleanup would
 //     leave a mark that silences a resumed session's summary for good.
 import { promises as fs } from "node:fs";
 import path from "node:path";
