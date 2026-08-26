@@ -216,7 +216,7 @@ export async function sessionLastTurn(cwd: string, id: string, agent: "claude" |
 }
 
 // Scan a session JSONL for a human-friendly title and last activity.
-export async function readSessionMeta(dir: string, file: string): Promise<SessionMeta> {
+export async function readSessionMeta(dir: string, file: string, liveId?: string): Promise<SessionMeta> {
   const full = path.join(dir, file);
 
   let aiTitle: string | null = null;
@@ -239,8 +239,17 @@ export async function readSessionMeta(dir: string, file: string): Promise<Sessio
   ]);
 
   const id = path.basename(file, ".jsonl");
-  const title = sessionListTitle({ memo: sessionMemos.get(id), liveAiTitle: aiTitles.get(id), diskAiTitle: aiTitle, diskLastPrompt: lastPrompt, firstUserMsg });
-  const a = activity.get(id);
+  // A resumed terminal has its own Core membership id while the agent keeps writing its history
+  // file. Live UI state follows the Core id; transcript identity remains the row id.
+  const stateId = liveId ?? id;
+  const title = sessionListTitle({
+    memo: sessionMemos.get(stateId),
+    liveAiTitle: aiTitles.get(stateId),
+    diskAiTitle: aiTitle,
+    diskLastPrompt: lastPrompt,
+    firstUserMsg,
+  });
+  const a = activity.get(stateId);
   return {
     id,
     title,
@@ -248,8 +257,8 @@ export async function readSessionMeta(dir: string, file: string): Promise<Sessio
     working: a?.working ?? false,
     waiting: a?.waiting ?? false,
     event: a?.event ?? null,
-    hidden: isBackgroundSession(id),
-    failed: isFailedWorker(id),
+    hidden: isBackgroundSession(stateId),
+    failed: isFailedWorker(stateId),
   };
 }
 

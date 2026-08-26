@@ -259,6 +259,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     // whose port the backend only knows when CLIENT_PORT is set in its environment.
     uiPort: String(process.env.CLIENT_PORT || PORT),
     sessionCwd: async (id) => (await coreSessions.find(id))?.cwd,
+    sessionHistoryId: async (id) => (await coreSessions.find(id))?.resumeSource ?? undefined,
     sessionAgent: deps.agentOfSession,
     ...(deps.notifyMobileWebPushActivity ? { notifyMobileWebPushActivity: deps.notifyMobileWebPushActivity } : {}),
   });

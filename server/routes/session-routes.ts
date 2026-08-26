@@ -252,6 +252,8 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // still being read would lose exactly the case the record exists for (Codex, PR #1188).
     const coreSessions = await deps.listCoreSessions();
     const coreById = new Map(coreSessions.map((session) => [session.id, session]));
+    const coreByReference = new Map(coreById);
+    for (const core of coreSessions) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
     const coreIds = includePending ? new Set(coreById.keys()) : new Set<string>();
     await backgroundSessionsHydrated;
     await failedWorkersHydrated;
@@ -296,7 +298,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
                 hidden: s.hidden,
                 failed: s.failed,
               })
-            : readSessionMeta(dir, s.file).catch(() => null),
+            : readSessionMeta(dir, s.file, coreByReference.get(s.id)?.id).catch(() => null),
         ),
       )
     )

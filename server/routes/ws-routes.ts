@@ -131,6 +131,32 @@ function wsConnectionContext(req: WsUpgradeRequest): {
   return { url, requested, size: sizeFromUrl(url), ...workspaceFromUrl(url) };
 }
 
+// This is admission serialization only, not membership state: a key exists solely while a
+// connection is between its Core lookup and synchronous Core creation. Once creation returns,
+// Core metadata is again the complete authority for resolving the history reference.
+const historyAdmissionClaims = new Map<string, Promise<void>>();
+
+export async function withHistoryAdmissionClaim<T>(reference: string | null, run: () => Promise<T>): Promise<T> {
+  if (!reference) return run();
+  const previous = historyAdmissionClaims.get(reference) ?? Promise.resolve();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const tail = previous.catch(() => undefined).then(() => held);
+  historyAdmissionClaims.set(reference, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await run();
+  } finally {
+    release();
+    if (historyAdmissionClaims.get(reference) === tail) historyAdmissionClaims.delete(reference);
+  }
+}
+
+function requestedReference(req: WsUpgradeRequest): string | null {
+  const raw = new URL(req.url ?? "/", "http://localhost").searchParams.get("session");
+  return raw && SESSION_ID_RE.test(raw) ? raw : null;
+}
+
 /** The geometry the browser has already fitted its terminal to, or null when it sent none it can
  *  stand behind — the same bounds a `resize` frame is held to. */
 function sizeFromUrl(url: URL): TerminalSize | null {
@@ -725,11 +751,11 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
     });
   });
 
-  wss.on("connection", (ws, req) => void handleClaudeConnection(deps, ws, req));
+  wss.on("connection", (ws, req) => void withHistoryAdmissionClaim(requestedReference(req), () => handleClaudeConnection(deps, ws, req)));
   runWss.on("connection", (ws, req) => handleRunConnection(deps, ws, req));
   runLaunchWss.on("connection", (ws, req) => void handleLaunchConnection(deps, ws, req));
-  runCodexWss.on("connection", (ws, req) => void handleCodexConnection(deps, ws, req));
-  runAntigravityWss.on("connection", (ws, req) => void handleAntigravityConnection(deps, ws, req));
+  runCodexWss.on("connection", (ws, req) => void withHistoryAdmissionClaim(requestedReference(req), () => handleCodexConnection(deps, ws, req)));
+  runAntigravityWss.on("connection", (ws, req) => void withHistoryAdmissionClaim(requestedReference(req), () => handleAntigravityConnection(deps, ws, req)));
 
   return {
     close() {
