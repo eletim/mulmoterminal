@@ -1582,12 +1582,14 @@ describe("TerminalCell", () => {
     expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
   });
 
-  it("Stop and close on the running prompt tears down the session", async () => {
+  it("Stop and close deletes after confirmation without another runtime check", async () => {
     const posts = mockFetchCloseCleanup(cleanWtDiff);
     const id = "66666666-6666-6666-6666-666666666666";
     const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
-    captured?.({ id, working: true, waiting: false });
+    // TerminalCell intentionally has no runtime-liveness input. This provider activity may be
+    // current for a live process or stale for a dead pane; confirmation must cover both.
+    captured?.({ id, working: true, waiting: false, event: "UserPromptSubmit" });
     await nextTick();
 
     await w.find(".cell-close").trigger("click");
@@ -1596,6 +1598,7 @@ describe("TerminalCell", () => {
 
     expect(terminalTerminate).toHaveBeenCalledTimes(1);
     expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(w.emitted("close")).toHaveLength(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
@@ -1633,14 +1636,37 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
-  it("a NON-worktree idle cell still closes immediately (no confirm)", async () => {
-    const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: "/home/me/plain-proj" });
+  it("a NON-worktree idle cell still deletes immediately (no confirm)", async () => {
+    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
     await w.find(".cell-close").trigger("click");
     await nextTick();
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
+    expect(terminalTerminate).toHaveBeenCalledTimes(1);
+    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(w.emitted("close")).toHaveLength(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true); // torn down to the launcher
+  });
+
+  it("a dead NON-worktree cell deletes immediately when working is false", async () => {
+    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const id = "66666666-6666-6666-6666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+    captured?.({ id, working: false, waiting: false, event: "closed" });
+    await nextTick();
+
+    await w.find(".cell-close").trigger("click");
+    await nextTick();
+
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
+    expect(terminalTerminate).toHaveBeenCalledTimes(1);
+    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
   it("a running worktree cell keeps the existing keep/remove close confirmation", async () => {
