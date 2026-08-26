@@ -17,9 +17,9 @@ export interface ViewerReleaseDeps {
 }
 
 /** Release only this process's transient tmux client. Core/tmux membership is untouched. */
-export function releaseViewer(deps: ViewerReleaseDeps, id: string): boolean {
+export function releaseViewer(deps: ViewerReleaseDeps, id: string, expected?: PtyEntry): boolean {
   const entry = ptys.get(id);
-  if (!entry) return false;
+  if (!entry || (expected && entry !== expected)) return false;
   ptys.delete(id);
   deps.forgetTerminalSize(id);
   try {
@@ -54,7 +54,7 @@ export interface ConnectionDeps {
   resize: (id: string, cols: number, rows: number) => Promise<void>;
   setWaiting: (id: string, waiting: boolean) => void;
   /** Socket gone: release only the transient viewer; Core membership remains. */
-  releaseViewer: (id: string) => void;
+  releaseViewer: (id: string, expected?: PtyEntry) => void;
   /** The screen-buffer / mouse modes this session's pane is in right now, for the replay to
    *  re-establish (#1073). Empty when there is nothing to restore. */
   terminalModesOf: (id: string) => readonly number[];
@@ -203,7 +203,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     // reconnect. A reattach re-asserts `active` (attach default + the client's view frame).
     entry.active = false;
     console.log(`[ws] disconnected ${sessionId}`);
-    deps.releaseViewer(sessionId);
+    deps.releaseViewer(sessionId, entry);
   }
   return { reattachPty, handleClientFrame, handleClientClose };
 }

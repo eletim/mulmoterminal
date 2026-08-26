@@ -77,7 +77,7 @@ export function createShellSpawners(deps: SpawnDeps) {
       }
       console.log(ptyExitLine({ agent: "launcher", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
       sendExitAndClose(entry.ws, exitCode, signal);
-      deps.releaseViewer(sessionId);
+      deps.releaseViewer(sessionId, entry);
     });
     return entry;
   }

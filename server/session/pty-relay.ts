@@ -34,6 +34,6 @@ export function wireAgentPtyRelay(entry: PtyEntry, sessionId: string, spawnedAtM
       deps.endSessionActivity(sessionId);
     }
     sendExitAndClose(entry.ws, exitCode, signal);
-    deps.releaseViewer(sessionId);
+    deps.releaseViewer(sessionId, entry);
   });
 }

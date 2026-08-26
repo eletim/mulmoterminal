@@ -518,4 +518,17 @@ describe("viewer release", () => {
     expect(releaseAllViewers({ forgetTerminalSize: vi.fn() })).toEqual([SESSION, other]);
     expect(ptys.size).toBe(0);
   });
+
+  it("does not let an old PTY exit release a replacement viewer with the same id", () => {
+    const old = entryWith({ tmux: true });
+    const replacement = entryWith({ tmux: true });
+    ptys.set(SESSION, replacement);
+    const forgetTerminalSize = vi.fn();
+
+    expect(releaseViewer({ forgetTerminalSize }, SESSION, old)).toBe(false);
+
+    expect(ptys.get(SESSION)).toBe(replacement);
+    expect(replacement.term.kill).not.toHaveBeenCalled();
+    expect(forgetTerminalSize).not.toHaveBeenCalled();
+  });
 });

@@ -246,7 +246,7 @@ const tmuxSizeSync = createTmuxSizeSync({
 });
 
 const viewerReleaseDeps = { forgetTerminalSize: (id: string) => tmuxSizeSync.forget(id) };
-const releaseTerminalViewer = (id: string) => releaseViewer(viewerReleaseDeps, id);
+const releaseTerminalViewer = (id: string, expected?: Parameters<typeof releaseViewer>[2]) => releaseViewer(viewerReleaseDeps, id, expected);
 
 // Per-connection plumbing (session/pty-connection.ts): attach, detach and release only.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
