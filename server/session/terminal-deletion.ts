@@ -1,3 +1,5 @@
+import { CoreSessionNotFoundError } from "./core-session-adapter.js";
+
 /** Dependencies intentionally contain no activity/provider/runtime query. An explicit delete is
  * unconditional: Core kills canonical tmux membership, then local PTY bookkeeping is discarded. */
 export interface TerminalDeletionDeps {
@@ -19,4 +21,3 @@ export async function forceDeleteTerminalSession(id: string, deps: TerminalDelet
     deps.reapLocalSession(id);
   }
 }
-import { CoreSessionNotFoundError } from "./core-session-adapter.js";

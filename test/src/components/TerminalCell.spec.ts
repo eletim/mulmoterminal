@@ -1651,6 +1651,27 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true); // torn down to the launcher
   });
 
+  it("keeps a NON-worktree cell and its viewer open when the sole deletion request fails", async () => {
+    const id = "66666666-6666-6666-6666-666666666666";
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes(`/api/session/${id}/terminate`)) return { ok: false, json: async () => ({ error: "tmux unavailable" }) };
+      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
+    expect(w.find('[data-testid="rcx-warn"]').text()).toContain("Couldn't stop the terminal");
+    expect(terminalDisconnect).not.toHaveBeenCalled();
+    expect(w.emitted("close")).toBeUndefined();
+  });
+
   it("a dead NON-worktree cell deletes immediately when working is false", async () => {
     const posts = mockFetchCloseCleanup(cleanWtDiff);
     const id = "66666666-6666-6666-6666-666666666666";

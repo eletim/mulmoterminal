@@ -601,17 +601,18 @@ onUnmounted(() => {
   exchangeStop = true; // never leave an exchange typing into terminals after this cell is gone
 });
 
-// The one close-button deletion operation. The request starts before the viewer disconnects,
-// and callers that must know the process is gone (Windows worktree removal) can await it.
+// The one close-button deletion operation. The viewer is released only after Backend confirms
+// deletion, and callers that must know the process is gone (Windows worktree removal) await it.
 async function deleteTerminal(): Promise<boolean> {
   const id = sessionId.value;
-  const request = id ? fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }) : Promise.resolve(null);
+  const terminal = termRef.value;
   // The close button has ONE deletion transport: this HTTP request. The terminal connection is
   // only a viewer and may already be dead/disconnected, so it must not own a second delete path.
-  termRef.value?.disconnect();
   try {
-    const response = await request;
-    return response === null || response.ok;
+    const response = id ? await fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }) : null;
+    if (response !== null && !response.ok) return false;
+    terminal?.disconnect();
+    return true;
   } catch {
     return false;
   }
@@ -647,8 +648,13 @@ function resetCell() {
   // own lists for the directory above on the way in.
 }
 
-function teardown() {
-  void deleteTerminal();
+async function teardown() {
+  closeError.value = null;
+  if (!(await deleteTerminal())) {
+    closeError.value = "Couldn't stop the terminal. Retry or cancel to keep it open.";
+    if (!isWorktreeCell.value) runningCloseConfirm.value = true;
+    return;
+  }
   resetCell();
 }
 
@@ -676,7 +682,7 @@ async function close() {
       runningCloseConfirm.value = true;
       return;
     }
-    teardown();
+    await teardown();
     return;
   }
   closeError.value = null;
@@ -695,16 +701,15 @@ function cancelClose() {
 }
 
 function stopAndClose() {
-  runningCloseConfirm.value = false;
   // `working` decides only whether the UI asks. Once confirmed, deletion is the same
   // explicit operation for a live process, a dead remain-on-exit pane, or stale activity.
-  teardown();
+  void teardown();
 }
 
 async function removeAndClose() {
   const dir = cwd.value;
   if (!dir) {
-    teardown();
+    await teardown();
     return;
   }
   closeError.value = null;
@@ -1396,8 +1401,11 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           aria-label="Stop and close terminal"
         >
           <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-            <p class="m-0 font-sans text-[13px] font-semibold text-fg">This terminal is still running.</p>
-            <p class="m-0 font-sans text-[12px] text-dim">Closing it will stop the running process.</p>
+            <p v-if="closeError" data-testid="rcx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">{{ closeError }}</p>
+            <template v-else>
+              <p class="m-0 font-sans text-[13px] font-semibold text-fg">This terminal is still running.</p>
+              <p class="m-0 font-sans text-[12px] text-dim">Closing it will stop the running process.</p>
+            </template>
             <div class="flex flex-wrap gap-1.5">
               <button
                 data-testid="rcx-cancel"
@@ -1411,7 +1419,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
                 class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
                 @click="stopAndClose"
               >
-                Stop and close
+                {{ closeError ? "Retry close" : "Stop and close" }}
               </button>
             </div>
           </div>
