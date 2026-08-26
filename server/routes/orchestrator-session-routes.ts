@@ -40,7 +40,7 @@ export interface OrchestratorSessionRouteDeps {
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
   writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
-  canClearBox: (sessionId: string) => boolean;
+  canClearBox: (sessionId: string) => boolean | Promise<boolean>;
   submitSequence: (sessionId: string) => string | Promise<string>;
   sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   setWaiting: (sessionId: string, waiting: boolean, event?: string) => void;

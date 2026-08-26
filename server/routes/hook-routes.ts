@@ -31,6 +31,8 @@ export interface HookDeps extends SessionActivityDeps {
   /** Which port this host's UI answers on, so a receiver can open it instead of guessing. */
   uiPort: string;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
+  sessionCwd?: (sessionId: string) => Promise<string | undefined>;
+  sessionAgent?: (sessionId: string) => Promise<MobileWebPushActivityNotification["agent"]>;
 }
 
 const activeWaitingMobileWebPushSent = new Set<string>();
@@ -46,7 +48,7 @@ function notifyMobileWebPushActivity(deps: HookDeps, notification: MobileWebPush
 // Activity hooks update a session's working / needs-attention flags. `active` (this
 // session is the user's actively-viewed pane) suppresses the attention flag — see
 // activityHookEffects for why a mere attached socket doesn't count in the grid.
-function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, _message: string, notificationType?: string) {
+async function handleActivityHook(deps: HookDeps, sessionId: string, event: string, active: boolean, _message: string, notificationType?: string) {
   if (event !== "Notification") activeWaitingMobileWebPushSent.delete(sessionId);
   for (const eff of activityHookEffects(event, active, notificationType)) {
     if (eff.kind === "working") deps.setWorking(sessionId, eff.value, event);
@@ -56,7 +58,7 @@ function handleActivityHook(deps: HookDeps, sessionId: string, event: string, ac
   const currentActivity = activity.get(sessionId);
   if (active && kind === "waiting" && currentActivity?.working === true && currentActivity.waiting !== true && !activeWaitingMobileWebPushSent.has(sessionId)) {
     activeWaitingMobileWebPushSent.add(sessionId);
-    notifyMobileWebPushActivity(deps, { kind, sessionId, agent: ptys.get(sessionId)?.agent ?? null });
+    notifyMobileWebPushActivity(deps, { kind, sessionId, agent: (await deps.sessionAgent?.(sessionId)) ?? null });
   }
   // A finished turn is the ONLY success signal a PTY-hosted agent gives us (#1070). It is not
   // a process exit — `claude` sits at its prompt afterwards — so a worker that never reaches
@@ -186,7 +188,8 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
   if (sessionId) {
     const entry = ptys.get(sessionId);
     const active = !!(entry && entry.active);
-    const cwd = resolveHookCwd(body.cwd, entry?.cwd);
+    const coreCwd = await deps.sessionCwd?.(sessionId);
+    const cwd = resolveHookCwd(body.cwd, coreCwd);
     await applyHeaderHooks(deps, sessionId, event, body, cwd);
     // Before the activity publish below, so the row it mirrors to the phone already carries this
     // hook's phase (a turn's first Edit must read as "editing" in the same push, not the next one).
@@ -194,7 +197,7 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
     // pty — so tracking an id with no pty (any well-formed uuid may be posted here) would never be
     // reclaimed. A session whose pty is gone simply reports no phase, as it does before its first tool.
     if (entry) deps.noteWorkPhase(sessionId, event, toolName);
-    handleActivityHook(deps, sessionId, event, active, message, notificationType);
+    await handleActivityHook(deps, sessionId, event, active, message, notificationType);
     await handleToolHook(deps, sessionId, event, toolPayload(body), cwd);
     // A hidden translation worker that ends its turn while still pending never called
     // submitTranslation — fail it now rather than hang until the timeout. (When it DID

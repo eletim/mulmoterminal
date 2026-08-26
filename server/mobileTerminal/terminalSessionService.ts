@@ -21,7 +21,7 @@ type TerminalScreenResult = { status: 200; body: SessionScreen } | TerminalError
 export interface TerminalSessionServiceDeps {
   captureTerminalScreen: (sessionId: string) => Promise<SessionScreen>;
   writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
-  canClearBox: (sessionId: string) => boolean;
+  canClearBox: (sessionId: string) => boolean | Promise<boolean>;
   submitSequence: (sessionId: string) => string | Promise<string>;
   sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;

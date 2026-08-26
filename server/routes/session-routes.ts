@@ -36,8 +36,6 @@ import {
 } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
-import { sessionAttached } from "../session/dir-session.js";
-import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import { antigravityBrainRoot } from "../agents/antigravity-session.js";
@@ -231,7 +229,9 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // `failed` especially: the whole value of persisting it is finding out LATER, and the most
     // likely "later" is the first list after a restart. Serving it as false while its log is
     // still being read would lose exactly the case the record exists for (Codex, PR #1188).
-    const coreIds = includePending ? new Set((await deps.listCoreSessions()).map((session) => session.id)) : new Set<string>();
+    const coreSessions = await deps.listCoreSessions();
+    const coreById = new Map(coreSessions.map((session) => [session.id, session]));
+    const coreIds = includePending ? new Set(coreById.keys()) : new Set<string>();
     await backgroundSessionsHydrated;
     await failedWorkersHydrated;
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
@@ -286,8 +286,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // picker used to answer this from the current page's own grid, which is blind to a second
     // browser tab and to a second mulmoterminal process — the two ways a running session got
     // taken over without anything warning first.
-    const tmuxCounts = tmuxAttachedCounts();
-    res.json({ cwd, sessions: sessions.map((s) => ({ ...s, attached: sessionAttached(s.id, tmuxCounts) })) });
+    res.json({ cwd, sessions: sessions.map((s) => ({ ...s, attached: coreById.get(s.id)?.attached ?? false })) });
   } catch (err) {
     console.error("[api] /api/sessions failed:", err);
     res.status(500).json({ error: String(err) });

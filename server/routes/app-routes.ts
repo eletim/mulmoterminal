@@ -70,7 +70,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   toolStores: ReturnType<typeof createToolStores>;
   /** What a session is running, or null when the host cannot tell. Gates the broker's own
    *  tool-call history — see mcp/gui-call-history.ts. */
-  agentOfSession: (id: string) => SessionAgent | null;
+  agentOfSession: (id: string) => Promise<SessionAgent | null>;
   toolSummaries: Parameters<typeof mountToolRoutes>[1]["toolSummaries"];
   spawnClaudePty: ReturnType<typeof createClaudeSpawner>["spawnClaudePty"];
   spawnCodexPty: ReturnType<typeof createCodexSpawner>["spawnCodexPty"];
@@ -88,8 +88,8 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 // whether the pane tells the user it holds the GUI tools alone. Read here so the two answers are
 // built from one reading of the session — they are not the same question (the claim is stricter,
 // see historyIsGuiOnly), but they must never be built from different facts.
-const sessionCallReporting = (deps: AppRouteDeps, sessionId: string) => ({
-  agent: deps.agentOfSession(sessionId),
+const sessionCallReporting = async (deps: AppRouteDeps, sessionId: string) => ({
+  agent: await deps.agentOfSession(sessionId),
   reportsOwnCalls: hookedSessions.has(sessionId),
 });
 
@@ -135,7 +135,9 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
 
   // Ahead of express.json, carrying its own raw parser: a dropped file is bytes under its own
   // content type, and a dropped .json would otherwise be parsed as a document rather than saved.
-  mountDropRoutes(app);
+  mountDropRoutes(app, {
+    hasSession: async (id) => (await coreSessions.find(id)) !== null,
+  });
 
   app.use(express.json({ limit: "25mb" }));
 
@@ -183,7 +185,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // Raw file serving (GET /api/files/raw?path=[&cwd=]) — backs collection image/file
   // fields, custom-view <img> URLs, and terminal file-path links. Rooted at the shared
   // workspace; a `?cwd=` is honoured only for a live session's own directory.
-  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: () => [...ptys.values()].map((entry) => entry.cwd) });
+  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: async () => (await coreSessions.list()).map((session) => session.cwd) });
 
   // Serve presentHtml pages for the View's iframe (GET /artifacts/html/<rest>) with an
   // HTML preview CSP. The View navigates the iframe to this URL (htmlArtifactPreviewUrl).
@@ -216,7 +218,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     // codex and agy have no hooks, so the broker is the only place their tool calls can reach
     // the tools pane's history. Claude's do NOT come through here — it would double every entry
     // its own PreToolUse/PostToolUse already writes.
-    guiCallHistory: (sessionId) => guiCallRecorderFor(sessionId, sessionCallReporting(deps, sessionId), deps.toolStores),
+    guiCallHistory: async (sessionId) => guiCallRecorderFor(sessionId, await sessionCallReporting(deps, sessionId), deps.toolStores),
   });
 
   // Serve Vite build output. CSS is mounted first so a package built for "/" can
@@ -256,6 +258,8 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     // Express serves the built SPA on PORT; under `yarn dev` the UI is Vite's own server,
     // whose port the backend only knows when CLIENT_PORT is set in its environment.
     uiPort: String(process.env.CLIENT_PORT || PORT),
+    sessionCwd: async (id) => (await coreSessions.find(id))?.cwd,
+    sessionAgent: deps.agentOfSession,
     ...(deps.notifyMobileWebPushActivity ? { notifyMobileWebPushActivity: deps.notifyMobileWebPushActivity } : {}),
   });
 
@@ -272,7 +276,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     // Built from the same two signals as the broker's recorder, but with the stricter rule the
     // user-facing claim needs — see historyIsGuiOnly for why the pane must not answer this the
     // moment a session id exists.
-    guiOnlyHistory: (id) => historyIsGuiOnly(sessionCallReporting(deps, id)),
+    guiOnlyHistory: async (id) => historyIsGuiOnly(await sessionCallReporting(deps, id)),
     publish: (c, d) => deps.publish(c, d),
     sessionChannel: deps.sessionChannel,
   });
@@ -311,7 +315,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // GRID-ONLY (dev_tool): /api/worktrees — detect a git repo, list/create/remove the
   // per-agent worktrees a cell launches into, so several agents work one repo in
   // isolated working trees.
-  mountWorktreeRoutes(app, { isAllowedOrigin: deps.isAllowedOrigin });
+  mountWorktreeRoutes(app, { isAllowedOrigin: deps.isAllowedOrigin, listCoreSessions: () => coreSessions.list() });
 
   // POST /api/pick-file opens the OS file dialog and returns the chosen absolute
   // path(s) — how a browser tab inserts a real filesystem path into the terminal

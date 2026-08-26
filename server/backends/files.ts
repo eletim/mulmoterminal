@@ -23,10 +23,10 @@ import { rawServingPlan } from "./rawServingPlan.js";
 import { streamFileToResponse } from "./streamFile.js";
 import { authorizedServingBase, resolveContained } from "../files/pathContainment.js";
 
-export function mountFilesRoutes(app: Express, deps: { workspace: string; sessionCwds: () => Iterable<string> }): void {
+export function mountFilesRoutes(app: Express, deps: { workspace: string; sessionCwds: () => Iterable<string> | Promise<Iterable<string>> }): void {
   const root = path.resolve(deps.workspace);
 
-  app.get("/api/files/raw", (req: Request, res: Response) => {
+  app.get("/api/files/raw", async (req: Request, res: Response) => {
     const rel = typeof req.query.path === "string" ? req.query.path : "";
     if (!rel) {
       res.status(400).json({ error: "`path` query is required" });
@@ -35,7 +35,7 @@ export function mountFilesRoutes(app: Express, deps: { workspace: string; sessio
     // Base: the `?cwd=` dir only if it's the root or a live session's cwd (else the
     // workspace root when no cwd is given); an unrecognized cwd is refused, not trusted.
     const cwd = typeof req.query.cwd === "string" ? req.query.cwd : null;
-    const base = authorizedServingBase(cwd, root, deps.sessionCwds());
+    const base = authorizedServingBase(cwd, root, await deps.sessionCwds());
     if (base === null) {
       res.status(403).json({ error: "cwd is not an active session directory" });
       return;

@@ -9,11 +9,12 @@ import { pushWorktree, createOrOpenPR } from "./worktree-pr.js";
 import { requestOriginAllowed } from "../routes/same-origin-guard.js";
 import { isIssueNumber } from "../../common/prPhase.js";
 import { dirSession } from "../session/dir-session.js";
-import { tmuxAttachedCounts } from "../infra/tmux.js";
+import type { CoreSession } from "../session/core-session-adapter.js";
 import { requestBody } from "../routes/requestBody.js";
 
 interface WorktreeRouteOptions {
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
+  listCoreSessions: () => Promise<CoreSession[]>;
 }
 
 // A failed git/gh command is a 500; a precondition the user can fix (no remote, not
@@ -24,7 +25,7 @@ function statusFor(result: { ok: boolean; reason?: string | undefined }): number
   return SERVER_ERROR_REASONS.has(result.reason ?? "") ? 500 : 409;
 }
 
-export function mountWorktreeRoutes(app: Express, { isAllowedOrigin }: WorktreeRouteOptions): void {
+export function mountWorktreeRoutes(app: Express, { isAllowedOrigin, listCoreSessions }: WorktreeRouteOptions): void {
   // Repo status + the managed worktrees for a cell's chosen dir (each with `dirty`
   // so the UI can confirm before deleting). A non-git dir is `isGit:false`, not an
   // error — the launcher just hides the worktree UI.
@@ -38,9 +39,8 @@ export function mountWorktreeRoutes(app: Express, { isAllowedOrigin }: WorktreeR
     const repo = cwd ? await repoRoot(cwd) : null;
     if (!repo) return res.json({ isGit: false, base: null, worktrees: [] });
     const list = await listWorktrees(repo);
-    const tmuxCounts = tmuxAttachedCounts();
-    const now = Date.now();
-    const worktrees = await Promise.all(list.map(async (w) => ({ ...w, dirty: await isDirty(w.path), session: await dirSession(w.path, tmuxCounts, now) })));
+    const sessions = await listCoreSessions();
+    const worktrees = await Promise.all(list.map(async (w) => ({ ...w, dirty: await isDirty(w.path), session: dirSession(w.path, sessions) })));
     res.json({ isGit: true, base: await defaultBaseBranch(repo), worktrees });
   });
 

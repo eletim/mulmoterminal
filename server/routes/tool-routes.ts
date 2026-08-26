@@ -37,7 +37,7 @@ export interface ToolRouteDeps {
    * like an agent that ran nothing. Answered server-side because the client cannot work it out:
    * a codex launcher chip is a cell with no agent name on it (see mcp/gui-call-history.ts).
    */
-  guiOnlyHistory: (sessionId: string) => boolean;
+  guiOnlyHistory: (sessionId: string) => Promise<boolean>;
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
 }
@@ -118,7 +118,7 @@ export function mountToolRoutes(app: Express, deps: ToolRouteDeps): void {
     const groups = deps.sessionToolGroups(sessionId);
     const isGrid = deps.isGridSession(sessionId);
     const hasAllTools = deps.hasAllGuiTools(sessionId);
-    res.json({ tools: narrowedTools(deps.toolSummaries, groups, isGrid, hasAllTools), groups, guiOnlyHistory: deps.guiOnlyHistory(sessionId) });
+    res.json({ tools: narrowedTools(deps.toolSummaries, groups, isGrid, hasAllTools), groups, guiOnlyHistory: await deps.guiOnlyHistory(sessionId) });
   });
 
   // Replay a session's tool-call history — every tool for claude (its Pre/PostToolUse hooks),

@@ -45,7 +45,7 @@ const app = express();
 app.use(express.json());
 mountMcpRoutes(app, {
   publish: (channel, data) => void published.push({ channel, data: data as Record<string, unknown> }),
-  guiCallHistory: () => null,
+  guiCallHistory: async () => null,
 });
 
 // A tools/list, the cheapest real MCP request: it needs no plugin dispatch, so nothing here

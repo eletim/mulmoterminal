@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SessionCore } from "tmux-session-core-ts";
+import { SessionNotFoundError, type SessionCore } from "tmux-session-core-ts";
 import { CoreSessionAdapter } from "../../../server/session/core-session-adapter.js";
 
 const native = {
@@ -34,6 +34,17 @@ describe("CoreSessionAdapter", () => {
     } as unknown as SessionCore;
 
     await expect(new CoreSessionAdapter({ core }).get(native.id)).resolves.toMatchObject({ cwd: "/finished/repo", agent: "claude", exited: true });
+  });
+
+  it("finds membership through Core get and returns null only for Core absence", async () => {
+    const existingCore = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: existingCore }).find(native.id)).resolves.toMatchObject({ id: native.id, agent: "claude" });
+
+    const missingCore = { get: vi.fn(async () => Promise.reject(new SessionNotFoundError("missing"))) } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: missingCore }).find("missing")).resolves.toBeNull();
   });
 
   it("creates native membership first and stores only reconstruction metadata", async () => {

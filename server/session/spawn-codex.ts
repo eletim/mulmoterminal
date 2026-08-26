@@ -60,9 +60,10 @@ export function createCodexSpawner(deps: SpawnDeps) {
       /** The tool groups this cell's DIRECTORY has registered, for a grid cell (gui=0). Read by
        *  the caller because the lookup reads Claude Code's config files, and this is sync. */
       mcpGroups?: readonly ToolGroup[];
+      coreSessionExists?: boolean;
     } = {},
   ): PtyEntry {
-    const { initialPrompt = null, mcpGroups = [] } = options;
+    const { initialPrompt = null, mcpGroups = [], coreSessionExists = false } = options;
     const root = codexSessionsRoot();
     const before = snapshotSessions(root);
     // Two surfaces, the same two claude has:
@@ -80,7 +81,11 @@ export function createCodexSpawner(deps: SpawnDeps) {
     // turns up; it is one call to carriesFullGuiMcp with `cwd`.
     const guiMcpServers = codexGuiMcpServers({ sessionId, port: PORT, groups: mcpGroups, allTools: attachGuiMcp });
     const args = buildCodexArgs({ resume: resumeRolloutId, model: deps.codexModel, guiMcpServers });
-    const { term, tmux, reattached } = ptySpawn(sessionId, deps.codexBin, args, cwd, true, { agent: "codex", binEnvVar: codexAdapter.binEnvVar });
+    const { term, tmux, reattached } = ptySpawn(sessionId, deps.codexBin, args, cwd, true, {
+      agent: "codex",
+      binEnvVar: codexAdapter.binEnvVar,
+      coreSessionExists,
+    });
     const spawnedAtMs = Date.now();
     const note = resumeRolloutId ? `resume ${resumeRolloutId}` : null;
     console.log(ptyStartLine({ agent: "codex", pid: term.pid, cwd, tmux, reattached, sessionId, note }));

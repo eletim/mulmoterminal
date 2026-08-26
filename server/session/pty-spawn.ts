@@ -10,7 +10,7 @@ import { resolvePtyLaunchForEnv } from "../infra/resolve-bin.js";
 import { binaryProblemMessage, diagnoseBinary, type BinaryDiagnosis } from "../infra/has-binary.js";
 import { cwdProblemMessage, diagnoseSpawnCwd, type CwdDiagnosis } from "../infra/spawn-cwd.js";
 import { withoutUnset } from "./provider-env.js";
-import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxHasSession, tmuxScrubEnvNames } from "../infra/tmux.js";
+import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxScrubEnvNames } from "../infra/tmux.js";
 import { shellQuoteFor } from "../config/header-resolve.js";
 import { coreSessions } from "./core-session-adapter.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
@@ -117,8 +117,8 @@ export interface PtySpawnEnv {
 // config": on the attach path nothing is re-read, because nothing is re-started. The surviving
 // process is exactly the one that was there before, and it is past every decision it made at
 // startup. Must stay in lockstep with the branch below.
-export function ptyWouldReattach(sessionId: string, persistent: boolean): boolean {
-  return persistent && tmuxAvailable() && tmuxHasSession(sessionId);
+export function ptyWouldReattach(coreSessionExists: boolean, persistent: boolean): boolean {
+  return persistent && tmuxAvailable() && coreSessionExists;
 }
 
 /** A spawn refused before it was attempted, because something about it is already known not to
@@ -203,12 +203,12 @@ export function ptySpawn(
   args: string[],
   cwd: string,
   persistent: boolean,
-  options: PtySpawnEnv & { agent?: LaunchAgent } = {},
+  options: PtySpawnEnv & { agent?: LaunchAgent; coreSessionExists?: boolean } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
-  const { unset = [], env = {}, binEnvVar, agent = "shell" } = options;
+  const { unset = [], env = {}, binEnvVar, agent = "shell", coreSessionExists = false } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
-  const reattached = ptyWouldReattach(sessionId, persistent);
+  const reattached = ptyWouldReattach(coreSessionExists, persistent);
   if (binEnvVar && !reattached) refuseUnlaunchable(file, binEnvVar, ptyEnv(unset, env));
   refuseUnusableCwd(cwd, reattached);
   if (persistent && tmuxAvailable()) {

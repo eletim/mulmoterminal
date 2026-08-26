@@ -3,10 +3,10 @@
 // `--session-id` — is unit-testable without a pty, tmux, or the filesystem.
 
 export interface SessionFacts {
-  // A live pty for this id in THIS server process (reattach without respawning claude).
-  hasLivePty: boolean;
-  // A persistent tmux session for this id is alive (survived a restart / another cell).
-  tmuxAlive: boolean;
+  // Core membership is the only fact that says this terminal still exists.
+  coreExists: boolean;
+  // A viewer transport for the Core session is already present in this process.
+  hasViewer: boolean;
   // An on-disk transcript exists in the target workspace (claude writes it after the
   // first prompt) — the only id claude will `--resume`.
   onDisk: boolean;
@@ -18,49 +18,37 @@ export interface SessionResolution {
   sessionId: string; // the id claude effectively runs as
 }
 
-// `resume` is set whenever a transcript exists on disk — REGARDLESS of tmux liveness.
-// An on-disk id must never be launched under `--session-id`: claude refuses it with
-// "Session ID <id> is already in use." When a tmux session is alive the arg is ignored
-// (tmux attaches to the running claude), but if that session died since we checked it
-// (reap, /exit, or another instance on the shared tmux server), `tmux new-session -A`
-// re-creates it and RUNS the command — and there `--resume <id>` reattaches the
-// conversation where `--session-id <id>` would abort. Gating `resume` on `!tmuxAlive`
-// (the old behavior) left that window fatal.
+// An on-disk conversation is resumed only when Core has no terminal by that id. The resumed
+// process is created under a newly minted Core id, keeping history identity separate from terminal
+// membership identity.
 export function resolveSession(requested: string | null, facts: SessionFacts, mintId: () => string): SessionResolution {
-  const reattachId = requested && facts.hasLivePty ? requested : null;
-  const resume = !reattachId && requested && facts.onDisk ? requested : null;
-  // Reuse the requested id when we can actually serve it (reattach, a live tmux
-  // session, or an on-disk transcript to resume); otherwise it can't be reused —
-  // mint a fresh one.
-  const sessionId = reattachId ?? (requested && (facts.tmuxAlive || resume) ? requested : mintId());
+  const reattachId = requested && facts.coreExists && facts.hasViewer ? requested : null;
+  const resume = requested && !facts.coreExists && facts.onDisk ? requested : null;
+  // History is an agent resume source, not terminal membership. Resuming it always creates a
+  // new Core session id; only a session still present in Core keeps its terminal id.
+  const sessionId = requested && facts.coreExists ? requested : mintId();
   return { reattachId, resume, sessionId };
 }
 
 // ── the same decision for the two non-claude terminals ─────────────────────────
 
-/** Which id a launcher or codex connection runs as. A live pty in this process always
- *  wins; otherwise the requested id is reused only when something can actually serve it
- *  (a surviving tmux session, or — for codex — a rollout to resume). Anything else mints
- *  a fresh id, because reusing an id nothing can serve strands the client on a dead one. */
+/** Keep a requested id only when it remains a Core member. A process-local viewer may be reused
+ *  for transport, but cannot create membership; agent history always resumes under a fresh id. */
 export function resolveReattachableId(
   requested: string | null,
-  facts: { hasLivePty: boolean; tmuxAlive: boolean; canResume: boolean },
+  facts: { coreExists: boolean; hasViewer: boolean },
   mintId: () => string,
 ): { reattachId: string | null; sessionId: string } {
-  const reattachId = requested && facts.hasLivePty ? requested : null;
-  const sessionId = reattachId ?? (requested && (facts.tmuxAlive || facts.canResume) ? requested : mintId());
+  const reattachId = requested && facts.coreExists && facts.hasViewer ? requested : null;
+  const sessionId = requested && facts.coreExists ? requested : mintId();
   return { reattachId, sessionId };
 }
 
 /**
  * Whether a connection CONTINUES a session rather than creating one.
  *
- * Both resolvers above keep the requested id exactly when something can serve it — a live pty, a
- * surviving tmux session, a transcript or rollout to resume — and mint a fresh one otherwise. So
- * the id they settled on already answers this, and reading it here is what stops a caller from
- * re-listing those cases and missing one: the first version of the worktree limit did exactly
- * that, omitting tmux-only liveness, which reads a reconnect after a server restart as a brand-new
- * session (#1208, caught by Codex).
+ * Both resolvers keep the requested id exactly for Core membership. History resume mints a new
+ * id and is therefore a new terminal, even though the agent continues an old conversation.
  */
 export const isContinuingSession = (requested: string | null, sessionId: string): boolean => requested !== null && requested === sessionId;
 
@@ -68,6 +56,6 @@ export const isContinuingSession = (requested: string | null, sessionId: string)
  *  the pty already IS the chosen program — and the header's "new terminal" button runs the
  *  default shell with no configured index. Otherwise the index must name a real launcher,
  *  or there is nothing to run. */
-export function canStartLauncher(facts: { hasLivePty: boolean; tmuxAlive: boolean; hasLauncher: boolean; isShell: boolean }): boolean {
-  return facts.hasLivePty || facts.tmuxAlive || facts.hasLauncher || facts.isShell;
+export function canStartLauncher(facts: { coreExists: boolean; hasLauncher: boolean; isShell: boolean }): boolean {
+  return facts.coreExists || facts.hasLauncher || facts.isShell;
 }

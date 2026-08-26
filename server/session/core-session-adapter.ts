@@ -115,6 +115,15 @@ export class CoreSessionAdapter {
     return this.withMetadata(await this.core.get(id));
   }
 
+  async find(id: string): Promise<CoreSession | null> {
+    try {
+      return await this.get(id);
+    } catch (error) {
+      if (error instanceof SessionNotFoundError) return null;
+      throw error;
+    }
+  }
+
   async screen(id: string): Promise<string> {
     return this.core.screen(id);
   }

@@ -17,11 +17,10 @@ export interface AgentResumeFacts {
   // A thunk, not a value: it reads the filesystem, and a reattach must not pay for a probe
   // whose answer it is about to discard.
   conversationExists: () => boolean;
-  hasLivePty: boolean;
-  tmuxAlive: boolean;
+  coreExists: boolean;
 }
 
 export function agentResumeId(requested: string | null, facts: AgentResumeFacts): string | null {
-  if (!requested || facts.hasLivePty || facts.tmuxAlive) return null;
+  if (!requested || facts.coreExists) return null;
   return facts.mappedId || (facts.conversationExists() ? requested : null);
 }
