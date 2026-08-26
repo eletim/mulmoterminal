@@ -188,6 +188,12 @@ interface MobileStopResult {
 
 const isMobileStopResult = (value: unknown): value is MobileStopResult => isRecord(value) && value.stopped === true;
 
+interface MobileDeleteResult {
+  deleted: true;
+}
+
+const isMobileDeleteResult = (value: unknown): value is MobileDeleteResult => isRecord(value) && value.deleted === true;
+
 interface MobileCreateResult {
   ok: true;
   sessionId: string;
@@ -198,6 +204,7 @@ const isMobileCreateResult = (value: unknown): value is MobileCreateResult => is
 type SessionOperationStatus = "idle" | "sending" | "error";
 const interruptStatus = ref<SessionOperationStatus>("idle");
 const stopStatus = ref<SessionOperationStatus>("idle");
+const deleteStatus = ref<SessionOperationStatus>("idle");
 
 // Colours the activity word by urgency, matching the desktop roster's palette (CockpitHeader.vue's
 // DOT_CLASS/BADGE_CLASS): blue while the agent is running, amber for the state that needs the
@@ -275,6 +282,7 @@ function changeSelectedSession(next: string | null): void {
   manualCopyText.value = "";
   interruptStatus.value = "idle";
   if (stopStatus.value !== "sending") stopStatus.value = "idle";
+  if (deleteStatus.value !== "sending") deleteStatus.value = "idle";
 
   if (next) {
     trackSelectionScreenLoad(loadScreen(next));
@@ -563,6 +571,29 @@ async function stopConfirmedSession(requestedId: string): Promise<void> {
   }
 }
 
+async function deleteConfirmedSession(requestedId: string): Promise<void> {
+  if (deleteStatus.value === "sending") return;
+
+  deleteStatus.value = "sending";
+
+  try {
+    const res = await fetch(`/api/mobile/terminal-sessions/${encodeURIComponent(requestedId)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await jsonBody(res);
+    if (!isMobileDeleteResult(body)) throw new Error("invalid DELETE /api/mobile/terminal-sessions/:id response");
+    await refreshSessionList();
+    deleteStatus.value = "idle";
+  } catch {
+    if (selectedSessionId.value !== requestedId) {
+      deleteStatus.value = "idle";
+      await refreshSessionList();
+      return;
+    }
+    deleteStatus.value = "error";
+    await refreshSessionList();
+  }
+}
+
 async function createTerminal(): Promise<void> {
   if (createStatus.value === "creating") return;
   const cwd = newTerminalCwd.value.trim();
@@ -800,8 +831,10 @@ onUnmounted(() => {
               :session="selectedSession"
               :interrupt-status="interruptStatus"
               :stop-status="stopStatus"
+              :delete-status="deleteStatus"
               @interrupt="interruptSelectedSession"
               @stop="stopConfirmedSession"
+              @delete="deleteConfirmedSession"
             />
             <div v-if="selectedSession.agent === 'shell'" class="flex flex-wrap items-center gap-2">
               <button
