@@ -101,6 +101,7 @@ import { stopWhisperSidecar } from "./backends/whisper.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionLifecycle, SESSIONS_CHANNEL } from "./session/lifecycle.js";
+import { forceDeleteTerminalSession } from "./session/terminal-deletion.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -235,10 +236,6 @@ const tmuxSizeSync = createTmuxSizeSync({
 // they read activity state and schedule timers that outlive any one connection.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
   cancelReap: (id) => cancelReap(id),
-  deleteSession: async (id) => {
-    reap(id);
-    await coreSessions.delete(id);
-  },
   input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
     ptys.get(id)?.term.resize(cols, rows);
@@ -269,6 +266,11 @@ const lifecycle = createSessionLifecycle({
   ...mobileWebPushActivityDeps,
 });
 const { cancelReap, reap, armReapForDetached, publishActivity, acknowledgeShellDone, setWorking, setWaiting } = lifecycle;
+const deleteTerminalSession = (id: string) =>
+  forceDeleteTerminalSession(id, {
+    reapLocalSession: reap,
+    deleteCoreSession: (sessionId) => coreSessions.delete(sessionId),
+  });
 const inputReadiness = createInputReadinessTracker();
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
@@ -491,7 +493,7 @@ mountAppRoutes(app, {
   noteTitleTurn,
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
   maybeGenerateTitle,
-  reap,
+  deleteTerminalSession,
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
   agentOfSession: (id: string) => agentOfSession(id),

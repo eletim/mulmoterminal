@@ -77,7 +77,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   spawnAntigravityPty: ReturnType<typeof createAntigravitySpawner>["spawnAntigravityPty"];
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
-  reap: (id: string) => void;
+  deleteTerminalSession: (id: string) => Promise<void>;
   registerBackgroundSession: (id: string) => void;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
@@ -344,14 +344,10 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // codex's own sessions (see routes/session-routes.ts).
   mountSessionRoutes(app, sessionRouteDeps(deps));
 
-  // Explicit close (reliable HTTP fallback for logical deletion) + one-shot orphan cleanup. Extracted to a
-  // module so the origin guard / id validation / orphan-selection boundary are testable.
+  // Explicit close is the one logical-deletion transport used by the Desktop close button.
   mountTmuxRoutes(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
-    deleteSession: async (id) => {
-      deps.reap(id);
-      await coreSessions.delete(id);
-    },
+    deleteSession: deps.deleteTerminalSession,
   });
 }

@@ -606,10 +606,10 @@ onUnmounted(() => {
 // launch form would still show the closed session's directory.
 function teardown() {
   const id = sessionId.value; // capture before the reset below nulls it
-  termRef.value?.terminate();
-  // Reap on the server over HTTP too — the WS `terminate` only reaches the server while
-  // the socket is open, so a disconnected cell's close button would otherwise leave its tmux alive.
+  // The close button has ONE deletion transport: this HTTP request. The terminal connection is
+  // only a viewer and may already be dead/disconnected, so it must not own a second delete path.
   if (id) fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }).catch(() => {});
+  termRef.value?.disconnect();
   launched.value = false;
   recordNextCwd = false; // drop any pending fresh-launch record from a torn-down session
   sessionId.value = null;
@@ -693,7 +693,7 @@ async function removeAndClose() {
     return;
   }
   closeError.value = null;
-  termRef.value?.terminate(); // free the worktree dir first (Windows locks a process's cwd)
+  termRef.value?.disconnect(); // free the worktree dir first (Windows locks a process's cwd)
   try {
     const res = await fetch("/api/worktrees/remove", {
       method: "POST",

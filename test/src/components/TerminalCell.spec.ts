@@ -9,7 +9,7 @@ import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/remembered
 // activity and simulate a dropped-then-restored socket directly.
 let captured: ((data: unknown) => void) | null = null;
 let reconnect: (() => void) | null = null;
-let terminalTerminate = vi.fn();
+let terminalDisconnect = vi.fn();
 vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({
     subscribe: (_channel: string, cb: (data: unknown) => void) => {
@@ -23,8 +23,8 @@ vi.mock("../../../src/composables/usePubSub", () => ({
   }),
 }));
 
-// Stub the terminal so no xterm/WebSocket is needed; expose terminate() since
-// the cell's close() calls it.
+// Stub the terminal so no xterm/WebSocket is needed; expose disconnect() since
+// the cell releases its viewer after issuing the one HTTP deletion request.
 vi.mock("../../../src/components/Terminal.vue", () => ({
   default: {
     name: "TerminalView",
@@ -35,8 +35,8 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
     // is shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
     template: '<div class="stub-term"><slot v-if="!hideHeader" name="header-actions" /></div>',
     methods: {
-      terminate() {
-        terminalTerminate();
+      disconnect() {
+        terminalDisconnect();
       },
       submitText() {
         return true;
@@ -71,7 +71,7 @@ function deferred<T>() {
 beforeEach(() => {
   captured = null;
   reconnect = null;
-  terminalTerminate = vi.fn();
+  terminalDisconnect = vi.fn();
   localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
   mockFetch();
 });
@@ -1560,7 +1560,7 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
     expect(w.find('[data-testid="cell-running-close-confirm"]').text()).toContain("Closing it will stop the running process.");
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
-    expect(terminalTerminate).not.toHaveBeenCalled();
+    expect(terminalDisconnect).not.toHaveBeenCalled();
     expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
   });
 
@@ -1578,7 +1578,7 @@ describe("TerminalCell", () => {
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
-    expect(terminalTerminate).not.toHaveBeenCalled();
+    expect(terminalDisconnect).not.toHaveBeenCalled();
     expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
   });
 
@@ -1596,8 +1596,8 @@ describe("TerminalCell", () => {
     await w.find('[data-testid="rcx-stop"]').trigger("click");
     await flushPromises();
 
-    expect(terminalTerminate).toHaveBeenCalledTimes(1);
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(terminalDisconnect).toHaveBeenCalledTimes(1);
+    expect(posts.filter((p) => p.url.includes(`/api/session/${id}/terminate`))).toHaveLength(1);
     expect(w.emitted("close")).toHaveLength(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
@@ -1616,7 +1616,7 @@ describe("TerminalCell", () => {
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
-    expect(terminalTerminate).not.toHaveBeenCalled();
+    expect(terminalDisconnect).not.toHaveBeenCalled();
     expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
   });
 
@@ -1645,8 +1645,8 @@ describe("TerminalCell", () => {
     await nextTick();
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
-    expect(terminalTerminate).toHaveBeenCalledTimes(1);
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(terminalDisconnect).toHaveBeenCalledTimes(1);
+    expect(posts.filter((p) => p.url.includes(`/api/session/${id}/terminate`))).toHaveLength(1);
     expect(w.emitted("close")).toHaveLength(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true); // torn down to the launcher
   });
@@ -1663,8 +1663,8 @@ describe("TerminalCell", () => {
     await nextTick();
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
-    expect(terminalTerminate).toHaveBeenCalledTimes(1);
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(terminalDisconnect).toHaveBeenCalledTimes(1);
+    expect(posts.filter((p) => p.url.includes(`/api/session/${id}/terminate`))).toHaveLength(1);
     expect(w.emitted("close")).toHaveLength(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });

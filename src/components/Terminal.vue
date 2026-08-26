@@ -381,20 +381,20 @@ watch(
 );
 onUnmounted(() => clearTimeout(refitTimer));
 
-// Submit a GUI-originated message into the PTY (the GUI->LLM feedback path) and the
-// explicit close-button close. Both delegate to the slot's durable runtime.
+// Submit a GUI-originated message into the PTY (the GUI->LLM feedback path) and release this
+// viewer. Logical deletion is an HTTP operation owned by TerminalCell, not a socket frame.
 function submitText(text: string): boolean {
   return conn.submitText(slotKey, text);
 }
-function terminate() {
-  conn.terminate(slotKey);
+function disconnect() {
+  conn.release(slotKey);
 }
 // The current xterm buffer as plain text, so a command cell can send its captured
 // output to the AI summariser.
 function readOutput(): string {
   return conn.readBuffer(slotKey);
 }
-defineExpose({ submitText, terminate, readOutput });
+defineExpose({ submitText, disconnect, readOutput });
 
 // Insert text (a path, or space-joined paths) at the terminal cursor via the
 // normal input channel — no trailing CR, so the user reviews and submits.

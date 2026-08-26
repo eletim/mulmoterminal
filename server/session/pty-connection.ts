@@ -20,8 +20,6 @@ export type WireFrame = { toString(): string };
 export interface ConnectionDeps {
   /** A reattach inside the grace window keeps the session alive. */
   cancelReap: (id: string) => void;
-  /** Explicit close from the client — delete the logical session and tear down runtime. */
-  deleteSession: (id: string) => void | Promise<void>;
   input: (id: string, data: string) => Promise<void>;
   resize: (id: string, cols: number, rows: number) => Promise<void>;
   setWaiting: (id: string, waiting: boolean) => void;
@@ -134,11 +132,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     const msg = parseClientFrame(raw);
     if (!msg) return;
     try {
-      if (msg.type === "terminate") {
-        // Explicit close (the cell's close button) — delete now instead of waiting out the
-        // disconnect grace window, so the session slot frees immediately.
-        void Promise.resolve(deps.deleteSession(sessionId)).catch((error) => console.warn(`[ws] delete failed for ${sessionId}: ${messageOf(error)}`));
-      } else if (msg.type === "view" && typeof msg.active === "boolean") {
+      if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
       } else if (msg.type === "input" && typeof msg.data === "string") {
         void deps.input(sessionId, msg.data).catch((error) => console.warn(`[ws] input dropped for ${sessionId}: ${messageOf(error)}`));

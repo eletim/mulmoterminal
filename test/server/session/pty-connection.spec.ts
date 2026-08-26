@@ -52,9 +52,6 @@ function setup(terminalModes: readonly number[] = []) {
   const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
     cancelReap: (id) => calls.push(`cancelReap:${id}`),
-    deleteSession: (id) => {
-      calls.push(`deleteSession:${id}`);
-    },
     input: async (id, data) => {
       calls.push(`input:${id}:${data}`);
       currentEntries.get(id)?.term.write(data);
@@ -163,12 +160,12 @@ describe("handleClientFrame", () => {
     expect(t.resizes).toEqual([]);
   });
 
-  it("deletes immediately on terminate rather than waiting out the grace window", () => {
+  it("ignores legacy terminate frames because explicit deletion is HTTP-only", () => {
     const { handleClientFrame, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "terminate" }), SESSION);
-    expect(calls).toEqual([`deleteSession:${SESSION}`]);
+    expect(calls).toEqual([]);
   });
 
   it("ignores a stale socket close after its transient pty was removed", () => {
