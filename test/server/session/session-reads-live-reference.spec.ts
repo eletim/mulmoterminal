@@ -3,7 +3,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { activity, sessionMemos } from "../../../server/session/registry.js";
+import { activity } from "../../../server/session/activity-store.js";
+import { sessionMemos } from "../../../server/session/history-memos.js";
 import { readSessionMeta } from "../../../server/session/session-reads.js";
 
 const HISTORY = "11111111-1111-4111-8111-111111111111";

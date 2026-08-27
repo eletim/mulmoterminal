@@ -28,6 +28,9 @@ const session = (id: string): CoreSession => ({
   memo: null,
   resumeSource: null,
   visibility: "normal",
+  origin: "interactive",
+  guiToolGroups: [],
+  allGuiTools: false,
 });
 
 describe("visibleCoreSessions", () => {

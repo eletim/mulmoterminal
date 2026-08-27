@@ -9,7 +9,7 @@ import type { Express } from "express";
 
 import { CLAUDE_CWD } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { markBackgroundHistory, markFailedWorker } from "../session/registry.js";
+import { markBackgroundHistory, markFailedWorkerHistory } from "../session/history-state.js";
 import { registerCompletionHook } from "../session/completion-hooks.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
@@ -100,7 +100,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
         // after failing this hook, so it must be able to read the flag immediately.
         if (agent === "claude") {
           registerCompletionHook(sessionId, ({ didError }) => {
-            if (didError) markFailedWorker(sessionId);
+            if (didError) markFailedWorkerHistory(sessionId);
           });
         }
       }

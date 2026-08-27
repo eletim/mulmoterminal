@@ -5,7 +5,7 @@
 // - `publish`, because pub/sub only exists once the HTTP server does. It arrives as a
 //   closure, so it stays correct however late that happens.
 // - `root`, so a test writes to a temp directory instead of the developer's own
-//   ~/.mulmoterminal — the readers' equivalent of that binding is why registry.ts still
+//   ~/.mulmoterminal — the readers' equivalent of that binding is why this feature
 //   has no tests.
 import { promises as fs } from "node:fs";
 import path from "node:path";

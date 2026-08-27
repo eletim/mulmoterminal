@@ -11,7 +11,8 @@ import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId 
 import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
-import { activity, lastPrompts, lastResponses, viewerPtys } from "../session/registry.js";
+import { activity, lastPrompts, lastResponses } from "../session/activity-store.js";
+import { viewerPtys } from "../session/viewer-state.js";
 import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt, readLatestResponse } from "../session/session-reads.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";

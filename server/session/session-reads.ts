@@ -22,7 +22,9 @@ import {
 import { createFileCache, type FileStamp } from "./file-cache.js";
 import { classifyWorkPhase, type WorkPhase } from "./workPhase.js";
 import { sessionListTitle } from "./sessionListTitle.js";
-import { activity, codexRolloutIds, isFailedWorker, sessionMemos } from "./registry.js";
+import { activity } from "./activity-store.js";
+import { isFailedWorkerHistory } from "./history-state.js";
+import { sessionMemos } from "./history-memos.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
 import { forEachJsonlRecord, readTailRecords } from "../infra/jsonl-file.js";
@@ -179,8 +181,8 @@ export async function sessionTimeline(cwd: string, id: string): Promise<{ events
 // per-project transcript, or codex's rollout. A codex session is addressed here by the
 // mulmoterminal key the browser knows; the rollout it maps to is the one we recorded at
 // spawn, or the key itself when it came from the sidebar (which lists rollout ids).
-async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
-  const rolloutId = codexRolloutIds.get(sessionKey) ?? sessionKey;
+async function codexLastTurn(sessionKey: string, resumeSource?: string | null): Promise<LastTurn> {
+  const rolloutId = resumeSource ?? sessionKey;
   const file = codexRolloutPath(codexSessionsRoot(), rolloutId);
   if (!file) return EMPTY_TURN;
   try {
@@ -202,8 +204,8 @@ async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
 // stopped mattering: the same read now costs 256 KB whatever the transcript weighs. There is
 // consequently no size limit here at all, and no "too large" answer for a caller to handle.
 
-export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex" | "antigravity"): Promise<LastTurn> {
-  if (agent === "codex") return codexLastTurn(id);
+export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex" | "antigravity", resumeSource?: string | null): Promise<LastTurn> {
+  if (agent === "codex") return codexLastTurn(id, resumeSource);
   if (agent === "antigravity") return EMPTY_TURN;
   try {
     return lastTurnFromClaudeParsed(readTailRecords(path.join(projectSessionsDir(cwd), `${id}.jsonl`)));
@@ -220,6 +222,7 @@ export async function readSessionMeta(
   visibility: CoreSessionVisibility = "normal",
   liveTitle?: string | null,
   liveMemo?: string | null,
+  coreExited = false,
 ): Promise<SessionMeta> {
   const full = path.join(dir, file);
 
@@ -253,7 +256,7 @@ export async function readSessionMeta(
     diskLastPrompt: lastPrompt,
     firstUserMsg,
   });
-  const a = activity.get(stateId);
+  const a = coreExited ? undefined : activity.get(stateId);
   return {
     id,
     title,
@@ -262,7 +265,7 @@ export async function readSessionMeta(
     waiting: a?.waiting ?? false,
     event: a?.event ?? null,
     hidden: visibility === "background",
-    failed: isFailedWorker(stateId),
+    failed: isFailedWorkerHistory(stateId),
   };
 }
 

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { SessionCore, SessionNotFoundError, type CreateSessionOptions, type Session } from "tmux-session-core-ts";
 import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent.js";
+import { isToolGroup, type ToolGroup } from "../../common/toolGroups.js";
 import { CORE_TMUX_SERVER } from "./core-session-config.js";
 
 const AGENT_METADATA_KEY = "agent";
@@ -8,6 +9,9 @@ const TITLE_METADATA_KEY = "title";
 const MEMO_METADATA_KEY = "memo";
 const RESUME_SOURCE_METADATA_KEY = "resume-source";
 const VISIBILITY_METADATA_KEY = "visibility";
+const ORIGIN_METADATA_KEY = "origin";
+const GUI_TOOL_GROUPS_METADATA_KEY = "gui-tool-groups";
+const ALL_GUI_TOOLS_METADATA_KEY = "all-gui-tools";
 // tmux clears pane_current_path once a remain-on-exit pane is dead. This is the one native
 // session fact that must be copied so an exited session can still be reconstructed after restart.
 const CWD_METADATA_KEY = "cwd";
@@ -18,9 +22,13 @@ export interface CoreSession extends Session {
   memo: string | null;
   resumeSource: string | null;
   visibility: CoreSessionVisibility;
+  origin: CoreSessionOrigin;
+  guiToolGroups: ToolGroup[];
+  allGuiTools: boolean;
 }
 
 export type CoreSessionVisibility = "normal" | "background" | "internal";
+export type CoreSessionOrigin = "interactive" | "scheduled";
 
 export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id"> {
   id: string;
@@ -29,6 +37,7 @@ export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id
   memo?: string;
   resumeSource?: string;
   visibility?: CoreSessionVisibility;
+  origin?: CoreSessionOrigin;
 }
 
 export interface CoreSessionAdapterOptions {
@@ -59,7 +68,7 @@ try {
 `;
 
 function defaultCreateSync(options: CreateCoreSessionOptions, environment: NodeJS.ProcessEnv, serverName: string): void {
-  const { agent, title, memo, resumeSource, visibility = "normal", ...session } = options;
+  const { agent, title, memo, resumeSource, visibility = "normal", origin = "interactive", ...session } = options;
   const metadata = {
     [AGENT_METADATA_KEY]: agent,
     [CWD_METADATA_KEY]: session.cwd,
@@ -67,6 +76,7 @@ function defaultCreateSync(options: CreateCoreSessionOptions, environment: NodeJ
     ...(memo ? { [MEMO_METADATA_KEY]: memo } : {}),
     ...(resumeSource ? { [RESUME_SOURCE_METADATA_KEY]: resumeSource } : {}),
     [VISIBILITY_METADATA_KEY]: visibility,
+    [ORIGIN_METADATA_KEY]: origin,
   };
   const payload = JSON.stringify({ serverName, session, metadata });
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", syncCreateScript], {
@@ -85,6 +95,7 @@ export class CoreSessionAdapter {
   private readonly createSyncImpl: NonNullable<CoreSessionAdapterOptions["createSync"]>;
   private readonly inputTails = new Map<string, Promise<void>>();
   private readonly exitWatchers = new Map<string, (event: CoreSessionExit) => void>();
+  private readonly capabilityTails = new Map<string, Promise<CoreSessionCapabilities>>();
   private exitPollTimer: ReturnType<typeof setTimeout> | undefined;
   private exitPollMs = 250;
   private exitPollInFlight = false;
@@ -100,7 +111,7 @@ export class CoreSessionAdapter {
   }
 
   async create(options: CreateCoreSessionOptions): Promise<CoreSession> {
-    const { agent, title, memo, resumeSource, visibility = "normal", ...session } = options;
+    const { agent, title, memo, resumeSource, visibility = "normal", origin = "interactive", ...session } = options;
     let created = false;
     try {
       const native = await this.core.create(session);
@@ -111,6 +122,7 @@ export class CoreSessionAdapter {
       if (memo) await this.core.setMetadata(session.id, MEMO_METADATA_KEY, memo);
       if (resumeSource) await this.core.setMetadata(session.id, RESUME_SOURCE_METADATA_KEY, resumeSource);
       await this.core.setMetadata(session.id, VISIBILITY_METADATA_KEY, visibility);
+      await this.core.setMetadata(session.id, ORIGIN_METADATA_KEY, origin);
       return this.withMetadata(native);
     } catch (error) {
       if (created) await this.core.delete(session.id).catch(() => undefined);
@@ -223,6 +235,33 @@ export class CoreSessionAdapter {
     await this.core.setMetadata(id, VISIBILITY_METADATA_KEY, visibility);
   }
 
+  async setOrigin(id: string, origin: CoreSessionOrigin): Promise<void> {
+    await this.core.setMetadata(id, ORIGIN_METADATA_KEY, origin);
+  }
+
+  async learnGuiCapabilities(id: string, groups: readonly ToolGroup[], allTools = false): Promise<CoreSessionCapabilities> {
+    const previous = this.capabilityTails.get(id) ?? Promise.resolve({ groups: [], allTools: false, changed: false });
+    const current = previous
+      .catch(() => ({ groups: [], allTools: false, changed: false }))
+      .then(async () => {
+        const session = await this.get(id);
+        const merged = [...new Set([...session.guiToolGroups, ...groups])];
+        const groupsChanged = merged.length !== session.guiToolGroups.length;
+        const allToolsChanged = allTools && !session.allGuiTools;
+        if (groupsChanged) {
+          await this.core.setMetadata(id, GUI_TOOL_GROUPS_METADATA_KEY, JSON.stringify(merged));
+        }
+        if (allToolsChanged) await this.core.setMetadata(id, ALL_GUI_TOOLS_METADATA_KEY, "true");
+        return { groups: merged, allTools: session.allGuiTools || allTools, changed: groupsChanged || allToolsChanged };
+      });
+    this.capabilityTails.set(id, current);
+    try {
+      return await current;
+    } finally {
+      if (this.capabilityTails.get(id) === current) this.capabilityTails.delete(id);
+    }
+  }
+
   private async withMetadata(session: Session): Promise<CoreSession> {
     const metadata = await this.core.listMetadata(session.id);
     const agent = isLaunchAgent(metadata[AGENT_METADATA_KEY]) ? metadata[AGENT_METADATA_KEY] : "shell";
@@ -235,6 +274,9 @@ export class CoreSessionAdapter {
       resumeSource: metadata[RESUME_SOURCE_METADATA_KEY] || null,
       visibility:
         metadata[VISIBILITY_METADATA_KEY] === "background" || metadata[VISIBILITY_METADATA_KEY] === "internal" ? metadata[VISIBILITY_METADATA_KEY] : "normal",
+      origin: metadata[ORIGIN_METADATA_KEY] === "scheduled" ? "scheduled" : "interactive",
+      guiToolGroups: parseToolGroups(metadata[GUI_TOOL_GROUPS_METADATA_KEY]),
+      allGuiTools: metadata[ALL_GUI_TOOLS_METADATA_KEY] === "true",
     };
   }
 
@@ -276,6 +318,22 @@ export class CoreSessionAdapter {
         this.exitPollTimer.unref?.();
       }
     }
+  }
+}
+
+export interface CoreSessionCapabilities {
+  groups: ToolGroup[];
+  allTools: boolean;
+  changed: boolean;
+}
+
+function parseToolGroups(value: string | undefined): ToolGroup[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(isToolGroup) : [];
+  } catch {
+    return [];
   }
 }
 

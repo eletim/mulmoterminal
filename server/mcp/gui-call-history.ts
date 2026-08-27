@@ -38,7 +38,7 @@ export interface GuiCallRecorder {
  * thing does: claude's `--settings` hooks. So the gate is an exclusion, on two independent
  * signals, because a double entry is worse than a missing one:
  *
- *   reportsOwnCalls — this process spawned it with our hooks (registry.hookedSessions). Exact.
+ *   reportsOwnCalls — Core agent metadata says this is Claude, whose spawn contract includes hooks.
  *   agent           — Core/tmux metadata, including after a server restart when this process did
  *                     not spawn or attach the viewer.
  *

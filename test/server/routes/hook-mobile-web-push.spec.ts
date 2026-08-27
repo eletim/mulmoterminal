@@ -4,7 +4,8 @@ import express from "express";
 import request from "supertest";
 
 import { mountHookRoute } from "../../../server/routes/hook-routes";
-import { activity, viewerPtys } from "../../../server/session/registry";
+import { activity } from "../../../server/session/activity-store.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
 
 vi.mock("../../../server/session/session-reads.js", () => ({ latestUserPrompt: vi.fn(async () => null) }));
 

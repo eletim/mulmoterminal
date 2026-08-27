@@ -34,8 +34,8 @@ describe("brokerRecordsGuiCalls", () => {
     expect(brokerRecordsGuiCalls({ agent: "claude", reportsOwnCalls: true })).toBe(false);
   });
 
-  // The backstop, for a claude session that outlived a restart and was never reattached here, so
-  // nothing added it to hookedSessions — its pane command still says what it is.
+  // Core agent metadata survives a Backend restart, so no process-local hooked-session Set is
+  // needed to keep Claude calls from being recorded twice.
   it("does NOT record a claude session this process never spawned", () => {
     expect(brokerRecordsGuiCalls({ agent: "claude", reportsOwnCalls: false })).toBe(false);
   });

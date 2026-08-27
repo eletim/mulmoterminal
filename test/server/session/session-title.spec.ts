@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ConversationTurn } from "../../../server/session/transcript.js";
 import { cleanupSessionTitleState, createTitleManager } from "../../../server/session/session-title.js";
-import { lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "../../../server/session/registry.js";
+import { lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "../../../server/session/session-title.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 const SESSION = "11111111-2222-3333-4444-555555555555";

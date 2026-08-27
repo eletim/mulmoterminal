@@ -12,7 +12,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
 import { CLAUDE_CWD } from "../config/env.js";
-import { activity, lastPrompts, persistActivityState } from "./registry.js";
+import { activity, lastPrompts } from "./activity-store.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { buildTranslationPrompt, isValidTranslationResult } from "./translation-prompt.js";
 
@@ -66,7 +66,6 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
     } finally {
       activity.delete(sessionId);
       lastPrompts.delete(sessionId);
-      persistActivityState();
       pendingTranslations.delete(sessionId);
       fs.rm(path.join(projectSessionsDir(CLAUDE_CWD), `${sessionId}.jsonl`), { force: true }).catch(() => {});
     }

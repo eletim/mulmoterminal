@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handoffCoreMemoToHistory, migrateHistoryMemosToCore, sessionMemos, sessionMemosHydrated } from "../../../server/session/registry.js";
+import { handoffCoreMemoToHistory, migrateHistoryMemosToCore, sessionMemos, sessionMemosHydrated } from "../../../server/session/history-memos.js";
 
 const LEGACY = "11111111-2222-4333-8444-555555555555";
 const ALREADY_CORE = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";

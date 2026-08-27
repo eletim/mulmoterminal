@@ -39,7 +39,7 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
-import { hookedSessions, viewerPtys, sessionToolGroups, sessionToolGroupsHydrated, hasAllGuiTools, allToolsSessionsHydrated } from "../session/registry.js";
+import { viewerPtys } from "../session/viewer-state.js";
 import { mountMobileModeRoute } from "./mobile-mode-route.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
@@ -90,10 +90,10 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 // whether the pane tells the user it holds the GUI tools alone. Read here so the two answers are
 // built from one reading of the session — they are not the same question (the claim is stricter,
 // see historyIsGuiOnly), but they must never be built from different facts.
-const sessionCallReporting = async (deps: AppRouteDeps, sessionId: string) => ({
-  agent: await deps.agentOfSession(sessionId),
-  reportsOwnCalls: hookedSessions.has(sessionId),
-});
+const sessionCallReporting = async (deps: AppRouteDeps, sessionId: string) => {
+  const agent = await deps.agentOfSession(sessionId);
+  return { agent, reportsOwnCalls: agent === "claude" };
+};
 
 const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
   freshenRosterTitle: deps.freshenRosterTitle,
@@ -222,6 +222,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     // its own PreToolUse/PostToolUse already writes.
     guiCallHistory: async (sessionId) => guiCallRecorderFor(sessionId, await sessionCallReporting(deps, sessionId), deps.toolStores),
     isInternalSession: async (sessionId) => (await coreSessions.find(sessionId))?.visibility === "internal",
+    learnGuiCapabilities: (sessionId, groups, allTools) => coreSessions.learnGuiCapabilities(sessionId, groups, allTools),
   });
 
   // Serve Vite build output. CSS is mounted first so a package built for "/" can
@@ -272,10 +273,10 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   mountToolRoutes(app, {
     stores: deps.toolStores,
     toolSummaries: deps.toolSummaries,
-    sessionToolGroups,
-    sessionToolGroupsHydrated,
-    hasAllGuiTools,
-    allToolsSessionsHydrated,
+    sessionGuiCapabilities: async (id) => {
+      const session = await coreSessions.find(id);
+      return session ? { groups: session.guiToolGroups, allTools: session.allGuiTools } : { groups: [], allTools: false };
+    },
     isGridSession: () => true,
     // Built from the same two signals as the broker's recorder, but with the stricter rule the
     // user-facing claim needs — see historyIsGuiOnly for why the pane must not answer this the

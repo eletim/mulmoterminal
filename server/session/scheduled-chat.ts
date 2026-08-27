@@ -17,14 +17,14 @@
 //   - a FAILED one still says so. Quiet is right while it works and wrong when it dies: nothing
 //     pulls the user's attention, so without the hook a failed task is never learned.
 //
-// And one thing it does NOT inherit: Web Push still fires for it. See markUserScheduledSession —
+// And one thing it does NOT inherit: Web Push still fires for it. Core origin metadata records
 // "quiet" here means out of the chat list and off the grid, not unreachable.
-import { markBackgroundHistory, markFailedWorker, markUserScheduledSession } from "./registry.js";
+import { markBackgroundHistory, markFailedWorkerHistory } from "./history-state.js";
 import { registerCompletionHook } from "./completion-hooks.js";
 
 export interface ScheduledChatDeps {
   /** Start the PTY. Separate so the policy can be exercised without spawning anything. */
-  spawn: (sessionId: string, visibility: "background") => void;
+  spawn: (sessionId: string, visibility: "background", origin: "scheduled") => void;
   /** Put it on the scheduled-session retention — nothing else would ever end it. */
   retain: (sessionId: string) => void;
 }
@@ -40,15 +40,10 @@ export interface ScheduledChatDeps {
  * report success would mark every successful run as failed.
  */
 export function spawnScheduledWorker(sessionId: string, deps: ScheduledChatDeps): void {
-  deps.spawn(sessionId, "background");
+  deps.spawn(sessionId, "background", "scheduled");
   deps.retain(sessionId);
   markBackgroundHistory(sessionId);
-  // Background in every respect EXCEPT the phone. A background session's finished turn never
-  // pushes, on the reasoning that it "isn't a real user task" — and a task the user configured to
-  // run while they are away is exactly that, with the phone the only way they would hear about it
-  // (Codex, PR #1196). Marked after the spawn, like the hook below.
-  markUserScheduledSession(sessionId);
   registerCompletionHook(sessionId, ({ didError }) => {
-    if (didError) markFailedWorker(sessionId);
+    if (didError) markFailedWorkerHistory(sessionId);
   });
 }

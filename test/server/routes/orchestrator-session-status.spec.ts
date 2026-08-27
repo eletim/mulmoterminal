@@ -21,6 +21,9 @@ const session = (exited = false) => ({
   memo: null,
   resumeSource: null,
   visibility: "normal" as const,
+  origin: "interactive" as const,
+  guiToolGroups: [],
+  allGuiTools: false,
 });
 
 describe("createOrchestratorStatusReader", () => {
@@ -34,13 +37,18 @@ describe("createOrchestratorStatusReader", () => {
     await expect(read(ID)).resolves.toMatchObject({ inputAvailable: true, readyForInput: true, activity: { working: false, waiting: false } });
   });
 
-  it("reports an exited Core member as stopped even with stale activity", async () => {
+  it("reports an exited Core member as stopped and sanitizes stale activity", async () => {
     const read = createOrchestratorStatusReader({
       getSession: async () => session(true),
       hasViewer: () => false,
       activityOf: () => ({ working: true, waiting: true }),
       workPhaseOf: () => "implementing",
     });
-    await expect(read(ID)).resolves.toMatchObject({ lifecycle: "stopped", inputAvailable: false, readyForInput: false, activity: { working: true } });
+    await expect(read(ID)).resolves.toMatchObject({
+      lifecycle: "stopped",
+      inputAvailable: false,
+      readyForInput: false,
+      activity: { working: false, waiting: false, workPhase: null },
+    });
   });
 });

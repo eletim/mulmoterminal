@@ -1,6 +1,6 @@
 // Process-wide settings read from the environment. Their own module because the session
-// registry persists under MULMOTERMINAL_HOME and validates ids with SESSION_ID_RE — taking
-// them from index.ts would make the registry import its own importer.
+// feature-owned state persists under MULMOTERMINAL_HOME and validates ids with SESSION_ID_RE — taking
+// them from index.ts would make those owners import their own importer.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

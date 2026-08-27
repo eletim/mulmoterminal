@@ -2,7 +2,8 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
-import { activity, viewerPtys } from "../../../server/session/registry.js";
+import { activity } from "../../../server/session/activity-store.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
 import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;

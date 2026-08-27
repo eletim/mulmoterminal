@@ -1,5 +1,5 @@
 // Shapes shared by the session layer: the live-PTY table, the sidebar rows those resolve
-// into, and the per-session GUI records. Extracted from index.ts so the registry and the
+// into, and the per-session GUI records. Extracted from index.ts so feature owners and the
 // modules that read it can name them without importing the boot module (#548).
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";
