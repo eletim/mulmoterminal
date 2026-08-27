@@ -48,7 +48,6 @@ export function releaseAllViewers(deps: ViewerReleaseDeps): string[] {
 export type WireFrame = { toString(): string };
 
 export interface ConnectionDeps {
-  input: (id: string, data: string) => Promise<void>;
   resize: (id: string, cols: number, rows: number) => Promise<void>;
   setWaiting: (id: string, waiting: boolean) => void;
   /** Socket gone: release only the transient viewer; Core membership remains. */
@@ -162,7 +161,10 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
       if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
       } else if (msg.type === "input" && typeof msg.data === "string") {
-        void deps.input(sessionId, msg.data).catch((error) => console.warn(`[ws] input dropped for ${sessionId}: ${messageOf(error)}`));
+        // This PTY is the attached tmux client. Raw replies to terminal modes that tmux enabled,
+        // including mouse reports, must return through that client instead of bypassing its
+        // protocol parser through Core's pane-injection path (#193).
+        entry.term.write(msg.data);
       } else if (isResizeFrame(msg)) {
         void deps.resize(sessionId, msg.cols, msg.rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves

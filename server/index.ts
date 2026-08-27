@@ -287,7 +287,6 @@ const releaseTerminalViewer = (id: string, expected?: Parameters<typeof releaseV
 
 // Per-connection plumbing (session/pty-connection.ts): attach, detach and release only.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
-  input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
     viewerPtys.get(id)?.term.resize(cols, rows);
     await coreSessions.resize(id, cols, rows);
