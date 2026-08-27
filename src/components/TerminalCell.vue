@@ -606,6 +606,7 @@ onUnmounted(() => {
 // launch never acquired a Core session id.
 function resetCellLocalState() {
   deleting.value = false;
+  awaitingSessionIdForDelete.value = false;
   deleteError.value = null;
   launched.value = false;
   recordNextCwd = false; // drop any pending fresh-launch record from the deleted session
@@ -639,9 +640,9 @@ function resetAfterConfirmedDelete() {
   resetCellLocalState();
 }
 
-// Before the server assigns an id there is no identified Terminal membership to delete. Closing
-// this state cancels only the pending viewer/launch attempt and returns the cell to its launcher.
-function cancelUnassignedLaunch() {
+// A terminal error before any session announcement confirms that the launch never acquired an
+// identified Core member. Only that confirmed pre-session failure may be reset without Delete.
+function resetFailedUnassignedLaunch() {
   termRef.value?.releaseConnection();
   resetCellLocalState();
 }
@@ -660,15 +661,26 @@ const closeConfirm = ref(false);
 const runningCloseConfirm = ref(false);
 const closeChecking = ref(false); // refreshing dirty/ahead — the destructive action is held until it's accurate
 const deleting = ref(false);
+const awaitingSessionIdForDelete = ref(false);
+const deletePending = computed(() => deleting.value || awaitingSessionIdForDelete.value);
 const deleteError = ref<string | null>(null);
 const unsaved = computed(() => unsavedWork(diff.value));
 const hasUnsaved = computed(() => unsaved.value.has);
 const unsavedSummary = computed(() => unsaved.value.summary);
 
 async function close() {
-  if (deleting.value) return;
+  if (deletePending.value) return;
   if (!sessionId.value) {
-    cancelUnassignedLaunch();
+    if (!launched.value) {
+      resetCellLocalState(); // an untouched launcher is not a Terminal session
+      return;
+    }
+    // The server announces the generated id before creating Core membership, but that WebSocket
+    // frame may already be in flight. Keep the viewer and cell until it arrives; releasing here
+    // could hide a Core session that was created between the announcement and this click.
+    awaitingSessionIdForDelete.value = true;
+    deleteError.value = null;
+    termRef.value?.setInputEnabled(false);
     return;
   }
   if (!isWorktreeCell.value) {
@@ -773,6 +785,14 @@ function onSession(id: string) {
   sessionId.value = id;
   emit("session", id);
   void loadInitial(id);
+  if (awaitingSessionIdForDelete.value) {
+    awaitingSessionIdForDelete.value = false;
+    void deleteAndClose();
+  }
+}
+
+function onTerminalExit() {
+  if (awaitingSessionIdForDelete.value && !sessionId.value) resetFailedUnassignedLaunch();
 }
 
 // ~-anchored, front-truncated path for the header (keeps the tail). For a managed
@@ -1215,6 +1235,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           dev-terminal
           run-menu
           @session="onSession"
+          @exit="onTerminalExit"
           @input="onTerminalInput"
           @cwd="onServerCwd"
           @run="(cmd) => emit('runSpare', cmd)"
@@ -1488,7 +1509,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           </div>
         </div>
         <div
-          v-if="deleting"
+          v-if="deletePending"
           data-testid="cell-deleting"
           class="absolute inset-0 z-[40] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
           role="status"

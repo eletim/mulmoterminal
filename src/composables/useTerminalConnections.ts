@@ -198,6 +198,7 @@ interface Conn {
   sawExit: boolean; // an intentional end (exit/superseded/error) — suppress reconnect
   released: boolean; // torn down — suppress reconnect and stray socket events
   inputEnabled: boolean; // false only while this cell awaits authoritative Core Delete
+  inputGeneration: number; // changes when input is disabled, permanently cancelling older delayed submits
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   attachedEl: HTMLElement | null;
@@ -673,6 +674,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     sawExit: false,
     released: false,
     inputEnabled: true,
+    inputGeneration: 0,
     reconnectAttempts: 0,
     reconnectTimer: null,
     attachedEl: null,
@@ -951,6 +953,7 @@ export function release(key: string) {
 export function setInputEnabled(key: string, enabled: boolean): void {
   const c = conns.get(key);
   if (!c) return;
+  if (!enabled) c.inputGeneration++;
   c.inputEnabled = enabled;
   c.term.options.disableStdin = !enabled;
 }
@@ -975,9 +978,10 @@ export function submitText(key: string, text: string): boolean {
     return false;
   }
   const submit = submitBytesFor(c);
+  const inputGeneration = c.inputGeneration;
   sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
   setTimeout(() => {
-    if (c.inputEnabled && c.ws === sock && sock.readyState === WebSocket.OPEN) {
+    if (c.inputEnabled && c.inputGeneration === inputGeneration && c.ws === sock && sock.readyState === WebSocket.OPEN) {
       sock.send(JSON.stringify({ type: "input", data: submit }));
     }
   }, 60);
@@ -1019,11 +1023,14 @@ export function pasteAndSubmit(key: string, text: string): boolean {
     return false;
   }
   const submit = submitBytesFor(c);
+  const inputGeneration = c.inputGeneration;
   // The guard's space rides INSIDE the paste, where the TUI takes it as text — after the
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
   sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableFor(c, text)}${PASTE_END}` }));
   setTimeout(() => {
-    if (c.inputEnabled && c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
+    if (c.inputEnabled && c.inputGeneration === inputGeneration && c.ws === sock && sock.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: "input", data: submit }));
+    }
   }, PASTE_SUBMIT_MS);
   return true;
 }

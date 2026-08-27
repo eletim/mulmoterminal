@@ -29,7 +29,7 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
   default: {
     name: "TerminalView",
     props: ["sessionId", "connectKey", "cwd", "hideHeader"],
-    emits: ["session", "cwd"],
+    emits: ["session", "cwd", "exit"],
     // Render the header-actions slot so the cell's icon buttons (moved onto the
     // terminal's header row) are present in the test DOM — but only when the header
     // is shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
@@ -595,7 +595,7 @@ describe("TerminalCell", () => {
     expect((w.find('[data-testid="cell-dir-input"]').element as HTMLInputElement).value).toBe("/home/me/default");
   });
 
-  it("cancels a launch that never acquired a Core session id without claiming Delete", async () => {
+  it("keeps a closing launch visible until its in-flight Core session id arrives, then Deletes", async () => {
     const w = mountCell(null, { defaultCwd: "/home/me/default" });
     await flushPromises();
     await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/unreachable");
@@ -603,13 +603,32 @@ describe("TerminalCell", () => {
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
 
     await w.find(".cell-close").trigger("click");
-    await flushPromises();
+    await nextTick();
 
-    const requests = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
-    expect(requests.some(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+    const deleteRequests = () =>
+      (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");
+    expect(deleteRequests()).toHaveLength(0);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(true);
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+
+    w.findComponent({ name: "TerminalView" }).vm.$emit("session", "99999999-9999-4999-8999-999999999999");
+    await flushPromises();
+    expect(deleteRequests()).toHaveLength(1);
     expect(terminalRelease).toHaveBeenCalledTimes(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
-    expect(w.find('[data-testid="cell-delete-error"]').exists()).toBe(false);
+  });
+
+  it("resets a failed launch after a terminal error confirms that no session id was assigned", async () => {
+    const w = mountCell(null);
+    await flushPromises();
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    await w.find(".cell-close").trigger("click");
+    w.findComponent({ name: "TerminalView" }).vm.$emit("exit", null);
+    await nextTick();
+
+    expect(terminalRelease).toHaveBeenCalledTimes(1);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
   it("adopts the EFFECTIVE cwd the server reports (persists/shows that, not the typed one)", async () => {
