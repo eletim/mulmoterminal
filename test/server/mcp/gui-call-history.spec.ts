@@ -34,10 +34,8 @@ describe("brokerRecordsGuiCalls", () => {
     expect(brokerRecordsGuiCalls({ agent: "claude", reportsOwnCalls: true })).toBe(false);
   });
 
-  // Core agent metadata survives a Backend restart, so no process-local hooked-session Set is
-  // needed to keep Claude calls from being recorded twice.
-  it("does NOT record a claude session this process never spawned", () => {
-    expect(brokerRecordsGuiCalls({ agent: "claude", reportsOwnCalls: false })).toBe(false);
+  it("records a launcher that runs Claude without our hook settings", () => {
+    expect(brokerRecordsGuiCalls({ agent: "claude", reportsOwnCalls: false })).toBe(true);
   });
 
   // Neither signal says claude, so nothing else is writing this history.
@@ -56,6 +54,10 @@ describe("historyIsGuiOnly", () => {
     expect(historyIsGuiOnly({ agent: "claude", reportsOwnCalls: true })).toBe(false);
   });
 
+  it("labels a hookless Claude launcher from the broker's explicit capability", () => {
+    expect(historyIsGuiOnly({ agent: "claude", reportsOwnCalls: false })).toBe(true);
+  });
+
   // The claim is asked EARLY — the browser holds a session id before the agent is spawned — so a
   // claude session can be asked about before spawnClaudePty registers its hooks. Both signals then
   // say "not claude", and answering the recording gate here would tell the user that claude's
@@ -67,9 +69,9 @@ describe("historyIsGuiOnly", () => {
 });
 
 describe("guiCallRecorderFor", () => {
-  it("is null for an agent that reports its own calls", () => {
+  it("uses the explicit call-reporting capability rather than the agent label", () => {
     expect(guiCallRecorderFor("s1", { agent: "claude", reportsOwnCalls: true }, sink())).toBeNull();
-    expect(guiCallRecorderFor("s1", { agent: "claude", reportsOwnCalls: false }, sink())).toBeNull();
+    expect(guiCallRecorderFor("s1", { agent: "claude", reportsOwnCalls: false }, sink())).not.toBeNull();
   });
 
   it("routes start and end to the sink under the session id", () => {

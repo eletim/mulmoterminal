@@ -18,6 +18,7 @@ import { attachCodexAutoRun } from "./draft-injection.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
+import { persistCoreResumeSource } from "./core-resume-source.js";
 
 const coreSessionEnded = (sessionId: string) => async () => !(await coreSessions.isRunning(sessionId));
 
@@ -46,7 +47,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
       .then((meta) => {
         if (!meta) return;
         claimRollout(meta.file);
-        void coreSessions.setResumeSource(sessionId, meta.id).catch(() => undefined);
+        void persistCoreResumeSource(sessionId, meta.id);
         // A rollout only discovered now is one this session just created, so it is read
         // whole: its first turn is in there and hasn't been reported yet.
         trackCodexActivity(sessionId, meta.file, false, activityDepsFor(sessionId, deps));

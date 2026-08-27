@@ -215,6 +215,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
         resumeSource: canResume ? resume : null,
         visibility,
         origin,
+        reportsOwnCalls: true,
         ...(!canResume ? { title: newSessionTitle(initialPrompt ?? draft) } : {}),
       };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);

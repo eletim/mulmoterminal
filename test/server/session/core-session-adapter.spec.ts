@@ -19,7 +19,7 @@ describe("CoreSessionAdapter", () => {
   it("reconstructs client-owned fields from Core metadata", async () => {
     const core = {
       list: vi.fn(async () => [native]),
-      listMetadata: vi.fn(async () => ({ agent: "codex", title: "Fix #149", memo: "review" })),
+      listMetadata: vi.fn(async () => ({ agent: "codex", title: "Fix #149", memo: "review", "reports-own-calls": "true" })),
     } as unknown as SessionCore;
 
     const sessions = await new CoreSessionAdapter({ core }).list();
@@ -35,6 +35,7 @@ describe("CoreSessionAdapter", () => {
         origin: "interactive",
         guiToolGroups: [],
         allGuiTools: false,
+        reportsOwnCalls: true,
       },
     ]);
   });
@@ -46,6 +47,20 @@ describe("CoreSessionAdapter", () => {
     } as unknown as SessionCore;
 
     await expect(new CoreSessionAdapter({ core }).get(native.id)).resolves.toMatchObject({ cwd: "/finished/repo", agent: "claude", exited: true });
+  });
+
+  it("keeps the pre-key Claude compatibility rule but respects an explicit hookless launch", async () => {
+    const legacy = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: legacy }).get(native.id)).resolves.toMatchObject({ reportsOwnCalls: true });
+
+    const explicit = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd, "reports-own-calls": "false" })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: explicit }).get(native.id)).resolves.toMatchObject({ reportsOwnCalls: false });
   });
 
   it("lists live cwd values without rebuilding unrelated metadata", async () => {
@@ -111,6 +126,7 @@ describe("CoreSessionAdapter", () => {
       title: "Fix #149",
       resumeSource: "history-1",
       visibility: "background",
+      reportsOwnCalls: true,
     });
 
     expect(setMetadata.mock.calls).toEqual([
@@ -120,6 +136,7 @@ describe("CoreSessionAdapter", () => {
       [native.id, "resume-source", "history-1"],
       [native.id, "visibility", "background"],
       [native.id, "origin", "interactive"],
+      [native.id, "reports-own-calls", "true"],
     ]);
   });
 

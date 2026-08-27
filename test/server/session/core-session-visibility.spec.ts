@@ -31,6 +31,7 @@ const session = (id: string): CoreSession => ({
   origin: "interactive",
   guiToolGroups: [],
   allGuiTools: false,
+  reportsOwnCalls: false,
 });
 
 describe("visibleCoreSessions", () => {

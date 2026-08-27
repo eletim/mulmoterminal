@@ -17,6 +17,7 @@ import { viewerPtys } from "./viewer-state.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
+import { persistCoreResumeSource } from "./core-resume-source.js";
 
 const coreSessionEnded = (sessionId: string) => async () => !(await coreSessions.isRunning(sessionId));
 
@@ -37,7 +38,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
         if (!id) return;
         claimConversation(id);
         rememberAntigravityHistory(sessionId, id, cwd);
-        void coreSessions.setResumeSource(sessionId, id).catch(() => undefined);
+        void persistCoreResumeSource(sessionId, id);
         console.log(`[pty] captured antigravity conversation ${id} for session ${sessionId}`);
       })
       .catch(() => {});

@@ -90,9 +90,9 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 // whether the pane tells the user it holds the GUI tools alone. Read here so the two answers are
 // built from one reading of the session — they are not the same question (the claim is stricter,
 // see historyIsGuiOnly), but they must never be built from different facts.
-const sessionCallReporting = async (deps: AppRouteDeps, sessionId: string) => {
-  const agent = await deps.agentOfSession(sessionId);
-  return { agent, reportsOwnCalls: agent === "claude" };
+const sessionCallReporting = async (sessionId: string) => {
+  const session = await coreSessions.find(sessionId);
+  return { agent: session?.agent ?? null, reportsOwnCalls: session?.reportsOwnCalls ?? false };
 };
 
 const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
@@ -220,7 +220,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     // codex and agy have no hooks, so the broker is the only place their tool calls can reach
     // the tools pane's history. Claude's do NOT come through here — it would double every entry
     // its own PreToolUse/PostToolUse already writes.
-    guiCallHistory: async (sessionId) => guiCallRecorderFor(sessionId, await sessionCallReporting(deps, sessionId), deps.toolStores),
+    guiCallHistory: async (sessionId) => guiCallRecorderFor(sessionId, await sessionCallReporting(sessionId), deps.toolStores),
     isInternalSession: async (sessionId) => (await coreSessions.find(sessionId))?.visibility === "internal",
     learnGuiCapabilities: (sessionId, groups, allTools) => coreSessions.learnGuiCapabilities(sessionId, groups, allTools),
   });
@@ -281,7 +281,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     // Built from the same two signals as the broker's recorder, but with the stricter rule the
     // user-facing claim needs — see historyIsGuiOnly for why the pane must not answer this the
     // moment a session id exists.
-    guiOnlyHistory: async (id) => historyIsGuiOnly(await sessionCallReporting(deps, id)),
+    guiOnlyHistory: async (id) => historyIsGuiOnly(await sessionCallReporting(id)),
     publish: (c, d) => deps.publish(c, d),
     sessionChannel: deps.sessionChannel,
   });

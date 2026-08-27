@@ -24,6 +24,7 @@ const session = (exited = false) => ({
   origin: "interactive" as const,
   guiToolGroups: [],
   allGuiTools: false,
+  reportsOwnCalls: false,
 });
 
 describe("createOrchestratorStatusReader", () => {

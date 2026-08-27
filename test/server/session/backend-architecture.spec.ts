@@ -55,6 +55,7 @@ describe("backend session architecture", () => {
     expect(core).toContain('const GUI_TOOL_GROUPS_METADATA_KEY = "gui-tool-groups"');
     expect(core).toContain('const ALL_GUI_TOOLS_METADATA_KEY = "all-gui-tools"');
     expect(core).toContain('const ORIGIN_METADATA_KEY = "origin"');
+    expect(core).toContain('const REPORTS_OWN_CALLS_METADATA_KEY = "reports-own-calls"');
 
     const production = typescriptSources(path.join(root, "server"))
       .map((file) => readFileSync(file, "utf8"))

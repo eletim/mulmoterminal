@@ -224,6 +224,7 @@ export function ptySpawn(
     title?: string;
     visibility?: CoreSessionVisibility;
     origin?: CoreSessionOrigin;
+    reportsOwnCalls?: boolean;
   } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
   const {
@@ -236,6 +237,7 @@ export function ptySpawn(
     title,
     visibility = "normal",
     origin = "interactive",
+    reportsOwnCalls = false,
   } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
@@ -252,7 +254,7 @@ export function ptySpawn(
       const environment = Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`);
       const command = ["exec", "env", ...environment, quote(file), ...args.map(quote)].join(" ");
       coreSessions.createSync(
-        { id: sessionId, command, cwd, agent, visibility, origin, ...(title ? { title } : {}), ...(resumeSource ? { resumeSource } : {}) },
+        { id: sessionId, command, cwd, agent, visibility, origin, reportsOwnCalls, ...(title ? { title } : {}), ...(resumeSource ? { resumeSource } : {}) },
         ptyEnv(unset, env),
       );
       configureCoreTmuxServer();

@@ -12,6 +12,7 @@ const VISIBILITY_METADATA_KEY = "visibility";
 const ORIGIN_METADATA_KEY = "origin";
 const GUI_TOOL_GROUPS_METADATA_KEY = "gui-tool-groups";
 const ALL_GUI_TOOLS_METADATA_KEY = "all-gui-tools";
+const REPORTS_OWN_CALLS_METADATA_KEY = "reports-own-calls";
 // tmux clears pane_current_path once a remain-on-exit pane is dead. This is the one native
 // session fact that must be copied so an exited session can still be reconstructed after restart.
 const CWD_METADATA_KEY = "cwd";
@@ -25,6 +26,7 @@ export interface CoreSession extends Session {
   origin: CoreSessionOrigin;
   guiToolGroups: ToolGroup[];
   allGuiTools: boolean;
+  reportsOwnCalls: boolean;
 }
 
 export type CoreSessionVisibility = "normal" | "background" | "internal";
@@ -38,6 +40,7 @@ export interface CreateCoreSessionOptions extends Omit<CreateSessionOptions, "id
   resumeSource?: string;
   visibility?: CoreSessionVisibility;
   origin?: CoreSessionOrigin;
+  reportsOwnCalls?: boolean;
 }
 
 export interface CoreSessionAdapterOptions {
@@ -68,7 +71,7 @@ try {
 `;
 
 function defaultCreateSync(options: CreateCoreSessionOptions, environment: NodeJS.ProcessEnv, serverName: string): void {
-  const { agent, title, memo, resumeSource, visibility = "normal", origin = "interactive", ...session } = options;
+  const { agent, title, memo, resumeSource, visibility = "normal", origin = "interactive", reportsOwnCalls = false, ...session } = options;
   const metadata = {
     [AGENT_METADATA_KEY]: agent,
     [CWD_METADATA_KEY]: session.cwd,
@@ -77,6 +80,7 @@ function defaultCreateSync(options: CreateCoreSessionOptions, environment: NodeJ
     ...(resumeSource ? { [RESUME_SOURCE_METADATA_KEY]: resumeSource } : {}),
     [VISIBILITY_METADATA_KEY]: visibility,
     [ORIGIN_METADATA_KEY]: origin,
+    [REPORTS_OWN_CALLS_METADATA_KEY]: reportsOwnCalls ? "true" : "false",
   };
   const payload = JSON.stringify({ serverName, session, metadata });
   const result = spawnSync(process.execPath, ["--input-type=module", "--eval", syncCreateScript], {
@@ -111,7 +115,7 @@ export class CoreSessionAdapter {
   }
 
   async create(options: CreateCoreSessionOptions): Promise<CoreSession> {
-    const { agent, title, memo, resumeSource, visibility = "normal", origin = "interactive", ...session } = options;
+    const { agent, title, memo, resumeSource, visibility = "normal", origin = "interactive", reportsOwnCalls = false, ...session } = options;
     let created = false;
     try {
       const native = await this.core.create(session);
@@ -123,6 +127,7 @@ export class CoreSessionAdapter {
       if (resumeSource) await this.core.setMetadata(session.id, RESUME_SOURCE_METADATA_KEY, resumeSource);
       await this.core.setMetadata(session.id, VISIBILITY_METADATA_KEY, visibility);
       await this.core.setMetadata(session.id, ORIGIN_METADATA_KEY, origin);
+      await this.core.setMetadata(session.id, REPORTS_OWN_CALLS_METADATA_KEY, reportsOwnCalls ? "true" : "false");
       return this.withMetadata(native);
     } catch (error) {
       if (created) await this.core.delete(session.id).catch(() => undefined);
@@ -277,6 +282,10 @@ export class CoreSessionAdapter {
       origin: metadata[ORIGIN_METADATA_KEY] === "scheduled" ? "scheduled" : "interactive",
       guiToolGroups: parseToolGroups(metadata[GUI_TOOL_GROUPS_METADATA_KEY]),
       allGuiTools: metadata[ALL_GUI_TOOLS_METADATA_KEY] === "true",
+      // Compatibility for Core members created before this metadata key existed. Those sessions
+      // used the old agent fallback; every newly-created session writes an explicit true/false so
+      // a hookless launcher that runs Claude is no longer conflated with first-class Claude.
+      reportsOwnCalls: metadata[REPORTS_OWN_CALLS_METADATA_KEY] === "true" || (metadata[REPORTS_OWN_CALLS_METADATA_KEY] === undefined && agent === "claude"),
     };
   }
 
