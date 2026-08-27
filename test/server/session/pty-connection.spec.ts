@@ -2,7 +2,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
-import { activity, ptys } from "../../../server/session/registry.js";
+import { activity, viewerPtys } from "../../../server/session/registry.js";
 import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;
@@ -493,20 +493,20 @@ describe("handleClientClose", () => {
 
 describe("viewer release", () => {
   afterEach(() => {
-    ptys.clear();
+    viewerPtys.clear();
     activity.clear();
     unregisterCompletionHook(SESSION);
   });
 
   it("removes only viewer transport and leaves activity/Core-owned state untouched", () => {
     const entry = entryWith({ tmux: true });
-    ptys.set(SESSION, entry);
+    viewerPtys.set(SESSION, entry);
     activity.set(SESSION, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
     const forgetTerminalSize = vi.fn();
 
     expect(releaseViewer({ forgetTerminalSize }, SESSION)).toBe(true);
 
-    expect(ptys.has(SESSION)).toBe(false);
+    expect(viewerPtys.has(SESSION)).toBe(false);
     expect(activity.has(SESSION)).toBe(true);
     expect(entry.term.kill).toHaveBeenCalledOnce();
     expect(forgetTerminalSize).toHaveBeenCalledWith(SESSION);
@@ -514,17 +514,17 @@ describe("viewer release", () => {
 
   it("releases every viewer during shutdown without inventing session cleanup", () => {
     const other = "22222222-3333-4444-8555-666666666666";
-    ptys.set(SESSION, entryWith({ tmux: true }));
-    ptys.set(other, entryWith({ tmux: true }));
+    viewerPtys.set(SESSION, entryWith({ tmux: true }));
+    viewerPtys.set(other, entryWith({ tmux: true }));
 
     expect(releaseAllViewers({ forgetTerminalSize: vi.fn() })).toEqual([SESSION, other]);
-    expect(ptys.size).toBe(0);
+    expect(viewerPtys.size).toBe(0);
   });
 
   it("does not report a worker failure when only its viewer is released", async () => {
     const outcomes: boolean[] = [];
     registerCompletionHook(SESSION, ({ didError }) => void outcomes.push(didError));
-    ptys.set(SESSION, entryWith({ tmux: true }));
+    viewerPtys.set(SESSION, entryWith({ tmux: true }));
 
     releaseViewer({ forgetTerminalSize: vi.fn() }, SESSION);
     await runCompletionHook(SESSION, { didError: false });
@@ -535,12 +535,12 @@ describe("viewer release", () => {
   it("does not let an old PTY exit release a replacement viewer with the same id", () => {
     const old = entryWith({ tmux: true });
     const replacement = entryWith({ tmux: true });
-    ptys.set(SESSION, replacement);
+    viewerPtys.set(SESSION, replacement);
     const forgetTerminalSize = vi.fn();
 
     expect(releaseViewer({ forgetTerminalSize }, SESSION, old)).toBe(false);
 
-    expect(ptys.get(SESSION)).toBe(replacement);
+    expect(viewerPtys.get(SESSION)).toBe(replacement);
     expect(replacement.term.kill).not.toHaveBeenCalled();
     expect(forgetTerminalSize).not.toHaveBeenCalled();
   });

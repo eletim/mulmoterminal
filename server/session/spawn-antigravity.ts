@@ -12,7 +12,7 @@ import { antigravityBrainRoot, snapshotAntigravitySessions, watchForAntigravityS
 import { ptySpawn } from "./pty-spawn.js";
 import { wireAgentPtyRelay } from "./pty-relay.js";
 import { ptyStartLine } from "./pty-exit-log.js";
-import { claimedAntigravityConversations, ptys, rememberAntigravityConversation } from "./registry.js";
+import { claimedAntigravityConversations, rememberAntigravityConversation, viewerPtys } from "./registry.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
@@ -78,7 +78,7 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
     console.log(ptyStartLine({ agent: "antigravity", pid: term.pid, cwd, tmux, reattached, sessionId, note }));
 
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "antigravity" };
-    ptys.set(sessionId, entry);
+    viewerPtys.set(sessionId, entry);
 
     if (resumeConversationId) {
       // Recorded on resume too, not just on the spawn that discovered it: a session resumed by the

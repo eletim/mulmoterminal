@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionActivity, type ActivityServiceDeps } from "../../../server/session/session-activity.js";
-import { activity, lastPrompts, lastResponses, ptys } from "../../../server/session/registry.js";
+import { activity, lastPrompts, lastResponses, viewerPtys } from "../../../server/session/registry.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 vi.mock("../../../server/session/session-reads.js", () => ({ readLatestResponse: vi.fn(() => "reply on disk") }));
@@ -16,18 +16,18 @@ const makeDeps = (overrides: Partial<ActivityServiceDeps> = {}): ActivityService
 const entry = (over: Record<string, unknown> = {}) => ({ cwd: "/work", agent: "claude", ...over }) as never;
 
 beforeEach(() => {
-  for (const map of [activity, lastPrompts, lastResponses, ptys]) map.clear();
+  for (const map of [activity, lastPrompts, lastResponses, viewerPtys]) map.clear();
   clearedTranscripts.clear();
 });
 afterEach(() => {
-  for (const map of [activity, lastPrompts, lastResponses, ptys]) map.clear();
+  for (const map of [activity, lastPrompts, lastResponses, viewerPtys]) map.clear();
   clearedTranscripts.clear();
 });
 
 describe("session activity", () => {
   it("publishes only changed UI flags", () => {
     const serviceDeps = makeDeps();
-    ptys.set(ID, entry());
+    viewerPtys.set(ID, entry());
     const service = createSessionActivity(serviceDeps);
     service.setWorking(ID, true, "UserPromptSubmit");
     lastPrompts.set(ID, "prompt");
@@ -39,7 +39,7 @@ describe("session activity", () => {
 
   it("applies Stop immediately without child-process defer timers", () => {
     const serviceDeps = makeDeps();
-    ptys.set(ID, entry());
+    viewerPtys.set(ID, entry());
     const service = createSessionActivity(serviceDeps);
     service.setWorking(ID, true, "UserPromptSubmit");
     service.setWaiting(ID, true, "Stop");
@@ -50,7 +50,7 @@ describe("session activity", () => {
 
   it("keeps Web Push as an activity consumer", () => {
     const notifyMobileWebPushActivity = vi.fn();
-    ptys.set(ID, entry({ agent: "codex" }));
+    viewerPtys.set(ID, entry({ agent: "codex" }));
     const service = createSessionActivity(makeDeps({ coreMetadataOf: vi.fn(() => ({ cwd: "/work", agent: "codex" as const })), notifyMobileWebPushActivity }));
     service.setWorking(ID, true, "UserPromptSubmit");
     service.setWaiting(ID, true, "Notification");
@@ -58,7 +58,7 @@ describe("session activity", () => {
   });
 
   it("refreshes the displayed reply at turn end but not after transcript clear", () => {
-    ptys.set(ID, entry());
+    viewerPtys.set(ID, entry());
     const service = createSessionActivity(makeDeps());
     service.setWaiting(ID, true, "Stop");
     expect(lastResponses.get(ID)).toBe("reply on disk");
@@ -71,7 +71,7 @@ describe("session activity", () => {
 
   it("terminalizes display state on Core exit without releasing the viewer", () => {
     const serviceDeps = makeDeps();
-    ptys.set(ID, entry());
+    viewerPtys.set(ID, entry());
     const service = createSessionActivity(serviceDeps);
     service.setWorking(ID, true, "UserPromptSubmit");
     (serviceDeps.publish as ReturnType<typeof vi.fn>).mockClear();
@@ -84,7 +84,7 @@ describe("session activity", () => {
     expect(lastPrompts.has(ID)).toBe(false);
     expect(lastResponses.has(ID)).toBe(false);
     expect(serviceDeps.forgetWorkPhase).toHaveBeenCalledWith(ID);
-    expect(ptys.has(ID)).toBe(true);
+    expect(viewerPtys.has(ID)).toBe(true);
   });
 
   it("cannot change Core membership or invoke Stop/Delete", () => {
@@ -128,7 +128,7 @@ describe("session activity", () => {
   });
 
   it("acknowledges shell output by changing only waiting display state", () => {
-    ptys.set(ID, entry({ agent: "shell" }));
+    viewerPtys.set(ID, entry({ agent: "shell" }));
     const service = createSessionActivity(makeDeps());
     service.setWaiting(ID, true, "Stop");
     service.acknowledgeShellDone(ID);

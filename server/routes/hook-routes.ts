@@ -11,7 +11,7 @@ import { activityHookEffects, pushKindFor, resolveHookCwd, resolveHookSessionId 
 import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
-import { activity, lastPrompts, lastResponses, ptys } from "../session/registry.js";
+import { activity, lastPrompts, lastResponses, viewerPtys } from "../session/registry.js";
 import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt, readLatestResponse } from "../session/session-reads.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
@@ -194,7 +194,7 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
     console.warn(`[hook] ignoring ${event} — session id is not a canonical uuid`);
   }
   if (sessionId) {
-    const entry = ptys.get(sessionId);
+    const entry = viewerPtys.get(sessionId);
     const active = !!(entry && entry.active);
     const coreCwd = await deps.sessionCwd?.(sessionId);
     const cwd = resolveHookCwd(body.cwd, coreCwd);

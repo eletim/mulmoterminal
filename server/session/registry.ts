@@ -34,7 +34,7 @@ export const activity = new Map<string, Activity>(); // id -> { working, event, 
 // Process-local viewer transports keyed by Core session id. `ws` is null only
 // while a viewer is being detached/replaced; release removes the entry. This map
 // is never a source of Core membership.
-export const ptys = new Map<string, PtyEntry>(); // id -> { term, ws, buffer }
+export const viewerPtys = new Map<string, PtyEntry>(); // Core id -> browser transport + replay buffer
 
 // Latest MEANINGFUL user prompt per session (from the UserPromptSubmit hook), shown
 // on the grid cell header so you can tell at a glance what each terminal is about. A
@@ -68,10 +68,8 @@ const isValidSessionId = (id: string) => SESSION_ID_RE.test(id);
 
 // mulmoterminal session key -> the codex rollout id it maps to. codex mints its own id, so we
 // discover it after spawn and keep it here to `codex resume <id>` once the live PTY is gone.
-// This mapping is NOT a list source: mobile/session pickers still have to start from live/tmux,
-// dev-terminal/activity, or an explicitly cwd-scoped query. That keeps old rollout history from
-// flooding the UI while preserving the one fact needed to title/resume a session the UI already
-// has another reason to care about.
+// This mapping is NOT a Terminal list source: membership always starts from Core. It preserves
+// only the fact needed to title/resume a session already selected by its owning surface.
 //
 // Append-only like the other session id logs in this file. It can retain mappings for old sessions,
 // but those do not create mobile rows by themselves; they are consulted only after another bounded
@@ -110,7 +108,7 @@ export const claimedCodexRollouts = new Set<string>();
 //
 // It exists so the MCP broker can tell whether a session's tool calls are ALREADY being recorded,
 // without asking what agent it is: a codex launcher chip runs codex through the login shell, so
-// its PtyEntry is honestly labelled "shell" and no agent name identifies it (see
+// its viewer PTY is configured as "shell" and no transport-local agent name identifies it (see
 // mcp/gui-call-history.ts). What the broker actually needs to know is this, not the name.
 //
 // Never pruned. An id is a v4 uuid used once, the set costs a string per session, and forgetting
@@ -259,8 +257,6 @@ export function isFailedWorker(id: string): boolean {
   return failedWorkers.has(id);
 }
 
-// Where each grid session was started, for the sessions this process did not spawn (#1021). Live
-// ones answer from `ptys`, which is the truer source — it knows where claude actually runs.
 // Which agy conversation each antigravity session runs, so a cold reconnect can resume it with
 // `--conversation <id>`. Persisted because agy mints the id and we discover it after the spawn: a
 // map that dies with the process leaves the conversation on disk with nothing pointing at it.

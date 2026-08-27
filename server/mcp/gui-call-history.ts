@@ -39,9 +39,8 @@ export interface GuiCallRecorder {
  * signals, because a double entry is worse than a missing one:
  *
  *   reportsOwnCalls — this process spawned it with our hooks (registry.hookedSessions). Exact.
- *   agent           — a backstop for a claude session that outlived a restart and was never
- *                     reattached here, so nothing added it to that set, yet its pane command
- *                     still says what it is.
+ *   agent           — Core/tmux metadata, including after a server restart when this process did
+ *                     not spawn or attach the viewer.
  *
  * Everything else records: codex and agy however they were started, and an unknown session, which
  * cannot be a hooked claude once both signals have said otherwise.
@@ -60,8 +59,8 @@ export function brokerRecordsGuiCalls({ agent, reportsOwnCalls }: { agent: Sessi
  * its hooks. Both signals then say "not claude" and the gate would answer yes — leaving the pane
  * telling the user that claude's complete, hook-fed history contains GUI calls only.
  *
- * So this claim additionally requires that we can SEE the session at all. A null agent means no
- * pty and no tmux pane — either the session has not started yet, or it is gone; neither is
+ * So this claim additionally requires Core to identify the session kind. A null agent means the
+ * session is unavailable or its compatibility metadata is incomplete; neither is
  * something to make a statement about. Saying nothing about a GUI-only history is a smaller
  * error than mislabelling a complete one, and the pane re-asks when the session announces itself.
  */

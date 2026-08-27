@@ -9,7 +9,7 @@ import { submitSequenceForAgent } from "../../common/terminalSubmit.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
 import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
-import { hookedSessions, ptys, resetSessionToolGroups } from "./registry.js";
+import { hookedSessions, resetSessionToolGroups, viewerPtys } from "./registry.js";
 import { isCoreSessionExitEvent, ptySpawn, ptyWouldReattach } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { attachDraftInjection } from "./draft-injection.js";
@@ -219,7 +219,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
-    ptys.set(sessionId, entry);
+    viewerPtys.set(sessionId, entry);
     // Every spawn carries the hooks, so the MCP broker must not record its GUI calls again
     // (mcp/gui-call-history.ts).
     hookedSessions.add(sessionId);

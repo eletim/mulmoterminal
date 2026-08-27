@@ -71,9 +71,8 @@ export const canClearInputBox = (agent: SessionAgent | null | undefined, working
 export const SUBMIT_DELAY_MS = 150;
 
 export interface TerminalInputDeps {
-  // Write a chunk to the session's live PTY. False when no PTY is attached in this
-  // process — a tmux session that outlived a restart is viewable (capture-pane) but
-  // not writable from here.
+  // Write a chunk through Core. False when the Core session is absent or its native process has
+  // exited; viewer attachment is irrelevant.
   writeToSession: (sessionId: string, chunk: string) => boolean | Promise<boolean>;
   // Whether the box can be emptied before pasting (see CLEAR_BOX). True only where the
   // host KNOWS the session is idle, because Ctrl-C mid-turn interrupts the turn and in
@@ -111,7 +110,10 @@ const typeAndSubmit = async (deps: TerminalInputDeps, sessionId: string, safe: s
   const submit = (await deps.submitSequence?.(sessionId)) ?? "\r";
   await new Promise<void>((resolve, reject) => {
     (deps.scheduleSubmit ?? defaultSchedule)(() => {
-      void Promise.resolve(deps.writeToSession(sessionId, submit)).then(() => resolve(), reject);
+      void Promise.resolve(deps.writeToSession(sessionId, submit)).then((written) => {
+        if (written) resolve();
+        else reject(new Error(`session ${sessionId} is not writable`));
+      }, reject);
     });
   });
 };

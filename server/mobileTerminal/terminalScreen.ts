@@ -1,47 +1,13 @@
 // The session picker + screen read behind the local mobile terminal view (#435).
 //
 // Both entry points are dependency-injected and free of server/index.ts internals, so the
-// join rules and the capture fallback are unit-testable without a live PTY or tmux.
+// join rules and Core screen capture are unit-testable without a live PTY or tmux.
 import { parseStyledRows, rowsToScreen, suggestionFromRows, type ScreenRow } from "../session/screen-rows.js";
-import { TERMINAL_AGENTS, type SessionAgent } from "../../common/sessionAgent.js";
+import type { SessionAgent } from "../../common/sessionAgent.js";
 import { workItemHeadline, type PrPhase, type WorkItem } from "../../common/prPhase.js";
 import type { QuickCommandChip } from "./quickCommands.js";
-import { basename } from "node:path";
 import { homedir } from "node:os";
-import { getAgentAdapter } from "../agents/registry.js";
-import type { AgentKind } from "../agents/types.js";
 import { homeRelative, truncateFront } from "../../common/pathDisplay.js";
-
-// Map a tmux pane's current command onto the kinds the phone knows. Anything else is a
-// shell or a one-off program the phone has no special input for — "shell" is the right
-// answer for both, since that is where typed commands belong.
-//
-// Two spellings per agent: the DEFAULT binary name, and whatever `*_BIN` points at — a pane
-// reports the running program's own name, so a user who set `ANTIGRAVITY_BIN=/opt/agy-next` has
-// panes called `agy-next`, and matching only the default would report their agent as a shell.
-// The basename, because that is what a pane command is; the default stays in the map either way,
-// so overriding the variable never un-recognises sessions started before it was set.
-const AGENT_DEFAULT_COMMAND: Record<AgentKind, string> = { claude: "claude", codex: "codex", antigravity: "agy" };
-
-const agentCommands = (): Record<string, SessionAgent> => {
-  const map: Record<string, SessionAgent> = {};
-  // Over the KIND list rather than Object.entries, which widens the keys of a Record back to
-  // `string` and cost three assertions to undo.
-  for (const kind of TERMINAL_AGENTS) {
-    map[AGENT_DEFAULT_COMMAND[kind]] = kind;
-    map[basename(getAgentAdapter(kind).bin())] = kind;
-  }
-  return map;
-};
-
-export const agentFromPaneCommand = (command: string | null): SessionAgent | null => {
-  if (!command) {
-    return null;
-  }
-  // Rebuilt per call rather than cached: the env vars are read at call time everywhere else too
-  // (adapter.bin()), and this runs once per session row, not per frame.
-  return agentCommands()[command] ?? "shell";
-};
 
 // What a session is working on, as the phone needs it: numbers to identify it, a phase for the
 // colour, and ONE line of words. The phone has no room for both titles, and what the work is FOR
@@ -59,29 +25,27 @@ export interface TerminalSessionSummary {
   cwd: string;
   // Absent when the directory is not a GitHub checkout, or has no PR and no issue to name.
   work?: SessionWorkSummary;
-  // A PTY is attached in THIS server process. False means the session exists only in tmux
-  // (it outlived a restart) — still viewable, since capture-pane doesn't need our process.
+  // Core-native process state retained for the mobile wire contract: running is true, exited is
+  // false. Viewer attachment does not affect it.
   live: boolean;
-  // True when POST /input can write to this row: either an in-process PTY is live, or tmux can be
-  // adopted back into one. This is deliberately separate from `live`, which remains the
-  // connection-state label the phone shows.
+  // True exactly while the Core-native process is running. An exited remain-on-exit pane keeps
+  // its screen and membership but is read-only.
   inputAvailable: boolean;
-  // What is running in it, or null when tmux/the in-process PTY cannot tell.
+  // Core-owned launch metadata; never inferred from the pane's current command.
   agent: SessionAgent | null;
 }
 
 export interface SessionDetail {
-  // Empty when the host has no name for this session — neither an AI-generated title
-  // nor a recorded one. Such a session is dropped unless it is live (see below).
+  // Empty when Core/UI metadata has no name; presentation supplies a non-authoritative fallback.
   title: string;
   cwd: string;
   agent: SessionAgent | null;
   work?: SessionWorkSummary;
 }
 
-// What a host's `detailOf` may hand over. Deliberately looser than SessionDetail: writing
-// `work: map.get(cwd)` leaves the key behind holding `undefined`, and buildSessionList is
-// what drops it. The wire shape must not carry such a key — see the note there (#1042).
+// Deliberately looser than SessionDetail: writing `work: map.get(cwd)` leaves the key behind
+// holding `undefined`, and buildSessionList is what drops it. The wire shape must not carry such
+// a key — see the note there (#1042).
 export interface SessionDetailDraft extends Omit<SessionDetail, "work"> {
   work?: SessionWorkSummary | undefined;
 }
@@ -95,11 +59,14 @@ export function sessionWorkSummary(item: WorkItem): SessionWorkSummary | undefin
   return { pr: item.pr, issue: item.issue, phase: item.phase, headline: workItemHeadline(item) };
 }
 
+export interface SessionListCoreSession extends SessionDetailDraft {
+  id: string;
+  exited: boolean;
+}
+
 export interface SessionListInput {
-  candidateIds?: readonly string[];
-  liveIds: readonly string[];
-  tmuxIds: readonly string[];
-  detailOf: (id: string) => SessionDetailDraft;
+  /** The complete, visibility-filtered membership projection from Core.list(). */
+  sessions: readonly SessionListCoreSession[];
 }
 
 // Live sessions first, then by title, so the phone's list is stable across polls.
@@ -126,23 +93,18 @@ export function sessionFallbackTitle(agent: SessionAgent | null, cwd: string, ho
   return `${agentName} ${truncateFront(pathName, pathMax)}`;
 }
 
-// Session existence is decided before this function: callers pass the Core session ids the
-// surface should show. A row showing nothing but a UUID is still not a useful choice, so a
-// nameless session earns its place only by being live — where the fallback can name what is
-// currently running.
-export function buildSessionList({ candidateIds = [], liveIds, tmuxIds, detailOf }: SessionListInput): TerminalSessionSummary[] {
-  const live = new Set(liveIds);
-  const tmux = new Set(tmuxIds);
-  const ids = [...new Set([...liveIds, ...tmuxIds, ...candidateIds])];
+// Membership is exactly the supplied Core sessions. UI fields may decorate those rows before this
+// call but cannot introduce one. A nameless Core member is still a valid retained/exited Terminal,
+// so the presentation fallback names it without filtering membership.
+export function buildSessionList({ sessions }: SessionListInput): TerminalSessionSummary[] {
   return (
-    ids
-      .map((id) => ({ id, ...detailOf(id), live: live.has(id), inputAvailable: live.has(id) || tmux.has(id) }))
-      .filter((session) => session.title !== "" || session.live)
+    sessions
+      .map(({ exited, ...session }) => ({ ...session, live: !exited, inputAvailable: !exited }))
       .map((session) => ({ ...session, title: session.title || sessionFallbackTitle(session.agent, session.cwd) }))
       // `work` is optional, and optional here has to mean the KEY IS ABSENT — not present holding
       // `undefined`. A caller writing `work: map.get(cwd)` leaves the key behind, so the response
       // carries a field with no value. Dropped here, at the type that declares it optional, so a
-      // future `detailOf` cannot reintroduce it.
+      // future Core-row decoration cannot reintroduce it.
       .map(({ work, ...rest }) => (work ? { ...rest, work } : rest))
       .sort(byLiveThenTitle)
   );
@@ -165,16 +127,8 @@ export const SCREEN_MAX_BYTES = 256 * 1024;
 // Newline, counted alongside each row so the cap measures the string the phone receives.
 const ROW_SEPARATOR_BYTES = 1;
 
-export interface ScreenSource {
-  buffer: string;
-  cols: number;
-  rows: number;
-}
-
 export interface CaptureScreenDeps {
   captureStyledPane: (id: string) => string | null;
-  sourceOf: (id: string) => ScreenSource | undefined;
-  render: (input: ScreenSource) => Promise<ScreenRow[]>;
   // What the grid cell's header shows for this session, for the phone to head the screen
   // with (#786). Optional: a host that can't answer any of it just sends the screen.
   metaOf?: (id: string) => Promise<SessionScreenMeta>;
@@ -281,15 +235,12 @@ export class TerminalSessionNotFoundError extends Error {
   }
 }
 
-// tmux first: it renders the real screen, works while detached, and survives a restart.
-// Falling back to the in-process buffer covers the tmux-less host, the non-persistent
-// spawn, AND the race where the session ends between listing and reading.
-const screenRowsOf = async (id: string, { captureStyledPane, sourceOf, render }: CaptureScreenDeps): Promise<ScreenRow[]> => {
+// Core/tmux is the only screen and existence source. Viewer replay buffers may redraw a browser,
+// but a process-local viewer must never resurrect a missing Core session here.
+const screenRowsOf = async (id: string, { captureStyledPane }: CaptureScreenDeps): Promise<ScreenRow[]> => {
   const captured = captureStyledPane(id);
-  if (captured !== null) return parseStyledRows(captured);
-  const source = sourceOf(id);
-  if (!source) throw new TerminalSessionNotFoundError(id);
-  return render(source);
+  if (captured === null) throw new TerminalSessionNotFoundError(id);
+  return parseStyledRows(captured);
 };
 
 // The metadata decorates the screen, so a failure reading it (a git call that blew up, a dir
@@ -333,9 +284,7 @@ const withinByteCap = (rows: readonly ScreenRow[]): ScreenRow[] =>
     { kept: [], bytes: 0, full: false },
   ).kept;
 
-// What the phone is shown, from whichever capture path produced the rows. Both paths are
-// asked for the same history, but only this decides the window — otherwise a host with tmux
-// and one without would answer the same session differently.
+// What the phone is shown from Core/tmux capture.
 //
 // Oldest-first is the only direction to drop in: the live prompt, the agent's ghost text and
 // any menu the phone offers as chips are all at the bottom.

@@ -10,7 +10,7 @@ import { codexGuiMcpServers } from "./mcp-config.js";
 import { codexSessionsRoot, snapshotSessions, watchForCodexSession } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
 import { trackCodexActivity } from "./codex-activity-track.js";
-import { claimedCodexRollouts, ptys, rememberCodexRolloutId } from "./registry.js";
+import { claimedCodexRollouts, rememberCodexRolloutId, viewerPtys } from "./registry.js";
 import { ptySpawn } from "./pty-spawn.js";
 import { ptyStartLine } from "./pty-exit-log.js";
 import { wireAgentPtyRelay } from "./pty-relay.js";
@@ -25,7 +25,7 @@ const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
   setWorking: deps.setWorking,
   setWaiting: deps.setWaiting,
   publishActivity: deps.publishActivity,
-  isActive: () => ptys.get(sessionId)?.active ?? false,
+  isActive: () => viewerPtys.get(sessionId)?.active ?? false,
   uiPort: deps.uiPort,
   isAlive: () => coreSessions.isRunning(sessionId),
 });
@@ -95,7 +95,7 @@ export function createCodexSpawner(deps: SpawnDeps) {
     const note = resumeRolloutId ? `resume ${resumeRolloutId}` : null;
     console.log(ptyStartLine({ agent: "codex", pid: term.pid, cwd, tmux, reattached, sessionId, note }));
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "codex" };
-    ptys.set(sessionId, entry);
+    viewerPtys.set(sessionId, entry);
     if (resumeRolloutId) {
       rememberCodexRolloutId(sessionId, resumeRolloutId);
       const file = codexRolloutPath(root, resumeRolloutId);

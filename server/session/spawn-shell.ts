@@ -7,7 +7,7 @@ import type { WebSocket } from "ws";
 import { getLaunchers } from "../config/config-routes.js";
 import { launcherAt, shellInvocation } from "./shell-command.js";
 import { launcherAgent } from "./launcher-gui-mcp.js";
-import { ptys } from "./registry.js";
+import { viewerPtys } from "./registry.js";
 import { isCoreSessionExitEvent, ptySpawn, spawnPty } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
@@ -48,7 +48,7 @@ export function createShellSpawners(deps: SpawnDeps) {
   }
 
   // Spawn a configured launcher command as a PERSISTENT, reattachable PTY that shares
-  // the Core-backed viewer path (ptys map and reattach) but has NO hooks,
+  // the Core-backed viewer path (viewerPtys map and reattach) but has NO hooks,
   // transcript, or resume. The command is run via the login shell with `exec` so it
   // becomes the single foreground process ($SHELL, codex, etc.) — env vars in the
   // command (e.g. $SHELL) expand, and the process stays interactive in the PTY.
@@ -66,7 +66,7 @@ export function createShellSpawners(deps: SpawnDeps) {
     // then counts this session as the worktree's occupant, the phone offers input that suits it,
     // and a draft is submitted the way that agent expects. Anything else stays a shell (#1208).
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent };
-    ptys.set(sessionId, entry);
+    viewerPtys.set(sessionId, entry);
     startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking, setWaiting: deps.setWaiting });
 
     term.onData((data) => {

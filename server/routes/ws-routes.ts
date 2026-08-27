@@ -20,7 +20,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { antigravityBrainRoot, antigravityConversationExists } from "../agents/antigravity-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
-import { antigravityConversations, antigravityConversationsHydrated, codexRolloutIds, ptys } from "../session/registry.js";
+import { antigravityConversations, antigravityConversationsHydrated, codexRolloutIds, viewerPtys } from "../session/registry.js";
 import { SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp, launcherRunsAgent } from "../session/launcher-gui-mcp.js";
@@ -78,7 +78,7 @@ async function requestedCoreSession(requested: string | null): Promise<CoreSessi
 
 async function resolveClaudeSession(requested: string | null, cwd: string): Promise<SessionResolution & { core: CoreSession | null }> {
   const core = await requestedCoreSession(requested);
-  const hasViewer = !!core && ptys.has(core.id);
+  const hasViewer = !!core && viewerPtys.has(core.id);
   const onDisk = !core && !!requested && sessionExistsOnDisk(requested, cwd);
   return { ...resolveSession(core?.id ?? requested, { coreExists: !!core, hasViewer, onDisk }, randomUUID), core };
 }
@@ -249,18 +249,18 @@ async function admitAgentSession(
   session: {
     requested: string | null;
     sessionId: string;
-    live: PtyEntry | undefined;
+    viewer: PtyEntry | undefined;
     cwd: string;
     /** False only for a launcher that runs no agent — `yarn dev` is not an agent editing the tree
      *  and stays free of the one-session-per-worktree rule (see launcherRunsAgent). */
     worktreeLimited?: boolean;
   },
 ): Promise<EarlyFrames | null> {
-  const { requested, sessionId, live, cwd, worktreeLimited = true } = session;
+  const { requested, sessionId, viewer, cwd, worktreeLimited = true } = session;
   if (worktreeLimited && (await refuseSecondWorktreeSession(ws, kind, cwd, { requested, sessionId }))) return null;
   // The EFFECTIVE cwd, not this request's: on a reattach the live PTY's own directory is where the
   // agent really runs, and the request's `?cwd=` is ignored by everything downstream.
-  return announceSession(ws, sessionId, live?.cwd ?? cwd);
+  return announceSession(ws, sessionId, viewer?.cwd ?? cwd);
 }
 
 async function resolveButtonRun(url: URL, cwd: string): Promise<{ command: string; cwd: string } | null> {
@@ -326,12 +326,12 @@ export function beginRunTerminal(deps: WsRouteDeps, ws: WebSocket, resolved: { c
   });
 }
 
-// Reattach a same-process live PTY, else spawn a launcher (which itself reattaches a
+// Reattach a same-process viewer PTY, else spawn a launcher (which itself reattaches a
 // surviving tmux session or creates one). `command` is the resolved launcher command,
 // or the fallback for a tmux reattach with no launcher index.
 interface LaunchStart {
   sessionId: string;
-  live: PtyEntry | undefined;
+  viewer: PtyEntry | undefined;
   command: string;
   cwd: string;
   coreSessionExists: boolean;
@@ -339,12 +339,12 @@ interface LaunchStart {
 
 function startLaunchEntry(deps: WsRouteDeps, ws: WebSocket, start: LaunchStart): PtyEntry {
   const { sessionId, command, cwd, coreSessionExists } = start;
-  const live = ptys.get(sessionId);
-  if (live) return deps.reattachPty(live, ws, sessionId);
+  const viewer = viewerPtys.get(sessionId);
+  if (viewer) return deps.reattachPty(viewer, ws, sessionId);
   return deps.spawnLauncherPty(sessionId, ws, command, cwd, coreSessionExists);
 }
 
-// Resolve a launcher ws request to a session: reattach a live pty / surviving tmux
+// Resolve a launcher ws request to a session: reattach a viewer PTY / surviving tmux
 // session (id kept, running program picked up via `tmux new-session -A`, command ignored),
 // or a fresh spawn of the indexed launcher command. Returns null when there's nothing to
 // reattach AND the index isn't a configured launcher.
@@ -353,37 +353,37 @@ async function resolveLaunchSession(
   requested: string | null,
   index: number,
   shell: boolean,
-): Promise<{ sessionId: string; live: PtyEntry | undefined; command: string; core: CoreSession | null } | null> {
+): Promise<{ sessionId: string; viewer: PtyEntry | undefined; command: string; core: CoreSession | null } | null> {
   const core = await requestedCoreSession(requested);
-  const live = core ? ptys.get(core.id) : undefined;
-  // A live PTY / surviving tmux session reattaches regardless of the index; only a fresh
+  const viewer = core ? viewerPtys.get(core.id) : undefined;
+  // A viewer PTY / surviving tmux session reattaches regardless of the index; only a fresh
   // spawn needs the launcher resolved (the pty already IS the chosen program on reattach).
   const launcher = core ? null : deps.resolveLauncher(index);
   if (!canStartLauncher({ coreExists: !!core, hasLauncher: !!launcher, isShell: shell })) return null;
-  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
-  return { sessionId, live, command: launcher?.command ?? DEFAULT_LAUNCH_CMD, core };
+  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!viewer }, randomUUID);
+  return { sessionId, viewer, command: launcher?.command ?? DEFAULT_LAUNCH_CMD, core };
 }
 
 // codex is a first-class agent like claude, but it mints its own session id (no --session-id),
 // so the browser-facing id is a mulmoterminal-minted key; we discover codex's real rollout id
-// after spawn and resume it with `codex resume <id>` once the live PTY is gone. Reattach a live
-// pty / surviving tmux session (running codex picked up, no resume); else cold-resume a known
+// after spawn and resume it with `codex resume <id>` once the viewer PTY is gone. Reattach a
+// viewer PTY / surviving tmux session (running codex picked up, no resume); else cold-resume a known
 // rollout id; else a fresh session (a new minted key).
 async function resolveCodexSession(requested: string | null): Promise<{
   sessionId: string;
-  live: PtyEntry | undefined;
+  viewer: PtyEntry | undefined;
   resumeRolloutId: string | null;
   core: CoreSession | null;
 }> {
   const core = await requestedCoreSession(requested);
-  const live = core ? ptys.get(core.id) : undefined;
+  const viewer = core ? viewerPtys.get(core.id) : undefined;
   const resumeRolloutId = agentResumeId(requested, {
     mappedId: requested ? codexRolloutIds.get(requested) : null,
     conversationExists: () => !!requested && codexRolloutExists(codexSessionsRoot(), requested),
     coreExists: !!core,
   });
-  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
-  return { sessionId, live, resumeRolloutId, core };
+  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!viewer }, randomUUID);
+  return { sessionId, viewer, resumeRolloutId, core };
 }
 
 // Grouped rather than eight positional arguments: what this needs is a session to (re)attach,
@@ -391,7 +391,7 @@ async function resolveCodexSession(requested: string | null): Promise<{
 // sense together (attach everything, or exactly these groups).
 interface CodexStart {
   sessionId: string;
-  live: PtyEntry | undefined;
+  viewer: PtyEntry | undefined;
   resumeRolloutId: string | null;
   cwd: string;
   attachGuiMcp: boolean;
@@ -401,8 +401,8 @@ interface CodexStart {
 
 function startCodexEntry(deps: WsRouteDeps, ws: WebSocket, start: CodexStart): PtyEntry {
   const { sessionId, resumeRolloutId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
-  const live = ptys.get(sessionId);
-  if (live) return deps.reattachPty(live, ws, sessionId);
+  const viewer = viewerPtys.get(sessionId);
+  if (viewer) return deps.reattachPty(viewer, ws, sessionId);
   return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, { mcpGroups, coreSessionExists }); // interactive: no seed
 }
 
@@ -436,7 +436,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // So mint a fresh id; the browser adopts it from this `session` message and
   // re-persists, so the reload just reopens a working terminal seamlessly.
   const { reattachId, resume, sessionId, core } = await resolveClaudeSession(requested, cwd);
-  const live = reattachId ? ptys.get(reattachId) : undefined;
+  const viewer = reattachId ? viewerPtys.get(reattachId) : undefined;
   const effectiveCwd = core?.cwd || cwd;
   // Buffered from the announcement on, like every other terminal endpoint: the browser's first
   // frame is the terminal's geometry and it arrives while this handler may still be awaiting the
@@ -444,7 +444,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   const early = await admitAgentSession(ws, "claude", {
     requested: core?.id ?? requested,
     sessionId,
-    live,
+    viewer,
     cwd: effectiveCwd,
   });
   if (!early) return;
@@ -458,7 +458,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   startAndWire(deps, ws, { id: sessionId, tag: "claude", early, startFailureMessage, stopLifecycleOnStartFailure: !core, size }, () => {
     // Admission above awaits worktree/provider checks. Re-read after that boundary: the captured
     // viewer may have been released by its old socket while this reconnect was waiting.
-    const current = ptys.get(sessionId);
+    const current = viewerPtys.get(sessionId);
     const entry = current
       ? deps.reattachPty(current, ws, sessionId)
       : deps.spawnClaudePty(sessionId, resume, ws, { cwd: effectiveCwd, attachGuiMcp, launch, coreSessionExists: !!core });
@@ -561,7 +561,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
 
   const resolved = await resolveLaunchSession(deps, requested, index, shell);
   if (!resolved) return closeWithError(ws, "Launcher not found — check Settings → Launch commands.");
-  const { sessionId, live, command, core } = resolved;
+  const { sessionId, viewer, command, core } = resolved;
   const effectiveCwd = core?.cwd || cwd;
   // A launcher is a command line, so the limit follows what it RUNS: a launcher configured as
   // `codex` is the agent toggle by another name and is held to the same rule, while `yarn dev` or
@@ -569,7 +569,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   const early = await admitAgentSession(ws, "launch", {
     requested: core?.id ?? requested,
     sessionId,
-    live,
+    viewer,
     cwd: effectiveCwd,
     worktreeLimited: launcherRunsAgent(command),
   });
@@ -587,7 +587,7 @@ async function handleLaunchConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
   // is checked like every other spawn's, and that refusal is already a sentence.
   const startFailureMessage = startFailureMessageFor("the launch command");
   startAndWire(deps, ws, { id: sessionId, tag: "launch", early, startFailureMessage, stopLifecycleOnStartFailure: !core, size }, () =>
-    startLaunchEntry(deps, ws, { sessionId, live, command: launchCommand, cwd: effectiveCwd, coreSessionExists: !!core }),
+    startLaunchEntry(deps, ws, { sessionId, viewer, command: launchCommand, cwd: effectiveCwd, coreSessionExists: !!core }),
   );
 }
 
@@ -599,12 +599,12 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
   if (await refuseUnusableWorkspace(ws, "codex", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
 
-  const { sessionId, live, resumeRolloutId, core } = await resolveCodexSession(requested);
+  const { sessionId, viewer, resumeRolloutId, core } = await resolveCodexSession(requested);
   const effectiveCwd = core?.cwd || cwd;
   const early = await admitAgentSession(ws, "codex", {
     requested: core?.id ?? requested,
     sessionId,
-    live,
+    viewer,
     cwd: effectiveCwd,
   });
   if (!early) return;
@@ -618,18 +618,18 @@ async function handleCodexConnection(deps: WsRouteDeps, ws: WebSocket, req: WsUp
 
   const startFailureMessage = startFailureMessageFor("codex");
   startAndWire(deps, ws, { id: sessionId, tag: "codex", early, startFailureMessage, stopLifecycleOnStartFailure: !core, size }, () =>
-    startCodexEntry(deps, ws, { sessionId, live, resumeRolloutId, cwd: effectiveCwd, attachGuiMcp, mcpGroups, coreSessionExists: !!core }),
+    startCodexEntry(deps, ws, { sessionId, viewer, resumeRolloutId, cwd: effectiveCwd, attachGuiMcp, mcpGroups, coreSessionExists: !!core }),
   );
 }
 
 async function resolveAntigravitySession(requested: string | null): Promise<{
   sessionId: string;
-  live: PtyEntry | undefined;
+  viewer: PtyEntry | undefined;
   resumeConversationId: string | null;
   core: CoreSession | null;
 }> {
   const core = await requestedCoreSession(requested);
-  const live = core ? ptys.get(core.id) : undefined;
+  const viewer = core ? viewerPtys.get(core.id) : undefined;
   // The same rule codex resumes by, including the part that is easy to drop: the key is only
   // treated as a conversation id when a conversation by that name EXISTS. Without the check every
   // key resumes, which means a stale one is handed to `agy --conversation` — agy answers a
@@ -639,13 +639,13 @@ async function resolveAntigravitySession(requested: string | null): Promise<{
     conversationExists: () => !!requested && antigravityConversationExists(antigravityBrainRoot(), requested),
     coreExists: !!core,
   });
-  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!live }, randomUUID);
-  return { sessionId, live, resumeConversationId, core };
+  const { sessionId } = resolveReattachableId(core?.id ?? requested, { coreExists: !!core, hasViewer: !!viewer }, randomUUID);
+  return { sessionId, viewer, resumeConversationId, core };
 }
 
 interface AntigravityStart {
   sessionId: string;
-  live: PtyEntry | undefined;
+  viewer: PtyEntry | undefined;
   resumeConversationId: string | null;
   cwd: string;
   attachGuiMcp: boolean;
@@ -659,9 +659,9 @@ interface AntigravityStart {
 // detaching or releasing when the socket closed.
 function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: AntigravityStart): PtyEntry {
   const { sessionId, resumeConversationId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
-  const live = ptys.get(sessionId);
-  const entry = live
-    ? deps.reattachPty(live, ws, sessionId)
+  const viewer = viewerPtys.get(sessionId);
+  const entry = viewer
+    ? deps.reattachPty(viewer, ws, sessionId)
     : deps.spawnAntigravityPty(sessionId, ws, resumeConversationId, cwd, { mcpGroups, coreSessionExists });
   // Single view (gui) = the attached session IS the actively-viewed pane. A grid dev-terminal
   // cell (gui=0) is only "viewed" once focused, and says so with a `view` frame.
@@ -681,12 +681,12 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   // arrives while the log is still being read would see an empty map and decline to resume a
   // conversation that is right there — which is the restart case this exists for.
   await antigravityConversationsHydrated;
-  const { sessionId, live, resumeConversationId, core } = await resolveAntigravitySession(requested);
+  const { sessionId, viewer, resumeConversationId, core } = await resolveAntigravitySession(requested);
   const effectiveCwd = core?.cwd || cwd;
   const early = await admitAgentSession(ws, "antigravity", {
     requested: core?.id ?? requested,
     sessionId,
-    live,
+    viewer,
     cwd: effectiveCwd,
   });
   if (!early) return;
@@ -704,7 +704,7 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   startAndWire(deps, ws, { id: sessionId, tag: "antigravity", early, startFailureMessage, stopLifecycleOnStartFailure: !core, size }, () =>
     startAntigravityEntry(deps, ws, {
       sessionId,
-      live,
+      viewer,
       resumeConversationId,
       cwd: effectiveCwd,
       attachGuiMcp,
@@ -724,7 +724,7 @@ export function mountTerminalWebSockets(deps: WsRouteDeps) {
   const runWss = new WebSocketServer({ noServer: true });
   // Launcher terminals (a plain shell / codex / any configured command) get their own WS
   // too. Unlike /ws/run these are PERSISTENT & reattachable (they share the /ws session
-  // viewer transport — ptys map, attach/detach/release) but carry no Claude hooks/transcript.
+  // viewer transport — viewerPtys map, attach/detach/release) but carry no Claude hooks/transcript.
   const runLaunchWss = new WebSocketServer({ noServer: true });
   // First-class codex sessions — persistent + reattachable like /ws/launch, but running codex
   // with session discovery + resume. Its own endpoint so /ws stays claude-only.
