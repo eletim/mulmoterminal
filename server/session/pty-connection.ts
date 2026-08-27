@@ -10,7 +10,7 @@ import { isResizeFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
-import { viewerPtys } from "./registry.js";
+import { viewerPtys } from "./viewer-state.js";
 
 export interface ViewerReleaseDeps {
   forgetTerminalSize: (id: string) => void;

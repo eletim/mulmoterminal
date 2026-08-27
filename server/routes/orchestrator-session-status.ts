@@ -21,7 +21,7 @@ export function createOrchestratorStatusReader(deps: OrchestratorStatusDeps) {
     const session = await deps.getSession(id);
     if (!session) return null;
     const inputAvailable = !session.exited;
-    const currentActivity = deps.activityOf(id);
+    const currentActivity = session.exited ? undefined : deps.activityOf(id);
     return {
       ok: true as const,
       sessionId: session.id,
@@ -29,7 +29,7 @@ export function createOrchestratorStatusReader(deps: OrchestratorStatusDeps) {
       cwd: session.cwd,
       lifecycle: coreLifecycle(session),
       runtime: { pty: deps.hasViewer(id), tmux: true, attached: session.attached },
-      activity: { ...normalizeActivity(currentActivity), at: currentActivity?.at ?? 0, workPhase: deps.workPhaseOf(id) },
+      activity: { ...normalizeActivity(currentActivity), at: currentActivity?.at ?? 0, workPhase: session.exited ? null : deps.workPhaseOf(id) },
       input: inputAvailable
         ? { available: true, ready: true, known: true, source: "core", checkedAt: Date.now(), reason: "Core session is running" }
         : { available: false, ready: false, known: true, source: "unavailable", checkedAt: Date.now(), reason: "Core session has exited" },

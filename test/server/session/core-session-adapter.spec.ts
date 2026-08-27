@@ -19,12 +19,25 @@ describe("CoreSessionAdapter", () => {
   it("reconstructs client-owned fields from Core metadata", async () => {
     const core = {
       list: vi.fn(async () => [native]),
-      listMetadata: vi.fn(async () => ({ agent: "codex", title: "Fix #149", memo: "review" })),
+      listMetadata: vi.fn(async () => ({ agent: "codex", title: "Fix #149", memo: "review", "reports-own-calls": "true" })),
     } as unknown as SessionCore;
 
     const sessions = await new CoreSessionAdapter({ core }).list();
 
-    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review", resumeSource: null, visibility: "normal" }]);
+    expect(sessions).toEqual([
+      {
+        ...native,
+        agent: "codex",
+        title: "Fix #149",
+        memo: "review",
+        resumeSource: null,
+        visibility: "normal",
+        origin: "interactive",
+        guiToolGroups: [],
+        allGuiTools: false,
+        reportsOwnCalls: true,
+      },
+    ]);
   });
 
   it("restores cwd metadata when an exited tmux pane no longer reports a cwd", async () => {
@@ -34,6 +47,20 @@ describe("CoreSessionAdapter", () => {
     } as unknown as SessionCore;
 
     await expect(new CoreSessionAdapter({ core }).get(native.id)).resolves.toMatchObject({ cwd: "/finished/repo", agent: "claude", exited: true });
+  });
+
+  it("keeps the pre-key Claude compatibility rule but respects an explicit hookless launch", async () => {
+    const legacy = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: legacy }).get(native.id)).resolves.toMatchObject({ reportsOwnCalls: true });
+
+    const explicit = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd, "reports-own-calls": "false" })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: explicit }).get(native.id)).resolves.toMatchObject({ reportsOwnCalls: false });
   });
 
   it("lists live cwd values without rebuilding unrelated metadata", async () => {
@@ -99,6 +126,7 @@ describe("CoreSessionAdapter", () => {
       title: "Fix #149",
       resumeSource: "history-1",
       visibility: "background",
+      reportsOwnCalls: true,
     });
 
     expect(setMetadata.mock.calls).toEqual([
@@ -107,7 +135,25 @@ describe("CoreSessionAdapter", () => {
       [native.id, "title", "Fix #149"],
       [native.id, "resume-source", "history-1"],
       [native.id, "visibility", "background"],
+      [native.id, "origin", "interactive"],
+      [native.id, "reports-own-calls", "true"],
     ]);
+  });
+
+  it("stores durable live GUI capabilities in Core metadata", async () => {
+    const metadata: Record<string, string> = { agent: "claude", cwd: native.cwd, "gui-tool-groups": '["render"]' };
+    const setMetadata = vi.fn(async (_id: string, key: string, value: string) => void (metadata[key] = value));
+    const core = { get: vi.fn(async () => native), listMetadata: vi.fn(async () => metadata), setMetadata } as unknown as SessionCore;
+    const adapter = new CoreSessionAdapter({ core });
+
+    await expect(adapter.learnGuiCapabilities(native.id, ["media"], true)).resolves.toEqual({
+      groups: ["render", "media"],
+      allTools: true,
+      changed: true,
+    });
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "gui-tool-groups", '["render","media"]');
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "all-gui-tools", "true");
+    await expect(adapter.get(native.id)).resolves.toMatchObject({ guiToolGroups: ["render", "media"], allGuiTools: true });
   });
 
   it("updates visibility in Core metadata", async () => {
@@ -117,6 +163,15 @@ describe("CoreSessionAdapter", () => {
     await new CoreSessionAdapter({ core }).setVisibility(native.id, "internal");
 
     expect(setMetadata).toHaveBeenCalledWith(native.id, "visibility", "internal");
+  });
+
+  it("updates scheduled origin in Core metadata", async () => {
+    const setMetadata = vi.fn(async () => undefined);
+    const core = { setMetadata } as unknown as SessionCore;
+
+    await new CoreSessionAdapter({ core }).setOrigin(native.id, "scheduled");
+
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "origin", "scheduled");
   });
 
   it("routes interactive input through Core without an implicit submit", async () => {

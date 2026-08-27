@@ -1,7 +1,6 @@
-// tmux-backed session persistence: run each PTY inside a tmux session so it survives
-// the mulmoterminal server dying (crash / restart) and reattaches when the server comes
-// back — like `screen`/`tmux` do. Terminal sessions require tmux; only explicitly
-// non-persistent command runners use a direct pty.spawn.
+// Viewer/presentation integration for Core-owned tmux sessions. Core/tmux-session-core owns
+// membership, native lifecycle and the canonical plain screen; this layer configures and attaches
+// the browser transport, reads presentation modes/sizes, redraws clients, and forwards styling.
 //
 // Isolation: we use our OWN tmux server (`-L mulmoterminal-core`) and config file, so none
 // of this touches the user's own tmux sessions, keybindings, or status bar.
@@ -255,8 +254,6 @@ export function tmuxAttachSessionArgs(id: string): string[] {
   return ["-L", SERVER_SOCKET, "attach-session", "-t", tmuxSessionName(id)];
 }
 
-// End a persistent session on explicit Delete. Killing the pty only detaches our
-// client — the session (and its program) would otherwise keep running.
 // The rendered contents of a session's pane — the visible screen plus `historyLines` of
 // scrollback above it — available even while the session is DETACHED and across a server
 // restart (tmux outlives the node process). Null when tmux has no such session, which is
@@ -279,8 +276,8 @@ export function parseTmuxPanePid(stdout: string): number | null {
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
-// The process running inside the persistent pane. This is the agent's pid, not the tmux
-// client pid node-pty gives us for the attached client.
+// The process resource owner needs the pane pid to clean agent descendants. This is not used to
+// infer whether the Core session is running or present.
 export function tmuxPanePid(id: string): number | null {
   const r = tmux(["display-message", "-p", "-t", tmuxSessionName(id), "#{pane_pid}"]);
   return r.status === 0 ? parseTmuxPanePid(r.stdout) : null;

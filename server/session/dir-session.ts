@@ -7,7 +7,7 @@
 import { canonicalPath } from "../git/worktrees.js";
 import { isSessionAttached, type SessionOccupancy } from "../../common/sessionOccupancy.js";
 import { isTerminalAgent, type TerminalAgent } from "../../common/sessionAgent.js";
-import { viewerPtys } from "./registry.js";
+import { viewerPtys } from "./viewer-state.js";
 import type { CoreSession } from "./core-session-adapter.js";
 
 export interface DirSession extends SessionOccupancy {

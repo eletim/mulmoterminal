@@ -35,18 +35,16 @@ export interface GuiCallRecorder {
  * worked. No agent name identifies a session started by a command the user wrote.
  *
  * The real question is whether something ELSE is already recording these calls, and exactly one
- * thing does: claude's `--settings` hooks. So the gate is an exclusion, on two independent
- * signals, because a double entry is worse than a missing one:
+ * thing does: claude's `--settings` hooks. So the gate is an exclusion on that explicit Core
+ * capability; agent identity alone is insufficient because a configured launcher can run Claude
+ * without our settings:
  *
- *   reportsOwnCalls — this process spawned it with our hooks (registry.hookedSessions). Exact.
- *   agent           — Core/tmux metadata, including after a server restart when this process did
- *                     not spawn or attach the viewer.
- *
- * Everything else records: codex and agy however they were started, and an unknown session, which
- * cannot be a hooked claude once both signals have said otherwise.
+ *   reportsOwnCalls — Core metadata says this exact launch carries our hook settings.
+ * Everything else records: codex and agy however they were started, hookless launchers, and an
+ * unknown session.
  */
-export function brokerRecordsGuiCalls({ agent, reportsOwnCalls }: { agent: SessionAgent | null; reportsOwnCalls: boolean }): boolean {
-  return !reportsOwnCalls && agent !== "claude";
+export function brokerRecordsGuiCalls({ reportsOwnCalls }: { agent: SessionAgent | null; reportsOwnCalls: boolean }): boolean {
+  return !reportsOwnCalls;
 }
 
 /**

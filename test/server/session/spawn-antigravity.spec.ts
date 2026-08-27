@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createAntigravitySpawner } from "../../../server/session/spawn-antigravity.js";
-import { viewerPtys } from "../../../server/session/registry.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
 import type { SpawnDeps } from "../../../server/session/spawn-deps.js";
 
 vi.mock("../../../server/session/pty-spawn.js", () => ({

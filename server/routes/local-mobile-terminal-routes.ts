@@ -55,7 +55,7 @@ export interface LocalMobileTerminalRouteDeps {
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
-  // roster reads (session/registry.js's `activity` map,
+  // roster reads (session/activity-store.js's `activity` map,
   // session/work-phase-tracker.js) — never a second copy of that state. Two readers rather than
   // one combined accessor because those are genuinely separate stores in server/index.ts; both
   // are already normalized (see normalizeActivity / workPhaseTracker.phaseOf), so a session
@@ -274,7 +274,12 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     // TerminalSessionSummary — see LocalSessionActivity's comment.
     res.json({
       home: os.homedir(),
-      sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })),
+      sessions: sessions.map((session) => ({
+        ...session,
+        activity: session.live
+          ? localSessionActivity(activityOf(session.id), workPhaseOf(session.id))
+          : localSessionActivity({ working: false, waiting: false, event: null }, null),
+      })),
     });
   });
 

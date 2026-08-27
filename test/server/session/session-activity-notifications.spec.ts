@@ -5,7 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { createSessionActivity, type ActivityServiceDeps } from "../../../server/session/session-activity.js";
-import { activity, lastPrompts, lastResponses, viewerPtys } from "../../../server/session/registry.js";
+import { activity, lastPrompts, lastResponses } from "../../../server/session/activity-store.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 // The reply the roster shows is re-read from the transcript at the end of a turn; the tests
 // stand in for that file so the refresh can be observed without writing one.

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { mountHookRoute } from "../../../server/routes/hook-routes";
-import { lastPrompts, lastResponses } from "../../../server/session/registry";
+import { lastPrompts, lastResponses } from "../../../server/session/activity-store.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts";
 
 // The prompt seed reads the transcript for a session this process has no prompt for; the tests

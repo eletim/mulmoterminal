@@ -10,20 +10,10 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { normalizeAgent, workspaceForRoute } from "./routeParams.js";
 import { hasErrnoCode } from "../errors.js";
 import { isProbeSessionId } from "../agents/probe-session.js";
-import {
-  activity,
-  activityStateHydrated,
-  antigravityConversations,
-  antigravityConversationsHydrated,
-  backgroundHistoryHydrated,
-  failedWorkersHydrated,
-  isBackgroundHistory,
-  lastPrompts,
-  lastResponses,
-  sessionMemos,
-  sessionMemosHydrated,
-  setSessionMemo,
-} from "../session/registry.js";
+import { activity, lastPrompts, lastResponses } from "../session/activity-store.js";
+import { antigravityHistory, antigravityHistoryHydrated } from "../session/antigravity-history.js";
+import { backgroundHistoryHydrated, failedWorkerHistoryHydrated, isBackgroundHistory } from "../session/history-state.js";
+import { sessionMemos, sessionMemosHydrated, setSessionMemo } from "../session/history-memos.js";
 import { collectOnDiskSessionStats, readSessionMeta, readSessionSummary, sessionLastTurn, sessionTimeline } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
@@ -78,7 +68,6 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, deps: 
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const cwd = workspaceForRoute(req.query.cwd, res);
   if (cwd === null) return;
-  await activityStateHydrated; // a reconnect re-fetch must see the restored working/waiting, not idle
   const { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse, userTurns, usage, context, workPhase } = await readSessionSummary(cwd, id);
   // If we haven't titled it yet, kick off a summary; sessionDetailView falls back meanwhile.
   deps.freshenRosterTitle(id, cwd, userTurns);
@@ -92,10 +81,10 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, deps: 
       memo: core ? core.memo : sessionMemos.get(id),
     },
     { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse },
-    activity.get(id) ?? {},
+    core?.exited ? {} : (activity.get(id) ?? {}),
     clearedTranscripts.has(id),
   );
-  res.json({ id, cwd, ...view, usage, context, workPhase });
+  res.json({ id, cwd, ...view, usage, context, workPhase: core?.exited ? null : workPhase });
 }
 
 // The user's one-line note on a session (#1084). An empty text ERASES it — the same route, so a
@@ -131,12 +120,13 @@ async function setMemo(req: Request<{ id: string }>, res: Response, deps: Sessio
 // The grid uses this to seed the status of its OFF-PAGE cells, which /api/sessions
 // can't serve: it hides dev-terminal sessions and is capped by the list limit. Reads
 // only the in-memory activity map (no disk), so it's cheap to call per grid render.
-async function activitySnapshot(req: Request, res: Response) {
-  await activityStateHydrated; // the grid re-seeds this on reconnect — must not race hydration back to idle
+async function activitySnapshot(req: Request, res: Response, deps: SessionRouteDeps) {
   const ids = parseActivityIds(req.query.ids, (id) => SESSION_ID_RE.test(id), ACTIVITY_IDS_LIMIT);
+  const coreById = new Map((await deps.listCoreSessions()).map((session) => [session.id, session]));
   const out: Record<string, { working: boolean; waiting: boolean; event: string | null }> = {};
   for (const id of ids) {
-    const a = activity.get(id) || {};
+    const core = coreById.get(id);
+    const a = core && !core.exited ? activity.get(id) || {} : {};
     out[id] = { working: a.working ?? false, waiting: a.waiting ?? false, event: a.event ?? null };
   }
   res.json(out);
@@ -183,13 +173,14 @@ async function toolTimeline(req: Request, res: Response) {
 // what the server knows, so nothing the client sends ends up inside the text another agent
 // will read. Sits under /api/transcript because /api/session/:id would match "last-turn"
 // first and read it as a session id.
-async function lastTurn(req: Request, res: Response) {
+async function lastTurn(req: Request, res: Response, deps: SessionRouteDeps) {
   const { session } = req.query;
   if (typeof session !== "string" || !SESSION_ID_RE.test(session)) return res.status(400).json({ error: "invalid session id" });
   const agent = normalizeAgent(req.query.agent);
   const cwd = workspaceForRoute(req.query.cwd, res);
   if (cwd === null) return;
-  const turn = await sessionLastTurn(cwd, session, agent);
+  const core = await deps.getCoreSession?.(session);
+  const turn = await sessionLastTurn(cwd, session, agent, core?.resumeSource);
   // ?as=reply drops the prompt block: the caller is relaying an ANSWER back to whoever
   // asked, and that prompt is the asker's own text coming home.
   const shape: HandoffShape = req.query.as === "reply" ? "reply" : "exchange";
@@ -219,7 +210,6 @@ function withViewerOccupancy(sessions: readonly SessionMeta[], coreById: Readonl
 // newly-created sessions that aren't persisted to disk yet.
 async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) {
   try {
-    await activityStateHydrated; // list working/waiting from the restored state, not a racing idle
     // Optional ?cwd= scopes the list to that project's on-disk sessions (the grid
     // cell's resume picker). Without it, the classic single view's behavior is
     // unchanged: CLAUDE_CWD history.
@@ -239,7 +229,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     const coreByReference = new Map(coreById);
     for (const core of coreSessions) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
     const coreIds = unscoped ? new Set(coreById.keys()) : new Set<string>();
-    await Promise.all([backgroundHistoryHydrated, failedWorkersHydrated]);
+    await Promise.all([backgroundHistoryHydrated, failedWorkerHistoryHydrated]);
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
     const dir = projectSessionsDir(cwd);
     let files: string[] = [];
@@ -267,7 +257,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
           const core = coreByReference.get(s.id);
           let visibility = core?.visibility ?? "normal";
           if (visibility !== "internal" && isBackgroundHistory(s.id)) visibility = "background";
-          return readSessionMeta(dir, s.file, core?.id, visibility, core?.title, core?.memo).catch(() => null);
+          return readSessionMeta(dir, s.file, core?.id, visibility, core?.title, core?.memo, core?.exited).catch(() => null);
         }),
       )
     )
@@ -307,8 +297,8 @@ async function antigravitySessionList(req: Request, res: Response) {
   try {
     const cwd = workspaceForRoute(req.query.cwd, res);
     if (cwd === null) return;
-    await antigravityConversationsHydrated;
-    const sessions = await listAntigravitySessions(antigravityBrainRoot(), antigravityConversations.values(), cwd, SESSION_LIST_LIMIT);
+    await antigravityHistoryHydrated;
+    const sessions = await listAntigravitySessions(antigravityBrainRoot(), antigravityHistory.values(), cwd, SESSION_LIST_LIMIT);
     res.json({ cwd, sessions });
   } catch (err) {
     console.error("[api] /api/antigravity/sessions failed:", err);
@@ -319,10 +309,10 @@ async function antigravitySessionList(req: Request, res: Response) {
 export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps));
   app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps));
-  app.get("/api/activity", activitySnapshot);
+  app.get("/api/activity", (req, res) => activitySnapshot(req, res, deps));
   app.get("/api/sessions/grid-records", (req, res) => gridSessionRecords(req, res, deps));
   app.get("/api/transcript/timeline", toolTimeline);
-  app.get("/api/transcript/last-turn", lastTurn);
+  app.get("/api/transcript/last-turn", (req, res) => lastTurn(req, res, deps));
   app.get("/api/sessions", (req, res) => sessionList(req, res, deps));
   // Compatibility endpoint for the grid's adoption loop. Placement is browser-only UI state;
   // every existing terminal comes from Core, so this returns the same canonical membership.

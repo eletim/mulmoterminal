@@ -1,6 +1,7 @@
 // UI activity and notification state. This module never creates, stops, deletes, retains, or
 // releases a Core session/viewer; it only derives display state from agent/shell events.
-import { activity, claimActivityOwnership, isFailedWorker, lastPrompts, lastResponses, persistActivityState } from "./registry.js";
+import { activity, lastPrompts, lastResponses } from "./activity-store.js";
+import { isFailedWorkerHistory } from "./history-state.js";
 import { clearedTranscripts } from "./cleared-transcripts.js";
 import { nextActivity, sessionRow, shouldRefreshReply } from "./activity-transition.js";
 import { readLatestResponse } from "./session-reads.js";
@@ -34,7 +35,6 @@ function forgetActivityDisplayState(id: string): void {
   activity.delete(id);
   lastPrompts.delete(id);
   lastResponses.delete(id);
-  persistActivityState();
 }
 
 function withActivityMetadata(deps: ActivityServiceDeps, id: string, use: (metadata: { cwd: string | null; agent: LaunchAgent | null }) => void): void {
@@ -85,17 +85,14 @@ export function createSessionActivity(deps: ActivityServiceDeps) {
     const next = nextActivity(prev, flag === "working" ? { working: value } : { waiting: value }, event, Date.now());
     if (!next) return;
     activity.set(id, next);
-    claimActivityOwnership(id);
     publishActivity(id, undefined, (agent) => notifyTransition(id, prev, next, event, agent));
-    persistActivityState();
   }
 
   function endSessionActivity(id: string, event = "exited"): void {
     const prev = activity.get(id);
     const next = { ...prev, working: false, waiting: false, event, at: Date.now() };
     activity.set(id, next);
-    claimActivityOwnership(id);
-    publishActivity(id, { failed: isFailedWorker(id) });
+    publishActivity(id, { failed: isFailedWorkerHistory(id) });
     forgetActivityDisplayState(id);
     forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
     deps.forgetWorkPhase(id);

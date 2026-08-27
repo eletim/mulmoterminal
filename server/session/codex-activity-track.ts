@@ -8,7 +8,7 @@ import { HOOK_EVENT_FOR, boundaryOutcome, codexUserPrompts, type CodexTurnBounda
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { watchCodexActivity } from "./codex-activity-watch.js";
 import { LAST_PROMPT_CAP } from "./header-hook.js";
-import { lastPrompts } from "./registry.js";
+import { lastPrompts } from "./activity-store.js";
 import { preferredHeaderPrompt } from "./transcript.js";
 
 export interface CodexActivityTrackDeps {

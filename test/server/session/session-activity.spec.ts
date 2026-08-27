@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionActivity, type ActivityServiceDeps } from "../../../server/session/session-activity.js";
-import { activity, lastPrompts, lastResponses, viewerPtys } from "../../../server/session/registry.js";
+import { activity, lastPrompts, lastResponses } from "../../../server/session/activity-store.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 vi.mock("../../../server/session/session-reads.js", () => ({ readLatestResponse: vi.fn(() => "reply on disk") }));

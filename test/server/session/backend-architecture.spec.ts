@@ -20,6 +20,10 @@ describe("backend session architecture", () => {
     expect(existsSync(path.join(sessionDir, "reap-policy.ts"))).toBe(false);
   });
 
+  it("has no generic backend session registry", () => {
+    expect(existsSync(path.join(sessionDir, "registry.ts"))).toBe(false);
+  });
+
   it("does not wire removed lifecycle-manager operations into production", () => {
     const production = typescriptSources(path.join(root, "server"))
       .map((file) => readFileSync(file, "utf8"))
@@ -44,6 +48,56 @@ describe("backend session architecture", () => {
       .join("\n");
     expect(production).toContain("viewerPtys");
     expect(production).not.toMatch(/\bptys\b/);
+  });
+
+  it("keeps durable live capability and scheduler facts in Core metadata", () => {
+    const core = readFileSync(path.join(sessionDir, "core-session-adapter.ts"), "utf8");
+    expect(core).toContain('const GUI_TOOL_GROUPS_METADATA_KEY = "gui-tool-groups"');
+    expect(core).toContain('const ALL_GUI_TOOLS_METADATA_KEY = "all-gui-tools"');
+    expect(core).toContain('const ORIGIN_METADATA_KEY = "origin"');
+    expect(core).toContain('const REPORTS_OWN_CALLS_METADATA_KEY = "reports-own-calls"');
+
+    const production = typescriptSources(path.join(root, "server"))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+    for (const removed of [
+      "hookedSessions",
+      "userScheduledSessions",
+      "codexRolloutIds",
+      "claimedCodexRollouts",
+      "claimedAntigravityConversations",
+      "allToolsSessions",
+      "activityStateHydrated",
+    ]) {
+      expect(production).not.toContain(removed);
+    }
+  });
+
+  it("keeps viewer, activity, and history owners from writing Core membership or lifecycle", () => {
+    for (const file of ["viewer-state.ts", "activity-store.ts", "history-state.ts", "history-memos.ts", "antigravity-history.ts"]) {
+      const source = readFileSync(path.join(sessionDir, file), "utf8");
+      expect(source).not.toContain("coreSessions.create");
+      expect(source).not.toContain("coreSessions.delete");
+      expect(source).not.toContain("coreSessions.stop");
+      expect(source).not.toContain("coreSessions.list");
+    }
+  });
+
+  it("does not persist activity across restart or revive Core lifecycle from UI state", () => {
+    expect(existsSync(path.join(sessionDir, "activity-state.ts"))).toBe(false);
+    const activity = readFileSync(path.join(sessionDir, "activity-store.ts"), "utf8");
+    expect(activity).not.toContain("node:fs");
+    expect(activity).not.toContain("MULMOTERMINAL_HOME");
+    const routes = readFileSync(path.join(root, "server", "routes", "session-routes.ts"), "utf8");
+    expect(routes).not.toContain("activityStateHydrated");
+    expect(routes).toContain("workPhase: core?.exited ? null : workPhase");
+  });
+
+  it("uses retired capability logs only as one-way Core migration input", () => {
+    const migration = readFileSync(path.join(sessionDir, "core-session-capability-migration.ts"), "utf8");
+    expect(migration).toContain("learnGuiCapabilities");
+    expect(migration).toContain("fs.rm");
+    expect(migration).not.toContain("appendFile");
   });
 
   it("makes mobile membership a direct projection of Core sessions", () => {
@@ -75,6 +129,14 @@ describe("backend session architecture", () => {
       .join("\n");
     expect(production).not.toContain("pane_current_command");
     expect(production).not.toContain("agentFromPaneCommand");
+  });
+
+  it("keeps direct tmux helpers out of membership and native lifecycle authority", () => {
+    const source = readFileSync(path.join(root, "server", "infra", "tmux.ts"), "utf8");
+    expect(source).not.toContain("pane_current_command");
+    expect(source).not.toContain("pane_dead");
+    expect(source).not.toContain("kill-session");
+    expect(source).not.toMatch(/export (async )?function tmux(SessionExists|Sessions|IsRunning|Exited)/);
   });
 
   it("keeps explicit Delete's sole membership write at coreSessions.delete", () => {

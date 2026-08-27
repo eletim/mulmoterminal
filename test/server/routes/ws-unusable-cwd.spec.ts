@@ -22,7 +22,7 @@ vi.mock("../../../server/session/core-session-adapter.js", async (importOriginal
 });
 
 const { workspaceFromUrl, refuseUnusableWorkspace } = await import("../../../server/routes/ws-routes.js");
-const { viewerPtys } = await import("../../../server/session/registry.js");
+const { viewerPtys } = await import("../../../server/session/viewer-state.js");
 const { CLAUDE_CWD } = await import("../../../server/config/env.js");
 
 // Just the two members closeWithError touches, plus a record of what it sent.

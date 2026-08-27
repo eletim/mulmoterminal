@@ -12,9 +12,16 @@ import path from "node:path";
 import { conversationTurnsFromParsed, isTrivialPrompt, type ConversationTurn } from "./transcript.js";
 import { forEachJsonlRecord } from "../infra/jsonl-file.js";
 import { shouldFreshenViewedTitle, shouldRegenerateTitle, TITLE_REGEN_EVERY_TURNS, VIEW_TITLE_REGEN_TURNS } from "../config/header-title.js";
-import { lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "./registry.js";
 import { clearedTranscripts } from "./cleared-transcripts.js";
 import { projectSessionsDir } from "./project-dir.js";
+
+// Process-local title generation state, owned and cleaned entirely by this module.
+export const titleTurnCounts = new Map<string, number>();
+export const titlePending = new Set<string>();
+export const titleInFlight = new Set<string>();
+export const titleEpoch = new Map<string, number>();
+export const lastTitledUserTurns = new Map<string, number>();
+export const lastTitleAttemptMs = new Map<string, number>();
 
 // How long a viewed session that failed to summarize waits before being tried again, so a
 // roster poll cannot spawn a summarizer per request.

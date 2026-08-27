@@ -9,8 +9,8 @@ import { submitSequenceForAgent } from "../../common/terminalSubmit.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
 import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
-import { hookedSessions, resetSessionToolGroups, viewerPtys } from "./registry.js";
-import { isCoreSessionExitEvent, ptySpawn, ptyWouldReattach } from "./pty-spawn.js";
+import { viewerPtys } from "./viewer-state.js";
+import { isCoreSessionExitEvent, ptySpawn } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { attachDraftInjection } from "./draft-injection.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
@@ -26,7 +26,7 @@ import { requireResolution, resolveProvider, type DirModelChoice } from "./provi
 import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
 import { cleanupSessionDrops, ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
-import type { CoreSessionVisibility } from "./core-session-adapter.js";
+import type { CoreSessionOrigin, CoreSessionVisibility } from "./core-session-adapter.js";
 import { failCompletionHook } from "./completion-hooks.js";
 import { cleanupSessionTitleState } from "./session-title.js";
 import { forgetClearedTranscript } from "./cleared-transcripts.js";
@@ -63,6 +63,7 @@ export interface SpawnClaudeOptions {
   /** This id is already a Core member; attach its pane instead of creating a session. */
   coreSessionExists?: boolean;
   visibility?: CoreSessionVisibility;
+  origin?: CoreSessionOrigin;
 }
 
 // The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
@@ -152,7 +153,16 @@ export const carriesFullGuiMcp = (attachGuiMcp: boolean, cwd: string | undefined
 export function createClaudeSpawner(deps: SpawnDeps) {
   // `ws` may be null for a session spawned without a viewer; output buffers until attach.
   function spawnClaudePty(sessionId: string, resume: string | null, ws: WebSocket | null, options: SpawnClaudeOptions = {}): PtyEntry {
-    const { initialPrompt, cwd = CLAUDE_CWD, attachGuiMcp = true, draft, launch, coreSessionExists = false, visibility = "normal" } = options;
+    const {
+      initialPrompt,
+      cwd = CLAUDE_CWD,
+      attachGuiMcp = true,
+      draft,
+      launch,
+      coreSessionExists = false,
+      visibility = "normal",
+      origin = "interactive",
+    } = options;
     const fullGuiMcp = carriesFullGuiMcp(attachGuiMcp, cwd);
     // fullGuiMcp picks the MCP mode (see buildClaudeArgs, and its own doc for who earns it): the
     // GUI MCP + --strict-mcp-config; a project-directory cell attaches neither, so its own load.
@@ -193,18 +203,9 @@ export function createClaudeSpawner(deps: SpawnDeps) {
     const entry = withSettingsCleanup(sessionId, spawnEntry);
     const spawnedAtMs = Date.now();
 
-    // A NEW claude process gets whatever the user's MCP config says NOW, so anything this id
-    // learned under a previous one is stale — including a group the user has since removed.
-    //
-    // But this function is also the REATTACH path: after the server restarts (a --watch reload
-    // included), the pty map is empty while the tmux session and its claude are still running, so
-    // ws-routes comes back through here and `new-session -A` picks the same process back up.
-    // Nothing is re-read there, and an MCP client that connected once will not connect again — so
-    // resetting would drop a capability with no way left to relearn it, and the panel would tell a
-    // cell that is still drawing that Canvas is not enabled for it. Surviving exactly that is what
-    // the persisted log is FOR; the unconditional reset was undoing it on every restart.
+    // GUI capabilities are learned by the MCP route into Core metadata. A new Core membership
+    // starts empty; a reattach keeps the metadata belonging to the same native process.
     function spawnEntry(): PtyEntry {
-      if (!ptyWouldReattach(coreSessionExists, true)) resetSessionToolGroups(sessionId);
       const spawnEnv = {
         agent: "claude" as const,
         unset: resolved.unset,
@@ -213,6 +214,8 @@ export function createClaudeSpawner(deps: SpawnDeps) {
         coreSessionExists,
         resumeSource: canResume ? resume : null,
         visibility,
+        origin,
+        reportsOwnCalls: true,
         ...(!canResume ? { title: newSessionTitle(initialPrompt ?? draft) } : {}),
       };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
@@ -220,9 +223,6 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
     viewerPtys.set(sessionId, entry);
-    // Every spawn carries the hooks, so the MCP broker must not record its GUI calls again
-    // (mcp/gui-call-history.ts).
-    hookedSessions.add(sessionId);
 
     if (!canResume) deps.publishSessionCreated(sessionId);
 

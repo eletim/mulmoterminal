@@ -12,7 +12,7 @@
 //
 // One file per id, holding the transcript's SIZE at the moment of the clear:
 //   - per id, because the home is shared by every server rooted at it, and a read-merge-write
-//     loses whichever of two instances finishes first (registry.ts says the same of its id logs).
+//     loses whichever of two instances finishes first.
 //     An id belongs to one server, so per-id files never race.
 //   - the size, because it is what lets a mark expire on its own. A later `--resume` appends to
 //     that file, so a file bigger than the recorded size means claude is writing to it again and

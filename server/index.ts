@@ -46,7 +46,9 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers, releaseAllViewers, releaseViewer } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, handoffCoreMemoToHistory, lastPrompts, migrateHistoryMemosToCore, viewerPtys } from "./session/registry.js";
+import { activity, lastPrompts } from "./session/activity-store.js";
+import { handoffCoreMemoToHistory, migrateHistoryMemosToCore } from "./session/history-memos.js";
+import { viewerPtys } from "./session/viewer-state.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -102,6 +104,8 @@ import { mountOrchestratorSessionRoutes } from "./routes/orchestrator-session-ro
 import { createOrchestratorStatusReader } from "./routes/orchestrator-session-status.js";
 import { coreSessions, CoreSessionNotFoundError } from "./session/core-session-adapter.js";
 import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./session/core-session-visibility.js";
+import { migrateLegacyGuiCapabilities } from "./session/core-session-capability-migration.js";
+import { migrateLegacyScheduledOrigins, removeRetiredSessionStateFiles } from "./session/core-session-origin-migration.js";
 import { failCompletionHook } from "./session/completion-hooks.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
@@ -141,6 +145,19 @@ const migratedBackgroundSessions = await migrateLegacyBackgroundVisibility(coreS
 if (migratedBackgroundSessions > 0) {
   console.log(`[upgrade] migrated ${migratedBackgroundSessions} background session classification(s) to Core metadata`);
 }
+const migratedGuiCapabilities = await migrateLegacyGuiCapabilities(coreSessions, MULMOTERMINAL_HOME).catch((error) => {
+  console.warn(`[upgrade] could not migrate GUI capabilities: ${messageOf(error)}`);
+  return 0;
+});
+if (migratedGuiCapabilities > 0) console.log(`[upgrade] migrated GUI capabilities for ${migratedGuiCapabilities} Core session(s)`);
+const migratedScheduledOrigins = await migrateLegacyScheduledOrigins(coreSessions, MULMOTERMINAL_HOME).catch((error) => {
+  console.warn(`[upgrade] could not migrate scheduled session origins: ${messageOf(error)}`);
+  return 0;
+});
+if (migratedScheduledOrigins > 0) console.log(`[upgrade] migrated ${migratedScheduledOrigins} scheduled origin(s) to Core metadata`);
+await removeRetiredSessionStateFiles(MULMOTERMINAL_HOME).catch((error) =>
+  console.warn(`[upgrade] could not remove retired session state: ${messageOf(error)}`),
+);
 
 // One-way upgrade of the old history memo store for sessions that still have Core membership.
 // Request paths never fall back to this store for live sessions after startup.
@@ -804,7 +821,7 @@ function spawnScheduledChat(message: string): void {
   const sessionId = randomUUID();
   try {
     spawnScheduledWorker(sessionId, {
-      spawn: (id, visibility) => spawnClaudePty(id, null, null, { initialPrompt: message, visibility }),
+      spawn: (id, visibility, origin) => spawnClaudePty(id, null, null, { initialPrompt: message, visibility, origin }),
       retain: (id) => scheduledSessions.register(id),
     });
   } catch (err) {

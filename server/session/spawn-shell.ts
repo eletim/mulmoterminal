@@ -7,7 +7,7 @@ import type { WebSocket } from "ws";
 import { getLaunchers } from "../config/config-routes.js";
 import { launcherAt, shellInvocation } from "./shell-command.js";
 import { launcherAgent } from "./launcher-gui-mcp.js";
-import { viewerPtys } from "./registry.js";
+import { viewerPtys } from "./viewer-state.js";
 import { isCoreSessionExitEvent, ptySpawn, spawnPty } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";

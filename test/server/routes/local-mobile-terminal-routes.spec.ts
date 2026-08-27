@@ -266,6 +266,17 @@ describe("GET /api/mobile/terminal-sessions", () => {
     expect(res.body.sessions[0].activity).toEqual({ working: true, waiting: false, event: "PreToolUse", workPhase: "implementing" });
   });
 
+  it("sanitizes stale activity for an exited Core row", async () => {
+    const exited = { ...SESSIONS[0], live: false, inputAvailable: false };
+    const { app } = appFor({
+      listTerminalSessions: async () => [exited],
+      activityOf: () => ({ working: true, waiting: true, event: "Notification" }),
+      workPhaseOf: () => "implementing",
+    });
+    const res = await request(app).get("/api/mobile/terminal-sessions");
+    expect(res.body.sessions[0]).toEqual({ ...exited, activity: IDLE_ACTIVITY });
+  });
+
   it("does not otherwise change the session row shape (remote mobile's own wire contract)", async () => {
     const { app } = appFor();
     const res = await request(app).get("/api/mobile/terminal-sessions");

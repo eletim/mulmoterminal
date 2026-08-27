@@ -10,7 +10,7 @@ import { codexGuiMcpServers } from "./mcp-config.js";
 import { codexSessionsRoot, snapshotSessions, watchForCodexSession } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
 import { trackCodexActivity } from "./codex-activity-track.js";
-import { claimedCodexRollouts, rememberCodexRolloutId, viewerPtys } from "./registry.js";
+import { viewerPtys } from "./viewer-state.js";
 import { ptySpawn } from "./pty-spawn.js";
 import { ptyStartLine } from "./pty-exit-log.js";
 import { wireAgentPtyRelay } from "./pty-relay.js";
@@ -18,6 +18,7 @@ import { attachCodexAutoRun } from "./draft-injection.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
 import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
+import { persistCoreResumeSource } from "./core-resume-source.js";
 
 const coreSessionEnded = (sessionId: string) => async () => !(await coreSessions.isRunning(sessionId));
 
@@ -31,16 +32,22 @@ const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
 });
 
 export function createCodexSpawner(deps: SpawnDeps) {
+  // Concurrent fresh spawns can observe the same newly-created rollout. The claim set is only an
+  // in-process attribution lock; Core.resumeSource stores the durable result.
+  const claimedRollouts = new Set<string>();
+  const claimRollout = (file: string) => {
+    claimedRollouts.add(file);
+    setTimeout(() => claimedRollouts.delete(file), 31 * 60_000).unref();
+  };
   // codex persists its rollout only after the first user turn, so watch a FRESH session's lifetime
   // (stop once Core exits) and capture the minted id so a later cold reconnect can
   // `codex resume <id>`. Attribution is unambiguous-only (see pickFreshSession).
   function rememberCodexRollout(sessionId: string, root: string, before: Set<string>, cwd: string): void {
-    watchForCodexSession(root, before, { cwd, claimed: claimedCodexRollouts, isCancelled: coreSessionEnded(sessionId) })
+    watchForCodexSession(root, before, { cwd, claimed: claimedRollouts, isCancelled: coreSessionEnded(sessionId) })
       .then((meta) => {
         if (!meta) return;
-        claimedCodexRollouts.add(meta.file);
-        rememberCodexRolloutId(sessionId, meta.id);
-        void coreSessions.setResumeSource(sessionId, meta.id).catch(() => undefined);
+        claimRollout(meta.file);
+        void persistCoreResumeSource(sessionId, meta.id);
         // A rollout only discovered now is one this session just created, so it is read
         // whole: its first turn is in there and hasn't been reported yet.
         trackCodexActivity(sessionId, meta.file, false, activityDepsFor(sessionId, deps));
@@ -97,7 +104,6 @@ export function createCodexSpawner(deps: SpawnDeps) {
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "codex" };
     viewerPtys.set(sessionId, entry);
     if (resumeRolloutId) {
-      rememberCodexRolloutId(sessionId, resumeRolloutId);
       const file = codexRolloutPath(root, resumeRolloutId);
       if (file) trackCodexActivity(sessionId, file, true, activityDepsFor(sessionId, deps));
     } else {

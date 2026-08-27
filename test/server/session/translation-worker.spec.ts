@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createTranslationWorker, submitTranslation, failPendingTranslation } from "../../../server/session/translation-worker.js";
-import { activity, lastPrompts } from "../../../server/session/registry.js";
+import { activity, lastPrompts } from "../../../server/session/activity-store.js";
 
 // The worker's answer arrives on a different code path (POST /api/translation/submit)
 // than the request waiting for it, so these two functions are the whole handoff. A

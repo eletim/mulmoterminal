@@ -28,10 +28,10 @@ vi.mock("node:fs", () => {
 const ID = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
 
-async function freshRegistry() {
+async function freshHistory() {
   vi.resetModules();
   appended.length = 0;
-  return import("../../../server/session/registry.js");
+  return import("../../../server/session/history-state.js");
 }
 
 const failureLog = () =>
@@ -44,21 +44,21 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("failed workers", () => {
   it("says no about a worker nobody reported", async () => {
-    const registry = await freshRegistry();
-    await registry.failedWorkersHydrated;
-    expect(registry.isFailedWorker(ID)).toBe(false);
+    const history = await freshHistory();
+    await history.failedWorkerHistoryHydrated;
+    expect(history.isFailedWorkerHistory(ID)).toBe(false);
   });
 
   it("remembers one that was reported", async () => {
-    const registry = await freshRegistry();
-    registry.markFailedWorker(ID);
-    expect(registry.isFailedWorker(ID)).toBe(true);
-    expect(registry.isFailedWorker(OTHER)).toBe(false);
+    const history = await freshHistory();
+    history.markFailedWorkerHistory(ID);
+    expect(history.isFailedWorkerHistory(ID)).toBe(true);
+    expect(history.isFailedWorkerHistory(OTHER)).toBe(false);
   });
 
   it("persists it, so the failure outlives the process that saw it", async () => {
-    const registry = await freshRegistry();
-    registry.markFailedWorker(OTHER);
+    const history = await freshHistory();
+    history.markFailedWorkerHistory(OTHER);
     // The append is fire-and-forget; give its chain a turn to land.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(failureLog()).toContain(OTHER);
@@ -67,17 +67,17 @@ describe("failed workers", () => {
   it("ignores an id that is not a session id", async () => {
     // The mark is reached from a completion hook, so the id is server-generated — but this log is
     // read back and compared against real ids, and a junk line would sit there forever.
-    const registry = await freshRegistry();
-    registry.markFailedWorker("../etc/passwd");
+    const history = await freshHistory();
+    history.markFailedWorkerHistory("../etc/passwd");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(failureLog()).not.toContain("passwd");
-    expect(registry.isFailedWorker("../etc/passwd")).toBe(false);
+    expect(history.isFailedWorkerHistory("../etc/passwd")).toBe(false);
   });
 
   it("does not append the same id twice", async () => {
-    const registry = await freshRegistry();
-    registry.markFailedWorker(ID);
-    registry.markFailedWorker(ID);
+    const history = await freshHistory();
+    history.markFailedWorkerHistory(ID);
+    history.markFailedWorkerHistory(ID);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(failureLog().split(ID).length - 1).toBe(1);
   });
@@ -87,8 +87,8 @@ describe("failed workers", () => {
     vi.resetModules();
     const fs = await import("node:fs");
     vi.mocked(fs.promises.readFile).mockImplementation(async (file: unknown) => (String(file).endsWith("failed-workers.json") ? ID : ""));
-    const registry = await import("../../../server/session/registry.js");
-    await registry.failedWorkersHydrated;
-    expect(registry.isFailedWorker(ID)).toBe(true);
+    const history = await import("../../../server/session/history-state.js");
+    await history.failedWorkerHistoryHydrated;
+    expect(history.isFailedWorkerHistory(ID)).toBe(true);
   });
 });

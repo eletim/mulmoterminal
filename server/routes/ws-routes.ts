@@ -20,7 +20,7 @@ import { launchChoiceFromParams } from "../session/launch-choice.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { antigravityBrainRoot, antigravityConversationExists } from "../agents/antigravity-session.js";
 import { codexRolloutExists } from "../agents/codex-sessions.js";
-import { antigravityConversations, antigravityConversationsHydrated, codexRolloutIds, viewerPtys } from "../session/registry.js";
+import { viewerPtys } from "../session/viewer-state.js";
 import { SpawnRefusedError } from "../session/pty-spawn.js";
 import { bufferEarlyFrames, type EarlyFrames } from "../session/early-frames.js";
 import { launcherCommandWithGuiMcp, launcherRunsAgent } from "../session/launcher-gui-mcp.js";
@@ -378,7 +378,7 @@ async function resolveCodexSession(requested: string | null): Promise<{
   const core = await requestedCoreSession(requested);
   const viewer = core ? viewerPtys.get(core.id) : undefined;
   const resumeRolloutId = agentResumeId(requested, {
-    mappedId: requested ? codexRolloutIds.get(requested) : null,
+    mappedId: core?.resumeSource ?? null,
     conversationExists: () => !!requested && codexRolloutExists(codexSessionsRoot(), requested),
     coreExists: !!core,
   });
@@ -635,7 +635,7 @@ async function resolveAntigravitySession(requested: string | null): Promise<{
   // key resumes, which means a stale one is handed to `agy --conversation` — agy answers a
   // conversation it cannot find by starting a fresh one, silently, under the old session's id.
   const resumeConversationId = agentResumeId(requested, {
-    mappedId: requested ? antigravityConversations.get(requested)?.conversationId : null,
+    mappedId: core?.resumeSource ?? null,
     conversationExists: () => !!requested && antigravityConversationExists(antigravityBrainRoot(), requested),
     coreExists: !!core,
   });
@@ -677,10 +677,6 @@ async function handleAntigravityConnection(deps: WsRouteDeps, ws: WebSocket, req
   const { url, requested, cwd, unusable, size } = wsConnectionContext(req);
   if (await refuseUnusableWorkspace(ws, "antigravity", unusable, requested)) return;
   const attachGuiMcp = url.searchParams.get("gui") !== "0";
-  // Before resolving, not after: the mapping this reads lives on disk, and a reconnect that
-  // arrives while the log is still being read would see an empty map and decline to resume a
-  // conversation that is right there — which is the restart case this exists for.
-  await antigravityConversationsHydrated;
   const { sessionId, viewer, resumeConversationId, core } = await resolveAntigravitySession(requested);
   const effectiveCwd = core?.cwd || cwd;
   const early = await admitAgentSession(ws, "antigravity", {
