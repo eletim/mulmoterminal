@@ -131,6 +131,8 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     expect(mockTermState.options.disableStdin).toBe(true);
     mockTermState.emitData("x");
     expect(conn.submitText(key, "/commit")).toBe(false);
+    expect(conn.pasteText(key, "blocked paste")).toBe(false);
+    expect(conn.pasteAndSubmit(key, "blocked submit")).toBe(false);
     conn.insertText(key, "blocked");
     expect(ws.sent.filter((frame) => JSON.parse(frame).type === "input")).toHaveLength(0);
 

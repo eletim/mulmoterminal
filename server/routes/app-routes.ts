@@ -358,5 +358,6 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
     deleteSession: deps.deleteTerminalSession,
+    isSessionMissingError: (error) => error instanceof CoreSessionNotFoundError,
   });
 }

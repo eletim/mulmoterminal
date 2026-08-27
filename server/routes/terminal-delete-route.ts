@@ -6,6 +6,7 @@ export interface TerminalDeleteRouteDeps {
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   isValidSessionId: (id: string) => boolean;
   deleteSession: (id: string) => Promise<void>;
+  isSessionMissingError: (error: unknown) => boolean;
 }
 
 /** Request/response Delete for the Desktop cell close button. Core.delete() is the only membership write. */
@@ -18,6 +19,10 @@ export function mountTerminalDeleteRoute(app: Express, deps: TerminalDeleteRoute
       await deps.deleteSession(id);
       return res.json({ deleted: true });
     } catch (error) {
+      // DELETE is idempotent: Core's authoritative absence also confirms the requested
+      // end state. This matters when Core deleted the session but the first HTTP response
+      // was lost and the still-visible cell retries.
+      if (deps.isSessionMissingError(error)) return res.json({ deleted: true });
       return res.status(409).json({ error: messageOf(error) });
     }
   });

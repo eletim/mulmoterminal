@@ -977,7 +977,7 @@ export function submitText(key: string, text: string): boolean {
   const submit = submitBytesFor(c);
   sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
   setTimeout(() => {
-    if (c.ws === sock && sock.readyState === WebSocket.OPEN) {
+    if (c.inputEnabled && c.ws === sock && sock.readyState === WebSocket.OPEN) {
       sock.send(JSON.stringify({ type: "input", data: submit }));
     }
   }, 60);
@@ -994,7 +994,7 @@ const PASTE_END = "\x1b[201~";
 export function pasteText(key: string, text: string): boolean {
   const c = conns.get(key);
   // Empty text is not a dropped paste — there was nothing to deliver, so it stays silent (#1315).
-  if (!text || !c) return false;
+  if (!text || !c || !c.inputEnabled) return false;
   if (c.ws?.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
@@ -1013,7 +1013,7 @@ const PASTE_SUBMIT_MS = 200;
 export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
-  if (!text || !c) return false; // nothing to deliver — not a drop (#1315)
+  if (!text || !c || !c.inputEnabled) return false; // nothing to deliver — not a drop (#1315)
   if (!sock || sock.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
@@ -1023,7 +1023,7 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
   sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableFor(c, text)}${PASTE_END}` }));
   setTimeout(() => {
-    if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
+    if (c.inputEnabled && c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
   }, PASTE_SUBMIT_MS);
   return true;
 }

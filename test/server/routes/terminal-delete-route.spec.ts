@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mountTerminalDeleteRoute } from "../../../server/routes/terminal-delete-route.js";
 
 const ID = "11111111-2222-4333-8444-555555555555";
+class MissingSessionError extends Error {}
 
 function appFor(deleteSession: (id: string) => Promise<void> = vi.fn(async () => undefined), isAllowedOrigin = () => true) {
   const app = express();
@@ -12,6 +13,7 @@ function appFor(deleteSession: (id: string) => Promise<void> = vi.fn(async () =>
     isAllowedOrigin,
     isValidSessionId: (id) => id === ID,
     deleteSession,
+    isSessionMissingError: (error) => error instanceof MissingSessionError,
   });
   return { app, deleteSession };
 }
@@ -63,5 +65,13 @@ describe("DELETE /api/session/:id", () => {
     const response = await request(app).delete(`/api/session/${ID}`);
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ error: "session not found" });
+  });
+
+  it("confirms an idempotent retry when Core already reports the session absent", async () => {
+    const { app, deleteSession } = appFor(vi.fn(async () => Promise.reject(new MissingSessionError("session not found"))));
+    const response = await request(app).delete(`/api/session/${ID}`);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ deleted: true });
+    expect(deleteSession).toHaveBeenCalledExactlyOnceWith(ID);
   });
 });
