@@ -13,6 +13,7 @@ const SERVER = `mulmoterminal-test-${process.pid}-${Date.now()}`;
 const SHELL_ID = randomUUID();
 const AGENT_ID = randomUUID();
 const STOP_ID = randomUUID();
+const LAUNCHER_ID = randomUUID();
 
 async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeoutMs = 5_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -72,6 +73,13 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
       agent: "shell",
       title: "Stopped shell",
     });
+    await firstProcess.create({
+      id: LAUNCHER_ID,
+      command: `${process.execPath} -e 'console.log("CONFIGURED_LAUNCHER_MARKER");setInterval(()=>{},1000)'`,
+      cwd: process.cwd(),
+      agent: "shell",
+      title: "Configured launcher",
+    });
 
     await waitFor(
       () => firstProcess.get(AGENT_ID),
@@ -93,7 +101,7 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
       .map((session) => session.id)
       .sort();
     expect(desktopIds).toEqual(mobileIds);
-    expect(desktopIds).toEqual([AGENT_ID, SHELL_ID, STOP_ID].sort());
+    expect(desktopIds).toEqual([AGENT_ID, LAUNCHER_ID, SHELL_ID, STOP_ID].sort());
     expect(restarted.find((session) => session.id === SHELL_ID)).toMatchObject({
       agent: "shell",
       title: "Restart shell",
@@ -124,11 +132,14 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
     expect(stopped.id).toBe(STOP_ID);
     expect(await secondProcess.screen(STOP_ID)).toContain("STOP_FINAL_MARKER");
     expect((await secondProcess.list()).map((session) => session.id)).toContain(STOP_ID);
+    expect(await secondProcess.screen(LAUNCHER_ID)).toContain("CONFIGURED_LAUNCHER_MARKER");
 
-    // Explicit Delete removes either running or dead membership; Stop never does.
+    // Explicit Delete removes a running Shell, dead Shell, exited agent, and configured persistent
+    // launcher by the same Core contract; Stop never removes membership.
     await secondProcess.delete(AGENT_ID);
     await secondProcess.delete(SHELL_ID);
     await secondProcess.delete(STOP_ID);
+    await secondProcess.delete(LAUNCHER_ID);
     expect(await new CoreSessionAdapter({ serverName: SERVER }).list()).toEqual([]);
   }, 15_000);
 });

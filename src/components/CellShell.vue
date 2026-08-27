@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// The frame and header shared by the grid's NON-AGENT cells — the command cell (a script.json
-// Run) and the launcher cell (a configured program). Both are "a process in a cell": one dot, one
-// directory, one name, the same reorder and chrome buttons, and a body below.
+// Presentation shared by two cells with deliberately DIFFERENT ownership: CommandCell's process is
+// ephemeral/non-Core, while LauncherCell owns a persistent Core session. CellShell only renders
+// chrome; each caller binds close according to that ownership contract.
 //
 // It exists because those two rendered the same nine elements with only the wording different, and
 // jscpd kept reporting the frame as a clone (#1127). TerminalCell deliberately does NOT use this:

@@ -162,12 +162,21 @@ describe("backend session architecture", () => {
   });
 
   it("keeps deleting as frontend-only pending state and resets only after confirmed Delete", () => {
-    const cell = readFileSync(path.join(root, "src", "components", "TerminalCell.vue"), "utf8");
-    const request = cell.slice(cell.indexOf("async function requestCoreDelete"), cell.indexOf("async function removeAndClose"));
-    expect(request).toContain('method: "DELETE"');
-    expect(request).toContain("body.deleted !== true");
-    expect(request).toContain("if (await requestCoreDelete()) resetAfterConfirmedDelete()");
-    expect(request).not.toContain("terminate");
+    const owner = readFileSync(path.join(root, "src", "composables", "useConfirmedSessionDelete.ts"), "utf8");
+    expect(owner).toContain('method: "DELETE"');
+    expect(owner).toContain("body.deleted !== true");
+    expect(owner).toContain("if (deletePending.value) return");
+    expect(owner).not.toContain("terminate");
+    expect(owner).not.toMatch(/\b(?:agent|shell|claude|codex|antigravity)\b/i);
+
+    const terminal = readFileSync(path.join(root, "src", "components", "TerminalCell.vue"), "utf8");
+    const launcher = readFileSync(path.join(root, "src", "components", "LauncherCell.vue"), "utf8");
+    const command = readFileSync(path.join(root, "src", "components", "CommandCell.vue"), "utf8");
+    expect(terminal).toContain("useConfirmedSessionDelete");
+    expect(launcher).toContain("useConfirmedSessionDelete");
+    expect(launcher).toContain("cellShellEvents(emit, closePersistentSession)");
+    expect(command).not.toContain("useConfirmedSessionDelete");
+    expect(launcher).not.toMatch(/close:\s*\(\)\s*=>\s*emit\(["']close["']\)/);
 
     const backend = typescriptSources(path.join(root, "server"))
       .map((file) => readFileSync(file, "utf8"))

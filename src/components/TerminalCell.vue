@@ -47,6 +47,7 @@ import { isRecord } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
 import { jsonBody } from "../jsonBody";
 import { readRememberedLaunchAgent, rememberLaunchAgent } from "../composables/rememberedLaunchAgent";
+import { useConfirmedSessionDelete } from "../composables/useConfirmedSessionDelete";
 
 // How long a handoff failure stays on the cell before it clears itself.
 const ASK_MSG_MS = 4000;
@@ -116,6 +117,19 @@ const { chromeProps, chromeEvents } = cellChromeBinding(props, emit, () => void 
 // starts empty and lazy-launches when the user picks a dir and clicks Start.
 const launched = ref(props.initialSessionId !== null);
 const sessionId = ref<string | null>(props.initialSessionId);
+const {
+  awaitingSessionIdForDelete,
+  deletePending,
+  deleteError,
+  requestCoreDelete,
+  deleteAfterConfirmation,
+  sessionIdAvailable,
+  cancelAwaitingDelete,
+  resetDeleteState,
+} = useConfirmedSessionDelete({
+  sessionId,
+  setInputEnabled: (enabled) => termRef.value?.setInputEnabled(enabled),
+});
 // What the launch form's selector will start here. "shell" is the OS default shell, which is a
 // LAUNCHER, not an agent: the parent replaces this cell with a launcher cell, so it never becomes
 // the `agent` below.
@@ -605,9 +619,7 @@ onUnmounted(() => {
 // cell cannot mean Delete; callers must either have confirmed Core deletion or know that the
 // launch never acquired a Core session id.
 function resetCellLocalState() {
-  deleting.value = false;
-  awaitingSessionIdForDelete.value = false;
-  deleteError.value = null;
+  resetDeleteState();
   launched.value = false;
   recordNextCwd = false; // drop any pending fresh-launch record from the deleted session
   sessionId.value = null;
@@ -660,10 +672,6 @@ const dismissTidy = () => (dismissedTidyPr.value = workItem.value.pr);
 const closeConfirm = ref(false);
 const runningCloseConfirm = ref(false);
 const closeChecking = ref(false); // refreshing dirty/ahead — the destructive action is held until it's accurate
-const deleting = ref(false);
-const awaitingSessionIdForDelete = ref(false);
-const deletePending = computed(() => deleting.value || awaitingSessionIdForDelete.value);
-const deleteError = ref<string | null>(null);
 const unsaved = computed(() => unsavedWork(diff.value));
 const hasUnsaved = computed(() => unsaved.value.has);
 const unsavedSummary = computed(() => unsaved.value.summary);
@@ -678,9 +686,7 @@ async function close() {
     // The server announces the generated id before creating Core membership, but that WebSocket
     // frame may already be in flight. Keep the viewer and cell until it arrives; releasing here
     // could hide a Core session that was created between the announcement and this click.
-    awaitingSessionIdForDelete.value = true;
-    deleteError.value = null;
-    termRef.value?.setInputEnabled(false);
+    deleteAfterConfirmation(resetAfterConfirmedDelete);
     return;
   }
   if (!isWorktreeCell.value) {
@@ -688,7 +694,7 @@ async function close() {
       runningCloseConfirm.value = true;
       return;
     }
-    void deleteAndClose();
+    deleteAndClose();
     return;
   }
   deleteError.value = null;
@@ -708,41 +714,21 @@ function cancelClose() {
 
 function confirmRunningDelete() {
   runningCloseConfirm.value = false;
-  void deleteAndClose();
+  deleteAndClose();
 }
 
-async function requestCoreDelete(): Promise<boolean> {
-  const id = sessionId.value;
-  if (deleting.value) return false;
-  if (!id) return false; // close() cancels this pre-session state without claiming Delete
-  deleting.value = true;
-  deleteError.value = null;
+function prepareConfirmedDelete() {
   closeConfirm.value = false;
   runningCloseConfirm.value = false;
-  termRef.value?.setInputEnabled(false);
-  try {
-    const response = await fetch(`/api/session/${encodeURIComponent(id)}`, { method: "DELETE" });
-    const body = await jsonBody(response);
-    if (!response.ok || body.deleted !== true) {
-      const detail = typeof body.error === "string" ? `: ${body.error}` : "";
-      throw new Error(`Couldn't delete this terminal${detail}. It remains open.`);
-    }
-    return true;
-  } catch (error) {
-    deleting.value = false;
-    termRef.value?.setInputEnabled(true);
-    if (error instanceof TypeError) deleteError.value = "Couldn't reach the server. This terminal was not deleted.";
-    else if (error instanceof Error) deleteError.value = error.message;
-    else deleteError.value = "Couldn't delete this terminal. It remains open.";
-    return false;
-  }
 }
 
-async function deleteAndClose(): Promise<void> {
-  if (await requestCoreDelete()) resetAfterConfirmedDelete();
+function deleteAndClose(): void {
+  prepareConfirmedDelete();
+  deleteAfterConfirmation(resetAfterConfirmedDelete);
 }
 
 async function removeAndClose() {
+  prepareConfirmedDelete();
   const dir = cwd.value;
   if (!dir) {
     await deleteAndClose();
@@ -785,14 +771,14 @@ function onSession(id: string) {
   sessionId.value = id;
   emit("session", id);
   void loadInitial(id);
-  if (awaitingSessionIdForDelete.value) {
-    awaitingSessionIdForDelete.value = false;
-    void deleteAndClose();
-  }
+  sessionIdAvailable();
 }
 
 function onTerminalExit() {
-  if (awaitingSessionIdForDelete.value && !sessionId.value) resetFailedUnassignedLaunch();
+  if (awaitingSessionIdForDelete.value && !sessionId.value) {
+    cancelAwaitingDelete();
+    resetFailedUnassignedLaunch();
+  }
 }
 
 // ~-anchored, front-truncated path for the header (keeps the tail). For a managed
