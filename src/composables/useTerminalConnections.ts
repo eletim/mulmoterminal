@@ -197,6 +197,7 @@ interface Conn {
   handlers: ConnHandlers;
   sawExit: boolean; // an intentional end (exit/superseded/error) — suppress reconnect
   released: boolean; // torn down — suppress reconnect and stray socket events
+  inputEnabled: boolean; // false only while this cell awaits authoritative Core Delete
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   attachedEl: HTMLElement | null;
@@ -504,6 +505,7 @@ function observeShellInput(c: Conn, data: string): void {
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
+    if (!c.inputEnabled) return;
     observeShellInput(c, data);
     // Announced even when the socket is down: the user typed either way, and what a parked cell
     // reads it for (#992) is "someone is using this", not "the PTY received it".
@@ -670,6 +672,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     handlers: {},
     sawExit: false,
     released: false,
+    inputEnabled: true,
     reconnectAttempts: 0,
     reconnectTimer: null,
     attachedEl: null,
@@ -706,6 +709,7 @@ function rebuildTerminal(c: Conn): void {
   c.host = host;
   c.selectionEdgeAutoScroll = selectionEdgeAutoScroll;
   c.lastRebuildMs = Date.now();
+  term.options.disableStdin = !c.inputEnabled;
   wireTerminalToConn(term, c);
   c.attachedEl?.appendChild(host);
   deadHost.remove();
@@ -912,8 +916,8 @@ export function retarget(key: string, target: ConnTarget) {
   connect(c);
 }
 
-// Permanently tear the slot down (close socket, dispose xterm). Used for ephemeral
-// (command) slots on unmount, and as the back end of terminate().
+// Permanently release this browser's slot (close socket, dispose xterm). This is viewer-local:
+// it never requests Core membership deletion.
 export function release(key: string) {
   const c = conns.get(key);
   if (!c) return;
@@ -943,14 +947,12 @@ export function release(key: string) {
   connView.delete(key);
 }
 
-// Explicit close (the cell's close button): tell the server to reap this session NOW instead
-// of holding it through the disconnect grace window, then tear the slot down.
-export function terminate(key: string) {
+/** Suppress both xterm keystrokes and programmatic terminal input while a cell awaits Delete. */
+export function setInputEnabled(key: string, enabled: boolean): void {
   const c = conns.get(key);
   if (!c) return;
-  c.sawExit = true;
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "terminate" }));
-  release(key);
+  c.inputEnabled = enabled;
+  c.term.options.disableStdin = !enabled;
 }
 
 // Submit a GUI-originated message into the PTY (text + a SEPARATE delayed submit — a
@@ -963,7 +965,7 @@ export function terminate(key: string) {
 // Returns whether the text was delivered.
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
-  if (!c) return false;
+  if (!c || !c.inputEnabled) return false;
   const sock = c.ws;
   // The `false` used to be the whole answer, and only one caller ever read it — the rest pressed
   // a button into a closed socket and showed nothing (#1315). Saying so here reaches every host,
@@ -1048,7 +1050,7 @@ export function listSlots(): SlotInfo[] {
 export function insertText(key: string, text: string) {
   if (!text) return; // nothing to deliver — not a drop
   const c = conns.get(key);
-  if (!c) return;
+  if (!c || !c.inputEnabled) return;
   // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
   // is watching for text to appear in the input box rather than for a reply (#1315).
   if (c.ws?.readyState === WebSocket.OPEN) {

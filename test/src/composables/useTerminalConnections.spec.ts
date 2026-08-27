@@ -120,6 +120,27 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.release("cell-input");
   });
 
+  it("blocks xterm and programmatic input while one cell awaits confirmed Delete", () => {
+    const key = "cell-deleting";
+    conn.attach(key, target("session-delete"), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    conn.setInputEnabled(key, false);
+    expect(mockTermState.options.disableStdin).toBe(true);
+    mockTermState.emitData("x");
+    expect(conn.submitText(key, "/commit")).toBe(false);
+    conn.insertText(key, "blocked");
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "input")).toHaveLength(0);
+
+    conn.setInputEnabled(key, true);
+    expect(mockTermState.options.disableStdin).toBe(false);
+    mockTermState.emitData("y");
+    expect(ws.sent).toContain(JSON.stringify({ type: "input", data: "y" }));
+    conn.release(key);
+  });
+
   // Clicking a parked cell to READ it must leave it parked — but a click on a mouse-tracking app
   // is delivered as input on the very channel keystrokes use, which is what made the cell wake on
   // the click rather than on the typing. The report still reaches the PTY; it just is not the

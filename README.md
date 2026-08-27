@@ -1342,6 +1342,7 @@ same-origin-guarded.
 | Endpoint | Purpose |
 | -------- | ------- |
 | `GET /api/session/:id?cwd=` | One session's summary — cumulative `usage` and `context` (model + last-turn context tokens). Backs the cell token & ctx% badges. |
+| `DELETE /api/session/:id` | Delete Core/tmux membership. Returns `{ deleted: true }` only after Core confirms deletion; the Desktop cell remains visible on failure. |
 | `GET /api/codex/sessions?cwd=` | Codex sessions for the project (from `~/.codex` rollouts), newest first. |
 | `GET /api/antigravity/sessions?cwd=` | Antigravity conversations for the project, newest first. agy does record a workspace, but never as a complete conversation-to-workspace map (`cache/last_conversations.json` keeps one conversation per directory and is written at exit; `history.jsonl` carries no conversation id), so the project comes from MulmoTerminal's own `~/.mulmoterminal/antigravity-conversations.jsonl`; agy's transcript supplies the title. |
 | `GET /api/cost?cwd=&session=` | Estimated $ cost — session / today / month. |
@@ -1696,7 +1697,7 @@ server/
                   gh.ts, prs.ts, pr-for-branch.ts, worktrees.ts, worktree-*.ts
   files/          files-browse.ts (contained read-only tree), pick-file.ts,
                   open-dir.ts, scripts.ts (Run-menu script.json loader)
-  infra/          process/transport/misc: tmux.ts, tmux-routes.ts,
+  infra/          process/transport/misc: tmux.ts,
                   pubsub.ts (socket.io /ws/pubsub), spa-fallback.ts, host-tools.ts,
                   plugins-registry.ts, web-push.ts
   mcp/            per-session MCP broker

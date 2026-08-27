@@ -29,8 +29,8 @@ export type CellChromeEvent = "toggle-expand" | "toggle-files" | "toggle-canvas"
 // TerminalCell did it twice (its cockpit header and its normal header) — four copies that all had
 // to agree, so adding a fifth button meant remembering every one of them.
 //
-// `close` is the one that genuinely differs: TerminalCell's confirms before tearing down a live
-// session (#826). So it is a parameter rather than an assumption, and the default is the plain
+// `close` is the one that genuinely differs: TerminalCell's confirms and waits for Core Delete
+// before removing a live-session cell (#826, #189). So it is a parameter rather than an assumption, and the default is the plain
 // forward the other two want.
 export function cellChromeBinding(
   source: CellChromeSource,

@@ -15,7 +15,7 @@ import { mountAllRoutes } from "../infra/plugins-registry.js";
 import { mountConfigRoutes } from "../config/config-routes.js";
 import { mountFilesBrowseRoutes } from "../files/files-browse.js";
 import { mountDirectoryPickerRoutes } from "../files/directories.js";
-import { mountTmuxRoutes } from "../infra/tmux-routes.js";
+import { mountTerminalDeleteRoute } from "./terminal-delete-route.js";
 import { mountHookRoute } from "../routes/hook-routes.js";
 import { mountPluginRoutes } from "../routes/plugin-routes.js";
 import { mountMcpRoutes } from "../routes/mcp-routes.js";
@@ -352,9 +352,9 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // codex's own sessions (see routes/session-routes.ts).
   mountSessionRoutes(app, sessionRouteDeps(deps));
 
-  // Explicit close (reliable HTTP fallback for logical deletion) + one-shot orphan cleanup. Extracted to a
-  // module so the origin guard / id validation / orphan-selection boundary are testable.
-  mountTmuxRoutes(app, {
+  // Desktop close waits for this request/response Delete before removing its cell. WebSocket
+  // release remains viewer-only and never changes Core membership.
+  mountTerminalDeleteRoute(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
     deleteSession: deps.deleteTerminalSession,

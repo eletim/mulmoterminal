@@ -176,14 +176,23 @@ async function deleteTerminalSession(id: string, allowMissing = false): Promise<
     if (!(allowMissing && error instanceof CoreSessionNotFoundError)) throw error;
   }
   // Each remaining call returns an explicit-Delete resource to its owner. None can alter Core
-  // membership or run as a generic lifecycle sweep.
-  if (session?.agent === "claude") cleanupClaudeProcessResources(id); // Claude settings/clear marker
-  cleanupSessionDrops(id); // per-session uploaded files
-  cleanupShellProcessResources(id); // launcher task watcher (idempotent for non-launchers)
-  cleanupSessionTitleState(id); // process-local title generation state
-  failCompletionHook(id); // pending request owned by this session
-  releaseTerminalViewer(id); // transient tmux client + browser replay buffer
-  endSessionActivity(id, "closed"); // UI/notification state
+  // membership or run as a generic lifecycle sweep. Core Delete has already succeeded, so a
+  // resource-owner cleanup failure is logged independently and cannot turn the authoritative
+  // response into "not deleted" while Core membership is in fact gone.
+  const cleanup = (owner: string, action: () => void): void => {
+    try {
+      action();
+    } catch (error) {
+      console.warn(`[delete] ${owner} cleanup failed for ${id}: ${messageOf(error)}`);
+    }
+  };
+  if (session?.agent === "claude") cleanup("Claude process", () => cleanupClaudeProcessResources(id));
+  cleanup("drop", () => cleanupSessionDrops(id));
+  cleanup("shell process", () => cleanupShellProcessResources(id));
+  cleanup("title", () => cleanupSessionTitleState(id));
+  cleanup("completion hook", () => failCompletionHook(id));
+  cleanup("viewer", () => releaseTerminalViewer(id));
+  cleanup("activity", () => endSessionActivity(id, "closed"));
 }
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
@@ -278,7 +287,6 @@ const releaseTerminalViewer = (id: string, expected?: Parameters<typeof releaseV
 
 // Per-connection plumbing (session/pty-connection.ts): attach, detach and release only.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
-  deleteSession: deleteTerminalSession,
   input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
     viewerPtys.get(id)?.term.resize(cols, rows);
