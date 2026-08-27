@@ -55,9 +55,6 @@ function setup(terminalModes: readonly number[] = []) {
   const calls: string[] = [];
   const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
-    deleteSession: (id) => {
-      calls.push(`deleteSession:${id}`);
-    },
     input: async (id, data) => {
       calls.push(`input:${id}:${data}`);
       currentEntries.get(id)?.term.write(data);
@@ -166,14 +163,6 @@ describe("handleClientFrame", () => {
     expect(t.resizes).toEqual([]);
   });
 
-  it("deletes immediately on terminate rather than waiting out the grace window", () => {
-    const { handleClientFrame, calls } = setup();
-    const s = fakeSocket();
-    const entry = entryWith({ ws: s.ws as never });
-    handleClientFrame(entry, s.ws as never, frame({ type: "terminate" }), SESSION);
-    expect(calls).toEqual([`deleteSession:${SESSION}`]);
-  });
-
   it("ignores a stale socket close after its transient pty was removed", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
@@ -234,7 +223,7 @@ describe("handleClientFrame", () => {
     const stale = fakeSocket();
     const entry = entryWith({ term: t.term as never, ws: current.ws as never });
     handleClientFrame(entry, stale.ws as never, frame({ type: "input", data: "rm -rf /" }), SESSION);
-    handleClientFrame(entry, stale.ws as never, frame({ type: "terminate" }), SESSION);
+    handleClientFrame(entry, stale.ws as never, frame({ type: "view", active: true }), SESSION);
     expect(t.writes).toEqual([]);
     expect(calls).toEqual([]);
   });
@@ -283,7 +272,7 @@ describe("handleClientFrame", () => {
 });
 
 // The Run menu's terminal has no session identity, so it accepts only input/resize —
-// never terminate, which would reach for session machinery that isn't there.
+// never Delete, which would reach for session machinery that isn't there.
 describe("handleCommandFrame", () => {
   const frame = (o: unknown) => JSON.stringify(o);
 
@@ -295,9 +284,9 @@ describe("handleCommandFrame", () => {
     expect(t.resizes).toEqual([[80, 24]]);
   });
 
-  it("ignores terminate and view — this terminal has no session to act on", () => {
+  it("ignores view — this terminal has no session to act on", () => {
     const t = fakeTerm();
-    handleCommandFrame(t.term as never, frame({ type: "terminate" }));
+    handleCommandFrame(t.term as never, frame({ type: "view", active: true }));
     handleCommandFrame(t.term as never, frame({ type: "view", active: true }));
     expect(t.writes).toEqual([]);
     expect(t.resizes).toEqual([]);

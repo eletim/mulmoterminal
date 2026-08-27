@@ -601,17 +601,15 @@ onUnmounted(() => {
   exchangeStop = true; // never leave an exchange typing into terminals after this cell is gone
 });
 
-// Reap the session and reset the cell back to the empty launcher. The cell isn't
-// remounted (stable key), so the dir/diff state is reset explicitly — otherwise the
-// launch form would still show the closed session's directory.
-function teardown() {
-  const id = sessionId.value; // capture before the reset below nulls it
-  termRef.value?.terminate();
-  // Reap on the server over HTTP too — the WS `terminate` only reaches the server while
-  // the socket is open, so a disconnected cell's close button would otherwise leave its tmux alive.
-  if (id) fetch(`/api/session/${encodeURIComponent(id)}/terminate`, { method: "POST" }).catch(() => {});
+// Local state reset is deliberately separate from Delete. Releasing a viewer or resetting a
+// cell cannot mean Delete; callers must either have confirmed Core deletion or know that the
+// launch never acquired a Core session id.
+function resetCellLocalState() {
+  deleting.value = false;
+  awaitingSessionIdForDelete.value = false;
+  deleteError.value = null;
   launched.value = false;
-  recordNextCwd = false; // drop any pending fresh-launch record from a torn-down session
+  recordNextCwd = false; // drop any pending fresh-launch record from the deleted session
   sessionId.value = null;
   working.value = false;
   waiting.value = false;
@@ -637,8 +635,20 @@ function teardown() {
   // own lists for the directory above on the way in.
 }
 
+function resetAfterConfirmedDelete() {
+  termRef.value?.releaseConnection();
+  resetCellLocalState();
+}
+
+// A terminal error before any session announcement confirms that the launch never acquired an
+// identified Core member. Only that confirmed pre-session failure may be reset without Delete.
+function resetFailedUnassignedLaunch() {
+  termRef.value?.releaseConnection();
+  resetCellLocalState();
+}
+
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
-// discards uncommitted/unpushed work); other cells just tear down.
+// discards uncommitted/unpushed work); every choice still confirms Core Delete first.
 // "Its PR merged — tidy up?" (#1182). Offered rather than done: the close flow below already asks
 // keep-or-remove and refuses to discard unsaved work, so this only has to get the user there.
 const dismissedTidyPr = ref<number | null>(null);
@@ -650,21 +660,38 @@ const dismissTidy = () => (dismissedTidyPr.value = workItem.value.pr);
 const closeConfirm = ref(false);
 const runningCloseConfirm = ref(false);
 const closeChecking = ref(false); // refreshing dirty/ahead — the destructive action is held until it's accurate
-const closeError = ref<string | null>(null);
+const deleting = ref(false);
+const awaitingSessionIdForDelete = ref(false);
+const deletePending = computed(() => deleting.value || awaitingSessionIdForDelete.value);
+const deleteError = ref<string | null>(null);
 const unsaved = computed(() => unsavedWork(diff.value));
 const hasUnsaved = computed(() => unsaved.value.has);
 const unsavedSummary = computed(() => unsaved.value.summary);
 
 async function close() {
+  if (deletePending.value) return;
+  if (!sessionId.value) {
+    if (!launched.value) {
+      resetCellLocalState(); // an untouched launcher is not a Terminal session
+      return;
+    }
+    // The server announces the generated id before creating Core membership, but that WebSocket
+    // frame may already be in flight. Keep the viewer and cell until it arrives; releasing here
+    // could hide a Core session that was created between the announcement and this click.
+    awaitingSessionIdForDelete.value = true;
+    deleteError.value = null;
+    termRef.value?.setInputEnabled(false);
+    return;
+  }
   if (!isWorktreeCell.value) {
     if (working.value) {
       runningCloseConfirm.value = true;
       return;
     }
-    teardown();
+    void deleteAndClose();
     return;
   }
-  closeError.value = null;
+  deleteError.value = null;
   closeConfirm.value = true;
   // Refresh dirty/ahead before the Remove button is enabled, so a fast click can't
   // discard work that became newly dirty/ahead since the last refresh.
@@ -676,33 +703,68 @@ function cancelClose() {
   closeConfirm.value = false;
   runningCloseConfirm.value = false;
   closeChecking.value = false;
-  closeError.value = null;
+  deleteError.value = null;
 }
 
-function stopAndClose() {
+function confirmRunningDelete() {
   runningCloseConfirm.value = false;
-  teardown();
+  void deleteAndClose();
+}
+
+async function requestCoreDelete(): Promise<boolean> {
+  const id = sessionId.value;
+  if (deleting.value) return false;
+  if (!id) return false; // close() cancels this pre-session state without claiming Delete
+  deleting.value = true;
+  deleteError.value = null;
+  closeConfirm.value = false;
+  runningCloseConfirm.value = false;
+  termRef.value?.setInputEnabled(false);
+  try {
+    const response = await fetch(`/api/session/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const body = await jsonBody(response);
+    if (!response.ok || body.deleted !== true) {
+      const detail = typeof body.error === "string" ? `: ${body.error}` : "";
+      throw new Error(`Couldn't delete this terminal${detail}. It remains open.`);
+    }
+    return true;
+  } catch (error) {
+    deleting.value = false;
+    termRef.value?.setInputEnabled(true);
+    if (error instanceof TypeError) deleteError.value = "Couldn't reach the server. This terminal was not deleted.";
+    else if (error instanceof Error) deleteError.value = error.message;
+    else deleteError.value = "Couldn't delete this terminal. It remains open.";
+    return false;
+  }
+}
+
+async function deleteAndClose(): Promise<void> {
+  if (await requestCoreDelete()) resetAfterConfirmedDelete();
 }
 
 async function removeAndClose() {
   const dir = cwd.value;
   if (!dir) {
-    teardown();
+    await deleteAndClose();
     return;
   }
-  closeError.value = null;
-  termRef.value?.terminate(); // free the worktree dir first (Windows locks a process's cwd)
+  if (!(await requestCoreDelete())) return;
+  // Core Delete has stopped the native process and the Backend has released its viewer, so the
+  // worktree can now be removed without using viewer teardown as an implicit process operation.
+  termRef.value?.releaseConnection();
+  let removeError: string | null = null;
   try {
     const res = await fetch("/api/worktrees/remove", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ repoDir: dir, path: dir, deleteBranch: true, force: true }),
     });
-    if (res.ok) return teardown();
-    closeError.value = "Couldn't remove the worktree — it may need manual cleanup.";
+    if (!res.ok) removeError = "The terminal was deleted, but the worktree couldn't be removed and may need manual cleanup.";
   } catch {
-    closeError.value = "Couldn't reach the server to remove the worktree.";
+    removeError = "The terminal was deleted, but the server couldn't be reached to remove the worktree.";
   }
+  resetAfterConfirmedDelete();
+  if (removeError) window.alert(removeError);
 }
 
 // Esc dismisses the close confirmation (document-scoped: focus may be on the
@@ -723,6 +785,14 @@ function onSession(id: string) {
   sessionId.value = id;
   emit("session", id);
   void loadInitial(id);
+  if (awaitingSessionIdForDelete.value) {
+    awaitingSessionIdForDelete.value = false;
+    void deleteAndClose();
+  }
+}
+
+function onTerminalExit() {
+  if (awaitingSessionIdForDelete.value && !sessionId.value) resetFailedUnassignedLaunch();
 }
 
 // ~-anchored, front-truncated path for the header (keeps the tail). For a managed
@@ -1165,6 +1235,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           dev-terminal
           run-menu
           @session="onSession"
+          @exit="onTerminalExit"
           @input="onTerminalInput"
           @cwd="onServerCwd"
           @run="(cmd) => emit('runSpare', cmd)"
@@ -1371,11 +1442,11 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           class="absolute inset-0 z-[25] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_82%,transparent)] p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Stop and close terminal"
+          aria-label="Delete running terminal"
         >
           <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
             <p class="m-0 font-sans text-[13px] font-semibold text-fg">This terminal is still running.</p>
-            <p class="m-0 font-sans text-[12px] text-dim">Closing it will stop the running process.</p>
+            <p class="m-0 font-sans text-[12px] text-dim">Deleting it will stop the running process and remove this terminal.</p>
             <div class="flex flex-wrap gap-1.5">
               <button
                 data-testid="rcx-cancel"
@@ -1387,9 +1458,9 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
               <button
                 data-testid="rcx-stop"
                 class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-                @click="stopAndClose"
+                @click="confirmRunningDelete"
               >
-                Stop and close
+                Delete terminal
               </button>
             </div>
           </div>
@@ -1404,59 +1475,62 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
         >
           <div class="flex max-w-[320px] flex-col gap-2.5 rounded-lg border border-border bg-panel p-4 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
             <p class="m-0 font-sans text-[13px] font-semibold text-fg">Close {{ headerDir }}</p>
-            <template v-if="!closeError">
-              <p v-if="working" data-testid="ccx-running-warn" class="m-0 font-sans text-[12px] text-dim">
-                This terminal is still running. Closing it will stop the running process.
-              </p>
-              <p v-if="hasUnsaved" data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">
-                {{ unsavedSummary }} will be discarded if you remove the worktree.
-              </p>
-              <p v-else class="m-0 font-sans text-[12px] text-dim">Keep the worktree to reuse it later, or remove it.</p>
-              <div class="flex flex-wrap gap-1.5">
-                <button
-                  data-testid="ccx-keep"
-                  class="cursor-pointer rounded-md border border-accent bg-elevated px-3 py-1.5 font-sans text-[12px] text-fg hover:bg-hover hover:text-fg"
-                  @click="teardown"
-                >
-                  Keep worktree
-                </button>
-                <button
-                  data-testid="ccx-remove"
-                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-                  :disabled="closeChecking"
-                  @click="removeAndClose"
-                >
-                  {{ closeChecking ? "Checking…" : hasUnsaved ? "Discard &amp; remove" : "Remove worktree" }}
-                </button>
-                <button
-                  data-testid="ccx-cancel"
-                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                  @click="cancelClose"
-                >
-                  Cancel
-                </button>
-              </div>
-            </template>
-            <template v-else>
-              <p data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">{{ closeError }}</p>
-              <div class="flex flex-wrap gap-1.5">
-                <button
-                  data-testid="ccx-remove"
-                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
-                  @click="removeAndClose"
-                >
-                  Retry
-                </button>
-                <button
-                  class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
-                  @click="teardown"
-                >
-                  Close cell
-                </button>
-              </div>
-            </template>
+            <p v-if="working" data-testid="ccx-running-warn" class="m-0 font-sans text-[12px] text-dim">
+              This terminal is still running. Deleting it will stop the running process.
+            </p>
+            <p v-if="hasUnsaved" data-testid="ccx-warn" class="m-0 font-sans text-[12px] text-[var(--warn-text,#e0a030)]">
+              {{ unsavedSummary }} will be discarded if you remove the worktree.
+            </p>
+            <p v-else class="m-0 font-sans text-[12px] text-dim">Delete the terminal and keep the worktree, or remove both.</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                data-testid="ccx-keep"
+                class="cursor-pointer rounded-md border border-accent bg-elevated px-3 py-1.5 font-sans text-[12px] text-fg hover:bg-hover hover:text-fg"
+                @click="deleteAndClose"
+              >
+                Delete terminal, keep worktree
+              </button>
+              <button
+                data-testid="ccx-remove"
+                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:border-err-text hover:bg-[var(--err-hover-bg)] hover:text-err-text"
+                :disabled="closeChecking"
+                @click="removeAndClose"
+              >
+                {{ closeChecking ? "Checking…" : hasUnsaved ? "Delete terminal, discard &amp; remove" : "Delete terminal &amp; remove worktree" }}
+              </button>
+              <button
+                data-testid="ccx-cancel"
+                class="cursor-pointer rounded-md border border-border bg-elevated px-3 py-1.5 font-sans text-[12px] text-secondary hover:bg-hover hover:text-fg"
+                @click="cancelClose"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
+        <div
+          v-if="deletePending"
+          data-testid="cell-deleting"
+          class="absolute inset-0 z-[40] flex items-center justify-center bg-[color-mix(in_srgb,var(--bg-base)_72%,transparent)]"
+          role="status"
+          aria-live="polite"
+          aria-label="Deleting terminal"
+        >
+          <div
+            class="flex items-center gap-2 rounded-md border border-border bg-panel px-3 py-2 font-sans text-[12px] text-secondary shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+          >
+            <span class="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent" aria-hidden="true" />
+            Deleting terminal…
+          </div>
+        </div>
+        <p
+          v-else-if="deleteError"
+          data-testid="cell-delete-error"
+          class="absolute inset-x-2 bottom-2 z-[35] m-0 rounded-md border border-err-text bg-[var(--err-deep)] px-3 py-2 font-sans text-[12px] text-err-text shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+          role="alert"
+        >
+          {{ deleteError }} Retry with ×.
+        </p>
       </template>
       <CellLaunchForm
         v-else

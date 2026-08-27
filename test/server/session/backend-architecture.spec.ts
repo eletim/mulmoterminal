@@ -146,4 +146,33 @@ describe("backend session architecture", () => {
     expect(deletion).not.toContain("cleanupManager");
     expect(deletion).not.toContain("lifecycleManager");
   });
+
+  it("keeps Desktop Delete request/response and out of the viewer WebSocket protocol", () => {
+    const route = readFileSync(path.join(root, "server", "routes", "terminal-delete-route.ts"), "utf8");
+    expect(route).toContain('app.delete("/api/session/:id"');
+    expect(route.indexOf("await deps.deleteSession(id)")).toBeLessThan(route.indexOf("res.json({ deleted: true })"));
+    expect(route.indexOf("await deps.waitForPendingLaunch(id)")).toBeLessThan(route.indexOf("await deps.deleteSession(id)"));
+    expect(route).not.toContain("activity");
+    expect(existsSync(path.join(root, "server", "infra", "tmux-routes.ts"))).toBe(false);
+
+    const viewer = readFileSync(path.join(sessionDir, "pty-connection.ts"), "utf8");
+    expect(viewer).not.toContain('msg.type === "terminate"');
+    expect(viewer).not.toContain("deleteSession:");
+    expect(viewer).toContain("deps.releaseViewer(sessionId, entry)");
+  });
+
+  it("keeps deleting as frontend-only pending state and resets only after confirmed Delete", () => {
+    const cell = readFileSync(path.join(root, "src", "components", "TerminalCell.vue"), "utf8");
+    const request = cell.slice(cell.indexOf("async function requestCoreDelete"), cell.indexOf("async function removeAndClose"));
+    expect(request).toContain('method: "DELETE"');
+    expect(request).toContain("body.deleted !== true");
+    expect(request).toContain("if (await requestCoreDelete()) resetAfterConfirmedDelete()");
+    expect(request).not.toContain("terminate");
+
+    const backend = typescriptSources(path.join(root, "server"))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+    expect(backend).not.toMatch(/(?:const|let|var)\s+deleting\b/);
+    expect(backend).not.toMatch(/\bdeleting\s*:/);
+  });
 });

@@ -197,6 +197,8 @@ interface Conn {
   handlers: ConnHandlers;
   sawExit: boolean; // an intentional end (exit/superseded/error) — suppress reconnect
   released: boolean; // torn down — suppress reconnect and stray socket events
+  inputEnabled: boolean; // false only while this cell awaits authoritative Core Delete
+  inputGeneration: number; // changes when input is disabled, permanently cancelling older delayed submits
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   attachedEl: HTMLElement | null;
@@ -504,6 +506,7 @@ function observeShellInput(c: Conn, data: string): void {
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
+    if (!c.inputEnabled) return;
     observeShellInput(c, data);
     // Announced even when the socket is down: the user typed either way, and what a parked cell
     // reads it for (#992) is "someone is using this", not "the PTY received it".
@@ -670,6 +673,8 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     handlers: {},
     sawExit: false,
     released: false,
+    inputEnabled: true,
+    inputGeneration: 0,
     reconnectAttempts: 0,
     reconnectTimer: null,
     attachedEl: null,
@@ -706,6 +711,7 @@ function rebuildTerminal(c: Conn): void {
   c.host = host;
   c.selectionEdgeAutoScroll = selectionEdgeAutoScroll;
   c.lastRebuildMs = Date.now();
+  term.options.disableStdin = !c.inputEnabled;
   wireTerminalToConn(term, c);
   c.attachedEl?.appendChild(host);
   deadHost.remove();
@@ -896,8 +902,8 @@ export function detach(key: string, el: HTMLElement | null) {
 }
 
 // connectKey changed (session switch / relaunch in the same slot): point the slot
-// at the new target and reconnect. Closes the previous socket, so the previous
-// session falls back to the server's reap grace.
+// at the new target and reconnect. Closing the previous viewer socket does not alter
+// Core membership; the new target is then attached or created through Core.
 export function retarget(key: string, target: ConnTarget) {
   const c = conns.get(key);
   if (!c) return;
@@ -912,8 +918,8 @@ export function retarget(key: string, target: ConnTarget) {
   connect(c);
 }
 
-// Permanently tear the slot down (close socket, dispose xterm). Used for ephemeral
-// (command) slots on unmount, and as the back end of terminate().
+// Permanently release this browser's slot (close socket, dispose xterm). This is viewer-local:
+// it never requests Core membership deletion.
 export function release(key: string) {
   const c = conns.get(key);
   if (!c) return;
@@ -943,14 +949,13 @@ export function release(key: string) {
   connView.delete(key);
 }
 
-// Explicit close (the cell's close button): tell the server to reap this session NOW instead
-// of holding it through the disconnect grace window, then tear the slot down.
-export function terminate(key: string) {
+/** Suppress both xterm keystrokes and programmatic terminal input while a cell awaits Delete. */
+export function setInputEnabled(key: string, enabled: boolean): void {
   const c = conns.get(key);
   if (!c) return;
-  c.sawExit = true;
-  if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "terminate" }));
-  release(key);
+  if (!enabled) c.inputGeneration++;
+  c.inputEnabled = enabled;
+  c.term.options.disableStdin = !enabled;
 }
 
 // Submit a GUI-originated message into the PTY (text + a SEPARATE delayed submit — a
@@ -963,7 +968,7 @@ export function terminate(key: string) {
 // Returns whether the text was delivered.
 export function submitText(key: string, text: string): boolean {
   const c = conns.get(key);
-  if (!c) return false;
+  if (!c || !c.inputEnabled) return false;
   const sock = c.ws;
   // The `false` used to be the whole answer, and only one caller ever read it — the rest pressed
   // a button into a closed socket and showed nothing (#1315). Saying so here reaches every host,
@@ -973,9 +978,10 @@ export function submitText(key: string, text: string): boolean {
     return false;
   }
   const submit = submitBytesFor(c);
+  const inputGeneration = c.inputGeneration;
   sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
   setTimeout(() => {
-    if (c.ws === sock && sock.readyState === WebSocket.OPEN) {
+    if (c.inputEnabled && c.inputGeneration === inputGeneration && c.ws === sock && sock.readyState === WebSocket.OPEN) {
       sock.send(JSON.stringify({ type: "input", data: submit }));
     }
   }, 60);
@@ -992,7 +998,7 @@ const PASTE_END = "\x1b[201~";
 export function pasteText(key: string, text: string): boolean {
   const c = conns.get(key);
   // Empty text is not a dropped paste — there was nothing to deliver, so it stays silent (#1315).
-  if (!text || !c) return false;
+  if (!text || !c || !c.inputEnabled) return false;
   if (c.ws?.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
@@ -1011,17 +1017,20 @@ const PASTE_SUBMIT_MS = 200;
 export function pasteAndSubmit(key: string, text: string): boolean {
   const c = conns.get(key);
   const sock = c?.ws;
-  if (!text || !c) return false; // nothing to deliver — not a drop (#1315)
+  if (!text || !c || !c.inputEnabled) return false; // nothing to deliver — not a drop (#1315)
   if (!sock || sock.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
   }
   const submit = submitBytesFor(c);
+  const inputGeneration = c.inputGeneration;
   // The guard's space rides INSIDE the paste, where the TUI takes it as text — after the
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
   sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableFor(c, text)}${PASTE_END}` }));
   setTimeout(() => {
-    if (c.ws === sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "input", data: submit }));
+    if (c.inputEnabled && c.inputGeneration === inputGeneration && c.ws === sock && sock.readyState === WebSocket.OPEN) {
+      sock.send(JSON.stringify({ type: "input", data: submit }));
+    }
   }, PASTE_SUBMIT_MS);
   return true;
 }
@@ -1048,7 +1057,7 @@ export function listSlots(): SlotInfo[] {
 export function insertText(key: string, text: string) {
   if (!text) return; // nothing to deliver — not a drop
   const c = conns.get(key);
-  if (!c) return;
+  if (!c || !c.inputEnabled) return;
   // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
   // is watching for text to appear in the input box rather than for a reply (#1315).
   if (c.ws?.readyState === WebSocket.OPEN) {
