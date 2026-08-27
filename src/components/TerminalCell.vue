@@ -601,10 +601,10 @@ onUnmounted(() => {
   exchangeStop = true; // never leave an exchange typing into terminals after this cell is gone
 });
 
-// Local reset is deliberately separate from Delete. It runs only after the HTTP response has
-// confirmed Core membership removal; releasing a viewer or resetting a cell cannot mean Delete.
-function resetAfterConfirmedDelete() {
-  termRef.value?.releaseConnection();
+// Local state reset is deliberately separate from Delete. Releasing a viewer or resetting a
+// cell cannot mean Delete; callers must either have confirmed Core deletion or know that the
+// launch never acquired a Core session id.
+function resetCellLocalState() {
   deleting.value = false;
   deleteError.value = null;
   launched.value = false;
@@ -634,6 +634,18 @@ function resetAfterConfirmedDelete() {
   // own lists for the directory above on the way in.
 }
 
+function resetAfterConfirmedDelete() {
+  termRef.value?.releaseConnection();
+  resetCellLocalState();
+}
+
+// Before the server assigns an id there is no identified Terminal membership to delete. Closing
+// this state cancels only the pending viewer/launch attempt and returns the cell to its launcher.
+function cancelUnassignedLaunch() {
+  termRef.value?.releaseConnection();
+  resetCellLocalState();
+}
+
 // Closing a WORKTREE cell offers to keep or remove the room first (never silently
 // discards uncommitted/unpushed work); every choice still confirms Core Delete first.
 // "Its PR merged — tidy up?" (#1182). Offered rather than done: the close flow below already asks
@@ -655,6 +667,10 @@ const unsavedSummary = computed(() => unsaved.value.summary);
 
 async function close() {
   if (deleting.value) return;
+  if (!sessionId.value) {
+    cancelUnassignedLaunch();
+    return;
+  }
   if (!isWorktreeCell.value) {
     if (working.value) {
       runningCloseConfirm.value = true;
@@ -686,10 +702,7 @@ function confirmRunningDelete() {
 async function requestCoreDelete(): Promise<boolean> {
   const id = sessionId.value;
   if (deleting.value) return false;
-  if (!id) {
-    deleteError.value = "This terminal is still connecting, so deletion could not be confirmed.";
-    return false;
-  }
+  if (!id) return false; // close() cancels this pre-session state without claiming Delete
   deleting.value = true;
   deleteError.value = null;
   closeConfirm.value = false;

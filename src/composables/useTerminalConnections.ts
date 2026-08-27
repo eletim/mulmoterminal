@@ -900,8 +900,8 @@ export function detach(key: string, el: HTMLElement | null) {
 }
 
 // connectKey changed (session switch / relaunch in the same slot): point the slot
-// at the new target and reconnect. Closes the previous socket, so the previous
-// session falls back to the server's reap grace.
+// at the new target and reconnect. Closing the previous viewer socket does not alter
+// Core membership; the new target is then attached or created through Core.
 export function retarget(key: string, target: ConnTarget) {
   const c = conns.get(key);
   if (!c) return;

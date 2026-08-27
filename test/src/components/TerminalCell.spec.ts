@@ -595,6 +595,23 @@ describe("TerminalCell", () => {
     expect((w.find('[data-testid="cell-dir-input"]').element as HTMLInputElement).value).toBe("/home/me/default");
   });
 
+  it("cancels a launch that never acquired a Core session id without claiming Delete", async () => {
+    const w = mountCell(null, { defaultCwd: "/home/me/default" });
+    await flushPromises();
+    await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/unreachable");
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    const requests = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(requests.some(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")).toBe(false);
+    expect(terminalRelease).toHaveBeenCalledTimes(1);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+    expect(w.find('[data-testid="cell-delete-error"]').exists()).toBe(false);
+  });
+
   it("adopts the EFFECTIVE cwd the server reports (persists/shows that, not the typed one)", async () => {
     const w = mountCell(null, { defaultCwd: "/home/me/default" });
     await flushPromises();
