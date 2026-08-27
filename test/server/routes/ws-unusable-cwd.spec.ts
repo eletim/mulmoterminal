@@ -22,7 +22,7 @@ vi.mock("../../../server/session/core-session-adapter.js", async (importOriginal
 });
 
 const { workspaceFromUrl, refuseUnusableWorkspace } = await import("../../../server/routes/ws-routes.js");
-const { ptys } = await import("../../../server/session/registry.js");
+const { viewerPtys } = await import("../../../server/session/registry.js");
 const { CLAUDE_CWD } = await import("../../../server/config/env.js");
 
 // Just the two members closeWithError touches, plus a record of what it sent.
@@ -52,11 +52,11 @@ let dir = "";
 
 beforeEach(() => {
   coreIds.clear();
-  ptys.clear();
+  viewerPtys.clear();
   dir = mkdtempSync(path.join(tmpdir(), "mt-wscwd-"));
 });
 afterEach(() => {
-  ptys.clear();
+  viewerPtys.clear();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -118,7 +118,7 @@ describe("refuseUnusableWorkspace", () => {
   // makes for a reattach (refuseUnusableCwd) reaches the same verdict.
   it("does not let a stray PTY manufacture membership", async () => {
     const ws = fakeWs();
-    ptys.set(SESSION, { cwd: "/wherever" } as never);
+    viewerPtys.set(SESSION, { cwd: "/wherever" } as never);
     expect(await refuseUnusableWorkspace(ws as unknown as WebSocket, "claude", "gone", SESSION)).toBe(true);
     expect(ws.closed).toBe(true);
   });

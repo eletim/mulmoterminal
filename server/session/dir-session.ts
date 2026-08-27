@@ -7,7 +7,7 @@
 import { canonicalPath } from "../git/worktrees.js";
 import { isSessionAttached, type SessionOccupancy } from "../../common/sessionOccupancy.js";
 import { isTerminalAgent, type TerminalAgent } from "../../common/sessionAgent.js";
-import { ptys } from "./registry.js";
+import { viewerPtys } from "./registry.js";
 import type { CoreSession } from "./core-session-adapter.js";
 
 export interface DirSession extends SessionOccupancy {
@@ -30,7 +30,7 @@ export function pickDirSession(candidates: readonly DirSessionCandidate[]): DirS
 /** Viewer/peer occupancy for an id already proven to be a Core member. The process-local tmux
  * client is transport, not a viewer, and is subtracted from the shared client count. */
 export function sessionAttached(id: string, tmuxCounts: Map<string, number> | null): boolean {
-  const entry = ptys.get(id);
+  const entry = viewerPtys.get(id);
   return isSessionAttached({
     viewedHere: !!entry?.ws && entry.ws.readyState === entry.ws.OPEN,
     tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(id) ?? 0),

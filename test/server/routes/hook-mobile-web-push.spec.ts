@@ -4,7 +4,7 @@ import express from "express";
 import request from "supertest";
 
 import { mountHookRoute } from "../../../server/routes/hook-routes";
-import { activity, ptys } from "../../../server/session/registry";
+import { activity, viewerPtys } from "../../../server/session/registry";
 
 vi.mock("../../../server/session/session-reads.js", () => ({ latestUserPrompt: vi.fn(async () => null) }));
 
@@ -36,14 +36,14 @@ const postHook = (body: Record<string, unknown>) => request(app).post("/api/hook
 const fakeEntry = (over: Record<string, unknown> = {}) => ({ term: { kill: vi.fn() }, ws: {}, cwd: "/work", tmux: false, agent: "claude", ...over }) as never;
 
 beforeEach(async () => {
-  ptys.set(ID, fakeEntry({ active: true, agent: "codex" }));
+  viewerPtys.set(ID, fakeEntry({ active: true, agent: "codex" }));
   activity.set(ID, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
   await postHook({ hook_event_name: "PostToolUse" });
   vi.clearAllMocks();
 });
 
 afterEach(() => {
-  ptys.delete(ID);
+  viewerPtys.delete(ID);
   activity.delete(ID);
 });
 
@@ -82,7 +82,7 @@ describe("local mobile Web Push from Claude hooks", () => {
   });
 
   it("does not duplicate inactive waits that lifecycle already reports", async () => {
-    ptys.set(ID, fakeEntry({ active: false, agent: "codex" }));
+    viewerPtys.set(ID, fakeEntry({ active: false, agent: "codex" }));
 
     await postHook({ hook_event_name: "Notification", notification_type: "permission_prompt" });
 
@@ -91,7 +91,7 @@ describe("local mobile Web Push from Claude hooks", () => {
   });
 
   it("keeps work-phase tracking for a Core member after its viewer is released", async () => {
-    ptys.delete(ID);
+    viewerPtys.delete(ID);
 
     await postHook({ hook_event_name: "PreToolUse", tool_name: "Edit" });
 

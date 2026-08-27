@@ -145,13 +145,7 @@ describe("trackCodexActivity resume baseline", () => {
     expect(setWaiting).not.toHaveBeenCalled();
 
     const sessions = buildSessionList({
-      liveIds: [SESSION],
-      tmuxIds: [],
-      detailOf: (id) => ({
-        title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
-        cwd: "/repo",
-        agent: "codex",
-      }),
+      sessions: [{ id: SESSION, exited: false, title: sessionDisplayName(null, null, lastPrompts.get(SESSION), undefined), cwd: "/repo", agent: "codex" }],
     });
     expect(sessions[0]).toMatchObject({ id: SESSION, title: "restore the Codex resume title" });
   });
@@ -192,13 +186,7 @@ describe("trackCodexActivity resume baseline", () => {
     expect(cellHeaderText(null, null, lastPrompts.get(SESSION) ?? null, SESSION)).toBe("fix the fresh Codex title");
 
     const sessions = buildSessionList({
-      liveIds: [SESSION],
-      tmuxIds: [],
-      detailOf: (id) => ({
-        title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
-        cwd: "/repo",
-        agent: "codex",
-      }),
+      sessions: [{ id: SESSION, exited: false, title: sessionDisplayName(null, null, lastPrompts.get(SESSION), undefined), cwd: "/repo", agent: "codex" }],
     });
     expect(sessions[0]).toMatchObject({ id: SESSION, title: "fix the fresh Codex title" });
   });

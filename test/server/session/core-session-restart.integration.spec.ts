@@ -81,16 +81,14 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
     // This is a separate OS process with no MulmoTerminal registry, lifecycle rows, or PTYs.
     const restarted = await listFromFreshNodeProcess();
     const desktopIds = restarted.map((session) => session.id).sort();
-    const byId = new Map(restarted.map((session) => [session.id, session]));
-    const runningIds = restarted.filter((session) => !session.exited).map((session) => session.id);
     const mobileIds = buildSessionList({
-      candidateIds: restarted.map((session) => session.id),
-      liveIds: runningIds,
-      tmuxIds: runningIds,
-      detailOf: (id) => {
-        const session = byId.get(id);
-        return { title: session?.title ?? "", cwd: session?.cwd ?? "", agent: session?.agent ?? null };
-      },
+      sessions: restarted.map((session) => ({
+        id: session.id,
+        exited: session.exited,
+        title: session.title ?? "",
+        cwd: session.cwd ?? "",
+        agent: session.agent ?? null,
+      })),
     })
       .map((session) => session.id)
       .sort();

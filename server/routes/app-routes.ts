@@ -39,7 +39,7 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
-import { hookedSessions, ptys, sessionToolGroups, sessionToolGroupsHydrated, hasAllGuiTools, allToolsSessionsHydrated } from "../session/registry.js";
+import { hookedSessions, viewerPtys, sessionToolGroups, sessionToolGroupsHydrated, hasAllGuiTools, allToolsSessionsHydrated } from "../session/registry.js";
 import { mountMobileModeRoute } from "./mobile-mode-route.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
@@ -107,8 +107,8 @@ const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRou
       throw error;
     }
   },
-  hasLivePty: (id) => ptys.has(id),
-  hasViewer: (id) => !!ptys.get(id)?.ws,
+  hasLivePty: (id) => viewerPtys.has(id),
+  hasViewer: (id) => !!viewerPtys.get(id)?.ws,
   setCoreMemo: async (id, memo) => {
     try {
       await coreSessions.setMemo(id, memo);

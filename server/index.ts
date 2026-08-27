@@ -46,7 +46,7 @@ import { mountTerminalWebSockets } from "./routes/ws-routes.js";
 import { createConnectionHandlers, releaseAllViewers, releaseViewer } from "./session/pty-connection.js";
 import { createTmuxSizeSync } from "./session/tmux-size-sync.js";
 import type { SpawnDeps } from "./session/spawn-deps.js";
-import { activity, handoffCoreMemoToHistory, lastPrompts, migrateHistoryMemosToCore, ptys } from "./session/registry.js";
+import { activity, handoffCoreMemoToHistory, lastPrompts, migrateHistoryMemosToCore, viewerPtys } from "./session/registry.js";
 import { hydrateClearedTranscripts } from "./session/cleared-transcripts.js";
 import { spawnScheduledWorker } from "./session/scheduled-chat.js";
 import { createToolStores } from "./session/tool-store.js";
@@ -55,7 +55,6 @@ import { claudeAdapter } from "./agents/claude.js";
 import { codexAdapter } from "./agents/codex.js";
 import { antigravityAdapter } from "./agents/antigravity.js";
 import { createAntigravitySpawner } from "./session/spawn-antigravity.js";
-import { renderAnsiRows } from "./session/headlessScreen.js";
 import { ansiScreenWindow, parseAnsiRows } from "./session/ansiSegments.js";
 import type { AnsiRow } from "../common/ansiStyle.js";
 import {
@@ -159,13 +158,15 @@ async function deleteTerminalSession(id: string, allowMissing = false): Promise<
     // Their process-local files still need cleanup; any real Core failure remains fatal.
     if (!(allowMissing && error instanceof CoreSessionNotFoundError)) throw error;
   }
-  if (session?.agent === "claude") cleanupClaudeProcessResources(id);
-  cleanupSessionDrops(id);
-  cleanupShellProcessResources(id);
-  cleanupSessionTitleState(id);
-  failCompletionHook(id);
-  releaseTerminalViewer(id);
-  endSessionActivity(id, "closed");
+  // Each remaining call returns an explicit-Delete resource to its owner. None can alter Core
+  // membership or run as a generic lifecycle sweep.
+  if (session?.agent === "claude") cleanupClaudeProcessResources(id); // Claude settings/clear marker
+  cleanupSessionDrops(id); // per-session uploaded files
+  cleanupShellProcessResources(id); // launcher task watcher (idempotent for non-launchers)
+  cleanupSessionTitleState(id); // process-local title generation state
+  failCompletionHook(id); // pending request owned by this session
+  releaseTerminalViewer(id); // transient tmux client + browser replay buffer
+  endSessionActivity(id, "closed"); // UI/notification state
 }
 
 // Seed help docs so a MulmoTerminal-alone run gets the basic workspace docs.
@@ -241,7 +242,7 @@ const tmuxSizeSync = createTmuxSizeSync({
   windowSizeOf: (id) => tmuxWindowSize(id),
   resizePty: (id, { cols, rows }) => {
     try {
-      ptys.get(id)?.term.resize(cols, rows);
+      viewerPtys.get(id)?.term.resize(cols, rows);
     } catch (err) {
       // The pty exited between the probe and the repair — the screen it would have fixed is gone.
       console.warn(`[tmux-size] ${id}: resize dropped: ${messageOf(err)}`);
@@ -263,7 +264,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   deleteSession: deleteTerminalSession,
   input: (id, data) => coreSessions.input(id, data),
   resize: async (id, cols, rows) => {
-    ptys.get(id)?.term.resize(cols, rows);
+    viewerPtys.get(id)?.term.resize(cols, rows);
     await coreSessions.resize(id, cols, rows);
   },
   setWaiting: (id, waiting) => setWaiting(id, waiting),
@@ -273,7 +274,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   checkTerminalSize: (id, size) => tmuxSizeSync.requestCheck(id, size),
   recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
-  currentEntryOf: (id) => ptys.get(id),
+  currentEntryOf: (id) => viewerPtys.get(id),
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
@@ -587,7 +588,7 @@ const agentOfSession = async (id: string): Promise<SessionAgent | null> => {
 };
 
 // What each session's directory is working on, resolved once per DIRECTORY before the list is
-// built: `detailOf` below is synchronous, and cells sharing a checkout share an answer (#1014).
+// built: the Core-row mapping below is synchronous, and cells sharing a checkout share an answer (#1014).
 // phaseForRepoBranch caches per (repo, branch), so a grid of twenty cells costs a handful of gh
 // calls at most, and none at all between polls inside the TTL.
 const workByCwd = async (cwds: readonly string[]): Promise<Map<string, SessionWorkSummary>> => {
@@ -613,30 +614,26 @@ const mobileListTerminalSessions = async () => {
   // Core owns existence; this filter is display policy shared with the desktop grid. Internal
   // helpers remain directly addressable for their completion/push flows but are not terminal rows.
   const sessions = await visibleCoreSessions(await coreSessions.list());
-  const runningIds = sessions.filter((session) => !session.exited).map((session) => session.id);
   const work = await workByCwd(sessions.map((session) => session.cwd));
-  const byId = new Map(sessions.map((session) => [session.id, session]));
   return buildSessionList({
-    candidateIds: sessions.map((session) => session.id),
-    liveIds: runningIds,
-    tmuxIds: runningIds,
-    detailOf: (id) => {
-      const session = byId.get(id);
-      if (!session) return { title: "", cwd: "", agent: null };
+    sessions: sessions.map((session) => {
       const summary = work.get(session.cwd);
-      const detail: SessionDetailDraft = {
-        title: sessionDisplayName(session.memo, session.title, lastPrompts.get(id), null),
+      const detail: SessionDetailDraft & { id: string; exited: boolean } = {
+        id: session.id,
+        exited: session.exited,
+        title: sessionDisplayName(session.memo, session.title, lastPrompts.get(session.id), null),
         cwd: session.cwd,
         agent: session.agent,
         ...(summary ? { work: summary } : {}),
       };
       return detail;
-    },
+    }),
   });
 };
 
 const mobileWriteToSession = async (sessionId: string, chunk: string): Promise<boolean> => {
   try {
+    if ((await coreSessions.get(sessionId)).exited) return false;
     await coreSessions.input(sessionId, chunk);
     return true;
   } catch (error) {
@@ -693,18 +690,19 @@ const mobileCaptureTerminalScreen = async (sessionId: string) => {
 // added to SessionScreen: the plain screen response stays compact and older clients can ignore
 // styled rows entirely.
 //
-// Same two capture paths as mobileCaptureTerminalScreen, in the same order (tmux first),
-// so a session picks the same source for both its plain and its styled screen — just read for
-// colour (ansiSegments.ts / headlessScreen.ts's renderAnsiRows) instead of for plain text.
+// Core membership is checked first; styled output then comes only from the Core-owned tmux pane.
 // ansiScreenWindow applies the SAME row cap AND byte cap terminalScreen.ts's own screenWindow
 // applies to the plain screen, so the two never disagree on how much of the pane is shown.
 const localMobileCaptureStyledScreen = async (sessionId: string): Promise<AnsiRow[]> => {
+  try {
+    await coreSessions.get(sessionId);
+  } catch (error) {
+    if (error instanceof CoreSessionNotFoundError) throw new TerminalSessionNotFoundError(sessionId);
+    throw error;
+  }
   const captured = tmuxCaptureStyledPane(sessionId, SCREEN_HISTORY_ROWS);
-  if (captured !== null) return ansiScreenWindow(parseAnsiRows(captured));
-  const entry = ptys.get(sessionId);
-  if (!entry) throw new TerminalSessionNotFoundError(sessionId);
-  const rows = await renderAnsiRows({ buffer: entry.buffer, cols: entry.term.cols, rows: entry.term.rows, historyLines: SCREEN_HISTORY_ROWS });
-  return ansiScreenWindow(rows);
+  if (captured === null) throw new TerminalSessionNotFoundError(sessionId);
+  return ansiScreenWindow(parseAnsiRows(captured));
 };
 
 const mobileTerminalLauncher = createLaunchTerminalPublisher({
@@ -739,7 +737,7 @@ const localMobileWorkPhaseOf = (id: string) => workPhaseTracker.phaseOf(id);
 
 const orchestratorSessionStatusOf = createOrchestratorStatusReader({
   getSession: (id) => coreSessions.find(id),
-  hasViewer: (id) => ptys.has(id),
+  hasViewer: (id) => viewerPtys.has(id),
   activityOf: (id) => activity.get(id),
   workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
 });
@@ -777,7 +775,7 @@ mountOrchestratorSessionRoutes(app, {
 
 // The rule lives with heldByAnotherProcess (pure/tested); this only reads the live facts.
 const sessionInUse = (id: string): boolean => {
-  const entry = ptys.get(id);
+  const entry = viewerPtys.get(id);
   return scheduledSessionInUse({ hasViewer: !!entry?.ws, weHoldAPty: !!entry }, () => tmuxAttachedClientCount(id));
 };
 

@@ -10,7 +10,7 @@ import { isResizeFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
-import { ptys } from "./registry.js";
+import { viewerPtys } from "./registry.js";
 
 export interface ViewerReleaseDeps {
   forgetTerminalSize: (id: string) => void;
@@ -18,9 +18,9 @@ export interface ViewerReleaseDeps {
 
 /** Release only this process's transient tmux client. Core/tmux membership is untouched. */
 export function releaseViewer(deps: ViewerReleaseDeps, id: string, expected?: PtyEntry): boolean {
-  const entry = ptys.get(id);
+  const entry = viewerPtys.get(id);
   if (!entry || (expected && entry !== expected)) return false;
-  ptys.delete(id);
+  viewerPtys.delete(id);
   deps.forgetTerminalSize(id);
   try {
     entry.term.kill();
@@ -33,7 +33,7 @@ export function releaseViewer(deps: ViewerReleaseDeps, id: string, expected?: Pt
 /** Graceful shutdown owns viewers, not Core sessions. */
 export function releaseAllViewers(deps: ViewerReleaseDeps): string[] {
   const released: string[] = [];
-  for (const id of [...ptys.keys()]) {
+  for (const id of [...viewerPtys.keys()]) {
     try {
       if (releaseViewer(deps, id)) released.push(id);
     } catch (error) {

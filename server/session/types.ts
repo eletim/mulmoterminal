@@ -13,7 +13,8 @@ export interface Activity {
   at?: number;
 }
 
-// A live PTY and its (possibly detached) browser socket.
+// A process-local viewer PTY and its (possibly detached) browser socket. Its agent/cwd fields
+// configure replay/input behavior for this transport; Core metadata remains session authority.
 export interface PtyEntry {
   term: IPty;
   ws: WebSocket | null;
