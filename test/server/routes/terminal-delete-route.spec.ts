@@ -7,13 +7,18 @@ import { mountTerminalDeleteRoute } from "../../../server/routes/terminal-delete
 const ID = "11111111-2222-4333-8444-555555555555";
 class MissingSessionError extends Error {}
 
-function appFor(deleteSession: (id: string) => Promise<void> = vi.fn(async () => undefined), isAllowedOrigin = () => true) {
+function appFor(
+  deleteSession: (id: string) => Promise<void> = vi.fn(async () => undefined),
+  isAllowedOrigin = () => true,
+  waitForPendingLaunch: (id: string) => Promise<void> = vi.fn(async () => undefined),
+) {
   const app = express();
   mountTerminalDeleteRoute(app, {
     isAllowedOrigin,
     isValidSessionId: (id) => id === ID,
     deleteSession,
     isSessionMissingError: (error) => error instanceof MissingSessionError,
+    waitForPendingLaunch,
   });
   return { app, deleteSession };
 }
@@ -42,6 +47,23 @@ describe("DELETE /api/session/:id", () => {
     const { app, deleteSession } = appFor();
     const response = await request(app).delete(`/api/session/${ID}`);
     expect(response.status).toBe(200);
+    expect(deleteSession).toHaveBeenCalledExactlyOnceWith(ID);
+  });
+
+  it("waits for an announced launch to finish Core creation before attempting Delete", async () => {
+    let finishLaunch!: () => void;
+    const launchPending = new Promise<void>((resolve) => (finishLaunch = resolve));
+    const deleteSession = vi.fn(async () => undefined);
+    const waitForPendingLaunch = vi.fn(() => launchPending);
+    const { app } = appFor(deleteSession, () => true, waitForPendingLaunch);
+    const responsePromise = request(app)
+      .delete(`/api/session/${ID}`)
+      .then((response) => response);
+    await vi.waitFor(() => expect(waitForPendingLaunch).toHaveBeenCalledExactlyOnceWith(ID));
+    expect(deleteSession).not.toHaveBeenCalled();
+    finishLaunch();
+    const response = await responsePromise;
+    expect(response.body).toEqual({ deleted: true });
     expect(deleteSession).toHaveBeenCalledExactlyOnceWith(ID);
   });
 

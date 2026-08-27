@@ -61,6 +61,7 @@ import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-li
 import { workspaceForRoute } from "./routeParams.js";
 import type { MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
 import { coreSessions, CoreSessionNotFoundError } from "../session/core-session-adapter.js";
+import { waitForPendingTerminalLaunch } from "../session/pending-terminal-launch.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
@@ -359,5 +360,6 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
     deleteSession: deps.deleteTerminalSession,
     isSessionMissingError: (error) => error instanceof CoreSessionNotFoundError,
+    waitForPendingLaunch: waitForPendingTerminalLaunch,
   });
 }

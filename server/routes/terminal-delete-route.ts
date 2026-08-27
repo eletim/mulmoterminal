@@ -7,6 +7,7 @@ export interface TerminalDeleteRouteDeps {
   isValidSessionId: (id: string) => boolean;
   deleteSession: (id: string) => Promise<void>;
   isSessionMissingError: (error: unknown) => boolean;
+  waitForPendingLaunch: (id: string) => Promise<void>;
 }
 
 /** Request/response Delete for the Desktop cell close button. Core.delete() is the only membership write. */
@@ -16,6 +17,9 @@ export function mountTerminalDeleteRoute(app: Express, deps: TerminalDeleteRoute
     const id = req.params.id;
     if (!deps.isValidSessionId(id)) return res.status(400).json({ error: "invalid session id" });
     try {
+      // The WebSocket announces a fresh id before its synchronous Core create. Serialize with
+      // that bounded launch attempt so absence cannot be mistaken for an already-finished Delete.
+      await deps.waitForPendingLaunch(id);
       await deps.deleteSession(id);
       return res.json({ deleted: true });
     } catch (error) {

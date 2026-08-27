@@ -151,6 +151,7 @@ describe("backend session architecture", () => {
     const route = readFileSync(path.join(root, "server", "routes", "terminal-delete-route.ts"), "utf8");
     expect(route).toContain('app.delete("/api/session/:id"');
     expect(route.indexOf("await deps.deleteSession(id)")).toBeLessThan(route.indexOf("res.json({ deleted: true })"));
+    expect(route.indexOf("await deps.waitForPendingLaunch(id)")).toBeLessThan(route.indexOf("await deps.deleteSession(id)"));
     expect(route).not.toContain("activity");
     expect(existsSync(path.join(root, "server", "infra", "tmux-routes.ts"))).toBe(false);
 

@@ -43,6 +43,7 @@ import { worktreeRefusal } from "../../common/worktreeSession.js";
 import { stripBasePath } from "../../common/basePath.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import { coreSessions, type CoreSession } from "../session/core-session-adapter.js";
+import { beginPendingTerminalLaunch, finishPendingTerminalLaunch } from "../session/pending-terminal-launch.js";
 
 export interface WsRouteDeps {
   /** The http server these endpoints hang their `upgrade` handler off. */
@@ -258,6 +259,7 @@ async function admitAgentSession(
 ): Promise<EarlyFrames | null> {
   const { requested, sessionId, viewer, cwd, worktreeLimited = true } = session;
   if (worktreeLimited && (await refuseSecondWorktreeSession(ws, kind, cwd, { requested, sessionId }))) return null;
+  beginPendingTerminalLaunch(sessionId);
   // The EFFECTIVE cwd, not this request's: on a reattach the live PTY's own directory is where the
   // agent really runs, and the request's `?cwd=` is ignored by everything downstream.
   return announceSession(ws, sessionId, viewer?.cwd ?? cwd);
@@ -515,19 +517,23 @@ export function startAndWire(
   },
   start: () => PtyEntry,
 ): void {
-  let entry: PtyEntry;
   try {
-    entry = start();
-  } catch (err) {
-    console.error(`[ws/${session.tag}] failed to start ${session.id}: ${messageOf(err)}`);
-    session.early.discard();
-    return closeWithError(ws, session.startFailureMessage(err));
+    let entry: PtyEntry;
+    try {
+      entry = start();
+    } catch (err) {
+      console.error(`[ws/${session.tag}] failed to start ${session.id}: ${messageOf(err)}`);
+      session.early.discard();
+      return closeWithError(ws, session.startFailureMessage(err));
+    }
+    applyClientSize(entry.term, session.size ?? null, session.tag, session.id);
+    const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
+    ws.on("message", deliver);
+    ws.on("close", () => deps.handleClientClose(entry, ws, session.id));
+    session.early.release(deliver);
+  } finally {
+    finishPendingTerminalLaunch(session.id);
   }
-  applyClientSize(entry.term, session.size ?? null, session.tag, session.id);
-  const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
-  ws.on("message", deliver);
-  ws.on("close", () => deps.handleClientClose(entry, ws, session.id));
-  session.early.release(deliver);
 }
 
 // Tell the browser which session this is, and from that moment collect what it sends: its first
@@ -544,6 +550,7 @@ function announceSession(ws: WebSocket, sessionId: string, cwd: string): EarlyFr
 export function clientStillConnected(ws: WebSocket, tag: string, sessionId: string, early: EarlyFrames, onAbandon?: () => void): boolean {
   if (ws.readyState === ws.OPEN) return true;
   console.log(`[ws/${tag}] client left before spawn — abandoning ${sessionId}`);
+  finishPendingTerminalLaunch(sessionId);
   onAbandon?.();
   early.discard();
   return false;
