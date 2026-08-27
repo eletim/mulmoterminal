@@ -29,9 +29,8 @@ export type CellChromeEvent = "toggle-expand" | "toggle-files" | "toggle-canvas"
 // TerminalCell did it twice (its cockpit header and its normal header) — four copies that all had
 // to agree, so adding a fifth button meant remembering every one of them.
 //
-// `close` is the one that genuinely differs: TerminalCell's confirms and waits for Core Delete
-// before removing a live-session cell (#826, #189). So it is a parameter rather than an assumption, and the default is the plain
-// forward the other two want.
+// `close` is the one that genuinely differs by OWNERSHIP. Persistent TerminalCell and LauncherCell
+// inject the shared confirmed Core Delete owner; ephemeral CommandCell uses the local forward.
 export function cellChromeBinding(
   source: CellChromeSource,
   emit: (event: CellChromeEvent) => void,
@@ -54,21 +53,23 @@ export function cellChromeBinding(
   };
 }
 
-// The other half of the same idea, for CellShell: a non-agent cell forwards every event the shell
-// raises straight up to the grid, unchanged. One object so the two callers do not each re-spell
-// seven identical handlers — which is exactly what CellShell was extracted to stop.
+// The other half of the same idea, for CellShell. The injected close is load-bearing: persistent
+// LauncherCell supplies confirmed Core Delete, while ephemeral CommandCell uses the local default.
 export type CellShellEvent = CellChromeEvent | "move";
 
-export function cellShellEvents(emit: {
-  (event: CellChromeEvent): void;
-  (event: "move", dir: -1 | 1): void;
-}): Record<CellChromeEvent, () => void> & { move: (dir: -1 | 1) => void } {
+export function cellShellEvents(
+  emit: {
+    (event: CellChromeEvent): void;
+    (event: "move", dir: -1 | 1): void;
+  },
+  close: () => void = () => emit("close"),
+): Record<CellChromeEvent, () => void> & { move: (dir: -1 | 1) => void } {
   return {
     "toggle-expand": () => emit("toggle-expand"),
     "toggle-files": () => emit("toggle-files"),
     "toggle-canvas": () => emit("toggle-canvas"),
     "toggle-tools": () => emit("toggle-tools"),
-    close: () => emit("close"),
+    close,
     move: (dir: -1 | 1) => emit("move", dir),
   };
 }

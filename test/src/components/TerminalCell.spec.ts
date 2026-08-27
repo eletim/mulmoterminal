@@ -1719,6 +1719,19 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
+  it.each(["codex", "antigravity"] as const)("uses the same Core Delete contract for a restored %s session", async (initialAgent) => {
+    const id = "66666666-6666-4666-8666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj", initialAgent });
+    await flushPromises();
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(`/api/session/${id}`, { method: "DELETE" });
+    expect(terminalRelease).toHaveBeenCalledOnce();
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
   it("keeps the cell, clears deleting, and shows a retryable error when Core Delete fails", async () => {
     const id = "66666666-6666-6666-6666-666666666666";
     let deleteRequests = 0;

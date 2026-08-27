@@ -1,6 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
 import LauncherCell from "../../../src/components/LauncherCell.vue";
+
+let releaseConnection = vi.fn();
+let setInputEnabled = vi.fn();
 
 // Stub the terminal so no xterm/WebSocket is needed; it just forwards the props the
 // cell passes and can emit session/exit.
@@ -10,12 +13,33 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
     props: ["persistKey", "sessionId", "connectKey", "cwd", "launcher"],
     emits: ["session", "exit"],
     template: '<div class="stub-term" />',
+    methods: {
+      releaseConnection() {
+        releaseConnection();
+      },
+      setInputEnabled(enabled: boolean) {
+        setInputEnabled(enabled);
+      },
+    },
   },
 }));
 
+const ID = "77777777-7777-4777-8777-777777777777";
 const LAUNCHER = { index: 1, label: "zsh" };
-const baseProps = { uid: 7, expanded: false, launcher: LAUNCHER, session: null, cwd: "/work/proj", home: "/work" };
+const baseProps = { uid: 7, expanded: false, launcher: LAUNCHER, session: ID, cwd: "/work/proj", home: "/work" };
 const mountCell = (extra: Record<string, unknown> = {}) => mount(LauncherCell, { props: { ...baseProps, ...extra } });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => (resolve = done));
+  return { promise, resolve };
+}
+
+beforeEach(() => {
+  releaseConnection = vi.fn();
+  setInputEnabled = vi.fn();
+  globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ deleted: true }) })) as unknown as typeof fetch;
+});
 
 describe("LauncherCell header zoom", () => {
   // #965: the whole cell — header included — sits in one wrapper, so the focus zoom can be
@@ -35,11 +59,70 @@ describe("LauncherCell header zoom", () => {
     expect(term.props("cwd")).toBe("/work/proj");
   });
 
-  it("emits toggle-expand and close from the header buttons", async () => {
+  it("routes configured persistent launcher close through confirmed Core Delete", async () => {
     const w = mountCell();
     await w.find('[aria-label="Expand terminal"]').trigger("click");
     await w.find('[aria-label="Close terminal"]').trigger("click");
+    await flushPromises();
     expect(w.emitted("toggle-expand")).toHaveLength(1);
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(globalThis.fetch).toHaveBeenCalledExactlyOnceWith(`/api/session/${ID}`, { method: "DELETE" });
+    expect(releaseConnection).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["running Shell", false],
+    ["exited/dead Shell", true],
+  ])("keeps a %s cell until the same Delete succeeds", async (_label, exited) => {
+    const gate = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
+    globalThis.fetch = vi.fn(() => gate.promise) as unknown as typeof fetch;
+    const w = mountCell({ launcher: { shell: true, label: "shell" } });
+    if (exited) await w.findComponent({ name: "TerminalView" }).vm.$emit("exit", 130);
+
+    await w.find('[aria-label="Close terminal"]').trigger("click");
+    await w.find('[aria-label="Close terminal"]').trigger("click");
+
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(true);
+    expect(w.emitted("close")).toBeUndefined();
+    expect(releaseConnection).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    gate.resolve({ ok: true, json: async () => ({ deleted: true }) });
+    await flushPromises();
+    expect(w.emitted("close")).toHaveLength(1);
+    expect(releaseConnection).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a failed Shell Delete visible, clears pending, and retries", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Core unavailable" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ deleted: true }) }) as unknown as typeof fetch;
+    const w = mountCell({ launcher: { shell: true, label: "shell" } });
+
+    await w.find('[aria-label="Close terminal"]').trigger("click");
+    await flushPromises();
+    expect(w.emitted("close")).toBeUndefined();
+    expect(releaseConnection).not.toHaveBeenCalled();
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-delete-error"]').text()).toContain("Core unavailable");
+    expect(setInputEnabled.mock.calls).toEqual([[false], [true]]);
+
+    await w.find('[aria-label="Close terminal"]').trigger("click");
+    await flushPromises();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(w.emitted("close")).toHaveLength(1);
+  });
+
+  it("waits for a fresh launch session id before issuing exactly one Delete", async () => {
+    const w = mountCell({ session: null });
+    await w.find('[aria-label="Close terminal"]').trigger("click");
+    await w.find('[aria-label="Close terminal"]').trigger("click");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(w.emitted("close")).toBeUndefined();
+
+    await w.findComponent({ name: "TerminalView" }).vm.$emit("session", ID);
+    await flushPromises();
+    expect(globalThis.fetch).toHaveBeenCalledExactlyOnceWith(`/api/session/${ID}`, { method: "DELETE" });
     expect(w.emitted("close")).toHaveLength(1);
   });
 
