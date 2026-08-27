@@ -143,7 +143,7 @@ describe("scheduledSessionInUse", () => {
 
 describe("heldByAnotherProcess", () => {
   // The leak this registry exists for IS our own detached background pty: it holds a tmux
-  // client, so it must NOT read as somebody else's, or nothing would ever be reaped.
+  // client, so it must NOT read as somebody else's, or nothing would ever be expired.
   it("does not count our own pty as another process", () => {
     expect(heldByAnotherProcess(1, true)).toBe(false);
   });
@@ -199,7 +199,7 @@ describe("createScheduledSessionRegistry", () => {
   let home = "";
   let dir = "";
   let clockMs = NOW;
-  const reapSession = vi.fn();
+  const releaseViewer = vi.fn();
   const deleteSession = vi.fn(async () => undefined);
   const isInUse = vi.fn<(id: string) => boolean>(() => false);
 
@@ -208,7 +208,7 @@ describe("createScheduledSessionRegistry", () => {
       dir,
       isValidId: (id) => id.startsWith("s"),
       isInUse,
-      reapSession,
+      releaseViewer,
       deleteSession,
       policy: { keep: 2, ttlMs: 24 * HOUR },
       now: () => clockMs,
@@ -244,7 +244,7 @@ describe("createScheduledSessionRegistry", () => {
     clockMs += HOUR;
     r.register("s3");
     await r.sweep();
-    expect(reapSession).toHaveBeenCalledExactlyOnceWith("s1");
+    expect(releaseViewer).toHaveBeenCalledExactlyOnceWith("s1");
     expect(deleteSession).toHaveBeenCalledExactlyOnceWith("s1");
     expect(await registered()).toEqual(["s2.json", "s3.json"]);
   });
@@ -256,7 +256,7 @@ describe("createScheduledSessionRegistry", () => {
 
     clockMs += 25 * HOUR;
     await registry().sweep(); // a new process reading the same directory
-    expect(reapSession).toHaveBeenCalledWith("s1");
+    expect(releaseViewer).toHaveBeenCalledWith("s1");
     expect(await registered()).toEqual([]);
   });
 
@@ -267,7 +267,7 @@ describe("createScheduledSessionRegistry", () => {
 
     clockMs += 25 * HOUR;
     await registry().sweep();
-    // reap() is a no-op without a live entry, so the direct kill is what frees the tmux.
+    // Viewer release is a no-op without a local entry, so Core Delete is what removes membership.
     expect(deleteSession).toHaveBeenCalledWith("s1");
   });
 
@@ -276,7 +276,7 @@ describe("createScheduledSessionRegistry", () => {
     r.register("s1");
     clockMs += 25 * HOUR;
     await r.sweep();
-    expect(reapSession).toHaveBeenCalledWith("s1");
+    expect(releaseViewer).toHaveBeenCalledWith("s1");
     expect(deleteSession).toHaveBeenCalledWith("s1");
   });
 
@@ -286,12 +286,12 @@ describe("createScheduledSessionRegistry", () => {
     clockMs += 25 * HOUR;
     isInUse.mockReturnValue(true);
     await r.sweep();
-    expect(reapSession).not.toHaveBeenCalled();
+    expect(releaseViewer).not.toHaveBeenCalled();
     expect(await registered()).toEqual(["s1.json"]);
 
     isInUse.mockReturnValue(false);
     await r.sweep();
-    expect(reapSession).toHaveBeenCalledWith("s1");
+    expect(releaseViewer).toHaveBeenCalledWith("s1");
     expect(await registered()).toEqual([]);
   });
 
@@ -302,7 +302,7 @@ describe("createScheduledSessionRegistry", () => {
     clockMs += 25 * HOUR;
     isInUse.mockImplementation((id: string) => id === "s1");
     await r.sweep();
-    expect(reapSession).toHaveBeenCalledExactlyOnceWith("s2");
+    expect(releaseViewer).toHaveBeenCalledExactlyOnceWith("s2");
     expect(await registered()).toEqual(["s1.json"]);
   });
 
@@ -317,13 +317,13 @@ describe("createScheduledSessionRegistry", () => {
     clockMs += 25 * HOUR;
 
     let s1Reaped = false;
-    reapSession.mockImplementation((id: string) => {
+    releaseViewer.mockImplementation((id: string) => {
       if (id === "s1") s1Reaped = true;
     });
     isInUse.mockImplementation((id: string) => id === "s2" && s1Reaped); // s2 is opened mid-sweep
 
     await registry().sweep();
-    expect(reapSession).toHaveBeenCalledExactlyOnceWith("s1");
+    expect(releaseViewer).toHaveBeenCalledExactlyOnceWith("s1");
     expect(await registered()).toEqual(["s2.json"]);
   });
 
@@ -332,7 +332,7 @@ describe("createScheduledSessionRegistry", () => {
     r.register("s1");
     await r.sweep();
     await r.sweep();
-    expect(reapSession).not.toHaveBeenCalled();
+    expect(releaseViewer).not.toHaveBeenCalled();
     expect(deleteSession).not.toHaveBeenCalled();
   });
 
@@ -348,7 +348,7 @@ describe("createScheduledSessionRegistry", () => {
 
     clockMs += 25 * HOUR;
     await mine.sweep();
-    expect(reapSession).toHaveBeenCalledWith("s1");
+    expect(releaseViewer).toHaveBeenCalledWith("s1");
     expect(await registered()).toEqual([]);
   });
 
@@ -371,7 +371,7 @@ describe("createScheduledSessionRegistry", () => {
 
     clockMs += 25 * HOUR;
     await registry().sweep(); // the restarted server, same workspace => same directory
-    expect(reapSession).toHaveBeenCalledWith("s1");
+    expect(releaseViewer).toHaveBeenCalledWith("s1");
     expect(await registered()).toEqual([]);
   });
 
@@ -401,27 +401,27 @@ describe("createScheduledSessionRegistry", () => {
 
   it("starts empty when the directory is missing", async () => {
     await registry().sweep();
-    expect(reapSession).not.toHaveBeenCalled();
+    expect(releaseViewer).not.toHaveBeenCalled();
   });
 
   it("ignores an entry whose file is corrupt", async () => {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, "s1.json"), "{not json");
     await registry().sweep();
-    expect(reapSession).not.toHaveBeenCalled();
+    expect(releaseViewer).not.toHaveBeenCalled();
   });
 
   it("ignores entries whose id fails validation", async () => {
     await fs.mkdir(dir, { recursive: true });
     await writeEntry("nope", clockMs - 99 * HOUR); // isValidId requires an "s" prefix
     await registry().sweep();
-    expect(reapSession).not.toHaveBeenCalled();
+    expect(releaseViewer).not.toHaveBeenCalled();
   });
 
   it("ignores files that are not entries", async () => {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, "README"), "not an entry");
     await registry().sweep();
-    expect(reapSession).not.toHaveBeenCalled();
+    expect(releaseViewer).not.toHaveBeenCalled();
   });
 });

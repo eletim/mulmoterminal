@@ -92,7 +92,7 @@ describe("hydrateClearedTranscripts", () => {
   });
 
   // The one thing that un-freezes a transcript: claude picked it back up (`--resume`) and is
-  // appending again. Without this, a server killed before reap would silence that session's
+  // appending again. Without this, a server killed before owner cleanup would silence that session's
   // summary for good.
   it("drops a mark whose transcript has grown since the clear", async () => {
     await writeTranscript("a".repeat(120));

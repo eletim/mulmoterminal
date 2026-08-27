@@ -64,11 +64,14 @@ describe("CommandCell", () => {
   });
 
   it("emits toggle-expand and close from the header buttons", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     const w = mountCell();
     await w.find('[aria-label="Expand terminal"]').trigger("click");
     await w.find('[aria-label="Close terminal"]').trigger("click");
     expect(w.emitted("toggle-expand")).toHaveLength(1);
     expect(w.emitted("close")).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled(); // ephemeral /ws/run process: no Core membership to Delete
   });
 
   // All five chrome events now reach the parent through ONE object binding (cellChromeBinding)

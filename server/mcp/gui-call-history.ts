@@ -35,19 +35,16 @@ export interface GuiCallRecorder {
  * worked. No agent name identifies a session started by a command the user wrote.
  *
  * The real question is whether something ELSE is already recording these calls, and exactly one
- * thing does: claude's `--settings` hooks. So the gate is an exclusion, on two independent
- * signals, because a double entry is worse than a missing one:
+ * thing does: claude's `--settings` hooks. So the gate is an exclusion on that explicit Core
+ * capability; agent identity alone is insufficient because a configured launcher can run Claude
+ * without our settings:
  *
- *   reportsOwnCalls — this process spawned it with our hooks (registry.hookedSessions). Exact.
- *   agent           — a backstop for a claude session that outlived a restart and was never
- *                     reattached here, so nothing added it to that set, yet its pane command
- *                     still says what it is.
- *
- * Everything else records: codex and agy however they were started, and an unknown session, which
- * cannot be a hooked claude once both signals have said otherwise.
+ *   reportsOwnCalls — Core metadata says this exact launch carries our hook settings.
+ * Everything else records: codex and agy however they were started, hookless launchers, and an
+ * unknown session.
  */
-export function brokerRecordsGuiCalls({ agent, reportsOwnCalls }: { agent: SessionAgent | null; reportsOwnCalls: boolean }): boolean {
-  return !reportsOwnCalls && agent !== "claude";
+export function brokerRecordsGuiCalls({ reportsOwnCalls }: { agent: SessionAgent | null; reportsOwnCalls: boolean }): boolean {
+  return !reportsOwnCalls;
 }
 
 /**
@@ -60,8 +57,8 @@ export function brokerRecordsGuiCalls({ agent, reportsOwnCalls }: { agent: Sessi
  * its hooks. Both signals then say "not claude" and the gate would answer yes — leaving the pane
  * telling the user that claude's complete, hook-fed history contains GUI calls only.
  *
- * So this claim additionally requires that we can SEE the session at all. A null agent means no
- * pty and no tmux pane — either the session has not started yet, or it is gone; neither is
+ * So this claim additionally requires Core to identify the session kind. A null agent means the
+ * session is unavailable or its compatibility metadata is incomplete; neither is
  * something to make a statement about. Saying nothing about a GUI-only history is a smaller
  * error than mislabelling a complete one, and the pane re-asks when the session announces itself.
  */

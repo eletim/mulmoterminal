@@ -18,14 +18,8 @@ export interface ToolRouteDeps {
   stores: ReturnType<typeof createToolStores>;
   /** The GUI plugin tools this server exposes, for the pane's "Available Tools" list. */
   toolSummaries: ToolSummary[];
-  /** Which tool groups a session actually reached us on — see session/session-tool-groups.ts. */
-  sessionToolGroups: (sessionId: string) => ToolGroup[];
-  sessionToolGroupsHydrated: Promise<void>;
-  /** Does this session carry the WHOLE GUI MCP (it connected on the all-tools url), rather than
-   *  the per-group subset its directory registered? Separate from the group list because the
-   *  ungrouped tools are reachable only that way — see narrowedTools. */
-  hasAllGuiTools: (sessionId: string) => boolean;
-  allToolsSessionsHydrated: Promise<void>;
+  /** Durable GUI capabilities of a live session, read from Core metadata. */
+  sessionGuiCapabilities: (sessionId: string) => Promise<{ groups: ToolGroup[]; allTools: boolean }>;
   /**
    * Is this a GRID cell? The two kinds of session get their GUI tools by different routes, and
    * "no groups learned" means the opposite thing for each — see narrowedTools.
@@ -37,7 +31,7 @@ export interface ToolRouteDeps {
    * like an agent that ran nothing. Answered server-side because the client cannot work it out:
    * a codex launcher chip is a cell with no agent name on it (see mcp/gui-call-history.ts).
    */
-  guiOnlyHistory: (sessionId: string) => boolean;
+  guiOnlyHistory: (sessionId: string) => Promise<boolean>;
   publish: (channel: string, data: unknown) => void;
   sessionChannel: (id: string) => string;
 }
@@ -112,13 +106,9 @@ export function mountToolRoutes(app: Express, deps: ToolRouteDeps): void {
     // With no session there is no history to describe either, so the flag stays false rather than
     // disclaiming a pane that is showing nobody's history.
     if (sessionId === null || !SESSION_ID_RE.test(sessionId)) return res.json({ tools: deps.toolSummaries, guiOnlyHistory: false });
-    // Both sets are persisted and hydrated at boot; asked before either resolves, a grid cell
-    // would read as having nothing and a resumed one as having lost its groups.
-    await Promise.all([deps.sessionToolGroupsHydrated, deps.allToolsSessionsHydrated]);
-    const groups = deps.sessionToolGroups(sessionId);
+    const { groups, allTools } = await deps.sessionGuiCapabilities(sessionId);
     const isGrid = deps.isGridSession(sessionId);
-    const hasAllTools = deps.hasAllGuiTools(sessionId);
-    res.json({ tools: narrowedTools(deps.toolSummaries, groups, isGrid, hasAllTools), groups, guiOnlyHistory: deps.guiOnlyHistory(sessionId) });
+    res.json({ tools: narrowedTools(deps.toolSummaries, groups, isGrid, allTools), groups, guiOnlyHistory: await deps.guiOnlyHistory(sessionId) });
   });
 
   // Replay a session's tool-call history — every tool for claude (its Pre/PostToolUse hooks),

@@ -5,8 +5,7 @@ import { pickDirSession, type DirSessionCandidate } from "../../../server/sessio
 const candidate = (over: Partial<DirSessionCandidate> & { id: string }): DirSessionCandidate => ({
   attached: false,
   agent: "claude",
-  live: false,
-  mtime: 0,
+  createdAt: 0,
   ...over,
 });
 
@@ -17,33 +16,29 @@ describe("pickDirSession", () => {
     expect(pickDirSession([])).toBeNull();
   });
 
-  it("takes the most recent when nothing is running", () => {
-    const picked = pickDirSession([candidate({ id: "old", mtime: 10 }), candidate({ id: "new", mtime: 20 })]);
+  it("takes the most recent Core member when nothing is attached", () => {
+    const picked = pickDirSession([candidate({ id: "old", createdAt: 10 }), candidate({ id: "new", createdAt: 20 })]);
     expect(picked).toEqual({ id: "new", attached: false, agent: "claude" });
   });
 
   // The held one is what a second terminal would collide with. A newer transcript in the same
   // directory must not hide it, or the row goes back to offering a session it cannot give.
   it("prefers a held session over a more recent free one", () => {
-    const picked = pickDirSession([candidate({ id: "newer", mtime: 99 }), candidate({ id: "held", mtime: 1, attached: true })]);
+    const picked = pickDirSession([candidate({ id: "newer", createdAt: 99 }), candidate({ id: "held", createdAt: 1, attached: true })]);
     expect(picked).toEqual({ id: "held", attached: true, agent: "claude" });
   });
 
-  // A live pty with no transcript yet (nobody has prompted it) has nothing to be recent BY, so
-  // recency alone would let an old finished conversation stand in for the session running now.
-  it("prefers a live session over an older transcript", () => {
-    const picked = pickDirSession([candidate({ id: "disk", mtime: 50 }), candidate({ id: "live", mtime: 0, live: true })]);
-    expect(picked?.id).toBe("live");
+  it("does not give exited state special ranking because membership remains until Delete", () => {
+    const picked = pickDirSession([candidate({ id: "older", createdAt: 50 }), candidate({ id: "newer", createdAt: 60 })]);
+    expect(picked?.id).toBe("newer");
   });
 
   it("carries the agent, so the row resumes as what the session actually is", () => {
-    expect(pickDirSession([candidate({ id: "cx", live: true, agent: "codex" })])?.agent).toBe("codex");
+    expect(pickDirSession([candidate({ id: "cx", agent: "codex" })])?.agent).toBe("codex");
   });
 
-  // Two candidates for one session — its live pty and its transcript — are not deduped, because
-  // both answer the same and picking either is the same row.
-  it("answers the same when a session appears both live and on disk", () => {
-    const picked = pickDirSession([candidate({ id: "s1", live: true, mtime: 5, attached: true }), candidate({ id: "s1", mtime: 7, attached: true })]);
+  it("answers the same when a Core snapshot contains a duplicate id", () => {
+    const picked = pickDirSession([candidate({ id: "s1", createdAt: 5, attached: true }), candidate({ id: "s1", createdAt: 7, attached: true })]);
     expect(picked).toEqual({ id: "s1", attached: true, agent: "claude" });
   });
 });

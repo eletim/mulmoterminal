@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import type { SessionAgent } from "../../../common/sessionAgent.js";
 
-import { sanitizeTerminalInput, canClearInputBox } from "../../../server/mobileTerminal/terminalInput.js";
+import { sanitizeTerminalInput, canClearInputBox, createTerminalInputSender } from "../../../server/mobileTerminal/terminalInput.js";
 
 // Any byte in these ranges, except LF, could break out of the bracketed paste and run as control
 // input on the host's terminal — the exact thing the sanitizer exists to prevent. LF is kept so
@@ -116,5 +116,18 @@ describe("canClearInputBox", () => {
     [null, undefined],
   ])("refuses when the agent is unknown (%j, working=%j)", (agent, working) => {
     expect(canClearInputBox(agent, working)).toBe(false);
+  });
+});
+
+describe("createTerminalInputSender", () => {
+  it("fails when the Core process exits between paste and submit", async () => {
+    let writes = 0;
+    const send = createTerminalInputSender({
+      writeToSession: async () => ++writes === 1,
+      scheduleSubmit: (submit) => submit(),
+    });
+
+    await expect(send("session", "hello")).rejects.toThrow("session session is not writable");
+    expect(writes).toBe(2);
   });
 });

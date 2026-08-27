@@ -161,8 +161,8 @@ describe("watchCodexActivity", () => {
 
 describe("watcher lifetime", () => {
   it("reports nothing more once its pty has been replaced", async () => {
-    // The regression this guards: binding the tail to `ptys.has(id)` rather than to the
-    // pty itself. A session reaped and respawned under the SAME id within one poll would
+    // The regression this guards: binding the tail to `viewerPtys.has(id)` rather than to the
+    // pty itself. An agent process replaced under the SAME id within one poll would
     // leave the old tail alive next to the new one, reporting every boundary twice.
     const ownPty = { id: 1 };
     let current: { id: number } | undefined = ownPty;
@@ -177,7 +177,7 @@ describe("watcher lifetime", () => {
       startAtEnd: false,
       sleep: async () => {
         ticks += 1;
-        if (ticks === 1) current = { id: 2 }; // reaped and respawned under the same id
+        if (ticks === 1) current = { id: 2 }; // replaced under the same id
         content += started();
       },
     });

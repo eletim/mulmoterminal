@@ -381,20 +381,23 @@ watch(
 );
 onUnmounted(() => clearTimeout(refitTimer));
 
-// Submit a GUI-originated message into the PTY (the GUI->LLM feedback path) and the
-// explicit close-button close. Both delegate to the slot's durable runtime.
+// The GUI->LLM feedback path delegates to the slot's durable runtime. Delete is an HTTP
+// request owned by TerminalCell; this component can only gate/release its local viewer.
 function submitText(text: string): boolean {
   return conn.submitText(slotKey, text);
 }
-function terminate() {
-  conn.terminate(slotKey);
+function setInputEnabled(enabled: boolean) {
+  conn.setInputEnabled(slotKey, enabled);
+}
+function releaseConnection() {
+  conn.release(slotKey);
 }
 // The current xterm buffer as plain text, so a command cell can send its captured
 // output to the AI summariser.
 function readOutput(): string {
   return conn.readBuffer(slotKey);
 }
-defineExpose({ submitText, terminate, readOutput });
+defineExpose({ submitText, setInputEnabled, releaseConnection, readOutput });
 
 // Insert text (a path, or space-joined paths) at the terminal cursor via the
 // normal input channel — no trailing CR, so the user reviews and submits.

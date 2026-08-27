@@ -5,47 +5,31 @@
 // answer is empty; the first-contact announcement is what tells it to ask again. Which groups the
 // session has is the separate question, and both URLs answer it now: one group for a group URL,
 // every group for the all-tools one it can only have been given by --mcp-config.
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
 import express from "express";
 import request from "supertest";
-import { makeTempDir } from "../../support/tempDir";
-
-// The group route PERSISTS what it learned, under a MULMOTERMINAL_HOME derived from the home
-// directory at import time — so point HOME somewhere disposable BEFORE importing, or this spec
-// appends test uuids to the developer's own ~/.mulmoterminal (the same reason tool-store.ts takes
-// its root as a parameter).
-//
-// `process.env` is per PROCESS, not per spec file, and vitest reuses a worker for several files.
-// Leaving HOME pointed at a directory this file then deletes would hand the next file in the same
-// worker a home that does not exist, so it is put back — the module registry is per file, so the
-// next file's imports read the restored value.
-const HOME = makeTempDir("mt-mcp-announce-");
-const REAL_HOME = process.env.HOME;
-process.env.HOME = HOME;
 const { mountMcpRoutes, TOOL_GROUPS_CHANNEL } = await import("../../../server/routes/mcp-routes.js");
 const { TOOL_GROUPS } = await import("../../../common/toolGroups.js");
-const { hasAllGuiTools, whenToolGroupsPersisted } = await import("../../../server/session/registry.js");
 
-// Registered after the import above because it awaits something that import provides. The persist
-// queue has to drain BEFORE the directory goes, or it is recreated behind us: each append starts
-// with `mkdir(MULMOTERMINAL_HOME, { recursive: true })` and the route does not wait for it. Without
-// the await this spec leaves a `mt-mcp-announce-` directory in $TMPDIR on every run — reproducible
-// on its own, not only under the full suite (#1345).
-afterAll(async () => {
-  await whenToolGroupsPersisted();
-  if (REAL_HOME === undefined) delete process.env.HOME;
-  else process.env.HOME = REAL_HOME;
-  rmSync(HOME, { recursive: true, force: true });
-});
+const capabilities = new Map<string, { groups: Set<(typeof TOOL_GROUPS)[number]>; allTools: boolean }>();
 
 const published: { channel: string; data: Record<string, unknown> }[] = [];
 const app = express();
 app.use(express.json());
 mountMcpRoutes(app, {
   publish: (channel, data) => void published.push({ channel, data: data as Record<string, unknown> }),
-  guiCallHistory: () => null,
+  guiCallHistory: async () => null,
+  isInternalSession: async () => false,
+  learnGuiCapabilities: async (id, groups, allTools) => {
+    const current = capabilities.get(id) ?? { groups: new Set(), allTools: false };
+    const before = current.groups.size;
+    for (const group of groups) current.groups.add(group);
+    const changed = current.groups.size !== before || (allTools && !current.allTools);
+    current.allTools ||= allTools;
+    capabilities.set(id, current);
+    return { groups: [...current.groups], changed };
+  },
 });
 
 // A tools/list, the cheapest real MCP request: it needs no plugin dispatch, so nothing here
@@ -57,6 +41,7 @@ const announcementsFor = (id: string) => published.filter((p) => p.channel === T
 
 beforeEach(() => {
   published.length = 0;
+  capabilities.clear();
 });
 
 describe("MCP first-contact announcement", () => {
@@ -105,16 +90,16 @@ describe("MCP first-contact announcement", () => {
   // all four group urls has every group and none of those.
   it("records that the session carries the WHOLE GUI MCP, not just four groups", async () => {
     const id = randomUUID();
-    expect(hasAllGuiTools(id)).toBe(false);
+    expect(capabilities.get(id)?.allTools ?? false).toBe(false);
     await call(`/api/mcp/${id}`);
-    expect(hasAllGuiTools(id)).toBe(true);
+    expect(capabilities.get(id)?.allTools).toBe(true);
   });
 
   it("does NOT record it for a group url", async () => {
     const id = randomUUID();
     await call(`/api/mcp/render/${id}`);
     await call(`/api/mcp/data/${id}`);
-    expect(hasAllGuiTools(id)).toBe(false);
+    expect(capabilities.get(id)?.allTools).toBe(false);
   });
 
   it("says nothing for a malformed session id", async () => {

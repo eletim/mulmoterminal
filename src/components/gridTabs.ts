@@ -49,6 +49,16 @@ export interface Cell {
   // is — only an absent key survives the JSON a persisted cell round-trips.
   parked?: true;
 }
+
+// Browser close semantics are classified by Core membership ownership, never by agent or by the
+// component used to present it. Claude/Codex/Antigravity sessions and Shell/configured launchers
+// are persistent; CommandCell's /ws/run process is intentionally ephemeral and has no Core id.
+export type CellSessionOwnership = "persistent-core-session" | "ephemeral-process" | "empty-cell";
+export const cellSessionOwnership = (cell: Cell): CellSessionOwnership => {
+  if (cell.command != null) return "ephemeral-process";
+  if (cell.launcher != null || cell.session !== null) return "persistent-core-session";
+  return "empty-cell";
+};
 // How the grid orders its cells. "manual": the user's hand-arranged order (the move buttons);
 // "auto": attention-first, recomputed from each cell's live status; "priority": the rank each
 // directory declares as `orderPriority` in its .mulmoterminal.json (#876).
@@ -71,7 +81,7 @@ export const pageCount = (cellCount: number) => Math.max(1, Math.ceil(cellCount 
 export const pageSlice = <T>(cells: T[], page: number) => cells.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 // A cell occupies a slot when it runs a Claude session, a command, OR a launcher; only
 // those count toward the cap. A launch cell is empty: no session, command, or launcher.
-const isOccupied = (c: Cell) => c.session !== null || c.command != null || c.launcher != null;
+const isOccupied = (c: Cell) => cellSessionOwnership(c) !== "empty-cell";
 const isLaunchCell = (c: Cell | undefined) => !!c && c.session === null && c.command == null && c.launcher == null;
 export const runningCount = (cells: Cell[]) => cells.filter(isOccupied).length;
 

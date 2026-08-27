@@ -10,7 +10,7 @@
 // DELIBERATE DIVERGENCE, and it is the whole difficulty: MulmoClaude runs the agent IN
 // PROCESS, so its `didError` falls out of a try/catch around the run. MulmoTerminal runs
 // `claude` as a PTY child, and there is nothing to wrap. Its callers derive the outcome from
-// which lifecycle events a session reached instead — see the Stop / reap call sites.
+// which owner events a session reached instead — see the Stop hook and agent-exit call sites.
 //
 // Best-effort by design: a server restart mid-run drops the map, but the next scheduled tick
 // re-dispatches the refresh anyway, so nothing is permanently lost.
@@ -48,4 +48,12 @@ export async function runCompletionHook(sessionId: string, outcome: { didError: 
   if (!hook) return;
   completionHooks.delete(sessionId);
   await hook(outcome);
+}
+
+/** A worker process exited before reporting a successful turn. The completion-hook owner
+ * decides whether the id is a worker; ordinary sessions are a no-op. */
+export function failCompletionHook(sessionId: string): void {
+  void runCompletionHook(sessionId, { didError: true }).catch((error) =>
+    console.error(`[completion-hook] ${error instanceof Error ? error.message : String(error)}`),
+  );
 }

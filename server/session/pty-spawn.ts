@@ -10,13 +10,21 @@ import { resolvePtyLaunchForEnv } from "../infra/resolve-bin.js";
 import { binaryProblemMessage, diagnoseBinary, type BinaryDiagnosis } from "../infra/has-binary.js";
 import { cwdProblemMessage, diagnoseSpawnCwd, type CwdDiagnosis } from "../infra/spawn-cwd.js";
 import { withoutUnset } from "./provider-env.js";
-import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxHasSession, tmuxScrubEnvNames } from "../infra/tmux.js";
+import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxScrubEnvNames } from "../infra/tmux.js";
 import { shellQuoteFor } from "../config/header-resolve.js";
-import { coreSessions } from "./core-session-adapter.js";
+import { coreSessions, type CoreSessionOrigin, type CoreSessionVisibility } from "./core-session-adapter.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
 
 const PTY_COLS = 120;
 const PTY_ROWS = 30;
+const CORE_EXIT_EVENT = Symbol("core-exit-event");
+
+type CoreAwareExitEvent = Parameters<Parameters<IPty["onExit"]>[0]>[0] & { [CORE_EXIT_EVENT]?: true };
+
+/** Distinguish a Core process exit from the tmux client used by one viewer going away. */
+export function isCoreSessionExitEvent(event: Parameters<Parameters<IPty["onExit"]>[0]>[0]): boolean {
+  return CORE_EXIT_EVENT in event && event[CORE_EXIT_EVENT] === true;
+}
 
 // The environment a PTY will run with. Its own function because "can this binary be launched"
 // has to be answered against exactly this and not process.env — the PATH they disagree on is the
@@ -46,22 +54,28 @@ export function spawnPty(bin: string, args: string[], cwd: string, unset: readon
 /** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
 export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
   const onExit: IPty["onExit"] = (listener) => {
-    let fired = false;
+    let disposed = false;
+    let nativeFired = false;
+    let coreFired = false;
     const watches: { native?: { dispose(): void }; core?: { dispose(): void } } = {};
-    const emit: Parameters<IPty["onExit"]>[0] = (event) => {
-      if (fired) return;
-      fired = true;
+    watches.native = term.onExit((event) => {
+      if (disposed || nativeFired || coreFired) return;
+      nativeFired = true;
+      // A viewer's tmux client can exit while its Core member keeps running. Keep only the
+      // Core watcher so activity can still be terminalized if that process exits detached.
+      listener(event);
+    });
+    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
+      if (disposed || coreFired) return;
+      coreFired = true;
       watches.core?.dispose();
       watches.native?.dispose();
+      const event: CoreAwareExitEvent = { exitCode: exitCode ?? 0, signal: 0, [CORE_EXIT_EVENT]: true };
       listener(event);
-    };
-    watches.native = term.onExit(emit);
-    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
-      emit({ exitCode: exitCode ?? 0, signal: 0 });
     });
     return {
       dispose() {
-        fired = true;
+        disposed = true;
         watches.core?.dispose();
         watches.native?.dispose();
       },
@@ -117,8 +131,8 @@ export interface PtySpawnEnv {
 // config": on the attach path nothing is re-read, because nothing is re-started. The surviving
 // process is exactly the one that was there before, and it is past every decision it made at
 // startup. Must stay in lockstep with the branch below.
-export function ptyWouldReattach(sessionId: string, persistent: boolean): boolean {
-  return persistent && tmuxAvailable() && tmuxHasSession(sessionId);
+export function ptyWouldReattach(coreSessionExists: boolean, persistent: boolean): boolean {
+  return persistent && tmuxAvailable() && coreSessionExists;
 }
 
 /** A spawn refused before it was attempted, because something about it is already known not to
@@ -203,12 +217,31 @@ export function ptySpawn(
   args: string[],
   cwd: string,
   persistent: boolean,
-  options: PtySpawnEnv & { agent?: LaunchAgent } = {},
+  options: PtySpawnEnv & {
+    agent?: LaunchAgent;
+    coreSessionExists?: boolean;
+    resumeSource?: string | null;
+    title?: string;
+    visibility?: CoreSessionVisibility;
+    origin?: CoreSessionOrigin;
+    reportsOwnCalls?: boolean;
+  } = {},
 ): { term: IPty; tmux: boolean; reattached: boolean } {
-  const { unset = [], env = {}, binEnvVar, agent = "shell" } = options;
+  const {
+    unset = [],
+    env = {},
+    binEnvVar,
+    agent = "shell",
+    coreSessionExists = false,
+    resumeSource = null,
+    title,
+    visibility = "normal",
+    origin = "interactive",
+    reportsOwnCalls = false,
+  } = options;
   // `new-session -A` ATTACHES a surviving session without running `file` at all, so a binary
   // that has gone missing since must not stand between the user and their running agent.
-  const reattached = ptyWouldReattach(sessionId, persistent);
+  const reattached = ptyWouldReattach(coreSessionExists, persistent);
   if (binEnvVar && !reattached) refuseUnlaunchable(file, binEnvVar, ptyEnv(unset, env));
   refuseUnusableCwd(cwd, reattached);
   if (persistent && tmuxAvailable()) {
@@ -220,7 +253,10 @@ export function ptySpawn(
       const quote = shellQuoteFor(process.platform);
       const environment = Object.entries(env).map(([key, value]) => `${key}=${quote(value)}`);
       const command = ["exec", "env", ...environment, quote(file), ...args.map(quote)].join(" ");
-      coreSessions.createSync({ id: sessionId, command, cwd, agent }, ptyEnv(unset, env));
+      coreSessions.createSync(
+        { id: sessionId, command, cwd, agent, visibility, origin, reportsOwnCalls, ...(title ? { title } : {}), ...(resumeSource ? { resumeSource } : {}) },
+        ptyEnv(unset, env),
+      );
       configureCoreTmuxServer();
     }
     return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };

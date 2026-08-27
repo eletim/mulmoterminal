@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SessionCore } from "tmux-session-core-ts";
+import { SessionNotFoundError, type SessionCore } from "tmux-session-core-ts";
 import { CoreSessionAdapter } from "../../../server/session/core-session-adapter.js";
 
 const native = {
@@ -19,12 +19,25 @@ describe("CoreSessionAdapter", () => {
   it("reconstructs client-owned fields from Core metadata", async () => {
     const core = {
       list: vi.fn(async () => [native]),
-      listMetadata: vi.fn(async () => ({ agent: "codex", title: "Fix #149", memo: "review" })),
+      listMetadata: vi.fn(async () => ({ agent: "codex", title: "Fix #149", memo: "review", "reports-own-calls": "true" })),
     } as unknown as SessionCore;
 
     const sessions = await new CoreSessionAdapter({ core }).list();
 
-    expect(sessions).toEqual([{ ...native, agent: "codex", title: "Fix #149", memo: "review" }]);
+    expect(sessions).toEqual([
+      {
+        ...native,
+        agent: "codex",
+        title: "Fix #149",
+        memo: "review",
+        resumeSource: null,
+        visibility: "normal",
+        origin: "interactive",
+        guiToolGroups: [],
+        allGuiTools: false,
+        reportsOwnCalls: true,
+      },
+    ]);
   });
 
   it("restores cwd metadata when an exited tmux pane no longer reports a cwd", async () => {
@@ -36,6 +49,67 @@ describe("CoreSessionAdapter", () => {
     await expect(new CoreSessionAdapter({ core }).get(native.id)).resolves.toMatchObject({ cwd: "/finished/repo", agent: "claude", exited: true });
   });
 
+  it("keeps the pre-key Claude compatibility rule but respects an explicit hookless launch", async () => {
+    const legacy = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: legacy }).get(native.id)).resolves.toMatchObject({ reportsOwnCalls: true });
+
+    const explicit = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd, "reports-own-calls": "false" })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: explicit }).get(native.id)).resolves.toMatchObject({ reportsOwnCalls: false });
+  });
+
+  it("lists live cwd values without rebuilding unrelated metadata", async () => {
+    const listMetadata = vi.fn(async () => ({ cwd: "/finished/repo", title: "unused" }));
+    const core = {
+      list: vi.fn(async () => [native, { ...native, id: "dead", cwd: "", exited: true }]),
+      listMetadata,
+    } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).listCwds()).resolves.toEqual([native.cwd, "/finished/repo"]);
+    expect(listMetadata).toHaveBeenCalledExactlyOnceWith("dead");
+  });
+
+  it("finds membership through Core get and returns null only for Core absence", async () => {
+    const existingCore = {
+      get: vi.fn(async () => native),
+      listMetadata: vi.fn(async () => ({ agent: "claude", cwd: native.cwd })),
+    } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: existingCore }).find(native.id)).resolves.toMatchObject({ id: native.id, agent: "claude" });
+
+    const missingCore = { get: vi.fn(async () => Promise.reject(new SessionNotFoundError("missing"))) } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: missingCore }).find("missing")).resolves.toBeNull();
+  });
+
+  it("checks running state from native Core data without loading metadata", async () => {
+    const listMetadata = vi.fn();
+    const core = { get: vi.fn(async () => native), listMetadata } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).isRunning(native.id)).resolves.toBe(true);
+    expect(listMetadata).not.toHaveBeenCalled();
+
+    const exitedCore = { get: vi.fn(async () => ({ ...native, exited: true })), listMetadata } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: exitedCore }).isRunning(native.id)).resolves.toBe(false);
+
+    const missingCore = { get: vi.fn(async () => Promise.reject(new SessionNotFoundError("missing"))), listMetadata } as unknown as SessionCore;
+    await expect(new CoreSessionAdapter({ core: missingCore }).isRunning("missing")).resolves.toBe(false);
+    expect(listMetadata).not.toHaveBeenCalled();
+  });
+
+  it("resolves a history identity back to its owning Core member", async () => {
+    const core = {
+      get: vi.fn(async () => Promise.reject(new SessionNotFoundError("history-1"))),
+      list: vi.fn(async () => [native]),
+      listMetadata: vi.fn(async () => ({ agent: "claude", "resume-source": "history-1" })),
+    } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core }).findByReference("history-1")).resolves.toMatchObject({ id: native.id, resumeSource: "history-1" });
+  });
+
   it("creates native membership first and stores only reconstruction metadata", async () => {
     const setMetadata = vi.fn(async () => undefined);
     const core = {
@@ -44,13 +118,60 @@ describe("CoreSessionAdapter", () => {
       listMetadata: vi.fn(async () => ({ agent: "codex", cwd: native.cwd, title: "Fix #149" })),
     } as unknown as SessionCore;
 
-    await new CoreSessionAdapter({ core }).create({ id: native.id, command: "codex", cwd: native.cwd, agent: "codex", title: "Fix #149" });
+    await new CoreSessionAdapter({ core }).create({
+      id: native.id,
+      command: "codex",
+      cwd: native.cwd,
+      agent: "codex",
+      title: "Fix #149",
+      resumeSource: "history-1",
+      visibility: "background",
+      reportsOwnCalls: true,
+    });
 
     expect(setMetadata.mock.calls).toEqual([
       [native.id, "agent", "codex"],
       [native.id, "cwd", native.cwd],
       [native.id, "title", "Fix #149"],
+      [native.id, "resume-source", "history-1"],
+      [native.id, "visibility", "background"],
+      [native.id, "origin", "interactive"],
+      [native.id, "reports-own-calls", "true"],
     ]);
+  });
+
+  it("stores durable live GUI capabilities in Core metadata", async () => {
+    const metadata: Record<string, string> = { agent: "claude", cwd: native.cwd, "gui-tool-groups": '["render"]' };
+    const setMetadata = vi.fn(async (_id: string, key: string, value: string) => void (metadata[key] = value));
+    const core = { get: vi.fn(async () => native), listMetadata: vi.fn(async () => metadata), setMetadata } as unknown as SessionCore;
+    const adapter = new CoreSessionAdapter({ core });
+
+    await expect(adapter.learnGuiCapabilities(native.id, ["media"], true)).resolves.toEqual({
+      groups: ["render", "media"],
+      allTools: true,
+      changed: true,
+    });
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "gui-tool-groups", '["render","media"]');
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "all-gui-tools", "true");
+    await expect(adapter.get(native.id)).resolves.toMatchObject({ guiToolGroups: ["render", "media"], allGuiTools: true });
+  });
+
+  it("updates visibility in Core metadata", async () => {
+    const setMetadata = vi.fn(async () => undefined);
+    const core = { setMetadata } as unknown as SessionCore;
+
+    await new CoreSessionAdapter({ core }).setVisibility(native.id, "internal");
+
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "visibility", "internal");
+  });
+
+  it("updates scheduled origin in Core metadata", async () => {
+    const setMetadata = vi.fn(async () => undefined);
+    const core = { setMetadata } as unknown as SessionCore;
+
+    await new CoreSessionAdapter({ core }).setOrigin(native.id, "scheduled");
+
+    expect(setMetadata).toHaveBeenCalledWith(native.id, "origin", "scheduled");
   });
 
   it("routes interactive input through Core without an implicit submit", async () => {
@@ -60,6 +181,20 @@ describe("CoreSessionAdapter", () => {
     await new CoreSessionAdapter({ core }).input(native.id, "\u001b[A");
 
     expect(input).toHaveBeenCalledWith(native.id, "\u001b[A", { submit: false });
+  });
+
+  it("maps Stop and Delete to distinct Core membership operations", async () => {
+    const stop = vi.fn(async () => undefined);
+    const remove = vi.fn(async () => undefined);
+    const adapter = new CoreSessionAdapter({ core: { stop, delete: remove } as unknown as SessionCore });
+
+    await adapter.stop(native.id);
+    expect(stop).toHaveBeenCalledExactlyOnceWith(native.id);
+    expect(remove).not.toHaveBeenCalled();
+
+    await adapter.delete(native.id);
+    expect(remove).toHaveBeenCalledExactlyOnceWith(native.id);
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it("reports child exit from a remain-on-exit Core pane", async () => {
@@ -77,5 +212,29 @@ describe("CoreSessionAdapter", () => {
       }),
     ).resolves.toEqual({ exitCode: 7 });
     expect(core.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops an exit observer when explicit Delete removes Core membership", async () => {
+    const core = { list: vi.fn(async () => []) } as unknown as SessionCore;
+    const listener = vi.fn();
+    const adapter = new CoreSessionAdapter({ core });
+
+    adapter.watchExit(native.id, listener, 1);
+    await vi.waitFor(() => expect(core.list).toHaveBeenCalledOnce());
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("supersedes the detached viewer observer when the same Core member is reattached", async () => {
+    const core = { list: vi.fn(async () => [{ ...native, exited: true, exitCode: 4 }]) } as unknown as SessionCore;
+    const staleViewer = vi.fn();
+    const currentViewer = vi.fn();
+    const adapter = new CoreSessionAdapter({ core });
+
+    adapter.watchExit(native.id, staleViewer, 1);
+    adapter.watchExit(native.id, currentViewer, 1);
+    await vi.waitFor(() => expect(currentViewer).toHaveBeenCalledWith({ exitCode: 4 }));
+
+    expect(staleViewer).not.toHaveBeenCalled();
   });
 });

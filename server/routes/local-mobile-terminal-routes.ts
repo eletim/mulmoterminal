@@ -48,14 +48,14 @@ export interface LocalMobileTerminalRouteDeps {
   interruptSession: (sessionId: string) => Promise<void>;
   stopSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
-  canClearBox: (sessionId: string) => boolean;
+  canClearBox: (sessionId: string) => boolean | Promise<boolean>;
   submitSequence: (sessionId: string) => string | Promise<string>;
   sessionAgent: (sessionId: string) => SessionAgent | undefined | Promise<SessionAgent | undefined>;
-  launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string };
+  launchTerminal: (agent: unknown, sessionId: unknown) => { ok: true } | { ok: false; error: string } | Promise<{ ok: true } | { ok: false; error: string }>;
   createTerminalAtCwd: (agent: LaunchAgent, cwd: string) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
   isAllowedOrigin: (origin: string | undefined, remoteAddress: string | undefined) => boolean;
   // Working/waiting/event and the live-turn work phase, read from the SAME tables the desktop
-  // roster reads (session/registry.js's `activity` map,
+  // roster reads (session/activity-store.js's `activity` map,
   // session/work-phase-tracker.js) — never a second copy of that state. Two readers rather than
   // one combined accessor because those are genuinely separate stores in server/index.ts; both
   // are already normalized (see normalizeActivity / workPhaseTracker.phaseOf), so a session
@@ -227,7 +227,7 @@ function mountLaunchRoute(
   isAllowedOrigin: LocalMobileTerminalRouteDeps["isAllowedOrigin"],
   launchTerminal: LocalMobileTerminalRouteDeps["launchTerminal"],
 ) {
-  app.post("/api/mobile/terminal-sessions/:id/launch", (req: Request<{ id: string }>, res: Response) => {
+  app.post("/api/mobile/terminal-sessions/:id/launch", async (req: Request<{ id: string }>, res: Response) => {
     if (!requestOriginAllowed(req, isAllowedOrigin)) return res.status(403).json({ error: "forbidden origin" });
     const { id } = req.params;
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
@@ -235,7 +235,7 @@ function mountLaunchRoute(
     // phone never sends one (#831's rule, unchanged here).
     const { agent } = requestBody(req.body);
     const validAgent = isLaunchAgent(agent);
-    const decision = launchTerminal(agent, id);
+    const decision = await launchTerminal(agent, id);
     if (!decision.ok) return res.status(validAgent ? 409 : 400).json({ error: decision.error });
     res.json({ ok: true });
   });
@@ -274,7 +274,12 @@ export function mountLocalMobileTerminalRoutes(app: Express, deps: LocalMobileTe
     // TerminalSessionSummary — see LocalSessionActivity's comment.
     res.json({
       home: os.homedir(),
-      sessions: sessions.map((session) => ({ ...session, activity: localSessionActivity(activityOf(session.id), workPhaseOf(session.id)) })),
+      sessions: sessions.map((session) => ({
+        ...session,
+        activity: session.live
+          ? localSessionActivity(activityOf(session.id), workPhaseOf(session.id))
+          : localSessionActivity({ working: false, waiting: false, event: null }, null),
+      })),
     });
   });
 

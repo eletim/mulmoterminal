@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { buildSessionList } from "../../../server/mobileTerminal/terminalScreen.js";
 import { recordCodexPromptForHeader, restoreCodexPromptBaselineForHeader, trackCodexActivity } from "../../../server/session/codex-activity-track.js";
 import { LAST_PROMPT_CAP } from "../../../server/session/header-hook.js";
-import { lastPrompts } from "../../../server/session/registry.js";
+import { lastPrompts } from "../../../server/session/activity-store.js";
 import { sessionDisplayName } from "../../../common/sessionMemo.js";
 import { cellHeaderText } from "../../../src/components/cellActivity.js";
 
@@ -145,13 +145,7 @@ describe("trackCodexActivity resume baseline", () => {
     expect(setWaiting).not.toHaveBeenCalled();
 
     const sessions = buildSessionList({
-      liveIds: [SESSION],
-      tmuxIds: [],
-      detailOf: (id) => ({
-        title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
-        cwd: "/repo",
-        agent: "codex",
-      }),
+      sessions: [{ id: SESSION, exited: false, title: sessionDisplayName(null, null, lastPrompts.get(SESSION), undefined), cwd: "/repo", agent: "codex" }],
     });
     expect(sessions[0]).toMatchObject({ id: SESSION, title: "restore the Codex resume title" });
   });
@@ -192,13 +186,7 @@ describe("trackCodexActivity resume baseline", () => {
     expect(cellHeaderText(null, null, lastPrompts.get(SESSION) ?? null, SESSION)).toBe("fix the fresh Codex title");
 
     const sessions = buildSessionList({
-      liveIds: [SESSION],
-      tmuxIds: [],
-      detailOf: (id) => ({
-        title: sessionDisplayName(null, null, lastPrompts.get(id), undefined),
-        cwd: "/repo",
-        agent: "codex",
-      }),
+      sessions: [{ id: SESSION, exited: false, title: sessionDisplayName(null, null, lastPrompts.get(SESSION), undefined), cwd: "/repo", agent: "codex" }],
     });
     expect(sessions[0]).toMatchObject({ id: SESSION, title: "fix the fresh Codex title" });
   });

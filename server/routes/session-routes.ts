@@ -10,34 +10,13 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { normalizeAgent, workspaceForRoute } from "./routeParams.js";
 import { hasErrnoCode } from "../errors.js";
 import { isProbeSessionId } from "../agents/probe-session.js";
-import {
-  activity,
-  activityStateHydrated,
-  aiTitles,
-  antigravityConversations,
-  antigravityConversationsHydrated,
-  backgroundSessionsHydrated,
-  failedWorkersHydrated,
-  isBackgroundSession,
-  lastPrompts,
-  lastResponses,
-  sessionMemos,
-  sessionMemosHydrated,
-  setSessionMemo,
-  translationWorkerIds,
-} from "../session/registry.js";
-import {
-  collectOnDiskSessionStats,
-  collectPendingSessions,
-  readSessionMeta,
-  readSessionSummary,
-  sessionLastTurn,
-  sessionTimeline,
-} from "../session/session-reads.js";
+import { activity, lastPrompts, lastResponses } from "../session/activity-store.js";
+import { antigravityHistory, antigravityHistoryHydrated } from "../session/antigravity-history.js";
+import { backgroundHistoryHydrated, failedWorkerHistoryHydrated, isBackgroundHistory } from "../session/history-state.js";
+import { sessionMemos, sessionMemosHydrated, setSessionMemo } from "../session/history-memos.js";
+import { collectOnDiskSessionStats, readSessionMeta, readSessionSummary, sessionLastTurn, sessionTimeline } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
-import { sessionAttached } from "../session/dir-session.js";
-import { tmuxAttachedCounts } from "../infra/tmux.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { listCodexSessions } from "../agents/codex-sessions.js";
 import { antigravityBrainRoot } from "../agents/antigravity-session.js";
@@ -50,6 +29,8 @@ import { requestBody } from "./requestBody.js";
 import type { CoreSession } from "../session/core-session-adapter.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
 import { visibleCoreSessions } from "../session/core-session-visibility.js";
+import { isSessionAttached } from "../../common/sessionOccupancy.js";
+import { tmuxAttachedCounts } from "../infra/tmux.js";
 
 // Only the most-recent N sessions are listed in the sidebar; older ones aren't
 // read or parsed, keeping /api/sessions cheap for projects with many sessions.
@@ -65,9 +46,8 @@ const GRID_RECORD_IDS_LIMIT = 200;
 export interface SessionRouteDeps {
   /** Kick off a re-title for a session the roster just showed, when it has moved on enough. */
   freshenRosterTitle: (sessionId: string, cwd: string, currentUserTurns: number) => void;
-  /** Fan a session's row out on the "sessions" channel, so every OTHER open cell, tab and
-   *  phone sees an edited memo without asking. */
-  publishActivity: (sessionId: string) => void;
+  /** Fan only the changed memo out; activity publishers do not own Core metadata. */
+  publishMemo: (sessionId: string, memo: string) => void;
   /** Canonical terminal membership and reconstruction data from Core.list(). */
   listCoreSessions: () => Promise<CoreSession[]>;
   getCoreSession?: (sessionId: string) => Promise<CoreSession | null>;
@@ -88,24 +68,23 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, deps: 
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const cwd = workspaceForRoute(req.query.cwd, res);
   if (cwd === null) return;
-  await activityStateHydrated; // a reconnect re-fetch must see the restored working/waiting, not idle
   const { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse, userTurns, usage, context, workPhase } = await readSessionSummary(cwd, id);
   // If we haven't titled it yet, kick off a summary; sessionDetailView falls back meanwhile.
   deps.freshenRosterTitle(id, cwd, userTurns);
-  await sessionMemosHydrated; // a cell seeding on boot must not be told its memo is gone
   const core = await deps.getCoreSession?.(id);
+  if (!core) await sessionMemosHydrated; // history-only metadata must finish loading before it is read
   const view = sessionDetailView(
     {
       lastPrompt: lastPrompts.get(id),
       lastResponse: lastResponses.get(id),
-      aiTitle: core?.title ?? aiTitles.get(id),
-      memo: core?.memo ?? sessionMemos.get(id),
+      aiTitle: core?.title,
+      memo: core ? core.memo : sessionMemos.get(id),
     },
     { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse },
-    activity.get(id) ?? {},
+    core?.exited ? {} : (activity.get(id) ?? {}),
     clearedTranscripts.has(id),
   );
-  res.json({ id, cwd, ...view, usage, context, workPhase });
+  res.json({ id, cwd, ...view, usage, context, workPhase: core?.exited ? null : workPhase });
 }
 
 // The user's one-line note on a session (#1084). An empty text ERASES it — the same route, so a
@@ -115,20 +94,19 @@ async function setMemo(req: Request<{ id: string }>, res: Response, deps: Sessio
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const { text } = requestBody(req.body);
   if (typeof text !== "string") return res.status(400).json({ error: "text must be a string" });
-  await sessionMemosHydrated; // or a write during startup is undone by the file it raced
   try {
     const memo = normalizeMemo(text);
     if (await deps.setCoreMemo?.(id, memo)) {
-      publishCoreMemo(id, memo);
-      deps.publishActivity(id);
+      deps.publishMemo(id, memo);
       return res.json({ id, memo });
     }
+    await sessionMemosHydrated; // a history write during startup must not race its persisted owner
     // Awaited: acknowledging before the append lands would show the user a note that is not saved
     // anywhere, and it would then disappear at the next restart with nothing having reported an
     // error. The store rolls its own in-memory value back on failure, so a 500 leaves both sides
     // agreeing that the memo was not written.
     const storedMemo = await setSessionMemo(id, text);
-    deps.publishActivity(id);
+    deps.publishMemo(id, storedMemo);
     // The STORED memo, not the request's: normalization collapses and caps what was typed, and a
     // client that echoed its own text would show something the next reload disagrees with.
     res.json({ id, memo: storedMemo });
@@ -138,21 +116,17 @@ async function setMemo(req: Request<{ id: string }>, res: Response, deps: Sessio
   }
 }
 
-function publishCoreMemo(id: string, memo: string): void {
-  if (memo) sessionMemos.set(id, memo);
-  else sessionMemos.delete(id);
-}
-
 // Attention state (working / waiting / event) for an explicit set of session ids.
 // The grid uses this to seed the status of its OFF-PAGE cells, which /api/sessions
 // can't serve: it hides dev-terminal sessions and is capped by the list limit. Reads
 // only the in-memory activity map (no disk), so it's cheap to call per grid render.
-async function activitySnapshot(req: Request, res: Response) {
-  await activityStateHydrated; // the grid re-seeds this on reconnect — must not race hydration back to idle
+async function activitySnapshot(req: Request, res: Response, deps: SessionRouteDeps) {
   const ids = parseActivityIds(req.query.ids, (id) => SESSION_ID_RE.test(id), ACTIVITY_IDS_LIMIT);
+  const coreById = new Map((await deps.listCoreSessions()).map((session) => [session.id, session]));
   const out: Record<string, { working: boolean; waiting: boolean; event: string | null }> = {};
   for (const id of ids) {
-    const a = activity.get(id) || {};
+    const core = coreById.get(id);
+    const a = core && !core.exited ? activity.get(id) || {} : {};
     out[id] = { working: a.working ?? false, waiting: a.waiting ?? false, event: a.event ?? null };
   }
   res.json(out);
@@ -199,30 +173,49 @@ async function toolTimeline(req: Request, res: Response) {
 // what the server knows, so nothing the client sends ends up inside the text another agent
 // will read. Sits under /api/transcript because /api/session/:id would match "last-turn"
 // first and read it as a session id.
-async function lastTurn(req: Request, res: Response) {
+async function lastTurn(req: Request, res: Response, deps: SessionRouteDeps) {
   const { session } = req.query;
   if (typeof session !== "string" || !SESSION_ID_RE.test(session)) return res.status(400).json({ error: "invalid session id" });
   const agent = normalizeAgent(req.query.agent);
   const cwd = workspaceForRoute(req.query.cwd, res);
   if (cwd === null) return;
-  const turn = await sessionLastTurn(cwd, session, agent);
+  const core = await deps.getCoreSession?.(session);
+  const turn = await sessionLastTurn(cwd, session, agent, core?.resumeSource);
   // ?as=reply drops the prompt block: the caller is relaying an ANSWER back to whoever
   // asked, and that prompt is the asker's own text coming home.
   const shape: HandoffShape = req.query.as === "reply" ? "reply" : "exchange";
   res.json({ ...turn, text: formatHandoff({ label: agent, cwd }, turn, undefined, shape) });
 }
 
+function withViewerOccupancy(sessions: readonly SessionMeta[], coreById: ReadonlyMap<string, CoreSession>, deps: SessionRouteDeps) {
+  const tmuxCounts = tmuxAttachedCounts();
+  const coreByReference = new Map(coreById);
+  for (const core of coreById.values()) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
+  return sessions.map((session) => {
+    const core = coreByReference.get(session.id);
+    return {
+      ...session,
+      attached:
+        !!core &&
+        isSessionAttached({
+          viewedHere: deps.hasViewer?.(core.id) ?? false,
+          tmuxClients: tmuxCounts === null ? null : (tmuxCounts.get(core.id) ?? 0),
+          holdsTmuxClient: deps.hasLivePty?.(core.id) ?? false,
+        }),
+    };
+  });
+}
+
 // List the chat sessions for the current project (CLAUDE_CWD), including
 // newly-created sessions that aren't persisted to disk yet.
 async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) {
   try {
-    await activityStateHydrated; // list working/waiting from the restored state, not a racing idle
     // Optional ?cwd= scopes the list to that project's on-disk sessions (the grid
     // cell's resume picker). Without it, the classic single view's behavior is
-    // unchanged: CLAUDE_CWD + in-memory pending sessions.
+    // unchanged: CLAUDE_CWD history.
     const cwd = workspaceForRoute(req.query.cwd, res);
     if (cwd === null) return;
-    const includePending = !req.query.cwd;
+    const unscoped = !req.query.cwd;
     // Wait for the persisted grid-session set before filtering (below), so a chat
     // request racing server boot can't leak previously-hidden grid transcripts. The
     // background and failed sets are awaited for BOTH queries — they decide a flag on the row
@@ -231,9 +224,12 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // `failed` especially: the whole value of persisting it is finding out LATER, and the most
     // likely "later" is the first list after a restart. Serving it as false while its log is
     // still being read would lose exactly the case the record exists for (Codex, PR #1188).
-    const coreIds = includePending ? new Set((await deps.listCoreSessions()).map((session) => session.id)) : new Set<string>();
-    await backgroundSessionsHydrated;
-    await failedWorkersHydrated;
+    const coreSessions = await deps.listCoreSessions();
+    const coreById = new Map(coreSessions.map((session) => [session.id, session]));
+    const coreByReference = new Map(coreById);
+    for (const core of coreSessions) if (core.resumeSource) coreByReference.set(core.resumeSource, core);
+    const coreIds = unscoped ? new Set(coreById.keys()) : new Set<string>();
+    await Promise.all([backgroundHistoryHydrated, failedWorkerHistoryHydrated]);
     await sessionMemosHydrated; // the memo is the row's TITLE when there is one — a race shows the agent's words instead
     const dir = projectSessionsDir(cwd);
     let files: string[] = [];
@@ -244,39 +240,25 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     }
 
     const onDiskStats = await collectOnDiskSessionStats(dir, files);
-    const onDisk = new Set(onDiskStats.map((s) => s.id));
-    // Pending is skipped for a cwd-scoped query (pending sessions aren't tracked per dir).
-    const pending = collectPendingSessions(onDisk, includePending);
-
     // Keep only the most-recent N, then read & parse contents for just those
     // on-disk files (a deleted/corrupt file is dropped, not fatal). Hidden translation
     // workers are dropped first — they're transient internal helpers, not user chats.
-    const top = selectSessionRows([...onDiskStats, ...pending], {
-      isInternalHelper: (id) => translationWorkerIds.has(id) || isProbeSessionId(id),
+    const top = selectSessionRows(onDiskStats, {
+      isInternalHelper: (id) => coreByReference.get(id)?.visibility === "internal" || isProbeSessionId(id),
       isDevTerminal: (id) => coreIds.has(id),
-      isBackground: (id) => isBackgroundSession(id),
-      includePending,
+      isBackground: (id) => coreByReference.get(id)?.visibility === "background" || isBackgroundHistory(id),
+      unscoped,
       limit: SESSION_LIST_LIMIT,
       backgroundLimit: BACKGROUND_SESSION_LIST_LIMIT,
     });
     const sessions = (
       await Promise.all(
-        top.map((s) =>
-          s.kind === "pending"
-            ? // Wrapped rather than handed to Promise.all bare: a pending row is already the whole
-              // answer, and spelling it as a promise says the two branches meet at the same type.
-              Promise.resolve({
-                id: s.id,
-                title: s.title,
-                mtime: s.mtime,
-                working: s.working,
-                waiting: s.waiting,
-                event: s.event,
-                hidden: s.hidden,
-                failed: s.failed,
-              })
-            : readSessionMeta(dir, s.file).catch(() => null),
-        ),
+        top.map((s) => {
+          const core = coreByReference.get(s.id);
+          let visibility = core?.visibility ?? "normal";
+          if (visibility !== "internal" && isBackgroundHistory(s.id)) visibility = "background";
+          return readSessionMeta(dir, s.file, core?.id, visibility, core?.title, core?.memo, core?.exited).catch(() => null);
+        }),
       )
     )
       .filter((s): s is SessionMeta => s !== null)
@@ -286,8 +268,7 @@ async function sessionList(req: Request, res: Response, deps: SessionRouteDeps) 
     // picker used to answer this from the current page's own grid, which is blind to a second
     // browser tab and to a second mulmoterminal process — the two ways a running session got
     // taken over without anything warning first.
-    const tmuxCounts = tmuxAttachedCounts();
-    res.json({ cwd, sessions: sessions.map((s) => ({ ...s, attached: sessionAttached(s.id, tmuxCounts) })) });
+    res.json({ cwd, sessions: withViewerOccupancy(sessions, coreById, deps) });
   } catch (err) {
     console.error("[api] /api/sessions failed:", err);
     res.status(500).json({ error: String(err) });
@@ -316,8 +297,8 @@ async function antigravitySessionList(req: Request, res: Response) {
   try {
     const cwd = workspaceForRoute(req.query.cwd, res);
     if (cwd === null) return;
-    await antigravityConversationsHydrated;
-    const sessions = await listAntigravitySessions(antigravityBrainRoot(), antigravityConversations.values(), cwd, SESSION_LIST_LIMIT);
+    await antigravityHistoryHydrated;
+    const sessions = await listAntigravitySessions(antigravityBrainRoot(), antigravityHistory.values(), cwd, SESSION_LIST_LIMIT);
     res.json({ cwd, sessions });
   } catch (err) {
     console.error("[api] /api/antigravity/sessions failed:", err);
@@ -328,10 +309,10 @@ async function antigravitySessionList(req: Request, res: Response) {
 export function mountSessionRoutes(app: Express, deps: SessionRouteDeps): void {
   app.get("/api/session/:id", (req, res) => sessionDetail(req, res, deps));
   app.post("/api/session/:id/memo", (req, res) => setMemo(req, res, deps));
-  app.get("/api/activity", activitySnapshot);
+  app.get("/api/activity", (req, res) => activitySnapshot(req, res, deps));
   app.get("/api/sessions/grid-records", (req, res) => gridSessionRecords(req, res, deps));
   app.get("/api/transcript/timeline", toolTimeline);
-  app.get("/api/transcript/last-turn", lastTurn);
+  app.get("/api/transcript/last-turn", (req, res) => lastTurn(req, res, deps));
   app.get("/api/sessions", (req, res) => sessionList(req, res, deps));
   // Compatibility endpoint for the grid's adoption loop. Placement is browser-only UI state;
   // every existing terminal comes from Core, so this returns the same canonical membership.

@@ -12,17 +12,17 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { messageOf } from "../errors.js";
 import { CLAUDE_CWD } from "../config/env.js";
-import { activity, hiddenSessions, knownSessions, lastPrompts, translationWorkerIds } from "./registry.js";
+import { activity, lastPrompts } from "./activity-store.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { buildTranslationPrompt, isValidTranslationResult } from "./translation-prompt.js";
 
 export interface TranslationWorkerDeps {
-  /** Tear down the worker's pty and session bookkeeping. */
-  reap: (id: string) => void;
+  /** Release the worker's transient viewer transport. */
+  releaseViewer: (id: string) => void;
   /** Remove the disposable worker from Core after its answer has been collected. */
   deleteSession: (id: string) => Promise<void>;
   /** Start a headless claude session (no socket, no viewer) seeded with `prompt`. */
-  spawnHiddenChat: (sessionId: string, prompt: string) => void;
+  spawnHiddenChat: (sessionId: string, prompt: string, visibility: "internal") => void;
 }
 
 // In-flight worker requests. `resolve` comes from the worker's own submitTranslation call;
@@ -57,16 +57,14 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
   // bookkeeping + transcript so the activity maps and the workspace don't accumulate
   // throwaway translation sessions.
   async function cleanupTranslationWorker(sessionId: string): Promise<void> {
-    deps.reap(sessionId); // idempotent — already reaped if Stop fired
-    // Ordinary reap only detaches MulmoTerminal's transient client: user terminals must survive
+    deps.releaseViewer(sessionId); // idempotent — already released if Core exit fired
+    // Ordinary viewer release only detaches MulmoTerminal's transient client: user terminals survive
     // Node shutdown and idle disconnects. Translation workers are disposable, so their cleanup is
     // the explicit exception that also removes the Core/tmux session and its remain-on-exit pane.
     try {
       await deps.deleteSession(sessionId);
     } finally {
       activity.delete(sessionId);
-      hiddenSessions.delete(sessionId);
-      translationWorkerIds.delete(sessionId);
       lastPrompts.delete(sessionId);
       pendingTranslations.delete(sessionId);
       fs.rm(path.join(projectSessionsDir(CLAUDE_CWD), `${sessionId}.jsonl`), { force: true }).catch(() => {});
@@ -82,9 +80,6 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
   // (or fail via the Stop hook / timeout), validate, and tear it down.
   async function runTranslationWorkerOnce(prompt: string, expected: number): Promise<string[]> {
     const sessionId = randomUUID();
-    hiddenSessions.add(sessionId);
-    translationWorkerIds.add(sessionId);
-
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const submitted = new Promise<unknown>((resolve, reject) => {
       timeoutId = setTimeout(() => reject(new Error(`[translation] hidden chat timed out after ${TRANSLATION_TIMEOUT_MS}ms`)), TRANSLATION_TIMEOUT_MS);
@@ -94,11 +89,7 @@ export function createTranslationWorker(deps: TranslationWorkerDeps) {
     try {
       // ws=null → headless; the worker buffers output nobody reads. Default cwd =
       // CLAUDE_CWD (trusted). submitTranslation (or the Stop hook) settles `submitted`.
-      deps.spawnHiddenChat(sessionId, prompt);
-      // The spawn registers a pending session + emits a "created" event; drop the
-      // pending entry now so this internal worker never surfaces as a sidebar row (the
-      // /api/sessions filter on translationWorkerIds covers its on-disk transcript).
-      knownSessions.delete(sessionId);
+      deps.spawnHiddenChat(sessionId, prompt, "internal");
       const translations = await submitted;
       if (!isValidTranslationResult(translations, expected)) {
         const got = Array.isArray(translations) ? `${translations.length} strings` : "a non-array";

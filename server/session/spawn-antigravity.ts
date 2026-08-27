@@ -12,17 +12,33 @@ import { antigravityBrainRoot, snapshotAntigravitySessions, watchForAntigravityS
 import { ptySpawn } from "./pty-spawn.js";
 import { wireAgentPtyRelay } from "./pty-relay.js";
 import { ptyStartLine } from "./pty-exit-log.js";
-import { claimedAntigravityConversations, ptys, rememberAntigravityConversation } from "./registry.js";
+import { rememberAntigravityHistory } from "./antigravity-history.js";
+import { viewerPtys } from "./viewer-state.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { coreSessions, type CoreSessionVisibility } from "./core-session-adapter.js";
+import { persistCoreResumeSource } from "./core-resume-source.js";
+
+const coreSessionEnded = (sessionId: string) => async () => !(await coreSessions.isRunning(sessionId));
 
 export function createAntigravitySpawner(deps: SpawnDeps) {
+  // Process-local exclusion for concurrent conversation discovery; Core.resumeSource is the
+  // durable identity once attribution succeeds.
+  const claimedConversations = new Set<string>();
+  const claimConversation = (id: string) => {
+    claimedConversations.add(id);
+    setTimeout(() => claimedConversations.delete(id), 31 * 60_000).unref();
+  };
   function captureAntigravityConversation(sessionId: string, root: string, before: ReadonlySet<string>, cwd: string): void {
-    watchForAntigravitySession(root, before, { claimed: claimedAntigravityConversations, isCancelled: () => !ptys.has(sessionId) })
+    watchForAntigravitySession(root, before, {
+      claimed: claimedConversations,
+      isCancelled: coreSessionEnded(sessionId),
+    })
       .then((id) => {
         if (!id) return;
-        claimedAntigravityConversations.add(id);
-        rememberAntigravityConversation(sessionId, id, cwd);
+        claimConversation(id);
+        rememberAntigravityHistory(sessionId, id, cwd);
+        void persistCoreResumeSource(sessionId, id);
         console.log(`[pty] captured antigravity conversation ${id} for session ${sessionId}`);
       })
       .catch(() => {});
@@ -46,9 +62,11 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
       mcpGroups: readonly ToolGroup[];
       /** Run this as the session's first turn (a collection action, a background chat). */
       initialPrompt?: string | null;
+      coreSessionExists?: boolean;
+      visibility?: CoreSessionVisibility;
     },
   ): PtyEntry {
-    const { mcpGroups, initialPrompt = null } = options;
+    const { mcpGroups, initialPrompt = null, coreSessionExists = false, visibility = "normal" } = options;
     syncAntigravityMcpConfig(cwd, mcpGroups);
     const root = antigravityBrainRoot();
     const before = snapshotAntigravitySessions(root);
@@ -60,26 +78,28 @@ export function createAntigravitySpawner(deps: SpawnDeps) {
       agent: "antigravity",
       env: guiMcpEnv(sessionId, PORT),
       binEnvVar: antigravityAdapter.binEnvVar,
+      coreSessionExists,
+      resumeSource: resumeConversationId,
+      visibility,
     });
     const spawnedAtMs = Date.now();
     const note = resumeConversationId ? `resume ${resumeConversationId}` : null;
     console.log(ptyStartLine({ agent: "antigravity", pid: term.pid, cwd, tmux, reattached, sessionId, note }));
 
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent: "antigravity" };
-    ptys.set(sessionId, entry);
-    deps.inputReadiness?.markSessionLive(sessionId, "antigravity");
+    viewerPtys.set(sessionId, entry);
 
     if (resumeConversationId) {
       // Recorded on resume too, not just on the spawn that discovered it: a session resumed by the
       // conversation id itself carries no mapping yet, and one whose cell moved needs the new cwd.
-      rememberAntigravityConversation(sessionId, resumeConversationId, cwd);
+      rememberAntigravityHistory(sessionId, resumeConversationId, cwd);
     } else {
       // Only for a FRESH session: on resume the id is already known, and running the watcher could
       // overwrite it with a mis-attributed concurrent conversation.
       captureAntigravityConversation(sessionId, root, before, cwd);
     }
 
-    wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps, (data) => deps.inputReadiness?.noteOutput(sessionId, "antigravity", data));
+    wireAgentPtyRelay(entry, sessionId, spawnedAtMs, deps);
     return entry;
   }
 

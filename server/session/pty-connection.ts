@@ -3,8 +3,6 @@
 // socket goes away. Split from index.ts (#548 step 3d) — shared by every terminal
 // endpoint (/ws, /ws/launch, /ws/codex), so it comes out ahead of the handlers.
 //
-// The reap decisions stay in index.ts and arrive as deps: they read activity state and
-// schedule timers that outlive any one connection.
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";
 import { messageOf } from "../errors.js";
@@ -12,21 +10,49 @@ import { isResizeFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
+import { viewerPtys } from "./viewer-state.js";
+
+export interface ViewerReleaseDeps {
+  forgetTerminalSize: (id: string) => void;
+}
+
+/** Release only this process's transient tmux client. Core/tmux membership is untouched. */
+export function releaseViewer(deps: ViewerReleaseDeps, id: string, expected?: PtyEntry): boolean {
+  const entry = viewerPtys.get(id);
+  if (!entry || (expected && entry !== expected)) return false;
+  viewerPtys.delete(id);
+  deps.forgetTerminalSize(id);
+  try {
+    entry.term.kill();
+  } catch {
+    // The transient client already exited.
+  }
+  return true;
+}
+
+/** Graceful shutdown owns viewers, not Core sessions. */
+export function releaseAllViewers(deps: ViewerReleaseDeps): string[] {
+  const released: string[] = [];
+  for (const id of [...viewerPtys.keys()]) {
+    try {
+      if (releaseViewer(deps, id)) released.push(id);
+    } catch (error) {
+      console.error(`[shutdown] failed to release viewer ${id}: ${messageOf(error)}`);
+    }
+  }
+  return released;
+}
 
 /** A frame as it arrives off the socket. Only `toString()` is used — ws hands us a
  *  Buffer, and narrowing to this lets a test pass one without a live connection. */
 export type WireFrame = { toString(): string };
 
 export interface ConnectionDeps {
-  /** A reattach inside the grace window keeps the session alive. */
-  cancelReap: (id: string) => void;
-  /** Explicit close from the client — delete the logical session and tear down runtime. */
-  deleteSession: (id: string) => void | Promise<void>;
   input: (id: string, data: string) => Promise<void>;
   resize: (id: string, cols: number, rows: number) => Promise<void>;
   setWaiting: (id: string, waiting: boolean) => void;
-  /** Socket gone: keep, grace, or reap according to what the session was doing. */
-  armReapForDetached: (id: string) => void;
+  /** Socket gone: release only the transient viewer; Core membership remains. */
+  releaseViewer: (id: string, expected?: PtyEntry) => void;
   /** The screen-buffer / mouse modes this session's pane is in right now, for the replay to
    *  re-establish (#1073). Empty when there is nothing to restore. */
   terminalModesOf: (id: string) => readonly number[];
@@ -61,7 +87,7 @@ function parseClientFrame(raw: WireFrame): Record<string, unknown> | null {
 }
 
 // browser -> command PTY. Like handleClientFrame but for the session-less command
-// terminal: only input/resize (no terminate/session machinery).
+// terminal: only input/resize (no session machinery).
 export function handleCommandFrame(term: IPty, raw: WireFrame) {
   const msg = parseClientFrame(raw);
   if (!msg) return;
@@ -91,10 +117,9 @@ function applyViewFrame(entry: PtyEntry, sessionId: string, active: boolean, dep
 }
 
 export function createConnectionHandlers(deps: ConnectionDeps) {
-  // Reattach a live background PTY to a new socket: drop any stale socket, swap in
-  // the new one, and replay the buffered tail for context.
+  // Attach a replacement socket to an existing viewer transport: drop any stale socket,
+  // swap in the new one, and replay the buffered tail for context.
   function reattachPty(entry: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
-    deps.cancelReap(sessionId); // a reattach within the grace window keeps the session
     console.log(`[ws] reattach ${sessionId} (pid=${entry.term.pid})`);
     // Drop any socket still attached (e.g. the same session open in another tab).
     // Tell it it's been superseded FIRST so it stops instead of auto-reconnecting —
@@ -134,11 +159,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     const msg = parseClientFrame(raw);
     if (!msg) return;
     try {
-      if (msg.type === "terminate") {
-        // Explicit close (the cell's close button) — delete now instead of waiting out the
-        // disconnect grace window, so the session slot frees immediately.
-        void Promise.resolve(deps.deleteSession(sessionId)).catch((error) => console.warn(`[ws] delete failed for ${sessionId}: ${messageOf(error)}`));
-      } else if (msg.type === "view" && typeof msg.active === "boolean") {
+      if (msg.type === "view" && typeof msg.active === "boolean") {
         applyViewFrame(entry, sessionId, msg.active, deps);
       } else if (msg.type === "input" && typeof msg.data === "string") {
         void deps.input(sessionId, msg.data).catch((error) => console.warn(`[ws] input dropped for ${sessionId}: ${messageOf(error)}`));
@@ -161,13 +182,12 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     }
   }
 
-  // Socket closed: detach it and decide the PTY's fate by activity — working stays
-  // alive, needs-the-user gets a long grace, idle gets the short grace.
+  // Socket closed: detach and release the viewer immediately. Core owns the session lifetime.
   function handleClientClose(entry: PtyEntry, ws: WebSocket, sessionId: string) {
     // Ignore if a newer client already reattached to this session.
     if (entry.ws !== ws) return;
-    // Ignore if this PTY has already been reaped. Its socket may close later, but that close must
-    // not rewrite the stopped lifecycle back to detached.
+    // Ignore if this viewer has already been released. Its socket may close later, but that close
+    // must not detach a replacement viewer.
     if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) return;
     entry.ws = null;
     deps.cancelTerminalSizeCheck(sessionId);
@@ -176,11 +196,8 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     // can't send `view active:false`) can't leave the attention flag suppressed until
     // reconnect. A reattach re-asserts `active` (attach default + the client's view frame).
     entry.active = false;
-    // Keep a working session alive indefinitely, give a session that needs the user
-    // the long grace, and reap a genuinely idle one after the short grace. A reload
-    // reconnects in a moment and re-attaches (cancelling the reap) regardless.
     console.log(`[ws] disconnected ${sessionId}`);
-    deps.armReapForDetached(sessionId);
+    deps.releaseViewer(sessionId, entry);
   }
   return { reattachPty, handleClientFrame, handleClientClose };
 }

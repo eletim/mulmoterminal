@@ -1,5 +1,5 @@
 // The wire between a spawned agent's PTY and its WebSocket: output forwarded and buffered, exit
-// forwarded and reaped. Identical for every first-class agent — the only thing that differed
+// forwarded and released. Identical for every first-class agent — the only thing that differed
 // between the codex and antigravity copies was the word in the log line — so it lives here rather
 // than being pasted into each new spawner.
 //
@@ -9,10 +9,14 @@
 import { appendBoundedOutput } from "./terminal-replay.js";
 import { ptyExitLine } from "./pty-exit-log.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
+import { isCoreSessionExitEvent } from "./pty-spawn.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { failCompletionHook } from "./completion-hooks.js";
+import { cleanupSessionTitleState } from "./session-title.js";
+import { cleanupSessionDrops } from "./session-drops.js";
 
-export type PtyRelayDeps = Pick<SpawnDeps, "outputBufferLimit" | "reap" | "inputReadiness">;
+export type PtyRelayDeps = Pick<SpawnDeps, "outputBufferLimit" | "releaseViewer" | "endSessionActivity">;
 
 /** `spawnedAtMs` is carried in rather than read here: the exit line's most useful field is how long
  *  the process lived, and an agent that dies inside the startup window never started (#1078).
@@ -25,10 +29,16 @@ export function wireAgentPtyRelay(entry: PtyEntry, sessionId: string, spawnedAtM
     sendFrame(entry.ws, { type: "output", data });
     onOutput?.(data);
   });
-  entry.term.onExit(({ exitCode, signal }) => {
+  entry.term.onExit((event) => {
+    const { exitCode, signal } = event;
     console.log(ptyExitLine({ agent: entry.agent ?? "agent", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd: entry.cwd, sessionId }));
-    deps.inputReadiness?.markSessionStopped(sessionId);
+    if (isCoreSessionExitEvent(event)) {
+      failCompletionHook(sessionId);
+      cleanupSessionTitleState(sessionId);
+      cleanupSessionDrops(sessionId);
+      deps.endSessionActivity(sessionId);
+    }
     sendExitAndClose(entry.ws, exitCode, signal);
-    deps.reap(sessionId);
+    deps.releaseViewer(sessionId, entry);
   });
 }

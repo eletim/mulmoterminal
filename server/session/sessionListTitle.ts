@@ -1,5 +1,5 @@
 // The title a sidebar row shows, in six-tier precedence: the user's own memo wins, then this
-// process's live AI title, then the on-disk ai-title, then the on-disk last-prompt, then the
+// live Core title, then the on-disk ai-title, then the on-disk last-prompt, then the
 // session's first user message, and a sentinel when there is nothing at all.
 //
 // The memo sits on top for the reason it exists (#1084): every tier below it is what the AGENT
@@ -16,8 +16,8 @@
 import { sessionDisplayName } from "../../common/sessionMemo.js";
 
 export interface SessionListTitleInput {
-  memo: string | undefined;
-  liveAiTitle: string | undefined;
+  memo: string | null | undefined;
+  liveAiTitle: string | null | undefined;
   diskAiTitle: string | null;
   diskLastPrompt: string | null;
   firstUserMsg: string | null;

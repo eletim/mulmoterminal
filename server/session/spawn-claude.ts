@@ -1,6 +1,6 @@
 // Starting a claude session in a PTY and wiring it to the browser. The most entangled
 // piece of index.ts (#548 step 3c): it spans the CLI args, the
-// sidebar's optimistic row, the draft typed into the input box, and teardown on exit.
+// Core metadata, the draft typed into the input box, and teardown on exit.
 import type { WebSocket } from "ws";
 import { CLAUDE_CWD, PORT, isWorkspaceCwd } from "../config/env.js";
 import { guiMcpEnv } from "./mcp-config.js";
@@ -9,8 +9,8 @@ import { submitSequenceForAgent } from "../../common/terminalSubmit.js";
 import { buildClaudeArgs } from "../agents/claude-args.js";
 import { claudeAdapter } from "../agents/claude.js";
 import { appendedSystemPrompt } from "../agents/appended-prompt.js";
-import { hookedSessions, knownSessions, launchChoices, ptys, resetSessionToolGroups } from "./registry.js";
-import { ptySpawn, ptyWouldReattach } from "./pty-spawn.js";
+import { viewerPtys } from "./viewer-state.js";
+import { isCoreSessionExitEvent, ptySpawn } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { attachDraftInjection } from "./draft-injection.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
@@ -23,9 +23,27 @@ import { repoRootSync } from "../git/repo-root-sync.js";
 import { workdirFooter } from "../git/pr-footer.js";
 import { getProviders } from "../config/config-routes.js";
 import { requireResolution, resolveProvider, type DirModelChoice } from "./provider-env.js";
-import { settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
-import { ensureDropsDir } from "./session-drops.js";
+import { cleanupSessionSettings, settingsArgument, mcpConfigArgument, withSettingsCleanup } from "./session-settings.js";
+import { cleanupSessionDrops, ensureDropsDir } from "./session-drops.js";
 import { effectiveChoice } from "./launch-choice.js";
+import type { CoreSessionOrigin, CoreSessionVisibility } from "./core-session-adapter.js";
+import { failCompletionHook } from "./completion-hooks.js";
+import { cleanupSessionTitleState } from "./session-title.js";
+import { forgetClearedTranscript } from "./cleared-transcripts.js";
+
+/** Resources created only by a Claude process, cleaned on its exit or explicit Delete. */
+export function cleanupClaudeProcessResources(sessionId: string): void {
+  cleanupSessionSettings(sessionId);
+  forgetClearedTranscript(sessionId);
+}
+
+function cleanupExitedCoreSession(deps: SpawnDeps, sessionId: string): void {
+  cleanupClaudeProcessResources(sessionId);
+  cleanupSessionDrops(sessionId);
+  cleanupSessionTitleState(sessionId);
+  failCompletionHook(sessionId);
+  deps.endSessionActivity(sessionId);
+}
 
 export interface SpawnClaudeOptions {
   // Passed to claude as the first turn, so the session starts working before anyone
@@ -42,6 +60,10 @@ export interface SpawnClaudeOptions {
   // as a PAIR: a provider from one source with a model from the other is a combination
   // neither of them asked for. Absent — the usual case — means "use the directory's".
   launch?: DirModelChoice | undefined;
+  /** This id is already a Core member; attach its pane instead of creating a session. */
+  coreSessionExists?: boolean;
+  visibility?: CoreSessionVisibility;
+  origin?: CoreSessionOrigin;
 }
 
 // The `work in <clone>` line for a session's PRs, or null when the footer is switched off or the
@@ -69,14 +91,9 @@ function newSessionTitle(seed: string | undefined): string {
   return (seed ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || "New session";
 }
 
-function recordClaudeLive(sessionId: string, deps: SpawnDeps): void {
-  deps.inputReadiness?.markSessionLive(sessionId, "claude");
-}
-
-function relayClaudeOutput(entry: PtyEntry, sessionId: string, data: string, deps: SpawnDeps): void {
+function relayClaudeOutput(entry: PtyEntry, data: string, deps: SpawnDeps): void {
   entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
   sendFrame(entry.ws, { type: "output", data });
-  deps.inputReadiness?.noteOutput(sessionId, "claude", data);
 }
 
 // What this session runs, and the directory config it runs under (#579). A refusal THROWS:
@@ -90,14 +107,12 @@ function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?:
   const dir = loadDirConfig(input.cwd);
   const choice = effectiveChoice({
     launch: input.launch,
-    remembered: launchChoices.get(input.sessionId),
     dir: { provider: dir.provider, model: dir.model },
     resuming: input.canResume,
   });
   const resolved = requireResolution(resolveProvider(choice, getProviders(), process.env));
   // Remembered so a later resume continues on the backend this session began on, instead of
   // silently moving to the directory's default mid-conversation.
-  if (input.launch) launchChoices.set(input.sessionId, choice);
   return { dir, resolved };
 }
 
@@ -113,6 +128,11 @@ function resolveSessionBackend(input: { cwd: string; sessionId: string; launch?:
 function sessionAddDirs(sessionId: string, configured: string[] | null | undefined): string[] | null | undefined {
   const dropsDirectory = ensureDropsDir(sessionId);
   return dropsDirectory ? [...(configured ?? []), dropsDirectory] : configured;
+}
+
+function sessionMcpConfig(deps: SpawnDeps, sessionId: string, fullGuiMcp: boolean): string {
+  const json = deps.mcpConfigJson(sessionId, "127.0.0.1");
+  return fullGuiMcp ? mcpConfigArgument(sessionId, json) : json;
 }
 
 /**
@@ -131,29 +151,28 @@ function sessionAddDirs(sessionId: string, configured: string[] | null | undefin
 export const carriesFullGuiMcp = (attachGuiMcp: boolean, cwd: string | undefined): boolean => attachGuiMcp || isWorkspaceCwd(cwd);
 
 export function createClaudeSpawner(deps: SpawnDeps) {
-  // Spawn a fresh claude PTY for this session, register it, and wire its output /
-  // exit back to the browser socket. `ws` may be null for a session spawned without
-  // a viewer yet (e.g. spawnBackgroundChat) — output just buffers until a client
-  // reattaches.
+  // `ws` may be null for a session spawned without a viewer; output buffers until attach.
   function spawnClaudePty(sessionId: string, resume: string | null, ws: WebSocket | null, options: SpawnClaudeOptions = {}): PtyEntry {
-    const { initialPrompt, cwd = CLAUDE_CWD, attachGuiMcp = true, draft, launch } = options;
+    const {
+      initialPrompt,
+      cwd = CLAUDE_CWD,
+      attachGuiMcp = true,
+      draft,
+      launch,
+      coreSessionExists = false,
+      visibility = "normal",
+      origin = "interactive",
+    } = options;
     const fullGuiMcp = carriesFullGuiMcp(attachGuiMcp, cwd);
     // fullGuiMcp picks the MCP mode (see buildClaudeArgs, and its own doc for who earns it): the
     // GUI MCP + --strict-mcp-config; a project-directory cell attaches neither, so its own load.
-    // Only --resume when the session has an on-disk transcript — claude doesn't write
-    // a session's .jsonl until its first prompt, so a started-but-unused session can't
-    // be resumed; we restart fresh (reusing the id via --session-id) instead.
+    // Claude can resume only after its conversation exists on disk.
     const canResume = resume !== null && sessionExistsOnDisk(resume, cwd);
-
     const { dir, resolved } = resolveSessionBackend({ cwd, sessionId, launch, canResume });
 
-    const addDirs = sessionAddDirs(sessionId, dir.addDirs);
-
     const hookSettings = deps.hookSettingsJson("localhost", sessionId, resolved.env);
-    const mcpJson = deps.mcpConfigJson(sessionId, "127.0.0.1");
     // File-ized only when it is actually passed (fullGuiMcp), so a cell that never carries
-    // the GUI MCP leaves no file behind for reap to clean up.
-    const mcpConfig = fullGuiMcp ? mcpConfigArgument(sessionId, mcpJson) : mcpJson;
+    // the GUI MCP leaves no settings file for the Claude process owner to clean up.
     const args = buildClaudeArgs({
       model: resolved.model,
       sessionId,
@@ -164,7 +183,7 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       settings: settingsArgument(sessionId, hookSettings, Object.keys(resolved.env).length > 0),
       permissionMode: deps.permissionMode,
       attachGuiMcp: fullGuiMcp,
-      mcpConfig,
+      mcpConfig: sessionMcpConfig(deps, sessionId, fullGuiMcp),
       // Carrying the whole GUI MCP: auto-allow the GUI tools + the user's own configured MCP
       // servers (mcp__<id>), so their tools don't trip a permission prompt on every call.
       // A project-directory cell: no --mcp-config at all, so there is nothing of ours to name —
@@ -172,60 +191,40 @@ export function createClaudeSpawner(deps: SpawnDeps) {
       // blind (see GRID_MCP_TOOLS). The user's own servers keep their normal prompts there, since
       // that path never went through our allowlist before.
       allowedTools: fullGuiMcp ? [deps.guiMcpTools, ...getUserMcpServers().map((s) => `mcp__${s.id}`)].join(",") : deps.gridMcpTools,
-      addDirs,
+      addDirs: sessionAddDirs(sessionId, dir.addDirs),
       appendedPrompt: sessionAppendedPrompt(cwd, dir.appendSystemPrompt),
     });
 
     console.log(`[ws] client connected (${canResume ? "resume" : "new"} ${sessionId})`);
 
-    // Sandbox → run claude inside a fresh container (no tmux). Otherwise the host path:
-    // a live tmux session for this id (survived a restart) reattaches; else create it.
     // The settings file is already on disk and may hold a provider token, so a failed
-    // spawn has to take it with it — a session that never starts never reaches reap(),
-    // where the cleanup normally happens (#579).
+    // spawn has to take it with it — a session that never starts cannot reach the process-exit
+    // cleanup path (#579).
     const entry = withSettingsCleanup(sessionId, spawnEntry);
     const spawnedAtMs = Date.now();
 
-    // A NEW claude process gets whatever the user's MCP config says NOW, so anything this id
-    // learned under a previous one is stale — including a group the user has since removed.
-    //
-    // But this function is also the REATTACH path: after the server restarts (a --watch reload
-    // included), the pty map is empty while the tmux session and its claude are still running, so
-    // ws-routes comes back through here and `new-session -A` picks the same process back up.
-    // Nothing is re-read there, and an MCP client that connected once will not connect again — so
-    // resetting would drop a capability with no way left to relearn it, and the panel would tell a
-    // cell that is still drawing that Canvas is not enabled for it. Surviving exactly that is what
-    // the persisted log is FOR; the unconditional reset was undoing it on every restart.
-    //
-    // Asked HERE, one statement before the spawn, rather than up with the other decisions: the
-    // answer stops being true the moment the tmux session ends, and everything between the two
-    // (the provider resolution, the git probes, the settings file) is time in which it can. The
-    // remaining window is irreducible without tmux reporting which branch `-A` took, and what
-    // survives it is an over-reported group on a session that lost it — the next genuinely new
-    // process clears that, whereas the reverse mistake could not be undone at all.
-    function resetToolGroupsUnlessReattaching(): void {
-      if (!ptyWouldReattach(sessionId, true)) resetSessionToolGroups(sessionId);
-    }
-
+    // GUI capabilities are learned by the MCP route into Core metadata. A new Core membership
+    // starts empty; a reattach keeps the metadata belonging to the same native process.
     function spawnEntry(): PtyEntry {
-      resetToolGroupsUnlessReattaching();
-      const spawnEnv = { agent: "claude" as const, unset: resolved.unset, env: guiMcpEnv(sessionId, PORT), binEnvVar: claudeAdapter.binEnvVar };
+      const spawnEnv = {
+        agent: "claude" as const,
+        unset: resolved.unset,
+        env: guiMcpEnv(sessionId, PORT),
+        binEnvVar: claudeAdapter.binEnvVar,
+        coreSessionExists,
+        resumeSource: canResume ? resume : null,
+        visibility,
+        origin,
+        reportsOwnCalls: true,
+        ...(!canResume ? { title: newSessionTitle(initialPrompt ?? draft) } : {}),
+      };
       const { term, tmux, reattached } = ptySpawn(sessionId, deps.claudeBin, args, cwd, true, spawnEnv);
       console.log(ptyStartLine({ agent: "claude", pid: term.pid, cwd, tmux, reattached, sessionId, note: canResume ? `resume ${resume}` : null }));
       return { term, ws, buffer: "", cwd, tmux, active: false, agent: "claude" };
     }
-    ptys.set(sessionId, entry);
-    recordClaudeLive(sessionId, deps);
-    // Every claude spawn above carries `--settings` with the Pre/PostToolUse hooks, so from here
-    // on this session reports its own tool calls — which is what stops the MCP broker recording
-    // its GUI calls a second time (mcp/gui-call-history.ts).
-    hookedSessions.add(sessionId);
+    viewerPtys.set(sessionId, entry);
 
-    if (!canResume) {
-      // Brand-new (or restarted-idle) session: surface it in the sidebar before it's persisted.
-      knownSessions.set(sessionId, { createdAt: Date.now(), title: newSessionTitle(initialPrompt ?? draft) });
-      deps.publishSessionCreated(sessionId);
-    }
+    if (!canResume) deps.publishSessionCreated(sessionId);
 
     // The auto-run prompt / editable draft is typed into the input box once ready (see
     // attachDraftInjection) — its scanner is fed the pty output below. The submit byte(s)
@@ -236,20 +235,18 @@ export function createClaudeSpawner(deps: SpawnDeps) {
 
     // PTY -> browser (buffering a bounded tail for reattach).
     entry.term.onData((data) => {
-      relayClaudeOutput(entry, sessionId, data, deps);
+      relayClaudeOutput(entry, data, deps);
       scanForDraftReady(data);
     });
 
-    entry.term.onExit(({ exitCode, signal }) => {
+    entry.term.onExit((event) => {
+      const { exitCode, signal } = event;
       console.log(ptyExitLine({ agent: "claude", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
-      deps.inputReadiness?.markSessionStopped(sessionId);
+      if (isCoreSessionExitEvent(event)) cleanupExitedCoreSession(deps, sessionId);
       sendExitAndClose(entry.ws, exitCode, signal);
-      // Clear the dot if it died mid-turn, then tear down everything (deletes
-      // ptys/knownSessions/activity and publishes "closed") so a process that
-      // exits on its own — e.g. a brand-new session that never persisted —
-      // doesn't linger in the sidebar.
-      deps.setWorking(sessionId, false);
-      deps.reap(sessionId);
+      // Clear the activity dot and release this process's viewer transport. Core membership
+      // remains discoverable independently of transcript persistence.
+      deps.releaseViewer(sessionId, entry);
     });
 
     return entry;

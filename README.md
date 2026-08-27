@@ -314,7 +314,7 @@ The launcher detects it and prints the exact, OS-appropriate removal command; ru
   - [WebSocket: `/ws/run` (command terminal)](#websocket-wsrun-command-terminal)
   - [Socket.IO: `/ws/pubsub` (activity pub/sub)](#socketio-wspubsub-activity-pubsub)
 - [Session model](#session-model)
-- [Session lifecycle](#session-lifecycle)
+- [Core sessions and viewers](#core-sessions-and-viewers)
 - [Claude hook injection](#claude-hook-injection)
 - [Closing summary](#closing-summary)
 - [Session discovery & titles](#session-discovery--titles)
@@ -500,7 +500,6 @@ the `claude` / `codex` sessions themselves.
 | `CLAUDE_CONFIG_DIR` | `~` | Claude Code's own config directory. `.claude.json` lives **inside** it, so relocating your Claude Code config moves that file too — MulmoTerminal reads it to tell whether the per-project GUI MCP server is registered (`server/infra/gui-mcp-registration.ts`). Leave it unset and `~/.claude.json` is used. |
 | `MULMOCLAUDE_WORKSPACE_PATH` | `~/mulmoclaude` | Where the managed MulmoClaude workspace lives. MulmoTerminal seeds presets/helps **only** into this directory, so launching in an arbitrary project never writes them there (`server/backends/workspaceSetup.ts`). Set it to the same value MulmoClaude uses. |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | Model used for image generation (needs `GEMINI_API_KEY`). The default is a **preview** model Google schedules for retirement around mid-2026, so pin a stable one here (e.g. `gemini-2.5-flash-image`) rather than waiting for a code change. |
-| `WAIT_REAP_GRACE_MS` | `1800000` | How long a **waiting** background session is kept before it's auto-reaped (`0` or negative = never). |
 
 The update-check opt-outs (`MULMOTERMINAL_NO_UPDATE_CHECK`, `NO_UPDATE_NOTIFIER`) are
 covered in [Install & run](#install--run).
@@ -1343,6 +1342,7 @@ same-origin-guarded.
 | Endpoint | Purpose |
 | -------- | ------- |
 | `GET /api/session/:id?cwd=` | One session's summary — cumulative `usage` and `context` (model + last-turn context tokens). Backs the cell token & ctx% badges. |
+| `DELETE /api/session/:id` | Delete Core/tmux membership. Returns `{ deleted: true }` only after Core confirms deletion; the Desktop cell remains visible on failure. |
 | `GET /api/codex/sessions?cwd=` | Codex sessions for the project (from `~/.codex` rollouts), newest first. |
 | `GET /api/antigravity/sessions?cwd=` | Antigravity conversations for the project, newest first. agy does record a workspace, but never as a complete conversation-to-workspace map (`cache/last_conversations.json` keeps one conversation per directory and is written at exit; `history.jsonl` carries no conversation id), so the project comes from MulmoTerminal's own `~/.mulmoterminal/antigravity-conversations.jsonl`; agy's transcript supplies the title. |
 | `GET /api/cost?cwd=&session=` | Estimated $ cost — session / today / month. |
@@ -1428,9 +1428,10 @@ connection (or reattach to an existing background PTY).
 
 A non-JSON frame is written to the PTY verbatim (fallback).
 
-**Disconnect** — when the socket closes, if Claude is still `working` the PTY is
-**kept alive** in the background; otherwise it's killed. See
-[Session lifecycle](#session-lifecycle).
+**Disconnect** — closing the socket detaches and releases only that terminal
+viewer. It does not stop or delete the Core session. Reconnecting attaches a new
+viewer and restores the terminal from the Core screen. See
+[Core sessions and viewers](#core-sessions-and-viewers).
 
 ### More WebSocket endpoints
 
@@ -1487,12 +1488,12 @@ Socket.IO rooms.
 // a brand-new session was created
 { "id": "…", "working": false, "event": "created" }
 
-// a session's PTY was closed/reaped
+// a session was explicitly deleted
 { "id": "…", "working": false, "event": "closed" }
 ```
 
 `event` is the originating hook (`UserPromptSubmit` | `Stop` | `Notification`) or
-a lifecycle marker (`created` | `closed` | `null`). The client treats **any**
+an advisory membership marker (`created` | `closed` | `null`). The client treats **any**
 `sessions` message as a signal to refetch `GET /api/sessions` (the server is the
 single source of truth for the list), so payload details are advisory.
 
@@ -1514,53 +1515,48 @@ because a foreground session is already on screen.
 
 ---
 
-## Session lifecycle
+## Core sessions and viewers
 
 ```
-        new ws /ws                         ws /ws?session=<id>
-            │                                      │
-            ▼                                      ▼
-   generate UUID, spawn               live bg PTY?  ──yes──►  reattach + replay buffer
-   claude --session-id <uuid>              │ no
-   register "New session",                 ▼
-   publish "created"               spawn claude --resume <id>
-            │                                      │
-            └───────────────┬──────────────────────┘
-                            ▼
-                   attached (foreground)  ── setWaiting(false) ──► not bold
-                            │
-              ws close (switch away / disconnect)
-                            │
-            ┌───────── working? ──────────┐
-           yes                            no
-            │                             │
-   keep PTY alive (background)        kill PTY (reap), publish "closed"
-            │
-   Stop hook in background:
-   waiting=true (bold), working=false, reap PTY
-   (flag persists via on-disk record → stays listed & bold until viewed)
+        create terminal                    reconnect by id
+              │                                  │
+              ▼                                  ▼
+       Core.create(metadata)               Core.get(id)
+              │                                  │
+              └──────────────┬───────────────────┘
+                             ▼
+                     attach viewer
+                             │
+                  WebSocket output/input/resize
+                             │
+              ws close / switch away / disconnect
+                             │
+                             ▼
+                   detach + release viewer
+                             │
+                   Core session is unchanged
 ```
 
 Key rules:
 
-- **Switching away never interrupts Claude mid-turn** — a `working` session's PTY
-  survives in the background.
-- A background session that goes **idle** (`Stop`) is **reaped** (killed). If it
-  finished with unseen output, its `waiting` flag persists via the on-disk
-  session record, so it stays listed and **bold** until you open it.
-- **Reattach over respawn**: selecting a session that still has a live background
-  PTY reattaches to it (replaying a ≤ 64 KB output tail) instead of spawning a
-  duplicate `claude`.
+- **Core/tmux is the membership source of truth.** Desktop and Mobile lists start
+  from `Core.list()`. Transcript, rollout, activity and viewer state cannot add a
+  terminal row.
+- **Disconnect only releases the viewer.** It never calls Core Stop or Delete,
+  regardless of `working`, `waiting`, shell children, or other activity.
+- **Process exit keeps the session.** tmux `remain-on-exit` preserves membership
+  and the final screen; reconnecting restores that screen through Core.
+- **Stop and Delete are distinct.** Stop calls `Core.stop(id)` and leaves
+  membership intact. Delete calls `Core.delete(id)` and is the operation that
+  removes membership. Both running and exited sessions can be deleted.
+- **Activity is display-only.** `working`, `waiting`, prompts, responses, sound,
+  and Web Push do not control membership, viewer lifetime, Stop, or Delete.
 - **One live viewer per session**: a session is bound to a single socket. Opening
   it in a second place (another tab, or another grid cell pointed at the same dir)
-  reattaches there and **supersedes** the first, which detaches. So a launcher's
-  resume list **refuses** a session that is open anywhere (`● open`) rather than
-  offering to take it over — and the server answers "anywhere" from its own PTY
-  table plus tmux, so another browser tab and a second `mulmoterminal` process
-  count too.
-- Brand-new sessions are listed **immediately** (before their `.jsonl`
-  exists) via the in-memory `knownSessions` registry + a `created` push; an
-  unused one disappears when its PTY is reaped.
+  attaches there and **supersedes** the first viewer, which detaches. Viewer
+  occupancy affects only where a session can be opened, never whether it exists.
+- **History is resume data only.** Resuming a transcript or rollout creates a new
+  Core session; history by itself is not a live terminal.
 - **Background workers get their own filter.** A session nobody started by hand —
   a configured scheduled task, or a plugin's `spawnBackgroundChat`
   `hidden: true` — is listed under the **Background** chip instead of among the
@@ -1673,8 +1669,8 @@ the tooltip — and it becomes the session's title in the launcher's session lis
 too, so one session goes by one name everywhere.
 
 Notes are capped at 200 characters and folded to a single line. They are stored per **session
-id** in `~/.mulmoterminal/session-memos.jsonl` and survive both the session being reaped and a
-server restart: resume the session and the note comes back. Saving one publishes it on the
+id** in Core metadata while the terminal exists. History-only notes remain owned by the history
+store and survive a server restart. Saving one publishes it on the
 `sessions` channel, so every other open tab and the phone update without asking.
 
 `POST /api/session/:id/memo` with `{ "text": "…" }` writes one; an empty `text` erases it. The
@@ -1686,8 +1682,8 @@ route answers with the **stored** text, which is what a reload will show.
 
 ```
 server/
-  index.ts        Express app, /api routes, upgrade routing, PTY lifecycle,
-                  session state, hook injection, session discovery, GUI-MCP mount
+  index.ts        Express app, /api routes, upgrade routing, Core/viewer wiring,
+                  activity, hook injection, session discovery, GUI-MCP mount
   agents/         AgentAdapter seam + per-agent args/sessions: claude.ts,
                   codex.ts, registry.ts, claude-args.ts, codex-args.ts,
                   codex-session(s).ts, antigravity-args.ts
@@ -1701,7 +1697,7 @@ server/
                   gh.ts, prs.ts, pr-for-branch.ts, worktrees.ts, worktree-*.ts
   files/          files-browse.ts (contained read-only tree), pick-file.ts,
                   open-dir.ts, scripts.ts (Run-menu script.json loader)
-  infra/          process/transport/misc: tmux.ts, tmux-routes.ts,
+  infra/          process/transport/misc: tmux.ts,
                   pubsub.ts (socket.io /ws/pubsub), spa-fallback.ts, host-tools.ts,
                   plugins-registry.ts, web-push.ts
   mcp/            per-session MCP broker

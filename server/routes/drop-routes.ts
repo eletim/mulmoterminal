@@ -8,7 +8,6 @@
 // used for its suffix alone. The saved path is the server's (see session/session-drops.ts).
 import express, { type Express, type Request } from "express";
 import { SESSION_ID_RE } from "../config/env.js";
-import { ptys } from "../session/registry.js";
 import { saveDrop } from "../session/session-drops.js";
 import { DROP_FILENAME_HEADER, MAX_DROP_BYTES, type DropUploadResponse } from "../../common/dropUpload.js";
 
@@ -27,13 +26,11 @@ function originalFilename(req: Request): string | null {
   }
 }
 
-export function mountDropRoutes(app: Express): void {
-  app.post("/api/session/:id/drop", express.raw({ type: () => true, limit: MAX_DROP_BYTES }), (req, res) => {
+export function mountDropRoutes(app: Express, deps: { hasSession: (id: string) => Promise<boolean> }): void {
+  app.post("/api/session/:id/drop", express.raw({ type: () => true, limit: MAX_DROP_BYTES }), async (req, res) => {
     const id = req.params.id;
     if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
-    // The session's directory is granted at spawn time, so a drop for a session this server is
-    // not running has nowhere it could be read from even if it were saved.
-    if (!ptys.has(id)) return res.status(404).json({ error: "no such session" });
+    if (!(await deps.hasSession(id))) return res.status(404).json({ error: "no such session" });
     const bytes: unknown = req.body;
     // Length is NOT checked: an empty file is a real file, and refusing it here would mean the
     // same drop succeeds in a browser that exposes the path and fails in one that does not —

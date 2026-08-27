@@ -1,7 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
-import { createConnectionHandlers, handleCommandFrame } from "../../../server/session/pty-connection.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
+import { activity } from "../../../server/session/activity-store.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
+import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;
 const CLOSED = 3;
@@ -17,6 +20,7 @@ function fakeTerm() {
     resizes,
     term: {
       pid: 4242,
+      kill: vi.fn(),
       write: (d: string) => {
         writes.push(d);
       },
@@ -51,10 +55,6 @@ function setup(terminalModes: readonly number[] = []) {
   const calls: string[] = [];
   const currentEntries = new Map<string, PtyEntry>();
   const handlers = createConnectionHandlers({
-    cancelReap: (id) => calls.push(`cancelReap:${id}`),
-    deleteSession: (id) => {
-      calls.push(`deleteSession:${id}`);
-    },
     input: async (id, data) => {
       calls.push(`input:${id}:${data}`);
       currentEntries.get(id)?.term.write(data);
@@ -64,7 +64,7 @@ function setup(terminalModes: readonly number[] = []) {
       currentEntries.get(id)?.term.resize(cols, rows);
     },
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
-    armReapForDetached: (id) => calls.push(`armReap:${id}`),
+    releaseViewer: (id) => calls.push(`releaseViewer:${id}`),
     terminalModesOf: (id) => {
       calls.push(`terminalModes:${id}`);
       return terminalModes;
@@ -163,14 +163,6 @@ describe("handleClientFrame", () => {
     expect(t.resizes).toEqual([]);
   });
 
-  it("deletes immediately on terminate rather than waiting out the grace window", () => {
-    const { handleClientFrame, calls } = setup();
-    const s = fakeSocket();
-    const entry = entryWith({ ws: s.ws as never });
-    handleClientFrame(entry, s.ws as never, frame({ type: "terminate" }), SESSION);
-    expect(calls).toEqual([`deleteSession:${SESSION}`]);
-  });
-
   it("ignores a stale socket close after its transient pty was removed", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
@@ -231,7 +223,7 @@ describe("handleClientFrame", () => {
     const stale = fakeSocket();
     const entry = entryWith({ term: t.term as never, ws: current.ws as never });
     handleClientFrame(entry, stale.ws as never, frame({ type: "input", data: "rm -rf /" }), SESSION);
-    handleClientFrame(entry, stale.ws as never, frame({ type: "terminate" }), SESSION);
+    handleClientFrame(entry, stale.ws as never, frame({ type: "view", active: true }), SESSION);
     expect(t.writes).toEqual([]);
     expect(calls).toEqual([]);
   });
@@ -280,7 +272,7 @@ describe("handleClientFrame", () => {
 });
 
 // The Run menu's terminal has no session identity, so it accepts only input/resize —
-// never terminate, which would reach for session machinery that isn't there.
+// never Delete, which would reach for session machinery that isn't there.
 describe("handleCommandFrame", () => {
   const frame = (o: unknown) => JSON.stringify(o);
 
@@ -292,9 +284,9 @@ describe("handleCommandFrame", () => {
     expect(t.resizes).toEqual([[80, 24]]);
   });
 
-  it("ignores terminate and view — this terminal has no session to act on", () => {
+  it("ignores view — this terminal has no session to act on", () => {
     const t = fakeTerm();
-    handleCommandFrame(t.term as never, frame({ type: "terminate" }));
+    handleCommandFrame(t.term as never, frame({ type: "view", active: true }));
     handleCommandFrame(t.term as never, frame({ type: "view", active: true }));
     expect(t.writes).toEqual([]);
     expect(t.resizes).toEqual([]);
@@ -325,12 +317,12 @@ describe("handleCommandFrame", () => {
 });
 
 describe("reattachPty", () => {
-  it("cancels the pending reap and swaps in the new socket", () => {
+  it("swaps in the new socket without a lifetime timer", () => {
     const { reattachPty, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: null });
     reattachPty(entry, s.ws as never, SESSION);
-    expect(calls).toEqual([`cancelReap:${SESSION}`]);
+    expect(calls).toEqual([]);
     expect(entry.ws).toBe(s.ws);
   });
 
@@ -380,7 +372,7 @@ describe("reattachPty", () => {
     const { reattachPty, calls } = setup([1049]);
     const s = fakeSocket();
     reattachPty(entryWith({ ws: null, buffer: "sandboxed output" }), s.ws as never, SESSION);
-    expect(calls).toEqual([`cancelReap:${SESSION}`]);
+    expect(calls).toEqual([]);
     expect(s.parsed()).toEqual([{ type: "output", data: "sandboxed output" }]);
   });
 
@@ -410,7 +402,7 @@ describe("reattachPty", () => {
     const { reattachPty, calls } = setup([1049]);
     const s = fakeSocket(CLOSED);
     reattachPty(entryWith({ ws: null, buffer: "x", tmux: true }), s.ws as never, SESSION);
-    expect(calls).toEqual([`cancelReap:${SESSION}`]);
+    expect(calls).toEqual([]);
     expect(s.sent).toEqual([]);
   });
 
@@ -447,14 +439,14 @@ describe("reattachPty", () => {
 });
 
 describe("handleClientClose", () => {
-  it("detaches the socket and arms the reap", () => {
+  it("detaches the socket and releases the viewer immediately", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never, active: true });
     currentEntries.set(SESSION, entry);
     handleClientClose(entry, s.ws as never, SESSION);
     expect(entry.ws).toBeNull();
-    expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `armReap:${SESSION}`]);
+    expect(calls).toEqual([`sizeCheckCancel:${SESSION}`, `releaseViewer:${SESSION}`]);
   });
 
   it("drops a settling size check, which has nobody left to repair the screen for", () => {
@@ -486,5 +478,60 @@ describe("handleClientClose", () => {
     expect(entry.ws).toBe(current.ws); // the live socket must survive the old one's close
     expect(entry.active).toBe(true);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("viewer release", () => {
+  afterEach(() => {
+    viewerPtys.clear();
+    activity.clear();
+    unregisterCompletionHook(SESSION);
+  });
+
+  it("removes only viewer transport and leaves activity/Core-owned state untouched", () => {
+    const entry = entryWith({ tmux: true });
+    viewerPtys.set(SESSION, entry);
+    activity.set(SESSION, { working: true, waiting: false, event: "UserPromptSubmit", at: 1 });
+    const forgetTerminalSize = vi.fn();
+
+    expect(releaseViewer({ forgetTerminalSize }, SESSION)).toBe(true);
+
+    expect(viewerPtys.has(SESSION)).toBe(false);
+    expect(activity.has(SESSION)).toBe(true);
+    expect(entry.term.kill).toHaveBeenCalledOnce();
+    expect(forgetTerminalSize).toHaveBeenCalledWith(SESSION);
+  });
+
+  it("releases every viewer during shutdown without inventing session cleanup", () => {
+    const other = "22222222-3333-4444-8555-666666666666";
+    viewerPtys.set(SESSION, entryWith({ tmux: true }));
+    viewerPtys.set(other, entryWith({ tmux: true }));
+
+    expect(releaseAllViewers({ forgetTerminalSize: vi.fn() })).toEqual([SESSION, other]);
+    expect(viewerPtys.size).toBe(0);
+  });
+
+  it("does not report a worker failure when only its viewer is released", async () => {
+    const outcomes: boolean[] = [];
+    registerCompletionHook(SESSION, ({ didError }) => void outcomes.push(didError));
+    viewerPtys.set(SESSION, entryWith({ tmux: true }));
+
+    releaseViewer({ forgetTerminalSize: vi.fn() }, SESSION);
+    await runCompletionHook(SESSION, { didError: false });
+
+    expect(outcomes).toEqual([false]);
+  });
+
+  it("does not let an old PTY exit release a replacement viewer with the same id", () => {
+    const old = entryWith({ tmux: true });
+    const replacement = entryWith({ tmux: true });
+    viewerPtys.set(SESSION, replacement);
+    const forgetTerminalSize = vi.fn();
+
+    expect(releaseViewer({ forgetTerminalSize }, SESSION, old)).toBe(false);
+
+    expect(viewerPtys.get(SESSION)).toBe(replacement);
+    expect(replacement.term.kill).not.toHaveBeenCalled();
+    expect(forgetTerminalSize).not.toHaveBeenCalled();
   });
 });

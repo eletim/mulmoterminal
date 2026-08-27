@@ -1,25 +1,29 @@
 // The two PTYs that run a shell rather than an agent: the Run menu's one-off command
 // (ephemeral, no session identity) and a configured launcher (persistent and reattachable,
-// sharing the session lifecycle but with no hooks, transcript, or resume).
+// sharing Core/viewer transport but with no hooks, transcript, or resume).
 // Split from index.ts (#548 step 3c).
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";
 import { getLaunchers } from "../config/config-routes.js";
 import { launcherAt, shellInvocation } from "./shell-command.js";
 import { launcherAgent } from "./launcher-gui-mcp.js";
-import { ptys } from "./registry.js";
-import { ptySpawn, spawnPty } from "./pty-spawn.js";
+import { viewerPtys } from "./viewer-state.js";
+import { isCoreSessionExitEvent, ptySpawn, spawnPty } from "./pty-spawn.js";
 import { ptyExitLine, ptyStartLine } from "./pty-exit-log.js";
 import { sendExitAndClose, sendFrame } from "./ws-frames.js";
 import { startShellTaskWatch, stopShellTaskWatch } from "./shell-task-watch.js";
 import { appendBoundedOutput } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import type { SpawnDeps } from "./spawn-deps.js";
+import { cleanupSessionDrops } from "./session-drops.js";
+
+/** Shell watcher state belongs to the launcher process, not viewer lifetime. */
+export const cleanupShellProcessResources = stopShellTaskWatch;
 
 export function createShellSpawners(deps: SpawnDeps) {
   // Run an arbitrary shell command in a PTY and relay its I/O to the browser. Unlike
   // spawnClaudePty this is NOT a Claude session — no id, no hooks, no transcript, no
-  // reap/grace. It's an ephemeral grid terminal (the Run menu); the caller kills it
+  // persistent viewer lifecycle. It's an ephemeral grid terminal (the Run menu); the caller kills it
   // when the viewer's socket closes.
   function spawnCommandPty(command: string, cwd: string, ws: WebSocket): IPty {
     const { shell, args } = shellInvocation(command, false, process.platform, process.env.SHELL);
@@ -44,15 +48,15 @@ export function createShellSpawners(deps: SpawnDeps) {
   }
 
   // Spawn a configured launcher command as a PERSISTENT, reattachable PTY that shares
-  // the Claude session lifecycle (ptys map, reattach, reap grace) but has NO hooks,
+  // the Core-backed viewer path (viewerPtys map and reattach) but has NO hooks,
   // transcript, or resume. The command is run via the login shell with `exec` so it
   // becomes the single foreground process ($SHELL, codex, etc.) — env vars in the
   // command (e.g. $SHELL) expand, and the process stays interactive in the PTY.
-  function spawnLauncherPty(sessionId: string, ws: WebSocket | null, command: string, cwd: string): PtyEntry {
+  function spawnLauncherPty(sessionId: string, ws: WebSocket | null, command: string, cwd: string, coreSessionExists = false): PtyEntry {
     // Persistent: reattaches a surviving tmux session (command ignored) or creates one.
     const { shell, args } = shellInvocation(command, true, process.platform, process.env.SHELL);
     const agent = launcherAgent(command);
-    const { term, tmux, reattached } = ptySpawn(sessionId, shell, args, cwd, true, { agent });
+    const { term, tmux, reattached } = ptySpawn(sessionId, shell, args, cwd, true, { agent, coreSessionExists });
     const spawnedAtMs = Date.now();
     // The command is only what a FRESH session runs — an attach picked up whatever was already
     // there — so naming it on that line would describe a program nobody started.
@@ -62,21 +66,23 @@ export function createShellSpawners(deps: SpawnDeps) {
     // then counts this session as the worktree's occupant, the phone offers input that suits it,
     // and a draft is submitted the way that agent expects. Anything else stays a shell (#1208).
     const entry: PtyEntry = { term, ws, buffer: "", cwd, tmux, active: false, agent };
-    ptys.set(sessionId, entry);
-    deps.inputReadiness?.markSessionLive(sessionId, entry.agent);
+    viewerPtys.set(sessionId, entry);
     startShellTaskWatch(sessionId, entry, { setWorking: deps.setWorking, setWaiting: deps.setWaiting });
 
     term.onData((data) => {
       entry.buffer = appendBoundedOutput(entry.buffer, data, deps.outputBufferLimit);
       sendFrame(entry.ws, { type: "output", data });
-      deps.inputReadiness?.noteOutput(sessionId, entry.agent, data);
     });
-    term.onExit(({ exitCode, signal }) => {
-      stopShellTaskWatch(sessionId);
-      deps.inputReadiness?.markSessionStopped(sessionId);
+    term.onExit((event) => {
+      const { exitCode, signal } = event;
+      if (isCoreSessionExitEvent(event)) {
+        cleanupShellProcessResources(sessionId);
+        cleanupSessionDrops(sessionId);
+        deps.endSessionActivity(sessionId);
+      }
       console.log(ptyExitLine({ agent: "launcher", exitCode, signal, lifetimeMs: Date.now() - spawnedAtMs, cwd, sessionId }));
       sendExitAndClose(entry.ws, exitCode, signal);
-      deps.reap(sessionId);
+      deps.releaseViewer(sessionId, entry);
     });
     return entry;
   }

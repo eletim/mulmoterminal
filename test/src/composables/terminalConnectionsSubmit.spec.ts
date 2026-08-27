@@ -139,6 +139,31 @@ describe("submitText / pasteAndSubmit — delayed submit follows terminalSubmit 
     }
   });
 
+  it("cancels delayed submit bytes when confirmed Delete starts after text was sent", () => {
+    vi.useFakeTimers();
+    try {
+      const submitWs = openCell("cell-delayed-submit", target(null));
+      expect(conn.submitText("cell-delayed-submit", "first")).toBe(true);
+      conn.setInputEnabled("cell-delayed-submit", false);
+      conn.setInputEnabled("cell-delayed-submit", true); // a fast Delete failure must not revive this timer
+      vi.advanceTimersByTime(60);
+      expect(submitWs.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "input")).toEqual([{ type: "input", data: "first " }]);
+      conn.release("cell-delayed-submit");
+
+      const pasteWs = openCell("cell-delayed-paste", target(null));
+      expect(conn.pasteAndSubmit("cell-delayed-paste", "second")).toBe(true);
+      conn.setInputEnabled("cell-delayed-paste", false);
+      conn.setInputEnabled("cell-delayed-paste", true);
+      vi.advanceTimersByTime(200);
+      expect(pasteWs.sent.map((frame) => JSON.parse(frame)).filter((frame) => frame.type === "input")).toEqual([
+        { type: "input", data: "\u001b[200~second \u001b[201~" },
+      ]);
+      conn.release("cell-delayed-paste");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("submitText: the default cr mode still submits with plain \\r", () => {
     vi.useFakeTimers();
     try {

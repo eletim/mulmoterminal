@@ -3,7 +3,6 @@ import { describe, it, expect, vi } from "vitest";
 
 import {
   SCREEN_HISTORY_ROWS,
-  agentFromPaneCommand,
   buildScreenMeta,
   buildSessionList,
   captureSessionScreen,
@@ -12,6 +11,7 @@ import {
   sessionFallbackTitle,
   type CaptureScreenDeps,
   type ScreenMetaSources,
+  type SessionListCoreSession,
   type SessionListInput,
 } from "../../../server/mobileTerminal/terminalScreen.js";
 import { homedir } from "node:os";
@@ -26,54 +26,16 @@ const undefinedPaths = (value: unknown, path = "$"): string[] => {
   return Object.entries(value).flatMap(([key, entry]) => undefinedPaths(entry, `${path}.${key}`));
 };
 
-const listInput = (over: Partial<SessionListInput> = {}): SessionListInput => ({
-  liveIds: [],
-  tmuxIds: [],
-  detailOf: (id) => ({ title: id, cwd: "/w", agent: "shell" as const }),
+const coreSession = (id: string, over: Partial<SessionListCoreSession> = {}): SessionListCoreSession => ({
+  id,
+  exited: false,
+  title: id,
+  cwd: "/w",
+  agent: "shell",
   ...over,
 });
 
-// A session that outlived the server has no PtyEntry left, so the kind is recovered
-// from what tmux says is running in it now.
-describe("agentFromPaneCommand", () => {
-  it("recognises the agents the phone treats specially", () => {
-    expect(agentFromPaneCommand("claude")).toBe("claude");
-    expect(agentFromPaneCommand("codex")).toBe("codex");
-    // The pane runs `agy`, and the kind is "antigravity" — the one place the two names differ,
-    // which is exactly why a session that outlived a restart used to come back as a shell.
-    expect(agentFromPaneCommand("agy")).toBe("antigravity");
-  });
-
-  // A pane reports the RUNNING program's name, so an overridden binary has a different one.
-  // The default stays recognised either way, or setting the variable would un-recognise every
-  // session started before it.
-  it("also recognises a binary the user pointed *_BIN at", () => {
-    const previous = process.env.ANTIGRAVITY_BIN;
-    process.env.ANTIGRAVITY_BIN = "/opt/bin/agy-next";
-    try {
-      expect(agentFromPaneCommand("agy-next")).toBe("antigravity");
-      expect(agentFromPaneCommand("agy")).toBe("antigravity");
-    } finally {
-      if (previous === undefined) delete process.env.ANTIGRAVITY_BIN;
-      else process.env.ANTIGRAVITY_BIN = previous;
-    }
-  });
-
-  // Anything else is where typed commands belong, which is what "shell" means here —
-  // zsh, bash, or a one-off program the phone has no special input for.
-  it("treats anything else as a shell", () => {
-    expect(agentFromPaneCommand("zsh")).toBe("shell");
-    expect(agentFromPaneCommand("bash")).toBe("shell");
-    expect(agentFromPaneCommand("vim")).toBe("shell");
-  });
-
-  // Null means "cannot tell", and must stay distinguishable from "shell": the phone
-  // withholds suggestions rather than guessing.
-  it("stays unknown when tmux has no answer", () => {
-    expect(agentFromPaneCommand(null)).toBeNull();
-    expect(agentFromPaneCommand("")).toBeNull();
-  });
-});
+const listInput = (over: Partial<SessionListInput> = {}): SessionListInput => ({ sessions: [], ...over });
 
 describe("buildSessionList", () => {
   it("returns nothing when there are no sessions", () => {
@@ -84,14 +46,7 @@ describe("buildSessionList", () => {
   // to be able to tell a zsh session from an agent — and to tell "unknown" apart from
   // both (mulmoserver#84).
   it("carries what each session is running, and null when the host cannot tell", () => {
-    const agents: Record<string, "claude" | "shell" | null> = { a: "shell", b: "claude", c: null };
-    const sessions = buildSessionList(
-      listInput({
-        liveIds: ["a", "b"],
-        tmuxIds: ["c"],
-        detailOf: (id) => ({ title: id, cwd: "/w", agent: agents[id] }),
-      }),
-    );
+    const sessions = buildSessionList(listInput({ sessions: [coreSession("a"), coreSession("b", { agent: "claude" }), coreSession("c", { agent: null })] }));
     expect(sessions.map((session) => [session.id, session.agent])).toEqual([
       ["a", "shell"],
       ["b", "claude"],
@@ -99,48 +54,33 @@ describe("buildSessionList", () => {
     ]);
   });
 
-  it("marks live sessions and unions in the tmux-only ones", () => {
-    const sessions = buildSessionList(listInput({ liveIds: ["a"], tmuxIds: ["b"] }));
+  it("cannot create or change Core rows from viewer occupancy", () => {
+    const viewerIds = new Set(["a", "viewer-only"]);
+    const sessions = buildSessionList(listInput({ sessions: [coreSession("a"), coreSession("b")] }));
     expect(sessions).toEqual([
       { id: "a", title: "a", cwd: "/w", live: true, inputAvailable: true, agent: "shell" },
-      { id: "b", title: "b", cwd: "/w", live: false, inputAvailable: true, agent: "shell" },
+      { id: "b", title: "b", cwd: "/w", live: true, inputAvailable: true, agent: "shell" },
     ]);
+    expect(viewerIds.has("a")).toBe(true);
+    expect(sessions.some((session) => session.id === "viewer-only")).toBe(false);
   });
 
-  it("unions in bounded non-live candidates supplied by the host", () => {
-    const sessions = buildSessionList(listInput({ candidateIds: ["waiting"], detailOf: () => ({ title: "Needs review", cwd: "/w", agent: "claude" }) }));
-    expect(sessions).toEqual([{ id: "waiting", title: "Needs review", cwd: "/w", live: false, inputAvailable: false, agent: "claude" }]);
-  });
-
-  it("separates attached/live display from mobile input availability", () => {
-    const sessions = buildSessionList(listInput({ liveIds: ["live"], tmuxIds: ["detached"], candidateIds: ["candidate"] }));
-    expect(sessions.map((session) => [session.id, session.live, session.inputAvailable])).toEqual([
-      ["live", true, true],
-      ["candidate", false, false],
-      ["detached", false, true],
-    ]);
-  });
-
-  // A session is both attached AND in tmux in the normal case — it must appear once.
-  it("dedupes a session present in both sources", () => {
-    const sessions = buildSessionList(listInput({ liveIds: ["a"], tmuxIds: ["a"] }));
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0].live).toBe(true);
-  });
-
-  it("does not decide existence from resumability or grid placement", () => {
-    const sessions = buildSessionList(listInput({ candidateIds: ["history"], liveIds: ["chat"], tmuxIds: ["shell"] }));
-    expect(sessions.map((s) => s.id)).toEqual(["chat", "history", "shell"]);
-  });
-
-  // Resumable keeps anything with a transcript on disk, which on a working machine is
-  // dozens of finished sessions the host can no longer name. A bare UUID is not a
-  // choice the user can make.
-  it("drops a nameless session that is not running", () => {
+  it("derives input capability from Core native lifecycle, not viewer presence", () => {
     const sessions = buildSessionList(
-      listInput({ tmuxIds: ["named", "nameless"], detailOf: (id) => ({ title: id === "named" ? "Fix parser" : "", cwd: "", agent: null }) }),
+      listInput({
+        sessions: [coreSession("running-viewed"), coreSession("running-detached"), coreSession("exited", { exited: true })],
+      }),
     );
-    expect(sessions.map((session) => session.id)).toEqual(["named"]);
+    expect(sessions.map((session) => [session.id, session.live, session.inputAvailable])).toEqual([
+      ["running-detached", true, true],
+      ["running-viewed", true, true],
+      ["exited", false, false],
+    ]);
+  });
+
+  it("keeps every Core member even when presentation metadata is nameless", () => {
+    const sessions = buildSessionList(listInput({ sessions: [coreSession("nameless", { exited: true, title: "", cwd: "", agent: null })] }));
+    expect(sessions).toEqual([{ id: "nameless", title: "terminal session", cwd: "", live: false, inputAvailable: false, agent: null }]);
   });
 
   // Live earns a row regardless: the fallback names what is running and where, without exposing
@@ -148,7 +88,7 @@ describe("buildSessionList", () => {
   it("keeps a nameless live shell labelled by agent and home-derived directory, not by its id", () => {
     const id = "11111111-1111-1111-1111-111111111111";
     const cwd = `${homedir()}/DevEnv/dev/mulmoterminal`;
-    const sessions = buildSessionList(listInput({ liveIds: [id], detailOf: () => ({ title: "", cwd, agent: "shell" }) }));
+    const sessions = buildSessionList(listInput({ sessions: [coreSession(id, { title: "", cwd })] }));
     expect(sessions).toEqual([{ id, title: "shell DevEnv", cwd, live: true, inputAvailable: true, agent: "shell" }]);
   });
 
@@ -156,8 +96,7 @@ describe("buildSessionList", () => {
     const id = "11111111-1111-1111-1111-111111111111";
     const sessions = buildSessionList(
       listInput({
-        liveIds: [id],
-        detailOf: () => ({ title: sessionDisplayName(null, null, "fix the login bug", undefined), cwd: "/repo", agent: "claude" }),
+        sessions: [coreSession(id, { title: sessionDisplayName(null, null, "fix the login bug", undefined), cwd: "/repo", agent: "claude" })],
       }),
     );
     expect(sessions[0]).toMatchObject({ id, title: "fix the login bug" });
@@ -165,24 +104,32 @@ describe("buildSessionList", () => {
 
   it("does not replace a known non-empty title with the fallback", () => {
     const id = "11111111-1111-1111-1111-111111111111";
-    const sessions = buildSessionList(listInput({ liveIds: [id], detailOf: () => ({ title: "Known title", cwd: `${homedir()}/DevEnv/app`, agent: "codex" }) }));
+    const sessions = buildSessionList(listInput({ sessions: [coreSession(id, { title: "Known title", cwd: `${homedir()}/DevEnv/app`, agent: "codex" })] }));
     expect(sessions[0]).toMatchObject({ id, title: "Known title" });
   });
 
   // A session that outlived a host restart keeps its recorded title, so it stays offerable.
   it("keeps a named session that is no longer live", () => {
-    const sessions = buildSessionList(listInput({ tmuxIds: ["survivor"], detailOf: () => ({ title: "Overnight build", cwd: "/w", agent: null }) }));
+    const sessions = buildSessionList(listInput({ sessions: [coreSession("survivor", { exited: true, title: "Overnight build", agent: null })] }));
     expect(sessions.map((session) => session.title)).toEqual(["Overnight build"]);
   });
 
   it("orders live sessions first, then by title", () => {
     const titles: Record<string, string> = { z: "zulu", a: "alpha", m: "mike" };
-    const sessions = buildSessionList(listInput({ liveIds: ["z"], tmuxIds: ["a", "m"], detailOf: (id) => ({ title: titles[id], cwd: "/w", agent: "shell" }) }));
+    const sessions = buildSessionList(
+      listInput({
+        sessions: [
+          coreSession("z", { title: titles.z }),
+          coreSession("a", { exited: true, title: titles.a }),
+          coreSession("m", { exited: true, title: titles.m }),
+        ],
+      }),
+    );
     expect(sessions.map((s) => s.title)).toEqual(["zulu", "alpha", "mike"]);
   });
 
   it("carries the per-session title and cwd through", () => {
-    const sessions = buildSessionList(listInput({ liveIds: ["a"], detailOf: () => ({ title: "Fix the parser", cwd: "/repo", agent: "shell" }) }));
+    const sessions = buildSessionList(listInput({ sessions: [coreSession("a", { title: "Fix the parser", cwd: "/repo" })] }));
     expect(sessions[0]).toMatchObject({ title: "Fix the parser", cwd: "/repo" });
   });
 });
@@ -264,40 +211,28 @@ describe("screenWindow", () => {
 });
 
 const captureDeps = (over: Partial<CaptureScreenDeps> = {}): CaptureScreenDeps => ({
-  captureStyledPane: () => null,
-  sourceOf: () => ({ buffer: "buffered", cols: 80, rows: 24 }),
-  render: async ({ buffer }) => [{ text: `rendered:${buffer}`, dim: "" }],
+  captureStyledPane: () => "core screen",
   ...over,
 });
 
 describe("captureSessionScreen", () => {
-  it("prefers tmux, which renders the real screen even while detached", async () => {
-    const render = vi.fn();
-    const captured = await captureSessionScreen("a", captureDeps({ captureStyledPane: () => "from tmux\n\n", render }));
+  it("renders the Core/tmux screen even while detached", async () => {
+    const captured = await captureSessionScreen("a", captureDeps({ captureStyledPane: () => "from tmux\n\n" }));
     expect(captured.screen).toBe("from tmux");
-    expect(render).not.toHaveBeenCalled();
   });
 
-  it("renders the in-process buffer when tmux has no such session", async () => {
-    expect((await captureSessionScreen("a", captureDeps())).screen).toBe("rendered:buffered");
+  it("reports not-found when Core/tmux has no session, regardless of viewer replay state", async () => {
+    const depsWithLegacyViewerFallback = {
+      ...captureDeps({ captureStyledPane: () => null }),
+      sourceOf: () => ({ buffer: "viewer replay", cols: 80, rows: 24 }),
+      render: async () => [{ text: "must not render", dim: "" }],
+    };
+    await expect(captureSessionScreen("gone", depsWithLegacyViewerFallback)).rejects.toThrow(/'gone' not found/);
   });
 
-  // The session can end between the phone listing it and reading it.
-  it("reports a session that exists in neither place", async () => {
-    await expect(captureSessionScreen("gone", captureDeps({ sourceOf: () => undefined }))).rejects.toThrow(/'gone' not found/);
-  });
-
-  it("passes the terminal's own geometry to the renderer", async () => {
-    const render = vi.fn(async () => []);
-    await captureSessionScreen("a", captureDeps({ sourceOf: () => ({ buffer: "b", cols: 120, rows: 30 }), render }));
-    expect(render).toHaveBeenCalledWith({ buffer: "b", cols: 120, rows: 30 });
-  });
-
-  // An empty pane is a real answer, not a miss — it must not fall through to the buffer.
+  // An empty pane is a real Core answer, not a miss.
   it("treats an empty tmux capture as authoritative", async () => {
-    const render = vi.fn();
-    expect((await captureSessionScreen("a", captureDeps({ captureStyledPane: () => "", render }))).screen).toBe("");
-    expect(render).not.toHaveBeenCalled();
+    expect((await captureSessionScreen("a", captureDeps({ captureStyledPane: () => "" }))).screen).toBe("");
   });
 
   // The phone has no Tab key, so the agent's ghost text has to arrive as its own value.
@@ -307,7 +242,7 @@ describe("captureSessionScreen", () => {
     expect(captured).toEqual({ screen: "────\n❯ write the tests\n────", suggestion: "write the tests", quickCommands: [] });
   });
 
-  it("reports no suggestion when the fallback renderer is the source", async () => {
+  it("reports no suggestion when the Core screen has none", async () => {
     expect((await captureSessionScreen("a", captureDeps())).suggestion).toBe("");
   });
 
@@ -317,7 +252,7 @@ describe("captureSessionScreen", () => {
     const metaOf = vi.fn(async () => ({ cwd: "/repo", branch: "feat/786", summary: "Adding meta", prompt: "add branch to the phone view" }));
     const captured = await captureSessionScreen("a", captureDeps({ metaOf }));
     expect(captured).toEqual({
-      screen: "rendered:buffered",
+      screen: "core screen",
       suggestion: "",
       quickCommands: [],
       cwd: "/repo",
@@ -353,11 +288,11 @@ describe("captureSessionScreen", () => {
   // renders the screen alone.
   it("sends only the screen when the host has no metadata to add", async () => {
     const captured = await captureSessionScreen("a", captureDeps({ metaOf: async () => ({ cwd: "", branch: "", memo: "", summary: "", prompt: "" }) }));
-    expect(captured).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
+    expect(captured).toEqual({ screen: "core screen", suggestion: "", quickCommands: [] });
   });
 
   it("sends only the screen when no metadata reader is wired at all", async () => {
-    expect(await captureSessionScreen("a", captureDeps())).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
+    expect(await captureSessionScreen("a", captureDeps())).toEqual({ screen: "core screen", suggestion: "", quickCommands: [] });
   });
 
   // Metadata decorates the screen: a git call that blew up or a dir that has since been
@@ -366,29 +301,7 @@ describe("captureSessionScreen", () => {
     const metaOf = vi.fn(async () => {
       throw new Error("git exploded");
     });
-    expect(await captureSessionScreen("a", captureDeps({ metaOf }))).toEqual({ screen: "rendered:buffered", suggestion: "", quickCommands: [] });
-  });
-
-  // Reading the metadata shells out to git, so it must not queue behind the capture.
-  it("reads the metadata concurrently with the screen", async () => {
-    const order: string[] = [];
-    const captured = await captureSessionScreen(
-      "a",
-      captureDeps({
-        render: async () => {
-          order.push("render:start");
-          await Promise.resolve();
-          order.push("render:end");
-          return [{ text: "screen", dim: "" }];
-        },
-        metaOf: async () => {
-          order.push("meta:start");
-          return { branch: "main" };
-        },
-      }),
-    );
-    expect(order).toEqual(["render:start", "meta:start", "render:end"]);
-    expect(captured.branch).toBe("main");
+    expect(await captureSessionScreen("a", captureDeps({ metaOf }))).toEqual({ screen: "core screen", suggestion: "", quickCommands: [] });
   });
 });
 
@@ -544,12 +457,10 @@ describe("buildSessionList — defined JSON shape (#1042)", () => {
 
   const listWith = (work: Map<string, typeof WORK>) =>
     buildSessionList({
-      liveIds: ["with-work", "without-work"],
-      tmuxIds: [],
-      detailOf: (id) => {
+      sessions: ["with-work", "without-work"].map((id) => {
         const summary = work.get(`/work/${id}`);
-        return { title: `session ${id}`, cwd: `/work/${id}`, agent: "claude" as const, ...(summary ? { work: summary } : {}) };
-      },
+        return { id, exited: false, title: `session ${id}`, cwd: `/work/${id}`, agent: "claude" as const, ...(summary ? { work: summary } : {}) };
+      }),
     });
 
   it("omits the key entirely for a session with no work item", () => {

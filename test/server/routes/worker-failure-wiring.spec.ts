@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
-// The registry persists what it records. node:fs is MOCKED rather than pointing HOME at a temp
+// The history owner persists what it records. node:fs is MOCKED rather than pointing HOME at a temp
 // dir (tool-group-reset.spec's pattern): process.env is shared by every file in a vitest worker,
 // so moving HOME here reached specs with nothing to do with this one and failed them
 // intermittently. What is under test is the in-memory decision; persistence has its own spec.
@@ -25,7 +25,7 @@ vi.mock("node:fs", () => {
 
 const { mountPluginRoutes } = await import("../../../server/routes/plugin-routes.js");
 const { runCompletionHook } = await import("../../../server/session/completion-hooks.js");
-const { isFailedWorker } = await import("../../../server/session/registry.js");
+const { isFailedWorkerHistory } = await import("../../../server/session/history-state.js");
 
 const app = express();
 app.use(express.json());
@@ -45,24 +45,24 @@ async function spawn(hidden: boolean, agent = "claude"): Promise<string> {
 describe("a hidden worker that ends badly", () => {
   it("is recorded when its run reaches teardown unfinished", async () => {
     const id = await spawn(true);
-    expect(isFailedWorker(id)).toBe(false); // nothing decided while it runs
+    expect(isFailedWorkerHistory(id)).toBe(false); // nothing decided while it runs
 
-    // What lifecycle.reap() does for a session that never reported a finished turn.
+    // What the agent process owner does when a session never reported a finished turn.
     await runCompletionHook(id, { didError: true });
 
-    expect(isFailedWorker(id)).toBe(true);
+    expect(isFailedWorkerHistory(id)).toBe(true);
   });
 
-  // The contract reap depends on. It fires the hook and then reads the flag on the very next
+  // The process-owner contract depends on synchronous recording before it publishes exit on the next
   // line, so it can put the outcome on the SAME teardown message — which is what stops the
   // generic notification racing ahead of the specific one. If this recorder ever became async,
-  // reap would publish `failed: false` and the failure would go unannounced, silently.
-  it("records SYNCHRONOUSLY, so reap can read the flag on the next line", async () => {
+  // owner step would publish `failed: false` and the failure would go unannounced, silently.
+  it("records SYNCHRONOUSLY, so the process owner can read the flag next", async () => {
     const id = await spawn(true);
 
-    void runCompletionHook(id, { didError: true }); // deliberately NOT awaited, as reap calls it
+    void runCompletionHook(id, { didError: true }); // deliberately NOT awaited, as the exit owner calls it
 
-    expect(isFailedWorker(id)).toBe(true);
+    expect(isFailedWorkerHistory(id)).toBe(true);
   });
 
   it("is NOT recorded when its turn finished first", async () => {
@@ -71,9 +71,9 @@ describe("a hidden worker that ends badly", () => {
     // be marked failed the moment it was cleaned up.
     const id = await spawn(true);
     await runCompletionHook(id, { didError: false });
-    await runCompletionHook(id, { didError: true }); // reap, moments later
+    await runCompletionHook(id, { didError: true }); // process exit, moments later
 
-    expect(isFailedWorker(id)).toBe(false);
+    expect(isFailedWorkerHistory(id)).toBe(false);
   });
 
   // Codex, on this PR. The only success signal a PTY-hosted agent gives us is Claude Code's Stop
@@ -83,7 +83,7 @@ describe("a hidden worker that ends badly", () => {
   it.each(["codex", "antigravity"])("says nothing for a hidden %s worker, which cannot report success", async (agent) => {
     const id = await spawn(true, agent);
     await runCompletionHook(id, { didError: true });
-    expect(isFailedWorker(id)).toBe(false);
+    expect(isFailedWorkerHistory(id)).toBe(false);
   });
 
   it("says nothing for a WATCHED session that dies", async () => {
@@ -92,6 +92,6 @@ describe("a hidden worker that ends badly", () => {
     const id = await spawn(false);
     await runCompletionHook(id, { didError: true });
 
-    expect(isFailedWorker(id)).toBe(false);
+    expect(isFailedWorkerHistory(id)).toBe(false);
   });
 });

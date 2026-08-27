@@ -23,7 +23,14 @@ export interface ActivityNotifyState {
   announced: boolean;
 }
 
-export const isActivityNotifyMsg = (d: unknown): d is ActivityNotifyMsg => typeof d === "object" && d !== null && "id" in d;
+export const isActivityNotifyMsg = (d: unknown): d is ActivityNotifyMsg => {
+  if (typeof d !== "object" || d === null) return false;
+  return (
+    "id" in d &&
+    typeof d.id === "string" &&
+    (("working" in d && typeof d.working === "boolean") || ("waiting" in d && typeof d.waiting === "boolean") || "event" in d)
+  );
+};
 
 function rawKind(was: ActivityNotifyState, now: ActivityNotifyState, event: string | null): NotifyKind | null {
   const attentionRose = !was.waiting && now.waiting;
@@ -41,7 +48,7 @@ export function activityNotifyStateOf(msg: Pick<ActivityNotifyMsg, "working" | "
  * baseline only. Mutates `prev` to the latest state.
  */
 export function notifyKindOf(prev: Map<string, ActivityNotifyState>, msg: ActivityNotifyMsg): NotifyKind | null {
-  if (msg.event === "closed") {
+  if (msg.event === "closed" || msg.event === "exited") {
     const seen = prev.delete(msg.id);
     if (msg.failed) return "worker-failed";
     return seen ? "session-exited" : null;

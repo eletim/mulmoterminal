@@ -6,7 +6,7 @@
 // routes must precede mountAllRoutes' /api/plugin/:toolName catch-all, and the SPA fallback
 // must come after the static mount.
 //
-// What arrives as deps is what index.ts owns: the spawners, the session lifecycle, the title
+// What arrives as deps is what index.ts owns: the spawners, activity service, the title
 // manager, the tool stores, and `publish` (pub/sub exists only once the HTTP server does).
 import path from "node:path";
 import { sameOriginGuard } from "./same-origin-guard.js";
@@ -15,13 +15,14 @@ import { mountAllRoutes } from "../infra/plugins-registry.js";
 import { mountConfigRoutes } from "../config/config-routes.js";
 import { mountFilesBrowseRoutes } from "../files/files-browse.js";
 import { mountDirectoryPickerRoutes } from "../files/directories.js";
-import { mountTmuxRoutes } from "../infra/tmux-routes.js";
+import { mountTerminalDeleteRoute } from "./terminal-delete-route.js";
 import { mountHookRoute } from "../routes/hook-routes.js";
 import { mountPluginRoutes } from "../routes/plugin-routes.js";
 import { mountMcpRoutes } from "../routes/mcp-routes.js";
 import { guiCallRecorderFor, historyIsGuiOnly } from "../mcp/gui-call-history.js";
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import { mountSessionRoutes } from "../routes/session-routes.js";
+import { SESSIONS_CHANNEL } from "../session/session-activity.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountGithubStarRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
@@ -38,7 +39,7 @@ import { mountNotificationRoutes } from "../backends/notifier.js";
 import { mountWhisperRoutes } from "../backends/whisper.js";
 import { mountSchedulerRoutes } from "../backends/scheduler.js";
 import { mountFilesRoutes } from "../backends/files.js";
-import { hookedSessions, ptys, sessionToolGroups, sessionToolGroupsHydrated, hasAllGuiTools, allToolsSessionsHydrated } from "../session/registry.js";
+import { viewerPtys } from "../session/viewer-state.js";
 import { mountMobileModeRoute } from "./mobile-mode-route.js";
 import { mountTranslationRoutes } from "../backends/translation.js";
 import { mountHtmlDispatchRoute, mountHtmlFileRoute, mountHtmlPreviewRoute } from "../backends/html.js";
@@ -60,6 +61,7 @@ import { mountRateLimitRoutes, type RateLimitRouteDeps } from "../agents/rate-li
 import { workspaceForRoute } from "./routeParams.js";
 import type { MobileWebPushActivityNotification } from "../mobile-web-push/activity-notifier.js";
 import { coreSessions, CoreSessionNotFoundError } from "../session/core-session-adapter.js";
+import { waitForPendingTerminalLaunch } from "../session/pending-terminal-launch.js";
 
 export interface AppRouteDeps extends SessionActivityDeps {
   clientDir: string;
@@ -70,14 +72,14 @@ export interface AppRouteDeps extends SessionActivityDeps {
   toolStores: ReturnType<typeof createToolStores>;
   /** What a session is running, or null when the host cannot tell. Gates the broker's own
    *  tool-call history — see mcp/gui-call-history.ts. */
-  agentOfSession: (id: string) => SessionAgent | null;
+  agentOfSession: (id: string) => Promise<SessionAgent | null>;
   toolSummaries: Parameters<typeof mountToolRoutes>[1]["toolSummaries"];
   spawnClaudePty: ReturnType<typeof createClaudeSpawner>["spawnClaudePty"];
   spawnCodexPty: ReturnType<typeof createCodexSpawner>["spawnCodexPty"];
   spawnAntigravityPty: ReturnType<typeof createAntigravitySpawner>["spawnAntigravityPty"];
   translateViaHiddenChat: ReturnType<typeof createTranslationWorker>["translateViaHiddenChat"];
+  deleteTerminalSession: (id: string) => Promise<void>;
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
-  reap: (id: string) => void;
   registerBackgroundSession: (id: string) => void;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
 }
@@ -89,14 +91,14 @@ const DIR_CONFIG_CHANNEL = "dir-config";
 // whether the pane tells the user it holds the GUI tools alone. Read here so the two answers are
 // built from one reading of the session — they are not the same question (the claim is stricter,
 // see historyIsGuiOnly), but they must never be built from different facts.
-const sessionCallReporting = (deps: AppRouteDeps, sessionId: string) => ({
-  agent: deps.agentOfSession(sessionId),
-  reportsOwnCalls: hookedSessions.has(sessionId),
-});
+const sessionCallReporting = async (sessionId: string) => {
+  const session = await coreSessions.find(sessionId);
+  return { agent: session?.agent ?? null, reportsOwnCalls: session?.reportsOwnCalls ?? false };
+};
 
 const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
   freshenRosterTitle: deps.freshenRosterTitle,
-  publishActivity: deps.publishActivity,
+  publishMemo: (id, memo) => deps.publish(SESSIONS_CHANNEL, { id, memo: memo || null }),
   listCoreSessions: () => coreSessions.list(),
   getCoreSession: async (id) => {
     try {
@@ -106,8 +108,8 @@ const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRou
       throw error;
     }
   },
-  hasLivePty: (id) => ptys.has(id),
-  hasViewer: (id) => !!ptys.get(id)?.ws,
+  hasLivePty: (id) => viewerPtys.has(id),
+  hasViewer: (id) => !!viewerPtys.get(id)?.ws,
   setCoreMemo: async (id, memo) => {
     try {
       await coreSessions.setMemo(id, memo);
@@ -136,7 +138,9 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
 
   // Ahead of express.json, carrying its own raw parser: a dropped file is bytes under its own
   // content type, and a dropped .json would otherwise be parsed as a document rather than saved.
-  mountDropRoutes(app);
+  mountDropRoutes(app, {
+    hasSession: async (id) => (await coreSessions.find(id)) !== null,
+  });
 
   app.use(express.json({ limit: "25mb" }));
 
@@ -184,7 +188,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // Raw file serving (GET /api/files/raw?path=[&cwd=]) — backs collection image/file
   // fields, custom-view <img> URLs, and terminal file-path links. Rooted at the shared
   // workspace; a `?cwd=` is honoured only for a live session's own directory.
-  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: () => [...ptys.values()].map((entry) => entry.cwd) });
+  mountFilesRoutes(app, { workspace: CLAUDE_CWD, sessionCwds: () => coreSessions.listCwds() });
 
   // Serve presentHtml pages for the View's iframe (GET /artifacts/html/<rest>) with an
   // HTML preview CSP. The View navigates the iframe to this URL (htmlArtifactPreviewUrl).
@@ -217,7 +221,9 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
     // codex and agy have no hooks, so the broker is the only place their tool calls can reach
     // the tools pane's history. Claude's do NOT come through here — it would double every entry
     // its own PreToolUse/PostToolUse already writes.
-    guiCallHistory: (sessionId) => guiCallRecorderFor(sessionId, sessionCallReporting(deps, sessionId), deps.toolStores),
+    guiCallHistory: async (sessionId) => guiCallRecorderFor(sessionId, await sessionCallReporting(sessionId), deps.toolStores),
+    isInternalSession: async (sessionId) => (await coreSessions.find(sessionId))?.visibility === "internal",
+    learnGuiCapabilities: (sessionId, groups, allTools) => coreSessions.learnGuiCapabilities(sessionId, groups, allTools),
   });
 
   // Serve Vite build output. CSS is mounted first so a package built for "/" can
@@ -233,7 +239,7 @@ export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {
   // prefix — see server/spa-fallback.ts for why that's sufficient.
   mountSpaFallback(app, distDir, { basePath: MULMOTERMINAL_BASE_PATH });
 
-  // The Claude hook endpoint (routes/hook-routes.ts). Session lifecycle, the title
+  // The Claude hook endpoint (routes/hook-routes.ts). Activity, title
   // bookkeeping and the tool stores stay here; the fan-out that reads them moves out.
   mountSessionFacingRoutes(app, deps);
 }
@@ -257,6 +263,9 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
     // Express serves the built SPA on PORT; under `yarn dev` the UI is Vite's own server,
     // whose port the backend only knows when CLIENT_PORT is set in its environment.
     uiPort: String(process.env.CLIENT_PORT || PORT),
+    sessionCwd: async (id) => (await coreSessions.find(id))?.cwd,
+    sessionHistoryId: async (id) => (await coreSessions.find(id))?.resumeSource ?? undefined,
+    sessionAgent: deps.agentOfSession,
     ...(deps.notifyMobileWebPushActivity ? { notifyMobileWebPushActivity: deps.notifyMobileWebPushActivity } : {}),
   });
 
@@ -265,15 +274,15 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   mountToolRoutes(app, {
     stores: deps.toolStores,
     toolSummaries: deps.toolSummaries,
-    sessionToolGroups,
-    sessionToolGroupsHydrated,
-    hasAllGuiTools,
-    allToolsSessionsHydrated,
+    sessionGuiCapabilities: async (id) => {
+      const session = await coreSessions.find(id);
+      return session ? { groups: session.guiToolGroups, allTools: session.allGuiTools } : { groups: [], allTools: false };
+    },
     isGridSession: () => true,
     // Built from the same two signals as the broker's recorder, but with the stricter rule the
     // user-facing claim needs — see historyIsGuiOnly for why the pane must not answer this the
     // moment a session id exists.
-    guiOnlyHistory: (id) => historyIsGuiOnly(sessionCallReporting(deps, id)),
+    guiOnlyHistory: async (id) => historyIsGuiOnly(await sessionCallReporting(id)),
     publish: (c, d) => deps.publish(c, d),
     sessionChannel: deps.sessionChannel,
   });
@@ -312,7 +321,7 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // GRID-ONLY (dev_tool): /api/worktrees — detect a git repo, list/create/remove the
   // per-agent worktrees a cell launches into, so several agents work one repo in
   // isolated working trees.
-  mountWorktreeRoutes(app, { isAllowedOrigin: deps.isAllowedOrigin });
+  mountWorktreeRoutes(app, { isAllowedOrigin: deps.isAllowedOrigin, listCoreSessions: () => coreSessions.list() });
 
   // POST /api/pick-file opens the OS file dialog and returns the chosen absolute
   // path(s) — how a browser tab inserts a real filesystem path into the terminal
@@ -344,14 +353,13 @@ function mountSessionFacingRoutes(app: Express, deps: AppRouteDeps): void {
   // codex's own sessions (see routes/session-routes.ts).
   mountSessionRoutes(app, sessionRouteDeps(deps));
 
-  // Explicit close (reliable HTTP fallback for logical deletion) + one-shot orphan cleanup. Extracted to a
-  // module so the origin guard / id validation / orphan-selection boundary are testable.
-  mountTmuxRoutes(app, {
+  // Desktop close waits for this request/response Delete before removing its cell. WebSocket
+  // release remains viewer-only and never changes Core membership.
+  mountTerminalDeleteRoute(app, {
     isAllowedOrigin: deps.isAllowedOrigin,
     isValidSessionId: (id) => SESSION_ID_RE.test(id),
-    deleteSession: async (id) => {
-      deps.reap(id);
-      await coreSessions.delete(id);
-    },
+    deleteSession: deps.deleteTerminalSession,
+    isSessionMissingError: (error) => error instanceof CoreSessionNotFoundError,
+    waitForPendingLaunch: waitForPendingTerminalLaunch,
   });
 }

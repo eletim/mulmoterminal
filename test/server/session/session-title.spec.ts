@@ -4,16 +4,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ConversationTurn } from "../../../server/session/transcript.js";
-import { createTitleManager } from "../../../server/session/session-title.js";
-import {
-  aiTitles,
-  lastTitleAttemptMs,
-  lastTitledUserTurns,
-  titleEpoch,
-  titleInFlight,
-  titlePending,
-  titleTurnCounts,
-} from "../../../server/session/registry.js";
+import { cleanupSessionTitleState, createTitleManager } from "../../../server/session/session-title.js";
+import { lastTitleAttemptMs, lastTitledUserTurns, titleEpoch, titleInFlight, titlePending, titleTurnCounts } from "../../../server/session/session-title.js";
 import { clearedTranscripts } from "../../../server/session/cleared-transcripts.js";
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
@@ -23,6 +15,7 @@ const SESSION = "11111111-2222-3333-4444-555555555555";
 let home = "";
 let cwd = "";
 let realHome: string | undefined;
+const coreTitles = new Map<string, string>();
 
 async function writeTranscript(lines: string[]) {
   const { projectSessionsDir } = await import("../../../server/session/project-dir.js");
@@ -40,7 +33,7 @@ beforeEach(async () => {
   vi.spyOn(os, "homedir").mockReturnValue(home);
   cwd = path.join(home, "ws");
   await fs.mkdir(cwd, { recursive: true });
-  for (const m of [aiTitles, titleTurnCounts, titleEpoch, lastTitledUserTurns, lastTitleAttemptMs]) m.clear();
+  for (const m of [coreTitles, titleTurnCounts, titleEpoch, lastTitledUserTurns, lastTitleAttemptMs]) m.clear();
   titlePending.clear();
   titleInFlight.clear();
   clearedTranscripts.clear();
@@ -55,72 +48,97 @@ afterEach(async () => {
 
 // The real generator shells out to the claude CLI; the fake keeps these tests fast,
 // deterministic, and runnable without an API key.
-function setup(now = () => 1_000_000, generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title") {
-  const published: string[] = [];
+function setup(
+  now = () => 1_000_000,
+  generateTitle: (turns: ConversationTurn[]) => Promise<string | null> = async () => "Generated title",
+  persistTitle: (id: string, title: string) => Promise<boolean> = async (id, title) => {
+    coreTitles.set(id, title);
+    return true;
+  },
+  clearTitle: (id: string) => Promise<boolean> = async (id) => {
+    coreTitles.delete(id);
+    return true;
+  },
+) {
+  const published: Array<[string, string | null]> = [];
   // Turns, not a raw transcript — the manager streams the file now (#998), so what the generator
   // receives is what came out of that stream.
   const summarized: ConversationTurn[][] = [];
   const mgr = createTitleManager({
-    publishActivity: (id) => published.push(id),
+    publishTitle: (id, title) => published.push([id, title]),
     now,
     generateTitle: (turns) => {
       summarized.push(turns);
       return generateTitle(turns);
     },
+    hasTitle: async (id) => coreTitles.has(id),
+    persistTitle,
+    clearTitle,
   });
   return { ...mgr, published, summarized };
 }
 
 describe("noteTitleTurn", () => {
-  it("flags a session that has no title yet", () => {
+  it("flags a session that has no title yet", async () => {
     const { noteTitleTurn } = setup();
-    noteTitleTurn(SESSION, "add a retry to the uploader");
+    await noteTitleTurn(SESSION, "add a retry to the uploader");
     expect(titlePending.has(SESSION)).toBe(true);
     expect(titleTurnCounts.get(SESSION)).toBe(1);
   });
 
-  it("does not re-flag a titled session on an ordinary turn", () => {
+  it("does not re-flag a titled session on an ordinary turn", async () => {
     const { noteTitleTurn } = setup();
-    aiTitles.set(SESSION, "Uploader retry");
-    noteTitleTurn(SESSION, "and add a test for it");
+    coreTitles.set(SESSION, "Uploader retry");
+    await noteTitleTurn(SESSION, "and add a test for it");
     expect(titlePending.has(SESSION)).toBe(false);
   });
 
-  it("re-flags a titled session when the prompt is a bare acknowledgement", () => {
+  it("re-flags a titled session when the prompt is a bare acknowledgement", async () => {
     // "ok" tells you nothing about the session, so the title it produced is already
     // suspect — regenerate from the fuller history instead.
     const { noteTitleTurn } = setup();
-    aiTitles.set(SESSION, "Uploader retry");
-    noteTitleTurn(SESSION, "ok");
+    coreTitles.set(SESSION, "Uploader retry");
+    await noteTitleTurn(SESSION, "ok");
     expect(titlePending.has(SESSION)).toBe(true);
   });
 
-  it("counts turns cumulatively across calls", () => {
+  it("counts turns cumulatively across calls", async () => {
     const { noteTitleTurn } = setup();
-    aiTitles.set(SESSION, "T");
-    for (const p of ["a", "b", "c"]) noteTitleTurn(SESSION, `do ${p} thoroughly`);
+    coreTitles.set(SESSION, "T");
+    for (const p of ["a", "b", "c"]) await noteTitleTurn(SESSION, `do ${p} thoroughly`);
     expect(titleTurnCounts.get(SESSION)).toBe(3);
   });
 });
 
 describe("forgetTitle", () => {
-  it("drops every trace of the title", () => {
-    const { forgetTitle } = setup();
-    aiTitles.set(SESSION, "T");
+  it("drops every trace of the title", async () => {
+    const { forgetTitle, published } = setup();
+    coreTitles.set(SESSION, "T");
     titleTurnCounts.set(SESSION, 5);
     titlePending.add(SESSION);
-    forgetTitle(SESSION);
-    expect(aiTitles.has(SESSION)).toBe(false);
+    await forgetTitle(SESSION);
+    expect(coreTitles.has(SESSION)).toBe(false);
     expect(titleTurnCounts.has(SESSION)).toBe(false);
     expect(titlePending.has(SESSION)).toBe(false);
+    expect(published).toEqual([[SESSION, null]]);
   });
 
-  it("bumps the epoch, which is what voids a generation already in flight", () => {
+  it("bumps the epoch, which is what voids a generation already in flight", async () => {
     const { forgetTitle } = setup();
     expect(titleEpoch.get(SESSION) ?? 0).toBe(0);
-    forgetTitle(SESSION);
-    forgetTitle(SESSION);
+    await forgetTitle(SESSION);
+    await forgetTitle(SESSION);
     expect(titleEpoch.get(SESSION)).toBe(2);
+  });
+
+  it("does not publish a clear when Core rejects it", async () => {
+    const { forgetTitle, published } = setup(undefined, undefined, undefined, async () => {
+      throw new Error("Core unavailable");
+    });
+    coreTitles.set(SESSION, "Still in Core");
+    await expect(forgetTitle(SESSION)).rejects.toThrow("Core unavailable");
+    expect(coreTitles.get(SESSION)).toBe("Still in Core");
+    expect(published).toEqual([]);
   });
 });
 
@@ -130,8 +148,8 @@ describe("maybeGenerateTitle", () => {
     await writeTranscript([userTurn("add a retry to the uploader")]);
     titlePending.add(SESSION);
     await maybeGenerateTitle(SESSION, cwd);
-    expect(aiTitles.get(SESSION)).toBe("Generated title");
-    expect(published).toEqual([SESSION]);
+    expect(coreTitles.get(SESSION)).toBe("Generated title");
+    expect(published).toEqual([[SESSION, "Generated title"]]);
     expect(titlePending.has(SESSION)).toBe(false);
     expect(titleTurnCounts.get(SESSION)).toBe(0); // the counter restarts from the new title
   });
@@ -140,7 +158,7 @@ describe("maybeGenerateTitle", () => {
     const { maybeGenerateTitle, published } = setup();
     await writeTranscript([userTurn("hello")]);
     await maybeGenerateTitle(SESSION, cwd);
-    expect(aiTitles.has(SESSION)).toBe(false);
+    expect(coreTitles.has(SESSION)).toBe(false);
     expect(published).toEqual([]);
   });
 
@@ -156,10 +174,10 @@ describe("maybeGenerateTitle", () => {
     // rather than falling back to a blank header.
     const { maybeGenerateTitle, published } = setup(undefined, async () => null);
     await writeTranscript([userTurn("add a retry to the uploader")]);
-    aiTitles.set(SESSION, "Previous title");
+    coreTitles.set(SESSION, "Previous title");
     titlePending.add(SESSION);
     await maybeGenerateTitle(SESSION, cwd);
-    expect(aiTitles.get(SESSION)).toBe("Previous title");
+    expect(coreTitles.get(SESSION)).toBe("Previous title");
     expect(published).toEqual([]);
   });
 
@@ -172,10 +190,10 @@ describe("maybeGenerateTitle", () => {
 
   it("leaves the previous title alone when there is no transcript to read", async () => {
     const { maybeGenerateTitle, published } = setup();
-    aiTitles.set(SESSION, "Previous title");
+    coreTitles.set(SESSION, "Previous title");
     titlePending.add(SESSION);
     await maybeGenerateTitle(SESSION, cwd); // nothing written
-    expect(aiTitles.get(SESSION)).toBe("Previous title");
+    expect(coreTitles.get(SESSION)).toBe("Previous title");
     expect(published).toEqual([]);
   });
 
@@ -186,10 +204,31 @@ describe("maybeGenerateTitle", () => {
     await writeTranscript([userTurn("add a retry to the uploader")]);
     titlePending.add(SESSION);
     const running = maybeGenerateTitle(SESSION, cwd);
-    forgetTitle(SESSION); // /clear lands mid-generation
+    await forgetTitle(SESSION); // /clear lands mid-generation
     await running;
-    expect(aiTitles.has(SESSION)).toBe(false);
-    expect(published).toEqual([]);
+    expect(coreTitles.has(SESSION)).toBe(false);
+    expect(published).toEqual([[SESSION, null]]);
+  });
+
+  it("removes a stale Core title when /clear lands during persistence", async () => {
+    let releasePersist: () => void = () => {};
+    const persistStarted = vi.fn();
+    const persistTitle = async (id: string, title: string) => {
+      persistStarted();
+      await new Promise<void>((resolve) => (releasePersist = resolve));
+      coreTitles.set(id, title);
+      return true;
+    };
+    const { maybeGenerateTitle, forgetTitle, published } = setup(undefined, async () => "Generated title", persistTitle);
+    await writeTranscript([userTurn("add a retry to the uploader")]);
+    titlePending.add(SESSION);
+    const running = maybeGenerateTitle(SESSION, cwd);
+    await vi.waitFor(() => expect(persistStarted).toHaveBeenCalledOnce());
+    await forgetTitle(SESSION);
+    releasePersist();
+    await running;
+    expect(coreTitles.has(SESSION)).toBe(false);
+    expect(published).toEqual([[SESSION, null]]);
   });
 
   it("does not title a cleared session from its frozen transcript", async () => {
@@ -202,12 +241,12 @@ describe("maybeGenerateTitle", () => {
     titlePending.add(SESSION);
     await maybeGenerateTitle(SESSION, cwd);
     expect(summarized).toEqual([]); // never even read the pre-clear turns
-    expect(aiTitles.has(SESSION)).toBe(false);
+    expect(coreTitles.has(SESSION)).toBe(false);
     expect(published).toEqual([]);
   });
 
   it("titles again once the session is no longer cleared", async () => {
-    // reap() drops the mark, so resuming that id (which appends to the file again) restores
+    // process-owner cleanup drops the mark, so resuming that id (which appends to the file again) restores
     // the normal behaviour rather than leaving the roster row blank for good.
     const { maybeGenerateTitle } = setup();
     await writeTranscript([userTurn("add a retry to the uploader")]);
@@ -217,7 +256,7 @@ describe("maybeGenerateTitle", () => {
     clearedTranscripts.delete(SESSION);
     titlePending.add(SESSION);
     await maybeGenerateTitle(SESSION, cwd);
-    expect(aiTitles.get(SESSION)).toBe("Generated title");
+    expect(coreTitles.get(SESSION)).toBe("Generated title");
   });
 
   it("does not summarize twice when a second trigger lands mid-generation", async () => {
@@ -237,7 +276,7 @@ describe("maybeGenerateTitle", () => {
 
     release("Generated title");
     await first;
-    expect(published).toEqual([SESSION]);
+    expect(published).toEqual([[SESSION, "Generated title"]]);
   });
 
   // The generator is handed the transcript's TURNS, read by streaming the file (#998) rather than
@@ -269,7 +308,7 @@ describe("freshenRosterTitle", () => {
     await writeTranscript([userTurn("add a retry to the uploader")]);
     lastTitledUserTurns.set(SESSION, 0);
     freshenRosterTitle(SESSION, cwd, 99);
-    await vi.waitFor(() => expect(published).toEqual([SESSION]));
+    await vi.waitFor(() => expect(published).toEqual([[SESSION, "Generated title"]]));
   });
 
   it("leaves a freshly-titled session alone", () => {
@@ -310,5 +349,25 @@ describe("freshenRosterTitle", () => {
     titleInFlight.add(SESSION);
     freshenRosterTitle(SESSION, cwd, 99);
     expect(lastTitleAttemptMs.has(SESSION)).toBe(false);
+  });
+
+  it("lets the title owner discard process-local guards without deleting Core metadata", () => {
+    coreTitles.set(SESSION, "Retained Core title");
+    titleTurnCounts.set(SESSION, 2);
+    titlePending.add(SESSION);
+    titleInFlight.add(SESSION);
+    lastTitledUserTurns.set(SESSION, 4);
+    lastTitleAttemptMs.set(SESSION, 123);
+
+    cleanupSessionTitleState(SESSION);
+
+    expect([
+      titleTurnCounts.has(SESSION),
+      titlePending.has(SESSION),
+      titleInFlight.has(SESSION),
+      lastTitledUserTurns.has(SESSION),
+      lastTitleAttemptMs.has(SESSION),
+    ]).toEqual([false, false, false, false, false]);
+    expect(coreTitles.get(SESSION)).toBe("Retained Core title");
   });
 });

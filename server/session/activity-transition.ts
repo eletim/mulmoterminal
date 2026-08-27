@@ -1,6 +1,6 @@
 // Pure derivations from a session's activity record: what a flag change makes it, and what
 // the row published to subscribers looks like. The decisions only — no publish, no
-// persistence, no reap. Split from index.ts (#548 step 3h):
+// persistence, and no Core/viewer lifetime decisions. Split from index.ts (#548 step 3h):
 // setWorking and setWaiting differed by one field but each re-derived the same rules, and
 // both are load-bearing. The "unchanged" answer is what keeps an idle session from
 // republishing on every hook, and the event fallback is what keeps a row labelled with the
@@ -49,9 +49,9 @@ export interface SessionRow {
   waiting: boolean;
   event: string | null;
   lastPrompt: string | null;
-  aiTitle: string | null;
+  aiTitle?: string | null;
   lastResponse: string | null;
-  memo: string | null;
+  memo?: string | null;
 }
 
 export function sessionRow(
@@ -65,11 +65,11 @@ export function sessionRow(
     cwd,
     ...normalizeActivity(activity),
     lastPrompt: texts.lastPrompt ?? null,
-    aiTitle: texts.aiTitle ?? null,
+    ...(texts.aiTitle !== undefined ? { aiTitle: texts.aiTitle || null } : {}),
     lastResponse: texts.lastResponse ?? null,
     // Null is "this session has no memo", which is exactly what an erase should publish: the
     // receiving header falls back to the AI title on it.
-    memo: texts.memo ?? null,
+    ...(texts.memo !== undefined ? { memo: texts.memo || null } : {}),
   };
 }
 

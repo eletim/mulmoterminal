@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
+import { failCompletionHook, registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const A = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const B = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -31,11 +31,11 @@ describe("runCompletionHook", () => {
 
   // The rule that keeps a successful refresh from being reported as failed: a finished turn
   // (Stop) reports success, and the teardown of that same session comes along afterwards.
-  it("does not let the reap's failure overwrite a finished turn's success", async () => {
+  it("does not let process-exit failure overwrite a finished turn's success", async () => {
     const outcomes: boolean[] = [];
     registerCompletionHook(A, ({ didError }) => void outcomes.push(didError));
     await runCompletionHook(A, { didError: false }); // Stop
-    await runCompletionHook(A, { didError: true }); // reap, later
+    await runCompletionHook(A, { didError: true }); // process exit, later
     expect(outcomes).toEqual([false]);
   });
 
@@ -43,8 +43,17 @@ describe("runCompletionHook", () => {
   it("reports failure when teardown is the first thing to fire", async () => {
     const outcomes: boolean[] = [];
     registerCompletionHook(A, ({ didError }) => void outcomes.push(didError));
-    await runCompletionHook(A, { didError: true }); // reaped without ever reaching Stop
+    await runCompletionHook(A, { didError: true }); // exited without ever reaching Stop
     expect(outcomes).toEqual([true]);
+  });
+
+  it("lets the completion owner report an agent process exit", async () => {
+    const hook = vi.fn();
+    registerCompletionHook(A, hook);
+
+    failCompletionHook(A);
+
+    await vi.waitFor(() => expect(hook).toHaveBeenCalledWith({ didError: true }));
   });
 
   it("is a no-op for a session with no hook", async () => {

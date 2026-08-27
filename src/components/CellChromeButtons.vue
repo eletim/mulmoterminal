@@ -3,8 +3,8 @@
 // the command, launcher and terminal cells, down to the labels and the glyphs, because they
 // mean the same thing to the grid: one zooms this cell, the other retires it (#646 B3).
 //
-// What "close" DOES stays with the parent: TerminalCell's may hold a live session, so its
-// handler confirms before tearing down. This emits the intent and never acts on it, so a
+// What "close" DOES stays with the parent: TerminalCell's may hold a Core session, so its
+// handler confirms and waits for Delete. This emits the intent and never acts on it, so a
 // cell can't lose its confirmation by adopting the shared buttons (#826).
 //
 // No `.stop` on the clicks: the enclosing header's zoom gesture already ignores anything

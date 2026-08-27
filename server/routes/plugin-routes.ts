@@ -9,8 +9,7 @@ import type { Express } from "express";
 
 import { CLAUDE_CWD } from "../config/env.js";
 import { messageOf } from "../errors.js";
-import { backgroundMarkers, markFailedWorker } from "../session/registry.js";
-import { runWithHiddenMarker } from "../session/hiddenMarker.js";
+import { markBackgroundHistory, markFailedWorkerHistory } from "../session/history-state.js";
 import { registerCompletionHook } from "../session/completion-hooks.js";
 import { backgroundChatMessage, parseBackgroundChat, spawnModeFor } from "../session/background-chat.js";
 import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
@@ -22,10 +21,8 @@ export interface PluginRouteDeps {
   spawnClaudePty: SpawnClaudePty;
   spawnCodexPty: SpawnCodexPty;
   spawnAntigravityPty: SpawnAntigravityPty;
-  /** Put a hidden spawn on the scheduled-session retention (#541). Nobody watches a
-   *  background worker and the chat list keeps it behind a filter, so the hook-driven reap
-   *  is the only thing that would ever end it — and a worker blocked on a permission prompt
-   *  never fires the hook that starts it. */
+  /** Put a hidden spawn under the scheduled-worker retention owner (#541). Nobody watches a
+   *  background worker, so that owner explicitly deletes expired Core sessions. */
   registerBackgroundSession: (id: string) => void;
 }
 
@@ -35,13 +32,15 @@ function spawnBackgroundChatSession(
   agent: TerminalAgent,
   draft: boolean,
   message: string,
-  mcpGroups: readonly ToolGroup[],
+  options: { mcpGroups: readonly ToolGroup[]; hidden: boolean },
 ): void {
+  const { mcpGroups, hidden } = options;
   const mode = spawnModeFor(agent, draft);
-  if (mode === "codex-run") deps.spawnCodexPty(sessionId, null, null, CLAUDE_CWD, true, { initialPrompt: message });
-  else if (mode === "antigravity-run") deps.spawnAntigravityPty(sessionId, null, null, CLAUDE_CWD, { mcpGroups, initialPrompt: message });
-  else if (mode === "claude-draft") deps.spawnClaudePty(sessionId, null, null, { draft: message });
-  else deps.spawnClaudePty(sessionId, null, null, { initialPrompt: message });
+  const visibility = hidden ? "background" : "normal";
+  if (mode === "codex-run") deps.spawnCodexPty(sessionId, null, null, CLAUDE_CWD, true, { initialPrompt: message, visibility });
+  else if (mode === "antigravity-run") deps.spawnAntigravityPty(sessionId, null, null, CLAUDE_CWD, { mcpGroups, initialPrompt: message, visibility });
+  else if (mode === "claude-draft") deps.spawnClaudePty(sessionId, null, null, { draft: message, visibility });
+  else deps.spawnClaudePty(sessionId, null, null, { initialPrompt: message, visibility });
 }
 
 export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
@@ -69,7 +68,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
     // codex positionally, agy through `--prompt-interactive`.
     let spawned = false;
     try {
-      runWithHiddenMarker(hidden, sessionId, backgroundMarkers, () => spawnBackgroundChatSession(deps, sessionId, agent, draft, message, mcpGroups));
+      spawnBackgroundChatSession(deps, sessionId, agent, draft, message, { mcpGroups, hidden });
       spawned = true;
       // Visible: somebody should be able to SEE this session. The browser that asked for it
       // places it immediately (useChatLauncher), and this covers every other caller — an agent
@@ -77,6 +76,7 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
       // moment any cell attaches, so the browser-placed case does not come back as a duplicate.
       if (hidden) {
         deps.registerBackgroundSession(sessionId);
+        markBackgroundHistory(sessionId);
         // A hidden worker is invisible on purpose, which is exactly why a FAILED one needs a
         // record: nothing pulls the user's attention and nothing waits to be clicked, so the
         // failure is otherwise never learned. The completion hook is the existing seam for it —
@@ -91,18 +91,16 @@ export function mountPluginRoutes(app: Express, deps: PluginRouteDeps): void {
         // success signal a PTY-hosted agent gives us is a finished turn reported by Claude Code's
         // Stop hook (hook-routes.ts); codex and antigravity have no hook mechanism at all, so
         // they can never report success. Registering for them would mean every SUCCESSFUL hidden
-        // codex worker reached reap unreported and was marked failed — a signal that is wrong
+        // codex worker reached process exit unreported and was marked failed — a signal that is wrong
         // more often than it is right, which is worse than the silence it replaced.
         // (Codex, PR #1188.) A non-claude hidden worker therefore keeps today's behaviour: no
         // failure signal. Giving it one needs a completion signal for those agents first.
         //
-        // RECORDS ONLY, and synchronously. Announcing is reap's job: it publishes one teardown
-        // message carrying this outcome, which is what keeps the generic notification from
-        // racing ahead of the specific one. Staying synchronous is therefore a contract, not an
-        // implementation detail — reap reads the flag immediately after firing this.
+        // RECORDS ONLY, and synchronously. The process owner publishes the terminal activity
+        // after failing this hook, so it must be able to read the flag immediately.
         if (agent === "claude") {
           registerCompletionHook(sessionId, ({ didError }) => {
-            if (didError) markFailedWorker(sessionId);
+            if (didError) markFailedWorkerHistory(sessionId);
           });
         }
       }

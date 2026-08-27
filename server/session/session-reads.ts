@@ -3,11 +3,8 @@
 // that serve this data cannot move until the readers do — every one of them would
 // otherwise need the whole set injected.
 //
-// The readers touch the registry (a live in-memory title beats the on-disk one, and a
-// row carries its session's activity flags), which is fine now that the registry is its
-// own module: the dependency runs one way. One of them also WRITES — collectPendingSessions
-// drops a session from knownSessions once disk has it — so "reads" describes the direction
-// of the data, not a guarantee of purity.
+// The readers touch UI activity/title state, but transcript rows never create Terminal
+// membership. A live Core session may project its UI state onto its history row.
 import { existsSync, readdirSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -25,15 +22,17 @@ import {
 import { createFileCache, type FileStamp } from "./file-cache.js";
 import { classifyWorkPhase, type WorkPhase } from "./workPhase.js";
 import { sessionListTitle } from "./sessionListTitle.js";
-import { activity, aiTitles, codexRolloutIds, isBackgroundSession, isFailedWorker, knownSessions, sessionMemos } from "./registry.js";
+import { activity } from "./activity-store.js";
+import { isFailedWorkerHistory } from "./history-state.js";
+import { sessionMemos } from "./history-memos.js";
 import { projectSessionsDir } from "./project-dir.js";
 import { lastTurnFromClaudeParsed, lastTurnFromCodexRolloutDocs, EMPTY_TURN, type LastTurn } from "./last-turn.js";
 import { forEachJsonlRecord, readTailRecords } from "../infra/jsonl-file.js";
 import { createSummaryScan } from "./summary-scan.js";
-import { partitionPending } from "./partitionPending.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
-import type { DiskStat, PendingSession, SessionMeta } from "./types.js";
+import type { DiskStat, SessionMeta } from "./types.js";
+import type { CoreSessionVisibility } from "./core-session-adapter.js";
 import { readString } from "../../common/readString.js";
 
 // Bytes of an assistant reply kept for the roster; the same cap the push body uses.
@@ -182,8 +181,8 @@ export async function sessionTimeline(cwd: string, id: string): Promise<{ events
 // per-project transcript, or codex's rollout. A codex session is addressed here by the
 // mulmoterminal key the browser knows; the rollout it maps to is the one we recorded at
 // spawn, or the key itself when it came from the sidebar (which lists rollout ids).
-async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
-  const rolloutId = codexRolloutIds.get(sessionKey) ?? sessionKey;
+async function codexLastTurn(sessionKey: string, resumeSource?: string | null): Promise<LastTurn> {
+  const rolloutId = resumeSource ?? sessionKey;
   const file = codexRolloutPath(codexSessionsRoot(), rolloutId);
   if (!file) return EMPTY_TURN;
   try {
@@ -205,8 +204,8 @@ async function codexLastTurn(sessionKey: string): Promise<LastTurn> {
 // stopped mattering: the same read now costs 256 KB whatever the transcript weighs. There is
 // consequently no size limit here at all, and no "too large" answer for a caller to handle.
 
-export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex" | "antigravity"): Promise<LastTurn> {
-  if (agent === "codex") return codexLastTurn(id);
+export async function sessionLastTurn(cwd: string, id: string, agent: "claude" | "codex" | "antigravity", resumeSource?: string | null): Promise<LastTurn> {
+  if (agent === "codex") return codexLastTurn(id, resumeSource);
   if (agent === "antigravity") return EMPTY_TURN;
   try {
     return lastTurnFromClaudeParsed(readTailRecords(path.join(projectSessionsDir(cwd), `${id}.jsonl`)));
@@ -216,7 +215,15 @@ export async function sessionLastTurn(cwd: string, id: string, agent: "claude" |
 }
 
 // Scan a session JSONL for a human-friendly title and last activity.
-export async function readSessionMeta(dir: string, file: string): Promise<SessionMeta> {
+export async function readSessionMeta(
+  dir: string,
+  file: string,
+  liveId?: string,
+  visibility: CoreSessionVisibility = "normal",
+  liveTitle?: string | null,
+  liveMemo?: string | null,
+  coreExited = false,
+): Promise<SessionMeta> {
   const full = path.join(dir, file);
 
   let aiTitle: string | null = null;
@@ -239,8 +246,17 @@ export async function readSessionMeta(dir: string, file: string): Promise<Sessio
   ]);
 
   const id = path.basename(file, ".jsonl");
-  const title = sessionListTitle({ memo: sessionMemos.get(id), liveAiTitle: aiTitles.get(id), diskAiTitle: aiTitle, diskLastPrompt: lastPrompt, firstUserMsg });
-  const a = activity.get(id);
+  // A resumed terminal has its own Core membership id while the agent keeps writing its history
+  // file. Live UI state follows the Core id; transcript identity remains the row id.
+  const stateId = liveId ?? id;
+  const title = sessionListTitle({
+    memo: liveId ? liveMemo : sessionMemos.get(id),
+    liveAiTitle: liveId ? liveTitle : undefined,
+    diskAiTitle: aiTitle,
+    diskLastPrompt: lastPrompt,
+    firstUserMsg,
+  });
+  const a = coreExited ? undefined : activity.get(stateId);
   return {
     id,
     title,
@@ -248,8 +264,8 @@ export async function readSessionMeta(dir: string, file: string): Promise<Sessio
     working: a?.working ?? false,
     waiting: a?.waiting ?? false,
     event: a?.event ?? null,
-    hidden: isBackgroundSession(id),
-    failed: isFailedWorker(id),
+    hidden: visibility === "background",
+    failed: isFailedWorkerHistory(stateId),
   };
 }
 
@@ -267,18 +283,4 @@ export async function collectOnDiskSessionStats(dir: string, files: string[]): P
     }),
   );
   return stats.filter((s): s is DiskStat => s !== null);
-}
-
-// In-memory sessions not yet written to disk. Prune (delete from knownSessions) any that
-// have since been persisted — the on-disk record (with its real title) wins.
-export function collectPendingSessions(onDisk: Set<string>, includePending: boolean): PendingSession[] {
-  const known = includePending ? knownSessions : [];
-  const { keep, persisted } = partitionPending(
-    known,
-    onDisk,
-    (id) => activity.get(id),
-    (id) => isBackgroundSession(id),
-  );
-  persisted.forEach((id) => knownSessions.delete(id));
-  return keep;
 }

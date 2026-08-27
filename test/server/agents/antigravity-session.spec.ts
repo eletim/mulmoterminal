@@ -58,6 +58,11 @@ describe("antigravity-session", () => {
     expect(await watchForAntigravitySession(brainDir, before, { pollMs: 20, maxWaitMs: 1000 })).toBe(uuid);
   });
 
+  it("supports an asynchronous Core lifetime cancellation", async () => {
+    const before = snapshotAntigravitySessions(brainDir);
+    expect(await watchForAntigravitySession(brainDir, before, { pollMs: 20, maxWaitMs: 1000, isCancelled: async () => true })).toBeNull();
+  });
+
   // The cold-resume guard. Without it every requested key is handed to `agy --conversation`,
   // and agy answers a conversation it cannot find by silently starting a fresh one under the
   // old session's id.

@@ -9,20 +9,21 @@ import path from "node:path";
 import { makeTempDir } from "../../support/tempDir.js";
 import { rmDirRetrying, GIT_TEST_TIMEOUT_MS } from "../git/wtTestUtil.js";
 
-// The real tmux server must not be probed from a test: mocked to "nobody holds anything", which
-// leaves the in-process socket as the only signal — exactly the case being set up below.
+const coreRows = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+const tmuxCounts = vi.hoisted(() => new Map<string, number>());
+vi.mock("../../../server/session/core-session-adapter.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../server/session/core-session-adapter.js")>()),
+  coreSessions: { list: async () => coreRows },
+}));
 vi.mock("../../../server/infra/tmux.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../server/infra/tmux.js")>()),
-  tmuxAttachedCounts: () => new Map<string, number>(),
+  tmuxAttachedCounts: () => tmuxCounts,
 }));
 
 const { claimLaunch, worktreeOccupancy } = await import("../../../server/session/worktree-session-limit.js");
 const { createWorktree, gitTopLevel } = await import("../../../server/git/worktrees.js");
-const { ptys } = await import("../../../server/session/registry.js");
-const { projectSessionsDir } = await import("../../../server/session/project-dir.js");
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
-const OPEN_SOCKET = { readyState: 1, OPEN: 1 };
 
 const hasGit = (() => {
   try {
@@ -39,7 +40,8 @@ let home = "";
 let worktree = "";
 
 beforeEach(async () => {
-  ptys.clear();
+  coreRows.length = 0;
+  tmuxCounts.clear();
   home = makeTempDir("wt-limit-home-");
   process.env.MULMOTERMINAL_HOME = home;
   repo = makeTempDir("wt-limit-repo-");
@@ -57,14 +59,33 @@ beforeEach(async () => {
 }, GIT_TEST_TIMEOUT_MS);
 
 afterEach(() => {
-  ptys.clear();
+  coreRows.length = 0;
   delete process.env.MULMOTERMINAL_HOME;
   rmDirRetrying(home);
   rmDirRetrying(repo);
 });
 
-// An agent this process is running, with its browser socket still open.
-const occupyWorktree = () => ptys.set(SESSION, { cwd: worktree, agent: "claude", ws: OPEN_SOCKET, tmux: true } as never);
+const coreSession = (cwd: string, agent = "claude", attached = true) => ({
+  id: SESSION,
+  cwd,
+  agent,
+  attached,
+  createdAt: new Date(),
+  exited: false,
+  exitCode: null,
+  processId: 1,
+  cols: 120,
+  rows: 30,
+  currentCommand: agent,
+  title: null,
+  memo: null,
+  resumeSource: null,
+  visibility: "normal" as const,
+});
+const occupyWorktree = () => {
+  coreRows.push(coreSession(worktree));
+  tmuxCounts.set(SESSION, 1);
+};
 
 describe.skipIf(!hasGit)("worktreeOccupancy", () => {
   it(
@@ -108,7 +129,7 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
   it(
     "does not limit the repository itself",
     async () => {
-      ptys.set(SESSION, { cwd: repo, agent: "claude", ws: OPEN_SOCKET, tmux: true } as never);
+      coreRows.push(coreSession(repo));
       expect((await worktreeOccupancy(repo)).isWorktree).toBe(false);
     },
     GIT_TEST_TIMEOUT_MS,
@@ -127,9 +148,7 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
     GIT_TEST_TIMEOUT_MS,
   );
 
-  // Codex, fourth pass: the live-pty match was a lexical compare, so a session started through a
-  // symlinked spelling of the same worktree was invisible here — and for codex or antigravity
-  // there is no transcript pass to fall back on, so the worktree read as free.
+  // Core cwd metadata is canonicalized, so alternate spellings do not evade occupancy.
   it(
     "finds a session started through a symlinked spelling of the worktree",
     async () => {
@@ -139,19 +158,17 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
       } catch {
         return; // Windows without the privilege to create one — the rule is the same, unobservable here
       }
-      ptys.set(SESSION, { cwd: link, agent: "codex", ws: OPEN_SOCKET, tmux: true } as never);
+      coreRows.push(coreSession(link, "codex"));
+      tmuxCounts.set(SESSION, 1);
       expect((await worktreeOccupancy(worktree)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
       expect((await worktreeOccupancy(link)).session).toEqual({ id: SESSION, attached: true, agent: "codex" });
     },
     GIT_TEST_TIMEOUT_MS,
   );
 
-  // Codex, fifth pass: the transcript lookup used ONE spelling. This app hands claude a lexically
-  // resolved cwd on purpose (config/workspace.ts says why), so a session started through a symlink
-  // alias has its transcripts under that alias — and a launch arriving by the same alias would look
-  // only under the canonical name and find nothing. A missed session is a worktree that reads free.
+  // History is resumable agent data, not Terminal membership or worktree occupancy.
   it(
-    "finds a detached claude session through the spelling the launch arrives by",
+    "does not turn a history-only Claude conversation into occupancy",
     async () => {
       const link = path.join(home, "link-for-transcripts");
       try {
@@ -159,12 +176,11 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
       } catch {
         return; // Windows without the privilege to create one
       }
-      // No pty at all: the detached case, where only the transcript pass can answer.
-      const transcripts = projectSessionsDir(worktree);
+      const transcripts = path.join(home, "history-only");
       mkdirSync(transcripts, { recursive: true });
       writeFileSync(path.join(transcripts, `${SESSION}.jsonl`), "{}\n");
       try {
-        expect((await worktreeOccupancy(link)).session).toEqual({ id: SESSION, attached: false, agent: "claude" });
+        expect((await worktreeOccupancy(link)).session).toBeNull();
       } finally {
         rmDirRetrying(transcripts);
       }
@@ -177,7 +193,7 @@ describe.skipIf(!hasGit)("worktreeOccupancy", () => {
   it(
     "does not count a plain shell as the worktree's session",
     async () => {
-      ptys.set(SESSION, { cwd: worktree, agent: "shell", ws: OPEN_SOCKET, tmux: true } as never);
+      coreRows.push(coreSession(worktree, "shell"));
       expect((await worktreeOccupancy(worktree)).session).toBeNull();
     },
     GIT_TEST_TIMEOUT_MS,

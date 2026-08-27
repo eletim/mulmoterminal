@@ -1,5 +1,5 @@
 // Shapes shared by the session layer: the live-PTY table, the sidebar rows those resolve
-// into, and the per-session GUI records. Extracted from index.ts so the registry and the
+// into, and the per-session GUI records. Extracted from index.ts so feature owners and the
 // modules that read it can name them without importing the boot module (#548).
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";
@@ -13,7 +13,8 @@ export interface Activity {
   at?: number;
 }
 
-// A live PTY and its (possibly detached) browser socket.
+// A process-local viewer PTY and its (possibly detached) browser socket. Its agent/cwd fields
+// configure replay/input behavior for this transport; Core metadata remains session authority.
 export interface PtyEntry {
   term: IPty;
   ws: WebSocket | null;
@@ -25,8 +26,8 @@ export interface PtyEntry {
   // stand in for "the user is looking at THIS cell". Set at attach (by gui mode) and
   // updated by the client's `view` frame.
   active: boolean;
-  // True when `term` is a tmux client (persistent): killing it only detaches, so reap
-  // must kill the tmux session to actually end the program.
+  // True when `term` is a tmux client: killing it releases only this viewer. Core Stop/Delete
+  // remain the only process and membership operations.
   tmux?: boolean;
   // A reattach replayed a delta tail, so the browser's screen is only as complete as that window
   // (see tmuxRedrawClient). Cleared by the first resize frame after the reattach — waiting for it
@@ -35,11 +36,6 @@ export interface PtyEntry {
   // What is running in this PTY. Recorded at spawn because nothing else can recover it
   // later, and the phone needs it to offer input that suits the session (mulmoserver#84).
   agent: SessionAgent;
-}
-
-export interface KnownSession {
-  createdAt: number;
-  title: string;
 }
 
 // A GUI plugin result, deduped by uuid; the rest of the payload is opaque here.
@@ -61,7 +57,7 @@ export interface ToolCall {
   at: number;
 }
 
-// A sidebar session row (resolved from disk or a pending in-memory session).
+// A history sidebar row resolved from agent-owned storage.
 export interface SessionMeta extends WorkerStatus {
   id: string;
   title: string;
@@ -80,9 +76,4 @@ export interface DiskStat {
   id: string;
   file: string;
   mtime: number;
-}
-
-// An in-memory session not yet persisted to disk.
-export interface PendingSession extends SessionMeta {
-  kind: "pending";
 }

@@ -7,8 +7,7 @@ const KEY = "11111111-2222-4333-8444-555555555555";
 const facts = (over: Partial<Parameters<typeof agentResumeId>[1]> = {}) => ({
   mappedId: null,
   conversationExists: () => false,
-  hasLivePty: false,
-  tmuxAlive: false,
+  coreExists: false,
   ...over,
 });
 
@@ -29,12 +28,8 @@ describe("agentResumeId", () => {
 
   // Carrying a resume id into a reattach starts a SECOND codex on a conversation that is
   // already running.
-  it("never resumes when a live pty can be reattached", () => {
-    expect(agentResumeId(KEY, facts({ hasLivePty: true, mappedId: "rollout-9" }))).toBeNull();
-  });
-
-  it("never resumes when a tmux session survived", () => {
-    expect(agentResumeId(KEY, facts({ tmuxAlive: true, mappedId: "rollout-9" }))).toBeNull();
+  it("never resumes history while the terminal remains in Core", () => {
+    expect(agentResumeId(KEY, facts({ coreExists: true, mappedId: "rollout-9" }))).toBeNull();
   });
 
   it("resumes nothing for a fresh session with no key", () => {
@@ -44,7 +39,7 @@ describe("agentResumeId", () => {
   // The probe reads the filesystem; a reattach must not pay for an answer it discards.
   it("does not probe the disk when there is nothing to resume anyway", () => {
     const conversationExists = vi.fn().mockReturnValue(true);
-    agentResumeId(KEY, facts({ hasLivePty: true, conversationExists }));
+    agentResumeId(KEY, facts({ coreExists: true, conversationExists }));
     agentResumeId(null, facts({ conversationExists }));
     expect(conversationExists).not.toHaveBeenCalled();
   });

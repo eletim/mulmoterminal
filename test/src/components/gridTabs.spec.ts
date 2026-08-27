@@ -20,6 +20,7 @@ import {
   insertCellAfter,
   shellCell,
   sessionCell,
+  cellSessionOwnership,
   launchInCell,
   canMoveCell,
   setSortMode,
@@ -710,6 +711,22 @@ describe("sessionCell (adopting a session spawned elsewhere)", () => {
 
   it("accepts a null cwd — the config may not have loaded when a session is adopted", () => {
     expect(sessionCell("s4", null, "claude")).toEqual({ session: "s4", cwd: null });
+  });
+});
+
+describe("cellSessionOwnership", () => {
+  it("classifies by persistent Core membership rather than agent or presentation", () => {
+    expect(cellSessionOwnership({ uid: 1, session: "claude", cwd: "/p" })).toBe("persistent-core-session");
+    expect(cellSessionOwnership({ uid: 2, session: "codex", cwd: "/p", agent: "codex" })).toBe("persistent-core-session");
+    expect(cellSessionOwnership({ uid: 3, session: "ag", cwd: "/p", agent: "antigravity" })).toBe("persistent-core-session");
+    expect(cellSessionOwnership({ uid: 4, session: null, cwd: "/p", launcher: { shell: true, label: "shell" } })).toBe("persistent-core-session");
+    expect(cellSessionOwnership({ uid: 5, session: null, cwd: "/p", launcher: { index: 0, label: "zsh" } })).toBe("persistent-core-session");
+  });
+
+  it("keeps a CommandCell ephemeral/non-Core and an untouched launch cell empty", () => {
+    const command: RunCommand = { source: "script", index: 0, label: "Build", cwd: "/p" };
+    expect(cellSessionOwnership({ uid: 1, session: null, cwd: "/p", command })).toBe("ephemeral-process");
+    expect(cellSessionOwnership({ uid: 2, session: null, cwd: null })).toBe("empty-cell");
   });
 });
 

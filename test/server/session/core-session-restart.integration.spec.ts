@@ -12,6 +12,8 @@ const HAS_TMUX = spawnSync("tmux", ["-V"]).status === 0;
 const SERVER = `mulmoterminal-test-${process.pid}-${Date.now()}`;
 const SHELL_ID = randomUUID();
 const AGENT_ID = randomUUID();
+const STOP_ID = randomUUID();
+const LAUNCHER_ID = randomUUID();
 
 async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeoutMs = 5_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -64,6 +66,20 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
       agent: "codex",
       title: "Restart agent",
     });
+    await firstProcess.create({
+      id: STOP_ID,
+      command: `${process.execPath} -e 'process.on("SIGINT",()=>{console.log("STOP_FINAL_MARKER");process.exit(130)});setInterval(()=>{},1000)'`,
+      cwd: process.cwd(),
+      agent: "shell",
+      title: "Stopped shell",
+    });
+    await firstProcess.create({
+      id: LAUNCHER_ID,
+      command: `${process.execPath} -e 'console.log("CONFIGURED_LAUNCHER_MARKER");setInterval(()=>{},1000)'`,
+      cwd: process.cwd(),
+      agent: "shell",
+      title: "Configured launcher",
+    });
 
     await waitFor(
       () => firstProcess.get(AGENT_ID),
@@ -73,21 +89,19 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
     // This is a separate OS process with no MulmoTerminal registry, lifecycle rows, or PTYs.
     const restarted = await listFromFreshNodeProcess();
     const desktopIds = restarted.map((session) => session.id).sort();
-    const byId = new Map(restarted.map((session) => [session.id, session]));
-    const runningIds = restarted.filter((session) => !session.exited).map((session) => session.id);
     const mobileIds = buildSessionList({
-      candidateIds: restarted.map((session) => session.id),
-      liveIds: runningIds,
-      tmuxIds: runningIds,
-      detailOf: (id) => {
-        const session = byId.get(id);
-        return { title: session?.title ?? "", cwd: session?.cwd ?? "", agent: session?.agent ?? null };
-      },
+      sessions: restarted.map((session) => ({
+        id: session.id,
+        exited: session.exited,
+        title: session.title ?? "",
+        cwd: session.cwd ?? "",
+        agent: session.agent ?? null,
+      })),
     })
       .map((session) => session.id)
       .sort();
     expect(desktopIds).toEqual(mobileIds);
-    expect(desktopIds).toEqual([AGENT_ID, SHELL_ID].sort());
+    expect(desktopIds).toEqual([AGENT_ID, LAUNCHER_ID, SHELL_ID, STOP_ID].sort());
     expect(restarted.find((session) => session.id === SHELL_ID)).toMatchObject({
       agent: "shell",
       title: "Restart shell",
@@ -110,8 +124,22 @@ describe.skipIf(!HAS_TMUX)("Core session discovery after a complete Node restart
       (screen) => screen.includes("RUNNING_INPUT_MARKER"),
     );
 
+    await secondProcess.stop(STOP_ID);
+    const stopped = await waitFor(
+      () => secondProcess.get(STOP_ID),
+      (session) => session.exited,
+    );
+    expect(stopped.id).toBe(STOP_ID);
+    expect(await secondProcess.screen(STOP_ID)).toContain("STOP_FINAL_MARKER");
+    expect((await secondProcess.list()).map((session) => session.id)).toContain(STOP_ID);
+    expect(await secondProcess.screen(LAUNCHER_ID)).toContain("CONFIGURED_LAUNCHER_MARKER");
+
+    // Explicit Delete removes a running Shell, dead Shell, exited agent, and configured persistent
+    // launcher by the same Core contract; Stop never removes membership.
     await secondProcess.delete(AGENT_ID);
     await secondProcess.delete(SHELL_ID);
+    await secondProcess.delete(STOP_ID);
+    await secondProcess.delete(LAUNCHER_ID);
     expect(await new CoreSessionAdapter({ serverName: SERVER }).list()).toEqual([]);
   }, 15_000);
 });

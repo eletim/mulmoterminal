@@ -9,7 +9,8 @@ import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/remembered
 // activity and simulate a dropped-then-restored socket directly.
 let captured: ((data: unknown) => void) | null = null;
 let reconnect: (() => void) | null = null;
-let terminalTerminate = vi.fn();
+let terminalRelease = vi.fn();
+let terminalInputEnabled = vi.fn();
 vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({
     subscribe: (_channel: string, cb: (data: unknown) => void) => {
@@ -23,20 +24,22 @@ vi.mock("../../../src/composables/usePubSub", () => ({
   }),
 }));
 
-// Stub the terminal so no xterm/WebSocket is needed; expose terminate() since
-// the cell's close() calls it.
+// Stub the terminal so no xterm/WebSocket is needed; expose only viewer-local controls.
 vi.mock("../../../src/components/Terminal.vue", () => ({
   default: {
     name: "TerminalView",
     props: ["sessionId", "connectKey", "cwd", "hideHeader"],
-    emits: ["session", "cwd"],
+    emits: ["session", "cwd", "exit"],
     // Render the header-actions slot so the cell's icon buttons (moved onto the
     // terminal's header row) are present in the test DOM — but only when the header
     // is shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
     template: '<div class="stub-term"><slot v-if="!hideHeader" name="header-actions" /></div>',
     methods: {
-      terminate() {
-        terminalTerminate();
+      releaseConnection() {
+        terminalRelease();
+      },
+      setInputEnabled(enabled: boolean) {
+        terminalInputEnabled(enabled);
       },
       submitText() {
         return true;
@@ -54,8 +57,9 @@ function mockFetch(
   sessions: { id: string; title: string; mtime: number; hidden?: boolean; failed?: boolean }[] = [],
   scripts: { index: number; label: string; command: string }[] = [],
 ) {
-  globalThis.fetch = vi.fn(async (url: string) => {
+  globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
+    if (init?.method === "DELETE") return { ok: true, json: async () => ({ deleted: true }) };
     if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/home/me/proj", scripts }) };
     if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions }) };
     return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
@@ -71,7 +75,8 @@ function deferred<T>() {
 beforeEach(() => {
   captured = null;
   reconnect = null;
-  terminalTerminate = vi.fn();
+  terminalRelease = vi.fn();
+  terminalInputEnabled = vi.fn();
   localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
   mockFetch();
 });
@@ -536,7 +541,7 @@ describe("TerminalCell", () => {
     expect(w.emitted("record-cwd")).toBeUndefined();
   });
 
-  it("clears the pending-record flag when a fresh launch is torn down before its cwd arrives", async () => {
+  it("clears the pending-record flag when a fresh launch is deleted before its cwd arrives", async () => {
     // Race: launch sets the record-next flag, but the user closes before the server
     // reports a cwd; a subsequent resume must NOT inherit that pending record.
     mockFetch([{ id: "77777777-7777-7777-7777-777777777777", title: "t", mtime: Date.now() }]);
@@ -544,7 +549,8 @@ describe("TerminalCell", () => {
     await flushPromises();
     await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/fresh");
     await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter"); // flag = true, no cwd yet
-    await w.find(".cell-close").trigger("click"); // teardown must clear the flag
+    w.findComponent({ name: "TerminalView" }).vm.$emit("session", "88888888-8888-4888-8888-888888888888");
+    await w.find(".cell-close").trigger("click"); // confirmed Delete must clear the flag
     await flushPromises();
     await w.find('[data-testid="cell-resume-item"]').trigger("click"); // resume an existing session
     w.findComponent({ name: "TerminalView" }).vm.$emit("cwd", "/home/me/proj");
@@ -582,10 +588,47 @@ describe("TerminalCell", () => {
     await flushPromises();
     await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/picked");
     await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    w.findComponent({ name: "TerminalView" }).vm.$emit("session", "99999999-9999-4999-8999-999999999999");
     await w.find(".cell-close").trigger("click");
-    await nextTick();
+    await flushPromises();
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
     expect((w.find('[data-testid="cell-dir-input"]').element as HTMLInputElement).value).toBe("/home/me/default");
+  });
+
+  it("keeps a closing launch visible until its in-flight Core session id arrives, then Deletes", async () => {
+    const w = mountCell(null, { defaultCwd: "/home/me/default" });
+    await flushPromises();
+    await w.find('[data-testid="cell-dir-input"]').setValue("/home/me/unreachable");
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+
+    await w.find(".cell-close").trigger("click");
+    await nextTick();
+
+    const deleteRequests = () =>
+      (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "DELETE");
+    expect(deleteRequests()).toHaveLength(0);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(true);
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+
+    w.findComponent({ name: "TerminalView" }).vm.$emit("session", "99999999-9999-4999-8999-999999999999");
+    await flushPromises();
+    expect(deleteRequests()).toHaveLength(1);
+    expect(terminalRelease).toHaveBeenCalledTimes(1);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("resets a failed launch after a terminal error confirms that no session id was assigned", async () => {
+    const w = mountCell(null);
+    await flushPromises();
+    await w.find('[data-testid="cell-dir-input"]').trigger("keydown.enter");
+    await w.find(".cell-close").trigger("click");
+    w.findComponent({ name: "TerminalView" }).vm.$emit("exit", null);
+    await nextTick();
+
+    expect(terminalRelease).toHaveBeenCalledTimes(1);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
   it("adopts the EFFECTIVE cwd the server reports (persists/shows that, not the typed one)", async () => {
@@ -1524,20 +1567,21 @@ describe("TerminalCell", () => {
 
   // Close-time cleanup: closing a worktree cell asks to keep or remove the room.
   function mockFetchCloseCleanup(diff: Record<string, unknown>) {
-    const posts: { url: string; body: string }[] = [];
+    const requests: { url: string; method: string; body: string }[] = [];
     globalThis.fetch = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
       const u = String(url);
-      if (init?.method === "POST") posts.push({ url: u, body: String(init.body ?? "") });
+      if (init?.method) requests.push({ url: u, method: init.method, body: String(init.body ?? "") });
+      if (init?.method === "DELETE") return { ok: true, json: async () => ({ deleted: true }) };
       if (u.includes("/api/worktrees/remove")) return { ok: true, json: async () => ({ ok: true }) };
       if (u.includes("/api/worktrees/diff")) return { ok: true, json: async () => diff };
       if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
       return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
     }) as unknown as typeof fetch;
-    return posts;
+    return requests;
   }
   const cleanWtDiff = { isWorktree: true, base: "main", ahead: 0, dirty: 0, files: [], patch: "", truncated: false };
 
-  it("closing a worktree cell asks to keep or remove the room (no immediate teardown)", async () => {
+  it("closing a worktree cell asks to keep or remove the room before Delete", async () => {
     mockFetchCloseCleanup(cleanWtDiff);
     const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: WT_CWD });
     await flushPromises();
@@ -1547,7 +1591,7 @@ describe("TerminalCell", () => {
   });
 
   it("a running NON-worktree cell asks before stopping the process", async () => {
-    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const requests = mockFetchCloseCleanup(cleanWtDiff);
     const id = "66666666-6666-6666-6666-666666666666";
     const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
@@ -1555,17 +1599,17 @@ describe("TerminalCell", () => {
     await nextTick();
 
     await w.find(".cell-close").trigger("click");
-    await nextTick();
+    await flushPromises();
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
-    expect(w.find('[data-testid="cell-running-close-confirm"]').text()).toContain("Closing it will stop the running process.");
+    expect(w.find('[data-testid="cell-running-close-confirm"]').text()).toContain("Deleting it will stop the running process");
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
-    expect(terminalTerminate).not.toHaveBeenCalled();
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(requests.some((request) => request.method === "DELETE")).toBe(false);
   });
 
   it("Cancel on the running close prompt keeps the session alive", async () => {
-    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const requests = mockFetchCloseCleanup(cleanWtDiff);
     const id = "66666666-6666-6666-6666-666666666666";
     const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
@@ -1578,12 +1622,22 @@ describe("TerminalCell", () => {
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
-    expect(terminalTerminate).not.toHaveBeenCalled();
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(requests.some((request) => request.method === "DELETE")).toBe(false);
   });
 
-  it("Stop and close on the running prompt tears down the session", async () => {
-    const posts = mockFetchCloseCleanup(cleanWtDiff);
+  it("confirmed Working Delete waits for success before releasing and removing the cell", async () => {
+    const gate = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
+    const requests: { url: string; method: string }[] = [];
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "DELETE") {
+        requests.push({ url: String(url), method });
+        return gate.promise;
+      }
+      if (String(url).includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
     const id = "66666666-6666-6666-6666-666666666666";
     const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
@@ -1592,15 +1646,21 @@ describe("TerminalCell", () => {
 
     await w.find(".cell-close").trigger("click");
     await w.find('[data-testid="rcx-stop"]').trigger("click");
-    await flushPromises();
+    await nextTick();
 
-    expect(terminalTerminate).toHaveBeenCalledTimes(1);
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(true);
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(true);
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(requests).toEqual([{ url: `/api/session/${id}`, method: "DELETE" }]);
+    gate.resolve({ ok: true, json: async () => ({ deleted: true }) });
+    await flushPromises();
+    expect(terminalInputEnabled).toHaveBeenCalledWith(false);
+    expect(terminalRelease).toHaveBeenCalledTimes(1);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
   it("does not auto-close if the session goes idle while the running close prompt is open", async () => {
-    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const requests = mockFetchCloseCleanup(cleanWtDiff);
     const id = "66666666-6666-6666-6666-666666666666";
     const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
@@ -1613,8 +1673,8 @@ describe("TerminalCell", () => {
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(true);
     expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
-    expect(terminalTerminate).not.toHaveBeenCalled();
-    expect(posts.some((p) => p.url.includes(`/api/session/${id}/terminate`))).toBe(false);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(requests.some((request) => request.method === "DELETE")).toBe(false);
   });
 
   it("a NON-worktree cell closes immediately after working changes to false", async () => {
@@ -1626,21 +1686,97 @@ describe("TerminalCell", () => {
     await nextTick();
 
     await w.find(".cell-close").trigger("click");
-    await nextTick();
+    await flushPromises();
 
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
-  it("a NON-worktree idle cell still closes immediately (no confirm)", async () => {
+  it("an idle or exited NON-worktree cell remains visible until Delete succeeds", async () => {
+    const gate = deferred<{ ok: boolean; json: () => Promise<unknown> }>();
+    let deleteRequests = 0;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        deleteRequests += 1;
+        return gate.promise;
+      }
+      if (String(url).includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null, exited: true }) };
+    }) as unknown as typeof fetch;
     const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: "/home/me/plain-proj" });
     await flushPromises();
     await w.find(".cell-close").trigger("click");
     await nextTick();
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(false);
-    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true); // torn down to the launcher
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(true);
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    await w.find(".cell-close").trigger("click");
+    expect(deleteRequests).toBe(1);
+    gate.resolve({ ok: true, json: async () => ({ deleted: true }) });
+    await flushPromises();
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it.each(["codex", "antigravity"] as const)("uses the same Core Delete contract for a restored %s session", async (initialAgent) => {
+    const id = "66666666-6666-4666-8666-666666666666";
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj", initialAgent });
+    await flushPromises();
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(`/api/session/${id}`, { method: "DELETE" });
+    expect(terminalRelease).toHaveBeenCalledOnce();
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("keeps the cell, clears deleting, and shows a retryable error when Core Delete fails", async () => {
+    const id = "66666666-6666-6666-6666-666666666666";
+    let deleteRequests = 0;
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        deleteRequests += 1;
+        return deleteRequests === 1 ? { ok: false, json: async () => ({ error: "Core unavailable" }) } : { ok: true, json: async () => ({ deleted: true }) };
+      }
+      if (String(url).includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    expect(w.find('[data-testid="cell-deleting"]').exists()).toBe(false);
+    expect(w.find('[data-testid="cell-delete-error"]').text()).toContain("Core unavailable");
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    expect(terminalRelease).not.toHaveBeenCalled();
+    expect(terminalInputEnabled.mock.calls).toEqual([[false], [true]]);
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+    expect(deleteRequests).toBe(2);
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+  });
+
+  it("keeps the cell and reports an unreachable Backend instead of treating WS state as Delete", async () => {
+    const id = "66666666-6666-6666-6666-666666666666";
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") throw new TypeError("Failed to fetch");
+      if (String(url).includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
+      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
+    }) as unknown as typeof fetch;
+    const w = mountCell(id, { initialCwd: "/home/me/plain-proj" });
+    await flushPromises();
+
+    await w.find(".cell-close").trigger("click");
+    await flushPromises();
+
+    expect(w.find('[data-testid="cell-delete-error"]').text()).toContain("Couldn't reach the server");
+    expect(w.findComponent({ name: "TerminalView" }).exists()).toBe(true);
+    expect(terminalRelease).not.toHaveBeenCalled();
   });
 
   it("a running worktree cell keeps the existing keep/remove close confirmation", async () => {
@@ -1656,31 +1792,32 @@ describe("TerminalCell", () => {
 
     expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(true);
     expect(w.find('[data-testid="cell-running-close-confirm"]').exists()).toBe(false);
-    expect(w.find('[data-testid="ccx-running-warn"]').text()).toContain("Closing it will stop the running process.");
+    expect(w.find('[data-testid="ccx-running-warn"]').text()).toContain("Deleting it will stop the running process.");
     expect(w.find('[data-testid="ccx-keep"]').exists()).toBe(true);
     expect(w.find('[data-testid="ccx-remove"]').exists()).toBe(true);
   });
 
-  it("Keep worktree tears the cell down WITHOUT removing the room", async () => {
-    const posts = mockFetchCloseCleanup(cleanWtDiff);
+  it("Delete terminal, keep worktree waits for Core Delete and does not remove the room", async () => {
+    const requests = mockFetchCloseCleanup(cleanWtDiff);
     const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: WT_CWD });
     await flushPromises();
     await w.find(".cell-close").trigger("click");
     await w.find('[data-testid="ccx-keep"]').trigger("click");
     await flushPromises();
-    expect(posts.some((p) => p.url.includes("/api/worktrees/remove"))).toBe(false);
+    expect(requests.filter((request) => request.method === "DELETE")).toHaveLength(1);
+    expect(requests.some((request) => request.url.includes("/api/worktrees/remove"))).toBe(false);
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
   });
 
   it("Remove worktree posts a forced remove (path+repoDir = the worktree) then closes", async () => {
-    const posts = mockFetchCloseCleanup(cleanWtDiff);
+    const requests = mockFetchCloseCleanup(cleanWtDiff);
     const w = mountCell("66666666-6666-6666-6666-666666666666", { initialCwd: WT_CWD });
     await flushPromises();
     await w.find(".cell-close").trigger("click");
     await flushPromises(); // the close() diff refresh enables the Remove button
     await w.find('[data-testid="ccx-remove"]').trigger("click");
     await flushPromises();
-    const rm = posts.find((p) => p.url.includes("/api/worktrees/remove"));
+    const rm = requests.find((request) => request.url.includes("/api/worktrees/remove"));
     if (!rm) throw new Error("remove not called");
     expect(JSON.parse(rm.body)).toMatchObject({ repoDir: WT_CWD, path: WT_CWD, deleteBranch: true, force: true });
     expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
@@ -1709,9 +1846,11 @@ describe("TerminalCell", () => {
     expect(w.find('[data-testid="ccx-remove"]').attributes("disabled")).toBeUndefined(); // released
   });
 
-  it("keeps the confirm open with an error when the remove fails (no false success)", async () => {
+  it("removes the session after confirmed Delete even when subsequent worktree removal fails", async () => {
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
     globalThis.fetch = vi.fn(async (url: string) => {
       const u = String(url);
+      if (u.includes("/api/session/")) return { ok: true, json: async () => ({ deleted: true }) };
       if (u.includes("/api/worktrees/remove")) return { ok: false, status: 500, json: async () => ({ ok: false, reason: "failed" }) };
       if (u.includes("/api/worktrees/diff")) return { ok: true, json: async () => cleanWtDiff };
       if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
@@ -1723,9 +1862,9 @@ describe("TerminalCell", () => {
     await flushPromises();
     await w.find('[data-testid="ccx-remove"]').trigger("click");
     await flushPromises();
-    expect(w.find('[data-testid="cell-close-confirm"]').exists()).toBe(true); // NOT torn down
-    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(false);
-    expect(w.find('[data-testid="ccx-warn"]').text()).toContain("Couldn't remove");
+    expect(w.find('[data-testid="cell-launch"]').exists()).toBe(true);
+    expect(alert).toHaveBeenCalledWith(expect.stringContaining("terminal was deleted"));
+    alert.mockRestore();
   });
 
   it("Escape dismisses the close confirmation", async () => {
@@ -1768,7 +1907,7 @@ describe("TerminalCell", () => {
     expect(warn.exists()).toBe(true);
     expect(warn.text()).toContain("2 unpushed");
     expect(warn.text()).toContain("1 uncommitted");
-    expect(w.find('[data-testid="ccx-remove"]').text()).toContain("Discard");
+    expect(w.find('[data-testid="ccx-remove"]').text()).toContain("discard");
   });
 
   it("keeps expand + close on row 1 (cell-header); the other icons live on row 2", async () => {
@@ -1865,6 +2004,7 @@ describe("TerminalCell", () => {
     await flushPromises();
     expect(w.find(".cell-header").classes()).toContain("is-zoomable"); // the header WOULD zoom
     await w.find(".cell-close").trigger("click");
+    await flushPromises();
     expect(w.emitted("close")).toHaveLength(1);
     expect(w.emitted("toggle-expand")).toBeUndefined();
   });

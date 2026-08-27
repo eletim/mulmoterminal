@@ -13,7 +13,6 @@ import type { Express, Request, Response } from "express";
 import { PORT, SESSION_ID_RE } from "../config/env.js";
 import { buildGuiMcpServer } from "../mcp/broker.js";
 import type { GuiCallRecorder } from "../mcp/gui-call-history.js";
-import { translationWorkerIds, markSessionToolGroup, sessionToolGroups, markAllToolsSession } from "../session/registry.js";
 import { isToolGroup, TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups.js";
 import { submitTranslation } from "../session/translation-worker.js";
 import { translationSubmitOutcome } from "../session/translation-submit.js";
@@ -39,13 +38,16 @@ export interface McpRouteDeps {
    * exists, and the same id is asked about again on every later call. See mcp/gui-call-history.ts
    * for which agents get one and why claude must not.
    */
-  guiCallHistory: (sessionId: string) => GuiCallRecorder | null;
+  guiCallHistory: (sessionId: string) => Promise<GuiCallRecorder | null>;
+  isInternalSession: (sessionId: string) => Promise<boolean>;
+  learnGuiCapabilities: (sessionId: string, groups: readonly ToolGroup[], allTools: boolean) => Promise<{ groups: ToolGroup[]; changed: boolean }>;
 }
 
 // Sessions whose MCP client has made contact, so the announcement below is sent once per session
 // rather than on every tool call. In-memory only: after a restart a session announcing itself
 // again is exactly right, since the panel it is telling has also just reconnected.
-const announcedSessions = new Set<string>();
+const MCP_ANNOUNCEMENT_TTL_MS = 24 * 60 * 60_000;
+const announcedSessions = new Map<string, number>();
 
 export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
   /**
@@ -63,8 +65,10 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
    * message without them; consumers that only need "ask again" (the tools pane) act on both.
    */
   function announceMcpContact(sessionId: string): void {
+    const now = Date.now();
+    for (const [id, at] of announcedSessions) if (now - at >= MCP_ANNOUNCEMENT_TTL_MS) announcedSessions.delete(id);
     if (announcedSessions.has(sessionId)) return;
-    announcedSessions.add(sessionId);
+    announcedSessions.set(sessionId, now);
     deps.publish(TOOL_GROUPS_CHANNEL, { sessionId });
   }
 
@@ -75,12 +79,10 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
    * Shared by both routes because the evidence is the same kind: the URL a client connected to.
    * One group for the group URL; every group for the all-tools one.
    */
-  function learnToolGroups(sessionId: string, groups: readonly ToolGroup[]): void {
+  async function learnToolGroups(sessionId: string, groups: readonly ToolGroup[], allTools = false): Promise<void> {
     if (!SESSION_ID_RE.test(sessionId)) return;
-    const known = sessionToolGroups(sessionId);
-    if (groups.every((group) => known.includes(group))) return;
-    for (const group of groups) markSessionToolGroup(sessionId, group);
-    deps.publish(TOOL_GROUPS_CHANNEL, { sessionId, groups: sessionToolGroups(sessionId) });
+    const learned = await deps.learnGuiCapabilities(sessionId, groups, allTools);
+    if (learned.changed) deps.publish(TOOL_GROUPS_CHANNEL, { sessionId, groups: learned.groups });
   }
 
   // We run in STATELESS mode (sessionIdGenerator: undefined): one fresh Server+transport per
@@ -97,11 +99,11 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
     // tool, so a normal chat's tool list stays clean.
     // A translation worker is a hidden claude session with no pane to feed, so it never gets a
     // recorder — asking would only be an extra lookup for a guaranteed null.
-    const isWorker = translationWorkerIds.has(sessionId);
+    const isWorker = await deps.isInternalSession(sessionId);
     const server = buildGuiMcpServer(sessionId, `http://127.0.0.1:${PORT}`, {
       submitTranslationTool: isWorker,
       group,
-      history: isWorker ? null : deps.guiCallHistory(sessionId),
+      history: isWorker ? null : await deps.guiCallHistory(sessionId),
     });
     // No sessionIdGenerator at all is the SDK's stateless mode. Spelling it `undefined` says
     // the same thing to the runtime but not to the type — the option is exact-optional.
@@ -138,14 +140,13 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
   //
   // Grid cells proper are untouched: without --mcp-config they never reach this URL, and what
   // they can call still comes only from what their directory registered.
-  app.post("/api/mcp/:sessionId", (req, res) => {
+  app.post("/api/mcp/:sessionId", async (req, res) => {
     // Two facts, and they are NOT the same one. The groups say which drawing/data/media/external
     // tools the session can call — that is what the Canvas gate reads. This says it carries the
     // WHOLE MCP, which additionally includes the tools belonging to no group at all
     // (spawnBackgroundChat); a directory that registered all four group urls has the first and
     // not the second.
-    markAllToolsSession(req.params.sessionId);
-    learnToolGroups(req.params.sessionId, TOOL_GROUPS);
+    await learnToolGroups(req.params.sessionId, TOOL_GROUPS, true);
     return handleMcpRequest(req, res, req.params.sessionId, null);
   });
   app.get("/api/mcp/:sessionId", rejectNonPost);
@@ -156,13 +157,13 @@ export function mountMcpRoutes(app: Express, deps: McpRouteDeps): void {
   //
   // An unknown group is a 404 rather than a fallback to the all-tools surface: a typo in a
   // user's own `.mcp.json` must not silently hand a directory every tool there is.
-  app.post("/api/mcp/:group/:sessionId", (req, res) => {
+  app.post("/api/mcp/:group/:sessionId", async (req, res) => {
     const { group, sessionId } = req.params;
     if (!isToolGroup(group)) return res.status(404).json({ error: `unknown tool group: ${group}` });
     // Reaching us here IS the evidence that this session has the group — nothing else tells
     // us, since the registration lives in the user's own MCP config. Marked before the request
     // is served so a panel asking right after the first ListTools already sees it.
-    learnToolGroups(sessionId, [group]);
+    await learnToolGroups(sessionId, [group]);
     return handleMcpRequest(req, res, sessionId, group);
   });
   app.get("/api/mcp/:group/:sessionId", rejectNonPost);
