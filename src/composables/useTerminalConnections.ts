@@ -211,6 +211,7 @@ interface Conn {
   knownSessionId: string | null;
   knownCwd: string | null; // server-resolved cwd, replayed on (re)attach
   knownSessionState: Record<string, unknown> | null;
+  sessionStateRequestId: number;
   target: ConnTarget;
   handlers: ConnHandlers;
   sawExit: boolean; // an intentional end (exit/superseded/error) — suppress reconnect
@@ -908,6 +909,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     knownSessionId: target.sessionId,
     knownCwd: null,
     knownSessionState: null,
+    sessionStateRequestId: 0,
     target,
     handlers: {},
     sawExit: false,
@@ -1046,6 +1048,9 @@ function connect(c: Conn) {
   c.scrollRefreshPending = false;
   c.scrollRequestId++;
   c.pendingScroll = null;
+  // The server's unconditional snapshot for a new socket is generation zero. Explicit
+  // re-seeds increment this value, so a slower earlier read cannot overwrite a newer one.
+  c.sessionStateRequestId = 0;
   c.sawExit = false;
   setStatus(c, "connecting");
   // Drop the previous session's resolved cwd so the Run menu can't list/launch the
@@ -1110,6 +1115,8 @@ function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
 
 function applySessionStateFrame(c: Conn, msg: Record<string, unknown>): void {
   if (!isRecord(msg.state)) return;
+  const requestId = typeof msg.requestId === "number" ? msg.requestId : 0;
+  if (requestId !== c.sessionStateRequestId) return;
   c.knownSessionState = msg.state;
   c.handlers.onSessionState?.(c.knownSessionState);
 }
@@ -1445,9 +1452,11 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
 
 /** Re-seed display state after the independent Socket.IO change stream reconnects. */
 export function requestSessionState(key: string): boolean {
-  const ws = conns.get(key)?.ws;
+  const c = conns.get(key);
+  const ws = c?.ws;
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-  ws.send(JSON.stringify({ type: "session-state" }));
+  const requestId = ++c.sessionStateRequestId;
+  ws.send(JSON.stringify({ type: "session-state", requestId }));
   return true;
 }
 
@@ -1473,6 +1482,7 @@ export function retarget(key: string, target: ConnTarget) {
   c.knownSessionId = target.sessionId;
   c.knownCwd = null;
   c.knownSessionState = null;
+  c.sessionStateRequestId = 0;
   c.viewportCursor = null;
   c.viewportLive = true;
   c.returningToLive = false;

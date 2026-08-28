@@ -548,7 +548,7 @@ export function startAndWire(
     if (deps.sessionStateOf) {
       void deps
         .sessionStateOf(session.id, entry.cwd)
-        .then((state) => sendFrame(ws, { type: "session-state", state }))
+        .then((state) => sendFrame(ws, { type: "session-state", requestId: 0, state }))
         .catch(() => {});
     }
   } finally {

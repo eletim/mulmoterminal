@@ -113,8 +113,8 @@ describe("handleClientFrame", () => {
     const socket = fakeSocket();
     const entry = entryWith({ ws: socket.ws as never });
 
-    handleClientFrame(entry, socket.ws as never, frame({ type: "session-state" }), SESSION);
-    await vi.waitFor(() => expect(socket.parsed()).toEqual([{ type: "session-state", state }]));
+    handleClientFrame(entry, socket.ws as never, frame({ type: "session-state", requestId: 7 }), SESSION);
+    await vi.waitFor(() => expect(socket.parsed()).toEqual([{ type: "session-state", requestId: 7, state }]));
     expect(sessionStateOf).toHaveBeenCalledWith(SESSION, "/ws");
   });
 

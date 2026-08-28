@@ -100,7 +100,7 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     const reattached = vi.fn();
     conn.attach("cell-race", target("sess-123"), { onSessionState: reattached }, document.createElement("div"));
     expect(reattached).toHaveBeenCalledOnce();
-    expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state" });
+    expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state", requestId: 1 });
   });
 
   it("can request one current snapshot when the independent pub/sub transport reconnects", () => {
@@ -112,8 +112,27 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     ws.readyState = FakeWebSocket.OPEN;
     ws.onopen?.();
     expect(conn.requestSessionState("cell-state-resync")).toBe(true);
-    expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state" });
+    expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state", requestId: 1 });
     conn.release("cell-state-resync");
+  });
+
+  it("ignores an older session-state snapshot that finishes after a newer request", () => {
+    const onSessionState = vi.fn();
+    conn.attach("cell-state-order", target("sess-123"), { onSessionState }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+    expect(conn.requestSessionState("cell-state-order")).toBe(true);
+    expect(conn.requestSessionState("cell-state-order")).toBe(true);
+
+    const newer = { id: "sess-123", working: false };
+    const older = { id: "sess-123", working: true };
+    ws.onmessage?.({ data: JSON.stringify({ type: "session-state", requestId: 2, state: newer }) });
+    ws.onmessage?.({ data: JSON.stringify({ type: "session-state", requestId: 1, state: older }) });
+
+    expect(onSessionState).toHaveBeenCalledOnce();
+    expect(onSessionState).toHaveBeenCalledWith(newer);
+    conn.release("cell-state-order");
   });
 
   it("keeps session-state delivery independent for multiple viewers of one Core session", () => {

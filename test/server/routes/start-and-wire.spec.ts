@@ -81,7 +81,7 @@ describe("startAndWire", () => {
     await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
 
     expect(sessionStateOf).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(socket.sent[0])).toEqual({ type: "session-state", state });
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "session-state", requestId: 0, state });
   });
 
   it("knows which websocket routes have an explicit session agent", () => {

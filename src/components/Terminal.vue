@@ -286,7 +286,11 @@ onMounted(() => {
   });
   // Socket.IO and the terminal WebSocket reconnect independently. Socket.IO only rejoins its
   // room, so ask the still-live terminal socket for one current snapshot after missed events.
-  unsubscribeSessionReconnect = sessionPubSub.onReconnect(() => conn.requestSessionState(slotKey));
+  unsubscribeSessionReconnect = sessionPubSub.onReconnect(() => {
+    // Only pushes received after this authoritative read may overlay its result. Retaining
+    // pre-disconnect values here would undo state changes that happened during the outage.
+    if (conn.requestSessionState(slotKey)) stateSinceAnnouncement = {};
+  });
   // Probe voice-input capability so the mic button shows only where supported.
   voice.refreshAvailability().catch(() => {});
 

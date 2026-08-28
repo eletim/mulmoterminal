@@ -80,17 +80,18 @@ export interface ConnectionDeps {
 
 type CoreSessionAdapter = Pick<import("./core-session-adapter.js").CoreSessionAdapter, "viewport" | "scroll">;
 
-function answerSessionStateRequest(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessionId: string): void {
+function answerSessionStateRequest(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessionId: string, requestId: number): void {
   if (!deps.sessionStateOf) return;
   void deps
     .sessionStateOf(sessionId, entry.cwd)
-    .then((state) => sendFrame(ws, { type: "session-state", state }))
+    .then((state) => sendFrame(ws, { type: "session-state", requestId, state }))
     .catch(() => {});
 }
 
 function applyViewerControlFrame(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessionId: string, msg: Record<string, unknown>): boolean {
   if (msg.type === "session-state") {
-    answerSessionStateRequest(deps, entry, ws, sessionId);
+    const requestId = typeof msg.requestId === "number" && Number.isSafeInteger(msg.requestId) && msg.requestId >= 0 ? msg.requestId : 0;
+    answerSessionStateRequest(deps, entry, ws, sessionId, requestId);
     return true;
   }
   if (msg.type !== "view" || typeof msg.active !== "boolean") return false;
