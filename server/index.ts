@@ -94,6 +94,7 @@ import { stopWhisperSidecar } from "./backends/whisper.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionActivity, SESSIONS_CHANNEL } from "./session/session-activity.js";
+import { currentSessionStateRevision, versionSessionStateUpdate } from "./session/session-state-revision.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -331,7 +332,7 @@ const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessio
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
 const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = createTitleManager({
-  publishTitle: (id, title) => pubsub?.publish(SESSIONS_CHANNEL, { id, aiTitle: title }),
+  publishTitle: (id, title) => pubsub?.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(id, { id, aiTitle: title })),
   now: () => Date.now(),
   generateTitle: (turns) => generateTitleFromTurns(turns),
   hasTitle: async (id) => !!(await coreSessions.find(id))?.title,
@@ -359,12 +360,23 @@ const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = c
 // Keep that side effect tied to an actual viewer snapshot, never to a timer. A declaration is
 // used because the connection handlers above retain this callback before the server starts.
 async function sessionStateForViewer(id: string, cwd: string) {
-  const { state, userTurns } = await readSessionState(id, cwd, {
+  let revision = currentSessionStateRevision(id);
+  let snapshot = await readSessionState(id, cwd, {
     getCoreSession: (sessionId) => coreSessions.find(sessionId),
     workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
   });
+  // A push can cross this transcript/Core read. Retry once from the newer boundary; if another
+  // update crosses that read, its later revision still wins in the browser.
+  if (revision !== currentSessionStateRevision(id)) {
+    revision = currentSessionStateRevision(id);
+    snapshot = await readSessionState(id, cwd, {
+      getCoreSession: (sessionId) => coreSessions.find(sessionId),
+      workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+    });
+  }
+  const { state, userTurns } = snapshot;
   freshenRosterTitle(id, cwd, userTurns);
-  return state;
+  return { ...state, revision };
 }
 
 // The PTY spawners (session/spawn-*.ts). They take what index.ts still owns — the session
@@ -389,7 +401,7 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => {
-    pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, waiting: false, event: "created" });
+    pubsub?.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(sessionId, { id: sessionId, working: false, waiting: false, event: "created" }));
   },
   endSessionActivity,
 };

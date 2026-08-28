@@ -13,6 +13,7 @@ import {
   type MobileWebPushActivityNotification,
   type MobileWebPushActivityState,
 } from "../mobile-web-push/activity-notifier.js";
+import { versionSessionStateUpdate } from "./session-state-revision.js";
 
 export const SESSIONS_CHANNEL = "sessions";
 
@@ -72,7 +73,7 @@ function createSessionStatePublisher(deps: ActivityServiceDeps) {
         const fingerprint = JSON.stringify(extras);
         if (lastExtras.get(id) === fingerprint) return;
         lastExtras.set(id, fingerprint);
-        deps.publish(SESSIONS_CHANNEL, { id, ...extras });
+        deps.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(id, { id, ...extras }));
       })
       .catch(() => {})
       .finally(() => {
@@ -98,7 +99,7 @@ function createSessionStatePublisher(deps: ActivityServiceDeps) {
         const fingerprint = JSON.stringify(row);
         if (lastRows.get(id) !== fingerprint) {
           lastRows.set(id, fingerprint);
-          deps.publish(SESSIONS_CHANNEL, row);
+          deps.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(id, row));
         }
         publishSessionExtras(id, cwd, token, forgetAfter);
       }

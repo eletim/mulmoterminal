@@ -23,6 +23,7 @@ import { guiCallRecorderFor, historyIsGuiOnly } from "../mcp/gui-call-history.js
 import type { SessionAgent } from "../../common/sessionAgent.js";
 import { mountSessionRoutes } from "../routes/session-routes.js";
 import { SESSIONS_CHANNEL } from "../session/session-activity.js";
+import { versionSessionStateUpdate } from "../session/session-state-revision.js";
 import { mountToolRoutes } from "../routes/tool-routes.js";
 import { mountGithubStarRoutes } from "../routes/repo-routes.js";
 import { mountDirRoutes } from "../routes/dir-routes.js";
@@ -99,7 +100,7 @@ const sessionCallReporting = async (sessionId: string) => {
 
 const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRoutes>[1] => ({
   freshenRosterTitle: deps.freshenRosterTitle,
-  publishMemo: (id, memo) => deps.publish(SESSIONS_CHANNEL, { id, memo: memo || null }),
+  publishMemo: (id, memo) => deps.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(id, { id, memo: memo || null })),
   listCoreSessions: () => coreSessions.list(),
   getCoreSession: async (id) => {
     try {

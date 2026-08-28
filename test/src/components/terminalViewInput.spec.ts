@@ -106,6 +106,21 @@ describe("Terminal.vue reports the user typing", () => {
     expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: false });
   });
 
+  it("ignores a delayed pub/sub update older than the terminal snapshot", async () => {
+    const w = await mountTerminal({ sessionId: "session-1" });
+    await flushPromises();
+    attachedHandlers[0]?.onSession?.("session-1");
+    sessionPushHandler?.({ id: "session-1", revision: 3, working: true });
+    attachedHandlers[0]?.onSessionState?.({ id: "session-1", revision: 4, working: false });
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: false });
+
+    sessionPushHandler?.({ id: "session-1", revision: 3, working: true });
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: false });
+
+    sessionPushHandler?.({ id: "session-1", revision: 5, working: true });
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: true });
+  });
+
   it("binds onInput when it attaches, so the connection has somewhere to report to", async () => {
     await mountTerminal();
     await flushPromises();

@@ -102,13 +102,27 @@ const sessionContext = ref<CellContext | null>(null);
 let announcedSessionId: string | null = props.sessionId;
 let sessionState: Record<string, unknown> = {};
 let stateSinceAnnouncement: Record<string, unknown> = {};
+let stateRevisionsSinceAnnouncement: Record<string, number> = {};
+let lastSessionStateRevision = -1;
 let unsubscribeSessionState: (() => void) | null = null;
 let unsubscribeSessionReconnect: (() => void) | null = null;
 
 function applySessionState(state: Record<string, unknown>, initial: boolean): void {
   if (typeof state.id !== "string" || state.id !== announcedSessionId) return;
-  sessionState = initial ? { ...state, ...stateSinceAnnouncement } : { ...sessionState, ...state };
-  if (!initial) stateSinceAnnouncement = { ...stateSinceAnnouncement, ...state };
+  const versioned = typeof state.revision === "number" && Number.isSafeInteger(state.revision);
+  const revision = versioned ? Number(state.revision) : 0;
+  if (!initial && revision < lastSessionStateRevision) return;
+  if (initial) {
+    const newerPushes = versioned
+      ? Object.fromEntries(Object.entries(stateSinceAnnouncement).filter(([key]) => (stateRevisionsSinceAnnouncement[key] ?? -1) > revision))
+      : stateSinceAnnouncement;
+    sessionState = { ...state, ...newerPushes };
+  } else {
+    sessionState = { ...sessionState, ...state };
+    stateSinceAnnouncement = { ...stateSinceAnnouncement, ...state };
+    for (const key of Object.keys(state)) stateRevisionsSinceAnnouncement[key] = revision;
+  }
+  lastSessionStateRevision = Math.max(lastSessionStateRevision, revision);
   sessionContext.value = isCellContext(sessionState.context) ? sessionState.context : null;
   emit("session-state", sessionState);
 }
@@ -120,6 +134,8 @@ function announceSession(id: string): void {
   }
   announcedSessionId = id;
   stateSinceAnnouncement = {};
+  stateRevisionsSinceAnnouncement = {};
+  lastSessionStateRevision = -1;
   emit("session", id);
 }
 
@@ -289,7 +305,10 @@ onMounted(() => {
   unsubscribeSessionReconnect = sessionPubSub.onReconnect(() => {
     // Only pushes received after this authoritative read may overlay its result. Retaining
     // pre-disconnect values here would undo state changes that happened during the outage.
-    if (conn.requestSessionState(slotKey)) stateSinceAnnouncement = {};
+    if (conn.requestSessionState(slotKey)) {
+      stateSinceAnnouncement = {};
+      stateRevisionsSinceAnnouncement = {};
+    }
   });
   // Probe voice-input capability so the mic button shows only where supported.
   voice.refreshAvailability().catch(() => {});

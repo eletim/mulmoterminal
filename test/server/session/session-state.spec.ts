@@ -14,6 +14,7 @@ vi.mock("../../../server/session/session-reads.js", () => ({
 
 import { activity, lastPrompts, lastResponses } from "../../../server/session/activity-store.js";
 import { readSessionState } from "../../../server/session/session-state.js";
+import { currentSessionStateRevision, versionSessionStateUpdate } from "../../../server/session/session-state-revision.js";
 
 const ID = "11111111-2222-4333-8444-555555555555";
 
@@ -22,6 +23,13 @@ describe("readSessionState", () => {
     activity.clear();
     lastPrompts.clear();
     lastResponses.clear();
+  });
+
+  it("versions updates monotonically per session without storing session state", () => {
+    const id = `revision-${crypto.randomUUID()}`;
+    expect(currentSessionStateRevision(id)).toBe(0);
+    expect(versionSessionStateUpdate(id, { id, working: true })).toEqual({ id, working: true, revision: 1 });
+    expect(versionSessionStateUpdate(id, { id, waiting: true })).toEqual({ id, waiting: true, revision: 2 });
   });
 
   it("assembles one snapshot from Core, live activity and transcript-derived state without owning a registry", async () => {
