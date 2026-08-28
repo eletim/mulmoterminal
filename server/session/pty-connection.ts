@@ -86,8 +86,10 @@ function opaqueCursor(value: string): ViewportCursor {
   return value as ViewportCursor;
 }
 
-function restoreLiveViewportModes(viewport: TerminalViewport, modes: readonly number[]): TerminalViewport {
-  return viewport.live ? { ...viewport, content: terminalModeRestorePrefix(modes) + viewport.content } : viewport;
+type RestoredTerminalViewport = TerminalViewport & { restore?: string };
+
+function restoreLiveViewportModes(viewport: TerminalViewport, modes: readonly number[]): RestoredTerminalViewport {
+  return viewport.live ? { ...viewport, restore: terminalModeRestorePrefix(modes) } : viewport;
 }
 
 function restoreLiveScrollModes(result: ScrollResult, modes: readonly number[]): ScrollResult {

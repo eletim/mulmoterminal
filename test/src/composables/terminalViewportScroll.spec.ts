@@ -56,6 +56,11 @@ describe("viewportRenderData", () => {
   it("replaces the visible screen and preserves ANSI content", () => {
     expect(viewportRenderData("\x1b[31mred\x1b[0m\nnext\n")).toBe("\x1b[H\x1b[2J\x1b[31mred\x1b[0m\r\nnext");
   });
+
+  it("restores the target terminal buffer before clearing and drawing it", () => {
+    const restore = "\x1b[?1049l\x1b[?1003l";
+    expect(viewportRenderData("shell", restore)).toBe(`${restore}\x1b[H\x1b[2Jshell`);
+  });
 });
 
 describe("takeScrollChunk", () => {

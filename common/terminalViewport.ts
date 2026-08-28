@@ -3,6 +3,9 @@ import { MAX_TERM_COLS, MAX_TERM_ROWS, MIN_TERM_ROWS } from "./terminalSize";
 
 export interface BrowserTerminalViewport {
   content: string;
+  /** Terminal-state bytes to apply before clearing and drawing this snapshot. Transport-internal;
+   * callers never generate or interpret them. */
+  restore?: string;
   cursor: string;
   live: boolean;
   cols: number;
@@ -70,8 +73,10 @@ export function terminalViewportOf(value: unknown): BrowserTerminalViewport | nu
   if (!isIntegerBetween(value.cols, 0, Number.MAX_SAFE_INTEGER) || !isIntegerBetween(value.screenRows, 0, Number.MAX_SAFE_INTEGER)) return null;
   if (!isIntegerBetween(value.viewportRows, 0, Number.MAX_SAFE_INTEGER) || !isIntegerBetween(value.historyRows, 0, Number.MAX_SAFE_INTEGER)) return null;
   if (!isIntegerBetween(value.historyLimit, 0, Number.MAX_SAFE_INTEGER)) return null;
+  if (value.restore !== undefined && typeof value.restore !== "string") return null;
   return {
     content: value.content,
+    ...(typeof value.restore === "string" ? { restore: value.restore } : {}),
     cursor: value.cursor,
     live: value.live,
     cols: value.cols,

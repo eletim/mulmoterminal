@@ -958,7 +958,7 @@ function applyViewport(c: Conn, value: unknown): boolean {
   clearViewportRetry(c);
   c.viewportCursor = viewport.cursor;
   c.viewportLive = viewport.live;
-  c.term.write(viewportRenderData(viewport.content));
+  c.term.write(viewportRenderData(viewport.content, viewport.restore));
   return true;
 }
 

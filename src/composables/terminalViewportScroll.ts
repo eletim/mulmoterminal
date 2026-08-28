@@ -51,7 +51,7 @@ export function wireGenericWheel(term: Terminal, enabled: () => boolean, scrollS
   });
 }
 
-export function viewportRenderData(content: string): string {
+export function viewportRenderData(content: string, restore = ""): string {
   const rows = content.replace(/\n$/, "").replace(/\r?\n/g, "\r\n");
-  return `\x1b[H\x1b[2J${rows}`;
+  return `${restore}\x1b[H\x1b[2J${rows}`;
 }

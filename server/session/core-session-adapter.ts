@@ -107,7 +107,7 @@ export class CoreSessionAdapter {
   private readonly core: SessionCore;
   private readonly createSyncImpl: NonNullable<CoreSessionAdapterOptions["createSync"]>;
   private readonly inputTails = new Map<string, Promise<void>>();
-  private readonly exitWatchers = new Map<string, (event: CoreSessionExit) => void>();
+  private readonly exitWatchers = new Map<string, Set<(event: CoreSessionExit) => void>>();
   private readonly capabilityTails = new Map<string, Promise<CoreSessionCapabilities>>();
   private exitPollTimer: ReturnType<typeof setTimeout> | undefined;
   private exitPollMs = 250;
@@ -227,12 +227,16 @@ export class CoreSessionAdapter {
    * node-pty cannot supply the lifecycle event MulmoTerminal needs for activity and hook cleanup.
    */
   watchExit(id: string, listener: (event: CoreSessionExit) => void, pollMs = 250): { dispose(): void } {
-    this.exitWatchers.set(id, listener);
+    const listeners = this.exitWatchers.get(id) ?? new Set<(event: CoreSessionExit) => void>();
+    listeners.add(listener);
+    this.exitWatchers.set(id, listeners);
     this.exitPollMs = Math.min(this.exitPollMs, pollMs);
     void this.pollExits();
     return {
       dispose: () => {
-        if (this.exitWatchers.get(id) === listener) this.exitWatchers.delete(id);
+        const current = this.exitWatchers.get(id);
+        current?.delete(listener);
+        if (current?.size === 0) this.exitWatchers.delete(id);
         if (this.exitWatchers.size === 0 && this.exitPollTimer) {
           clearTimeout(this.exitPollTimer);
           this.exitPollTimer = undefined;
@@ -327,10 +331,10 @@ export class CoreSessionAdapter {
       }
       for (const session of sessions) {
         if (!session.exited) continue;
-        const listener = this.exitWatchers.get(session.id);
-        if (!listener) continue;
+        const listeners = this.exitWatchers.get(session.id);
+        if (!listeners) continue;
         this.exitWatchers.delete(session.id);
-        listener({ exitCode: session.exitCode });
+        for (const listener of listeners) listener({ exitCode: session.exitCode });
       }
     } catch {
       // A transient tmux probe failure is retried. Absence never synthesizes a child exit.

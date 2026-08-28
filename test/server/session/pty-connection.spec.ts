@@ -138,8 +138,9 @@ describe("handleClientFrame", () => {
     await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport" })));
     expect(viewport).toHaveBeenCalledWith(SESSION, { target: { kind: "live" }, rows: 30, format: "ansi" });
     const response = s.parsed().find((value) => value.type === "viewport");
-    expect(response?.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
-    expect(response?.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+    expect(response?.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
+    expect(response?.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+    expect(response?.viewport.content).toBe("screen");
   });
 
   it("restores current modes when a scroll result returns to live", async () => {
@@ -165,8 +166,9 @@ describe("handleClientFrame", () => {
 
     await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "scroll-result" })));
     const response = s.parsed().find((value) => value.type === "scroll-result");
-    expect(response?.result.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
-    expect(response?.result.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+    expect(response?.result.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
+    expect(response?.result.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+    expect(response?.result.viewport.content).toBe("live screen");
   });
 
   it("passes only generic direction, rows and cell intent to Core.scroll", async () => {

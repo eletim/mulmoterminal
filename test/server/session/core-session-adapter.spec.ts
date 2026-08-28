@@ -225,7 +225,7 @@ describe("CoreSessionAdapter", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("supersedes the detached viewer observer when the same Core member is reattached", async () => {
+  it("fans a Core exit out to simultaneous viewer observers", async () => {
     const core = { list: vi.fn(async () => [{ ...native, exited: true, exitCode: 4 }]) } as unknown as SessionCore;
     const staleViewer = vi.fn();
     const currentViewer = vi.fn();
@@ -235,6 +235,19 @@ describe("CoreSessionAdapter", () => {
     adapter.watchExit(native.id, currentViewer, 1);
     await vi.waitFor(() => expect(currentViewer).toHaveBeenCalledWith({ exitCode: 4 }));
 
-    expect(staleViewer).not.toHaveBeenCalled();
+    expect(staleViewer).toHaveBeenCalledWith({ exitCode: 4 });
+  });
+
+  it("disposes one viewer observer without removing its peers", async () => {
+    const core = { list: vi.fn(async () => [{ ...native, exited: true, exitCode: 5 }]) } as unknown as SessionCore;
+    const detachedViewer = vi.fn();
+    const currentViewer = vi.fn();
+    const adapter = new CoreSessionAdapter({ core });
+
+    adapter.watchExit(native.id, detachedViewer, 1).dispose();
+    adapter.watchExit(native.id, currentViewer, 1);
+    await vi.waitFor(() => expect(currentViewer).toHaveBeenCalledWith({ exitCode: 5 }));
+
+    expect(detachedViewer).not.toHaveBeenCalled();
   });
 });
