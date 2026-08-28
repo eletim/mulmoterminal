@@ -41,6 +41,15 @@ describe("TerminalViewportCache", () => {
     expect(cache.atLiveBoundary).toBe(true);
   });
 
+  it("exposes the whole cache as one xterm render window", () => {
+    const cache = new TerminalViewportCache(3);
+    cache.reset(viewport(7, 3, true));
+    cache.prepend(viewport(4, 3));
+    cache.prepend(viewport(1, 3));
+
+    expect(cache.renderContent()).toBe("1\n2\n3\n4\n5\n6\n7\n8\n9");
+  });
+
   it("signals prefetch within one chunk of either non-live cache edge", () => {
     const cache = new TerminalViewportCache(30);
     cache.reset(viewport(61));

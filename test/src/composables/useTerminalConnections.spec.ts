@@ -47,6 +47,8 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
     mockTermState.bufferLines = [];
     mockTermState.bufferLength = 24;
+    mockTermState.writes.length = 0;
+    mockTermState.scrollToLines.length = 0;
     mockTermState.resizes.length = 0;
   });
   afterEach(() => {
@@ -214,6 +216,54 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     const afterPrepend = ws.sent.filter((frame) => JSON.parse(frame).type === "scroll").length;
     mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
     expect(ws.sent.filter((frame) => JSON.parse(frame).type === "scroll")).toHaveLength(afterPrepend);
+    conn.release(key);
+  });
+
+  it("uses xterm local scrolling without rewriting snapshots inside a rendered cache window", () => {
+    const key = "viewer-local-xterm-cache";
+    conn.attach(key, target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    for (const [cursor, live] of [
+      ["live", true],
+      ["older-1", false],
+      ["older-2", false],
+    ] as const) {
+      const request = lastFrameOf(ws, "viewport");
+      ws.onmessage?.({ data: JSON.stringify(viewportFrame(Number(request?.requestId), cursor, live)) });
+    }
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const ownership = lastFrameOf(ws, "scroll");
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: ownership?.requestId,
+        result: { kind: "viewport", viewport: viewportFrame(0, "confirmed", false).viewport },
+      }),
+    });
+    const writeCount = mockTermState.writes.length;
+    const localScrollCount = mockTermState.scrollToLines.length;
+    const socketScrollCount = ws.sent.filter((frame) => JSON.parse(frame).type === "scroll").length;
+
+    for (let index = 0; index < 15; index++) {
+      mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+      mockTermState.wheelHandler({ deltaY: 120, preventDefault: vi.fn() });
+    }
+
+    expect(mockTermState.writes).toHaveLength(writeCount);
+    expect(mockTermState.scrollToLines).toHaveLength(localScrollCount + 30);
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "scroll")).toHaveLength(socketScrollCount);
+
+    const renderedLine = mockTermState.scrollToLines.at(-1);
+    if (renderedLine === undefined) throw new Error("rendered cache line missing");
+    for (let index = 0; index < 15; index++) {
+      mockTermState.emitScroll(renderedLine - 1);
+      mockTermState.emitScroll(renderedLine);
+    }
+    expect(mockTermState.writes).toHaveLength(writeCount);
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "scroll")).toHaveLength(socketScrollCount);
     conn.release(key);
   });
 
