@@ -7196,9 +7196,9 @@ tldts@^7.0.5:
   dependencies:
     tldts-core "^7.4.2"
 
-"tmux-session-core-ts@https://github.com/eletim/tmux-session-core-ts.git#ed270b7935785c9bfc1cfa661f97effb1c25f80c":
+"tmux-session-core-ts@https://github.com/eletim/tmux-session-core-ts.git#3947f8ed6778a15dd446e235d1ff88481456a541":
   version "0.1.0"
-  resolved "https://github.com/eletim/tmux-session-core-ts.git#ed270b7935785c9bfc1cfa661f97effb1c25f80c"
+  resolved "https://github.com/eletim/tmux-session-core-ts.git#3947f8ed6778a15dd446e235d1ff88481456a541"
 
 toidentifier@~1.0.1:
   version "1.0.1"

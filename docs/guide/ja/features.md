@@ -102,6 +102,7 @@ Files は read-only です。保存、rename、delete、IDE 的な編集機能�
 | ランチャ / cwd presets / PR repos | 設定で起動コマンド・作業ディレクトリ候補・横断 PR 対象を拡張 |
 | テーマ | Midnight / Nord / Daylight / Solarized Light |
 | ターミナルのフォントサイズ | 設定モーダルで調整（ブラウザごと）、または `.mulmoterminal.json` の `fontSize` でディレクトリごとに固定 |
+| 永続履歴のスクロール | tmux copy-modeへ入らず、長いShell履歴をwheelで閲覧。opaqueなviewport cursorはbrowser tabごとに独立し、reconnect時はliveから再開。full-screen applicationへのscrollもCore session APIが処理 |
 | ターミナルのスクロール速度 | 設定モーダルで調整（ブラウザごと、0.25 倍〜3 倍）。シェルのスクロールバックと Claude Code のような全画面アプリの両方に効くので、Mac のトラックパッドで行き過ぎるときは下げる |
 | ターミナルのフォント | グローバル設定の `fontFamily`、またはディレクトリごとに指定。既定スタックに CJK フォントが入ったので、日本語がブラウザ任せのフォールバックにならない |
 

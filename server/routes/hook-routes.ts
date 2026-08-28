@@ -12,7 +12,7 @@ import { runCompletionHook } from "../session/completion-hooks.js";
 import { messageOf } from "../errors.js";
 import { headerHookEffect } from "../session/header-hook.js";
 import { activity, lastPrompts, lastResponses } from "../session/activity-store.js";
-import { viewerPtys } from "../session/viewer-state.js";
+import { isViewerActive, viewerPtys } from "../session/viewer-state.js";
 import { clearedTranscripts, markTranscriptCleared } from "../session/cleared-transcripts.js";
 import { latestUserPrompt, readLatestResponse } from "../session/session-reads.js";
 import { preferredHeaderPrompt } from "../session/transcript.js";
@@ -195,8 +195,7 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
     console.warn(`[hook] ignoring ${event} — session id is not a canonical uuid`);
   }
   if (sessionId) {
-    const entry = viewerPtys.get(sessionId);
-    const active = !!(entry && entry.active);
+    const active = isViewerActive(sessionId, viewerPtys.get(sessionId));
     const coreCwd = await deps.sessionCwd?.(sessionId);
     const cwd = resolveHookCwd(body.cwd, coreCwd);
     const transcriptId = (await deps.sessionHistoryId?.(sessionId)) ?? sessionId;

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { appendBoundedOutput, stripTerminalQueries, terminalModePrefix } from "../../../server/session/terminal-replay.js";
+import { appendBoundedOutput, stripTerminalQueries, terminalModePrefix, terminalModeRestorePrefix } from "../../../server/session/terminal-replay.js";
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
@@ -156,5 +156,18 @@ describe("terminalModePrefix", () => {
   // instead of a text selection (#729). One sequence per mode is what keeps the swallow working.
   it("never combines modes into one parameter list", () => {
     expect(terminalModePrefix([1049, 1003, 1006])).not.toContain(";");
+  });
+});
+
+describe("terminalModeRestorePrefix", () => {
+  it("resets stale alternate and mouse modes before enabling the current set", () => {
+    const restored = terminalModeRestorePrefix([1049, 1003, 1006]);
+    for (const mode of [1049, 1000, 1002, 1003, 1005, 1006]) expect(restored).toContain(`${ESC}[?${mode}l`);
+    expect(restored.endsWith(`${ESC}[?1049h${ESC}[?1003h${ESC}[?1006h`)).toBe(true);
+  });
+
+  it("actively restores the normal baseline when no modes remain enabled", () => {
+    expect(terminalModeRestorePrefix([])).toContain(`${ESC}[?1049l`);
+    expect(terminalModeRestorePrefix([])).not.toContain(`${ESC}[?1049h`);
   });
 });

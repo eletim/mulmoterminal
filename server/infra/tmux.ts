@@ -39,46 +39,12 @@ export const MS_OVERRIDE_ENTRY = "*:Ms=\\E]52;%p1%s;%p2%s\\007";
 // Appended (not set) so tmux's built-in overrides survive.
 const OSC52_MS_OVERRIDE = `,${MS_OVERRIDE_ENTRY}`;
 
-// The wheel inside tmux's own scrollback (copy-mode), one line per report instead of tmux's
-// default FIVE (#978). Nothing else in the stack has a five-line step, so this is what a reader
-// feels as "it jumps a paragraph at a time" while scrolling a long shell output: a plain shell
-// pane has no mouse mode of its own, so tmux's root binding puts the wheel into copy-mode, and
-// `send -X -N 5 scroll-up` is what copy-mode does with it.
-//
-// Only this path changes. A pane running a mouse-tracking program (Claude Code) never reaches
-// copy-mode — tmux forwards the report to the program with `send -M` — so the step size there
-// stays the program's own. The client compensates for the smaller step with a higher notch rate
-// (TRACKPAD_GAIN in src/composables/mouseReports.ts); the two are a matched pair, and changing
-// one alone changes the scroll SPEED, not just its smoothness.
-//
-// Both tables, because which one is live follows `mode-keys` (tmux derives it from $EDITOR), and
-// a user with a vi-ish EDITOR would otherwise keep the five-line jump.
-//
-// `select-pane` is kept from tmux's own default: `send -X` acts on the ACTIVE pane, so dropping it
-// would scroll the focused pane when the pointer is over a different split. Nothing this app
-// creates is split, but a user can split one by hand, and the wrong pane scrolling is a worse bug
-// than the one being fixed.
-const WHEEL_SCROLL_TABLES = ["copy-mode", "copy-mode-vi"] as const;
-const WHEEL_SCROLL_KEYS = [
-  { key: "WheelUpPane", command: "select-pane ; send -X -N 1 scroll-up" },
-  { key: "WheelDownPane", command: "select-pane ; send -X -N 1 scroll-down" },
-] as const;
-
-// A conf FILE needs the command separator escaped (`\;`), or tmux ends the bind-key there and runs
-// the rest as its own command — which binds the key to `select-pane` alone. Passing the command as
-// ONE argument is what does the same job for the live rebinding below (an argv `;` is a separator
-// there too, and `\;` only reaches tmux as one because a shell would have unescaped it).
-const WHEEL_SCROLL_BINDINGS: readonly string[] = WHEEL_SCROLL_TABLES.flatMap((table) =>
-  WHEEL_SCROLL_KEYS.map(({ key, command }) => `bind -T ${table} ${key} ${command.replace(" ; ", " \\; ")}`),
-);
-
 // Minimal config for our server: no status bar (this is a terminal INSIDE a terminal),
 // instant escape, generous scrollback, follow the latest client's size, never destroy a
 // session just because our client detached (that IS the persistence), plus two fixes for
 // the terminal-in-terminal wrapping:
-//   - `mouse on`: forward the wheel to the program (claude has mouse tracking) instead of
-//     tmux's default alternate-scroll, which turns the wheel into ↑/↓ arrows (cycling
-//     claude's input history rather than scrolling).
+//   - `mouse on`: keep raw click reports travelling through the attached tmux client. Wheel
+//     routing does not use this client option; tmux-session-core-ts owns it.
 //   - `set-clipboard on` + the `Ms` override: forward OSC 52 clipboard writes to the
 //     outer terminal so Claude's auto-copy reaches the browser clipboard (#206).
 export const TMUX_CONF_LINES: readonly string[] = [
@@ -100,7 +66,6 @@ export const TMUX_CONF_LINES: readonly string[] = [
   // `\007` into a raw BEL — so the capability tmux stores emits `E]52;…` as literal text
   // instead of an OSC 52 sequence. Measured on tmux 3.6a.
   `set -ag terminal-overrides '${OSC52_MS_OVERRIDE}'`,
-  ...WHEEL_SCROLL_BINDINGS,
 ];
 
 export type MsOverridePlan = { kind: "ok" } | { kind: "append" } | { kind: "replace"; index: number };
@@ -140,12 +105,6 @@ function applyLiveTmuxOptions(): void {
   // client's forever and every resize would read as a disagreement. A tmux server that predates
   // the conf keeps its status bar across every node restart, so it has to be set live too.
   tmux(["set", "-g", "status", "off"]);
-  // Rebinding is idempotent, so this needs no "is it already ours?" check (unlike the
-  // append-only overrides below). A tmux server started before this shipped keeps the
-  // five-line jump until it is rebound here — it outlives every node restart.
-  for (const table of WHEEL_SCROLL_TABLES) {
-    for (const { key, command } of WHEEL_SCROLL_KEYS) tmux(["bind-key", "-T", table, key, command]);
-  }
   // Forward OSC 8 hyperlinks to the outer xterm (see TMUX_CONF_LINES). Append only when
   // absent — `set -as` does NOT de-dupe, so an unguarded call grows the list on every restart.
   if (!tmux(["show", "-g", "terminal-features"]).stdout.includes("hyperlinks")) {

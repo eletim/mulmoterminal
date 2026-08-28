@@ -1,21 +1,10 @@
-// The xterm-facing half of the #729 mouse-tracking swallow: the wheel (#737) and the click
-// (#845) handlers that hand a swallowed app the SGR reports it asked for. The rules they apply
+// The xterm-facing half of the #729 mouse-tracking swallow: click handlers that hand a
+// swallowed app the SGR reports it asked for. The rules they apply
 // (what the app wants, where the pointer is, click vs drag, the byte sequences) are pure and
 // live in ./mouseReports; what is here is the wiring onto a live Terminal.
 import type { Terminal } from "@xterm/xterm";
-import {
-  cellFromPoint,
-  clearResetModes,
-  clickReportSequences,
-  createWheelTicker,
-  isClickGesture,
-  recordSwallowedModes,
-  wantsMouseReports,
-  wheelNotches,
-  wheelReportSequence,
-} from "./mouseReports";
+import { cellFromPoint, clearResetModes, clickReportSequences, isClickGesture, recordSwallowedModes, wantsMouseReports } from "./mouseReports";
 import { swallowsMouseTracking } from "./mouseTrackingModes";
-import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
 import type { GridCell, PointerPosition } from "./mouseReports";
 
 // xterm's Linkifier marks the screen element while a link is under the pointer. That click
@@ -32,58 +21,11 @@ export const reportsMouseToApp = (term: Terminal, swallowedMouseModes: ReadonlyS
 const screenElementOf = (term: Terminal): HTMLElement | null => term.element?.querySelector(".xterm-screen") ?? null;
 
 // Cells are measured off the screen element's own box, since xterm exposes no pixel-to-cell
-// mapping. A terminal that isn't laid out yet reports the top-left cell rather than nothing:
-// for the wheel, arriving matters more than the coordinate.
+// mapping. A terminal that isn't laid out yet reports the top-left cell rather than nothing.
 function cellUnderPointer(term: Terminal, pointer: PointerPosition): GridCell {
   const screen = screenElementOf(term);
   if (!screen) return TOP_LEFT_CELL;
   return cellFromPoint(screen.getBoundingClientRect(), term.cols, term.rows, pointer);
-}
-
-export function sendWheelReportsToApp(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, notches: number): boolean {
-  if (!reportsMouseToApp(term, swallowedMouseModes)) return false;
-  const cell = cellUnderPointer(term, pointer);
-  const seq = wheelReportSequence(notches, cell.col, cell.row);
-  if (seq) for (let i = 0; i < Math.abs(notches); i++) term.input(seq, false);
-  return true;
-}
-
-// xterm exposes no cell height, so it comes off the screen element's own box — the same
-// measurement the cell mapping uses. 0 means "not laid out yet", which wheelNotches reads as
-// "can't convert pixels to lines".
-function cellHeightOf(term: Terminal): number {
-  const screen = screenElementOf(term);
-  if (!screen || term.rows <= 0) return 0;
-  return screen.getBoundingClientRect().height / term.rows;
-}
-
-/** Wheel -> the SGR wheel reports the app asked for. Without this xterm converts the wheel into
- *  arrow keys for an alt-buffer app, which a TUI binds to input history — so scrolling spun the
- *  prompt history instead of the transcript (#737).
- *
- *  Deltas are accumulated into whole notches (see wheelNotches) rather than reported one per
- *  event: a macOS trackpad emits a burst per swipe, and one report each scrolled a TUI far
- *  faster than the same gesture scrolls the scrollback (#978). `scrollSpeed` is read per event,
- *  so changing it in Settings applies to terminals that are already open. */
-export function guardMouseWheel(term: Terminal, swallowedMouseModes: ReadonlySet<number>, scrollSpeed: () => number): void {
-  const ticker = createWheelTicker();
-  term.attachCustomWheelEventHandler((ev) => {
-    if (!reportsMouseToApp(term, swallowedMouseModes)) {
-      // The bank belongs to ONE stretch of tracked scrolling. Kept across the gap, a fraction left
-      // over before an app exited (or before the buffer went back to normal) would pay out on the
-      // first tiny event the NEXT app sees — a scroll it didn't ask for, from a gesture that was
-      // over. Nothing is lost: an unpaid fraction is by definition less than one notch.
-      ticker.residual = 0;
-      return true;
-    }
-    if (ev.deltaY === 0) return true;
-    const notches = wheelNotches(ticker, ev, cellHeightOf(term), term.rows, scrollSpeed());
-    // Consumed even at zero notches: this event's motion is banked, and handing the leftover
-    // back to xterm would resurrect the ↑/↓ fallback #737 exists to replace.
-    ev.preventDefault();
-    sendWheelReportsToApp(term, swallowedMouseModes, ev, notches);
-    return false;
-  });
 }
 
 // Which gestures are the app's to hear. Everything rejected here belongs to the browser side of
@@ -135,5 +77,4 @@ export function guardMouseTracking(term: Terminal, swallowedMouseModes: Set<numb
     clearResetModes(swallowedMouseModes, params);
     return false;
   });
-  guardMouseWheel(term, swallowedMouseModes, getTerminalScrollSpeed);
 }

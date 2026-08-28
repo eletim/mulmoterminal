@@ -38,6 +38,16 @@ export function terminalModePrefix(modes: readonly number[]): string {
   return modes.map((mode) => `${ESC}[?${mode}h`).join("");
 }
 
+const RESTORABLE_TERMINAL_MODES = [1049, 1000, 1002, 1003, 1005, 1006] as const;
+
+/** Reset the complete tmux-observable mode set before enabling the current modes. Unlike a fresh
+ * reattach, a browser returning from history may still hold modes that changed while output was
+ * visually suppressed, so an empty current set must actively restore the normal baseline. */
+export function terminalModeRestorePrefix(modes: readonly number[]): string {
+  const reset = RESTORABLE_TERMINAL_MODES.map((mode) => `${ESC}[?${mode}l`).join("");
+  return reset + terminalModePrefix(modes);
+}
+
 // A CSI sequence closes with a final byte in 0x40-0x7E; an OSC string closes with BEL
 // or ST. Neither can appear inside the sequence before its terminator, so the first
 // occurrence IS the end.

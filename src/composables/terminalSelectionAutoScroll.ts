@@ -1,6 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
-import { sendWheelReportsToApp } from "./terminalMouseInput";
 import type { PointerPosition } from "./mouseReports";
 
 const EDGE_TRIGGER_PX = 28;
@@ -11,13 +10,10 @@ const AUTO_SCROLL_LINES_PER_SECOND = 18;
 const MAX_FRAME_MS = 80;
 const APP_SCROLL_OBSERVATION_TIMEOUT_MS = 250;
 const APP_SCROLL_MIN_MATCHED_LINES = 3;
-const XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX = 50;
-const XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX = 1;
 const MIN_PARTIAL_OVERLAP_CHARS = 24;
 const MIN_PARTIAL_OVERLAP_RATIO = 0.55;
 
 const syntheticSelectionMoves = new WeakSet<MouseEvent>();
-type TerminalUiScrollResult = "none" | "app" | "scrollback";
 type SelectionPoint = [number, number];
 type VisibleLineSnapshot = readonly string[];
 
@@ -78,16 +74,6 @@ function clampPointerToScreen(event: MouseEvent, screen: HTMLElement): PointerPo
   return {
     clientX: Math.min(Math.max(event.clientX, rect.left), rect.right),
     clientY: Math.min(Math.max(event.clientY, rect.top), rect.bottom),
-  };
-}
-
-function pointerOutsideScreenForXtermDragScroll(event: MouseEvent, screen: HTMLElement, intensity: number): PointerPosition {
-  const rect = screen.getBoundingClientRect();
-  const pointer = clampPointerToScreen(event, screen);
-  const outsidePx = Math.max(XTERM_DRAG_SCROLL_MIN_OUTSIDE_PX, Math.abs(intensity) * XTERM_DRAG_SCROLL_MAX_THRESHOLD_PX);
-  return {
-    clientX: pointer.clientX,
-    clientY: intensity < 0 ? rect.top - outsidePx : rect.bottom + outsidePx,
   };
 }
 
@@ -224,26 +210,6 @@ function mergeSelectionLines(existing: readonly string[], incoming: readonly str
   return direction < 0 ? [...incoming, ...existing] : [...existing, ...incoming];
 }
 
-function scrollbackCanMove(term: Terminal, lines: number): boolean {
-  const buffer = term.buffer.active;
-  if (lines < 0) return buffer.viewportY > 0;
-  if (lines > 0) return buffer.viewportY < buffer.baseY;
-  return false;
-}
-
-function normalBufferSelectionCanMove(term: Terminal, intensity: number): boolean {
-  return scrollbackCanMove(term, intensity < 0 ? -1 : 1);
-}
-
-function scrollTerminalUi(term: Terminal, swallowedMouseModes: ReadonlySet<number>, pointer: PointerPosition, lines: number): TerminalUiScrollResult {
-  if (lines === 0) return "none";
-  if (sendWheelReportsToApp(term, swallowedMouseModes, pointer, lines)) return "app";
-  if (!scrollbackCanMove(term, lines)) return "none";
-  const before = term.buffer.active.viewportY;
-  term.scrollLines(lines);
-  return term.buffer.active.viewportY !== before ? "scrollback" : "none";
-}
-
 function visibleLineSnapshot(term: Terminal): VisibleLineSnapshot {
   const buffer = term.buffer.active;
   const lines: string[] = [];
@@ -337,7 +303,7 @@ function shiftSelectionAnchorByVisibleRows(term: Terminal, rows: number): void {
 
 class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   private readonly term: Terminal;
-  private readonly swallowedMouseModes: ReadonlySet<number>;
+  private readonly scroll: (lines: number, pointer: PointerPosition) => boolean;
   private readonly screen: HTMLElement;
   private activeDocument: Document | null = null;
   private activeWindow: Window | null = null;
@@ -352,9 +318,9 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   private captureDirection = 0;
   private readonly copyTarget: HTMLElement;
 
-  constructor(term: Terminal, swallowedMouseModes: ReadonlySet<number>, screen: HTMLElement) {
+  constructor(term: Terminal, scroll: (lines: number, pointer: PointerPosition) => boolean, screen: HTMLElement) {
     this.term = term;
-    this.swallowedMouseModes = swallowedMouseModes;
+    this.scroll = scroll;
     this.screen = screen;
     this.copyTarget = term.element ?? screen;
     screen.addEventListener("mousedown", this.onMouseDown);
@@ -464,18 +430,6 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       return;
     }
 
-    if (this.term.buffer.active.type === "normal") {
-      const targetDocument = this.activeDocument ?? this.screen.ownerDocument;
-      if (!normalBufferSelectionCanMove(this.term, intensity)) {
-        dispatchSelectionMove(targetDocument, event, clampPointerToScreen(event, this.screen));
-        this.stopFrame();
-        return;
-      }
-      dispatchSelectionMove(targetDocument, event, pointerOutsideScreenForXtermDragScroll(event, this.screen, intensity));
-      this.ensureFrame();
-      return;
-    }
-
     const pointer = clampPointerToScreen(event, this.screen);
     if (this.applyPendingAppScroll(now)) {
       dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
@@ -496,12 +450,11 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
       this.lineDebt -= lines;
       const beforeAppScroll = visibleLineSnapshot(this.term);
       this.captureSelectionText(lines);
-      const scrolled = scrollTerminalUi(this.term, this.swallowedMouseModes, pointer, lines);
-      if (scrolled === "none") {
+      if (!this.scroll(lines, pointer)) {
         this.stopFrame();
         return;
       }
-      if (scrolled === "app") this.pendingAppScroll = { before: beforeAppScroll, lines, createdAtMs: now };
+      this.pendingAppScroll = { before: beforeAppScroll, lines, createdAtMs: now };
       dispatchSelectionMove(this.activeDocument ?? this.screen.ownerDocument, event, pointer);
     }
     this.ensureFrame();
@@ -558,7 +511,10 @@ class SelectionEdgeAutoScroller implements SelectionEdgeAutoScrollHandle {
   };
 }
 
-export function wireSelectionEdgeAutoScroll(term: Terminal, swallowedMouseModes: ReadonlySet<number>): SelectionEdgeAutoScrollHandle | null {
+export function wireSelectionEdgeAutoScroll(
+  term: Terminal,
+  scroll: (lines: number, pointer: PointerPosition) => boolean,
+): SelectionEdgeAutoScrollHandle | null {
   const screen = screenElementOf(term);
-  return screen ? new SelectionEdgeAutoScroller(term, swallowedMouseModes, screen) : null;
+  return screen ? new SelectionEdgeAutoScroller(term, scroll, screen) : null;
 }

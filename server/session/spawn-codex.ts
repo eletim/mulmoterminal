@@ -10,7 +10,7 @@ import { codexGuiMcpServers } from "./mcp-config.js";
 import { codexSessionsRoot, snapshotSessions, watchForCodexSession } from "../agents/codex-session.js";
 import { codexRolloutPath } from "../agents/codex-sessions.js";
 import { trackCodexActivity } from "./codex-activity-track.js";
-import { viewerPtys } from "./viewer-state.js";
+import { isViewerActive, viewerPtys } from "./viewer-state.js";
 import { ptySpawn } from "./pty-spawn.js";
 import { ptyStartLine } from "./pty-exit-log.js";
 import { wireAgentPtyRelay } from "./pty-relay.js";
@@ -26,7 +26,7 @@ const activityDepsFor = (sessionId: string, deps: SpawnDeps) => ({
   setWorking: deps.setWorking,
   setWaiting: deps.setWaiting,
   publishActivity: deps.publishActivity,
-  isActive: () => viewerPtys.get(sessionId)?.active ?? false,
+  isActive: () => isViewerActive(sessionId, viewerPtys.get(sessionId)),
   uiPort: deps.uiPort,
   isAlive: () => coreSessions.isRunning(sessionId),
 });

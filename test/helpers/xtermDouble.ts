@@ -51,6 +51,7 @@ export interface XtermTermState {
   bufferBaseY: number;
   bufferCursorY: number;
   bufferLines: string[];
+  resizes: Array<[number, number]>;
   /** How many terminals the manager has constructed for this state. The rebuild (#846) is
    *  otherwise invisible from outside: it swaps `c.term` for a fresh one behind the slot key. */
   constructed: number;
@@ -75,6 +76,7 @@ export function createXtermState(): { termState: XtermTermState; keyState: Xterm
       bufferBaseY: 0,
       bufferCursorY: 0,
       bufferLines: [],
+      resizes: [],
       constructed: 0,
     },
     keyState: { handler: () => true },
@@ -146,6 +148,11 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
       }
       input(data: string) {
         termState.input.push(data);
+      }
+      resize(cols: number, rows: number) {
+        this.cols = cols;
+        this.rows = rows;
+        termState.resizes.push([cols, rows]);
       }
       write(data?: string, callback?: () => void) {
         if (typeof data === "string") {
