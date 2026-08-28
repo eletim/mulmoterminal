@@ -233,6 +233,7 @@ interface Conn {
   viewportInFlight: boolean;
   viewportTargetLive: boolean;
   viewportRefreshPending: boolean;
+  geometryRefreshPending: boolean;
   viewportRequestId: number;
   scrollInFlight: boolean;
   scrollRefreshPending: boolean;
@@ -535,6 +536,7 @@ function prepareTypedInput(c: Conn): boolean {
   c.viewportInFlight = false;
   c.viewportTargetLive = false;
   c.viewportRefreshPending = false;
+  c.geometryRefreshPending = false;
   c.scrollRequestId++;
   c.scrollInFlight = false;
   c.scrollRefreshPending = false;
@@ -806,6 +808,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     viewportInFlight: false,
     viewportTargetLive: false,
     viewportRefreshPending: false,
+    geometryRefreshPending: false,
     viewportRequestId: 0,
     scrollInFlight: false,
     scrollRefreshPending: false,
@@ -892,6 +895,7 @@ function connect(c: Conn) {
   c.viewportInFlight = false;
   c.viewportTargetLive = false;
   c.viewportRefreshPending = false;
+  c.geometryRefreshPending = false;
   c.viewportRequestId++;
   c.scrollInFlight = false;
   c.scrollRefreshPending = false;
@@ -984,6 +988,15 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
   if (msg.requestId !== c.viewportRequestId) return;
   const targetLive = c.viewportTargetLive;
   c.viewportInFlight = false;
+  if (c.geometryRefreshPending) {
+    c.geometryRefreshPending = false;
+    const stale = terminalViewportOf(msg.viewport);
+    if (stale) c.viewportCursor = stale.live ? null : stale.cursor;
+    c.viewportLive = false;
+    c.viewportTargetLive = false;
+    requestViewport(c);
+    return;
+  }
   if (!applyViewport(c, msg.viewport)) {
     c.returningToLive = false;
     c.viewportTargetLive = false;
@@ -1011,6 +1024,14 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
   c.scrollInFlight = false;
   const outputRaced = c.scrollRefreshPending;
   c.scrollRefreshPending = false;
+  if (c.geometryRefreshPending) {
+    c.geometryRefreshPending = false;
+    const stale = typeof msg.result === "object" && msg.result !== null && "viewport" in msg.result ? terminalViewportOf(msg.result.viewport) : null;
+    if (stale) c.viewportCursor = stale.live ? null : stale.cursor;
+    c.viewportLive = false;
+    requestViewport(c);
+    return;
+  }
   if (typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport") {
     const viewport = terminalViewportOf("viewport" in msg.result ? msg.result.viewport : null);
     // Output received while a historical viewer is scrolling is intentionally not rendered.
@@ -1045,12 +1066,14 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
     c.viewportInFlight = false;
     c.viewportTargetLive = false;
     c.viewportRefreshPending = false;
+    c.geometryRefreshPending = false;
     scheduleViewportRetry(c);
     return;
   } else {
     c.scrollInFlight = false;
     c.scrollRefreshPending = false;
     c.pendingScroll = null;
+    c.geometryRefreshPending = false;
   }
   // Future incremental PTY output cannot reconstruct a failed Core snapshot. Keep the existing
   // screen read-only and retry from live; viewport errors use bounded backoff above.
@@ -1077,7 +1100,10 @@ function handleMessage(c: Conn, event: MessageEvent) {
   if (applyCoreViewportFrame(c, msg)) return;
   if (isTerminalGeometryFrame(msg)) {
     c.term.resize(msg.cols, msg.rows);
-    if (c.viewportLive) c.term.scrollToBottom();
+    const captureInFlight = c.viewportInFlight || c.scrollInFlight;
+    if (c.viewportLive) c.viewportCursor = null;
+    c.viewportLive = false;
+    if (captureInFlight) c.geometryRefreshPending = true;
     else requestViewport(c);
   } else if (msg.type === "output") {
     // Checked here as well as on fit() because a slot that is only receiving output would

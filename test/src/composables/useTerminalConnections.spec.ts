@@ -139,6 +139,96 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.release("viewer-shared-geometry");
   });
 
+  it("recaptures instead of rendering a viewport invalidated by shared geometry", () => {
+    conn.attach("viewer-geometry-viewport-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const requestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "terminal-geometry", cols: 132, rows: 43 }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "stale old-geometry viewport",
+          cursor: "stale-live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    expect(mockTermState.bufferLines.join("\n")).not.toContain("stale old-geometry viewport");
+    const refresh = lastFrameOf(ws, "viewport");
+    expect(refresh).toMatchObject({ rows: 43 });
+    expect(refresh).not.toHaveProperty("cursor");
+    expect(Number(refresh?.requestId)).toBeGreaterThan(requestId);
+    conn.release("viewer-geometry-viewport-race");
+  });
+
+  it("recaptures a scroll anchor instead of rendering old-geometry content", () => {
+    conn.attach("viewer-geometry-scroll-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "historical screen",
+          cursor: "old-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const scrollRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "terminal-geometry", cols: 132, rows: 43 }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: scrollRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "stale scrolled content",
+            cursor: "new-scroll-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    expect(mockTermState.bufferLines.join("\n")).not.toContain("stale scrolled content");
+    expect(lastFrameOf(ws, "viewport")).toMatchObject({ cursor: "new-scroll-cursor", rows: 43 });
+    conn.release("viewer-geometry-scroll-race");
+  });
+
   it("serializes a historical resize refresh after an in-flight scroll", () => {
     const key = "viewer-scroll-resize-race";
     conn.attach(key, target("shared-session"), {}, document.createElement("div"));

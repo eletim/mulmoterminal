@@ -166,6 +166,29 @@ describe("handleClientFrame", () => {
     expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport", requestId: 3 }));
   });
 
+  it("waits for a primary Core resize before a secondary viewer capture", async () => {
+    let finishResize: (() => void) | undefined;
+    const resizePending = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const { handleClientFrame, currentEntries, resize, viewport } = setup();
+    resize.mockReturnValueOnce(resizePending);
+    const primarySocket = fakeSocket();
+    const primary = entryWith({ ws: primarySocket.ws as never });
+    currentEntries.set(SESSION, primary);
+    const secondarySocket = fakeSocket();
+    const secondary = entryWith({ ws: secondarySocket.ws as never, tmux: true });
+
+    handleClientFrame(primary, primarySocket.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    handleClientFrame(secondary, secondarySocket.ws as never, frame({ type: "viewport", requestId: 5, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(viewport).not.toHaveBeenCalled();
+
+    finishResize?.();
+    await vi.waitFor(() => expect(viewport).toHaveBeenCalledOnce());
+    expect(secondarySocket.parsed()).toContainEqual(expect.objectContaining({ type: "viewport", requestId: 5 }));
+  });
+
   it("waits for the preceding Core resize before routing scroll intent", async () => {
     let finishResize: (() => void) | undefined;
     const resizePending = new Promise<void>((resolve) => {
