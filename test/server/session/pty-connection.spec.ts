@@ -3,7 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 import { activity } from "../../../server/session/activity-store.js";
-import { isViewerActive, registerSecondaryViewer, viewerPtys } from "../../../server/session/viewer-state.js";
+import { isViewerActive, registerSecondaryViewer, unregisterSecondaryViewer, viewerPtys } from "../../../server/session/viewer-state.js";
 import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;
@@ -20,6 +20,8 @@ function fakeTerm() {
     resizes,
     term: {
       pid: 4242,
+      cols: 80,
+      rows: 24,
       kill: vi.fn(),
       write: (d: string) => {
         writes.push(d);
@@ -253,8 +255,28 @@ describe("handleClientFrame", () => {
     handleClientFrame(secondary, s.ws as never, frame({ type: "resize", cols: 100, rows: 40 }), SESSION);
 
     expect(t.resizes).toEqual([]);
+    expect(s.parsed()).toContainEqual({ type: "terminal-geometry", cols: 80, rows: 24 });
     expect(resize).not.toHaveBeenCalled();
     expect(calls.filter((call) => call.startsWith("sizeCheck:") || call.startsWith("redraw:"))).toEqual([]);
+  });
+
+  it("synchronizes secondary PTYs and browsers after the shared Core resize completes", async () => {
+    const { handleClientFrame, currentEntries } = setup();
+    const primarySocket = fakeSocket();
+    const primary = entryWith({ ws: primarySocket.ws as never });
+    currentEntries.set(SESSION, primary);
+    const secondaryTerm = fakeTerm();
+    const secondarySocket = fakeSocket();
+    const secondary = entryWith({ term: secondaryTerm.term as never, ws: secondarySocket.ws as never, tmux: true });
+    registerSecondaryViewer(SESSION, secondary);
+    try {
+      handleClientFrame(primary, primarySocket.ws as never, frame({ type: "resize", cols: 132, rows: 43 }), SESSION);
+
+      await vi.waitFor(() => expect(secondaryTerm.resizes).toEqual([[132, 43]]));
+      expect(secondarySocket.parsed()).toContainEqual({ type: "terminal-geometry", cols: 132, rows: 43 });
+    } finally {
+      unregisterSecondaryViewer(SESSION, secondary);
+    }
   });
 
   // The redraw waits for this frame on purpose: it is where the client reports the size it

@@ -10,6 +10,10 @@ export interface TerminalSize {
   rows: number;
 }
 
+export interface TerminalGeometryFrame extends TerminalSize {
+  type: "terminal-geometry";
+}
+
 export const MIN_TERM_COLS = 2;
 export const MAX_TERM_COLS = 500;
 export const MIN_TERM_ROWS = 1;
@@ -18,6 +22,11 @@ export const MAX_TERM_ROWS = 200;
 export function isUsableTerminalSize({ cols, rows }: TerminalSize): boolean {
   if (!Number.isInteger(cols) || !Number.isInteger(rows)) return false;
   return cols >= MIN_TERM_COLS && cols <= MAX_TERM_COLS && rows >= MIN_TERM_ROWS && rows <= MAX_TERM_ROWS;
+}
+
+export function isTerminalGeometryFrame(value: { type?: unknown; cols?: unknown; rows?: unknown }): value is TerminalGeometryFrame {
+  if (value.type !== "terminal-geometry" || !Number.isInteger(value.cols) || !Number.isInteger(value.rows)) return false;
+  return isUsableTerminalSize({ cols: Number(value.cols), rows: Number(value.rows) });
 }
 
 /** The geometry a connect URL carries, or null when it carries none it can stand behind — an

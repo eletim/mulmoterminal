@@ -58,6 +58,7 @@ import { TERMINAL_FONT_SIZE_DEFAULT } from "../../common/terminalFontSize";
 import { TERMINAL_FONT_FAMILY_DEFAULT } from "../../common/terminalFontFamily";
 import { getTerminalSubmitMode } from "./terminalSubmitMode";
 import { clipboardActionFor, selectionToCopy } from "../../common/terminalClipboard";
+import { isTerminalGeometryFrame } from "../../common/terminalSize";
 import { sendBytesFor, type Keymap, type KeymapKeyEvent } from "../../common/keymap";
 import { shellCommandCopyFromScreens } from "../../common/shellCommandCopy";
 import { getActiveKeymap } from "./activeKeymap";
@@ -1074,7 +1075,11 @@ function handleMessage(c: Conn, event: MessageEvent) {
   const msg = parseServerFrame(event.data);
   if (!msg) return;
   if (applyCoreViewportFrame(c, msg)) return;
-  if (msg.type === "output") {
+  if (isTerminalGeometryFrame(msg)) {
+    c.term.resize(msg.cols, msg.rows);
+    if (c.viewportLive) c.term.scrollToBottom();
+    else requestViewport(c);
+  } else if (msg.type === "output") {
     // Checked here as well as on fit() because a slot that is only receiving output would
     // otherwise sit frozen until something happened to resize it (#846).
     guardBufferHealth(c);

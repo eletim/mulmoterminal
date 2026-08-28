@@ -22,6 +22,10 @@ export function unregisterSecondaryViewer(sessionId: string, entry: PtyEntry): v
   if (viewers.size === 0) secondaryViewerPtys.delete(sessionId);
 }
 
+export function secondaryViewersOf(sessionId: string): readonly PtyEntry[] {
+  return [...(secondaryViewerPtys.get(sessionId) ?? [])];
+}
+
 export function isViewerActive(sessionId: string, primary: PtyEntry | undefined): boolean {
   if (primary?.active) return true;
   return [...(secondaryViewerPtys.get(sessionId) ?? [])].some((entry) => entry.active);

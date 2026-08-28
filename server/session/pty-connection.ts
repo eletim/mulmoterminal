@@ -10,7 +10,7 @@ import { isResizeFrame, sendFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix, terminalModeRestorePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
-import { unregisterSecondaryViewer, viewerPtys } from "./viewer-state.js";
+import { secondaryViewersOf, unregisterSecondaryViewer, viewerPtys } from "./viewer-state.js";
 import { isScrollRequest, isViewportRequest, type BrowserScrollRequest, type BrowserViewportRequest } from "../../common/terminalViewport.js";
 import type { ScrollIntent, ScrollResult, TerminalViewport, ViewportCursor } from "tmux-session-core-ts";
 
@@ -204,7 +204,14 @@ function closeClient(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessi
 type ResizeTails = WeakMap<PtyEntry, Promise<void>>;
 
 function queueResize(tails: ResizeTails, deps: Pick<ConnectionDeps, "resize">, entry: PtyEntry, sessionId: string, cols: number, rows: number): void {
-  const resize = () => deps.resize(sessionId, cols, rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
+  const resize = async () => {
+    try {
+      await deps.resize(sessionId, cols, rows);
+      syncSecondaryGeometry(sessionId, cols, rows);
+    } catch (error) {
+      console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`);
+    }
+  };
   const previous = tails.get(entry);
   const current = previous ? previous.then(resize) : resize();
   tails.set(entry, current);
@@ -222,6 +229,21 @@ function afterPendingResize(tails: ResizeTails, entry: PtyEntry, ws: WebSocket, 
 function ownsGeometry(deps: Pick<ConnectionDeps, "currentEntryOf">, entry: PtyEntry, sessionId: string): boolean {
   const primary = deps.currentEntryOf?.(sessionId);
   return !primary || primary === entry;
+}
+
+function sendGeometry(entry: PtyEntry, cols: number, rows: number): void {
+  sendFrame(entry.ws, { type: "terminal-geometry", cols, rows });
+}
+
+function syncSecondaryGeometry(sessionId: string, cols: number, rows: number): void {
+  for (const secondary of secondaryViewersOf(sessionId)) {
+    try {
+      secondary.term.resize(cols, rows);
+      sendGeometry(secondary, cols, rows);
+    } catch (error) {
+      console.warn(`[ws] secondary resize dropped for ${sessionId}: ${messageOf(error)}`);
+    }
+  }
 }
 
 export function createConnectionHandlers(deps: ConnectionDeps) {
@@ -284,7 +306,11 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
         // One tmux pane has one geometry. Secondary viewers keep independent viewport cursors,
         // but cannot resize their tmux client without `window-size latest` also moving the shared
         // pane underneath the primary viewer.
-        if (!ownsGeometry(deps, entry, sessionId)) return;
+        if (!ownsGeometry(deps, entry, sessionId)) {
+          const primary = deps.currentEntryOf?.(sessionId);
+          if (primary) sendGeometry(entry, primary.term.cols, primary.term.rows);
+          return;
+        }
         entry.term.resize(msg.cols, msg.rows);
         queueResize(resizeTails, deps, entry, sessionId, msg.cols, msg.rows);
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves

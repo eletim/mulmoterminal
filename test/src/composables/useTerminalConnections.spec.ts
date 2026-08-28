@@ -31,6 +31,7 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
     mockTermState.bufferLines = [];
     mockTermState.bufferLength = 24;
+    mockTermState.resizes.length = 0;
   });
   afterEach(() => {
     conn.release("cell-race"); // tear the slot down so it can't leak into the next test
@@ -103,6 +104,39 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     expect(lastFrameOf(wsB, "scroll")?.cursor).toBe("cursor-b");
     conn.release("viewer-a");
     conn.release("viewer-b");
+  });
+
+  it("applies the shared terminal geometry sent by the server", () => {
+    conn.attach("viewer-shared-geometry", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const requestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "historical screen",
+          cursor: "historical-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "terminal-geometry", cols: 132, rows: 43 }) });
+
+    expect(mockTermState.resizes).toContainEqual([132, 43]);
+    expect(lastFrameOf(ws, "viewport")?.cursor).toBe("historical-cursor");
+    expect(Number(lastFrameOf(ws, "viewport")?.requestId)).toBeGreaterThan(requestId);
+    conn.release("viewer-shared-geometry");
   });
 
   it("serializes a historical resize refresh after an in-flight scroll", () => {
