@@ -1,6 +1,12 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Terminal } from "@xterm/xterm";
-import { takeScrollChunk, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "../../../src/composables/terminalViewportScroll";
+import {
+  boundedViewportRows,
+  takeScrollChunk,
+  viewportRenderData,
+  wireGenericWheel,
+  type GenericScrollIntent,
+} from "../../../src/composables/terminalViewportScroll";
 
 beforeAll(() => {
   window.matchMedia ??= () => ({ addListener() {}, removeListener() {} }) as unknown as MediaQueryList;
@@ -68,5 +74,13 @@ describe("takeScrollChunk", () => {
     expect(takeScrollChunk(275)).toEqual({ lines: 200, remaining: 75 });
     expect(takeScrollChunk(-275)).toEqual({ lines: -200, remaining: -75 });
     expect(takeScrollChunk(75)).toEqual({ lines: 75, remaining: 0 });
+  });
+});
+
+describe("boundedViewportRows", () => {
+  it("keeps viewport and scroll requests inside the shared wire bounds", () => {
+    expect(boundedViewportRows(24)).toBe(24);
+    expect(boundedViewportRows(250)).toBe(200);
+    expect(boundedViewportRows(1)).toBe(1);
   });
 });

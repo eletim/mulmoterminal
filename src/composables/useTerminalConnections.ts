@@ -34,7 +34,7 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
 import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
-import { takeScrollChunk, terminalCellAt, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "./terminalViewportScroll";
+import { boundedViewportRows, takeScrollChunk, terminalCellAt, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "./terminalViewportScroll";
 import { terminalViewportOf } from "../../common/terminalViewport";
 import type { PointerPosition } from "./mouseReports";
 import { isTypedInput } from "./terminalUserInput";
@@ -692,7 +692,7 @@ function sendPendingScroll(c: Conn): void {
       requestId,
       direction: chunk.lines < 0 ? "up" : "down",
       lines: Math.abs(chunk.lines),
-      rows: c.term.rows,
+      rows: boundedViewportRows(c.term.rows),
       cell: pending.cell,
       ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}),
     }),
@@ -734,7 +734,7 @@ function requestViewport(c: Conn): void {
   c.viewportInFlight = true;
   c.viewportTargetLive = !c.viewportCursor;
   const requestId = ++c.viewportRequestId;
-  c.ws.send(JSON.stringify({ type: "viewport", requestId, rows: c.term.rows, ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}) }));
+  c.ws.send(JSON.stringify({ type: "viewport", requestId, rows: boundedViewportRows(c.term.rows), ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}) }));
 }
 
 // The wiring that needs the connection itself, so it is re-applied to every terminal a slot owns.

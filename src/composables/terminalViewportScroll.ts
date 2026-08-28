@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import { MAX_TERM_ROWS } from "../../common/terminalSize";
+import { MAX_TERM_ROWS, MIN_TERM_ROWS } from "../../common/terminalSize";
 import { cellFromPoint, createWheelTicker, wheelNotches, type PointerPosition } from "./mouseReports";
 
 export interface GenericScrollIntent {
@@ -11,6 +11,10 @@ export interface GenericScrollIntent {
 export function takeScrollChunk(lines: number): { lines: number; remaining: number } {
   const chunk = Math.sign(lines) * Math.min(Math.abs(lines), MAX_TERM_ROWS);
   return { lines: chunk, remaining: lines - chunk };
+}
+
+export function boundedViewportRows(rows: number): number {
+  return Math.max(MIN_TERM_ROWS, Math.min(MAX_TERM_ROWS, Math.trunc(rows)));
 }
 
 function screenElementOf(term: Terminal): HTMLElement | null {
