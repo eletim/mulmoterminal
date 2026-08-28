@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Terminal } from "@xterm/xterm";
-import { viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "../../../src/composables/terminalViewportScroll";
+import { takeScrollChunk, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "../../../src/composables/terminalViewportScroll";
 
 beforeAll(() => {
   window.matchMedia ??= () => ({ addListener() {}, removeListener() {} }) as unknown as MediaQueryList;
@@ -55,5 +55,13 @@ describe("wireGenericWheel", () => {
 describe("viewportRenderData", () => {
   it("replaces the visible screen and preserves ANSI content", () => {
     expect(viewportRenderData("\x1b[31mred\x1b[0m\nnext\n")).toBe("\x1b[H\x1b[2J\x1b[31mred\x1b[0m\r\nnext");
+  });
+});
+
+describe("takeScrollChunk", () => {
+  it("splits queued movement into protocol-safe chunks without losing direction or rows", () => {
+    expect(takeScrollChunk(275)).toEqual({ lines: 200, remaining: 75 });
+    expect(takeScrollChunk(-275)).toEqual({ lines: -200, remaining: -75 });
+    expect(takeScrollChunk(75)).toEqual({ lines: 75, remaining: 0 });
   });
 });

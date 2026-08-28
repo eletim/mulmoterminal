@@ -34,7 +34,7 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
 import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
-import { terminalCellAt, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "./terminalViewportScroll";
+import { takeScrollChunk, terminalCellAt, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "./terminalViewportScroll";
 import { terminalViewportOf } from "../../common/terminalViewport";
 import type { PointerPosition } from "./mouseReports";
 import { isTypedInput } from "./terminalUserInput";
@@ -223,6 +223,7 @@ interface Conn {
   shellDraft: string;
   viewportCursor: string | null;
   viewportLive: boolean;
+  returningToLive: boolean;
   viewportRequested: boolean;
   viewportInFlight: boolean;
   viewportRefreshPending: boolean;
@@ -520,6 +521,8 @@ function observeShellInput(c: Conn, data: string): void {
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
     if (!c.inputEnabled) return;
+    const typed = isTypedInput(data);
+    const returnFromHistory = typed && !c.viewportLive;
     observeShellInput(c, data);
     // Announced even when the socket is down: the user typed either way, and what a parked cell
     // reads it for (#992) is "someone is using this", not "the PTY received it".
@@ -527,11 +530,12 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
     // Pointer and focus reports ride this same function — the app feeds its own clicks and wheel
     // through `term.input()` — so they have to be excluded here or clicking a parked cell to READ
     // it would wake it, which is the one thing parking is for.
-    if (isTypedInput(data)) {
-      // Interactive input returns this viewer to live. The bytes still travel through the
-      // attached PTY (#193); only the browser-local viewport cursor is discarded.
+    if (typed) {
+      // Interactive input returns this viewer to live, while the bytes still travel through the
+      // attached PTY (#193). A historical snapshot stays read-only until Core replaces it.
       c.viewportCursor = null;
-      c.viewportLive = true;
+      c.viewportLive = !returnFromHistory;
+      c.returningToLive = returnFromHistory;
       c.viewportRequestId++;
       c.viewportInFlight = false;
       c.viewportRefreshPending = false;
@@ -549,7 +553,8 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
     }
     if (c.ws && c.ws.readyState === WebSocket.OPEN) {
       c.ws.send(JSON.stringify({ type: "input", data }));
-    } else if (isTypedInput(data)) {
+      if (returnFromHistory) requestViewport(c);
+    } else if (typed) {
       // A keystroke with nowhere to go is dropped in silence — the status pill is the only sign,
       // and a filmstrip cell doesn't render one. Say so once per disconnected stretch, so "I typed
       // and nothing happened" leaves evidence of WHICH of the two silences it was: a socket that is
@@ -673,15 +678,16 @@ function persistentViewportEnabled(c: Conn): boolean {
 function sendPendingScroll(c: Conn): void {
   const pending = c.pendingScroll;
   if (!pending || c.scrollInFlight || c.viewportInFlight || c.ws?.readyState !== WebSocket.OPEN || !persistentViewportEnabled(c)) return;
-  c.pendingScroll = null;
+  const chunk = takeScrollChunk(pending.lines);
+  c.pendingScroll = chunk.remaining === 0 ? null : { lines: chunk.remaining, cell: pending.cell };
   c.scrollInFlight = true;
   const requestId = ++c.scrollRequestId;
   c.ws.send(
     JSON.stringify({
       type: "scroll",
       requestId,
-      direction: pending.lines < 0 ? "up" : "down",
-      lines: Math.abs(pending.lines),
+      direction: chunk.lines < 0 ? "up" : "down",
+      lines: Math.abs(chunk.lines),
       rows: c.term.rows,
       cell: pending.cell,
       ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}),
@@ -764,6 +770,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     shellDraft: "",
     viewportCursor: null,
     viewportLive: true,
+    returningToLive: false,
     viewportRequested: false,
     viewportInFlight: false,
     viewportRefreshPending: false,
@@ -846,6 +853,7 @@ function connect(c: Conn) {
   c.swallowedMouseModes.clear();
   c.viewportCursor = null;
   c.viewportLive = true;
+  c.returningToLive = false;
   c.viewportRequested = false;
   c.viewportInFlight = false;
   c.viewportRefreshPending = false;
@@ -936,12 +944,26 @@ function applyTerminalFrame(c: Conn, msg: Record<string, unknown>): void {
 
 function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
   if (msg.requestId !== c.viewportRequestId) return;
+  const returningToLive = c.returningToLive;
   c.viewportInFlight = false;
-  applyViewport(c, msg.viewport);
+  if (!applyViewport(c, msg.viewport)) {
+    c.returningToLive = false;
+    c.viewportCursor = null;
+    c.viewportLive = true;
+    c.term.reset();
+    return;
+  }
   if (c.viewportRefreshPending) {
     c.viewportRefreshPending = false;
+    if (returningToLive) {
+      c.viewportCursor = null;
+      c.viewportLive = false;
+    }
     requestViewport(c);
-  } else sendPendingScroll(c);
+  } else {
+    c.returningToLive = false;
+    sendPendingScroll(c);
+  }
 }
 
 function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
@@ -957,11 +979,14 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
   const viewportError = msg.type === "viewport-error" && msg.requestId === c.viewportRequestId;
   const scrollError = msg.type === "scroll-error" && msg.requestId === c.scrollRequestId;
   if (!viewportError && !scrollError) return;
+  const returningToLive = c.returningToLive;
+  c.returningToLive = false;
   c.viewportCursor = null;
   c.viewportLive = true;
   if (viewportError) {
     c.viewportInFlight = false;
     c.viewportRefreshPending = false;
+    if (returningToLive) c.term.reset();
     sendPendingScroll(c);
   } else {
     c.scrollInFlight = false;
@@ -993,7 +1018,10 @@ function handleMessage(c: Conn, event: MessageEvent) {
         // Drop it so the next wheel is resolved against Core's current foreground state.
         c.viewportCursor = null;
         c.term.write(data, () => appendShellOutput(c, data));
-      } else appendShellOutput(c, data);
+      } else {
+        appendShellOutput(c, data);
+        if (c.returningToLive && c.viewportInFlight) c.viewportRefreshPending = true;
+      }
     }
   } else if (msg.type === "session") {
     applySessionFrame(c, msg);
@@ -1065,6 +1093,7 @@ export function retarget(key: string, target: ConnTarget) {
   c.knownCwd = null;
   c.viewportCursor = null;
   c.viewportLive = true;
+  c.returningToLive = false;
   c.reconnectAttempts = 0;
   c.sawExit = false;
   c.released = false;

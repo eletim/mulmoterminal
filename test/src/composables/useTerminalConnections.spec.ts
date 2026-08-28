@@ -200,6 +200,53 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
     const staleRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
     mockTermState.emitData("x");
+    const firstLiveRequest = lastFrameOf(ws, "viewport");
+    const firstLiveRequestId = Number(firstLiveRequest?.requestId);
+    expect(firstLiveRequest).not.toHaveProperty("cursor");
+
+    const historicalScreen = mockTermState.bufferLines.join("\n");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "x" }) });
+    expect(mockTermState.bufferLines.join("\n")).toBe(historicalScreen);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: firstLiveRequestId,
+        viewport: {
+          content: "live before echo",
+          cursor: "intermediate-live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+    const finalLiveRequest = lastFrameOf(ws, "viewport");
+    const finalLiveRequestId = Number(finalLiveRequest?.requestId);
+    expect(finalLiveRequestId).toBeGreaterThan(firstLiveRequestId);
+    expect(finalLiveRequest).not.toHaveProperty("cursor");
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: finalLiveRequestId,
+        viewport: {
+          content: "live with echo",
+          cursor: "fresh-live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
     ws.onmessage?.({
       data: JSON.stringify({
         type: "scroll-result",
@@ -223,7 +270,7 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     });
 
     mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
-    expect(lastFrameOf(ws, "scroll")).not.toHaveProperty("cursor");
+    expect(lastFrameOf(ws, "scroll")?.cursor).toBe("fresh-live-cursor");
     conn.release("viewer-input-race");
   });
 
