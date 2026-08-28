@@ -108,17 +108,23 @@ change one and change the other (#834).
   the server delegates to `tmux-session-core-ts.scroll()`. Core alone decides whether that intent
   navigates history, reaches a mouse-owning foreground application, or uses terminal-compatible
   alternate-screen scrolling. The browser never enters copy-mode and never inspects tmux modes.
-- `viewport()` supplies the initial/live screen and historical physical rows. Its cursor is an
-  opaque string stored only on one browser `Conn`; it is not decoded or persisted in session or
-  server state. Two tabs therefore keep independent positions. Reconnect deliberately discards
-  it and starts live. `rebased`/`clamped` results are rendered as returned; the browser performs
-  no history-offset correction.
+- `viewport()` supplies the initial/live screen and historical physical rows. Each browser `Conn`
+  keeps a disposable cache of at most five chunks, where one chunk is the xterm's current visible
+  row count. Two older chunks are fetched after the live screen; wheel movement inside those rows
+  only selects and redraws a local range after Core has classified the first live-boundary gesture
+  as viewport navigation. That one classification request is necessary because the current API
+  exposes foreground TUI ownership only as a `scroll()` result. Crossing the one-chunk boundary
+  starts a cursor-based older/newer prefetch. The initial older seek uses Core's side-effect-free
+  fraction target so it cannot accidentally deliver a wheel event to a foreground TUI.
+- Every cached boundary cursor remains an opaque string: it is never decoded, changed, persisted,
+  or placed in server state. Two tabs therefore have independent caches and positions. Reconnect
+  and resize discard the cache and start with the new live geometry. A `rebased`/`clamped` result
+  is authoritative and replaces, rather than being combined with, stale cached rows.
 - While a viewer is historical, raw PTY output is ignored for that viewer and history remains
   readable from Core. Returning to live resumes the raw stream. Keyboard/paste/click still use
   the attached PTY exactly as in #193; typing also returns that viewer to live.
-- Wheel requests are serialized per viewer so a burst always uses the cursor returned by the
-  preceding request. Initial/resize viewport requests carry browser request ids, preventing a
-  stale asynchronous capture from replacing newer content.
+- Core requests are serialized per viewer. Speculative prefetch loses to resize, raw output, and
+  real user input; request ids prevent its late response from replacing newer content.
 
 - SET of a mouse-tracking mode (`CSI ? … h`, e.g. 1000/1002/1003/1006) is **swallowed** so a drag
   stays a text selection instead of the app's coordinate reports landing in the prompt (#729).

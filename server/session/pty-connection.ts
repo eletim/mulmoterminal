@@ -12,7 +12,7 @@ import { stripTerminalQueries, terminalModePrefix, terminalModeRestorePrefix } f
 import type { PtyEntry } from "./types.js";
 import { secondaryViewersOf, unregisterSecondaryViewer, viewerPtys } from "./viewer-state.js";
 import { isScrollRequest, isViewportRequest, type BrowserScrollRequest, type BrowserViewportRequest } from "../../common/terminalViewport.js";
-import type { ScrollIntent, ScrollResult, TerminalViewport, ViewportCursor } from "tmux-session-core-ts";
+import type { ScrollIntent, ScrollResult, TerminalViewport, ViewportCursor, ViewportOptions } from "tmux-session-core-ts";
 
 export interface ViewerReleaseDeps {
   forgetTerminalSize: (id: string) => void;
@@ -88,6 +88,12 @@ function opaqueCursor(value: string): ViewportCursor {
 
 type RestoredTerminalViewport = TerminalViewport & { restore?: string };
 
+function viewportTargetOf(msg: BrowserViewportRequest): NonNullable<ViewportOptions["target"]> {
+  if (msg.cursor !== undefined) return { kind: "cursor", cursor: opaqueCursor(msg.cursor) };
+  if (msg.fraction !== undefined) return { kind: "fraction", value: msg.fraction };
+  return { kind: "live" };
+}
+
 function restoreLiveViewportModes(viewport: TerminalViewport, modes: readonly number[]): RestoredTerminalViewport {
   return viewport.live ? { ...viewport, restore: terminalModeRestorePrefix(modes) } : viewport;
 }
@@ -103,8 +109,7 @@ async function forwardViewport(
   msg: BrowserViewportRequest,
 ): Promise<void> {
   try {
-    const cursor = msg.cursor === undefined ? undefined : opaqueCursor(msg.cursor);
-    const viewport = await deps.viewport(sessionId, { target: cursor ? { kind: "cursor", cursor } : { kind: "live" }, rows: msg.rows, format: "ansi" });
+    const viewport = await deps.viewport(sessionId, { target: viewportTargetOf(msg), rows: msg.rows, format: "ansi" });
     const restored = viewport.live ? restoreLiveViewportModes(viewport, deps.terminalModesOf(sessionId)) : viewport;
     sendFrame(ws, { type: "viewport", requestId: msg.requestId, viewport: restored });
   } catch (error) {

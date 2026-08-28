@@ -29,6 +29,8 @@ export interface BrowserViewportRequest {
   requestId: number;
   rows: number;
   cursor?: string;
+  /** Ephemeral initial-cache seek. Mutually exclusive with cursor; 0 is oldest and 1 is live. */
+  fraction?: number;
 }
 
 export interface BrowserScrollRequest {
@@ -54,7 +56,9 @@ export function isViewportRequest(value: Record<string, unknown>): value is Reco
     value.type === "viewport" &&
     hasRequestId(value) &&
     isIntegerBetween(value.rows, MIN_TERM_ROWS, MAX_TERM_ROWS) &&
-    (value.cursor === undefined || typeof value.cursor === "string")
+    (value.cursor === undefined || typeof value.cursor === "string") &&
+    (value.fraction === undefined || (typeof value.fraction === "number" && Number.isFinite(value.fraction) && value.fraction >= 0 && value.fraction <= 1)) &&
+    !(value.cursor !== undefined && value.fraction !== undefined)
   );
 }
 
