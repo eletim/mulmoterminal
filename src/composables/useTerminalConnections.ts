@@ -230,6 +230,7 @@ interface Conn {
   viewportRefreshPending: boolean;
   viewportRequestId: number;
   scrollInFlight: boolean;
+  scrollRefreshPending: boolean;
   scrollRequestId: number;
   pendingScroll: { lines: number; cell: { column: number; row: number } } | null;
 }
@@ -530,6 +531,7 @@ function prepareTypedInput(c: Conn): boolean {
   c.viewportRefreshPending = false;
   c.scrollRequestId++;
   c.scrollInFlight = false;
+  c.scrollRefreshPending = false;
   c.pendingScroll = null;
   c.handlers.onInput?.();
   // Typing is the only chance an otherwise idle cell gets to detect a corrupt xterm buffer (#846).
@@ -775,6 +777,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     viewportRefreshPending: false,
     viewportRequestId: 0,
     scrollInFlight: false,
+    scrollRefreshPending: false,
     scrollRequestId: 0,
     pendingScroll: null,
   };
@@ -859,6 +862,7 @@ function connect(c: Conn) {
   c.viewportRefreshPending = false;
   c.viewportRequestId++;
   c.scrollInFlight = false;
+  c.scrollRefreshPending = false;
   c.scrollRequestId++;
   c.pendingScroll = null;
   c.sawExit = false;
@@ -971,8 +975,21 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
 function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
   if (msg.requestId !== c.scrollRequestId) return;
   c.scrollInFlight = false;
+  const outputRaced = c.scrollRefreshPending;
+  c.scrollRefreshPending = false;
   if (typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport") {
-    applyViewport(c, "viewport" in msg.result ? msg.result.viewport : null);
+    const viewport = terminalViewportOf("viewport" in msg.result ? msg.result.viewport : null);
+    // Output received while a historical viewer is scrolling is intentionally not rendered.
+    // If that scroll reaches live, its capture may predate the suppressed delta, so recapture
+    // instead of briefly accepting a live screen whose tail is already stale.
+    if (viewport && outputRaced && viewport.live) {
+      c.viewportCursor = null;
+      c.viewportLive = false;
+      c.returningToLive = true;
+      requestViewport(c);
+      return;
+    }
+    applyViewport(c, viewport);
   }
   sendPendingScroll(c);
 }
@@ -981,21 +998,21 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
   const viewportError = msg.type === "viewport-error" && msg.requestId === c.viewportRequestId;
   const scrollError = msg.type === "scroll-error" && msg.requestId === c.scrollRequestId;
   if (!viewportError && !scrollError) return;
-  const returningToLive = c.returningToLive;
-  c.returningToLive = false;
   c.viewportCursor = null;
-  c.viewportLive = true;
+  c.viewportLive = false;
+  c.returningToLive = true;
   if (viewportError) {
     c.viewportInFlight = false;
     c.viewportTargetLive = false;
     c.viewportRefreshPending = false;
-    if (returningToLive) c.term.reset();
-    sendPendingScroll(c);
   } else {
     c.scrollInFlight = false;
+    c.scrollRefreshPending = false;
     c.pendingScroll = null;
-    requestViewport(c);
   }
+  // Future incremental PTY output cannot reconstruct a failed Core snapshot. Keep the existing
+  // screen read-only and retry from live; reconnect remains the outer failure boundary.
+  requestViewport(c);
 }
 
 function applyCoreViewportFrame(c: Conn, msg: Record<string, unknown>): boolean {
@@ -1004,6 +1021,12 @@ function applyCoreViewportFrame(c: Conn, msg: Record<string, unknown>): boolean 
   else if (msg.type === "viewport-error" || msg.type === "scroll-error") finishCoreError(c, msg);
   else return false;
   return true;
+}
+
+function observeSuppressedOutput(c: Conn, data: string): void {
+  appendShellOutput(c, data);
+  if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
+  if (c.scrollInFlight) c.scrollRefreshPending = true;
 }
 
 function handleMessage(c: Conn, event: MessageEvent) {
@@ -1023,8 +1046,7 @@ function handleMessage(c: Conn, event: MessageEvent) {
         c.viewportCursor = null;
         c.term.write(data, () => appendShellOutput(c, data));
       } else {
-        appendShellOutput(c, data);
-        if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
+        observeSuppressedOutput(c, data);
       }
     }
   } else if (msg.type === "session") {
