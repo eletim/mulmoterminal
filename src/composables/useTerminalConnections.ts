@@ -726,7 +726,7 @@ function scheduleViewportRetry(c: Conn): void {
 
 function requestViewport(c: Conn): void {
   if (!persistentViewportEnabled(c) || c.ws?.readyState !== WebSocket.OPEN || c.term.rows <= 0) return;
-  if (c.viewportInFlight) {
+  if (c.viewportInFlight || c.scrollInFlight) {
     c.viewportRefreshPending = true;
     return;
   }
@@ -1010,6 +1010,7 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
     // If that scroll reaches live, its capture may predate the suppressed delta, so recapture
     // instead of briefly accepting a live screen whose tail is already stale.
     if (viewport && outputRaced && viewport.live) {
+      c.viewportRefreshPending = false;
       c.viewportCursor = null;
       c.viewportLive = false;
       c.returningToLive = true;
@@ -1018,7 +1019,12 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
     }
     applyViewport(c, viewport);
   }
-  sendPendingScroll(c);
+  if (c.viewportRefreshPending) {
+    c.viewportRefreshPending = false;
+    requestViewport(c);
+  } else {
+    sendPendingScroll(c);
+  }
 }
 
 function finishCoreError(c: Conn, msg: Record<string, unknown>): void {

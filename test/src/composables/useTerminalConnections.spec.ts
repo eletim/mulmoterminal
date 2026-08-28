@@ -105,6 +105,66 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.release("viewer-b");
   });
 
+  it("serializes a historical resize refresh after an in-flight scroll", () => {
+    const key = "viewer-scroll-resize-race";
+    conn.attach(key, target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "old historical screen",
+          cursor: "old-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const scrollRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+    const viewportCountBeforeResize = ws.sent.filter((frame) => JSON.parse(frame).type === "viewport").length;
+    conn.setFont(key, { size: 18, family: "monospace" });
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "viewport")).toHaveLength(viewportCountBeforeResize);
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: scrollRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "new historical screen",
+            cursor: "new-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    const refresh = lastFrameOf(ws, "viewport");
+    expect(refresh?.cursor).toBe("new-cursor");
+    expect(Number(refresh?.requestId)).toBeGreaterThan(viewportRequestId);
+    conn.release(key);
+  });
+
   it("drops a live snapshot cursor when new PTY output arrives before the next wheel", () => {
     conn.attach("viewer-live-output", target("shared-session"), {}, document.createElement("div"));
     const ws = FakeWebSocket.instances.at(-1);
