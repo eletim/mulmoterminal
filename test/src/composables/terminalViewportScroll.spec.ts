@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import {
+  boundedScrollCell,
   boundedViewportRows,
   takeScrollChunk,
   viewportRenderData,
@@ -82,5 +83,13 @@ describe("boundedViewportRows", () => {
     expect(boundedViewportRows(24)).toBe(24);
     expect(boundedViewportRows(250)).toBe(200);
     expect(boundedViewportRows(1)).toBe(1);
+  });
+});
+
+describe("boundedScrollCell", () => {
+  it("keeps pointer coordinates inside the scroll protocol bounds", () => {
+    expect(boundedScrollCell({ col: 12, row: 8 })).toEqual({ column: 12, row: 8 });
+    expect(boundedScrollCell({ col: 999, row: 250 })).toEqual({ column: 500, row: 200 });
+    expect(boundedScrollCell({ col: 0, row: -4 })).toEqual({ column: 1, row: 1 });
   });
 });

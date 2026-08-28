@@ -1,5 +1,5 @@
 import type { Terminal } from "@xterm/xterm";
-import { MAX_TERM_ROWS, MIN_TERM_ROWS } from "../../common/terminalSize";
+import { MAX_TERM_COLS, MAX_TERM_ROWS, MIN_TERM_ROWS } from "../../common/terminalSize";
 import { cellFromPoint, createWheelTicker, wheelNotches, type PointerPosition } from "./mouseReports";
 
 export interface GenericScrollIntent {
@@ -17,6 +17,13 @@ export function boundedViewportRows(rows: number): number {
   return Math.max(MIN_TERM_ROWS, Math.min(MAX_TERM_ROWS, Math.trunc(rows)));
 }
 
+export function boundedScrollCell(cell: { col: number; row: number }): { column: number; row: number } {
+  return {
+    column: Math.max(1, Math.min(MAX_TERM_COLS, Math.trunc(cell.col))),
+    row: Math.max(1, Math.min(MAX_TERM_ROWS, Math.trunc(cell.row))),
+  };
+}
+
 function screenElementOf(term: Terminal): HTMLElement | null {
   return term.element?.querySelector(".xterm-screen") ?? null;
 }
@@ -30,8 +37,7 @@ function cellHeightOf(term: Terminal): number {
 export function terminalCellAt(term: Terminal, pointer: PointerPosition): { column: number; row: number } {
   const screen = screenElementOf(term);
   if (!screen) return { column: 1, row: 1 };
-  const cell = cellFromPoint(screen.getBoundingClientRect(), term.cols, term.rows, pointer);
-  return { column: cell.col, row: cell.row };
+  return boundedScrollCell(cellFromPoint(screen.getBoundingClientRect(), term.cols, term.rows, pointer));
 }
 
 export function wireGenericWheel(term: Terminal, enabled: () => boolean, scrollSpeed: () => number, send: (intent: GenericScrollIntent) => void): void {
