@@ -225,7 +225,9 @@ export class TerminalParsedBufferAdapter {
     buffer.ybase = Math.max(0, lines.length - this.term.rows);
     buffer.ydisp = Math.max(0, Math.min(start, buffer.ybase));
     core._bufferService.isUserScrolling = buffer.ydisp < buffer.ybase;
-    buffer.x = Math.max(0, Math.min(cursor.x, this.term.cols - 1));
+    // xterm uses x === cols to remember that the next printable cell must wrap.
+    // Preserve that pending-wrap sentinel when a live snapshot becomes the active buffer.
+    buffer.x = Math.max(0, Math.min(cursor.x, this.term.cols));
     buffer.y = Math.max(0, Math.min(cursor.y, this.term.rows - 1));
     this.restoreSelection(selection, selectedStartLine, selectedEndLine, selectedEndIndex, lines);
     this.installedLines = lines;

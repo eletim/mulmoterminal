@@ -95,6 +95,21 @@ describe("TerminalParsedBufferAdapter", () => {
     term.dispose();
   });
 
+  it("preserves the pending-wrap cursor state for subsequent live output", async () => {
+    const term = new Terminal({ cols: 4, rows: 3 });
+    const adapter = new TerminalParsedBufferAdapter(term);
+    const parsed = adapter.parse(viewport("abcd", 4, 3));
+    expect(parsed.cursorX).toBe(4);
+    adapter.install(parsed.rows, 0, { x: parsed.cursorX, y: parsed.cursorY, restore: parsed.restore });
+
+    await new Promise<void>((resolve) => term.write("e", resolve));
+
+    expect(term.buffer.active.getLine(0)?.translateToString(true)).toBe("abcd");
+    expect(term.buffer.active.getLine(1)?.translateToString(true)).toBe("e");
+    expect(term.buffer.active.getLine(1)?.isWrapped).toBe(true);
+    term.dispose();
+  });
+
   it("keeps selection coordinates attached to retained parsed lines during prepend", () => {
     const term = new Terminal({ cols: 8, rows: 3 });
     const host = document.createElement("div");
