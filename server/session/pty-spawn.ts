@@ -66,7 +66,7 @@ export function spawnTmuxViewerPty(sessionId: string, cwd: string, size?: Termin
 }
 
 /** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
-export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
+export function coreExitAwarePty(term: IPty, sessionId: string, primary = false): IPty {
   const onExit: IPty["onExit"] = (listener) => {
     let disposed = false;
     let nativeFired = false;
@@ -79,7 +79,8 @@ export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
       // Core watcher so activity can still be terminalized if that process exits detached.
       listener(event);
     });
-    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
+    const watchCoreExit = primary ? coreSessions.watchPrimaryExit.bind(coreSessions) : coreSessions.watchExit.bind(coreSessions);
+    watches.core = watchCoreExit(sessionId, ({ exitCode }) => {
       if (disposed || coreFired) return;
       coreFired = true;
       watches.core?.dispose();
@@ -273,7 +274,7 @@ export function ptySpawn(
       );
       configureCoreTmuxServer();
     }
-    return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };
+    return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId, true), tmux: true, reattached };
   }
   if (persistent) throw new SpawnRefusedError("tmux is required for persistent terminal sessions");
   return { term: spawnPty(file, args, cwd, unset, env), tmux: false, reattached };

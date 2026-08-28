@@ -238,6 +238,22 @@ describe("CoreSessionAdapter", () => {
     expect(staleViewer).toHaveBeenCalledWith({ exitCode: 4 });
   });
 
+  it("replaces a detached primary observer without removing simultaneous secondary viewers", async () => {
+    const core = { list: vi.fn(async () => [{ ...native, exited: true, exitCode: 6 }]) } as unknown as SessionCore;
+    const detachedPrimary = vi.fn();
+    const secondaryViewer = vi.fn();
+    const currentPrimary = vi.fn();
+    const adapter = new CoreSessionAdapter({ core });
+
+    adapter.watchPrimaryExit(native.id, detachedPrimary, 1);
+    adapter.watchExit(native.id, secondaryViewer, 1);
+    adapter.watchPrimaryExit(native.id, currentPrimary, 1);
+    await vi.waitFor(() => expect(currentPrimary).toHaveBeenCalledWith({ exitCode: 6 }));
+
+    expect(detachedPrimary).not.toHaveBeenCalled();
+    expect(secondaryViewer).toHaveBeenCalledWith({ exitCode: 6 });
+  });
+
   it("disposes one viewer observer without removing its peers", async () => {
     const core = { list: vi.fn(async () => [{ ...native, exited: true, exitCode: 5 }]) } as unknown as SessionCore;
     const detachedViewer = vi.fn();

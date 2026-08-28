@@ -33,6 +33,10 @@ vi.mock("../../../server/session/core-session-adapter.js", () => ({
       coreExitListener = listener;
       return { dispose: coreExitDispose };
     }),
+    watchPrimaryExit: vi.fn((_id: string, listener: typeof coreExitListener) => {
+      coreExitListener = listener;
+      return { dispose: coreExitDispose };
+    }),
   },
 }));
 

@@ -108,6 +108,7 @@ export class CoreSessionAdapter {
   private readonly createSyncImpl: NonNullable<CoreSessionAdapterOptions["createSync"]>;
   private readonly inputTails = new Map<string, Promise<void>>();
   private readonly exitWatchers = new Map<string, Set<(event: CoreSessionExit) => void>>();
+  private readonly primaryExitWatchers = new Map<string, { token: object; dispose(): void }>();
   private readonly capabilityTails = new Map<string, Promise<CoreSessionCapabilities>>();
   private exitPollTimer: ReturnType<typeof setTimeout> | undefined;
   private exitPollMs = 250;
@@ -245,6 +246,33 @@ export class CoreSessionAdapter {
     };
   }
 
+  /** One detached primary may retain lifecycle responsibility until its successor subscribes.
+   * Secondary viewers still use watchExit(), so replacing the owner never removes their peers. */
+  watchPrimaryExit(id: string, listener: (event: CoreSessionExit) => void, pollMs = 250): { dispose(): void } {
+    this.primaryExitWatchers.get(id)?.dispose();
+    const token = {};
+    const subscription = this.watchExit(
+      id,
+      (event) => {
+        // Object identity selects the current subscription; this is not secret data.
+        // eslint-disable-next-line security/detect-possible-timing-attacks
+        if (this.primaryExitWatchers.get(id)?.token === token) this.primaryExitWatchers.delete(id);
+        listener(event);
+      },
+      pollMs,
+    );
+    const owner = { token, dispose: () => subscription.dispose() };
+    this.primaryExitWatchers.set(id, owner);
+    return {
+      dispose: () => {
+        // Object identity prevents an older disposer from deleting its replacement.
+        // eslint-disable-next-line security/detect-possible-timing-attacks
+        if (this.primaryExitWatchers.get(id)?.token === token) this.primaryExitWatchers.delete(id);
+        subscription.dispose();
+      },
+    };
+  }
+
   async setTitle(id: string, title: string): Promise<void> {
     await this.setOptionalMetadata(id, TITLE_METADATA_KEY, title);
   }
@@ -327,13 +355,17 @@ export class CoreSessionAdapter {
       // Explicit Delete is not a process-exit event. Drop observers for vanished membership
       // without notifying activity/process-exit consumers or retaining an idle poll forever.
       for (const id of this.exitWatchers.keys()) {
-        if (!memberIds.has(id)) this.exitWatchers.delete(id);
+        if (!memberIds.has(id)) {
+          this.exitWatchers.delete(id);
+          this.primaryExitWatchers.delete(id);
+        }
       }
       for (const session of sessions) {
         if (!session.exited) continue;
         const listeners = this.exitWatchers.get(session.id);
         if (!listeners) continue;
         this.exitWatchers.delete(session.id);
+        this.primaryExitWatchers.delete(session.id);
         for (const listener of listeners) listener({ exitCode: session.exitCode });
       }
     } catch {
