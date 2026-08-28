@@ -69,6 +69,18 @@ describe("TerminalParsedBufferAdapter", () => {
     term.dispose();
   });
 
+  it("remaps OSC 8 links into the browser terminal registry", async () => {
+    const term = new Terminal({ cols: 24, rows: 3 });
+    await new Promise<void>((resolve) => term.write("\u001b]8;;https://old.example\u0007old\u001b]8;;\u0007", resolve));
+    const adapter = new TerminalParsedBufferAdapter(term);
+    const parsed = adapter.parse(viewport("\u001b]8;;https://new.example\u0007new\u001b]8;;\u0007", 24, 3));
+
+    adapter.install(parsed.rows, 0, { x: 3, y: 0, restore: "" });
+
+    expect(adapter.inspectLink(rowAt(parsed.rows, 0), 0)?.uri).toBe("https://new.example");
+    term.dispose();
+  });
+
   it("keeps selection coordinates attached to retained parsed lines during prepend", () => {
     const term = new Terminal({ cols: 8, rows: 3 });
     const host = document.createElement("div");

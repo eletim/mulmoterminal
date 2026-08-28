@@ -13,7 +13,21 @@ interface InternalCell {
   isItalic(): number;
   isUnderline(): number;
   isInverse(): number;
-  extended?: unknown;
+  hasExtendedAttrs(): number;
+  extended: {
+    urlId: number;
+    clone(): InternalCell["extended"];
+  };
+}
+
+export interface ParsedTerminalLinkData {
+  id?: string;
+  uri: string;
+}
+
+interface InternalOscLinkService {
+  getLinkData(linkId: number): ParsedTerminalLinkData | undefined;
+  registerLink(data: ParsedTerminalLinkData): number;
 }
 
 interface InternalLine {
@@ -44,6 +58,7 @@ interface InternalBuffer {
 interface InternalTerminalCore {
   _bufferService: { buffer: InternalBuffer };
   _inputHandler: { parse(data: string): Promise<boolean> | undefined };
+  _oscLinkService: InternalOscLinkService;
   _viewport?: { queueSync(ydisp?: number): void };
 }
 
@@ -59,6 +74,13 @@ interface HeadlessWithInternals extends HeadlessTerminal {
 /** Opaque xterm BufferLine owned by one viewer and cloned from a one-shot headless parse. */
 export interface ParsedTerminalLine {
   readonly line: InternalLine;
+  readonly links: readonly ParsedTerminalLink[];
+}
+
+interface ParsedTerminalLink {
+  readonly start: number;
+  readonly end: number;
+  readonly data: ParsedTerminalLinkData;
 }
 
 export interface ParsedTerminalSnapshot {
@@ -90,11 +112,55 @@ function coreOf(term: Terminal): InternalTerminalCore | null {
   return (term as TerminalWithInternals)._core ?? null;
 }
 
-function copyLine(source: InternalLine, targetBuffer: InternalBuffer): InternalLine {
+function recordLink(links: ParsedTerminalLink[], column: number, data: ParsedTerminalLinkData): void {
+  const previous = links.at(-1);
+  if (previous?.data === data && previous.end === column) {
+    links[links.length - 1] = { start: previous.start, end: column + 1, data };
+  } else {
+    links.push({ start: column, end: column + 1, data });
+  }
+}
+
+function copyLine(source: InternalLine, sourceLinks: InternalOscLinkService, targetBuffer: InternalBuffer): ParsedTerminalLine {
   const cell = targetBuffer.getNullCell();
   const target = targetBuffer.getBlankLine(cell, source.isWrapped);
-  for (let column = 0; column < Math.min(source.length, target.length); column++) target.setCell(column, source.loadCell(column, cell));
-  return target;
+  const links: ParsedTerminalLink[] = [];
+  for (let column = 0; column < Math.min(source.length, target.length); column++) {
+    source.loadCell(column, cell);
+    const sourceUrlId = cell.hasExtendedAttrs() ? cell.extended.urlId : 0;
+    if (sourceUrlId) {
+      const data = sourceLinks.getLinkData(sourceUrlId);
+      if (data) recordLink(links, column, data);
+      cell.extended = cell.extended.clone();
+      cell.extended.urlId = 0;
+    }
+    target.setCell(column, cell);
+  }
+  return { line: target, links };
+}
+
+function installHyperlinks(buffer: InternalBuffer, service: InternalOscLinkService, lines: readonly ParsedTerminalLine[]): void {
+  const savedBase = buffer.ybase;
+  const savedY = buffer.y;
+  const cell = buffer.getNullCell();
+  for (let row = 0; row < lines.length; row++) {
+    const parsed = lines[row];
+    if (!parsed) continue;
+    for (const link of parsed.links) {
+      // OscLinkService registers its cleanup marker at the current absolute cursor row.
+      buffer.ybase = row;
+      buffer.y = 0;
+      const urlId = service.registerLink(link.data);
+      for (let column = link.start; column < link.end; column++) {
+        parsed.line.loadCell(column, cell);
+        cell.extended = cell.extended.clone();
+        cell.extended.urlId = urlId;
+        parsed.line.setCell(column, cell);
+      }
+    }
+  }
+  buffer.ybase = savedBase;
+  buffer.y = savedY;
 }
 
 function parseSynchronously(core: InternalTerminalCore, data: string): void {
@@ -128,7 +194,7 @@ export class TerminalParsedBufferAdapter {
     const rows: ParsedTerminalLine[] = [];
     for (let row = 0; row < viewport.viewportRows; row++) {
       const line = source.lines.get(source.ydisp + row);
-      if (line) rows.push({ line: target ? copyLine(line, target) : line });
+      if (line) rows.push(copyLine(line, parser._core._oscLinkService, target ?? source));
     }
     const snapshot = { rows, cursorX: source.x, cursorY: source.y, restore: viewport.restore ?? "" };
     this.metrics.ansiParseCount++;
@@ -155,6 +221,7 @@ export class TerminalParsedBufferAdapter {
     const selectedEndLine = selectedEndIndex === undefined ? undefined : this.installedLines[selectedEndIndex];
     buffer.lines.maxLength = Math.max(buffer.lines.maxLength, lines.length);
     buffer.lines.splice(0, buffer.lines.length, ...lines.map((row) => row.line));
+    installHyperlinks(buffer, core._oscLinkService, lines);
     buffer.ybase = Math.max(0, lines.length - this.term.rows);
     buffer.ydisp = Math.max(0, Math.min(start, buffer.ybase));
     buffer.x = Math.max(0, Math.min(cursor.x, this.term.cols - 1));
@@ -191,6 +258,14 @@ export class TerminalParsedBufferAdapter {
       underline: !!value.isUnderline(),
       inverse: !!value.isInverse(),
     };
+  }
+
+  inspectLink(row: ParsedTerminalLine, column: number): ParsedTerminalLinkData | undefined {
+    const core = coreOf(this.term);
+    const cell = core?._bufferService.buffer.getNullCell();
+    if (!core || !cell) throw new Error("xterm link internals unavailable");
+    const value = row.line.loadCell(column, cell);
+    return core._oscLinkService.getLinkData(value.extended.urlId);
   }
 
   private restoreSelection(

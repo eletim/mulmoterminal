@@ -128,9 +128,11 @@ change one and change the other (#834).
   movement only changes `ydisp` through `scrollToLine()`; it sends no Core request, calls no
   snapshot `write()`, and performs no ANSI parse. No xterm patch is carried.
 - Parsed rows preserve xterm foreground/background and extended attributes, wide/continuation
-  cells, combining strings, erase state and `isWrapped`. Chunk prepend/append can reinstall line
-  references, so the adapter relocates an existing selection by retained line identity. Resize,
-  reconnect, rebase and clamp still discard the parsed cache instead of attempting reflow.
+  cells, combining strings, erase state and `isWrapped`. OSC 8 link ids are terminal-local, so the
+  adapter also re-registers their URI metadata when installing cloned lines. Chunk prepend/append
+  can reinstall line references, so the adapter relocates an existing selection by retained line
+  identity. Resize, reconnect, rebase and clamp still discard the parsed cache instead of attempting
+  reflow.
 - While a viewer is historical, raw PTY output is ignored for that viewer and history remains
   readable from Core. Returning to live resumes the raw stream. Keyboard/paste/click still use
   the attached PTY exactly as in #193; typing also returns that viewer to live.
