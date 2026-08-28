@@ -201,7 +201,27 @@ function closeClient(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessi
   deps.releaseViewer(sessionId, entry);
 }
 
+type ResizeTails = WeakMap<PtyEntry, Promise<void>>;
+
+function queueResize(tails: ResizeTails, deps: Pick<ConnectionDeps, "resize">, entry: PtyEntry, sessionId: string, cols: number, rows: number): void {
+  const resize = () => deps.resize(sessionId, cols, rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
+  const previous = tails.get(entry);
+  const current = previous ? previous.then(resize) : resize();
+  tails.set(entry, current);
+  void current.finally(() => {
+    if (tails.get(entry) === current) tails.delete(entry);
+  });
+}
+
+function afterPendingResize(tails: ResizeTails, entry: PtyEntry, ws: WebSocket, operation: () => Promise<void>): void {
+  const run = () => (entry.ws === ws ? operation() : Promise.resolve());
+  const pending = tails.get(entry);
+  void (pending ? pending.then(run) : run());
+}
+
 export function createConnectionHandlers(deps: ConnectionDeps) {
+  const resizeTails = new WeakMap<PtyEntry, Promise<void>>();
+
   // Attach a replacement socket to an existing viewer transport: drop any stale socket,
   // swap in the new one, and replay the buffered tail for context.
   function reattachPty(entry: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
@@ -252,14 +272,14 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
         // protocol parser through Core's pane-injection path (#193).
         entry.term.write(msg.data);
       } else if (isViewportRequest(msg)) {
-        void forwardViewport(deps, ws, sessionId, msg);
+        afterPendingResize(resizeTails, entry, ws, () => forwardViewport(deps, ws, sessionId, msg));
       } else if (isScrollRequest(msg)) {
-        void forwardScroll(deps, ws, sessionId, msg);
+        afterPendingResize(resizeTails, entry, ws, () => forwardScroll(deps, ws, sessionId, msg));
       } else if (isResizeFrame(msg)) {
         // Resize the tmux client that sent this frame. Simultaneous viewers have independent PTYs;
         // the process-local registry contains only the primary one.
         entry.term.resize(msg.cols, msg.rows);
-        void deps.resize(sessionId, msg.cols, msg.rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
+        queueResize(resizeTails, deps, entry, sessionId, msg.cols, msg.rows);
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves
         // it silent, and the reattached browser would keep the half-built screen forever — the
         // alternate buffer it now restores into does not reflow, so no later resize repairs it.

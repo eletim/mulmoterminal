@@ -70,13 +70,14 @@ function setup(terminalModes: readonly number[] = []) {
     rebased: false,
   }));
   const scroll = vi.fn(async () => ({ kind: "application" as const }));
+  const resize = vi.fn(async (id: string, cols: number, rows: number) => {
+    calls.push(`resize:${id}:${cols}x${rows}`);
+  });
   const deps: Parameters<typeof createConnectionHandlers>[0] & { input: typeof paneInput } = {
     input: paneInput,
     viewport,
     scroll,
-    resize: async (id, cols, rows) => {
-      calls.push(`resize:${id}:${cols}x${rows}`);
-    },
+    resize,
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
     releaseViewer: (id) => calls.push(`releaseViewer:${id}`),
     terminalModesOf: (id) => {
@@ -90,7 +91,7 @@ function setup(terminalModes: readonly number[] = []) {
     currentEntryOf: (id) => currentEntries.get(id),
   };
   const handlers = createConnectionHandlers(deps);
-  return { ...handlers, calls, currentEntries, paneInput, viewport, scroll };
+  return { ...handlers, calls, currentEntries, paneInput, viewport, scroll, resize };
 }
 
 // PtyEntry carries fields these handlers never touch; the fakes model the ones they do.
@@ -141,6 +142,46 @@ describe("handleClientFrame", () => {
     expect(response?.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
     expect(response?.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
     expect(response?.viewport.content).toBe("screen");
+  });
+
+  it("waits for the preceding Core resize before capturing a viewport", async () => {
+    let finishResize: (() => void) | undefined;
+    const resizePending = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const { handleClientFrame, resize, viewport } = setup();
+    resize.mockReturnValueOnce(resizePending);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 3, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(viewport).not.toHaveBeenCalled();
+
+    finishResize?.();
+    await vi.waitFor(() => expect(viewport).toHaveBeenCalledOnce());
+    expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport", requestId: 3 }));
+  });
+
+  it("waits for the preceding Core resize before routing scroll intent", async () => {
+    let finishResize: (() => void) | undefined;
+    const resizePending = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const { handleClientFrame, resize, scroll } = setup();
+    resize.mockReturnValueOnce(resizePending);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "scroll", requestId: 4, direction: "up", lines: 3, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(scroll).not.toHaveBeenCalled();
+
+    finishResize?.();
+    await vi.waitFor(() => expect(scroll).toHaveBeenCalledOnce());
+    expect(s.parsed()).toContainEqual({ type: "scroll-result", requestId: 4, result: { kind: "application" } });
   });
 
   it("restores current modes when a scroll result returns to live", async () => {
@@ -203,7 +244,7 @@ describe("handleClientFrame", () => {
 
   // The redraw waits for this frame on purpose: it is where the client reports the size it
   // actually settled at, so the repaint that follows is drawn at the right geometry.
-  it("asks for the redraw on the first resize after a reattach, and only that one", () => {
+  it("asks for the redraw on the first resize after a reattach, and only that one", async () => {
     const { reattachPty, handleClientFrame, calls } = setup();
     const t = fakeTerm();
     const s = fakeSocket();
@@ -211,8 +252,8 @@ describe("handleClientFrame", () => {
     reattachPty(entry, s.ws as never, SESSION);
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    await vi.waitFor(() => expect(calls).toContain(`resize:${SESSION}:120x40`));
     expect(calls).toContain(`resize:${SESSION}:100x30`);
-    expect(calls).toContain(`resize:${SESSION}:120x40`);
     // The pid is the pty's own — it is what picks OUR tmux client out of a session that several
     // servers may have attached (#1099 review).
     expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([`redraw:${SESSION}:4242`]);

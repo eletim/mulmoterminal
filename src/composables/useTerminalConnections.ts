@@ -278,7 +278,7 @@ function fitAndSyncSize(c: Conn): void {
   }
   if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
   if (c.viewportLive) c.term.scrollToBottom();
-  else setTimeout(() => requestViewport(c), 50);
+  else requestViewport(c);
 }
 
 // The reactive projection the view binds to (status pill, RunMenu cwd). Keyed by
