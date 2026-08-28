@@ -54,7 +54,7 @@ export function spawnPty(bin: string, args: string[], cwd: string, unset: readon
 /** A browser-only tmux client for an already-existing Core session. It owns no lifecycle,
  * hooks, metadata or scroll position and is safe to create once per simultaneous viewer. */
 export function spawnTmuxViewerPty(sessionId: string, cwd: string): IPty {
-  return spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd);
+  return coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd), sessionId);
 }
 
 /** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */

@@ -131,12 +131,42 @@ describe("handleClientFrame", () => {
   });
 
   it("maps a browser viewport request to Core without exposing capture-pane", async () => {
-    const { handleClientFrame, viewport } = setup();
+    const { handleClientFrame, viewport } = setup([1049, 1003, 1006]);
     const s = fakeSocket();
     const entry = entryWith({ ws: s.ws as never });
     handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 1, rows: 30 }), SESSION);
     await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport" })));
     expect(viewport).toHaveBeenCalledWith(SESSION, { target: { kind: "live" }, rows: 30, format: "ansi" });
+    const response = s.parsed().find((value) => value.type === "viewport");
+    expect(response?.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
+    expect(response?.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+  });
+
+  it("restores current modes when a scroll result returns to live", async () => {
+    const { handleClientFrame, scroll } = setup([1049, 1003]);
+    scroll.mockResolvedValueOnce({
+      kind: "viewport",
+      viewport: {
+        content: "live screen",
+        cursor: "live" as never,
+        live: true,
+        cols: 80,
+        screenRows: 24,
+        viewportRows: 24,
+        historyRows: 100,
+        historyLimit: 20_000,
+        clamped: false,
+        rebased: false,
+      },
+    } as never);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    handleClientFrame(entry, s.ws as never, frame({ type: "scroll", requestId: 2, direction: "down", lines: 4, rows: 30 }), SESSION);
+
+    await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "scroll-result" })));
+    const response = s.parsed().find((value) => value.type === "scroll-result");
+    expect(response?.result.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
+    expect(response?.result.viewport.content).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
   });
 
   it("passes only generic direction, rows and cell intent to Core.scroll", async () => {

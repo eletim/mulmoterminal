@@ -44,7 +44,7 @@ let tmuxOn = false;
 // applies to an empty cwd.
 const EXISTING_CWD = process.cwd();
 
-const { isCoreSessionExitEvent, spawnPty, ptySpawn, ptyWouldReattach } = await import("../../../server/session/pty-spawn.js");
+const { isCoreSessionExitEvent, spawnPty, spawnTmuxViewerPty, ptySpawn, ptyWouldReattach } = await import("../../../server/session/pty-spawn.js");
 
 const envOf = (call: number = 0): NodeJS.ProcessEnv => (spawn.mock.calls[call] as unknown as [string, string[], { env: NodeJS.ProcessEnv }])[2].env;
 
@@ -159,6 +159,17 @@ describe("ptySpawn — carries the removal down both paths", () => {
     expect(isCoreSessionExitEvent(event)).toBe(true);
     expect(nativeExitDispose).toHaveBeenCalledOnce();
     expect(coreExitDispose).toHaveBeenCalledOnce();
+  });
+
+  it("watches Core remain-on-exit for a secondary tmux viewer", () => {
+    const term = spawnTmuxViewerPty("s1", EXISTING_CWD);
+    const listener = vi.fn();
+    term.onExit(listener);
+
+    coreExitListener?.({ exitCode: 12 });
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ exitCode: 12, signal: 0 }));
+    expect(isCoreSessionExitEvent(listener.mock.calls[0]?.[0])).toBe(true);
   });
 
   it("does not classify a viewer tmux client exit as a Core process exit", () => {

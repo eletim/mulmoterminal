@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import type { SessionAgent } from "../../common/sessionAgent.js";
-import { spawnTmuxViewerPty } from "./pty-spawn.js";
-import { sendFrame } from "./ws-frames.js";
+import { isCoreSessionExitEvent, spawnTmuxViewerPty } from "./pty-spawn.js";
+import { sendExitAndClose, sendFrame } from "./ws-frames.js";
 import type { PtyEntry } from "./types.js";
 import { registerSecondaryViewer, unregisterSecondaryViewer } from "./viewer-state.js";
 
@@ -12,11 +12,14 @@ export function spawnSecondaryViewer(sessionId: string, ws: WebSocket, cwd: stri
   const entry: PtyEntry = { term, ws, buffer: "", cwd, active: false, tmux: true, agent };
   registerSecondaryViewer(sessionId, entry);
   term.onData((data) => sendFrame(entry.ws, { type: "output", data }));
-  // This is only a transient tmux client. Its exit says nothing about the Core session, so close
-  // the socket without an `exit` frame and let the browser reconnect to the surviving session.
-  term.onExit(() => {
+  // A native exit belongs only to this transient tmux client. A Core exit is synthesized by the
+  // exit-aware wrapper because remain-on-exit keeps the native client alive after the app dies.
+  const exitSubscription: { current?: { dispose(): void } } = {};
+  exitSubscription.current = term.onExit((event) => {
+    exitSubscription.current?.dispose();
     unregisterSecondaryViewer(sessionId, entry);
-    entry.ws?.close();
+    if (isCoreSessionExitEvent(event)) sendExitAndClose(entry.ws, event.exitCode, event.signal);
+    else entry.ws?.close();
   });
   return entry;
 }

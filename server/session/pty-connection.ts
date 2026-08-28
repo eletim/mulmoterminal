@@ -8,11 +8,11 @@ import type { WebSocket } from "ws";
 import { messageOf } from "../errors.js";
 import { isResizeFrame, sendFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
-import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
+import { stripTerminalQueries, terminalModePrefix, terminalModeRestorePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import { unregisterSecondaryViewer, viewerPtys } from "./viewer-state.js";
 import { isScrollRequest, isViewportRequest, type BrowserScrollRequest, type BrowserViewportRequest } from "../../common/terminalViewport.js";
-import type { ScrollIntent, ViewportCursor } from "tmux-session-core-ts";
+import type { ScrollIntent, ScrollResult, TerminalViewport, ViewportCursor } from "tmux-session-core-ts";
 
 export interface ViewerReleaseDeps {
   forgetTerminalSize: (id: string) => void;
@@ -86,18 +86,37 @@ function opaqueCursor(value: string): ViewportCursor {
   return value as ViewportCursor;
 }
 
-async function forwardViewport(deps: Pick<ConnectionDeps, "viewport">, ws: WebSocket, sessionId: string, msg: BrowserViewportRequest): Promise<void> {
+function restoreLiveViewportModes(viewport: TerminalViewport, modes: readonly number[]): TerminalViewport {
+  return viewport.live ? { ...viewport, content: terminalModeRestorePrefix(modes) + viewport.content } : viewport;
+}
+
+function restoreLiveScrollModes(result: ScrollResult, modes: readonly number[]): ScrollResult {
+  return result.kind === "viewport" ? { ...result, viewport: restoreLiveViewportModes(result.viewport, modes) } : result;
+}
+
+async function forwardViewport(
+  deps: Pick<ConnectionDeps, "viewport" | "terminalModesOf">,
+  ws: WebSocket,
+  sessionId: string,
+  msg: BrowserViewportRequest,
+): Promise<void> {
   try {
     const cursor = msg.cursor === undefined ? undefined : opaqueCursor(msg.cursor);
     const viewport = await deps.viewport(sessionId, { target: cursor ? { kind: "cursor", cursor } : { kind: "live" }, rows: msg.rows, format: "ansi" });
-    sendFrame(ws, { type: "viewport", requestId: msg.requestId, viewport });
+    const restored = viewport.live ? restoreLiveViewportModes(viewport, deps.terminalModesOf(sessionId)) : viewport;
+    sendFrame(ws, { type: "viewport", requestId: msg.requestId, viewport: restored });
   } catch (error) {
     console.warn(`[ws] viewport dropped for ${sessionId}: ${messageOf(error)}`);
     sendFrame(ws, { type: "viewport-error", requestId: msg.requestId });
   }
 }
 
-async function forwardScroll(deps: Pick<ConnectionDeps, "scroll">, ws: WebSocket, sessionId: string, msg: BrowserScrollRequest): Promise<void> {
+async function forwardScroll(
+  deps: Pick<ConnectionDeps, "scroll" | "terminalModesOf">,
+  ws: WebSocket,
+  sessionId: string,
+  msg: BrowserScrollRequest,
+): Promise<void> {
   const intent: ScrollIntent = {
     direction: msg.direction,
     lines: msg.lines,
@@ -108,7 +127,8 @@ async function forwardScroll(deps: Pick<ConnectionDeps, "scroll">, ws: WebSocket
   };
   try {
     const result = await deps.scroll(sessionId, intent);
-    sendFrame(ws, { type: "scroll-result", requestId: msg.requestId, result });
+    const restored = result.kind === "viewport" && result.viewport.live ? restoreLiveScrollModes(result, deps.terminalModesOf(sessionId)) : result;
+    sendFrame(ws, { type: "scroll-result", requestId: msg.requestId, result: restored });
   } catch (error) {
     console.warn(`[ws] scroll dropped for ${sessionId}: ${messageOf(error)}`);
     sendFrame(ws, { type: "scroll-error", requestId: msg.requestId });
