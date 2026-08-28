@@ -80,6 +80,47 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     expect(second.onCwd).toHaveBeenCalledWith("/resolved");
   });
 
+  it("delivers an initial session-state once, does not call a detached viewer, and refreshes on reattach", () => {
+    const onSessionState = vi.fn();
+    const host = document.createElement("div");
+    conn.attach("cell-race", target("sess-123"), { onSessionState }, host);
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+
+    const state = { id: "sess-123", working: true, waiting: false };
+    ws.onmessage?.({ data: JSON.stringify({ type: "session-state", state }) });
+    expect(onSessionState).toHaveBeenCalledTimes(1);
+    expect(onSessionState).toHaveBeenCalledWith(state);
+
+    conn.detach("cell-race", host);
+    ws.onmessage?.({ data: JSON.stringify({ type: "session-state", state: { ...state, waiting: true } }) });
+    expect(onSessionState).toHaveBeenCalledTimes(1);
+
+    const reattached = vi.fn();
+    conn.attach("cell-race", target("sess-123"), { onSessionState: reattached }, document.createElement("div"));
+    expect(reattached).toHaveBeenCalledOnce();
+    expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state" });
+  });
+
+  it("keeps session-state delivery independent for multiple viewers of one Core session", () => {
+    const onA = vi.fn();
+    const onB = vi.fn();
+    conn.attach("viewer-a", target("shared-session"), { onSessionState: onA }, document.createElement("div"));
+    const wsA = FakeWebSocket.instances.at(-1);
+    conn.attach("viewer-b", target("shared-session"), { onSessionState: onB }, document.createElement("div"));
+    const wsB = FakeWebSocket.instances.at(-1);
+    if (!wsA || !wsB) throw new Error("viewer socket missing");
+
+    const state = { id: "shared-session", working: false, waiting: true };
+    wsA.onmessage?.({ data: JSON.stringify({ type: "session-state", state }) });
+    wsB.onmessage?.({ data: JSON.stringify({ type: "session-state", state }) });
+    expect(onA).toHaveBeenCalledWith(state);
+    expect(onB).toHaveBeenCalledWith(state);
+    conn.release("viewer-a");
+    conn.release("viewer-b");
+  });
+
   it("keeps opaque viewport cursors independent for two browser viewers", () => {
     conn.attach("viewer-a", target("shared-session"), {}, document.createElement("div"));
     const wsA = FakeWebSocket.instances.at(-1);

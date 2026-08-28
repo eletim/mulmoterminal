@@ -31,6 +31,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
+import { isRecord } from "../../common/isRecord";
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
 import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
@@ -167,6 +168,7 @@ const submittableFor = (c: Conn, text: string): string => (isClaudeTarget(c.targ
 export interface ConnHandlers {
   onSession?: (id: string) => void;
   onCwd?: (cwd: string) => void;
+  onSessionState?: (state: Record<string, unknown>) => void;
   // `exitCode` is the command's status when the server reported one, else null (a start
   // failure, or an agent session that ended without one). A Run cell reads it to tell a
   // clean finish from a broken build.
@@ -208,6 +210,7 @@ interface Conn {
   ws: WebSocket | null;
   knownSessionId: string | null;
   knownCwd: string | null; // server-resolved cwd, replayed on (re)attach
+  knownSessionState: Record<string, unknown> | null;
   target: ConnTarget;
   handlers: ConnHandlers;
   sawExit: boolean; // an intentional end (exit/superseded/error) — suppress reconnect
@@ -904,6 +907,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     ws: null,
     knownSessionId: target.sessionId,
     knownCwd: null,
+    knownSessionState: null,
     target,
     handlers: {},
     sawExit: false,
@@ -1102,6 +1106,12 @@ function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
     c.handlers.onCwd?.(msg.cwd);
   }
   if (!c.viewportRequested) requestViewport(c);
+}
+
+function applySessionStateFrame(c: Conn, msg: Record<string, unknown>): void {
+  if (!isRecord(msg.state)) return;
+  c.knownSessionState = msg.state;
+  c.handlers.onSessionState?.(c.knownSessionState);
 }
 
 function scheduleInitialPrefetch(c: Conn, distance = 1): void {
@@ -1384,6 +1394,8 @@ function handleMessage(c: Conn, event: MessageEvent) {
     }
   } else if (msg.type === "session") {
     applySessionFrame(c, msg);
+  } else if (msg.type === "session-state") {
+    applySessionStateFrame(c, msg);
   } else {
     applyTerminalFrame(c, msg);
   }
@@ -1405,6 +1417,8 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   // useful update; the parent's setters are idempotent for already-known values.
   if (c.knownSessionId) handlers.onSession?.(c.knownSessionId);
   if (c.knownCwd) handlers.onCwd?.(c.knownCwd);
+  if (c.knownSessionState) handlers.onSessionState?.(c.knownSessionState);
+  if (!created && c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "session-state" }));
   el.appendChild(c.host);
   if (theme) {
     c.theme = theme;
@@ -1450,6 +1464,7 @@ export function retarget(key: string, target: ConnTarget) {
   c.target = target;
   c.knownSessionId = target.sessionId;
   c.knownCwd = null;
+  c.knownSessionState = null;
   c.viewportCursor = null;
   c.viewportLive = true;
   c.returningToLive = false;

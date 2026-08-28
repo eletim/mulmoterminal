@@ -21,6 +21,8 @@ export interface ActivityServiceDeps {
   forgetWorkPhase: (id: string) => void;
   coreMetadataOf: (id: string) => ActivityMetadata | null | Promise<ActivityMetadata | null>;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
+  workPhaseOf?: (id: string) => import("./workPhase.js").WorkPhase | null;
+  sessionExtrasOf?: (id: string, cwd: string) => Promise<{ usage: unknown; context: unknown }>;
 }
 
 type ActivityFlag = "working" | "waiting";
@@ -46,23 +48,72 @@ function withActivityMetadata(deps: ActivityServiceDeps, id: string, use: (metad
   );
 }
 
-export function createSessionActivity(deps: ActivityServiceDeps) {
-  const mobileWebPushActivityState: MobileWebPushActivityState = new Map();
+function createSessionStatePublisher(deps: ActivityServiceDeps) {
+  const publishTokens = new Map<string, symbol>();
+  const lastExtras = new Map<string, string>();
+  const lastRows = new Map<string, string>();
+  const isCurrent = (id: string, token: symbol): boolean => Object.is(publishTokens.get(id), token);
 
-  function publishActivity(id: string, terminal?: { failed: boolean }, afterMetadata?: (agent: LaunchAgent | null) => void): void {
-    const current = activity.get(id);
-    withActivityMetadata(deps, id, ({ cwd, agent }) => {
-      if (shouldRefreshReply(current, cwd, clearedTranscripts.has(id))) refreshLastResponse(id, cwd);
-      deps.publish(SESSIONS_CHANNEL, {
-        ...sessionRow(id, current, cwd, {
-          lastPrompt: lastPrompts.get(id),
-          lastResponse: lastResponses.get(id),
-        }),
-        ...terminal,
+  function forget(id: string): void {
+    publishTokens.delete(id);
+    lastExtras.delete(id);
+    lastRows.delete(id);
+  }
+
+  function publishSessionExtras(id: string, cwd: string | null, token: symbol, forgetAfter: boolean): void {
+    if (!cwd || !deps.sessionExtrasOf) {
+      if (forgetAfter && isCurrent(id, token)) forget(id);
+      return;
+    }
+    void deps
+      .sessionExtrasOf(id, cwd)
+      .then((extras) => {
+        if (!isCurrent(id, token)) return;
+        const fingerprint = JSON.stringify(extras);
+        if (lastExtras.get(id) === fingerprint) return;
+        lastExtras.set(id, fingerprint);
+        deps.publish(SESSIONS_CHANNEL, { id, ...extras });
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (forgetAfter && isCurrent(id, token)) forget(id);
       });
+  }
+
+  function publishActivity(id: string, terminal?: { failed: boolean }, afterMetadata?: (agent: LaunchAgent | null) => void, forgetAfter = false): void {
+    const current = activity.get(id);
+    const token = Symbol(id);
+    publishTokens.set(id, token);
+    withActivityMetadata(deps, id, ({ cwd, agent }) => {
+      if (isCurrent(id, token)) {
+        if (shouldRefreshReply(current, cwd, clearedTranscripts.has(id))) refreshLastResponse(id, cwd);
+        const row = {
+          ...sessionRow(id, current, cwd, {
+            lastPrompt: lastPrompts.get(id),
+            lastResponse: lastResponses.get(id),
+          }),
+          workPhase: deps.workPhaseOf?.(id) ?? null,
+          ...terminal,
+        };
+        const fingerprint = JSON.stringify(row);
+        if (lastRows.get(id) !== fingerprint) {
+          lastRows.set(id, fingerprint);
+          deps.publish(SESSIONS_CHANNEL, row);
+        }
+        publishSessionExtras(id, cwd, token, forgetAfter);
+      }
       afterMetadata?.(agent);
     });
   }
+
+  const publishFinalActivity = (id: string, terminal: { failed: boolean }): void => publishActivity(id, terminal, undefined, true);
+  return { publishActivity, publishFinalActivity };
+}
+
+export function createSessionActivity(deps: ActivityServiceDeps) {
+  const mobileWebPushActivityState: MobileWebPushActivityState = new Map();
+  const statePublisher = createSessionStatePublisher(deps);
+  const publishActivity = statePublisher.publishActivity;
 
   function notifyTransition(
     id: string,
@@ -92,10 +143,10 @@ export function createSessionActivity(deps: ActivityServiceDeps) {
     const prev = activity.get(id);
     const next = { ...prev, working: false, waiting: false, event, at: Date.now() };
     activity.set(id, next);
-    publishActivity(id, { failed: isFailedWorkerHistory(id) });
+    deps.forgetWorkPhase(id);
+    statePublisher.publishFinalActivity(id, { failed: isFailedWorkerHistory(id) });
     forgetActivityDisplayState(id);
     forgetMobileWebPushActivitySession(mobileWebPushActivityState, id);
-    deps.forgetWorkPhase(id);
   }
 
   return {

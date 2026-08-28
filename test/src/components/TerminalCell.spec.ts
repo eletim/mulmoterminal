@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
-import { nextTick } from "vue";
+import { defineComponent, nextTick } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
 import { TOOL_GROUPS } from "../../../common/toolGroups";
 import { REMEMBERED_LAUNCH_AGENT_KEY } from "../../../src/composables/rememberedLaunchAgent";
 
-// Capture the "sessions" pub/sub callback and the reconnect handler so tests can push
-// activity and simulate a dropped-then-restored socket directly.
+// The Terminal stub exposes the merged WebSocket session-state stream through this callback.
 let captured: ((data: unknown) => void) | null = null;
-let reconnect: (() => void) | null = null;
 let terminalRelease = vi.fn();
 let terminalInputEnabled = vi.fn();
 vi.mock("../../../src/composables/usePubSub", () => ({
@@ -17,19 +15,21 @@ vi.mock("../../../src/composables/usePubSub", () => ({
       captured = cb;
       return () => {};
     },
-    onReconnect: (cb: () => void) => {
-      reconnect = cb;
-      return () => {};
-    },
+    onReconnect: () => () => {},
   }),
 }));
 
 // Stub the terminal so no xterm/WebSocket is needed; expose only viewer-local controls.
 vi.mock("../../../src/components/Terminal.vue", () => ({
-  default: {
+  default: defineComponent({
     name: "TerminalView",
     props: ["sessionId", "connectKey", "cwd", "hideHeader"],
-    emits: ["session", "cwd", "exit"],
+    emits: ["session", "session-state", "cwd", "exit"],
+    mounted() {
+      captured = (data: unknown) => {
+        if (typeof data === "object" && data !== null && "id" in data && data.id === this.sessionId) this.$emit("session-state", data);
+      };
+    },
     // Render the header-actions slot so the cell's icon buttons (moved onto the
     // terminal's header row) are present in the test DOM — but only when the header
     // is shown, mirroring Terminal.vue's `v-if="!hideHeader"`.
@@ -45,7 +45,7 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
         return true;
       },
     },
-  },
+  }),
 }));
 
 const promptText = (w: ReturnType<typeof mount>) => w.find('[data-testid="cell-prompt"]').text();
@@ -74,7 +74,6 @@ function deferred<T>() {
 
 beforeEach(() => {
   captured = null;
-  reconnect = null;
   terminalRelease = vi.fn();
   terminalInputEnabled = vi.fn();
   localStorage.removeItem(REMEMBERED_LAUNCH_AGENT_KEY);
@@ -359,7 +358,7 @@ describe("TerminalCell", () => {
     expect(w.emitted("run")?.[0]?.[0]).toEqual({ source: "script", index: 0, label: "Build", cwd: "/home/me/proj" });
   });
 
-  it("shows the resumed session's latest prompt from /api/session (with cwd), not the bare id", async () => {
+  it("shows the resumed session's initial WebSocket state without fetching /api/session", async () => {
     const urls: string[] = [];
     globalThis.fetch = vi.fn((url: string) => {
       urls.push(String(url));
@@ -370,9 +369,11 @@ describe("TerminalCell", () => {
     const id = "11111111-1111-1111-1111-111111111111";
     const w = mountCell(id, { initialCwd: "/home/me/proj" });
     await flushPromises();
+    captured?.({ id, working: false, waiting: false, lastPrompt: "refactor the parser" });
+    await nextTick();
 
     expect(w.find('[data-testid="cell-prompt"]').text()).toBe("refactor the parser");
-    expect(urls.some((u) => u.includes(`/api/session/${id}`) && u.includes("cwd=%2Fhome%2Fme%2Fproj"))).toBe(true);
+    expect(urls.some((u) => u.includes(`/api/session/${id}`))).toBe(false);
   });
 
   it("shows no resume list when the dir has no sessions", async () => {
@@ -663,106 +664,7 @@ describe("TerminalCell", () => {
     expect(dotClass(w)).toContain("is-done");
   });
 
-  it("re-seeds its status from the server on a pub/sub reconnect", async () => {
-    // The dropped socket missed the push that would have said "working", so the cell is idle.
-    // On reconnect it must re-ask /api/session — not sit idle until the session's next event,
-    // which for a long turn is its far-off Stop.
-    const id = "33333333-3333-3333-3333-333333333333";
-    let working = false;
-    globalThis.fetch = vi.fn(async (url: string) => {
-      const u = String(url);
-      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
-      if (u.includes(`/api/session/${id}`)) return { ok: true, json: async () => ({ working, waiting: false, lastPrompt: null }) };
-      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
-    }) as unknown as typeof fetch;
-
-    const w = mountCell(id);
-    await flushPromises();
-    expect(dotClass(w)).toContain("is-idle");
-
-    // The server now knows the turn is running; the reconnect re-fetch should pick that up.
-    working = true;
-    reconnect?.();
-    await flushPromises();
-    await nextTick();
-    expect(dotClass(w)).toContain("is-working");
-  });
-
-  it("does not let a reconnect re-seed clobber a push that lands mid-fetch", async () => {
-    // The #620 race in one cell: the reconnect fetch reads a stale "working" snapshot, but a
-    // "Stop" push arrives before it resolves. The fresher push must win.
-    const id = "44444444-4444-4444-4444-444444444444";
-    const gate = deferred<boolean>();
-    globalThis.fetch = vi.fn(async (url: string) => {
-      const u = String(url);
-      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
-      if (u.includes(`/api/session/${id}`)) {
-        await gate.promise; // hold the reconnect seed in flight
-        return { ok: true, json: async () => ({ working: true, waiting: false, lastPrompt: null }) };
-      }
-      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
-    }) as unknown as typeof fetch;
-
-    const w = mountCell(id);
-    gate.resolve(true); // let the mount seed settle
-    await flushPromises();
-
-    // A second gate for the reconnect seed, so a push can land while it is in flight.
-    const gate2 = deferred<boolean>();
-    (globalThis.fetch as unknown as { mockImplementation: (f: unknown) => void }).mockImplementation(async (url: string) => {
-      const u = String(url);
-      if (u.includes(`/api/session/${id}`)) {
-        await gate2.promise;
-        return { ok: true, json: async () => ({ working: true, waiting: false, lastPrompt: null }) };
-      }
-      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
-    });
-
-    reconnect?.(); // starts the seed fetch, now blocked on gate2
-    captured?.({ id, working: false, waiting: true, event: "Stop" }); // fresher: the turn ended
-    await nextTick();
-    expect(dotClass(w)).toContain("is-done");
-
-    gate2.resolve(true); // the stale "working" snapshot resolves last — and must be ignored
-    await flushPromises();
-    await nextTick();
-    expect(dotClass(w)).toContain("is-done");
-  });
-
-  it("does not let an older seed clobber a newer one when two reconnect re-seeds overlap", async () => {
-    // seed-vs-seed (reconnect flaps): the OLDER seed resolves FIRST with a now-stale snapshot,
-    // the NEWER one resolves LAST with the current one. Without a per-request token the older
-    // applies first and the newer is then dropped by the push-guard — leaving the stale value.
-    const id = "55555555-5555-5555-5555-555555555555";
-    const gates = [deferred<boolean>(), deferred<boolean>()];
-    let call = 0;
-    globalThis.fetch = vi.fn(async (url: string) => {
-      const u = String(url);
-      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
-      if (u.includes(`/api/session/${id}`)) {
-        const n = call++;
-        if (n === 0) return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) }; // mount
-        await gates[n - 1].promise;
-        // seed #1 => working (stale), seed #2 => idle (current, the turn has since ended).
-        return { ok: true, json: async () => ({ working: n === 1, waiting: false, lastPrompt: null }) };
-      }
-      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
-    }) as unknown as typeof fetch;
-
-    const w = mountCell(id);
-    await flushPromises();
-
-    reconnect?.(); // seed #1 (older) — reports working
-    reconnect?.(); // seed #2 (newer) — reports idle
-    gates[0].resolve(true); // OLDER resolves first
-    await flushPromises();
-    gates[1].resolve(true); // NEWER resolves last
-    await flushPromises();
-    await nextTick();
-    expect(dotClass(w)).toContain("is-idle"); // the newest seed wins, not the first to resolve
-  });
-
-  it("shows a token-usage badge from /api/session/:id", async () => {
+  it("shows a token-usage badge from pushed session state", async () => {
     const id = "55555555-5555-5555-5555-555555555555";
     globalThis.fetch = vi.fn(async (url: string) => {
       const u = String(url);
@@ -780,6 +682,8 @@ describe("TerminalCell", () => {
     }) as unknown as typeof fetch;
     const w = mountCell(id);
     await flushPromises();
+    captured?.({ id, usage: { inputTokens: 1200, outputTokens: 3400, cacheReadTokens: 800, cacheCreationTokens: 0 } });
+    await nextTick();
     const badge = w.find('[data-testid="cell-usage"]');
     expect(badge.exists()).toBe(true);
     expect(badge.text()).toContain("2.0k"); // input 1200 + cacheRead 800 = 2000
@@ -801,61 +705,27 @@ describe("TerminalCell", () => {
     }) as unknown as typeof fetch;
     const w = mountCell(id);
     await flushPromises();
+    captured?.({ id, usage });
+    await nextTick();
     expect(w.find('[data-testid="cell-usage"]').exists()).toBe(true);
 
-    // A field the server could not compute. The refresh fires on working → settled.
+    // A field the server could not compute in a later push clears the stale badge.
     usage = { inputTokens: 1200, outputTokens: null, cacheReadTokens: 800, cacheCreationTokens: 0 };
-    captured?.({ id, working: true, waiting: false });
-    await flushPromises();
-    captured?.({ id, working: false, waiting: false, event: "Stop" });
-    await flushPromises();
+    captured?.({ id, usage });
+    await nextTick();
 
     expect(w.find('[data-testid="cell-usage"]').exists()).toBe(false);
   });
 
-  // #620, on the badge path: two turns end back-to-back, so two /api/session reads for the
-  // same session are in flight at once. The older one resolving last must not put the
-  // previous turn's token numbers back on the badge.
-  it("does not let a stale usage refresh clobber a newer one (out-of-order)", async () => {
+  it("applies the latest pushed usage without starting a detail fetch", async () => {
     const id = "66666666-6666-6666-6666-666666666666";
-    const gates = [deferred<boolean>(), deferred<boolean>()];
-    let sessionCall = 0;
     const INITIAL = { inputTokens: 100, outputTokens: 100, cacheReadTokens: 0, cacheCreationTokens: 0 };
-    const OLD = { inputTokens: 1000, outputTokens: 2000, cacheReadTokens: 0, cacheCreationTokens: 0 };
     const NEW = { inputTokens: 5000, outputTokens: 9000, cacheReadTokens: 0, cacheCreationTokens: 0 };
-    globalThis.fetch = vi.fn(async (url: string) => {
-      const u = String(url);
-      if (u.includes("/api/scripts")) return { ok: true, json: async () => ({ cwd: "/p", scripts: [] }) };
-      if (u.includes("/api/sessions")) return { ok: true, json: async () => ({ sessions: [] }) };
-      if (u.includes(`/api/session/${id}`)) {
-        const n = sessionCall++;
-        if (n === 0) return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null, usage: INITIAL }) }; // mount seed
-        const usage = n === 1 ? OLD : NEW; // refresh #1 = older turn, refresh #2 = newer turn
-        await gates[n - 1].promise;
-        return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null, usage }) };
-      }
-      return { ok: true, json: async () => ({ working: false, waiting: false, lastPrompt: null }) };
-    }) as unknown as typeof fetch;
 
     const w = mountCell(id);
     await flushPromises();
-    expect(w.find('[data-testid="cell-usage"]').text()).toContain("100"); // initial seed
-
-    // First turn ends → refresh #1 (older), held on gates[0].
-    captured?.({ id, working: true, waiting: false });
-    await flushPromises();
-    captured?.({ id, working: false, waiting: false, event: "Stop" });
-    await flushPromises();
-    // Second turn ends → refresh #2 (newer), held on gates[1].
-    captured?.({ id, working: true, waiting: false });
-    await flushPromises();
-    captured?.({ id, working: false, waiting: false, event: "Stop" });
-    await flushPromises();
-
-    gates[1].resolve(true); // newer resolves first → applies the current turn's numbers
-    await flushPromises();
-    gates[0].resolve(true); // older resolves last → must be ignored, not revive the prior turn
-    await flushPromises();
+    captured?.({ id, usage: INITIAL });
+    captured?.({ id, usage: NEW });
     await nextTick();
 
     const badge = w.find('[data-testid="cell-usage"]').text();
@@ -864,7 +734,7 @@ describe("TerminalCell", () => {
     expect(badge).not.toContain("1.0k"); // not OLD input
   });
 
-  it("shows the model/context badge from /api/session/:id context", async () => {
+  it("shows the model/context badge from pushed session state", async () => {
     const id = "55555555-5555-5555-5555-555555555555";
     globalThis.fetch = vi.fn(async (url: string) => {
       const u = String(url);
@@ -877,6 +747,8 @@ describe("TerminalCell", () => {
     }) as unknown as typeof fetch;
     const w = mountCell(id);
     await flushPromises();
+    captured?.({ id, context: { model: "claude-opus-4-20250514", contextTokens: 70_000 } });
+    await nextTick();
     const badge = w.find('[data-testid="model-badge"]');
     expect(badge.exists()).toBe(true);
     expect(badge.text()).toBe("Opus · ctx 35%"); // 70k / 200k
@@ -913,6 +785,12 @@ describe("TerminalCell", () => {
     }) as unknown as typeof fetch;
     const w = mountCell(id, { initialCwd: "/home/me/proj" });
     await flushPromises();
+    captured?.({
+      id,
+      usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheCreationTokens: 0 },
+      context: { model: "claude-opus-4-8", contextTokens: 70_000 },
+    });
+    await nextTick();
     expect(w.find('[data-testid="cell-hdr-chip"]').text()).toBe("prod"); // custom chip renders its substituted text
     expect(w.find('[data-testid="cell-usage"]').exists()).toBe(true); // usage is listed
     expect(w.find('[data-testid="model-badge"]').exists()).toBe(false); // ctx omitted from the list → hidden despite context set
@@ -948,6 +826,8 @@ describe("TerminalCell", () => {
     }) as unknown as typeof fetch;
     const w = mountCell(id, { initialCwd: "/home/me/proj" });
     await flushPromises();
+    captured?.({ id, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheCreationTokens: 0 } });
+    await nextTick();
     expect(w.findAll('[data-testid="cell-usage"]')).toHaveLength(2); // both duplicates render, unique keys → no collision
   });
 

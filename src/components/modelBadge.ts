@@ -1,6 +1,6 @@
 // What the model badge says: which model a cell is running, and how full its context is.
-// The model id and token count come from the transcript (server /api/session/:id); the agent kind
-// is known client-side.
+// The model id and token count come from the transcript-derived WebSocket session state; the
+// agent kind is known client-side.
 import { presetFor } from "./modelOption";
 
 // Substring → short label for Claude's model families, matched case-insensitively. Anything else

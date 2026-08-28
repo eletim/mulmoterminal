@@ -79,11 +79,10 @@ describe("mergeSessionMeta", () => {
     expect([cleared.lastPrompt, cleared.lastResponse]).toEqual(["", ""]);
   });
 
-  // workPhase is the opposite: a successful fetch is authoritative, and null is a real state
-  // ("no tools yet / not working"). Merge it like the text and a finished agent keeps a
-  // "planning" badge forever.
-  it("clears the phase when the fetch says there is none", () => {
-    expect(mergeSessionMeta(shown, {}).workPhase).toBeNull();
+  // State pushes are partial: absence is no news, while an explicit null is the authoritative
+  // "no tools yet / not working" state.
+  it("keeps an omitted phase and clears an explicitly null phase", () => {
+    expect(mergeSessionMeta(shown, {}).workPhase).toBe("implementing");
     expect(mergeSessionMeta(shown, { workPhase: null }).workPhase).toBeNull();
   });
 

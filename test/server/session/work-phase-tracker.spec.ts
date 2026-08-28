@@ -52,9 +52,9 @@ describe("createWorkPhaseTracker", () => {
 
   it("reads a turn that has only searched/read as planning", () => {
     const t = createWorkPhaseTracker();
-    t.note(S, "UserPromptSubmit");
-    t.note(S, "PreToolUse", "Read");
-    t.note(S, "PreToolUse", "Grep");
+    expect(t.note(S, "UserPromptSubmit")).toBe(false);
+    expect(t.note(S, "PreToolUse", "Read")).toBe(true);
+    expect(t.note(S, "PreToolUse", "Grep")).toBe(false);
     expect(t.phaseOf(S)).toBe("planning");
   });
 

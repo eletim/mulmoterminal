@@ -126,8 +126,34 @@ const mountGrid = async () => {
 const OrderStub = {
   name: "TerminalGrid",
   props: ["cells", "listRows", "expandedUid", "reorderable"],
+  emits: ["session-state"],
   template: '<div class="order-stub" />',
 };
+
+describe("GridView event-driven session metadata", () => {
+  it("merges pushed roster state and performs no periodic /api/session/:id GET during 60s idle", async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 10, session: IDS.idleA, cwd: "/w" }], expanded: 10, page: 0, sortMode: "manual" }));
+      const w = mount(GridView, {
+        global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+      });
+      await flushPromises();
+      const grid = w.findComponent(OrderStub);
+      grid.vm.$emit("session-state", 0, { id: IDS.idleA, lastPrompt: "pushed prompt", lastResponse: "pushed reply", workPhase: "planning" });
+      await flushPromises();
+
+      expect(grid.props("listRows")[0]).toMatchObject({ prompt: "pushed prompt", response: "pushed reply", workPhase: "planning" });
+      await vi.advanceTimersByTimeAsync(60_000);
+      const urls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
+      expect(urls.filter((url) => /\/api\/session\/[^/]+(?:\?|$)/.test(url))).toEqual([]);
+      w.unmount();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("GridView roster ordering (#720)", () => {
   it("orders the cockpit roster (listRows) attention-first in auto mode, matching the grid", async () => {

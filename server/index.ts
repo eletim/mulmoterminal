@@ -86,6 +86,7 @@ import { createMobileWebPushFeature, mobileWebPushActivityDeps as createMobileWe
 import { normalizeActivity } from "./session/activity-transition.js";
 import { mountConfiguredMobileTransport } from "./mobileTerminalTransport.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
+import { readSessionState } from "./session/session-state.js";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
 import { initNotifier } from "./backends/notifier.js";
@@ -301,6 +302,13 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
   currentEntryOf: (id) => viewerPtys.get(id),
+  sessionStateOf: async (id, cwd) =>
+    (
+      await readSessionState(id, cwd, {
+        getCoreSession: (sessionId) => coreSessions.find(sessionId),
+        workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+      })
+    ).state,
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
@@ -314,6 +322,14 @@ const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessio
   coreMetadataOf: async (id) => {
     const session = await coreSessions.find(id);
     return session ? { cwd: session.cwd, agent: session.agent } : null;
+  },
+  workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
+  sessionExtrasOf: async (id, cwd) => {
+    const { state } = await readSessionState(id, cwd, {
+      getCoreSession: (sessionId) => coreSessions.find(sessionId),
+      workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+    });
+    return { usage: state.usage, context: state.context };
   },
   ...mobileWebPushActivityDeps,
 });
@@ -547,6 +563,7 @@ mountAppRoutes(app, {
   forgetTitle,
   noteTitleTurn,
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
+  workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
   maybeGenerateTitle,
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
@@ -863,6 +880,13 @@ const terminalWebSockets = mountTerminalWebSockets({
   spawnLauncherPty,
   spawnViewerPty: spawnSecondaryViewer,
   resolveLauncher,
+  sessionStateOf: async (id, cwd) =>
+    (
+      await readSessionState(id, cwd, {
+        getCoreSession: (sessionId) => coreSessions.find(sessionId),
+        workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+      })
+    ).state,
 });
 
 // A bind failure (most often the port already in use) must not surface as an unhandled

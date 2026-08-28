@@ -82,6 +82,7 @@ export interface AppRouteDeps extends SessionActivityDeps {
   freshenRosterTitle: ReturnType<typeof createTitleManager>["freshenRosterTitle"];
   registerBackgroundSession: (id: string) => void;
   notifyMobileWebPushActivity?: (notification: MobileWebPushActivityNotification) => void;
+  workPhaseOf: (sessionId: string) => import("../session/workPhase.js").WorkPhase | null;
 }
 
 // The channel a directory-config change is announced on.
@@ -119,6 +120,7 @@ const sessionRouteDeps = (deps: AppRouteDeps): Parameters<typeof mountSessionRou
       throw error;
     }
   },
+  workPhaseOf: deps.workPhaseOf,
 });
 
 export function mountAppRoutes(app: Express, deps: AppRouteDeps): void {

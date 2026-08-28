@@ -53,7 +53,7 @@ function fakeSocket(readyState = OPEN) {
   };
 }
 
-function setup(terminalModes: readonly number[] = []) {
+function setup(terminalModes: readonly number[] = [], overrides: Partial<Parameters<typeof createConnectionHandlers>[0]> = {}) {
   const calls: string[] = [];
   const currentEntries = new Map<string, PtyEntry>();
   // Keep the old Core/send-keys route present at runtime so these tests prove interactive input
@@ -91,6 +91,7 @@ function setup(terminalModes: readonly number[] = []) {
     recheckTerminalSize: (id) => calls.push(`sizeRecheck:${id}`),
     cancelTerminalSizeCheck: (id) => calls.push(`sizeCheckCancel:${id}`),
     currentEntryOf: (id) => currentEntries.get(id),
+    ...overrides,
   };
   const handlers = createConnectionHandlers(deps);
   return { ...handlers, calls, currentEntries, paneInput, viewport, scroll, resize };
@@ -104,6 +105,18 @@ function entryWith(over: Partial<PtyEntry> = {}) {
 
 describe("handleClientFrame", () => {
   const frame = (o: unknown) => JSON.stringify(o);
+
+  it("answers an attached viewer's reconnect snapshot request once", async () => {
+    const state = { id: SESSION, working: true, waiting: false };
+    const sessionStateOf = vi.fn(async () => state);
+    const { handleClientFrame } = setup([], { sessionStateOf });
+    const socket = fakeSocket();
+    const entry = entryWith({ ws: socket.ws as never });
+
+    handleClientFrame(entry, socket.ws as never, frame({ type: "session-state" }), SESSION);
+    await vi.waitFor(() => expect(socket.parsed()).toEqual([{ type: "session-state", state }]));
+    expect(sessionStateOf).toHaveBeenCalledWith(SESSION, "/ws");
+  });
 
   it.each([
     ["ordinary keyboard input", "ls\r"],

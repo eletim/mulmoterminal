@@ -75,9 +75,28 @@ export interface ConnectionDeps {
   cancelTerminalSizeCheck: (id: string) => void;
   /** Current PTY entry for this session id. A missing/different entry means this close is stale. */
   currentEntryOf?: (id: string) => PtyEntry | undefined;
+  sessionStateOf?: (id: string, cwd: string) => Promise<unknown>;
 }
 
 type CoreSessionAdapter = Pick<import("./core-session-adapter.js").CoreSessionAdapter, "viewport" | "scroll">;
+
+function answerSessionStateRequest(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessionId: string): void {
+  if (!deps.sessionStateOf) return;
+  void deps
+    .sessionStateOf(sessionId, entry.cwd)
+    .then((state) => sendFrame(ws, { type: "session-state", state }))
+    .catch(() => {});
+}
+
+function applyViewerControlFrame(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessionId: string, msg: Record<string, unknown>): boolean {
+  if (msg.type === "session-state") {
+    answerSessionStateRequest(deps, entry, ws, sessionId);
+    return true;
+  }
+  if (msg.type !== "view" || typeof msg.active !== "boolean") return false;
+  applyViewFrame(entry, sessionId, msg.active, deps);
+  return true;
+}
 
 function opaqueCursor(value: string): ViewportCursor {
   // Core owns the token format. The transport validates only that the browser returned a string
@@ -298,10 +317,9 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     if (entry.ws !== ws) return;
     const msg = parseClientFrame(raw);
     if (!msg) return;
+    if (applyViewerControlFrame(deps, entry, ws, sessionId, msg)) return;
     try {
-      if (msg.type === "view" && typeof msg.active === "boolean") {
-        applyViewFrame(entry, sessionId, msg.active, deps);
-      } else if (msg.type === "input" && typeof msg.data === "string") {
+      if (msg.type === "input" && typeof msg.data === "string") {
         // This PTY is the attached tmux client. Raw replies to terminal modes that tmux enabled,
         // including mouse reports, must return through that client instead of bypassing its
         // protocol parser through Core's pane-injection path (#193).

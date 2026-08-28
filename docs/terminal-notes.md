@@ -27,6 +27,21 @@ server   ── node-pty  ── tmux (persistence)  ── agent (claude / code
 - **tmux** wraps every persistent session so it outlives the server process. This is where a lot
   of the surprises come from — see [The tmux passthrough rule](#the-tmux-passthrough-rule).
 
+### Session display state (#207)
+
+Terminal content and the surrounding session state share a connection lifecycle but not a SoT.
+On each terminal WebSocket connect/reconnect, the server derives one `session-state` snapshot from
+Core metadata, the activity maps, and the transcript reader. Later changes use the existing
+Socket.IO `sessions` channel, which already fans out to every browser viewer. The browser merges
+those partial updates; it does not poll `GET /api/session/:id`. A durable xterm slot that is
+reattached to a new Vue view requests one fresh snapshot because it may have missed Socket.IO
+updates while the view was absent. This request is tied to reattachment, never a timer.
+
+The server keeps no WebSocket-owned session registry or second authoritative copy. Activity hooks,
+title/memo writes, and Core lifecycle changes remain the event sources. Transcript-derived
+usage/context are read only when one of those session events occurs, with unchanged payloads
+suppressed. An idle session therefore sends neither HTTP detail reads nor repeated state frames.
+
 ## Version pins that matter
 
 | Package | Pin | Why it's load-bearing |

@@ -55,9 +55,9 @@ export const WORK_WORD: Record<WorkPhase, string> = { planning: "planning", impl
 // memo map, so a successful fetch answers it outright and `null` is the user having ERASED it.
 // Merged like the prompt, a memo the user just cleared comes back on the next poll.
 //
-// `workPhase` is taken AS-IS, including null, because a successful fetch is authoritative for
-// it: null means "no tools yet / not working", which is a real state. Merge it like the text
-// and a finished agent keeps a "planning" badge forever.
+// `workPhase` is authoritative when PRESENT, including null (finished/no tools). Session updates
+// are partial now, so an absent key must keep the current phase; otherwise a title-only push
+// would erase a perfectly current "planning" badge.
 export interface SessionMetaView {
   lastPrompt: string | null;
   aiTitle: string | null;
@@ -78,12 +78,14 @@ const stringOrNull = (value: unknown): string | null | undefined => (typeof valu
 export function mergeSessionMeta(previous: SessionMetaView, fetched: Record<string, unknown>): SessionMetaView {
   const aiTitle = stringOrNull(fetched.aiTitle);
   const memo = stringOrNull(fetched.memo);
+  let workPhase = previous.workPhase;
+  if ("workPhase" in fetched) workPhase = isWorkPhase(fetched.workPhase) ? fetched.workPhase : null;
   return {
     lastPrompt: stringOrNull(fetched.lastPrompt) ?? previous.lastPrompt,
     aiTitle: aiTitle !== undefined ? aiTitle : previous.aiTitle,
     lastResponse: stringOrNull(fetched.lastResponse) ?? previous.lastResponse,
     memo: memo !== undefined ? memo : previous.memo,
-    workPhase: isWorkPhase(fetched.workPhase) ? fetched.workPhase : null,
+    workPhase,
   };
 }
 

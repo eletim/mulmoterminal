@@ -230,31 +230,8 @@ const expandedUid = computed(() => zoomedUid(state.value));
 // AI summary + current prompt + the agent's latest reply — so many parallel agents can be
 // supervised past the 9-thumbnail grid, and the enlarged terminal is switched by picking a row.
 const sessionMeta = reactive(new Map<string, SessionMetaView>());
-// Single source of truth for the roster's prompt / summary / reply: each cell's on-disk
-// transcript, read via GET /api/session/:id (always current, and works for sessions this
-// MulmoTerminal doesn't manage — a plain `claude` you resumed emits nothing over pub/sub).
-// Seed on appearance, then poll while the roster is on screen. Merge, never overwrite: a
-// fetch that can't find the transcript (absent/mismatched cwd) returns nulls that must not
-// wipe a value already shown. (The status badge is separate — it rides `statusForSort`.)
-// The roster polls every few seconds, so a slow answer can still be in flight when the next
-// one goes out. Only the newest may be applied: an older one describes a moment already
-// overtaken, and its fields would put back what the newer answer replaced (#620).
-const latestMetaSeed = new Map<string, number>();
-async function seedMeta(id: string, cwd: string | null) {
-  const seed = (latestMetaSeed.get(id) ?? 0) + 1;
-  latestMetaSeed.set(id, seed);
-  try {
-    const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
-    const res = await fetch(`/api/session/${id}${query}`);
-    if (!res.ok || latestMetaSeed.get(id) !== seed) return;
-    const d: unknown = await res.json();
-    if (latestMetaSeed.get(id) !== seed) return;
-    sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, isRecord(d) ? d : {}));
-  } catch {
-    // best-effort — the next poll retries
-  }
-}
-const refreshAllMeta = () => gridCells.value.forEach((c) => c.session && void seedMeta(c.session, c.cwd));
+// Session metadata is filled by the terminal WebSocket's initial snapshot and then merged
+// from the existing `sessions` change stream. It is deliberately not part of the roster poll.
 // The PR workflow phase per directory (GET /api/pr-phase), shown in the roster beside the
 // agent status. Keyed by cwd, not session — the phase is the branch's, so cells sharing a dir
 // share one fetch. Best-effort and cached server-side, so the roster poll can re-fetch cheaply.
@@ -322,7 +299,6 @@ const forgetClosedCells = () => {
   const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
   staleCacheKeys(sessionMeta.keys(), sessions).forEach((id) => {
     sessionMeta.delete(id);
-    latestMetaSeed.delete(id);
   });
   staleCacheKeys(phaseByCwd.keys(), cwds).forEach((cwd) => {
     phaseByCwd.delete(cwd);
@@ -334,16 +310,14 @@ const forgetClosedCells = () => {
   });
 };
 
-// This watch runs whether or not the roster is on screen, and it is what fills sessionMeta,
-// so the cleanup has to hang off it too — pruning only on the roster poll leaves the cache
-// growing for anyone who never opens the roster.
+// Cleanup runs whether or not the roster is on screen, so a cache entry does not survive a
+// session being replaced while the user never opens the roster.
 // Keyed on the cwd as well as the session: a cell that keeps its session and only moves
 // directory still retires a phaseByCwd entry, and the roster may be hidden for hours.
 watch(
   () => rosterCellsKey(gridCells.value),
   () => {
     forgetClosedCells();
-    refreshAllMeta();
   },
   { immediate: true },
 );
@@ -355,7 +329,6 @@ const refreshAllPhases = () => {
 
 const refreshRoster = () => {
   forgetClosedCells();
-  refreshAllMeta();
   refreshAllPhases();
   refreshAllChrome();
 };
@@ -445,6 +418,11 @@ const onSession = (uid: number, id: string) => {
   localActiveSessionIds.add(id);
   inactiveGridSessionIds.delete(id);
   state.value = setSession(state.value, uid, id);
+};
+const onSessionState = (uid: number, value: Record<string, unknown>) => {
+  const id = gridCells.value.find((cell) => cell.uid === uid)?.session;
+  if (!id || value.id !== id) return;
+  sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, value));
 };
 const onCwd = (uid: number, cwd: string) => (state.value = setCwd(state.value, uid, cwd));
 const onAgent = (uid: number, agent: TerminalAgent) => (state.value = setCellAgent(state.value, uid, agent));
@@ -727,6 +705,9 @@ const isSessionCreated = (data: unknown): boolean => isRecord(data) && data.even
 const closedSessionId = (data: unknown): string | null => (isRecord(data) && typeof data.id === "string" && data.event === "closed" ? data.id : null);
 const { subscribe: subscribeSessions, onReconnect } = usePubSub();
 const unsubscribeSessions = subscribeSessions("sessions", (data) => {
+  if (isRecord(data) && typeof data.id === "string" && gridCells.value.some((cell) => cell.session === data.id)) {
+    sessionMeta.set(data.id, mergeSessionMeta(sessionMeta.get(data.id) ?? EMPTY_SESSION_META, data));
+  }
   if (isSessionCreated(data) && onTerminalsRoute()) void adoptUnplacedSessions();
   const closed = closedSessionId(data);
   if (closed) {
@@ -802,6 +783,7 @@ onBeforeUnmount(detachSpawnedChat);
       :open-cwds="openCwds"
       :list-mode="listModeOn"
       @session="onSession"
+      @session-state="onSessionState"
       @agent="onAgent"
       @park="onPark"
       @cwd="onCwd"

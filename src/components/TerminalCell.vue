@@ -105,6 +105,7 @@ const emit = defineEmits<
     (e: "launch", value: LaunchPick): void;
     // The agent chosen for this fresh launch, so the grid persists it.
     (e: "agent", value: TerminalAgent): void;
+    (e: "session-state", value: Record<string, unknown>): void;
     // Set this cell aside, or bring it back. The grid owns the flag; this only asks.
     (e: "park", value: boolean): void;
   }
@@ -197,11 +198,10 @@ const memo = ref<string | null>(null);
 const memoEditing = ref(false);
 const memoDraft = ref("");
 
-// Cumulative token usage for this session (from /api/session/:id, refreshed when a
-// turn finishes). Null until first fetched.
+// Cumulative token usage for this session, pushed with the terminal session state.
 const usage = ref<CellUsage | null>(null);
 
-// The running model + current-turn context size (from /api/session/:id), for the
+// The running model + current-turn context size, pushed with the terminal session state, for the
 // model/context badge. Null until first fetched; model may be null with no assistant
 // turn yet, which hides the badge.
 const context = ref<CellContext | null>(null);
@@ -230,35 +230,8 @@ const cellChips = computed<CellChipView[]>(() => {
   return views;
 });
 
-const { subscribe, onReconnect } = usePubSub();
-let unsubscribe: (() => void) | null = null;
-let offReconnect: (() => void) | null = null;
-
-interface ActivityMsg {
-  id: string;
-  working?: boolean;
-  waiting?: boolean;
-  event?: string | null;
-  lastPrompt?: string | null;
-  aiTitle?: string | null;
-  memo?: string | null;
-}
-const isActivityMsg = (d: unknown): d is ActivityMsg => typeof d === "object" && d !== null && "id" in d;
-
-// Bumped on every applied activity change. A seed (loadInitial) reads the state as of the
-// moment it ASKED; a live push that lands while it is in flight is newer, so the seed must
-// not overwrite it — the #620 race, scoped to one cell.
-let activityGen = 0;
-// Seeds also overlap each other — mount racing a reconnect, or reconnect flaps. Only the
-// newest may apply; an older one, even resolving last, describes a moment already overtaken.
-let latestSeed = 0;
-// The usage/context badges are filled from two async sources — a seed (loadInitial) and
-// refreshUsage on turn end — so back-to-back turns can leave two /api/session reads in
-// flight at once. Neither path bumps latestSeed for badges, so a stale read resolving last
-// would clobber the newer numbers. This token makes the newest badge fetch win. (#620.)
-let latestBadgeReq = 0;
+const { subscribe } = usePubSub();
 function applyActivity(d: ActivityPush) {
-  activityGen++;
   const next = applyActivityPush(
     {
       working: working.value,
@@ -280,15 +253,6 @@ function applyActivity(d: ActivityPush) {
   if (!memoEditing.value) memo.value = next.memo;
 }
 
-// This session's detail, or nothing to apply. Nothing covers three cases the callers all
-// treat the same: the read failed (best-effort — pub/sub fills it in on the next event), the
-// server refused, or the cell has since closed or switched session, in which case applying
-// the answer would leak the old session's state into the new one.
-//
-// The cell's dir goes along so the server can read the transcript and report the session's
-// most recent prompt rather than the bare id after a resume. It is read as a plain record: the
-// endpoint answers the session's own fields and sends no `id`, so it is not an ActivityMsg.
-
 // Reads the activity fields off an untrusted body while KEEPING the absent/null distinction
 // applyActivityPush is built on: a key the server did not send must stay absent ("keep what is
 // shown"), which is a different instruction from an explicit null ("there is none now").
@@ -303,50 +267,15 @@ function activityPushOf(d: Record<string, unknown>): ActivityPush {
   return push;
 }
 
-async function fetchSessionDetail(id: string): Promise<Record<string, unknown> | null> {
-  try {
-    const q = cwd.value ? `?cwd=${encodeURIComponent(cwd.value)}` : "";
-    const res = await fetch(`/api/session/${id}${q}`);
-    if (!res.ok) return null;
-    const data = await jsonBody(res);
-    return id === sessionId.value ? data : null;
-  } catch {
-    return null;
-  }
-}
-
-// Cleared rather than kept when the shape is wrong: the server always sends both
-// (EMPTY_USAGE / EMPTY_CONTEXT when it has nothing to report), so an unrenderable one means
-// something is actually broken — and a badge showing the previous turn's numbers as if they
-// were current is the failure the guards exist to stop.
 function applyBadges(data: Record<string, unknown>) {
-  usage.value = isCellUsage(data.usage) ? data.usage : null;
-  context.value = isCellContext(data.context) ? data.context : null;
+  if ("usage" in data) usage.value = isCellUsage(data.usage) ? data.usage : null;
+  if ("context" in data) context.value = isCellContext(data.context) ? data.context : null;
 }
 
-async function loadInitial(id: string) {
-  const seedId = ++latestSeed;
-  const badgeReq = ++latestBadgeReq;
-  const genBeforeFetch = activityGen;
-  const data = await fetchSessionDetail(id);
-  // A newer seed superseded this one while it was in flight: its answer is the current one,
-  // so this stale snapshot applies neither activity nor badges.
-  if (!data || seedId !== latestSeed) return;
-  // A live push landed while we were fetching: it is newer than this snapshot, so keep it
-  // and don't let a stale seed put the cell back to idle. Badges have no such push, so they
-  // always refresh — unless a newer badge fetch has since superseded this one.
-  if (activityGen === genBeforeFetch) applyActivity(activityPushOf(data));
-  if (badgeReq === latestBadgeReq) applyBadges(data);
-}
-
-// Refresh ONLY the token usage (not the live activity — that's pub/sub's job). Called
-// when a turn finishes, so the badge reflects the just-completed turn.
-async function refreshUsage() {
-  const id = sessionId.value;
-  if (!id) return;
-  const badgeReq = ++latestBadgeReq;
-  const data = await fetchSessionDetail(id);
-  if (data && badgeReq === latestBadgeReq) applyBadges(data);
+function applyTerminalState(data: Record<string, unknown>) {
+  applyActivity(activityPushOf(data));
+  applyBadges(data);
+  emit("session-state", data);
 }
 
 // Canvas output this cell has produced that nobody has looked at. The grid is a TRIAGE board,
@@ -385,25 +314,10 @@ watch(
 );
 
 onMounted(() => {
-  unsubscribe = subscribe("sessions", (d) => {
-    if (isActivityMsg(d) && d.id === sessionId.value) applyActivity(d);
-  });
-  // A dropped socket misses the pushes sent while it was down, and this cell's status is
-  // derived state that pub/sub only replays room membership for — not the missed events. So
-  // on reconnect re-seed from the authoritative snapshot (guarded by activityGen), or a turn
-  // that started during the outage stays showing idle until it ends.
-  offReconnect = onReconnect(() => {
-    if (sessionId.value) void loadInitial(sessionId.value);
-  });
-  if (sessionId.value) {
-    void loadInitial(sessionId.value);
-    void loadDiff(); // a resumed worktree cell shows its diff on restore
-  }
+  if (sessionId.value) void loadDiff(); // a resumed worktree cell shows its diff on restore
 });
 onUnmounted(() => {
-  unsubscribe?.();
   unsubscribeCanvas?.();
-  offReconnect?.();
 });
 
 // Set when the user starts a FRESH session from the launcher, so the next server
@@ -467,7 +381,6 @@ watch(
     connectKey.value++;
     launched.value = true;
     recordNextCwd = false;
-    void loadInitial(id);
     void loadDiff();
   },
 );
@@ -765,12 +678,10 @@ watch(anyCloseConfirm, (open) => {
 });
 onUnmounted(() => document.removeEventListener("keydown", onCloseKey));
 
-// Adopt the server-assigned id (esp. for new sessions), bubble it up for
-// persistence, and load its initial activity.
+// Adopt the server-assigned id (esp. for new sessions) and bubble it up for persistence.
 function onSession(id: string) {
   sessionId.value = id;
   emit("session", id);
-  void loadInitial(id);
   sessionIdAvailable();
 }
 
@@ -1006,11 +917,10 @@ async function openPR() {
 
 // Refresh when the agent transitions from working → settled: that's when the diff
 // is stable and worth re-reading (avoids churn while it's actively editing), and the
-// turn's token usage is final.
+// turn's token usage arrives in the state push on the same transition.
 watch(working, (now, prev) => {
   if (prev && !now) {
     void loadDiff();
-    void refreshUsage();
     void refreshGit(); // branch/dirty may have changed (commit, checkout, edits)
     void refreshWorkItem(); // a turn that pushed or opened a PR changes what this cell is on
   }
@@ -1221,6 +1131,7 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           dev-terminal
           run-menu
           @session="onSession"
+          @session-state="applyTerminalState"
           @exit="onTerminalExit"
           @input="onTerminalInput"
           @cwd="onServerCwd"

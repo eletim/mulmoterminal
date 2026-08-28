@@ -34,11 +34,13 @@ export function createWorkPhaseTracker() {
   // (the id is shape-checked, not looked up), and an entry is reclaimed only by its activity
   // owner. Storing an empty turn for an unrelated event would
   // therefore leave a permanent entry per uuid ever posted, so those are dropped here instead.
-  const note = (sessionId: string, event: string, toolName?: string): void => {
+  const note = (sessionId: string, event: string, toolName?: string): boolean => {
     const prev = turnTools.get(sessionId);
+    const previousPhase = classifyWorkPhase(prev ?? []);
     const next = nextTurnTools(prev ?? [], event, toolName);
-    if (!prev && next.length === 0) return;
+    if (!prev && next.length === 0) return false;
     turnTools.set(sessionId, next);
+    return classifyWorkPhase(next) !== previousPhase;
   };
 
   // null while nothing has been observed yet (a just-started or restored session) — the phone

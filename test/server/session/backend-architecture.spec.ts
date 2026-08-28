@@ -89,8 +89,9 @@ describe("backend session architecture", () => {
     expect(activity).not.toContain("node:fs");
     expect(activity).not.toContain("MULMOTERMINAL_HOME");
     const routes = readFileSync(path.join(root, "server", "routes", "session-routes.ts"), "utf8");
+    const stateReader = readFileSync(path.join(sessionDir, "session-state.ts"), "utf8");
     expect(routes).not.toContain("activityStateHydrated");
-    expect(routes).toContain("workPhase: core?.exited ? null : workPhase");
+    expect(stateReader).toContain("workPhase: core?.exited ? null : (liveWorkPhase ?? workPhase)");
   });
 
   it("uses retired capability logs only as one-way Core migration input", () => {

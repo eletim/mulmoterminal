@@ -2,15 +2,12 @@
 // TerminalCell.spec.ts, which already trips the max-lines warning.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
+import { defineComponent, h, onMounted } from "vue";
 import TerminalCell from "../../../src/components/TerminalCell.vue";
 import { SUNK_CELL } from "../../../src/components/cellParked";
 
 vi.mock("../../../src/composables/usePubSub", () => ({
   usePubSub: () => ({ subscribe: () => () => {}, onReconnect: () => () => {} }),
-}));
-
-vi.mock("../../../src/components/Terminal.vue", () => ({
-  default: { name: "TerminalView", props: ["sessionId", "connectKey", "cwd", "hideHeader"], template: '<div class="stub-term" />' },
 }));
 
 const SESSION = "44444444-4444-4444-4444-444444444444";
@@ -22,11 +19,21 @@ interface Activity {
   event?: string;
 }
 
+let seededActivity: Activity = {};
+
+vi.mock("../../../src/components/Terminal.vue", () => ({
+  default: defineComponent({
+    name: "TerminalView",
+    emits: ["session-state", "input"],
+    setup(_props, { emit }) {
+      onMounted(() => emit("session-state", { working: false, waiting: false, lastPrompt: null, ...seededActivity }));
+      return () => h("div", { class: "stub-term" });
+    },
+  }),
+}));
+
 const seed = (activity: Activity) => {
-  globalThis.fetch = vi.fn(async () => ({
-    ok: true,
-    json: async () => ({ working: false, waiting: false, lastPrompt: null, ...activity }),
-  })) as unknown as typeof fetch;
+  seededActivity = activity;
 };
 
 function mountCell(props: { parked?: boolean; expanded?: boolean; zoomed?: boolean } = {}) {
