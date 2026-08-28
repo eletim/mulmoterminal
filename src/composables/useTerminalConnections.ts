@@ -34,7 +34,15 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
 import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
-import { boundedViewportRows, takeScrollChunk, terminalCellAt, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "./terminalViewportScroll";
+import {
+  boundedViewportRows,
+  scrollSelectionEdge,
+  takeScrollChunk,
+  terminalCellAt,
+  viewportRenderData,
+  wireGenericWheel,
+  type GenericScrollIntent,
+} from "./terminalViewportScroll";
 import { terminalViewportOf } from "../../common/terminalViewport";
 import type { PointerPosition } from "./mouseReports";
 import { isTypedInput } from "./terminalUserInput";
@@ -759,7 +767,7 @@ function wireTerminalToConn(term: Terminal, c: Conn): void {
     },
   );
   c.selectionEdgeAutoScroll = wireSelectionEdgeAutoScroll(term, (lines: number, pointer: PointerPosition) =>
-    enqueueScroll(c, lines, terminalCellAt(term, pointer)),
+    scrollSelectionEdge(term, persistentViewportEnabled(c), lines, () => enqueueScroll(c, lines, terminalCellAt(term, pointer))),
   );
   wireCopyOnSelect(term, c.host, c.selectionEdgeAutoScroll);
   if (c.theme) term.options.theme = c.theme;

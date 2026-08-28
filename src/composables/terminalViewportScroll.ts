@@ -61,6 +61,14 @@ export function wireGenericWheel(term: Terminal, enabled: () => boolean, scrollS
   });
 }
 
+export function scrollSelectionEdge(term: Terminal, persistentViewport: boolean, lines: number, send: () => boolean): boolean {
+  if (persistentViewport) return send();
+  // Run/command terminals have no persistent Core session. Their scrollback belongs to xterm,
+  // including the off-screen rows selection auto-scroll needs while dragging past an edge.
+  term.scrollLines(lines);
+  return true;
+}
+
 export function viewportRenderData(content: string, restore = ""): string {
   const rows = content.replace(/\n$/, "").replace(/\r?\n/g, "\r\n");
   return `${restore}\x1b[H\x1b[2J${rows}`;

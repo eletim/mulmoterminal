@@ -1,8 +1,9 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import {
   boundedScrollCell,
   boundedViewportRows,
+  scrollSelectionEdge,
   takeScrollChunk,
   viewportRenderData,
   wireGenericWheel,
@@ -56,6 +57,30 @@ describe("wireGenericWheel", () => {
     const { screen, intents } = wired(false);
     expect(screen.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }))).toBe(true);
     expect(intents).toEqual([]);
+  });
+});
+
+describe("scrollSelectionEdge", () => {
+  it("keeps selection edge scrolling inside a command terminal's xterm scrollback", () => {
+    const term = new Terminal({ cols: 80, rows: 24 });
+    terminals.push(term);
+    const send = vi.fn(() => false);
+    const scrollLines = vi.spyOn(term, "scrollLines");
+
+    expect(scrollSelectionEdge(term, false, -3, send)).toBe(true);
+    expect(scrollLines).toHaveBeenCalledWith(-3);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("routes persistent selection edge scrolling through the generic Core intent", () => {
+    const term = new Terminal({ cols: 80, rows: 24 });
+    terminals.push(term);
+    const send = vi.fn(() => true);
+    const scrollLines = vi.spyOn(term, "scrollLines");
+
+    expect(scrollSelectionEdge(term, true, 2, send)).toBe(true);
+    expect(send).toHaveBeenCalledOnce();
+    expect(scrollLines).not.toHaveBeenCalled();
   });
 });
 

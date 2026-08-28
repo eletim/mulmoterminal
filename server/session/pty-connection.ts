@@ -201,29 +201,32 @@ function closeClient(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessi
   deps.releaseViewer(sessionId, entry);
 }
 
-type ResizeTails = Map<string, Promise<void>>;
+type SessionOperationTails = Map<string, Promise<void>>;
 
-function queueResize(tails: ResizeTails, deps: Pick<ConnectionDeps, "resize">, sessionId: string, cols: number, rows: number): void {
-  const resize = async () => {
-    try {
-      await deps.resize(sessionId, cols, rows);
-      syncSecondaryGeometry(sessionId, cols, rows);
-    } catch (error) {
-      console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`);
-    }
-  };
+function queueSessionOperation(tails: SessionOperationTails, sessionId: string, operation: () => Promise<void>): void {
   const previous = tails.get(sessionId);
-  const current = previous ? previous.then(resize) : resize();
+  const current = previous ? previous.catch(() => undefined).then(operation) : operation();
   tails.set(sessionId, current);
   void current.finally(() => {
     if (tails.get(sessionId) === current) tails.delete(sessionId);
   });
 }
 
-function afterPendingResize(tails: ResizeTails, entry: PtyEntry, ws: WebSocket, sessionId: string, operation: () => Promise<void>): void {
-  const run = () => (entry.ws === ws ? operation() : Promise.resolve());
-  const pending = tails.get(sessionId);
-  void (pending ? pending.then(run) : run());
+function queueResize(
+  tails: SessionOperationTails,
+  deps: Pick<ConnectionDeps, "resize">,
+  request: { entry: PtyEntry; ws: WebSocket; sessionId: string; cols: number; rows: number },
+): void {
+  const { entry, ws, sessionId, cols, rows } = request;
+  queueSessionOperation(tails, sessionId, async () => {
+    try {
+      await deps.resize(sessionId, cols, rows);
+      syncSecondaryGeometry(sessionId, cols, rows);
+      if (entry.ws === ws) sendGeometry(entry, cols, rows);
+    } catch (error) {
+      console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`);
+    }
+  });
 }
 
 function ownsGeometry(deps: Pick<ConnectionDeps, "currentEntryOf">, entry: PtyEntry, sessionId: string): boolean {
@@ -247,7 +250,7 @@ function syncSecondaryGeometry(sessionId: string, cols: number, rows: number): v
 }
 
 export function createConnectionHandlers(deps: ConnectionDeps) {
-  const resizeTails = new Map<string, Promise<void>>();
+  const operationTails = new Map<string, Promise<void>>();
 
   // Attach a replacement socket to an existing viewer transport: drop any stale socket,
   // swap in the new one, and replay the buffered tail for context.
@@ -299,9 +302,9 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
         // protocol parser through Core's pane-injection path (#193).
         entry.term.write(msg.data);
       } else if (isViewportRequest(msg)) {
-        afterPendingResize(resizeTails, entry, ws, sessionId, () => forwardViewport(deps, ws, sessionId, msg));
+        queueSessionOperation(operationTails, sessionId, () => (entry.ws === ws ? forwardViewport(deps, ws, sessionId, msg) : Promise.resolve()));
       } else if (isScrollRequest(msg)) {
-        afterPendingResize(resizeTails, entry, ws, sessionId, () => forwardScroll(deps, ws, sessionId, msg));
+        queueSessionOperation(operationTails, sessionId, () => (entry.ws === ws ? forwardScroll(deps, ws, sessionId, msg) : Promise.resolve()));
       } else if (isResizeFrame(msg)) {
         // One tmux pane has one geometry. Secondary viewers keep independent viewport cursors,
         // but cannot resize their tmux client without `window-size latest` also moving the shared
@@ -312,7 +315,7 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
           return;
         }
         entry.term.resize(msg.cols, msg.rows);
-        queueResize(resizeTails, deps, sessionId, msg.cols, msg.rows);
+        queueResize(operationTails, deps, { entry, ws, sessionId, cols: msg.cols, rows: msg.rows });
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves
         // it silent, and the reattached browser would keep the half-built screen forever — the
         // alternate buffer it now restores into does not reflow, so no later resize repairs it.

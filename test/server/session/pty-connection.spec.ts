@@ -166,6 +166,39 @@ describe("handleClientFrame", () => {
     expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport", requestId: 3 }));
   });
 
+  it("waits for an in-flight viewport before resizing and then refreshes primary geometry", async () => {
+    let finishViewport: (() => void) | undefined;
+    const viewportPending = new Promise<never>((resolve) => {
+      finishViewport = () =>
+        resolve({
+          content: "old geometry",
+          cursor: "old-geometry-cursor" as never,
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 0,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        } as never);
+    });
+    const { handleClientFrame, resize, viewport } = setup();
+    viewport.mockReturnValueOnce(viewportPending);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 6, rows: 24 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(viewport).toHaveBeenCalledOnce();
+    expect(resize).not.toHaveBeenCalled();
+
+    finishViewport?.();
+    await vi.waitFor(() => expect(resize).toHaveBeenCalledWith(SESSION, 120, 40));
+    expect(s.parsed()).toContainEqual({ type: "terminal-geometry", cols: 120, rows: 40 });
+  });
+
   it("waits for a primary Core resize before a secondary viewer capture", async () => {
     let finishResize: (() => void) | undefined;
     const resizePending = new Promise<void>((resolve) => {
