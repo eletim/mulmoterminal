@@ -302,13 +302,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
   currentEntryOf: (id) => viewerPtys.get(id),
-  sessionStateOf: async (id, cwd) =>
-    (
-      await readSessionState(id, cwd, {
-        getCoreSession: (sessionId) => coreSessions.find(sessionId),
-        workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
-      })
-    ).state,
+  sessionStateOf: (id, cwd) => sessionStateForViewer(id, cwd),
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
@@ -360,6 +354,18 @@ const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = c
     }
   },
 });
+
+// Initial/reconnect snapshots replace the roster GET that also used to freshen restored titles.
+// Keep that side effect tied to an actual viewer snapshot, never to a timer. A declaration is
+// used because the connection handlers above retain this callback before the server starts.
+async function sessionStateForViewer(id: string, cwd: string) {
+  const { state, userTurns } = await readSessionState(id, cwd, {
+    getCoreSession: (sessionId) => coreSessions.find(sessionId),
+    workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+  });
+  freshenRosterTitle(id, cwd, userTurns);
+  return state;
+}
 
 // The PTY spawners (session/spawn-*.ts). They take what index.ts still owns — the session
 // lifecycle it drives, and this file's port and live user config bound into the two payload
@@ -880,13 +886,7 @@ const terminalWebSockets = mountTerminalWebSockets({
   spawnLauncherPty,
   spawnViewerPty: spawnSecondaryViewer,
   resolveLauncher,
-  sessionStateOf: async (id, cwd) =>
-    (
-      await readSessionState(id, cwd, {
-        getCoreSession: (sessionId) => coreSessions.find(sessionId),
-        workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
-      })
-    ).state,
+  sessionStateOf: (id, cwd) => sessionStateForViewer(id, cwd),
 });
 
 // A bind failure (most often the port already in use) must not surface as an unhandled

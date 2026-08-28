@@ -46,14 +46,13 @@ export const WORK_WORD: Record<WorkPhase, string> = { planning: "planning", impl
 // of nine agents to look at. A session that HAS none sends "" (what `/clear` writes), and an
 // empty string is a value — it merges through and clears the row.
 //
-// `aiTitle` has no transcript fallback: it is ours, held in memory, so a successful fetch
+// `aiTitle` has no transcript fallback: it is ours, held in memory, so an authoritative update
 // answers it outright and `null` means "there is none now" rather than "no news". Merging it
 // like the text is how a `/clear`ed session kept showing the title of the conversation the user
 // had just ended (#1085) — the server had already dropped it. Same rule as applyActivityPush.
 //
 // `memo` follows aiTitle, not the text, and for the same reason: it lives only in the server's
-// memo map, so a successful fetch answers it outright and `null` is the user having ERASED it.
-// Merged like the prompt, a memo the user just cleared comes back on the next poll.
+// memo/Core state, so an update answers it outright and `null` is the user having ERASED it.
 //
 // `workPhase` is authoritative when PRESENT, including null (finished/no tools). Session updates
 // are partial now, so an absent key must keep the current phase; otherwise a title-only push

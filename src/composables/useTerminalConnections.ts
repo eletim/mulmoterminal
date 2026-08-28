@@ -1418,7 +1418,7 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   if (c.knownSessionId) handlers.onSession?.(c.knownSessionId);
   if (c.knownCwd) handlers.onCwd?.(c.knownCwd);
   if (c.knownSessionState) handlers.onSessionState?.(c.knownSessionState);
-  if (!created && c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "session-state" }));
+  if (!created) requestSessionState(key);
   el.appendChild(c.host);
   if (theme) {
     c.theme = theme;
@@ -1441,6 +1441,14 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   requestAnimationFrame(() => {
     if (c.attachedEl === el) fit(key);
   });
+}
+
+/** Re-seed display state after the independent Socket.IO change stream reconnects. */
+export function requestSessionState(key: string): boolean {
+  const ws = conns.get(key)?.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify({ type: "session-state" }));
+  return true;
 }
 
 // Unmount a view but KEEP the slot alive (socket stays open, PTY stays alive). The

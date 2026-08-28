@@ -103,6 +103,19 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state" });
   });
 
+  it("can request one current snapshot when the independent pub/sub transport reconnects", () => {
+    conn.attach("cell-state-resync", target("sess-123"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.readyState = FakeWebSocket.CONNECTING;
+    expect(conn.requestSessionState("cell-state-resync")).toBe(false);
+    ws.readyState = FakeWebSocket.OPEN;
+    ws.onopen?.();
+    expect(conn.requestSessionState("cell-state-resync")).toBe(true);
+    expect(lastFrameOf(ws, "session-state")).toEqual({ type: "session-state" });
+    conn.release("cell-state-resync");
+  });
+
   it("keeps session-state delivery independent for multiple viewers of one Core session", () => {
     const onA = vi.fn();
     const onB = vi.fn();

@@ -103,6 +103,7 @@ let announcedSessionId: string | null = props.sessionId;
 let sessionState: Record<string, unknown> = {};
 let stateSinceAnnouncement: Record<string, unknown> = {};
 let unsubscribeSessionState: (() => void) | null = null;
+let unsubscribeSessionReconnect: (() => void) | null = null;
 
 function applySessionState(state: Record<string, unknown>, initial: boolean): void {
   if (typeof state.id !== "string" || state.id !== announcedSessionId) return;
@@ -279,9 +280,13 @@ let resizeObserver: ResizeObserver;
 let attachedHost: HTMLElement | null = null;
 
 onMounted(() => {
-  unsubscribeSessionState = usePubSub().subscribe("sessions", (value) => {
+  const sessionPubSub = usePubSub();
+  unsubscribeSessionState = sessionPubSub.subscribe("sessions", (value) => {
     if (isRecord(value)) applySessionState(value, false);
   });
+  // Socket.IO and the terminal WebSocket reconnect independently. Socket.IO only rejoins its
+  // room, so ask the still-live terminal socket for one current snapshot after missed events.
+  unsubscribeSessionReconnect = sessionPubSub.onReconnect(() => conn.requestSessionState(slotKey));
   // Probe voice-input capability so the mic button shows only where supported.
   voice.refreshAvailability().catch(() => {});
 
@@ -559,6 +564,7 @@ const onPaste = createImagePasteHandler({
 
 onUnmounted(() => {
   unsubscribeSessionState?.();
+  unsubscribeSessionReconnect?.();
   resizeObserver?.disconnect();
   // Persisted slot: detach the view but KEEP the connection alive (the whole point —
   // navigating away / off-page paging doesn't reap the PTY). Ephemeral slot (command
