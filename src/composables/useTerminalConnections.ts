@@ -44,6 +44,7 @@ import {
   type GenericScrollIntent,
 } from "./terminalViewportScroll";
 import { terminalViewportOf } from "../../common/terminalViewport";
+import { TerminalViewportCache } from "./terminalViewportCache";
 import type { PointerPosition } from "./mouseReports";
 import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
@@ -236,14 +237,23 @@ interface Conn {
   shellDraft: string;
   viewportCursor: string | null;
   viewportLive: boolean;
+  viewportCache: TerminalViewportCache;
+  viewportCacheCols: number;
+  viewportCacheDirty: boolean;
+  viewportCacheNavigable: boolean;
+  viewportCacheHistoryRows: number;
   returningToLive: boolean;
   viewportRequested: boolean;
   viewportInFlight: boolean;
   viewportTargetLive: boolean;
+  viewportPurpose: "display" | "initial-prefetch";
+  initialPrefetchDistance: number;
   viewportRefreshPending: boolean;
   geometryRefreshPending: boolean;
   viewportRequestId: number;
   scrollInFlight: boolean;
+  scrollPurpose: "user" | "prefetch-older" | "prefetch-newer";
+  scrollRequestedLines: number;
   scrollRefreshPending: boolean;
   scrollRequestId: number;
   pendingScroll: { lines: number; cell: { column: number; row: number } } | null;
@@ -287,7 +297,16 @@ function fitAndSyncSize(c: Conn): void {
     // host not laid out yet
   }
   if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
-  if (c.viewportLive) c.term.scrollToBottom();
+  const rows = boundedViewportRows(c.term.rows);
+  if (c.viewportCache.visibleRows !== rows || c.viewportCacheCols !== c.term.cols) {
+    c.viewportCache = new TerminalViewportCache(rows);
+    c.viewportCacheCols = c.term.cols;
+    c.viewportCacheDirty = false;
+    c.viewportCacheNavigable = false;
+    c.viewportCursor = null;
+    c.viewportLive = false;
+    requestViewport(c);
+  } else if (c.viewportLive) c.term.scrollToBottom();
   else requestViewport(c);
 }
 
@@ -538,6 +557,9 @@ function prepareTypedInput(c: Conn): boolean {
   clearViewportRetry(c);
   const returnFromHistory = !c.viewportLive || (c.viewportInFlight && c.viewportTargetLive);
   c.viewportCursor = null;
+  c.viewportCache.reset();
+  c.viewportCacheDirty = false;
+  c.viewportCacheNavigable = false;
   c.viewportLive = !returnFromHistory;
   c.returningToLive = returnFromHistory;
   c.viewportRequestId++;
@@ -696,12 +718,82 @@ function persistentViewportEnabled(c: Conn): boolean {
   return !c.target.command;
 }
 
+function renderCachedViewport(c: Conn): void {
+  c.term.write(viewportRenderData(c.viewportCache.content()));
+}
+
+function requestCachePrefetch(c: Conn): void {
+  if (c.viewportCache.empty || c.viewportInFlight || c.scrollInFlight || c.ws?.readyState !== WebSocket.OPEN) return;
+  const older = c.viewportCache.shouldPrefetchOlder();
+  const newer = !older && c.viewportCache.shouldPrefetchNewer();
+  let cursor: string | null = null;
+  if (older) cursor = c.viewportCache.oldestCursor;
+  else if (newer) cursor = c.viewportCache.newestCursor;
+  if (!cursor) return;
+  c.scrollInFlight = true;
+  c.scrollPurpose = older ? "prefetch-older" : "prefetch-newer";
+  const requestId = ++c.scrollRequestId;
+  c.ws.send(
+    JSON.stringify({
+      type: "scroll",
+      requestId,
+      direction: older ? "up" : "down",
+      lines: c.viewportCache.visibleRows,
+      rows: c.viewportCache.visibleRows,
+      cursor,
+    }),
+  );
+}
+
+function tryCachedScroll(c: Conn, lines: number): boolean {
+  if (!c.viewportCacheNavigable || c.viewportCache.empty || c.viewportCacheDirty || !c.viewportCache.move(lines)) return false;
+  const anchor = c.viewportCache.anchor;
+  c.viewportCursor = anchor?.cursor ?? null;
+  c.viewportLive = c.viewportCache.atLiveBoundary;
+  renderCachedViewport(c);
+  requestCachePrefetch(c);
+  return true;
+}
+
+function scrollRemainderFromCacheBoundary(c: Conn, lines: number): number {
+  if (c.viewportCache.empty || c.viewportCacheDirty) return lines;
+  const available = lines < 0 ? c.viewportCache.rowsBefore : c.viewportCache.rowsAfter;
+  const cursor = lines < 0 ? c.viewportCache.oldestCursor : c.viewportCache.newestCursor;
+  if (!cursor || Math.abs(lines) <= available) return lines;
+  const remainder = Math.sign(lines) * (Math.abs(lines) - available);
+  c.viewportCursor = cursor;
+  c.viewportLive = false;
+  c.viewportCache.reset();
+  return remainder;
+}
+
+function discardDirtyCacheFromAnchor(c: Conn, lines: number): number {
+  if (!c.viewportCacheDirty || c.viewportCache.empty) return lines;
+  const anchor = c.viewportCache.anchor;
+  if (!anchor) return lines;
+  c.viewportCursor = anchor.cursor;
+  c.viewportLive = false;
+  c.viewportCache.reset();
+  c.viewportCacheDirty = false;
+  c.viewportCacheNavigable = false;
+  return lines + anchor.offset;
+}
+
+function drainPendingScrollFromCache(c: Conn): boolean {
+  const pending = c.pendingScroll;
+  if (!pending || !tryCachedScroll(c, pending.lines)) return false;
+  c.pendingScroll = null;
+  return true;
+}
+
 function sendPendingScroll(c: Conn): void {
   const pending = c.pendingScroll;
   if (!pending || c.scrollInFlight || c.viewportInFlight || c.ws?.readyState !== WebSocket.OPEN || !persistentViewportEnabled(c)) return;
   const chunk = takeScrollChunk(pending.lines);
   c.pendingScroll = chunk.remaining === 0 ? null : { lines: chunk.remaining, cell: pending.cell };
   c.scrollInFlight = true;
+  c.scrollPurpose = "user";
+  c.scrollRequestedLines = chunk.lines;
   const requestId = ++c.scrollRequestId;
   c.ws.send(
     JSON.stringify({
@@ -718,9 +810,20 @@ function sendPendingScroll(c: Conn): void {
 
 function enqueueScroll(c: Conn, lines: number, cell: { column: number; row: number }): boolean {
   if (lines === 0 || !persistentViewportEnabled(c) || c.ws?.readyState !== WebSocket.OPEN) return false;
-  const total = (c.pendingScroll?.lines ?? 0) + lines;
+  if (!c.pendingScroll && tryCachedScroll(c, lines)) return true;
+  // A user gesture outranks speculative bootstrap. Its late response is ignored by request id.
+  if (c.viewportInFlight && c.viewportPurpose === "initial-prefetch") {
+    c.viewportRequestId++;
+    c.viewportInFlight = false;
+    c.viewportPurpose = "display";
+    c.initialPrefetchDistance = 0;
+  }
+  let remaining = c.scrollInFlight || !c.viewportCacheNavigable ? lines : scrollRemainderFromCacheBoundary(c, lines);
+  remaining = discardDirtyCacheFromAnchor(c, remaining);
+  const total = (c.pendingScroll?.lines ?? 0) + remaining;
   c.pendingScroll = total === 0 ? null : { lines: total, cell };
-  sendPendingScroll(c);
+  if (total === 0 && c.viewportCursor) requestViewport(c);
+  else sendPendingScroll(c);
   return true;
 }
 
@@ -741,7 +844,7 @@ function scheduleViewportRetry(c: Conn): void {
   }, delay);
 }
 
-function requestViewport(c: Conn): void {
+function requestViewport(c: Conn, options: { fraction?: number; purpose?: "display" | "initial-prefetch"; distance?: number } = {}): void {
   if (!persistentViewportEnabled(c) || c.ws?.readyState !== WebSocket.OPEN || c.term.rows <= 0) return;
   if (c.viewportInFlight || c.scrollInFlight) {
     c.viewportRefreshPending = true;
@@ -749,9 +852,21 @@ function requestViewport(c: Conn): void {
   }
   c.viewportRequested = true;
   c.viewportInFlight = true;
-  c.viewportTargetLive = !c.viewportCursor;
+  c.viewportPurpose = options.purpose ?? "display";
+  c.initialPrefetchDistance = options.distance ?? 0;
+  c.viewportTargetLive = options.fraction === undefined && !c.viewportCursor;
   const requestId = ++c.viewportRequestId;
-  c.ws.send(JSON.stringify({ type: "viewport", requestId, rows: boundedViewportRows(c.term.rows), ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}) }));
+  let target: { cursor?: string; fraction?: number } = {};
+  if (options.fraction !== undefined) target = { fraction: options.fraction };
+  else if (c.viewportCursor) target = { cursor: c.viewportCursor };
+  c.ws.send(
+    JSON.stringify({
+      type: "viewport",
+      requestId,
+      rows: boundedViewportRows(c.term.rows),
+      ...target,
+    }),
+  );
 }
 
 // The wiring that needs the connection itself, so it is re-applied to every terminal a slot owns.
@@ -811,14 +926,23 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     shellDraft: "",
     viewportCursor: null,
     viewportLive: true,
+    viewportCache: new TerminalViewportCache(boundedViewportRows(term.rows)),
+    viewportCacheCols: term.cols,
+    viewportCacheDirty: false,
+    viewportCacheNavigable: false,
+    viewportCacheHistoryRows: 0,
     returningToLive: false,
     viewportRequested: false,
     viewportInFlight: false,
     viewportTargetLive: false,
+    viewportPurpose: "display",
+    initialPrefetchDistance: 0,
     viewportRefreshPending: false,
     geometryRefreshPending: false,
     viewportRequestId: 0,
     scrollInFlight: false,
+    scrollPurpose: "user",
+    scrollRequestedLines: 0,
     scrollRefreshPending: false,
     scrollRequestId: 0,
     pendingScroll: null,
@@ -898,14 +1022,23 @@ function connect(c: Conn) {
   c.swallowedMouseModes.clear();
   c.viewportCursor = null;
   c.viewportLive = true;
+  c.viewportCache = new TerminalViewportCache(boundedViewportRows(c.term.rows));
+  c.viewportCacheCols = c.term.cols;
+  c.viewportCacheDirty = false;
+  c.viewportCacheNavigable = false;
+  c.viewportCacheHistoryRows = 0;
   c.returningToLive = false;
   c.viewportRequested = false;
   c.viewportInFlight = false;
   c.viewportTargetLive = false;
+  c.viewportPurpose = "display";
+  c.initialPrefetchDistance = 0;
   c.viewportRefreshPending = false;
   c.geometryRefreshPending = false;
   c.viewportRequestId++;
   c.scrollInFlight = false;
+  c.scrollPurpose = "user";
+  c.scrollRequestedLines = 0;
   c.scrollRefreshPending = false;
   c.scrollRequestId++;
   c.pendingScroll = null;
@@ -971,12 +1104,25 @@ function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
   if (!c.viewportRequested) requestViewport(c);
 }
 
+function scheduleInitialPrefetch(c: Conn, distance = 1): void {
+  const rows = c.viewportCache.visibleRows;
+  if (!c.viewportLive || c.viewportCacheDirty || c.viewportCacheHistoryRows < rows * distance) return;
+  const fraction = Math.max(0, 1 - (rows * distance) / c.viewportCacheHistoryRows);
+  requestViewport(c, { fraction, purpose: "initial-prefetch", distance });
+}
+
 function applyViewport(c: Conn, value: unknown): boolean {
   const viewport = terminalViewportOf(value);
   if (!viewport) return false;
   clearViewportRetry(c);
   c.viewportCursor = viewport.cursor;
   c.viewportLive = viewport.live;
+  c.viewportCache = new TerminalViewportCache(boundedViewportRows(c.term.rows));
+  c.viewportCacheCols = viewport.cols;
+  c.viewportCache.reset(viewport);
+  c.viewportCacheDirty = false;
+  c.viewportCacheNavigable = false;
+  c.viewportCacheHistoryRows = viewport.historyRows;
   c.term.write(viewportRenderData(viewport.content, viewport.restore));
   return true;
 }
@@ -995,14 +1141,28 @@ function applyTerminalFrame(c: Conn, msg: Record<string, unknown>): void {
 function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
   if (msg.requestId !== c.viewportRequestId) return;
   const targetLive = c.viewportTargetLive;
+  const purpose = c.viewportPurpose;
+  const prefetchDistance = c.initialPrefetchDistance;
   c.viewportInFlight = false;
+  c.viewportPurpose = "display";
+  c.initialPrefetchDistance = 0;
   if (c.geometryRefreshPending) {
     c.geometryRefreshPending = false;
-    const stale = terminalViewportOf(msg.viewport);
-    if (stale) c.viewportCursor = stale.live ? null : stale.cursor;
+    c.viewportCursor = null;
     c.viewportLive = false;
     c.viewportTargetLive = false;
     requestViewport(c);
+    return;
+  }
+  if (purpose === "initial-prefetch") {
+    const viewport = terminalViewportOf(msg.viewport);
+    if (!viewport || viewport.rebased || viewport.clamped || c.viewportCacheDirty || c.viewportCache.visibleRows !== boundedViewportRows(c.term.rows)) {
+      c.viewportCache.reset();
+      return;
+    }
+    c.viewportCache.prepend(viewport);
+    if (prefetchDistance < 2) scheduleInitialPrefetch(c, prefetchDistance + 1);
+    else requestCachePrefetch(c);
     return;
   }
   if (!applyViewport(c, msg.viewport)) {
@@ -1012,6 +1172,11 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
     c.viewportLive = true;
     c.term.reset();
     return;
+  }
+  const applied = terminalViewportOf(msg.viewport);
+  if (applied?.rebased || applied?.clamped) {
+    // The returned screen is authoritative, but no old chunk may be combined with it.
+    c.viewportCache.reset(applied);
   }
   if (c.viewportRefreshPending) {
     c.viewportRefreshPending = false;
@@ -1023,21 +1188,50 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
   } else {
     c.returningToLive = false;
     c.viewportTargetLive = false;
+    if (c.viewportLive) scheduleInitialPrefetch(c);
     sendPendingScroll(c);
   }
 }
 
 function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
   if (msg.requestId !== c.scrollRequestId) return;
+  const purpose = c.scrollPurpose;
   c.scrollInFlight = false;
+  c.scrollPurpose = "user";
   const outputRaced = c.scrollRefreshPending;
   c.scrollRefreshPending = false;
   if (c.geometryRefreshPending) {
     c.geometryRefreshPending = false;
-    const stale = typeof msg.result === "object" && msg.result !== null && "viewport" in msg.result ? terminalViewportOf(msg.result.viewport) : null;
-    if (stale) c.viewportCursor = stale.live ? null : stale.cursor;
+    c.viewportCursor = null;
     c.viewportLive = false;
     requestViewport(c);
+    return;
+  }
+  if (purpose !== "user") {
+    const viewport =
+      typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport" && "viewport" in msg.result
+        ? terminalViewportOf(msg.result.viewport)
+        : null;
+    if (viewport) {
+      if (viewport.rebased || viewport.clamped) {
+        // A speculative destination is never allowed to replace the screen being read. Mark the
+        // cache unusable; the next real gesture resumes from its preserved chunk bookmark.
+        c.viewportCacheDirty = true;
+        c.viewportCacheNavigable = false;
+      } else if (purpose === "prefetch-older") {
+        c.viewportCache.prepend(viewport);
+      } else {
+        c.viewportCache.append(viewport);
+      }
+    }
+    if (drainPendingScrollFromCache(c)) return;
+    if (c.pendingScroll) c.pendingScroll.lines = scrollRemainderFromCacheBoundary(c, c.pendingScroll.lines);
+    sendPendingScroll(c);
+    return;
+  }
+  if (typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "application") {
+    // Core owns this decision. A foreground application result never advances history cache.
+    sendPendingScroll(c);
     return;
   }
   if (typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport") {
@@ -1053,12 +1247,26 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
       requestViewport(c);
       return;
     }
+    if (viewport && !viewport.rebased && !viewport.clamped && !c.viewportCacheDirty && !c.viewportCache.empty) {
+      c.viewportCacheNavigable = true;
+      if (c.viewportCache.move(c.scrollRequestedLines)) {
+        const anchor = c.viewportCache.anchor;
+        c.viewportCursor = anchor?.cursor ?? viewport.cursor;
+        c.viewportLive = c.viewportCache.atLiveBoundary;
+        renderCachedViewport(c);
+        requestCachePrefetch(c);
+        sendPendingScroll(c);
+        return;
+      }
+    }
     applyViewport(c, viewport);
+    c.viewportCacheNavigable = viewport !== null && !viewport.rebased && !viewport.clamped;
   }
   if (c.viewportRefreshPending) {
     c.viewportRefreshPending = false;
     requestViewport(c);
   } else {
+    if (c.viewportCacheNavigable) requestCachePrefetch(c);
     sendPendingScroll(c);
   }
 }
@@ -1067,6 +1275,34 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
   const viewportError = msg.type === "viewport-error" && msg.requestId === c.viewportRequestId;
   const scrollError = msg.type === "scroll-error" && msg.requestId === c.scrollRequestId;
   if (!viewportError && !scrollError) return;
+  if (viewportError && c.viewportPurpose === "initial-prefetch") {
+    c.viewportInFlight = false;
+    c.viewportPurpose = "display";
+    c.viewportTargetLive = false;
+    if (c.geometryRefreshPending) {
+      c.geometryRefreshPending = false;
+      requestViewport(c);
+    }
+    return;
+  }
+  if (scrollError && c.scrollPurpose !== "user") {
+    c.scrollInFlight = false;
+    c.scrollPurpose = "user";
+    c.scrollRefreshPending = false;
+    if (c.geometryRefreshPending) {
+      c.geometryRefreshPending = false;
+      requestViewport(c);
+      return;
+    }
+    if (drainPendingScrollFromCache(c)) return;
+    if (c.pendingScroll) {
+      c.pendingScroll.lines = c.viewportCacheDirty
+        ? discardDirtyCacheFromAnchor(c, c.pendingScroll.lines)
+        : scrollRemainderFromCacheBoundary(c, c.pendingScroll.lines);
+    }
+    sendPendingScroll(c);
+    return;
+  }
   c.viewportCursor = null;
   c.viewportLive = false;
   c.returningToLive = true;
@@ -1098,6 +1334,7 @@ function applyCoreViewportFrame(c: Conn, msg: Record<string, unknown>): boolean 
 
 function observeSuppressedOutput(c: Conn, data: string): void {
   appendShellOutput(c, data);
+  c.viewportCacheDirty = true;
   if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
   if (c.scrollInFlight) c.scrollRefreshPending = true;
 }
@@ -1107,9 +1344,15 @@ function handleMessage(c: Conn, event: MessageEvent) {
   if (!msg) return;
   if (applyCoreViewportFrame(c, msg)) return;
   if (isTerminalGeometryFrame(msg)) {
+    const geometryChanged = c.viewportCacheCols !== msg.cols || c.viewportCache.visibleRows !== boundedViewportRows(msg.rows);
     c.term.resize(msg.cols, msg.rows);
+    if (!geometryChanged) return;
+    c.viewportCache = new TerminalViewportCache(boundedViewportRows(msg.rows));
+    c.viewportCacheCols = msg.cols;
+    c.viewportCacheDirty = false;
+    c.viewportCacheNavigable = false;
     const captureInFlight = c.viewportInFlight || c.scrollInFlight;
-    if (c.viewportLive) c.viewportCursor = null;
+    c.viewportCursor = null;
     c.viewportLive = false;
     if (captureInFlight) c.geometryRefreshPending = true;
     else requestViewport(c);
@@ -1124,7 +1367,16 @@ function handleMessage(c: Conn, event: MessageEvent) {
         // Drop it so the next wheel is resolved against Core's current foreground state.
         if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
         if (c.scrollInFlight) c.scrollRefreshPending = true;
+        if (c.viewportInFlight && c.viewportPurpose === "initial-prefetch") {
+          c.viewportRequestId++;
+          c.viewportInFlight = false;
+          c.viewportPurpose = "display";
+          c.initialPrefetchDistance = 0;
+        }
         c.viewportCursor = null;
+        c.viewportCache.reset();
+        c.viewportCacheDirty = true;
+        c.viewportCacheNavigable = false;
         c.term.write(data, () => appendShellOutput(c, data));
       } else {
         observeSuppressedOutput(c, data);

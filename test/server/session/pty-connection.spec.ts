@@ -146,6 +146,17 @@ describe("handleClientFrame", () => {
     expect(response?.viewport.content).toBe("screen");
   });
 
+  it("uses Core's side-effect-free fraction target only for initial cache prefetch", async () => {
+    const { handleClientFrame, viewport } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 2, rows: 30, fraction: 0.7 }), SESSION);
+    await vi.waitFor(() => expect(viewport).toHaveBeenCalled());
+
+    expect(viewport).toHaveBeenCalledWith(SESSION, { target: { kind: "fraction", value: 0.7 }, rows: 30, format: "ansi" });
+  });
+
   it("waits for the preceding Core resize before capturing a viewport", async () => {
     let finishResize: (() => void) | undefined;
     const resizePending = new Promise<void>((resolve) => {
