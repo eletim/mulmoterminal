@@ -131,8 +131,9 @@ change one and change the other (#834).
   cells, combining strings, erase state and `isWrapped`. OSC 8 link ids are terminal-local, so the
   adapter also re-registers their URI metadata when installing cloned lines. Chunk prepend/append
   can reinstall line references, so the adapter relocates an existing selection by retained line
-  identity. Resize, reconnect, rebase and clamp still discard the parsed cache instead of attempting
-  reflow.
+  identity. Installing a cache position also synchronises xterm's `isUserScrolling`, so a live
+  recapture resumes bottom-following raw output. Resize, reconnect, rebase and clamp still discard
+  the parsed cache instead of attempting reflow.
 - While a viewer is historical, raw PTY output is ignored for that viewer and history remains
   readable from Core. Returning to live resumes the raw stream. Keyboard/paste/click still use
   the attached PTY exactly as in #193; typing also returns that viewer to live.

@@ -56,7 +56,7 @@ interface InternalBuffer {
 }
 
 interface InternalTerminalCore {
-  _bufferService: { buffer: InternalBuffer };
+  _bufferService: { buffer: InternalBuffer; isUserScrolling: boolean };
   _inputHandler: { parse(data: string): Promise<boolean> | undefined };
   _oscLinkService: InternalOscLinkService;
   _viewport?: { queueSync(ydisp?: number): void };
@@ -224,6 +224,7 @@ export class TerminalParsedBufferAdapter {
     installHyperlinks(buffer, core._oscLinkService, lines);
     buffer.ybase = Math.max(0, lines.length - this.term.rows);
     buffer.ydisp = Math.max(0, Math.min(start, buffer.ybase));
+    core._bufferService.isUserScrolling = buffer.ydisp < buffer.ybase;
     buffer.x = Math.max(0, Math.min(cursor.x, this.term.cols - 1));
     buffer.y = Math.max(0, Math.min(cursor.y, this.term.rows - 1));
     this.restoreSelection(selection, selectedStartLine, selectedEndLine, selectedEndIndex, lines);
@@ -266,6 +267,12 @@ export class TerminalParsedBufferAdapter {
     if (!core || !cell) throw new Error("xterm link internals unavailable");
     const value = row.line.loadCell(column, cell);
     return core._oscLinkService.getLinkData(value.extended.urlId);
+  }
+
+  inspectUserScrolling(): boolean {
+    const core = coreOf(this.term);
+    if (!core) throw new Error("xterm buffer-service internals unavailable");
+    return core._bufferService.isUserScrolling;
   }
 
   private restoreSelection(

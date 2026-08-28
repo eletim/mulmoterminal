@@ -81,6 +81,20 @@ describe("TerminalParsedBufferAdapter", () => {
     term.dispose();
   });
 
+  it("clears xterm's user-scrolling state when a live snapshot is installed", () => {
+    const term = new Terminal({ cols: 8, rows: 3 });
+    const adapter = new TerminalParsedBufferAdapter(term);
+    const older = adapter.parse(viewport("old1\nold2\nold3"));
+    const live = adapter.parse(viewport("one\ntwo\nthree"));
+    adapter.install([...older.rows, ...live.rows], 0, { x: 0, y: 2, restore: "" });
+    expect(adapter.inspectUserScrolling()).toBe(true);
+
+    adapter.install(live.rows, 0, { x: 0, y: 2, restore: "" });
+
+    expect(adapter.inspectUserScrolling()).toBe(false);
+    term.dispose();
+  });
+
   it("keeps selection coordinates attached to retained parsed lines during prepend", () => {
     const term = new Terminal({ cols: 8, rows: 3 });
     const host = document.createElement("div");
