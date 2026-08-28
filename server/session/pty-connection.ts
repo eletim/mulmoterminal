@@ -6,11 +6,13 @@
 import type { IPty } from "node-pty";
 import type { WebSocket } from "ws";
 import { messageOf } from "../errors.js";
-import { isResizeFrame } from "./ws-frames.js";
+import { isResizeFrame, sendFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
 import { viewerPtys } from "./viewer-state.js";
+import { isScrollRequest, isViewportRequest, type BrowserScrollRequest, type BrowserViewportRequest } from "../../common/terminalViewport.js";
+import type { ScrollIntent, ViewportCursor } from "tmux-session-core-ts";
 
 export interface ViewerReleaseDeps {
   forgetTerminalSize: (id: string) => void;
@@ -49,6 +51,8 @@ export type WireFrame = { toString(): string };
 
 export interface ConnectionDeps {
   resize: (id: string, cols: number, rows: number) => Promise<void>;
+  viewport: CoreSessionAdapter["viewport"];
+  scroll: CoreSessionAdapter["scroll"];
   setWaiting: (id: string, waiting: boolean) => void;
   /** Socket gone: release only the transient viewer; Core membership remains. */
   releaseViewer: (id: string, expected?: PtyEntry) => void;
@@ -71,6 +75,44 @@ export interface ConnectionDeps {
   cancelTerminalSizeCheck: (id: string) => void;
   /** Current PTY entry for this session id. A missing/different entry means this close is stale. */
   currentEntryOf?: (id: string) => PtyEntry | undefined;
+}
+
+type CoreSessionAdapter = Pick<import("./core-session-adapter.js").CoreSessionAdapter, "viewport" | "scroll">;
+
+function opaqueCursor(value: string): ViewportCursor {
+  // Core owns the token format. The transport validates only that the browser returned a string
+  // and applies Core's nominal type without decoding or persisting it.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  return value as ViewportCursor;
+}
+
+async function forwardViewport(deps: Pick<ConnectionDeps, "viewport">, ws: WebSocket, sessionId: string, msg: BrowserViewportRequest): Promise<void> {
+  try {
+    const cursor = msg.cursor === undefined ? undefined : opaqueCursor(msg.cursor);
+    const viewport = await deps.viewport(sessionId, { target: cursor ? { kind: "cursor", cursor } : { kind: "live" }, rows: msg.rows, format: "ansi" });
+    sendFrame(ws, { type: "viewport", requestId: msg.requestId, viewport });
+  } catch (error) {
+    console.warn(`[ws] viewport dropped for ${sessionId}: ${messageOf(error)}`);
+    sendFrame(ws, { type: "viewport-error", requestId: msg.requestId });
+  }
+}
+
+async function forwardScroll(deps: Pick<ConnectionDeps, "scroll">, ws: WebSocket, sessionId: string, msg: BrowserScrollRequest): Promise<void> {
+  const intent: ScrollIntent = {
+    direction: msg.direction,
+    lines: msg.lines,
+    rows: msg.rows,
+    format: "ansi",
+    ...(msg.cursor === undefined ? {} : { cursor: opaqueCursor(msg.cursor) }),
+    ...(msg.cell === undefined ? {} : { cell: msg.cell }),
+  };
+  try {
+    const result = await deps.scroll(sessionId, intent);
+    sendFrame(ws, { type: "scroll-result", requestId: msg.requestId, result });
+  } catch (error) {
+    console.warn(`[ws] scroll dropped for ${sessionId}: ${messageOf(error)}`);
+    sendFrame(ws, { type: "scroll-error", requestId: msg.requestId });
+  }
 }
 
 // The one place a browser's bytes become data. Answers a plain record so every field below is
@@ -113,6 +155,26 @@ function applyViewFrame(entry: PtyEntry, sessionId: string, active: boolean, dep
   if (!active) return;
   deps.setWaiting(sessionId, false);
   if (entry.tmux) deps.recheckTerminalSize(sessionId);
+}
+
+function closeClient(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessionId: string): void {
+  if (entry.ws !== ws) return;
+  if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) {
+    entry.ws = null;
+    try {
+      entry.term.kill();
+    } catch {
+      // The secondary viewer's tmux client already exited.
+    }
+    return;
+  }
+  entry.ws = null;
+  deps.cancelTerminalSizeCheck(sessionId);
+  // A session with no live socket is not being viewed. Clear `active` after an unclean disconnect
+  // so attention reporting resumes until a reconnect explicitly views the pane again.
+  entry.active = false;
+  console.log(`[ws] disconnected ${sessionId}`);
+  deps.releaseViewer(sessionId, entry);
 }
 
 export function createConnectionHandlers(deps: ConnectionDeps) {
@@ -165,7 +227,14 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
         // including mouse reports, must return through that client instead of bypassing its
         // protocol parser through Core's pane-injection path (#193).
         entry.term.write(msg.data);
+      } else if (isViewportRequest(msg)) {
+        void forwardViewport(deps, ws, sessionId, msg);
+      } else if (isScrollRequest(msg)) {
+        void forwardScroll(deps, ws, sessionId, msg);
       } else if (isResizeFrame(msg)) {
+        // Resize the tmux client that sent this frame. Simultaneous viewers have independent PTYs;
+        // the process-local registry contains only the primary one.
+        entry.term.resize(msg.cols, msg.rows);
         void deps.resize(sessionId, msg.cols, msg.rows).catch((error) => console.warn(`[ws] resize dropped for ${sessionId}: ${messageOf(error)}`));
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves
         // it silent, and the reattached browser would keep the half-built screen forever — the
@@ -184,22 +253,6 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
     }
   }
 
-  // Socket closed: detach and release the viewer immediately. Core owns the session lifetime.
-  function handleClientClose(entry: PtyEntry, ws: WebSocket, sessionId: string) {
-    // Ignore if a newer client already reattached to this session.
-    if (entry.ws !== ws) return;
-    // Ignore if this viewer has already been released. Its socket may close later, but that close
-    // must not detach a replacement viewer.
-    if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) return;
-    entry.ws = null;
-    deps.cancelTerminalSizeCheck(sessionId);
-    // A session with no live socket is by definition not being viewed. Clear `active`
-    // so an UNCLEAN disconnect (crash / network drop / killed tab, where the client
-    // can't send `view active:false`) can't leave the attention flag suppressed until
-    // reconnect. A reattach re-asserts `active` (attach default + the client's view frame).
-    entry.active = false;
-    console.log(`[ws] disconnected ${sessionId}`);
-    deps.releaseViewer(sessionId, entry);
-  }
+  const handleClientClose = (entry: PtyEntry, ws: WebSocket, sessionId: string): void => closeClient(deps, entry, ws, sessionId);
   return { reattachPty, handleClientFrame, handleClientClose };
 }

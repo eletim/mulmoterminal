@@ -101,36 +101,33 @@ the Files view, not to this stack, and nothing in it breaks when xterm or tmux i
 It lives in [README → Clicking a file path](https://github.com/receptron/mulmoterminal#clicking-a-file-path);
 change one and change the other (#834).
 
-### Mouse tracking & selection — `guardMouseTracking` (#729/#737/#845)
+### Scroll viewport, mouse tracking & selection (#197/#729/#845)
+
+- Persistent-session wheel events never become terminal mouse bytes in the browser. The browser
+  converts pixels to generic row intent, sends `{ direction, lines, rows, cell, cursor? }`, and
+  the server delegates to `tmux-session-core-ts.scroll()`. Core alone decides whether that intent
+  navigates history, reaches a mouse-owning foreground application, or uses terminal-compatible
+  alternate-screen scrolling. The browser never enters copy-mode and never inspects tmux modes.
+- `viewport()` supplies the initial/live screen and historical physical rows. Its cursor is an
+  opaque string stored only on one browser `Conn`; it is not decoded or persisted in session or
+  server state. Two tabs therefore keep independent positions. Reconnect deliberately discards
+  it and starts live. `rebased`/`clamped` results are rendered as returned; the browser performs
+  no history-offset correction.
+- While a viewer is historical, raw PTY output is ignored for that viewer and history remains
+  readable from Core. Returning to live resumes the raw stream. Keyboard/paste/click still use
+  the attached PTY exactly as in #193; typing also returns that viewer to live.
+- Wheel requests are serialized per viewer so a burst always uses the cursor returned by the
+  preceding request. Initial/resize viewport requests carry browser request ids, preventing a
+  stale asynchronous capture from replacing newer content.
 
 - SET of a mouse-tracking mode (`CSI ? … h`, e.g. 1000/1002/1003/1006) is **swallowed** so a drag
   stays a text selection instead of the app's coordinate reports landing in the prompt (#729).
-- The swallow takes the whole mouse away from the app, so **the wheel and clicks are synthesized
-  back** (`src/composables/terminalMouseInput.ts`; the rules are pure in `mouseReports.ts`). Both
-  fire only in the alternate buffer, and only for an app that asked for tracking + SGR (1006):
-  - **Wheel** (#737) — xterm's fallback turns it into ↑/↓ arrows, which a TUI binds to input
-    history, so scrolling spun the prompt. That fallback is still what an app which never asked
-    for tracking gets (and the spec pins it) — the report only replaces it for one that did.
-    **Deltas are accumulated into whole notches** (`wheelNotches`), not reported one per event:
-    a macOS trackpad emits a burst of a few pixels per event, and one detent each scrolled a TUI
-    an order of magnitude faster than the same swipe scrolls the normal buffer (#978). The
-    conversion mirrors xterm's own (`deltaY / cellHeight`, fraction banked across events), so both
-    buffers travel the same distance. An event worth less than a notch is still **consumed** —
-    handing the leftover back would resurrect the ↑/↓ fallback. The user's `terminalScrollSpeed`
-    multiplier scales this and xterm's `scrollSensitivity` together, so one Settings control
-    covers both paths.
-- **The notch rate and tmux's copy-mode step are a matched pair** (#978). Under tmux — which is
-  every persistent session — the wheel report goes to *tmux*, not to the program: a pane with no
-  mouse mode of its own (a plain shell) makes tmux enter copy-mode, whose default is `send -X
-  -N 5 scroll-up`. Five lines per report is the "it jumps a paragraph at a time" complaint. So
-  `WHEEL_SCROLL_BINDINGS` (server/infra/tmux.ts) rebinds it to **one line**, and
-  `TRACKPAD_GAIN = 1.5` (mouseReports.ts) raises the notch rate to keep the same overall speed
-  — 1.5 lines per cell of finger travel. **Change one and the scroll SPEED changes**, not just
-  its smoothness. A pane running a mouse program (Claude Code) never reaches copy-mode (tmux
-  `send -M` forwards the report), so its step is the program's own and only the rate applies.
-  - **Click** (#845) — a press and release that stayed put becomes an SGR press/release pair, so
-    the app's own click targets ("Jump to bottom", "1 new message") respond. Nothing is
-    `preventDefault()`ed, so xterm's selection is untouched.
+- The swallow still hides clicks, so a press and release that stayed put is synthesized as an SGR
+  press/release pair (#845). This is raw interactive input, not scroll responsibility, and remains
+  on the attached-PTY path. Nothing is `preventDefault()`ed, so xterm selection is untouched.
+- Wheel deltas are accumulated into physical rows (`wheelNotches`) before generic intent is sent.
+  A macOS trackpad's tiny burst therefore stays proportional, and `terminalScrollSpeed` remains
+  the single per-browser multiplier.
 - **The browser side wins every gesture the app's click would compete with.** No report is sent
   when:
   - the pointer moved (a drag is a selection — the reason the swallow exists);
@@ -316,19 +313,10 @@ or `terminal-overrides` capability. The isolation test: write the sequence **dir
 
 ## Known issues / open items
 
-- **#782 — scrollbar not shown / selection doesn't auto-scroll** (open). **Root cause is tmux, not
-  the renderer** — every session runs inside tmux, tmux redraws the screen, so the outer xterm
-  receives only the visible screen and the scrollback lives in tmux's copy-mode. Hence nothing for
-  the scrollbar to show, and selection reaching only what is on screen. Measured: with tmux off the
-  same xterm keeps 305 lines and the scrollbar tracks; with the canvas addon off, nothing changes.
-  A fix is a design decision about handing the wheel to tmux copy-mode (see #782), which collides
-  with the #729/#737 mouse swallow. **Do not reach for a renderer swap** — that hypothesis is dead,
-  and this entry said otherwise until it was corrected.
 - **Selection & copy/paste** — several sharp edges:
   - macOS: selection is **Option+drag** (`macOptionClickForcesSelection`), not plain drag.
-  - You can only select what's on screen: a Claude/Codex TUI runs in the **alternate buffer**,
-    which has no xterm scrollback, and the normal-buffer selection **auto-scroll is broken** (#782)
-    — so copying more than the visible screen isn't possible today.
+  - Edge-drag selection uses the same generic Core scroll intent as an ordinary wheel; it does not
+    synthesize wheel reports or depend on xterm's bounded replay scrollback.
   - Copy (auto): Claude's OSC 52 auto-copy works only via the tmux `Ms` override + `set-clipboard
     on` (#206). Paste uses the browser's native Cmd+V into xterm (there is no app paste button).
   - Shell launcher copy: the header copy button observes submitted Shell input and reads xterm's
@@ -351,8 +339,8 @@ looking) — flag them for QA on the release.
 | OSC 52 clipboard | tmux `Ms` override + `set-clipboard on` present (`planMsOverride`) | Claude auto-copy reaches the browser clipboard |
 | File-path links | `registerFilePathLinks` order vs WebLinks; `/api/files/raw` cwd containment | click a generated file path → previews the file |
 | Enter / newline | `terminalSubmit` mapping + `isComposing` guard; `macOptionIsMeta` | Enter submits, Shift+Enter newlines; IME confirm not eaten; both `cr` and `esc-cr` |
-| Mouse / wheel | `guardMouseTracking` swallow set (1000/1002/1003/1006); wheel→SGR in alt buffer; `wheelNotches` accumulation vs xterm's own `consumeWheelEvent` | wheel scrolls transcript (not prompt history); drag selects, doesn't emit mouse reports; a trackpad swipe moves a TUI about as far as it moves the scrollback |
-| Reattach | `stripTerminalQueries` patterns; replay buffer size; `tmuxTerminalModes` still reports `alternate_on` / `mouse_*_flag`, and `refresh-client` still forces a FULL repaint, on the installed tmux | reattaching a session doesn't leak `0;276;0c`-style junk; scrollback survives; after a reload the wheel still scrolls a Claude cell's transcript, and the screen matches `capture-pane` rather than showing spliced-together fragments (#1073) |
+| Mouse / wheel | `wireGenericWheel` sends direction/rows/cell to Core; `guardMouseTracking` remains only for click/selection handling; `wheelNotches` accumulates trackpad deltas | wheel scrolls transcript (not prompt history); drag selects, doesn't emit mouse reports; a trackpad swipe moves a TUI about as far as it moves the scrollback |
+| Reattach | the browser drops its opaque cursor and requests a live Core viewport; replay and `tmuxTerminalModes` remain for raw terminal interaction, not as scroll history | reattaching a session doesn't leak terminal-query replies; history remains available after output exceeds the replay bound; the returned Core viewport is coherent (#1073) |
 
 **Fast isolation techniques** (learned the hard way):
 - A terminal behavior that works on a **direct `term.write()`** but fails through a live session ⇒

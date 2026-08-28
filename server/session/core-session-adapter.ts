@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { SessionCore, SessionNotFoundError, type CreateSessionOptions, type Session } from "tmux-session-core-ts";
+import {
+  SessionCore,
+  SessionNotFoundError,
+  type CreateSessionOptions,
+  type ScrollIntent,
+  type ScrollResult,
+  type Session,
+  type TerminalViewport,
+  type ViewportOptions,
+} from "tmux-session-core-ts";
 import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent.js";
 import { isToolGroup, type ToolGroup } from "../../common/toolGroups.js";
 import { CORE_TMUX_SERVER } from "./core-session-config.js";
@@ -180,6 +189,14 @@ export class CoreSessionAdapter {
 
   async screen(id: string): Promise<string> {
     return this.core.screen(id);
+  }
+
+  async viewport(id: string, options?: ViewportOptions): Promise<TerminalViewport> {
+    return this.core.viewport(id, options);
+  }
+
+  async scroll(id: string, intent: ScrollIntent): Promise<ScrollResult> {
+    return this.core.scroll(id, intent);
   }
 
   async input(id: string, text: string): Promise<void> {

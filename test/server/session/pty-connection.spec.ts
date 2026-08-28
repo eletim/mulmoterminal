@@ -57,11 +57,25 @@ function setup(terminalModes: readonly number[] = []) {
   // Keep the old Core/send-keys route present at runtime so these tests prove interactive input
   // never crosses into pane injection again (#193).
   const paneInput = vi.fn(async () => undefined);
+  const viewport = vi.fn(async () => ({
+    content: "screen",
+    cursor: "cursor" as never,
+    live: true,
+    cols: 80,
+    screenRows: 24,
+    viewportRows: 24,
+    historyRows: 0,
+    historyLimit: 20000,
+    clamped: false,
+    rebased: false,
+  }));
+  const scroll = vi.fn(async () => ({ kind: "application" as const }));
   const deps: Parameters<typeof createConnectionHandlers>[0] & { input: typeof paneInput } = {
     input: paneInput,
+    viewport,
+    scroll,
     resize: async (id, cols, rows) => {
       calls.push(`resize:${id}:${cols}x${rows}`);
-      currentEntries.get(id)?.term.resize(cols, rows);
     },
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
     releaseViewer: (id) => calls.push(`releaseViewer:${id}`),
@@ -76,7 +90,7 @@ function setup(terminalModes: readonly number[] = []) {
     currentEntryOf: (id) => currentEntries.get(id),
   };
   const handlers = createConnectionHandlers(deps);
-  return { ...handlers, calls, currentEntries, paneInput };
+  return { ...handlers, calls, currentEntries, paneInput, viewport, scroll };
 }
 
 // PtyEntry carries fields these handlers never touch; the fakes model the ones they do.
@@ -114,6 +128,36 @@ describe("handleClientFrame", () => {
     handleClientFrame(entry, s.ws as never, frame({ type: "input", data: "echo ok\r" }), SESSION);
     expect(t.writes).toEqual(["echo ok\r"]);
     expect(paneInput).not.toHaveBeenCalled();
+  });
+
+  it("maps a browser viewport request to Core without exposing capture-pane", async () => {
+    const { handleClientFrame, viewport } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 1, rows: 30 }), SESSION);
+    await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport" })));
+    expect(viewport).toHaveBeenCalledWith(SESSION, { target: { kind: "live" }, rows: 30, format: "ansi" });
+  });
+
+  it("passes only generic direction, rows and cell intent to Core.scroll", async () => {
+    const { handleClientFrame, scroll } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    handleClientFrame(
+      entry,
+      s.ws as never,
+      frame({ type: "scroll", requestId: 1, cursor: "opaque", direction: "up", lines: 4, rows: 30, cell: { column: 12, row: 8 } }),
+      SESSION,
+    );
+    await vi.waitFor(() => expect(s.parsed()).toContainEqual({ type: "scroll-result", requestId: 1, result: { kind: "application" } }));
+    expect(scroll).toHaveBeenCalledWith(SESSION, {
+      cursor: "opaque",
+      direction: "up",
+      lines: 4,
+      rows: 30,
+      cell: { column: 12, row: 8 },
+      format: "ansi",
+    });
   });
 
   it("resizes on a valid resize frame", () => {
@@ -459,6 +503,18 @@ describe("reattachPty", () => {
 });
 
 describe("handleClientClose", () => {
+  it("kills only an unregistered secondary viewer client", () => {
+    const { handleClientClose, currentEntries, calls } = setup();
+    const primary = entryWith({ ws: fakeSocket().ws as never });
+    currentEntries.set(SESSION, primary);
+    const s = fakeSocket();
+    const secondary = entryWith({ ws: s.ws as never });
+    handleClientClose(secondary, s.ws as never, SESSION);
+    expect(secondary.term.kill).toHaveBeenCalled();
+    expect(primary.ws).not.toBeNull();
+    expect(calls).toEqual([]);
+  });
+
   it("detaches the socket and releases the viewer immediately", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();

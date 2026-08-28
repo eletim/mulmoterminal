@@ -14,6 +14,7 @@ interface FakeTerm {
     active: { type: "normal" | "alternate"; viewportY: number; baseY: number; getLine: (row: number) => { translateToString: () => string } | undefined };
   };
   input: (data: string, wasUserInput?: boolean) => void;
+  genericScroll: (lines: number) => void;
   scrollLines: (lines: number) => void;
   hasSelection: () => boolean;
   getSelection: () => string;
@@ -52,6 +53,7 @@ function makeTerminal(options: { bufferType?: "normal" | "alternate"; viewportY?
       },
     },
     input: vi.fn(),
+    genericScroll: vi.fn(),
     scrollLines: vi.fn((lines: number) => {
       const active = term.buffer.active;
       active.viewportY = Math.min(active.baseY, Math.max(0, active.viewportY + lines));
@@ -77,7 +79,18 @@ function mouse(type: "mousedown" | "mousemove" | "mouseup", clientY: number, opt
 
 const MAIN_BUTTON = 0;
 const TRACKING_MODES = new Set([1002, 1006]);
-const wire = (term: FakeTerm, modes: ReadonlySet<number>) => wireSelectionEdgeAutoScroll(term as unknown as Terminal, modes);
+// Kept in the call shape so the former mouse-mode matrix still exercises the same cases; Core now
+// owns scroll routing, so the browser callback intentionally ignores those modes.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const wire = (term: FakeTerm, _modes: ReadonlySet<number>) =>
+  wireSelectionEdgeAutoScroll(term as unknown as Terminal, (lines) => {
+    term.genericScroll(lines);
+    if (term.buffer.active.type === "normal") {
+      if ((lines < 0 && term.buffer.active.viewportY === 0) || (lines > 0 && term.buffer.active.viewportY === term.buffer.active.baseY)) return false;
+      term.scrollLines(lines);
+    } else term.input("generic-scroll", false);
+    return true;
+  });
 let frameId = 0;
 const frames = new Map<number, FrameRequestCallback>();
 
@@ -193,8 +206,8 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(80);
 
     expect(term.scrollLines).toHaveBeenCalledWith(-1);
-    expect(selection.dragScrollRequests).toEqual([-1, -1]);
-    expect(term.buffer.active.viewportY).toBe(48);
+    expect(selection.dragScrollRequests).toEqual([]);
+    expect(term.buffer.active.viewportY).toBe(49);
     handle?.dispose();
   });
 
@@ -208,8 +221,8 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(80);
 
     expect(term.scrollLines).toHaveBeenCalledWith(1);
-    expect(selection.dragScrollRequests).toEqual([1, 1]);
-    expect(term.buffer.active.viewportY).toBe(52);
+    expect(selection.dragScrollRequests).toEqual([]);
+    expect(term.buffer.active.viewportY).toBe(51);
     handle?.dispose();
   });
 
@@ -224,9 +237,8 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(0);
     flushFrame(80);
 
-    expect(moves).toHaveLength(2);
-    expect(moves[0]).toBeLessThan(RECT.top);
-    expect(moves[1]).toBeLessThan(RECT.top);
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toBeGreaterThanOrEqual(RECT.top);
     handle?.dispose();
   });
 
@@ -242,7 +254,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
 
     expect(term.scrollLines).toHaveBeenCalledWith(-1);
     expect(before).toBe(50);
-    expect(selection.selectionEnd).toBe(48);
+    expect(selection.selectionEnd).toBe(49);
     handle?.dispose();
   });
 
@@ -258,7 +270,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
 
     expect(term.scrollLines).toHaveBeenCalledWith(1);
     expect(before).toBe(73);
-    expect(selection.selectionEnd).toBe(76);
+    expect(selection.selectionEnd).toBe(74);
     handle?.dispose();
   });
 
@@ -350,7 +362,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
     flushFrame(160);
 
     expect(term.scrollLines).not.toHaveBeenCalled();
-    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
     handle?.dispose();
   });
 
@@ -367,7 +379,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
     expect(term.scrollLines).not.toHaveBeenCalled();
   });
 
-  it("reuses the existing alternate-buffer wheel report path instead of scrollLines", () => {
+  it("routes alternate-buffer selection scroll through generic Core intent instead of scrollLines", () => {
     const { term, screen } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
     vi.mocked(term.hasSelection).mockReturnValue(true);
     vi.mocked(term.getSelection).mockReturnValue("990");
@@ -376,9 +388,10 @@ describe("wireSelectionEdgeAutoScroll", () => {
     dragToEdge(screen, RECT.bottom - 4);
     flushFrame(0);
     flushFrame(80);
+    flushFrame(160);
 
     expect(term.scrollLines).not.toHaveBeenCalled();
-    expect(term.input).toHaveBeenCalledWith("\x1b[<65;9;24M", false);
+    expect(term.genericScroll).toHaveBeenCalledWith(1);
     handle?.dispose();
   });
 
@@ -435,7 +448,7 @@ describe("wireSelectionEdgeAutoScroll", () => {
     handle?.dispose();
   });
 
-  it("does not move the alternate-buffer anchor when app-side wheel reports do not move content", () => {
+  it("does not move the alternate-buffer anchor when application scroll does not move content", () => {
     const { term, screen } = makeTerminal({ bufferType: "alternate", viewportY: 0, baseY: 0 });
     const selection = installXtermSelectionModel(term, [10, 12], [4, 0]);
     vi.mocked(term.hasSelection).mockReturnValue(true);

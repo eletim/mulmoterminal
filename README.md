@@ -442,6 +442,12 @@ tmux is required because the dedicated tmux server, accessed through
 `tmux-session-core-ts`, is the sole source of truth for terminal existence. An explicit
 close (a cell's ✕) deletes the Core/tmux session. Command-cell scripts are ephemeral.
 
+Terminal scrolling uses that same persistent-session API rather than tmux's UI controls. Each
+browser viewer holds its own opaque viewport cursor, so one tab can inspect Shell history while
+another remains live. Wheel gestures become generic up/down row intent; Core decides whether to
+navigate history or forward scrolling to a full-screen application. Reconnect starts live, and
+history remains available even when it is older than the bounded WebSocket replay tail.
+
 **Installing tmux**:
 
 ```bash

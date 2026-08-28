@@ -1,20 +1,8 @@
-// The synthesis half of the #729 mouse-tracking swallow. Dropping the tracking SETs keeps a drag
-// a text selection, but it also hides the mouse from the app:
-//
-// - the wheel: xterm treats an alt-buffer app as "no scrollback, no mouse" and converts wheel
-//   events into arrow keys — which a TUI like Claude binds to input history, so scrolling spun
-//   the prompt history instead (#737);
-// - clicks: the app's own click targets ("Jump to bottom", "1 new message") never hear from the
-//   pointer, so they read as dead buttons (#845).
-//
-// The repair for both: remember which tracking modes were swallowed, and when the swallowed app
-// is in the alternate buffer, hand it the SGR report it originally asked for. Drags stay
-// selections.
+// Click synthesis for the #729 mouse-tracking swallow. Wheel ownership and protocol encoding
+// belong to tmux-session-core-ts; this module retains only browser pointer/click concerns.
 
-const WHEEL_TRACKING_MODES = new Set([1000, 1001, 1002, 1003]);
+const POINTER_TRACKING_MODES = new Set([1000, 1001, 1002, 1003]);
 const SGR_ENCODING_MODE = 1006;
-const WHEEL_UP_BUTTON = 64;
-const WHEEL_DOWN_BUTTON = 65;
 const MAIN_BUTTON = 0;
 // A press and release within this distance is a click, not a drag: it absorbs the pointer drift
 // of an ordinary click without swallowing the start of a real selection.
@@ -39,12 +27,11 @@ export function clearResetModes(active: Set<number>, params: readonly (number | 
   });
 }
 
-/** True when the app asked for mouse tracking AND the SGR encoding. Non-SGR encodings are
- *  deliberately out of scope: every current target (Claude, Codex) requests 1006, and
- *  synthesizing legacy X10 bytes for the rest isn't worth the surface. */
+/** True when the app asked for pointer tracking AND the SGR encoding. This is used only for
+ *  click forwarding; wheel ownership and encoding belong to tmux-session-core-ts. */
 export function wantsMouseReports(active: ReadonlySet<number>): boolean {
   if (!active.has(SGR_ENCODING_MODE)) return false;
-  return [...active].some((mode) => WHEEL_TRACKING_MODES.has(mode));
+  return [...active].some((mode) => POINTER_TRACKING_MODES.has(mode));
 }
 
 const sgrReport = (button: number, col: number, row: number, released = false): string => `\x1b[<${button};${col};${row}${released ? "m" : "M"}`;
@@ -69,13 +56,6 @@ export function isMouseReport(data: string): boolean {
   return body.startsWith("M") || /^<\d+;\d+;\d+[Mm]$/.test(body);
 }
 
-/** The SGR wheel report for a wheel movement, or null when there is no vertical motion.
- *  Button 64 is wheel-up, 65 wheel-down; col/row are 1-based cell coordinates. */
-export function wheelReportSequence(deltaY: number, col: number, row: number): string | null {
-  if (deltaY === 0) return null;
-  return sgrReport(deltaY < 0 ? WHEEL_UP_BUTTON : WHEEL_DOWN_BUTTON, col, row);
-}
-
 // ── Wheel notches ────────────────────────────────────────────────────────────────────────
 // A wheel MOUSE emits one event per detent, so "one event, one report" is right for it. A
 // macOS trackpad does not: a two-finger swipe emits a burst of dozens of pixel-delta events
@@ -91,15 +71,7 @@ const DOM_DELTA_PAGE = 2;
 // detent). Below this threshold the gesture is treated as a trackpad swipe, which is the
 // distinction xterm itself draws rather than trying to identify the device.
 const TRACKPAD_PIXEL_DELTA = 50;
-// How many notches a swipe is worth per cell of finger travel. Above 1 because a notch is not a
-// line: what receives these reports is tmux's copy-mode, bound to ONE line per report (#978, see
-// WHEEL_SCROLL_BINDINGS in server/infra/tmux.ts), and a swipe should move the text a little
-// further than the finger — 1.5 lines per cell is what the previous five-lines-per-notch rate
-// worked out to, which is the speed this is calibrated to keep.
-//
-// The pair matters: drop tmux to one line without raising this and scrolling gets five times
-// slower; raise this without dropping tmux and it gets five times faster. Whatever a program
-// with its own mouse mode (Claude Code) does per report is its own, and this scales that too.
+// How many physical terminal rows a swipe is worth per cell of finger travel.
 const TRACKPAD_GAIN = 1.5;
 // A ceiling on one event's worth of reports: a page-mode delta, or a momentum spike at 3x speed,
 // would otherwise emit hundreds of them in one go — the runaway this fix exists to prevent. Set

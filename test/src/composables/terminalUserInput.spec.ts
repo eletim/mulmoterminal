@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isTypedInput } from "../../../src/composables/terminalUserInput";
-import { clickReportSequences, wheelReportSequence } from "../../../src/composables/mouseReports";
+import { clickReportSequences } from "../../../src/composables/mouseReports";
 
 describe("isTypedInput", () => {
   it("counts ordinary characters, control bytes and pastes", () => {
@@ -16,15 +16,6 @@ describe("isTypedInput", () => {
     for (const seq of clickReportSequences(12, 34)) {
       expect(isTypedInput(seq)).toBe(false);
     }
-  });
-
-  it("rejects wheel reports, so scrolling a parked cell does not wake it", () => {
-    const up = wheelReportSequence(-1, 5, 5);
-    const down = wheelReportSequence(1, 5, 5);
-    expect(up).not.toBeNull();
-    expect(down).not.toBeNull();
-    expect(isTypedInput(up ?? "")).toBe(false);
-    expect(isTypedInput(down ?? "")).toBe(false);
   });
 
   // Not synthesized by this app, but a terminal can still emit it for an app that asked for a

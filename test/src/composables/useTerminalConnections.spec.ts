@@ -19,6 +19,11 @@ import { setTerminalSubmitMode } from "../../../src/composables/terminalSubmitMo
 import { clickReportSequences } from "../../../src/composables/mouseReports";
 
 const target = (sessionId: string | null) => ({ sessionId, cwd: "/typed", devTerminal: false, command: null, launcher: null });
+const lastFrameOf = (ws: FakeWebSocket, type: string): Record<string, unknown> | undefined =>
+  [...ws.sent]
+    .reverse()
+    .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+    .find((frame) => frame.type === type);
 
 describe("useTerminalConnections — detached-slot state replay", () => {
   beforeEach(() => {
@@ -56,6 +61,170 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.attach("cell-race", target(null), second, el2);
     expect(second.onSession).toHaveBeenCalledWith("sess-123");
     expect(second.onCwd).toHaveBeenCalledWith("/resolved");
+  });
+
+  it("keeps opaque viewport cursors independent for two browser viewers", () => {
+    conn.attach("viewer-a", target("shared-session"), {}, document.createElement("div"));
+    const wsA = FakeWebSocket.instances.at(-1);
+    if (!wsA) throw new Error("viewer A socket missing");
+    wsA.onopen?.();
+    const wheelA = mockTermState.wheelHandler;
+
+    conn.attach("viewer-b", target("shared-session"), {}, document.createElement("div"));
+    const wsB = FakeWebSocket.instances.at(-1);
+    if (!wsB) throw new Error("viewer B socket missing");
+    wsB.onopen?.();
+    const wheelB = mockTermState.wheelHandler;
+
+    const viewport = (cursor: string, requestId: number) => ({
+      type: "viewport",
+      requestId,
+      viewport: {
+        content: cursor,
+        cursor,
+        live: false,
+        cols: 80,
+        screenRows: 24,
+        viewportRows: 24,
+        historyRows: 100,
+        historyLimit: 20000,
+        clamped: false,
+        rebased: false,
+      },
+    });
+    const requestIdA = Number(lastFrameOf(wsA, "viewport")?.requestId);
+    const requestIdB = Number(lastFrameOf(wsB, "viewport")?.requestId);
+    wsA.onmessage?.({ data: JSON.stringify(viewport("cursor-a", requestIdA)) });
+    wsB.onmessage?.({ data: JSON.stringify(viewport("cursor-b", requestIdB)) });
+    wheelA({ deltaY: -120, preventDefault: vi.fn() });
+    wheelB({ deltaY: -120, preventDefault: vi.fn() });
+
+    expect(lastFrameOf(wsA, "scroll")?.cursor).toBe("cursor-a");
+    expect(lastFrameOf(wsB, "scroll")?.cursor).toBe("cursor-b");
+    conn.release("viewer-a");
+    conn.release("viewer-b");
+  });
+
+  it("drops a live snapshot cursor when new PTY output arrives before the next wheel", () => {
+    conn.attach("viewer-live-output", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const requestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "live",
+          cursor: "live-snapshot-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "new output" }) });
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+
+    expect(lastFrameOf(ws, "scroll")).not.toHaveProperty("cursor");
+    conn.release("viewer-live-output");
+  });
+
+  it("drops the browser-local cursor on reconnect and resumes from live", () => {
+    conn.attach("viewer-reconnect", target("shared-session"), {}, document.createElement("div"));
+    const first = FakeWebSocket.instances.at(-1);
+    if (!first) throw new Error("first socket missing");
+    first.onopen?.();
+    const requestId = lastFrameOf(first, "viewport")?.requestId;
+    first.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "old",
+          cursor: "old-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    conn.retarget("viewer-reconnect", target("shared-session"));
+    const second = FakeWebSocket.instances.at(-1);
+    if (!second) throw new Error("second socket missing");
+    second.onopen?.();
+    const request = second.sent.map((frame) => JSON.parse(frame)).find((frame) => frame.type === "viewport");
+    expect(request).toEqual(expect.objectContaining({ type: "viewport", rows: 24 }));
+    expect(request).not.toHaveProperty("cursor");
+    conn.release("viewer-reconnect");
+  });
+
+  it("ignores a historical scroll result that arrives after typed input returned the viewer to live", () => {
+    conn.attach("viewer-input-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "history",
+          cursor: "historical-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const staleRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+    mockTermState.emitData("x");
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: staleRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "stale history",
+            cursor: "stale-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    expect(lastFrameOf(ws, "scroll")).not.toHaveProperty("cursor");
+    conn.release("viewer-input-race");
   });
 
   it("wires the Enter handler through ensure() (cr mode): sends \\x1b\\r on Shift+Enter and cancels the default", () => {
@@ -395,31 +564,34 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.release("cell-mouse");
   });
 
-  // The swallowed modes describe ONE session. An app that dies without sending DECRST would
-  // otherwise leave the slot believing the next app wants mouse reports, and that app's wheel
-  // would deliver escape bytes instead of scrolling — the #729 noise, one layer over (#737).
-  it("forgets swallowed mouse modes when the session is replaced, so the wheel guard doesn't leak across a reconnect", () => {
+  it("routes wheel through generic Core intent regardless of swallowed click modes", () => {
     vi.useFakeTimers();
     mockTermState.csiHandlers = [];
     mockTermState.input = [];
     mockTermState.bufferType = "alternate";
     mockTermState.wheelHandler = () => true;
     conn.attach("cell-race", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const first = FakeWebSocket.instances.at(-1);
+    first?.onopen?.();
 
     const decset = mockTermState.csiHandlers.find(([id]) => (id as { final: string }).final === "h")?.[1] as (p: (number | number[])[]) => boolean;
     decset([1002, 1006]); // the app asks for drag tracking + SGR: swallowed, and remembered
     const wheel = mockTermState.wheelHandler;
     expect(wheel({ deltaY: 1, preventDefault: () => {} })).toBe(false);
-    expect(mockTermState.input).toEqual(["\x1b[<65;1;1M"]);
+    expect(mockTermState.input).toEqual([]);
+    expect(first?.sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "scroll")).toBe(true);
 
     // The app dies WITHOUT the matching DECRST and the socket drops; the slot reconnects.
     FakeWebSocket.instances.at(-1)?.onclose?.();
     vi.advanceTimersByTime(10_000);
     mockTermState.input = [];
 
-    // A later alt-buffer app that never asked for tracking keeps xterm's own scrolling.
-    expect(wheel({ deltaY: 1, preventDefault: () => {} })).toBe(true);
+    // A later app still uses generic intent; no browser-side mouse encoding is restored.
+    const second = FakeWebSocket.instances.at(-1);
+    second?.onopen?.();
+    expect(wheel({ deltaY: 1, preventDefault: () => {} })).toBe(false);
     expect(mockTermState.input).toEqual([]);
+    expect(second?.sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "scroll")).toBe(true);
     vi.useRealTimers();
   });
 

@@ -51,6 +51,12 @@ export function spawnPty(bin: string, args: string[], cwd: string, unset: readon
   return pty.spawn(launch.file, launch.args, { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd, env });
 }
 
+/** A browser-only tmux client for an already-existing Core session. It owns no lifecycle,
+ * hooks, metadata or scroll position and is safe to create once per simultaneous viewer. */
+export function spawnTmuxViewerPty(sessionId: string, cwd: string): IPty {
+  return spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd);
+}
+
 /** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
 export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
   const onExit: IPty["onExit"] = (listener) => {

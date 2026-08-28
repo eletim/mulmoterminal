@@ -34,6 +34,9 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
 import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
+import { terminalCellAt, viewportRenderData, wireGenericWheel, type GenericScrollIntent } from "./terminalViewportScroll";
+import { terminalViewportOf } from "../../common/terminalViewport";
+import type { PointerPosition } from "./mouseReports";
 import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -218,6 +221,15 @@ interface Conn {
   selectionEdgeAutoScroll: SelectionEdgeAutoScrollHandle | null;
   pendingShellCommandCopy: { beforeScreen: string; afterScreen: string; command: string } | null;
   shellDraft: string;
+  viewportCursor: string | null;
+  viewportLive: boolean;
+  viewportRequested: boolean;
+  viewportInFlight: boolean;
+  viewportRefreshPending: boolean;
+  viewportRequestId: number;
+  scrollInFlight: boolean;
+  scrollRequestId: number;
+  pendingScroll: { lines: number; cell: { column: number; row: number } } | null;
 }
 
 // The banner is re-armed on a timer rather than shown once per stretch, because a stretch has no
@@ -258,7 +270,8 @@ function fitAndSyncSize(c: Conn): void {
     // host not laid out yet
   }
   if (c.ws?.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
-  c.term.scrollToBottom();
+  if (c.viewportLive) c.term.scrollToBottom();
+  else setTimeout(() => requestViewport(c), 50);
 }
 
 // The reactive projection the view binds to (status pill, RunMenu cwd). Keyed by
@@ -390,8 +403,8 @@ export const isOpenableTerminalLink = (uri: string): boolean => /^https?:\/\//i.
 // one case that gets past this hook — a sequence mixing tracking with an unrelated mode, which
 // is honoured on purpose. Letting every reset through keeps that recoverable.
 //
-// What was swallowed is still remembered, because the app still needs the mouse: the wheel (#737)
-// and its own click targets (#845) are synthesized from the record by ./terminalMouseInput.
+// What was swallowed is still remembered because the app's click targets (#845) need pointer
+// reports. Wheel routing does not consult this record; it is owned by Core.
 //
 // The record is owned by the connection, not this closure, because it is per SESSION: connect()
 // clears it alongside term.reset() so a crashed app's modes can't outlive it.
@@ -515,6 +528,16 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
     // through `term.input()` — so they have to be excluded here or clicking a parked cell to READ
     // it would wake it, which is the one thing parking is for.
     if (isTypedInput(data)) {
+      // Interactive input returns this viewer to live. The bytes still travel through the
+      // attached PTY (#193); only the browser-local viewport cursor is discarded.
+      c.viewportCursor = null;
+      c.viewportLive = true;
+      c.viewportRequestId++;
+      c.viewportInFlight = false;
+      c.viewportRefreshPending = false;
+      c.scrollRequestId++;
+      c.scrollInFlight = false;
+      c.pendingScroll = null;
       c.handlers.onInput?.();
       // Someone typing is the ONLY sign of life an idle cell gets, so it is also the only chance to
       // notice that its terminal is dead. guardBufferHealth's other two callers are a fit and an
@@ -571,7 +594,6 @@ interface TerminalRuntime {
   term: Terminal;
   fitAddon: FitAddon;
   host: HTMLDivElement;
-  selectionEdgeAutoScroll: SelectionEdgeAutoScrollHandle | null;
 }
 
 // Everything a slot's xterm is made of. Built here rather than inline in ensure() because a
@@ -617,10 +639,8 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   host.style.width = "100%";
   host.style.height = "100%";
   term.open(host);
-  const selectionEdgeAutoScroll = wireSelectionEdgeAutoScroll(term, swallowedMouseModes);
   guardMouseClicks(term, swallowedMouseModes);
   // After open(), so the helper textarea the clipboard fallback looks for exists in `host`.
-  wireCopyOnSelect(term, host, selectionEdgeAutoScroll);
   // Render each glyph in its own cell (canvas) instead of the default DOM renderer, which flows text
   // as inline runs: a full-width CJK glyph that isn't exactly 2× the Latin cell lets a long Japanese
   // line drift right and spill its tail past the terminal's edge (the reason this was added, b12cc48).
@@ -643,13 +663,68 @@ function buildTerminal(swallowedMouseModes: Set<number>, font: TerminalFont): Te
   } catch (err) {
     console.warn("[terminal] canvas renderer unavailable — falling back to the DOM renderer", err);
   }
-  return { term, fitAddon, host, selectionEdgeAutoScroll };
+  return { term, fitAddon, host };
+}
+
+function persistentViewportEnabled(c: Conn): boolean {
+  return !c.target.command;
+}
+
+function sendPendingScroll(c: Conn): void {
+  const pending = c.pendingScroll;
+  if (!pending || c.scrollInFlight || c.viewportInFlight || c.ws?.readyState !== WebSocket.OPEN || !persistentViewportEnabled(c)) return;
+  c.pendingScroll = null;
+  c.scrollInFlight = true;
+  const requestId = ++c.scrollRequestId;
+  c.ws.send(
+    JSON.stringify({
+      type: "scroll",
+      requestId,
+      direction: pending.lines < 0 ? "up" : "down",
+      lines: Math.abs(pending.lines),
+      rows: c.term.rows,
+      cell: pending.cell,
+      ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}),
+    }),
+  );
+}
+
+function enqueueScroll(c: Conn, lines: number, cell: { column: number; row: number }): boolean {
+  if (lines === 0 || !persistentViewportEnabled(c) || c.ws?.readyState !== WebSocket.OPEN) return false;
+  const total = (c.pendingScroll?.lines ?? 0) + lines;
+  c.pendingScroll = total === 0 ? null : { lines: total, cell };
+  sendPendingScroll(c);
+  return true;
+}
+
+function requestViewport(c: Conn): void {
+  if (!persistentViewportEnabled(c) || c.ws?.readyState !== WebSocket.OPEN || c.term.rows <= 0) return;
+  if (c.viewportInFlight) {
+    c.viewportRefreshPending = true;
+    return;
+  }
+  c.viewportRequested = true;
+  c.viewportInFlight = true;
+  const requestId = ++c.viewportRequestId;
+  c.ws.send(JSON.stringify({ type: "viewport", requestId, rows: c.term.rows, ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}) }));
 }
 
 // The wiring that needs the connection itself, so it is re-applied to every terminal a slot owns.
 function wireTerminalToConn(term: Terminal, c: Conn): void {
   registerFilePathLinks(term, c);
   wireTerminalInput(term, c);
+  wireGenericWheel(
+    term,
+    () => persistentViewportEnabled(c),
+    getTerminalScrollSpeed,
+    (intent: GenericScrollIntent) => {
+      enqueueScroll(c, intent.direction === "up" ? -intent.lines : intent.lines, intent.cell);
+    },
+  );
+  c.selectionEdgeAutoScroll = wireSelectionEdgeAutoScroll(term, (lines: number, pointer: PointerPosition) =>
+    enqueueScroll(c, lines, terminalCellAt(term, pointer)),
+  );
+  wireCopyOnSelect(term, c.host, c.selectionEdgeAutoScroll);
   if (c.theme) term.options.theme = c.theme;
 }
 
@@ -660,7 +735,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     return existing;
   }
   const swallowedMouseModes = new Set<number>();
-  const { term, fitAddon, host, selectionEdgeAutoScroll } = buildTerminal(swallowedMouseModes, font);
+  const { term, fitAddon, host } = buildTerminal(swallowedMouseModes, font);
   const c: Conn = {
     key,
     term,
@@ -684,9 +759,18 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     lastRebuildMs: 0,
     warnedDroppedInput: false,
     lastDroppedInputNoticeMs: Number.NEGATIVE_INFINITY,
-    selectionEdgeAutoScroll,
+    selectionEdgeAutoScroll: null,
     pendingShellCommandCopy: null,
     shellDraft: "",
+    viewportCursor: null,
+    viewportLive: true,
+    viewportRequested: false,
+    viewportInFlight: false,
+    viewportRefreshPending: false,
+    viewportRequestId: 0,
+    scrollInFlight: false,
+    scrollRequestId: 0,
+    pendingScroll: null,
   };
   conns.set(key, c);
   connView.set(key, { status: "connecting", serverCwd: target.cwd, lastCommandCopyText: "" });
@@ -705,11 +789,11 @@ function rebuildTerminal(c: Conn): void {
   const deadSelectionEdgeAutoScroll = c.selectionEdgeAutoScroll;
   const hadFocus = deadHost.contains(document.activeElement);
   console.warn(`[terminal] slot ${c.key}: xterm buffer corrupted (xtermjs/xterm.js#6063) — rebuilding the terminal and re-attaching`);
-  const { term, fitAddon, host, selectionEdgeAutoScroll } = buildTerminal(c.swallowedMouseModes, c.font);
+  const { term, fitAddon, host } = buildTerminal(c.swallowedMouseModes, c.font);
   c.term = term;
   c.fitAddon = fitAddon;
   c.host = host;
-  c.selectionEdgeAutoScroll = selectionEdgeAutoScroll;
+  c.selectionEdgeAutoScroll = null;
   c.lastRebuildMs = Date.now();
   term.options.disableStdin = !c.inputEnabled;
   wireTerminalToConn(term, c);
@@ -757,10 +841,18 @@ function connect(c: Conn) {
   c.term.reset();
   c.selectionEdgeAutoScroll?.cancel();
   resetShellCommandCopy(c);
-  // The mouse modes belonged to the session being replaced. Keeping them would make the next
-  // app inherit "wants wheel reports" it never asked for, and its wheel would deliver escape
-  // bytes instead of scrolling (#737).
+  // The mouse modes belonged to the session being replaced. They are still needed for raw click
+  // forwarding and selection, but scroll ownership is resolved exclusively by Core.
   c.swallowedMouseModes.clear();
+  c.viewportCursor = null;
+  c.viewportLive = true;
+  c.viewportRequested = false;
+  c.viewportInFlight = false;
+  c.viewportRefreshPending = false;
+  c.viewportRequestId++;
+  c.scrollInFlight = false;
+  c.scrollRequestId++;
+  c.pendingScroll = null;
   c.sawExit = false;
   setStatus(c, "connecting");
   // Drop the previous session's resolved cwd so the Run menu can't list/launch the
@@ -789,6 +881,7 @@ function connect(c: Conn) {
     c.lastDroppedInputNoticeMs = Number.NEGATIVE_INFINITY;
     setStatus(c, "connected");
     sock.send(JSON.stringify({ type: "resize", cols: c.term.cols, rows: c.term.rows }));
+    if (resumeId) requestViewport(c);
   };
   sock.onmessage = (event) => {
     if (sock !== c.ws) return;
@@ -818,6 +911,16 @@ function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
     if (v) v.serverCwd = msg.cwd;
     c.handlers.onCwd?.(msg.cwd);
   }
+  if (!c.viewportRequested) requestViewport(c);
+}
+
+function applyViewport(c: Conn, value: unknown): boolean {
+  const viewport = terminalViewportOf(value);
+  if (!viewport) return false;
+  c.viewportCursor = viewport.cursor;
+  c.viewportLive = viewport.live;
+  c.term.write(viewportRenderData(viewport.content));
+  return true;
 }
 
 // exit / superseded / error — a terminal message. messageEffect decides which retries, which
@@ -831,16 +934,66 @@ function applyTerminalFrame(c: Conn, msg: Record<string, unknown>): void {
   if (effect.callsOnExit) c.handlers.onExit?.(exitCodeOf(msg));
 }
 
+function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
+  if (msg.requestId !== c.viewportRequestId) return;
+  c.viewportInFlight = false;
+  applyViewport(c, msg.viewport);
+  if (c.viewportRefreshPending) {
+    c.viewportRefreshPending = false;
+    requestViewport(c);
+  } else sendPendingScroll(c);
+}
+
+function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
+  if (msg.requestId !== c.scrollRequestId) return;
+  c.scrollInFlight = false;
+  if (typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport") {
+    applyViewport(c, "viewport" in msg.result ? msg.result.viewport : null);
+  }
+  sendPendingScroll(c);
+}
+
+function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
+  const viewportError = msg.type === "viewport-error" && msg.requestId === c.viewportRequestId;
+  const scrollError = msg.type === "scroll-error" && msg.requestId === c.scrollRequestId;
+  if (!viewportError && !scrollError) return;
+  c.viewportCursor = null;
+  c.viewportLive = true;
+  if (viewportError) {
+    c.viewportInFlight = false;
+    c.viewportRefreshPending = false;
+    sendPendingScroll(c);
+  } else {
+    c.scrollInFlight = false;
+    c.pendingScroll = null;
+    requestViewport(c);
+  }
+}
+
+function applyCoreViewportFrame(c: Conn, msg: Record<string, unknown>): boolean {
+  if (msg.type === "viewport") finishViewportRequest(c, msg);
+  else if (msg.type === "scroll-result") finishScrollRequest(c, msg);
+  else if (msg.type === "viewport-error" || msg.type === "scroll-error") finishCoreError(c, msg);
+  else return false;
+  return true;
+}
+
 function handleMessage(c: Conn, event: MessageEvent) {
   const msg = parseServerFrame(event.data);
   if (!msg) return;
+  if (applyCoreViewportFrame(c, msg)) return;
   if (msg.type === "output") {
     // Checked here as well as on fit() because a slot that is only receiving output would
     // otherwise sit frozen until something happened to resize it (#846).
     guardBufferHealth(c);
     if (typeof msg.data === "string") {
       const data = msg.data;
-      c.term.write(data, () => appendShellOutput(c, data));
+      if (c.viewportLive) {
+        // A live cursor describes the snapshot that was captured, not the output now arriving.
+        // Drop it so the next wheel is resolved against Core's current foreground state.
+        c.viewportCursor = null;
+        c.term.write(data, () => appendShellOutput(c, data));
+      } else appendShellOutput(c, data);
     }
   } else if (msg.type === "session") {
     applySessionFrame(c, msg);
@@ -910,6 +1063,8 @@ export function retarget(key: string, target: ConnTarget) {
   c.target = target;
   c.knownSessionId = target.sessionId;
   c.knownCwd = null;
+  c.viewportCursor = null;
+  c.viewportLive = true;
   c.reconnectAttempts = 0;
   c.sawExit = false;
   c.released = false;
