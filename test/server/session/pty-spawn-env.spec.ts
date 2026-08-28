@@ -80,6 +80,13 @@ describe("spawnPty — the environment it hands the pty", () => {
     spawnPty("claude", [], EXISTING_CWD);
     expect(envOf().ANTHROPIC_API_KEY).toBe("sk-ant-leftover");
   });
+
+  it("starts a secondary tmux viewer at the shared primary geometry", () => {
+    spawnTmuxViewerPty("s1", EXISTING_CWD, { cols: 132, rows: 43 });
+
+    const options = (spawn.mock.calls[0] as unknown as [string, string[], { cols: number; rows: number }])[2];
+    expect(options).toMatchObject({ cols: 132, rows: 43 });
+  });
 });
 
 // `new-session -A` returns a terminal whether it created one or picked up a survivor, so a

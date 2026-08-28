@@ -532,7 +532,10 @@ export function startAndWire(
       session.early.discard();
       return closeWithError(ws, session.startFailureMessage(err));
     }
-    applyClientSize(entry.term, session.size ?? null, session.tag, session.id);
+    // The primary browser owns the one Core/tmux pane geometry. A secondary keeps its own cursor,
+    // but starts at the primary PTY size and must not replace that shared size from its URL.
+    const primary = viewerPtys.get(session.id);
+    if (!primary || primary === entry) applyClientSize(entry.term, session.size ?? null, session.tag, session.id);
     const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
     ws.on("message", deliver);
     ws.on("close", () => deps.handleClientClose(entry, ws, session.id));

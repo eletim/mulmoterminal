@@ -219,6 +219,11 @@ function afterPendingResize(tails: ResizeTails, entry: PtyEntry, ws: WebSocket, 
   void (pending ? pending.then(run) : run());
 }
 
+function ownsGeometry(deps: Pick<ConnectionDeps, "currentEntryOf">, entry: PtyEntry, sessionId: string): boolean {
+  const primary = deps.currentEntryOf?.(sessionId);
+  return !primary || primary === entry;
+}
+
 export function createConnectionHandlers(deps: ConnectionDeps) {
   const resizeTails = new WeakMap<PtyEntry, Promise<void>>();
 
@@ -276,8 +281,10 @@ export function createConnectionHandlers(deps: ConnectionDeps) {
       } else if (isScrollRequest(msg)) {
         afterPendingResize(resizeTails, entry, ws, () => forwardScroll(deps, ws, sessionId, msg));
       } else if (isResizeFrame(msg)) {
-        // Resize the tmux client that sent this frame. Simultaneous viewers have independent PTYs;
-        // the process-local registry contains only the primary one.
+        // One tmux pane has one geometry. Secondary viewers keep independent viewport cursors,
+        // but cannot resize their tmux client without `window-size latest` also moving the shared
+        // pane underneath the primary viewer.
+        if (!ownsGeometry(deps, entry, sessionId)) return;
         entry.term.resize(msg.cols, msg.rows);
         queueResize(resizeTails, deps, entry, sessionId, msg.cols, msg.rows);
         // A size that CHANGED already makes tmux redraw; one that matches what the pty had leaves

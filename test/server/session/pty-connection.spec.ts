@@ -242,6 +242,21 @@ describe("handleClientFrame", () => {
     expect(calls).toContain(`resize:${SESSION}:100x40`);
   });
 
+  it("does not let a secondary viewer resize the shared Core pane", () => {
+    const { handleClientFrame, calls, currentEntries, resize } = setup();
+    const primary = entryWith();
+    currentEntries.set(SESSION, primary);
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const secondary = entryWith({ term: t.term as never, ws: s.ws as never, tmux: true });
+
+    handleClientFrame(secondary, s.ws as never, frame({ type: "resize", cols: 100, rows: 40 }), SESSION);
+
+    expect(t.resizes).toEqual([]);
+    expect(resize).not.toHaveBeenCalled();
+    expect(calls.filter((call) => call.startsWith("sizeCheck:") || call.startsWith("redraw:"))).toEqual([]);
+  });
+
   // The redraw waits for this frame on purpose: it is where the client reports the size it
   // actually settled at, so the repaint that follows is drawn at the right geometry.
   it("asks for the redraw on the first resize after a reattach, and only that one", async () => {

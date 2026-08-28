@@ -4,6 +4,7 @@ import type { WebSocket } from "ws";
 import { clientStillConnected, sessionAgentForWsKind, startAndWire } from "../../../server/routes/ws-routes.js";
 import { bufferEarlyFrames } from "../../../server/session/early-frames.js";
 import type { PtyEntry } from "../../../server/session/types.js";
+import { viewerPtys } from "../../../server/session/viewer-state.js";
 
 // #1074 pulled this out of the launch and codex paths, which had written the same steps twice —
 // and the ORDER is what the function is for. The buffered early frames may only be replayed once
@@ -126,6 +127,24 @@ describe("startAndWire", () => {
     const { resizes, entry: sized } = sizedEntry();
     startAndWire(deps, asWebSocket(socket), { id: "s1", tag: "claude", early, startFailureMessage: () => "nope", size: { cols: 131, rows: 41 } }, () => sized);
     expect(resizes).toEqual([[131, 41]]);
+  });
+
+  it("does not replace the primary geometry with a secondary viewer's URL size", () => {
+    const { socket, deps, early } = harness();
+    const primary = { term: {} } as unknown as PtyEntry;
+    viewerPtys.set("s1", primary);
+    try {
+      const { resizes, entry: secondary } = sizedEntry();
+      startAndWire(
+        deps,
+        asWebSocket(socket),
+        { id: "s1", tag: "claude", early, startFailureMessage: () => "nope", size: { cols: 91, rows: 27 } },
+        () => secondary,
+      );
+      expect(resizes).toEqual([]);
+    } finally {
+      viewerPtys.delete("s1");
+    }
   });
 
   it("leaves the pty at the server's default when the URL carried no geometry", () => {

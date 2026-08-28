@@ -538,14 +538,19 @@ function prepareTypedInput(c: Conn): boolean {
   c.scrollInFlight = false;
   c.scrollRefreshPending = false;
   c.pendingScroll = null;
-  c.handlers.onInput?.();
-  // Typing is the only chance an otherwise idle cell gets to detect a corrupt xterm buffer (#846).
-  guardBufferHealth(c);
   return returnFromHistory;
 }
 
+function observeTypedInput(c: Conn): void {
+  c.handlers.onInput?.();
+  // Typing is the only chance an otherwise idle cell gets to detect a corrupt xterm buffer (#846).
+  guardBufferHealth(c);
+}
+
 function sendAttachedInput(c: Conn, socket: WebSocket, data: string): void {
-  const returnFromHistory = isTypedInput(data) && prepareTypedInput(c);
+  const typed = isTypedInput(data);
+  if (typed) observeTypedInput(c);
+  const returnFromHistory = typed && prepareTypedInput(c);
   socket.send(JSON.stringify({ type: "input", data }));
   if (returnFromHistory) requestViewport(c);
 }
@@ -563,6 +568,7 @@ function wireTerminalInput(term: Terminal, c: Conn): void {
       // and a filmstrip cell doesn't render one. Say so once per disconnected stretch, so "I typed
       // and nothing happened" leaves evidence of WHICH of the two silences it was: a socket that is
       // down, or a terminal that has stopped drawing.
+      observeTypedInput(c);
       reportDroppedInput(c);
     }
   };

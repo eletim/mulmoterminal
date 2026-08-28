@@ -22,7 +22,9 @@ vi.mock("../../../server/session/pty-spawn.js", () => ({
 }));
 
 import { spawnSecondaryViewer } from "../../../server/session/spawn-secondary-viewer.js";
-import { isViewerActive } from "../../../server/session/viewer-state.js";
+import { isViewerActive, viewerPtys } from "../../../server/session/viewer-state.js";
+import { spawnTmuxViewerPty } from "../../../server/session/pty-spawn.js";
+import type { PtyEntry } from "../../../server/session/types.js";
 
 const SESSION = "11111111-2222-3333-4444-555555555555";
 
@@ -40,9 +42,18 @@ beforeEach(() => {
   secondaryMock.state.exitListener = undefined;
   secondaryMock.disposeExit.mockClear();
   secondaryMock.term.onExit.mockClear();
+  viewerPtys.clear();
 });
 
 describe("spawnSecondaryViewer", () => {
+  it("spawns at the primary viewer's geometry", () => {
+    viewerPtys.set(SESSION, { term: { cols: 132, rows: 43 } } as unknown as PtyEntry);
+
+    spawnSecondaryViewer(SESSION, socket().ws as never, "/repo", "shell");
+
+    expect(spawnTmuxViewerPty).toHaveBeenCalledWith(SESSION, "/repo", { cols: 132, rows: 43 });
+  });
+
   it("sends Core exit and removes secondary activity state", () => {
     const s = socket();
     const entry = spawnSecondaryViewer(SESSION, s.ws as never, "/repo", "shell");

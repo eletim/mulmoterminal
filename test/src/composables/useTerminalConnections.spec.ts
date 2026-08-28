@@ -1125,6 +1125,21 @@ describe("a keystroke with nowhere to go tells the view", () => {
     expect(onInputDropped).toHaveBeenCalledOnce();
   });
 
+  it("still reports typed activity while the socket is reconnecting", () => {
+    const onInput = vi.fn();
+    const onInputDropped = vi.fn();
+    conn.attach(KEY, target(null), { onInput, onInputDropped }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+    ws.close();
+
+    mockTermState.emitData("h");
+
+    expect(onInput).toHaveBeenCalledOnce();
+    expect(onInputDropped).toHaveBeenCalledOnce();
+  });
+
   // A stretch has no upper bound — the backoff retries forever at a 5s cap — so "once per stretch"
   // meant a server left down said it once and never again, and whoever came back and typed got the
   // silence this notice exists to break (#1316). The log line is the one that stays single: it is
