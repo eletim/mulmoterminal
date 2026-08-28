@@ -10,7 +10,7 @@ import { isResizeFrame, sendFrame } from "./ws-frames.js";
 import { isRecord } from "../../common/isRecord.js";
 import { stripTerminalQueries, terminalModePrefix } from "./terminal-replay.js";
 import type { PtyEntry } from "./types.js";
-import { viewerPtys } from "./viewer-state.js";
+import { unregisterSecondaryViewer, viewerPtys } from "./viewer-state.js";
 import { isScrollRequest, isViewportRequest, type BrowserScrollRequest, type BrowserViewportRequest } from "../../common/terminalViewport.js";
 import type { ScrollIntent, ViewportCursor } from "tmux-session-core-ts";
 
@@ -161,6 +161,8 @@ function closeClient(deps: ConnectionDeps, entry: PtyEntry, ws: WebSocket, sessi
   if (entry.ws !== ws) return;
   if (deps.currentEntryOf && deps.currentEntryOf(sessionId) !== entry) {
     entry.ws = null;
+    entry.active = false;
+    unregisterSecondaryViewer(sessionId, entry);
     try {
       entry.term.kill();
     } catch {

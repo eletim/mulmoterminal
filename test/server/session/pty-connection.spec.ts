@@ -3,7 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 import { activity } from "../../../server/session/activity-store.js";
-import { viewerPtys } from "../../../server/session/viewer-state.js";
+import { isViewerActive, registerSecondaryViewer, viewerPtys } from "../../../server/session/viewer-state.js";
 import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;
@@ -508,9 +508,12 @@ describe("handleClientClose", () => {
     const primary = entryWith({ ws: fakeSocket().ws as never });
     currentEntries.set(SESSION, primary);
     const s = fakeSocket();
-    const secondary = entryWith({ ws: s.ws as never });
+    const secondary = entryWith({ ws: s.ws as never, active: true });
+    registerSecondaryViewer(SESSION, secondary);
+    expect(isViewerActive(SESSION, primary)).toBe(true);
     handleClientClose(secondary, s.ws as never, SESSION);
     expect(secondary.term.kill).toHaveBeenCalled();
+    expect(isViewerActive(SESSION, primary)).toBe(false);
     expect(primary.ws).not.toBeNull();
     expect(calls).toEqual([]);
   });

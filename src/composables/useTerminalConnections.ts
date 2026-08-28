@@ -187,6 +187,8 @@ export interface TerminalFont {
 const sameFont = (a: TerminalFont, b: TerminalFont): boolean => a.size === b.size && a.family === b.family;
 
 const DEFAULT_FONT: Readonly<TerminalFont> = { size: TERMINAL_FONT_SIZE_DEFAULT, family: TERMINAL_FONT_FAMILY_DEFAULT };
+const VIEWPORT_RETRY_MIN_MS = 100;
+const VIEWPORT_RETRY_MAX_MS = 5000;
 
 interface Conn {
   key: string;
@@ -204,6 +206,8 @@ interface Conn {
   inputGeneration: number; // changes when input is disabled, permanently cancelling older delayed submits
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  viewportRetryTimer: ReturnType<typeof setTimeout> | null;
+  viewportRetryDelayMs: number;
   attachedEl: HTMLElement | null;
   // Mouse modes swallowed for the CURRENT session (#729/#737). Session-scoped: an app that
   // dies without sending DECRST must not leave the next one looking like it asked for mouse
@@ -521,6 +525,7 @@ function observeShellInput(c: Conn, data: string): void {
 // rides the same socket: keys whose bytes differ from xterm's native \r (per the user's
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
 function prepareTypedInput(c: Conn): boolean {
+  clearViewportRetry(c);
   const returnFromHistory = !c.viewportLive || (c.viewportInFlight && c.viewportTargetLive);
   c.viewportCursor = null;
   c.viewportLive = !returnFromHistory;
@@ -702,6 +707,23 @@ function enqueueScroll(c: Conn, lines: number, cell: { column: number; row: numb
   return true;
 }
 
+function clearViewportRetry(c: Conn): void {
+  if (c.viewportRetryTimer) clearTimeout(c.viewportRetryTimer);
+  c.viewportRetryTimer = null;
+  c.viewportRetryDelayMs = VIEWPORT_RETRY_MIN_MS;
+}
+
+function scheduleViewportRetry(c: Conn): void {
+  if (c.viewportRetryTimer || c.released || c.sawExit || c.ws?.readyState !== WebSocket.OPEN) return;
+  const socket = c.ws;
+  const delay = c.viewportRetryDelayMs;
+  c.viewportRetryDelayMs = Math.min(delay * 2, VIEWPORT_RETRY_MAX_MS);
+  c.viewportRetryTimer = setTimeout(() => {
+    c.viewportRetryTimer = null;
+    if (c.ws === socket && socket.readyState === WebSocket.OPEN) requestViewport(c);
+  }, delay);
+}
+
 function requestViewport(c: Conn): void {
   if (!persistentViewportEnabled(c) || c.ws?.readyState !== WebSocket.OPEN || c.term.rows <= 0) return;
   if (c.viewportInFlight) {
@@ -758,6 +780,8 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     inputGeneration: 0,
     reconnectAttempts: 0,
     reconnectTimer: null,
+    viewportRetryTimer: null,
+    viewportRetryDelayMs: VIEWPORT_RETRY_MIN_MS,
     attachedEl: null,
     swallowedMouseModes,
     theme: undefined,
@@ -841,6 +865,7 @@ function scheduleReconnect(c: Conn) {
 
 function connect(c: Conn) {
   if (c.released) return;
+  clearViewportRetry(c);
   if (c.reconnectTimer) {
     clearTimeout(c.reconnectTimer);
     c.reconnectTimer = null;
@@ -901,6 +926,7 @@ function connect(c: Conn) {
   };
   sock.onclose = () => {
     if (sock !== c.ws) return;
+    clearViewportRetry(c);
     setStatus(c, "disconnected");
     scheduleReconnect(c);
   };
@@ -929,6 +955,7 @@ function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
 function applyViewport(c: Conn, value: unknown): boolean {
   const viewport = terminalViewportOf(value);
   if (!viewport) return false;
+  clearViewportRetry(c);
   c.viewportCursor = viewport.cursor;
   c.viewportLive = viewport.live;
   c.term.write(viewportRenderData(viewport.content));
@@ -1005,13 +1032,15 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
     c.viewportInFlight = false;
     c.viewportTargetLive = false;
     c.viewportRefreshPending = false;
+    scheduleViewportRetry(c);
+    return;
   } else {
     c.scrollInFlight = false;
     c.scrollRefreshPending = false;
     c.pendingScroll = null;
   }
   // Future incremental PTY output cannot reconstruct a failed Core snapshot. Keep the existing
-  // screen read-only and retry from live; reconnect remains the outer failure boundary.
+  // screen read-only and retry from live; viewport errors use bounded backoff above.
   requestViewport(c);
 }
 
@@ -1043,6 +1072,7 @@ function handleMessage(c: Conn, event: MessageEvent) {
         // A live cursor describes the snapshot that was captured, not the output now arriving.
         // Drop it so the next wheel is resolved against Core's current foreground state.
         if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
+        if (c.scrollInFlight) c.scrollRefreshPending = true;
         c.viewportCursor = null;
         c.term.write(data, () => appendShellOutput(c, data));
       } else {
@@ -1138,6 +1168,7 @@ export function release(key: string) {
     clearTimeout(c.reconnectTimer);
     c.reconnectTimer = null;
   }
+  clearViewportRetry(c);
   try {
     c.ws?.close();
   } catch {
