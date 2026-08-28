@@ -1198,9 +1198,9 @@ your **own HTTP MCP servers** into a workspace session via Settings → `userMcp
   whether you're reading a shell's scrollback or a full-screen app like Claude Code. If a
   two-finger scroll on a Mac trackpad flies past what you were reading, turn **terminal scroll
   speed** down in Settings (0.25×–3×, per browser — it's a property of the pointing device).
-  Persistent terminals keep a small per-viewer history cache, so ordinary small scrolls redraw
-  immediately after Core has resolved foreground-app ownership, and only fetch from the session
-  again when they approach a cached edge.
+  Persistent terminals keep a small per-viewer history cache. Core snapshots are parsed once into
+  xterm lines; ordinary small scrolls then move xterm's viewport without re-writing or re-parsing
+  the snapshot, and only fetch from the session again near a cached edge.
 - **No accidental page zoom** — `Ctrl`+wheel and a trackpad pinch would rescale the whole
   page and drag the layout and the terminal's fit along with it, so both are ignored.
   Keyboard zoom (`Cmd`/`Ctrl` `+` / `-`) still works when you mean it, and a phone's finger

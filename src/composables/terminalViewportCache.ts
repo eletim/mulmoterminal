@@ -1,4 +1,5 @@
 import type { BrowserTerminalViewport } from "../../common/terminalViewport";
+import type { ParsedTerminalLine, ParsedTerminalSnapshot } from "./terminalParsedBufferAdapter";
 
 export const VIEWPORT_CACHE_MAX_CHUNKS = 5;
 export const VIEWPORT_CACHE_PREFETCH_CHUNKS = 1;
@@ -6,19 +7,15 @@ export const VIEWPORT_CACHE_PREFETCH_CHUNKS = 1;
 export interface ViewportCacheChunk {
   cursor: string;
   live: boolean;
-  rows: string[];
+  rows: readonly ParsedTerminalLine[];
+  cursorX: number;
+  cursorY: number;
+  restore: string;
 }
 
 export interface ViewportCacheAnchor {
   cursor: string;
   offset: number;
-}
-
-function physicalRows(content: string, expected: number): string[] {
-  const rows = content.replace(/\n$/, "").split(/\r?\n/);
-  if (rows.length > expected) return rows.slice(0, expected);
-  while (rows.length < expected) rows.push("");
-  return rows;
 }
 
 /**
@@ -68,6 +65,19 @@ export class TerminalViewportCache {
     return this.hasLiveBoundary && this.rowsAfter === 0;
   }
 
+  get viewportStart(): number {
+    return this.start;
+  }
+
+  get parsedRows(): readonly ParsedTerminalLine[] {
+    return this.allRows();
+  }
+
+  get renderCursor(): { x: number; y: number; restore: string } {
+    const chunk = this.chunks.at(-1);
+    return { x: chunk?.cursorX ?? 0, y: chunk?.cursorY ?? this.visibleRows - 1, restore: chunk?.restore ?? "" };
+  }
+
   /** Core bookmark plus the transient row offset from that chunk's first row. */
   get anchor(): ViewportCacheAnchor | null {
     if (this.empty) return null;
@@ -77,21 +87,21 @@ export class TerminalViewportCache {
     return { cursor: chunk.cursor, offset: this.start - chunkIndex * this.visibleRows };
   }
 
-  reset(viewport?: BrowserTerminalViewport): void {
+  reset(viewport?: BrowserTerminalViewport, parsed?: ParsedTerminalSnapshot): void {
     this.chunks = [];
     this.start = 0;
-    if (viewport) this.chunks.push(this.chunk(viewport));
+    if (viewport && parsed) this.chunks.push(this.chunk(viewport, parsed));
   }
 
-  prepend(viewport: BrowserTerminalViewport): void {
-    const chunk = this.chunk(viewport);
+  prepend(viewport: BrowserTerminalViewport, parsed: ParsedTerminalSnapshot): void {
+    const chunk = this.chunk(viewport, parsed);
     this.chunks.unshift(chunk);
     this.start += chunk.rows.length;
     this.evict();
   }
 
-  append(viewport: BrowserTerminalViewport): void {
-    this.chunks.push(this.chunk(viewport));
+  append(viewport: BrowserTerminalViewport, parsed: ParsedTerminalSnapshot): void {
+    this.chunks.push(this.chunk(viewport, parsed));
     this.evict();
   }
 
@@ -104,12 +114,6 @@ export class TerminalViewportCache {
     return true;
   }
 
-  content(): string {
-    return this.allRows()
-      .slice(this.start, this.start + this.visibleRows)
-      .join("\n");
-  }
-
   shouldPrefetchOlder(): boolean {
     return !this.empty && this.rowsBefore <= this.visibleRows * VIEWPORT_CACHE_PREFETCH_CHUNKS;
   }
@@ -118,15 +122,18 @@ export class TerminalViewportCache {
     return !this.empty && !this.hasLiveBoundary && this.rowsAfter <= this.visibleRows * VIEWPORT_CACHE_PREFETCH_CHUNKS;
   }
 
-  private chunk(viewport: BrowserTerminalViewport): ViewportCacheChunk {
+  private chunk(viewport: BrowserTerminalViewport, parsed: ParsedTerminalSnapshot): ViewportCacheChunk {
     return {
       cursor: viewport.cursor,
       live: viewport.live,
-      rows: physicalRows(viewport.content, this.visibleRows),
+      rows: parsed.rows,
+      cursorX: parsed.cursorX,
+      cursorY: parsed.cursorY,
+      restore: parsed.restore,
     };
   }
 
-  private allRows(): string[] {
+  private allRows(): ParsedTerminalLine[] {
     return this.chunks.flatMap((chunk) => chunk.rows);
   }
 

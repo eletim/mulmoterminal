@@ -39,12 +39,12 @@ import {
   scrollSelectionEdge,
   takeScrollChunk,
   terminalCellAt,
-  viewportRenderData,
   wireGenericWheel,
   type GenericScrollIntent,
 } from "./terminalViewportScroll";
 import { terminalViewportOf } from "../../common/terminalViewport";
 import { TerminalViewportCache } from "./terminalViewportCache";
+import { TerminalParsedBufferAdapter, type ParsedViewportMetrics } from "./terminalParsedBufferAdapter";
 import type { PointerPosition } from "./mouseReports";
 import { isTypedInput } from "./terminalUserInput";
 import { bufferIsShort, readBufferShape } from "./terminalBufferHealth";
@@ -238,6 +238,7 @@ interface Conn {
   viewportCursor: string | null;
   viewportLive: boolean;
   viewportCache: TerminalViewportCache;
+  parsedBuffer: TerminalParsedBufferAdapter;
   viewportCacheCols: number;
   viewportCacheDirty: boolean;
   viewportCacheNavigable: boolean;
@@ -300,6 +301,7 @@ function fitAndSyncSize(c: Conn): void {
   const rows = boundedViewportRows(c.term.rows);
   if (c.viewportCache.visibleRows !== rows || c.viewportCacheCols !== c.term.cols) {
     c.viewportCache = new TerminalViewportCache(rows);
+    c.parsedBuffer.reset();
     c.viewportCacheCols = c.term.cols;
     c.viewportCacheDirty = false;
     c.viewportCacheNavigable = false;
@@ -558,6 +560,7 @@ function prepareTypedInput(c: Conn): boolean {
   const returnFromHistory = !c.viewportLive || (c.viewportInFlight && c.viewportTargetLive);
   c.viewportCursor = null;
   c.viewportCache.reset();
+  c.parsedBuffer.reset();
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
   c.viewportLive = !returnFromHistory;
@@ -719,7 +722,11 @@ function persistentViewportEnabled(c: Conn): boolean {
 }
 
 function renderCachedViewport(c: Conn): void {
-  c.term.write(viewportRenderData(c.viewportCache.content()));
+  c.parsedBuffer.setViewport(c.viewportCache.viewportStart);
+}
+
+function installCachedViewport(c: Conn): void {
+  c.parsedBuffer.install(c.viewportCache.parsedRows, c.viewportCache.viewportStart, c.viewportCache.renderCursor);
 }
 
 function requestCachePrefetch(c: Conn): void {
@@ -927,6 +934,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     viewportCursor: null,
     viewportLive: true,
     viewportCache: new TerminalViewportCache(boundedViewportRows(term.rows)),
+    parsedBuffer: new TerminalParsedBufferAdapter(term),
     viewportCacheCols: term.cols,
     viewportCacheDirty: false,
     viewportCacheNavigable: false,
@@ -966,6 +974,7 @@ function rebuildTerminal(c: Conn): void {
   console.warn(`[terminal] slot ${c.key}: xterm buffer corrupted (xtermjs/xterm.js#6063) — rebuilding the terminal and re-attaching`);
   const { term, fitAddon, host } = buildTerminal(c.swallowedMouseModes, c.font);
   c.term = term;
+  c.parsedBuffer = new TerminalParsedBufferAdapter(term);
   c.fitAddon = fitAddon;
   c.host = host;
   c.selectionEdgeAutoScroll = null;
@@ -1023,6 +1032,7 @@ function connect(c: Conn) {
   c.viewportCursor = null;
   c.viewportLive = true;
   c.viewportCache = new TerminalViewportCache(boundedViewportRows(c.term.rows));
+  c.parsedBuffer.reset();
   c.viewportCacheCols = c.term.cols;
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
@@ -1114,16 +1124,17 @@ function scheduleInitialPrefetch(c: Conn, distance = 1): void {
 function applyViewport(c: Conn, value: unknown): boolean {
   const viewport = terminalViewportOf(value);
   if (!viewport) return false;
+  const parsed = c.parsedBuffer.parse(viewport);
   clearViewportRetry(c);
   c.viewportCursor = viewport.cursor;
   c.viewportLive = viewport.live;
   c.viewportCache = new TerminalViewportCache(boundedViewportRows(c.term.rows));
   c.viewportCacheCols = viewport.cols;
-  c.viewportCache.reset(viewport);
+  c.viewportCache.reset(viewport, parsed);
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
   c.viewportCacheHistoryRows = viewport.historyRows;
-  c.term.write(viewportRenderData(viewport.content, viewport.restore));
+  installCachedViewport(c);
   return true;
 }
 
@@ -1158,9 +1169,11 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
     const viewport = terminalViewportOf(msg.viewport);
     if (!viewport || viewport.rebased || viewport.clamped || c.viewportCacheDirty || c.viewportCache.visibleRows !== boundedViewportRows(c.term.rows)) {
       c.viewportCache.reset();
+      c.parsedBuffer.reset();
       return;
     }
-    c.viewportCache.prepend(viewport);
+    c.viewportCache.prepend(viewport, c.parsedBuffer.parse(viewport));
+    installCachedViewport(c);
     if (prefetchDistance < 2) scheduleInitialPrefetch(c, prefetchDistance + 1);
     else requestCachePrefetch(c);
     return;
@@ -1172,11 +1185,6 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
     c.viewportLive = true;
     c.term.reset();
     return;
-  }
-  const applied = terminalViewportOf(msg.viewport);
-  if (applied?.rebased || applied?.clamped) {
-    // The returned screen is authoritative, but no old chunk may be combined with it.
-    c.viewportCache.reset(applied);
   }
   if (c.viewportRefreshPending) {
     c.viewportRefreshPending = false;
@@ -1219,9 +1227,11 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
         c.viewportCacheDirty = true;
         c.viewportCacheNavigable = false;
       } else if (purpose === "prefetch-older") {
-        c.viewportCache.prepend(viewport);
+        c.viewportCache.prepend(viewport, c.parsedBuffer.parse(viewport));
+        installCachedViewport(c);
       } else {
-        c.viewportCache.append(viewport);
+        c.viewportCache.append(viewport, c.parsedBuffer.parse(viewport));
+        installCachedViewport(c);
       }
     }
     if (drainPendingScrollFromCache(c)) return;
@@ -1348,6 +1358,7 @@ function handleMessage(c: Conn, event: MessageEvent) {
     c.term.resize(msg.cols, msg.rows);
     if (!geometryChanged) return;
     c.viewportCache = new TerminalViewportCache(boundedViewportRows(msg.rows));
+    c.parsedBuffer.reset();
     c.viewportCacheCols = msg.cols;
     c.viewportCacheDirty = false;
     c.viewportCacheNavigable = false;
@@ -1375,6 +1386,7 @@ function handleMessage(c: Conn, event: MessageEvent) {
         }
         c.viewportCursor = null;
         c.viewportCache.reset();
+        c.parsedBuffer.reset();
         c.viewportCacheDirty = true;
         c.viewportCacheNavigable = false;
         c.term.write(data, () => appendShellOutput(c, data));
@@ -1632,6 +1644,12 @@ export function sendView(key: string, active: boolean) {
 export function readBuffer(key: string): string {
   const c = conns.get(key);
   return c ? readBufferFromConn(c) : "";
+}
+
+/** Per-viewer instrumentation for Issue #204 performance assertions and DevTools checks. */
+export function viewportCacheMetrics(key: string): Readonly<ParsedViewportMetrics> | null {
+  const metrics = conns.get(key)?.parsedBuffer.metrics;
+  return metrics ? { ...metrics } : null;
 }
 
 // A slot whose xterm is still on screen IS attached, whatever the bookkeeping says. `attachedEl` is

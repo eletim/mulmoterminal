@@ -51,6 +51,8 @@ export interface XtermTermState {
   bufferBaseY: number;
   bufferCursorY: number;
   bufferLines: string[];
+  writeCount: number;
+  viewportUpdates: number;
   resizes: Array<[number, number]>;
   /** How many terminals the manager has constructed for this state. The rebuild (#846) is
    *  otherwise invisible from outside: it swaps `c.term` for a fresh one behind the slot key. */
@@ -76,6 +78,8 @@ export function createXtermState(): { termState: XtermTermState; keyState: Xterm
       bufferBaseY: 0,
       bufferCursorY: 0,
       bufferLines: [],
+      writeCount: 0,
+      viewportUpdates: 0,
       resizes: [],
       constructed: 0,
     },
@@ -146,6 +150,14 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
       getSelection() {
         return termState.selection;
       }
+      getSelectionPosition() {
+        return undefined;
+      }
+      clearSelection() {
+        termState.hasSelection = false;
+        termState.selection = "";
+      }
+      select() {}
       input(data: string) {
         termState.input.push(data);
       }
@@ -155,6 +167,7 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
         termState.resizes.push([cols, rows]);
       }
       write(data?: string, callback?: () => void) {
+        termState.writeCount++;
         if (typeof data === "string") {
           const normalized = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r\n?/g, "\n");
           const chunks = normalized.split("\n");
@@ -165,6 +178,14 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
         }
         callback?.();
       }
+      __installParsedViewportForTest(lines: ReadonlyArray<{ line: { translateToString: (trim?: boolean) => string } }>, start: number) {
+        termState.bufferLines = lines.map((row) => row.line.translateToString(true));
+        termState.bufferLength = Math.max(this.rows, termState.bufferLines.length);
+        termState.bufferBaseY = Math.max(0, termState.bufferLines.length - this.rows);
+        termState.viewportUpdates++;
+        void start;
+      }
+      scrollToLine() {}
       refresh() {}
       reset() {}
       focus() {}

@@ -120,6 +120,17 @@ change one and change the other (#834).
   or placed in server state. Two tabs therefore have independent caches and positions. Reconnect
   and resize discard the cache and start with the new live geometry. A `rebased`/`clamped` result
   is authoritative and replaces, rather than being combined with, stale cached rows.
+- The cache stores cloned xterm 6.0.0 `BufferLine` cell data, not ANSI strings. Public xterm buffer
+  APIs expose read-only cells (including colours, width and wrap state), but have no line import or
+  buffer mutation primitive. `terminalParsedBufferAdapter.ts` is the single version-pinned internal
+  boundary: a headless xterm parses each new Core chunk once, the adapter copies cells into native
+  browser-xterm lines, and cache installation updates the active buffer. Ordinary cached wheel
+  movement only changes `ydisp` through `scrollToLine()`; it sends no Core request, calls no
+  snapshot `write()`, and performs no ANSI parse. No xterm patch is carried.
+- Parsed rows preserve xterm foreground/background and extended attributes, wide/continuation
+  cells, combining strings, erase state and `isWrapped`. Chunk prepend/append can reinstall line
+  references, so the adapter relocates an existing selection by retained line identity. Resize,
+  reconnect, rebase and clamp still discard the parsed cache instead of attempting reflow.
 - While a viewer is historical, raw PTY output is ignored for that viewer and history remains
   readable from Core. Returning to live resumes the raw stream. Keyboard/paste/click still use
   the attached PTY exactly as in #193; typing also returns that viewer to live.

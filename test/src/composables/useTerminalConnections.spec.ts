@@ -46,6 +46,8 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     FakeWebSocket.instances.length = 0;
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
     mockTermState.bufferLines = [];
+    mockTermState.writeCount = 0;
+    mockTermState.viewportUpdates = 0;
     mockTermState.bufferLength = 24;
     mockTermState.resizes.length = 0;
   });
@@ -214,6 +216,16 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     const afterPrepend = ws.sent.filter((frame) => JSON.parse(frame).type === "scroll").length;
     mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
     expect(ws.sent.filter((frame) => JSON.parse(frame).type === "scroll")).toHaveLength(afterPrepend);
+
+    const metricsBefore = conn.viewportCacheMetrics(key);
+    const writesBefore = mockTermState.writeCount;
+    for (let index = 0; index < 30; index++) mockTermState.wheelHandler({ deltaY: index % 2 === 0 ? 120 : -120, preventDefault: vi.fn() });
+    const metricsAfter = conn.viewportCacheMetrics(key);
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "scroll")).toHaveLength(afterPrepend);
+    expect(mockTermState.writeCount).toBe(writesBefore);
+    expect(metricsAfter?.ansiParseCount).toBe(metricsBefore?.ansiParseCount);
+    expect(metricsAfter?.parsedChunkCount).toBe(metricsBefore?.parsedChunkCount);
+    expect((metricsAfter?.viewportUpdateCount ?? 0) - (metricsBefore?.viewportUpdateCount ?? 0)).toBe(30);
     conn.release(key);
   });
 
@@ -404,9 +416,13 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
     const scroll = lastFrameOf(ws, "scroll");
     const rendered = [...mockTermState.bufferLines];
+    const metricsBefore = conn.viewportCacheMetrics(key);
+    const writesBefore = mockTermState.writeCount;
     ws.onmessage?.({ data: JSON.stringify({ type: "scroll-result", requestId: scroll?.requestId, result: { kind: "application" } }) });
 
     expect(mockTermState.bufferLines).toEqual(rendered);
+    expect(mockTermState.writeCount).toBe(writesBefore);
+    expect(conn.viewportCacheMetrics(key)).toEqual(metricsBefore);
     conn.release(key);
   });
 
