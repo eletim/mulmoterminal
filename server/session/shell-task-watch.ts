@@ -1,5 +1,6 @@
 import { hasSessionChildProcess } from "./child-processes.js";
 import type { PtyEntry } from "./types.js";
+import { isViewerActive } from "./viewer-state.js";
 
 const SHELL_TASK_POLL_MS = 1000;
 export const SHELL_TASK_FINISHED_NOTIFY_MS = 10_000;
@@ -27,7 +28,7 @@ function notifyShellTaskChange(sessionId: string, entry: PtyEntry, watch: ShellT
     return;
   }
   const durationMs = watch?.startedAtMs === null || watch?.startedAtMs === undefined ? 0 : now - watch.startedAtMs;
-  const shouldNotify = durationMs >= SHELL_TASK_FINISHED_NOTIFY_MS && !entry.active;
+  const shouldNotify = durationMs >= SHELL_TASK_FINISHED_NOTIFY_MS && !isViewerActive(sessionId, entry);
   if (watch) watch.startedAtMs = null;
   if (shouldNotify) deps.setWaiting(sessionId, true, "Stop");
   deps.setWorking(sessionId, false, shouldNotify ? "Stop" : undefined);

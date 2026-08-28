@@ -33,6 +33,10 @@ vi.mock("../../../server/session/core-session-adapter.js", () => ({
       coreExitListener = listener;
       return { dispose: coreExitDispose };
     }),
+    watchPrimaryExit: vi.fn((_id: string, listener: typeof coreExitListener) => {
+      coreExitListener = listener;
+      return { dispose: coreExitDispose };
+    }),
   },
 }));
 
@@ -44,7 +48,7 @@ let tmuxOn = false;
 // applies to an empty cwd.
 const EXISTING_CWD = process.cwd();
 
-const { isCoreSessionExitEvent, spawnPty, ptySpawn, ptyWouldReattach } = await import("../../../server/session/pty-spawn.js");
+const { isCoreSessionExitEvent, spawnPty, spawnTmuxViewerPty, ptySpawn, ptyWouldReattach } = await import("../../../server/session/pty-spawn.js");
 
 const envOf = (call: number = 0): NodeJS.ProcessEnv => (spawn.mock.calls[call] as unknown as [string, string[], { env: NodeJS.ProcessEnv }])[2].env;
 
@@ -79,6 +83,13 @@ describe("spawnPty — the environment it hands the pty", () => {
   it("leaves the environment alone when nothing is named", () => {
     spawnPty("claude", [], EXISTING_CWD);
     expect(envOf().ANTHROPIC_API_KEY).toBe("sk-ant-leftover");
+  });
+
+  it("starts a secondary tmux viewer at the shared primary geometry", () => {
+    spawnTmuxViewerPty("s1", EXISTING_CWD, { cols: 132, rows: 43 });
+
+    const options = (spawn.mock.calls[0] as unknown as [string, string[], { cols: number; rows: number }])[2];
+    expect(options).toMatchObject({ cols: 132, rows: 43 });
   });
 });
 
@@ -159,6 +170,17 @@ describe("ptySpawn — carries the removal down both paths", () => {
     expect(isCoreSessionExitEvent(event)).toBe(true);
     expect(nativeExitDispose).toHaveBeenCalledOnce();
     expect(coreExitDispose).toHaveBeenCalledOnce();
+  });
+
+  it("watches Core remain-on-exit for a secondary tmux viewer", () => {
+    const term = spawnTmuxViewerPty("s1", EXISTING_CWD);
+    const listener = vi.fn();
+    term.onExit(listener);
+
+    coreExitListener?.({ exitCode: 12 });
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ exitCode: 12, signal: 0 }));
+    expect(isCoreSessionExitEvent(listener.mock.calls[0]?.[0])).toBe(true);
   });
 
   it("does not classify a viewer tmux client exit as a Core process exit", () => {

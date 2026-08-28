@@ -3,7 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { createConnectionHandlers, handleCommandFrame, releaseAllViewers, releaseViewer } from "../../../server/session/pty-connection.js";
 import type { PtyEntry } from "../../../server/session/types.js";
 import { activity } from "../../../server/session/activity-store.js";
-import { viewerPtys } from "../../../server/session/viewer-state.js";
+import { isViewerActive, registerSecondaryViewer, unregisterSecondaryViewer, viewerPtys } from "../../../server/session/viewer-state.js";
 import { registerCompletionHook, runCompletionHook, unregisterCompletionHook } from "../../../server/session/completion-hooks.js";
 
 const OPEN = 1;
@@ -20,6 +20,8 @@ function fakeTerm() {
     resizes,
     term: {
       pid: 4242,
+      cols: 80,
+      rows: 24,
       kill: vi.fn(),
       write: (d: string) => {
         writes.push(d);
@@ -57,12 +59,27 @@ function setup(terminalModes: readonly number[] = []) {
   // Keep the old Core/send-keys route present at runtime so these tests prove interactive input
   // never crosses into pane injection again (#193).
   const paneInput = vi.fn(async () => undefined);
+  const viewport = vi.fn(async () => ({
+    content: "screen",
+    cursor: "cursor" as never,
+    live: true,
+    cols: 80,
+    screenRows: 24,
+    viewportRows: 24,
+    historyRows: 0,
+    historyLimit: 20000,
+    clamped: false,
+    rebased: false,
+  }));
+  const scroll = vi.fn(async () => ({ kind: "application" as const }));
+  const resize = vi.fn(async (id: string, cols: number, rows: number) => {
+    calls.push(`resize:${id}:${cols}x${rows}`);
+  });
   const deps: Parameters<typeof createConnectionHandlers>[0] & { input: typeof paneInput } = {
     input: paneInput,
-    resize: async (id, cols, rows) => {
-      calls.push(`resize:${id}:${cols}x${rows}`);
-      currentEntries.get(id)?.term.resize(cols, rows);
-    },
+    viewport,
+    scroll,
+    resize,
     setWaiting: (id, waiting) => calls.push(`setWaiting:${id}:${waiting}`),
     releaseViewer: (id) => calls.push(`releaseViewer:${id}`),
     terminalModesOf: (id) => {
@@ -76,7 +93,7 @@ function setup(terminalModes: readonly number[] = []) {
     currentEntryOf: (id) => currentEntries.get(id),
   };
   const handlers = createConnectionHandlers(deps);
-  return { ...handlers, calls, currentEntries, paneInput };
+  return { ...handlers, calls, currentEntries, paneInput, viewport, scroll, resize };
 }
 
 // PtyEntry carries fields these handlers never touch; the fakes model the ones they do.
@@ -116,6 +133,164 @@ describe("handleClientFrame", () => {
     expect(paneInput).not.toHaveBeenCalled();
   });
 
+  it("maps a browser viewport request to Core without exposing capture-pane", async () => {
+    const { handleClientFrame, viewport } = setup([1049, 1003, 1006]);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 1, rows: 30 }), SESSION);
+    await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport" })));
+    expect(viewport).toHaveBeenCalledWith(SESSION, { target: { kind: "live" }, rows: 30, format: "ansi" });
+    const response = s.parsed().find((value) => value.type === "viewport");
+    expect(response?.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
+    expect(response?.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+    expect(response?.viewport.content).toBe("screen");
+  });
+
+  it("waits for the preceding Core resize before capturing a viewport", async () => {
+    let finishResize: (() => void) | undefined;
+    const resizePending = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const { handleClientFrame, resize, viewport } = setup();
+    resize.mockReturnValueOnce(resizePending);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 3, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(viewport).not.toHaveBeenCalled();
+
+    finishResize?.();
+    await vi.waitFor(() => expect(viewport).toHaveBeenCalledOnce());
+    expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "viewport", requestId: 3 }));
+  });
+
+  it("waits for an in-flight viewport before resizing and then refreshes primary geometry", async () => {
+    let finishViewport: (() => void) | undefined;
+    const viewportPending = new Promise<never>((resolve) => {
+      finishViewport = () =>
+        resolve({
+          content: "old geometry",
+          cursor: "old-geometry-cursor" as never,
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 0,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        } as never);
+    });
+    const { handleClientFrame, resize, viewport } = setup();
+    viewport.mockReturnValueOnce(viewportPending);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "viewport", requestId: 6, rows: 24 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(viewport).toHaveBeenCalledOnce();
+    expect(resize).not.toHaveBeenCalled();
+
+    finishViewport?.();
+    await vi.waitFor(() => expect(resize).toHaveBeenCalledWith(SESSION, 120, 40));
+    expect(s.parsed()).toContainEqual({ type: "terminal-geometry", cols: 120, rows: 40 });
+  });
+
+  it("waits for a primary Core resize before a secondary viewer capture", async () => {
+    let finishResize: (() => void) | undefined;
+    const resizePending = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const { handleClientFrame, currentEntries, resize, viewport } = setup();
+    resize.mockReturnValueOnce(resizePending);
+    const primarySocket = fakeSocket();
+    const primary = entryWith({ ws: primarySocket.ws as never });
+    currentEntries.set(SESSION, primary);
+    const secondarySocket = fakeSocket();
+    const secondary = entryWith({ ws: secondarySocket.ws as never, tmux: true });
+
+    handleClientFrame(primary, primarySocket.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    handleClientFrame(secondary, secondarySocket.ws as never, frame({ type: "viewport", requestId: 5, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(viewport).not.toHaveBeenCalled();
+
+    finishResize?.();
+    await vi.waitFor(() => expect(viewport).toHaveBeenCalledOnce());
+    expect(secondarySocket.parsed()).toContainEqual(expect.objectContaining({ type: "viewport", requestId: 5 }));
+  });
+
+  it("waits for the preceding Core resize before routing scroll intent", async () => {
+    let finishResize: (() => void) | undefined;
+    const resizePending = new Promise<void>((resolve) => {
+      finishResize = resolve;
+    });
+    const { handleClientFrame, resize, scroll } = setup();
+    resize.mockReturnValueOnce(resizePending);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+
+    handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    handleClientFrame(entry, s.ws as never, frame({ type: "scroll", requestId: 4, direction: "up", lines: 3, rows: 40 }), SESSION);
+    await Promise.resolve();
+    expect(scroll).not.toHaveBeenCalled();
+
+    finishResize?.();
+    await vi.waitFor(() => expect(scroll).toHaveBeenCalledOnce());
+    expect(s.parsed()).toContainEqual({ type: "scroll-result", requestId: 4, result: { kind: "application" } });
+  });
+
+  it("restores current modes when a scroll result returns to live", async () => {
+    const { handleClientFrame, scroll } = setup([1049, 1003]);
+    scroll.mockResolvedValueOnce({
+      kind: "viewport",
+      viewport: {
+        content: "live screen",
+        cursor: "live" as never,
+        live: true,
+        cols: 80,
+        screenRows: 24,
+        viewportRows: 24,
+        historyRows: 100,
+        historyLimit: 20_000,
+        clamped: false,
+        rebased: false,
+      },
+    } as never);
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    handleClientFrame(entry, s.ws as never, frame({ type: "scroll", requestId: 2, direction: "down", lines: 4, rows: 30 }), SESSION);
+
+    await vi.waitFor(() => expect(s.parsed()).toContainEqual(expect.objectContaining({ type: "scroll-result" })));
+    const response = s.parsed().find((value) => value.type === "scroll-result");
+    expect(response?.result.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049l`);
+    expect(response?.result.viewport.restore).toContain(`${String.fromCharCode(0x1b)}[?1049h`);
+    expect(response?.result.viewport.content).toBe("live screen");
+  });
+
+  it("passes only generic direction, rows and cell intent to Core.scroll", async () => {
+    const { handleClientFrame, scroll } = setup();
+    const s = fakeSocket();
+    const entry = entryWith({ ws: s.ws as never });
+    handleClientFrame(
+      entry,
+      s.ws as never,
+      frame({ type: "scroll", requestId: 1, cursor: "opaque", direction: "up", lines: 4, rows: 30, cell: { column: 12, row: 8 } }),
+      SESSION,
+    );
+    await vi.waitFor(() => expect(s.parsed()).toContainEqual({ type: "scroll-result", requestId: 1, result: { kind: "application" } }));
+    expect(scroll).toHaveBeenCalledWith(SESSION, {
+      cursor: "opaque",
+      direction: "up",
+      lines: 4,
+      rows: 30,
+      cell: { column: 12, row: 8 },
+      format: "ansi",
+    });
+  });
+
   it("resizes on a valid resize frame", () => {
     const { handleClientFrame, calls } = setup();
     const t = fakeTerm();
@@ -125,9 +300,44 @@ describe("handleClientFrame", () => {
     expect(calls).toContain(`resize:${SESSION}:100x40`);
   });
 
+  it("does not let a secondary viewer resize the shared Core pane", () => {
+    const { handleClientFrame, calls, currentEntries, resize } = setup();
+    const primary = entryWith();
+    currentEntries.set(SESSION, primary);
+    const t = fakeTerm();
+    const s = fakeSocket();
+    const secondary = entryWith({ term: t.term as never, ws: s.ws as never, tmux: true });
+
+    handleClientFrame(secondary, s.ws as never, frame({ type: "resize", cols: 100, rows: 40 }), SESSION);
+
+    expect(t.resizes).toEqual([]);
+    expect(s.parsed()).toContainEqual({ type: "terminal-geometry", cols: 80, rows: 24 });
+    expect(resize).not.toHaveBeenCalled();
+    expect(calls.filter((call) => call.startsWith("sizeCheck:") || call.startsWith("redraw:"))).toEqual([]);
+  });
+
+  it("synchronizes secondary PTYs and browsers after the shared Core resize completes", async () => {
+    const { handleClientFrame, currentEntries } = setup();
+    const primarySocket = fakeSocket();
+    const primary = entryWith({ ws: primarySocket.ws as never });
+    currentEntries.set(SESSION, primary);
+    const secondaryTerm = fakeTerm();
+    const secondarySocket = fakeSocket();
+    const secondary = entryWith({ term: secondaryTerm.term as never, ws: secondarySocket.ws as never, tmux: true });
+    registerSecondaryViewer(SESSION, secondary);
+    try {
+      handleClientFrame(primary, primarySocket.ws as never, frame({ type: "resize", cols: 132, rows: 43 }), SESSION);
+
+      await vi.waitFor(() => expect(secondaryTerm.resizes).toEqual([[132, 43]]));
+      expect(secondarySocket.parsed()).toContainEqual({ type: "terminal-geometry", cols: 132, rows: 43 });
+    } finally {
+      unregisterSecondaryViewer(SESSION, secondary);
+    }
+  });
+
   // The redraw waits for this frame on purpose: it is where the client reports the size it
   // actually settled at, so the repaint that follows is drawn at the right geometry.
-  it("asks for the redraw on the first resize after a reattach, and only that one", () => {
+  it("asks for the redraw on the first resize after a reattach, and only that one", async () => {
     const { reattachPty, handleClientFrame, calls } = setup();
     const t = fakeTerm();
     const s = fakeSocket();
@@ -135,8 +345,8 @@ describe("handleClientFrame", () => {
     reattachPty(entry, s.ws as never, SESSION);
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 100, rows: 30 }), SESSION);
     handleClientFrame(entry, s.ws as never, frame({ type: "resize", cols: 120, rows: 40 }), SESSION);
+    await vi.waitFor(() => expect(calls).toContain(`resize:${SESSION}:120x40`));
     expect(calls).toContain(`resize:${SESSION}:100x30`);
-    expect(calls).toContain(`resize:${SESSION}:120x40`);
     // The pid is the pty's own — it is what picks OUR tmux client out of a session that several
     // servers may have attached (#1099 review).
     expect(calls.filter((c) => c.startsWith("redraw:"))).toEqual([`redraw:${SESSION}:4242`]);
@@ -459,6 +669,21 @@ describe("reattachPty", () => {
 });
 
 describe("handleClientClose", () => {
+  it("kills only an unregistered secondary viewer client", () => {
+    const { handleClientClose, currentEntries, calls } = setup();
+    const primary = entryWith({ ws: fakeSocket().ws as never });
+    currentEntries.set(SESSION, primary);
+    const s = fakeSocket();
+    const secondary = entryWith({ ws: s.ws as never, active: true });
+    registerSecondaryViewer(SESSION, secondary);
+    expect(isViewerActive(SESSION, primary)).toBe(true);
+    handleClientClose(secondary, s.ws as never, SESSION);
+    expect(secondary.term.kill).toHaveBeenCalled();
+    expect(isViewerActive(SESSION, primary)).toBe(false);
+    expect(primary.ws).not.toBeNull();
+    expect(calls).toEqual([]);
+  });
+
   it("detaches the socket and releases the viewer immediately", () => {
     const { handleClientClose, currentEntries, calls } = setup();
     const s = fakeSocket();

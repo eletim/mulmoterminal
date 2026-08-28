@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { SessionCore, SessionNotFoundError, type CreateSessionOptions, type Session } from "tmux-session-core-ts";
+import {
+  SessionCore,
+  SessionNotFoundError,
+  type CreateSessionOptions,
+  type ScrollIntent,
+  type ScrollResult,
+  type Session,
+  type TerminalViewport,
+  type ViewportOptions,
+} from "tmux-session-core-ts";
 import { isLaunchAgent, type LaunchAgent } from "../../common/launchAgent.js";
 import { isToolGroup, type ToolGroup } from "../../common/toolGroups.js";
 import { CORE_TMUX_SERVER } from "./core-session-config.js";
@@ -98,7 +107,8 @@ export class CoreSessionAdapter {
   private readonly core: SessionCore;
   private readonly createSyncImpl: NonNullable<CoreSessionAdapterOptions["createSync"]>;
   private readonly inputTails = new Map<string, Promise<void>>();
-  private readonly exitWatchers = new Map<string, (event: CoreSessionExit) => void>();
+  private readonly exitWatchers = new Map<string, Set<(event: CoreSessionExit) => void>>();
+  private readonly primaryExitWatchers = new Map<string, { token: object; dispose(): void }>();
   private readonly capabilityTails = new Map<string, Promise<CoreSessionCapabilities>>();
   private exitPollTimer: ReturnType<typeof setTimeout> | undefined;
   private exitPollMs = 250;
@@ -182,6 +192,14 @@ export class CoreSessionAdapter {
     return this.core.screen(id);
   }
 
+  async viewport(id: string, options?: ViewportOptions): Promise<TerminalViewport> {
+    return this.core.viewport(id, options);
+  }
+
+  async scroll(id: string, intent: ScrollIntent): Promise<ScrollResult> {
+    return this.core.scroll(id, intent);
+  }
+
   async input(id: string, text: string): Promise<void> {
     const previous = this.inputTails.get(id) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(() => this.core.input(id, text, { submit: false }));
@@ -210,16 +228,47 @@ export class CoreSessionAdapter {
    * node-pty cannot supply the lifecycle event MulmoTerminal needs for activity and hook cleanup.
    */
   watchExit(id: string, listener: (event: CoreSessionExit) => void, pollMs = 250): { dispose(): void } {
-    this.exitWatchers.set(id, listener);
+    const listeners = this.exitWatchers.get(id) ?? new Set<(event: CoreSessionExit) => void>();
+    listeners.add(listener);
+    this.exitWatchers.set(id, listeners);
     this.exitPollMs = Math.min(this.exitPollMs, pollMs);
     void this.pollExits();
     return {
       dispose: () => {
-        if (this.exitWatchers.get(id) === listener) this.exitWatchers.delete(id);
+        const current = this.exitWatchers.get(id);
+        current?.delete(listener);
+        if (current?.size === 0) this.exitWatchers.delete(id);
         if (this.exitWatchers.size === 0 && this.exitPollTimer) {
           clearTimeout(this.exitPollTimer);
           this.exitPollTimer = undefined;
         }
+      },
+    };
+  }
+
+  /** One detached primary may retain lifecycle responsibility until its successor subscribes.
+   * Secondary viewers still use watchExit(), so replacing the owner never removes their peers. */
+  watchPrimaryExit(id: string, listener: (event: CoreSessionExit) => void, pollMs = 250): { dispose(): void } {
+    this.primaryExitWatchers.get(id)?.dispose();
+    const token = {};
+    const subscription = this.watchExit(
+      id,
+      (event) => {
+        // Object identity selects the current subscription; this is not secret data.
+        // eslint-disable-next-line security/detect-possible-timing-attacks
+        if (this.primaryExitWatchers.get(id)?.token === token) this.primaryExitWatchers.delete(id);
+        listener(event);
+      },
+      pollMs,
+    );
+    const owner = { token, dispose: () => subscription.dispose() };
+    this.primaryExitWatchers.set(id, owner);
+    return {
+      dispose: () => {
+        // Object identity prevents an older disposer from deleting its replacement.
+        // eslint-disable-next-line security/detect-possible-timing-attacks
+        if (this.primaryExitWatchers.get(id)?.token === token) this.primaryExitWatchers.delete(id);
+        subscription.dispose();
       },
     };
   }
@@ -306,14 +355,18 @@ export class CoreSessionAdapter {
       // Explicit Delete is not a process-exit event. Drop observers for vanished membership
       // without notifying activity/process-exit consumers or retaining an idle poll forever.
       for (const id of this.exitWatchers.keys()) {
-        if (!memberIds.has(id)) this.exitWatchers.delete(id);
+        if (!memberIds.has(id)) {
+          this.exitWatchers.delete(id);
+          this.primaryExitWatchers.delete(id);
+        }
       }
       for (const session of sessions) {
         if (!session.exited) continue;
-        const listener = this.exitWatchers.get(session.id);
-        if (!listener) continue;
+        const listeners = this.exitWatchers.get(session.id);
+        if (!listeners) continue;
         this.exitWatchers.delete(session.id);
-        listener({ exitCode: session.exitCode });
+        this.primaryExitWatchers.delete(session.id);
+        for (const listener of listeners) listener({ exitCode: session.exitCode });
       }
     } catch {
       // A transient tmux probe failure is retried. Absence never synthesizes a child exit.

@@ -107,6 +107,7 @@ import { migrateLegacyBackgroundVisibility, visibleCoreSessions } from "./sessio
 import { migrateLegacyGuiCapabilities } from "./session/core-session-capability-migration.js";
 import { migrateLegacyScheduledOrigins, removeRetiredSessionStateFiles } from "./session/core-session-origin-migration.js";
 import { failCompletionHook } from "./session/completion-hooks.js";
+import { spawnSecondaryViewer } from "./session/spawn-secondary-viewer.js";
 
 // Register the top-level uncaughtException/unhandledRejection guards before any async boot
 // work runs, so a single unhandled error can't silently kill the backend and disconnect
@@ -287,8 +288,9 @@ const releaseTerminalViewer = (id: string, expected?: Parameters<typeof releaseV
 
 // Per-connection plumbing (session/pty-connection.ts): attach, detach and release only.
 const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHandlers({
+  viewport: (id, options) => coreSessions.viewport(id, options),
+  scroll: (id, intent) => coreSessions.scroll(id, intent),
   resize: async (id, cols, rows) => {
-    viewerPtys.get(id)?.term.resize(cols, rows);
     await coreSessions.resize(id, cols, rows);
   },
   setWaiting: (id, waiting) => setWaiting(id, waiting),
@@ -859,6 +861,7 @@ const terminalWebSockets = mountTerminalWebSockets({
   spawnAntigravityPty,
   spawnCommandPty,
   spawnLauncherPty,
+  spawnViewerPty: spawnSecondaryViewer,
   resolveLauncher,
 });
 

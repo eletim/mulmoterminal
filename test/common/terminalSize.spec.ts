@@ -1,8 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { isUsableTerminalSize, parseTerminalSize, MAX_TERM_COLS, MAX_TERM_ROWS, MIN_TERM_COLS, MIN_TERM_ROWS } from "../../common/terminalSize";
+import {
+  isTerminalGeometryFrame,
+  isUsableTerminalSize,
+  parseTerminalSize,
+  MAX_TERM_COLS,
+  MAX_TERM_ROWS,
+  MIN_TERM_COLS,
+  MIN_TERM_ROWS,
+} from "../../common/terminalSize";
 import { isResizeFrame } from "../../server/session/ws-frames";
 
 describe("isUsableTerminalSize", () => {
+  it("accepts only bounded server geometry frames", () => {
+    expect(isTerminalGeometryFrame({ type: "terminal-geometry", cols: 132, rows: 43 })).toBe(true);
+    expect(isTerminalGeometryFrame({ type: "terminal-geometry", cols: 0, rows: 43 })).toBe(false);
+    expect(isTerminalGeometryFrame({ type: "resize", cols: 132, rows: 43 })).toBe(false);
+  });
+
   it("accepts an ordinary terminal and both ends of the range", () => {
     expect(isUsableTerminalSize({ cols: 131, rows: 41 })).toBe(true);
     expect(isUsableTerminalSize({ cols: MIN_TERM_COLS, rows: MIN_TERM_ROWS })).toBe(true);

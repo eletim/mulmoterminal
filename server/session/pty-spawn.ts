@@ -14,6 +14,7 @@ import { configureCoreTmuxServer, tmuxAttachSessionArgs, tmuxAvailable, tmuxScru
 import { shellQuoteFor } from "../config/header-resolve.js";
 import { coreSessions, type CoreSessionOrigin, type CoreSessionVisibility } from "./core-session-adapter.js";
 import type { LaunchAgent } from "../../common/launchAgent.js";
+import type { TerminalSize } from "../../common/terminalSize.js";
 
 const PTY_COLS = 120;
 const PTY_ROWS = 30;
@@ -42,17 +43,30 @@ export function ptyEnv(unset: readonly string[] = [], extra: Readonly<Record<str
 
 // pty.spawn with the binary as a PARAMETER (never a string literal at the call site),
 // so the tmux/shell/claude spawns aren't flagged as spawn-of-a-string-literal.
-export function spawnPty(bin: string, args: string[], cwd: string, unset: readonly string[] = [], extra: Readonly<Record<string, string>> = {}): IPty {
+export function spawnPty(
+  bin: string,
+  args: string[],
+  cwd: string,
+  unset: readonly string[] = [],
+  extra: Readonly<Record<string, string>> = {},
+  size: TerminalSize = { cols: PTY_COLS, rows: PTY_ROWS },
+): IPty {
   const env = ptyEnv(unset, extra);
   // On Windows neither the name nor the arguments reach node-pty as they are: its PATH
   // lookup ignores executable extensions (so `claude` misses claude.exe, #794), and a batch
   // shim has to be run through cmd.exe (#798). See infra/resolve-bin.ts.
   const launch = resolvePtyLaunchForEnv(bin, args, env);
-  return pty.spawn(launch.file, launch.args, { name: "xterm-256color", cols: PTY_COLS, rows: PTY_ROWS, cwd, env });
+  return pty.spawn(launch.file, launch.args, { name: "xterm-256color", ...size, cwd, env });
+}
+
+/** A browser-only tmux client for an already-existing Core session. It owns no lifecycle,
+ * hooks, metadata or scroll position and is safe to create once per simultaneous viewer. */
+export function spawnTmuxViewerPty(sessionId: string, cwd: string, size?: TerminalSize): IPty {
+  return coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, [], {}, size), sessionId);
 }
 
 /** Make Core's remain-on-exit state look like the ordinary node-pty exit event spawners expect. */
-export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
+export function coreExitAwarePty(term: IPty, sessionId: string, primary = false): IPty {
   const onExit: IPty["onExit"] = (listener) => {
     let disposed = false;
     let nativeFired = false;
@@ -65,7 +79,8 @@ export function coreExitAwarePty(term: IPty, sessionId: string): IPty {
       // Core watcher so activity can still be terminalized if that process exits detached.
       listener(event);
     });
-    watches.core = coreSessions.watchExit(sessionId, ({ exitCode }) => {
+    const watchCoreExit = primary ? coreSessions.watchPrimaryExit.bind(coreSessions) : coreSessions.watchExit.bind(coreSessions);
+    watches.core = watchCoreExit(sessionId, ({ exitCode }) => {
       if (disposed || coreFired) return;
       coreFired = true;
       watches.core?.dispose();
@@ -259,7 +274,7 @@ export function ptySpawn(
       );
       configureCoreTmuxServer();
     }
-    return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId), tmux: true, reattached };
+    return { term: coreExitAwarePty(spawnPty("tmux", tmuxAttachSessionArgs(sessionId), cwd, unset), sessionId, true), tmux: true, reattached };
   }
   if (persistent) throw new SpawnRefusedError("tmux is required for persistent terminal sessions");
   return { term: spawnPty(file, args, cwd, unset, env), tmux: false, reattached };

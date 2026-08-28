@@ -9,7 +9,6 @@ import {
   recordSwallowedModes,
   wantsMouseReports,
   wheelNotches,
-  wheelReportSequence,
 } from "../../../src/composables/mouseReports";
 
 // Claude Code's actual request: drag tracking + SGR encoding in one SET.
@@ -62,25 +61,10 @@ describe("wantsMouseReports", () => {
     expect(wantsMouseReports(new Set([25, 1049]))).toBe(false);
   });
 
-  it("accepts every wheel-capable tracking mode with SGR", () => {
+  it("accepts every pointer-tracking mode with SGR", () => {
     [1000, 1001, 1002, 1003].forEach((mode) => {
       expect(wantsMouseReports(new Set([mode, 1006]))).toBe(true);
     });
-  });
-});
-
-describe("wheelReportSequence", () => {
-  it("encodes wheel-up as button 64 and wheel-down as 65", () => {
-    expect(wheelReportSequence(-1, 1, 1)).toBe("\x1b[<64;1;1M");
-    expect(wheelReportSequence(120, 1, 1)).toBe("\x1b[<65;1;1M");
-  });
-
-  it("embeds the cell coordinates", () => {
-    expect(wheelReportSequence(3, 12, 40)).toBe("\x1b[<65;12;40M");
-  });
-
-  it("returns null when there is no vertical motion", () => {
-    expect(wheelReportSequence(0, 1, 1)).toBeNull();
   });
 });
 
@@ -164,9 +148,7 @@ describe("wheelNotches", () => {
     expect(swipe(Array(20).fill(2)).reduce((a, b) => a + b, 0)).toBe(3);
   });
 
-  // The swipe gain (#978), pinned as a rate: a cell of finger travel is worth 1.5 notches, and
-  // tmux's copy-mode is bound to one line per notch — so text moves 1.5 lines per cell of finger.
-  // Change one without the other and the scroll speed changes, not just its smoothness.
+  // The swipe gain (#978), pinned as a rate: a cell of finger travel is worth 1.5 rows.
   it("is worth 1.5 notches per cell of finger travel on a trackpad", () => {
     expect(swipe(Array(10).fill(CELL_HEIGHT_PX / 10)).reduce((a, b) => a + b, 0)).toBe(1); // 1 cell -> 1.5, one paid
     expect(swipe(Array(20).fill(CELL_HEIGHT_PX / 10)).reduce((a, b) => a + b, 0)).toBe(3); // 2 cells -> 3

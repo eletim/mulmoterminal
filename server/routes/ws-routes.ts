@@ -60,7 +60,13 @@ export interface WsRouteDeps {
   spawnAntigravityPty: SpawnAntigravityPty;
   spawnCommandPty: SpawnCommandPty;
   spawnLauncherPty: SpawnLauncherPty;
+  spawnViewerPty: (sessionId: string, ws: WebSocket, cwd: string, agent: SessionAgent) => PtyEntry;
   resolveLauncher: ResolveLauncher;
+}
+
+export function attachViewer(deps: Pick<WsRouteDeps, "spawnViewerPty" | "reattachPty">, viewer: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
+  if (viewer.ws && viewer.ws.readyState === viewer.ws.OPEN) return deps.spawnViewerPty(sessionId, ws, viewer.cwd, viewer.agent);
+  return deps.reattachPty(viewer, ws, sessionId);
 }
 
 export function sessionAgentForWsKind(kind: TerminalWsKind): SessionAgent | null {
@@ -342,7 +348,7 @@ interface LaunchStart {
 function startLaunchEntry(deps: WsRouteDeps, ws: WebSocket, start: LaunchStart): PtyEntry {
   const { sessionId, command, cwd, coreSessionExists } = start;
   const viewer = viewerPtys.get(sessionId);
-  if (viewer) return deps.reattachPty(viewer, ws, sessionId);
+  if (viewer) return attachViewer(deps, viewer, ws, sessionId);
   return deps.spawnLauncherPty(sessionId, ws, command, cwd, coreSessionExists);
 }
 
@@ -404,7 +410,7 @@ interface CodexStart {
 function startCodexEntry(deps: WsRouteDeps, ws: WebSocket, start: CodexStart): PtyEntry {
   const { sessionId, resumeRolloutId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
   const viewer = viewerPtys.get(sessionId);
-  if (viewer) return deps.reattachPty(viewer, ws, sessionId);
+  if (viewer) return attachViewer(deps, viewer, ws, sessionId);
   return deps.spawnCodexPty(sessionId, ws, resumeRolloutId, cwd, attachGuiMcp, { mcpGroups, coreSessionExists }); // interactive: no seed
 }
 
@@ -462,7 +468,7 @@ async function handleClaudeConnection(deps: WsRouteDeps, ws: WebSocket, req: WsU
     // viewer may have been released by its old socket while this reconnect was waiting.
     const current = viewerPtys.get(sessionId);
     const entry = current
-      ? deps.reattachPty(current, ws, sessionId)
+      ? attachViewer(deps, current, ws, sessionId)
       : deps.spawnClaudePty(sessionId, resume, ws, { cwd: effectiveCwd, attachGuiMcp, launch, coreSessionExists: !!core });
     // Single view (gui) = the attached session IS the actively-viewed pane, so mark it
     // read. A grid dev-terminal cell (gui=0) is only "viewed" once focused/zoomed (the
@@ -526,7 +532,10 @@ export function startAndWire(
       session.early.discard();
       return closeWithError(ws, session.startFailureMessage(err));
     }
-    applyClientSize(entry.term, session.size ?? null, session.tag, session.id);
+    // The primary browser owns the one Core/tmux pane geometry. A secondary keeps its own cursor,
+    // but starts at the primary PTY size and must not replace that shared size from its URL.
+    const primary = viewerPtys.get(session.id);
+    if (!primary || primary === entry) applyClientSize(entry.term, session.size ?? null, session.tag, session.id);
     const deliver = (raw: { toString(): string }) => deps.handleClientFrame(entry, ws, raw, session.id);
     ws.on("message", deliver);
     ws.on("close", () => deps.handleClientClose(entry, ws, session.id));
@@ -668,7 +677,7 @@ function startAntigravityEntry(deps: WsRouteDeps, ws: WebSocket, start: Antigrav
   const { sessionId, resumeConversationId, cwd, attachGuiMcp, mcpGroups, coreSessionExists } = start;
   const viewer = viewerPtys.get(sessionId);
   const entry = viewer
-    ? deps.reattachPty(viewer, ws, sessionId)
+    ? attachViewer(deps, viewer, ws, sessionId)
     : deps.spawnAntigravityPty(sessionId, ws, resumeConversationId, cwd, { mcpGroups, coreSessionExists });
   // Single view (gui) = the attached session IS the actively-viewed pane. A grid dev-terminal
   // cell (gui=0) is only "viewed" once focused, and says so with a `view` frame.

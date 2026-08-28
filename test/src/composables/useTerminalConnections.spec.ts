@@ -19,6 +19,11 @@ import { setTerminalSubmitMode } from "../../../src/composables/terminalSubmitMo
 import { clickReportSequences } from "../../../src/composables/mouseReports";
 
 const target = (sessionId: string | null) => ({ sessionId, cwd: "/typed", devTerminal: false, command: null, launcher: null });
+const lastFrameOf = (ws: FakeWebSocket, type: string): Record<string, unknown> | undefined =>
+  [...ws.sent]
+    .reverse()
+    .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+    .find((frame) => frame.type === type);
 
 describe("useTerminalConnections — detached-slot state replay", () => {
   beforeEach(() => {
@@ -26,6 +31,7 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
     mockTermState.bufferLines = [];
     mockTermState.bufferLength = 24;
+    mockTermState.resizes.length = 0;
   });
   afterEach(() => {
     conn.release("cell-race"); // tear the slot down so it can't leak into the next test
@@ -56,6 +62,646 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.attach("cell-race", target(null), second, el2);
     expect(second.onSession).toHaveBeenCalledWith("sess-123");
     expect(second.onCwd).toHaveBeenCalledWith("/resolved");
+  });
+
+  it("keeps opaque viewport cursors independent for two browser viewers", () => {
+    conn.attach("viewer-a", target("shared-session"), {}, document.createElement("div"));
+    const wsA = FakeWebSocket.instances.at(-1);
+    if (!wsA) throw new Error("viewer A socket missing");
+    wsA.onopen?.();
+    const wheelA = mockTermState.wheelHandler;
+
+    conn.attach("viewer-b", target("shared-session"), {}, document.createElement("div"));
+    const wsB = FakeWebSocket.instances.at(-1);
+    if (!wsB) throw new Error("viewer B socket missing");
+    wsB.onopen?.();
+    const wheelB = mockTermState.wheelHandler;
+
+    const viewport = (cursor: string, requestId: number) => ({
+      type: "viewport",
+      requestId,
+      viewport: {
+        content: cursor,
+        cursor,
+        live: false,
+        cols: 80,
+        screenRows: 24,
+        viewportRows: 24,
+        historyRows: 100,
+        historyLimit: 20000,
+        clamped: false,
+        rebased: false,
+      },
+    });
+    const requestIdA = Number(lastFrameOf(wsA, "viewport")?.requestId);
+    const requestIdB = Number(lastFrameOf(wsB, "viewport")?.requestId);
+    wsA.onmessage?.({ data: JSON.stringify(viewport("cursor-a", requestIdA)) });
+    wsB.onmessage?.({ data: JSON.stringify(viewport("cursor-b", requestIdB)) });
+    wheelA({ deltaY: -120, preventDefault: vi.fn() });
+    wheelB({ deltaY: -120, preventDefault: vi.fn() });
+
+    expect(lastFrameOf(wsA, "scroll")?.cursor).toBe("cursor-a");
+    expect(lastFrameOf(wsB, "scroll")?.cursor).toBe("cursor-b");
+    conn.release("viewer-a");
+    conn.release("viewer-b");
+  });
+
+  it("applies the shared terminal geometry sent by the server", () => {
+    conn.attach("viewer-shared-geometry", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const requestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "historical screen",
+          cursor: "historical-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "terminal-geometry", cols: 132, rows: 43 }) });
+
+    expect(mockTermState.resizes).toContainEqual([132, 43]);
+    expect(lastFrameOf(ws, "viewport")?.cursor).toBe("historical-cursor");
+    expect(Number(lastFrameOf(ws, "viewport")?.requestId)).toBeGreaterThan(requestId);
+    conn.release("viewer-shared-geometry");
+  });
+
+  it("recaptures instead of rendering a viewport invalidated by shared geometry", () => {
+    conn.attach("viewer-geometry-viewport-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const requestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "terminal-geometry", cols: 132, rows: 43 }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "stale old-geometry viewport",
+          cursor: "stale-live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    expect(mockTermState.bufferLines.join("\n")).not.toContain("stale old-geometry viewport");
+    const refresh = lastFrameOf(ws, "viewport");
+    expect(refresh).toMatchObject({ rows: 43 });
+    expect(refresh).not.toHaveProperty("cursor");
+    expect(Number(refresh?.requestId)).toBeGreaterThan(requestId);
+    conn.release("viewer-geometry-viewport-race");
+  });
+
+  it("recaptures a scroll anchor instead of rendering old-geometry content", () => {
+    conn.attach("viewer-geometry-scroll-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "historical screen",
+          cursor: "old-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const scrollRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "terminal-geometry", cols: 132, rows: 43 }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: scrollRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "stale scrolled content",
+            cursor: "new-scroll-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    expect(mockTermState.bufferLines.join("\n")).not.toContain("stale scrolled content");
+    expect(lastFrameOf(ws, "viewport")).toMatchObject({ cursor: "new-scroll-cursor", rows: 43 });
+    conn.release("viewer-geometry-scroll-race");
+  });
+
+  it("serializes a historical resize refresh after an in-flight scroll", () => {
+    const key = "viewer-scroll-resize-race";
+    conn.attach(key, target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "old historical screen",
+          cursor: "old-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const scrollRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+    const viewportCountBeforeResize = ws.sent.filter((frame) => JSON.parse(frame).type === "viewport").length;
+    conn.setFont(key, { size: 18, family: "monospace" });
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "viewport")).toHaveLength(viewportCountBeforeResize);
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: scrollRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "new historical screen",
+            cursor: "new-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    const refresh = lastFrameOf(ws, "viewport");
+    expect(refresh?.cursor).toBe("new-cursor");
+    expect(Number(refresh?.requestId)).toBeGreaterThan(viewportRequestId);
+    conn.release(key);
+  });
+
+  it("drops a live snapshot cursor when new PTY output arrives before the next wheel", () => {
+    conn.attach("viewer-live-output", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const requestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "live",
+          cursor: "live-snapshot-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "new output" }) });
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+
+    expect(lastFrameOf(ws, "scroll")).not.toHaveProperty("cursor");
+    conn.release("viewer-live-output");
+  });
+
+  it("recaptures live when PTY output races an initial viewport response", () => {
+    conn.attach("viewer-capture-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const firstRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "newer output" }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: firstRequestId,
+        viewport: {
+          content: "older capture",
+          cursor: "older-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    const retry = lastFrameOf(ws, "viewport");
+    expect(Number(retry?.requestId)).toBeGreaterThan(firstRequestId);
+    expect(retry).not.toHaveProperty("cursor");
+    conn.release("viewer-capture-race");
+  });
+
+  it("recaptures when output races a historical scroll that reaches live", () => {
+    conn.attach("viewer-scroll-live-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "historical screen",
+          cursor: "historical-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: 120, preventDefault: vi.fn() });
+    const scrollRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+    const historicalScreen = mockTermState.bufferLines.join("\n");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "new output after capture" }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: scrollRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "stale live screen",
+            cursor: "stale-live-cursor",
+            live: true,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    expect(mockTermState.bufferLines.join("\n")).toBe(historicalScreen);
+    const retry = lastFrameOf(ws, "viewport");
+    expect(Number(retry?.requestId)).toBeGreaterThan(viewportRequestId);
+    expect(retry).not.toHaveProperty("cursor");
+    conn.release("viewer-scroll-live-race");
+  });
+
+  it("recaptures when output races a live scroll result", () => {
+    conn.attach("viewer-live-scroll-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "live screen",
+          cursor: "live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: 120, preventDefault: vi.fn() });
+    const scrollRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "new output after capture" }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: scrollRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "stale live screen",
+            cursor: "stale-live-cursor",
+            live: true,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    const retry = lastFrameOf(ws, "viewport");
+    expect(Number(retry?.requestId)).toBeGreaterThan(viewportRequestId);
+    expect(retry).not.toHaveProperty("cursor");
+    expect(mockTermState.bufferLines.join("\n")).not.toContain("stale live screen");
+    conn.release("viewer-live-scroll-race");
+  });
+
+  it("retries a failed return-to-live viewport while suppressing PTY deltas", () => {
+    vi.useFakeTimers();
+    try {
+      conn.attach("viewer-live-error", target("shared-session"), {}, document.createElement("div"));
+      const ws = FakeWebSocket.instances.at(-1);
+      if (!ws) throw new Error("viewer socket missing");
+      ws.onopen?.();
+      const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: "viewport",
+          requestId: viewportRequestId,
+          viewport: {
+            content: "historical screen",
+            cursor: "historical-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        }),
+      });
+
+      mockTermState.emitData("x");
+      const failedRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+      const historicalScreen = mockTermState.bufferLines.join("\n");
+      ws.onmessage?.({ data: JSON.stringify({ type: "viewport-error", requestId: failedRequestId, message: "capture raced" }) });
+
+      expect(lastFrameOf(ws, "viewport")?.requestId).toBe(failedRequestId);
+      vi.advanceTimersByTime(100);
+      const retry = lastFrameOf(ws, "viewport");
+      expect(Number(retry?.requestId)).toBeGreaterThan(failedRequestId);
+      expect(retry).not.toHaveProperty("cursor");
+      ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "echo after failed capture" }) });
+      expect(mockTermState.bufferLines.join("\n")).toBe(historicalScreen);
+
+      const retryRequestId = Number(retry?.requestId);
+      ws.onmessage?.({ data: JSON.stringify({ type: "viewport-error", requestId: retryRequestId, message: "still unavailable" }) });
+      expect(lastFrameOf(ws, "viewport")?.requestId).toBe(retryRequestId);
+      vi.advanceTimersByTime(200);
+      expect(Number(lastFrameOf(ws, "viewport")?.requestId)).toBeGreaterThan(retryRequestId);
+    } finally {
+      conn.release("viewer-live-error");
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the browser-local cursor on reconnect and resumes from live", () => {
+    conn.attach("viewer-reconnect", target("shared-session"), {}, document.createElement("div"));
+    const first = FakeWebSocket.instances.at(-1);
+    if (!first) throw new Error("first socket missing");
+    first.onopen?.();
+    const requestId = lastFrameOf(first, "viewport")?.requestId;
+    first.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId,
+        viewport: {
+          content: "old",
+          cursor: "old-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    conn.retarget("viewer-reconnect", target("shared-session"));
+    const second = FakeWebSocket.instances.at(-1);
+    if (!second) throw new Error("second socket missing");
+    second.onopen?.();
+    const request = second.sent.map((frame) => JSON.parse(frame)).find((frame) => frame.type === "viewport");
+    expect(request).toEqual(expect.objectContaining({ type: "viewport", rows: 24 }));
+    expect(request).not.toHaveProperty("cursor");
+    conn.release("viewer-reconnect");
+  });
+
+  it("ignores a historical scroll result that arrives after typed input returned the viewer to live", () => {
+    conn.attach("viewer-input-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const viewportRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: viewportRequestId,
+        viewport: {
+          content: "history",
+          cursor: "historical-cursor",
+          live: false,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    const staleRequestId = Number(lastFrameOf(ws, "scroll")?.requestId);
+    mockTermState.emitData("x");
+    const firstLiveRequest = lastFrameOf(ws, "viewport");
+    const firstLiveRequestId = Number(firstLiveRequest?.requestId);
+    expect(firstLiveRequest).not.toHaveProperty("cursor");
+
+    const historicalScreen = mockTermState.bufferLines.join("\n");
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "x" }) });
+    expect(mockTermState.bufferLines.join("\n")).toBe(historicalScreen);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: firstLiveRequestId,
+        viewport: {
+          content: "live before echo",
+          cursor: "intermediate-live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+    const finalLiveRequest = lastFrameOf(ws, "viewport");
+    const finalLiveRequestId = Number(finalLiveRequest?.requestId);
+    expect(finalLiveRequestId).toBeGreaterThan(firstLiveRequestId);
+    expect(finalLiveRequest).not.toHaveProperty("cursor");
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: finalLiveRequestId,
+        viewport: {
+          content: "live with echo",
+          cursor: "fresh-live-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: staleRequestId,
+        result: {
+          kind: "viewport",
+          viewport: {
+            content: "stale history",
+            cursor: "stale-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        },
+      }),
+    });
+
+    mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
+    expect(lastFrameOf(ws, "scroll")?.cursor).toBe("fresh-live-cursor");
+    conn.release("viewer-input-race");
+  });
+
+  it.each([
+    ["submitText", (key: string) => conn.submitText(key, "hello")],
+    ["pasteText", (key: string) => conn.pasteText(key, "hello")],
+    ["pasteAndSubmit", (key: string) => conn.pasteAndSubmit(key, "hello")],
+    ["insertText", (key: string) => conn.insertText(key, "hello")],
+  ])("returns a historical viewer to live for programmatic %s input", (_label, send) => {
+    vi.useFakeTimers();
+    const key = `viewer-programmatic-${_label}`;
+    try {
+      conn.attach(key, target("shared-session"), {}, document.createElement("div"));
+      const ws = FakeWebSocket.instances.at(-1);
+      if (!ws) throw new Error("viewer socket missing");
+      ws.onopen?.();
+      const initialRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: "viewport",
+          requestId: initialRequestId,
+          viewport: {
+            content: "history",
+            cursor: "historical-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        }),
+      });
+
+      send(key);
+
+      expect(lastFrameOf(ws, "input")).toBeTruthy();
+      const liveRequest = lastFrameOf(ws, "viewport");
+      expect(Number(liveRequest?.requestId)).toBeGreaterThan(initialRequestId);
+      expect(liveRequest).not.toHaveProperty("cursor");
+    } finally {
+      conn.release(key);
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("wires the Enter handler through ensure() (cr mode): sends \\x1b\\r on Shift+Enter and cancels the default", () => {
@@ -395,31 +1041,34 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.release("cell-mouse");
   });
 
-  // The swallowed modes describe ONE session. An app that dies without sending DECRST would
-  // otherwise leave the slot believing the next app wants mouse reports, and that app's wheel
-  // would deliver escape bytes instead of scrolling — the #729 noise, one layer over (#737).
-  it("forgets swallowed mouse modes when the session is replaced, so the wheel guard doesn't leak across a reconnect", () => {
+  it("routes wheel through generic Core intent regardless of swallowed click modes", () => {
     vi.useFakeTimers();
     mockTermState.csiHandlers = [];
     mockTermState.input = [];
     mockTermState.bufferType = "alternate";
     mockTermState.wheelHandler = () => true;
     conn.attach("cell-race", target(null), { onSession: vi.fn(), onCwd: vi.fn() }, document.createElement("div"));
+    const first = FakeWebSocket.instances.at(-1);
+    first?.onopen?.();
 
     const decset = mockTermState.csiHandlers.find(([id]) => (id as { final: string }).final === "h")?.[1] as (p: (number | number[])[]) => boolean;
     decset([1002, 1006]); // the app asks for drag tracking + SGR: swallowed, and remembered
     const wheel = mockTermState.wheelHandler;
     expect(wheel({ deltaY: 1, preventDefault: () => {} })).toBe(false);
-    expect(mockTermState.input).toEqual(["\x1b[<65;1;1M"]);
+    expect(mockTermState.input).toEqual([]);
+    expect(first?.sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "scroll")).toBe(true);
 
     // The app dies WITHOUT the matching DECRST and the socket drops; the slot reconnects.
     FakeWebSocket.instances.at(-1)?.onclose?.();
     vi.advanceTimersByTime(10_000);
     mockTermState.input = [];
 
-    // A later alt-buffer app that never asked for tracking keeps xterm's own scrolling.
-    expect(wheel({ deltaY: 1, preventDefault: () => {} })).toBe(true);
+    // A later app still uses generic intent; no browser-side mouse encoding is restored.
+    const second = FakeWebSocket.instances.at(-1);
+    second?.onopen?.();
+    expect(wheel({ deltaY: 1, preventDefault: () => {} })).toBe(false);
     expect(mockTermState.input).toEqual([]);
+    expect(second?.sent.map((frame) => JSON.parse(frame)).some((frame) => frame.type === "scroll")).toBe(true);
     vi.useRealTimers();
   });
 
@@ -597,6 +1246,21 @@ describe("a keystroke with nowhere to go tells the view", () => {
     mockTermState.emitData("h");
     mockTermState.emitData("i");
 
+    expect(onInputDropped).toHaveBeenCalledOnce();
+  });
+
+  it("still reports typed activity while the socket is reconnecting", () => {
+    const onInput = vi.fn();
+    const onInputDropped = vi.fn();
+    conn.attach(KEY, target(null), { onInput, onInputDropped }, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("no socket created");
+    ws.onopen?.();
+    ws.close();
+
+    mockTermState.emitData("h");
+
+    expect(onInput).toHaveBeenCalledOnce();
     expect(onInputDropped).toHaveBeenCalledOnce();
   });
 

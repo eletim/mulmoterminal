@@ -442,6 +442,12 @@ tmux is required because the dedicated tmux server, accessed through
 `tmux-session-core-ts`, is the sole source of truth for terminal existence. An explicit
 close (a cell's ✕) deletes the Core/tmux session. Command-cell scripts are ephemeral.
 
+Terminal scrolling uses that same persistent-session API rather than tmux's UI controls. Each
+browser viewer holds its own opaque viewport cursor, so one tab can inspect Shell history while
+another remains live. Wheel gestures become generic up/down row intent; Core decides whether to
+navigate history or forward scrolling to a full-screen application. Reconnect starts live, and
+history remains available even when it is older than the bounded WebSocket replay tail.
+
 **Installing tmux**:
 
 ```bash
@@ -1551,10 +1557,11 @@ Key rules:
   removes membership. Both running and exited sessions can be deleted.
 - **Activity is display-only.** `working`, `waiting`, prompts, responses, sound,
   and Web Push do not control membership, viewer lifetime, Stop, or Delete.
-- **One live viewer per session**: a session is bound to a single socket. Opening
-  it in a second place (another tab, or another grid cell pointed at the same dir)
-  attaches there and **supersedes** the first viewer, which detaches. Viewer
-  occupancy affects only where a session can be opened, never whether it exists.
+- **Viewers are independent.** Multiple browser tabs can attach to one session and
+  keep separate opaque viewport cursors (for example, one reading history while
+  another stays live). The primary viewer owns the session's terminal geometry;
+  secondary xterms are synchronized to that shared size. Viewer occupancy affects
+  only where a session can be opened, never whether it exists.
 - **History is resume data only.** Resuming a transcript or rollout creates a new
   Core session; history by itself is not a live terminal.
 - **Background workers get their own filter.** A session nobody started by hand —
