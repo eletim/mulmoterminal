@@ -226,6 +226,7 @@ interface Conn {
   returningToLive: boolean;
   viewportRequested: boolean;
   viewportInFlight: boolean;
+  viewportTargetLive: boolean;
   viewportRefreshPending: boolean;
   viewportRequestId: number;
   scrollInFlight: boolean;
@@ -518,42 +519,38 @@ function observeShellInput(c: Conn, data: string): void {
 // each keystroke, so input always targets the live socket). The Enter-family key handler
 // rides the same socket: keys whose bytes differ from xterm's native \r (per the user's
 // Claude-scoped `terminalSubmit` mapping) are sent by us and the default \r suppressed.
+function prepareTypedInput(c: Conn): boolean {
+  const returnFromHistory = !c.viewportLive || (c.viewportInFlight && c.viewportTargetLive);
+  c.viewportCursor = null;
+  c.viewportLive = !returnFromHistory;
+  c.returningToLive = returnFromHistory;
+  c.viewportRequestId++;
+  c.viewportInFlight = false;
+  c.viewportTargetLive = false;
+  c.viewportRefreshPending = false;
+  c.scrollRequestId++;
+  c.scrollInFlight = false;
+  c.pendingScroll = null;
+  c.handlers.onInput?.();
+  // Typing is the only chance an otherwise idle cell gets to detect a corrupt xterm buffer (#846).
+  guardBufferHealth(c);
+  return returnFromHistory;
+}
+
+function sendAttachedInput(c: Conn, socket: WebSocket, data: string): void {
+  const returnFromHistory = isTypedInput(data) && prepareTypedInput(c);
+  socket.send(JSON.stringify({ type: "input", data }));
+  if (returnFromHistory) requestViewport(c);
+}
+
 function wireTerminalInput(term: Terminal, c: Conn): void {
   const send = (data: string): void => {
     if (!c.inputEnabled) return;
     const typed = isTypedInput(data);
-    const returnFromHistory = typed && !c.viewportLive;
     observeShellInput(c, data);
-    // Announced even when the socket is down: the user typed either way, and what a parked cell
-    // reads it for (#992) is "someone is using this", not "the PTY received it".
-    //
-    // Pointer and focus reports ride this same function — the app feeds its own clicks and wheel
-    // through `term.input()` — so they have to be excluded here or clicking a parked cell to READ
-    // it would wake it, which is the one thing parking is for.
-    if (typed) {
-      // Interactive input returns this viewer to live, while the bytes still travel through the
-      // attached PTY (#193). A historical snapshot stays read-only until Core replaces it.
-      c.viewportCursor = null;
-      c.viewportLive = !returnFromHistory;
-      c.returningToLive = returnFromHistory;
-      c.viewportRequestId++;
-      c.viewportInFlight = false;
-      c.viewportRefreshPending = false;
-      c.scrollRequestId++;
-      c.scrollInFlight = false;
-      c.pendingScroll = null;
-      c.handlers.onInput?.();
-      // Someone typing is the ONLY sign of life an idle cell gets, so it is also the only chance to
-      // notice that its terminal is dead. guardBufferHealth's other two callers are a fit and an
-      // incoming output frame, and #846 strands a cell where neither ever runs again: the keystroke
-      // reaches the pty, the reply lands in a write queue xterm will never drain, and the screen
-      // stays frozen. Nothing resizes it, nothing renders, so the cell sits dead until a reload —
-      // while the person in front of it types and reads it as "input is broken".
-      guardBufferHealth(c);
-    }
+    // Pointer and focus reports share the raw path but are excluded from activity/live transitions.
     if (c.ws && c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(JSON.stringify({ type: "input", data }));
-      if (returnFromHistory) requestViewport(c);
+      sendAttachedInput(c, c.ws, data);
     } else if (typed) {
       // A keystroke with nowhere to go is dropped in silence — the status pill is the only sign,
       // and a filmstrip cell doesn't render one. Say so once per disconnected stretch, so "I typed
@@ -711,6 +708,7 @@ function requestViewport(c: Conn): void {
   }
   c.viewportRequested = true;
   c.viewportInFlight = true;
+  c.viewportTargetLive = !c.viewportCursor;
   const requestId = ++c.viewportRequestId;
   c.ws.send(JSON.stringify({ type: "viewport", requestId, rows: c.term.rows, ...(c.viewportCursor ? { cursor: c.viewportCursor } : {}) }));
 }
@@ -773,6 +771,7 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     returningToLive: false,
     viewportRequested: false,
     viewportInFlight: false,
+    viewportTargetLive: false,
     viewportRefreshPending: false,
     viewportRequestId: 0,
     scrollInFlight: false,
@@ -856,6 +855,7 @@ function connect(c: Conn) {
   c.returningToLive = false;
   c.viewportRequested = false;
   c.viewportInFlight = false;
+  c.viewportTargetLive = false;
   c.viewportRefreshPending = false;
   c.viewportRequestId++;
   c.scrollInFlight = false;
@@ -944,10 +944,11 @@ function applyTerminalFrame(c: Conn, msg: Record<string, unknown>): void {
 
 function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
   if (msg.requestId !== c.viewportRequestId) return;
-  const returningToLive = c.returningToLive;
+  const targetLive = c.viewportTargetLive;
   c.viewportInFlight = false;
   if (!applyViewport(c, msg.viewport)) {
     c.returningToLive = false;
+    c.viewportTargetLive = false;
     c.viewportCursor = null;
     c.viewportLive = true;
     c.term.reset();
@@ -955,13 +956,14 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
   }
   if (c.viewportRefreshPending) {
     c.viewportRefreshPending = false;
-    if (returningToLive) {
+    if (targetLive) {
       c.viewportCursor = null;
       c.viewportLive = false;
     }
     requestViewport(c);
   } else {
     c.returningToLive = false;
+    c.viewportTargetLive = false;
     sendPendingScroll(c);
   }
 }
@@ -985,6 +987,7 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
   c.viewportLive = true;
   if (viewportError) {
     c.viewportInFlight = false;
+    c.viewportTargetLive = false;
     c.viewportRefreshPending = false;
     if (returningToLive) c.term.reset();
     sendPendingScroll(c);
@@ -1016,11 +1019,12 @@ function handleMessage(c: Conn, event: MessageEvent) {
       if (c.viewportLive) {
         // A live cursor describes the snapshot that was captured, not the output now arriving.
         // Drop it so the next wheel is resolved against Core's current foreground state.
+        if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
         c.viewportCursor = null;
         c.term.write(data, () => appendShellOutput(c, data));
       } else {
         appendShellOutput(c, data);
-        if (c.returningToLive && c.viewportInFlight) c.viewportRefreshPending = true;
+        if (c.viewportInFlight && c.viewportTargetLive) c.viewportRefreshPending = true;
       }
     }
   } else if (msg.type === "session") {
@@ -1163,10 +1167,10 @@ export function submitText(key: string, text: string): boolean {
   }
   const submit = submitBytesFor(c);
   const inputGeneration = c.inputGeneration;
-  sock.send(JSON.stringify({ type: "input", data: submittableFor(c, text) }));
+  sendAttachedInput(c, sock, submittableFor(c, text));
   setTimeout(() => {
     if (c.inputEnabled && c.inputGeneration === inputGeneration && c.ws === sock && sock.readyState === WebSocket.OPEN) {
-      sock.send(JSON.stringify({ type: "input", data: submit }));
+      sendAttachedInput(c, sock, submit);
     }
   }, 60);
   return true;
@@ -1183,11 +1187,12 @@ export function pasteText(key: string, text: string): boolean {
   const c = conns.get(key);
   // Empty text is not a dropped paste — there was nothing to deliver, so it stays silent (#1315).
   if (!text || !c || !c.inputEnabled) return false;
-  if (c.ws?.readyState !== WebSocket.OPEN) {
+  const sock = c.ws;
+  if (!sock || sock.readyState !== WebSocket.OPEN) {
     reportDroppedInput(c);
     return false;
   }
-  c.ws.send(JSON.stringify({ type: "input", data: `${PASTE_START}${text}${PASTE_END}` }));
+  sendAttachedInput(c, sock, `${PASTE_START}${text}${PASTE_END}`);
   c.term.focus();
   return true;
 }
@@ -1210,10 +1215,10 @@ export function pasteAndSubmit(key: string, text: string): boolean {
   const inputGeneration = c.inputGeneration;
   // The guard's space rides INSIDE the paste, where the TUI takes it as text — after the
   // terminator it would be a keystroke, and an open completion menu is what reads those (#1142).
-  sock.send(JSON.stringify({ type: "input", data: `${PASTE_START}${submittableFor(c, text)}${PASTE_END}` }));
+  sendAttachedInput(c, sock, `${PASTE_START}${submittableFor(c, text)}${PASTE_END}`);
   setTimeout(() => {
     if (c.inputEnabled && c.inputGeneration === inputGeneration && c.ws === sock && sock.readyState === WebSocket.OPEN) {
-      sock.send(JSON.stringify({ type: "input", data: submit }));
+      sendAttachedInput(c, sock, submit);
     }
   }, PASTE_SUBMIT_MS);
   return true;
@@ -1245,7 +1250,7 @@ export function insertText(key: string, text: string) {
   // The quietest of the GUI paths: what arrives here was dictated, dropped or pasted, so the user
   // is watching for text to appear in the input box rather than for a reply (#1315).
   if (c.ws?.readyState === WebSocket.OPEN) {
-    c.ws.send(JSON.stringify({ type: "input", data: text }));
+    sendAttachedInput(c, c.ws, text);
   } else {
     reportDroppedInput(c);
   }

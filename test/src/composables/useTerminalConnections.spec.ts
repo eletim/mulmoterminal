@@ -137,6 +137,39 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     conn.release("viewer-live-output");
   });
 
+  it("recaptures live when PTY output races an initial viewport response", () => {
+    conn.attach("viewer-capture-race", target("shared-session"), {}, document.createElement("div"));
+    const ws = FakeWebSocket.instances.at(-1);
+    if (!ws) throw new Error("viewer socket missing");
+    ws.onopen?.();
+    const firstRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+
+    ws.onmessage?.({ data: JSON.stringify({ type: "output", data: "newer output" }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "viewport",
+        requestId: firstRequestId,
+        viewport: {
+          content: "older capture",
+          cursor: "older-cursor",
+          live: true,
+          cols: 80,
+          screenRows: 24,
+          viewportRows: 24,
+          historyRows: 100,
+          historyLimit: 20_000,
+          clamped: false,
+          rebased: false,
+        },
+      }),
+    });
+
+    const retry = lastFrameOf(ws, "viewport");
+    expect(Number(retry?.requestId)).toBeGreaterThan(firstRequestId);
+    expect(retry).not.toHaveProperty("cursor");
+    conn.release("viewer-capture-race");
+  });
+
   it("drops the browser-local cursor on reconnect and resumes from live", () => {
     conn.attach("viewer-reconnect", target("shared-session"), {}, document.createElement("div"));
     const first = FakeWebSocket.instances.at(-1);
@@ -272,6 +305,52 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     mockTermState.wheelHandler({ deltaY: -120, preventDefault: vi.fn() });
     expect(lastFrameOf(ws, "scroll")?.cursor).toBe("fresh-live-cursor");
     conn.release("viewer-input-race");
+  });
+
+  it.each([
+    ["submitText", (key: string) => conn.submitText(key, "hello")],
+    ["pasteText", (key: string) => conn.pasteText(key, "hello")],
+    ["pasteAndSubmit", (key: string) => conn.pasteAndSubmit(key, "hello")],
+    ["insertText", (key: string) => conn.insertText(key, "hello")],
+  ])("returns a historical viewer to live for programmatic %s input", (_label, send) => {
+    vi.useFakeTimers();
+    const key = `viewer-programmatic-${_label}`;
+    try {
+      conn.attach(key, target("shared-session"), {}, document.createElement("div"));
+      const ws = FakeWebSocket.instances.at(-1);
+      if (!ws) throw new Error("viewer socket missing");
+      ws.onopen?.();
+      const initialRequestId = Number(lastFrameOf(ws, "viewport")?.requestId);
+      ws.onmessage?.({
+        data: JSON.stringify({
+          type: "viewport",
+          requestId: initialRequestId,
+          viewport: {
+            content: "history",
+            cursor: "historical-cursor",
+            live: false,
+            cols: 80,
+            screenRows: 24,
+            viewportRows: 24,
+            historyRows: 100,
+            historyLimit: 20_000,
+            clamped: false,
+            rebased: false,
+          },
+        }),
+      });
+
+      send(key);
+
+      expect(lastFrameOf(ws, "input")).toBeTruthy();
+      const liveRequest = lastFrameOf(ws, "viewport");
+      expect(Number(liveRequest?.requestId)).toBeGreaterThan(initialRequestId);
+      expect(liveRequest).not.toHaveProperty("cursor");
+    } finally {
+      conn.release(key);
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("wires the Enter handler through ensure() (cr mode): sends \\x1b\\r on Shift+Enter and cancels the default", () => {
