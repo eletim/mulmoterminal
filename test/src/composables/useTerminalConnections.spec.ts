@@ -264,6 +264,19 @@ describe("useTerminalConnections — detached-slot state replay", () => {
     }
     expect(mockTermState.writes).toHaveLength(writeCount);
     expect(ws.sent.filter((frame) => JSON.parse(frame).type === "scroll")).toHaveLength(socketScrollCount);
+
+    mockTermState.emitScroll(0);
+    const prefetch = lastFrameOf(ws, "scroll");
+    mockTermState.emitScroll(48);
+    const viewportCount = ws.sent.filter((frame) => JSON.parse(frame).type === "viewport").length;
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "scroll-result",
+        requestId: prefetch?.requestId,
+        result: { kind: "viewport", viewport: viewportFrame(0, "prefetched", false).viewport },
+      }),
+    });
+    expect(ws.sent.filter((frame) => JSON.parse(frame).type === "viewport")).toHaveLength(viewportCount + 1);
     conn.release(key);
   });
 

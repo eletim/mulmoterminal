@@ -1287,6 +1287,11 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
     return;
   }
   if (purpose !== "user") {
+    if (c.viewportRefreshPending) {
+      c.viewportRefreshPending = false;
+      requestViewport(c);
+      return;
+    }
     const viewport =
       typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport" && "viewport" in msg.result
         ? terminalViewportOf(msg.result.viewport)
@@ -1372,6 +1377,11 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
     c.scrollRefreshPending = false;
     if (c.geometryRefreshPending) {
       c.geometryRefreshPending = false;
+      requestViewport(c);
+      return;
+    }
+    if (c.viewportRefreshPending) {
+      c.viewportRefreshPending = false;
       requestViewport(c);
       return;
     }
