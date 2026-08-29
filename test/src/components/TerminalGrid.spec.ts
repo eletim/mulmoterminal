@@ -222,14 +222,14 @@ describe("TerminalGrid command cells", () => {
   });
 
   it("polls and reports PR phase for an active persistent launcher cell", async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ phase: "in-review" }) }) as Response);
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ phase: "ci-running" }) }) as Response);
     vi.stubGlobal("fetch", fetchMock);
     const launcher: Cell = { uid: 4, session: "shell-session", cwd: "/work/shell", launcher: { shell: true, label: "shell" } };
     const w = mountGrid([launcher], null, null, false, 4);
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith("/api/pr-phase?cwd=%2Fwork%2Fshell");
-    expect(w.emitted("phase")).toEqual([[4, "in-review"]]);
+    expect(w.emitted("phase")).toEqual([[4, "ci-running"]]);
   });
 
   it("re-emits 'run' from a launcher tagged with the cell uid", () => {
