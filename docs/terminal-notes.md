@@ -110,12 +110,16 @@ change one and change the other (#834).
   alternate-screen scrolling. The browser never enters copy-mode and never inspects tmux modes.
 - `viewport()` supplies the initial/live screen and historical physical rows. Each browser `Conn`
   keeps a disposable cache of at most five chunks, where one chunk is the xterm's current visible
-  row count. Two older chunks are fetched after the live screen; wheel movement inside those rows
-  only selects and redraws a local range after Core has classified the first live-boundary gesture
-  as viewport navigation. That one classification request is necessary because the current API
-  exposes foreground TUI ownership only as a `scroll()` result. Crossing the one-chunk boundary
-  starts a cursor-based older/newer prefetch. The initial older seek uses Core's side-effect-free
-  fraction target so it cannot accidentally deliver a wheel event to a foreground TUI.
+  row count. Two older chunks are fetched after the live screen. After Core classifies the first
+  live-boundary gesture as viewport navigation, the cached window is parsed into xterm's normal
+  buffer once and ordinary wheel movement uses xterm's own scrollback. `onScroll` keeps the cache
+  anchor synchronized without rewriting a snapshot per event. A newly prepended/appended chunk
+  rebuilds that bounded window once; returning to live asks Core for one authoritative viewport so
+  the active TUI buffer/modes are restored. That first classification request is necessary because
+  the current API exposes foreground TUI ownership only as a `scroll()` result. Crossing the
+  one-chunk boundary starts a cursor-based older/newer prefetch. The initial older seek uses Core's
+  side-effect-free fraction target so it cannot accidentally deliver a wheel event to a foreground
+  TUI.
 - Every cached boundary cursor remains an opaque string: it is never decoded, changed, persisted,
   or placed in server state. Two tabs therefore have independent caches and positions. Reconnect
   and resize discard the cache and start with the new live geometry. A `rebased`/`clamped` result
@@ -345,7 +349,7 @@ looking) — flag them for QA on the release.
 | OSC 52 clipboard | tmux `Ms` override + `set-clipboard on` present (`planMsOverride`) | Claude auto-copy reaches the browser clipboard |
 | File-path links | `registerFilePathLinks` order vs WebLinks; `/api/files/raw` cwd containment | click a generated file path → previews the file |
 | Enter / newline | `terminalSubmit` mapping + `isComposing` guard; `macOptionIsMeta` | Enter submits, Shift+Enter newlines; IME confirm not eaten; both `cr` and `esc-cr` |
-| Mouse / wheel | `wireGenericWheel` sends direction/rows/cell to Core; `guardMouseTracking` remains only for click/selection handling; `wheelNotches` accumulates trackpad deltas | wheel scrolls transcript (not prompt history); drag selects, doesn't emit mouse reports; a trackpad swipe moves a TUI about as far as it moves the scrollback |
+| Mouse / wheel | `wireGenericWheel` sends direction/rows/cell to Core until history is classified; a rendered cache window uses xterm scrollback + public `onScroll`; `guardMouseTracking` remains only for click/selection handling | wheel scrolls transcript (not prompt history); cache-local wheel does not parse a new snapshot; drag selects, doesn't emit mouse reports; a trackpad swipe moves a TUI about as far as it moves the scrollback |
 | Reattach | the browser drops its opaque cursor and requests a live Core viewport; replay and `tmuxTerminalModes` remain for raw terminal interaction, not as scroll history | reattaching a session doesn't leak terminal-query replies; history remains available after output exceeds the replay bound; the returned Core viewport is coherent (#1073) |
 
 **Fast isolation techniques** (learned the hard way):

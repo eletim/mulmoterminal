@@ -241,6 +241,9 @@ interface Conn {
   viewportCacheCols: number;
   viewportCacheDirty: boolean;
   viewportCacheNavigable: boolean;
+  viewportCacheRendered: boolean;
+  viewportCacheBuilding: boolean;
+  viewportCacheBuildId: number;
   viewportCacheHistoryRows: number;
   returningToLive: boolean;
   viewportRequested: boolean;
@@ -303,6 +306,9 @@ function fitAndSyncSize(c: Conn): void {
     c.viewportCacheCols = c.term.cols;
     c.viewportCacheDirty = false;
     c.viewportCacheNavigable = false;
+    c.viewportCacheRendered = false;
+    c.viewportCacheBuilding = false;
+    c.viewportCacheBuildId++;
     c.viewportCursor = null;
     c.viewportLive = false;
     requestViewport(c);
@@ -560,6 +566,9 @@ function prepareTypedInput(c: Conn): boolean {
   c.viewportCache.reset();
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
+  c.viewportCacheRendered = false;
+  c.viewportCacheBuilding = false;
+  c.viewportCacheBuildId++;
   c.viewportLive = !returnFromHistory;
   c.returningToLive = returnFromHistory;
   c.viewportRequestId++;
@@ -718,8 +727,58 @@ function persistentViewportEnabled(c: Conn): boolean {
   return !c.target.command;
 }
 
+function returnToLiveFromRenderedCache(c: Conn): void {
+  c.viewportCacheRendered = false;
+  c.viewportCacheBuilding = false;
+  c.viewportCacheBuildId++;
+  c.viewportCursor = null;
+  c.viewportLive = false;
+  c.returningToLive = true;
+  requestViewport(c);
+}
+
 function renderCachedViewport(c: Conn): void {
-  c.term.write(viewportRenderData(c.viewportCache.content()));
+  if (c.viewportCache.atLiveBoundary) {
+    returnToLiveFromRenderedCache(c);
+    return;
+  }
+  if (c.viewportCacheRendered) {
+    if (c.viewportCacheBuilding) return;
+    c.term.scrollToLine(c.viewportCache.rowsBefore);
+    c.term.refresh(0, c.term.rows - 1);
+    return;
+  }
+  c.viewportCacheRendered = true;
+  c.viewportCacheBuilding = true;
+  const buildId = ++c.viewportCacheBuildId;
+  // History needs xterm's normal buffer: the alternate buffer has no scrollback. ED 3 clears
+  // any old normal-buffer scrollback before this cache window is written once; all movement
+  // inside the window then stays on xterm's public local-scroll API.
+  c.term.write(viewportRenderData(c.viewportCache.renderContent(), "\x1b[?1049l\x1b[3J"), () => {
+    if (buildId !== c.viewportCacheBuildId) return;
+    c.viewportCacheBuilding = false;
+    if (c.viewportCacheRendered) {
+      c.term.scrollToLine(c.viewportCache.rowsBefore);
+      c.term.refresh(0, c.term.rows - 1);
+    }
+  });
+}
+
+function rebuildRenderedViewportCache(c: Conn): void {
+  if (!c.viewportCacheRendered) return;
+  c.viewportCacheRendered = false;
+  renderCachedViewport(c);
+}
+
+function syncRenderedViewportScroll(c: Conn, line: number): void {
+  if (!c.viewportCacheRendered || c.viewportCacheBuilding || c.viewportCache.empty || c.viewportCacheDirty) return;
+  const lines = line - c.viewportCache.rowsBefore;
+  if (lines === 0 || !c.viewportCache.move(lines)) return;
+  const anchor = c.viewportCache.anchor;
+  c.viewportCursor = anchor?.cursor ?? null;
+  c.viewportLive = c.viewportCache.atLiveBoundary;
+  if (c.viewportLive) returnToLiveFromRenderedCache(c);
+  else requestCachePrefetch(c);
 }
 
 function requestCachePrefetch(c: Conn): void {
@@ -764,6 +823,9 @@ function scrollRemainderFromCacheBoundary(c: Conn, lines: number): number {
   c.viewportCursor = cursor;
   c.viewportLive = false;
   c.viewportCache.reset();
+  c.viewportCacheRendered = false;
+  c.viewportCacheBuilding = false;
+  c.viewportCacheBuildId++;
   return remainder;
 }
 
@@ -776,6 +838,9 @@ function discardDirtyCacheFromAnchor(c: Conn, lines: number): number {
   c.viewportCache.reset();
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
+  c.viewportCacheRendered = false;
+  c.viewportCacheBuilding = false;
+  c.viewportCacheBuildId++;
   return lines + anchor.offset;
 }
 
@@ -873,6 +938,7 @@ function requestViewport(c: Conn, options: { fraction?: number; purpose?: "displ
 function wireTerminalToConn(term: Terminal, c: Conn): void {
   registerFilePathLinks(term, c);
   wireTerminalInput(term, c);
+  term.onScroll((line) => syncRenderedViewportScroll(c, line));
   wireGenericWheel(
     term,
     () => persistentViewportEnabled(c),
@@ -930,6 +996,9 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     viewportCacheCols: term.cols,
     viewportCacheDirty: false,
     viewportCacheNavigable: false,
+    viewportCacheRendered: false,
+    viewportCacheBuilding: false,
+    viewportCacheBuildId: 0,
     viewportCacheHistoryRows: 0,
     returningToLive: false,
     viewportRequested: false,
@@ -1026,6 +1095,9 @@ function connect(c: Conn) {
   c.viewportCacheCols = c.term.cols;
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
+  c.viewportCacheRendered = false;
+  c.viewportCacheBuilding = false;
+  c.viewportCacheBuildId++;
   c.viewportCacheHistoryRows = 0;
   c.returningToLive = false;
   c.viewportRequested = false;
@@ -1122,8 +1194,14 @@ function applyViewport(c: Conn, value: unknown): boolean {
   c.viewportCache.reset(viewport);
   c.viewportCacheDirty = false;
   c.viewportCacheNavigable = false;
+  c.viewportCacheRendered = false;
+  c.viewportCacheBuilding = false;
+  c.viewportCacheBuildId++;
   c.viewportCacheHistoryRows = viewport.historyRows;
-  c.term.write(viewportRenderData(viewport.content, viewport.restore));
+  const followLiveBottom = viewport.live && c.returningToLive;
+  c.term.write(viewportRenderData(viewport.content, viewport.restore), () => {
+    if (followLiveBottom) c.term.scrollToBottom();
+  });
   return true;
 }
 
@@ -1161,6 +1239,7 @@ function finishViewportRequest(c: Conn, msg: Record<string, unknown>): void {
       return;
     }
     c.viewportCache.prepend(viewport);
+    rebuildRenderedViewportCache(c);
     if (prefetchDistance < 2) scheduleInitialPrefetch(c, prefetchDistance + 1);
     else requestCachePrefetch(c);
     return;
@@ -1208,6 +1287,11 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
     return;
   }
   if (purpose !== "user") {
+    if (c.viewportRefreshPending) {
+      c.viewportRefreshPending = false;
+      requestViewport(c);
+      return;
+    }
     const viewport =
       typeof msg.result === "object" && msg.result !== null && "kind" in msg.result && msg.result.kind === "viewport" && "viewport" in msg.result
         ? terminalViewportOf(msg.result.viewport)
@@ -1220,8 +1304,10 @@ function finishScrollRequest(c: Conn, msg: Record<string, unknown>): void {
         c.viewportCacheNavigable = false;
       } else if (purpose === "prefetch-older") {
         c.viewportCache.prepend(viewport);
+        rebuildRenderedViewportCache(c);
       } else {
         c.viewportCache.append(viewport);
+        rebuildRenderedViewportCache(c);
       }
     }
     if (drainPendingScrollFromCache(c)) return;
@@ -1294,6 +1380,11 @@ function finishCoreError(c: Conn, msg: Record<string, unknown>): void {
       requestViewport(c);
       return;
     }
+    if (c.viewportRefreshPending) {
+      c.viewportRefreshPending = false;
+      requestViewport(c);
+      return;
+    }
     if (drainPendingScrollFromCache(c)) return;
     if (c.pendingScroll) {
       c.pendingScroll.lines = c.viewportCacheDirty
@@ -1351,6 +1442,9 @@ function handleMessage(c: Conn, event: MessageEvent) {
     c.viewportCacheCols = msg.cols;
     c.viewportCacheDirty = false;
     c.viewportCacheNavigable = false;
+    c.viewportCacheRendered = false;
+    c.viewportCacheBuilding = false;
+    c.viewportCacheBuildId++;
     const captureInFlight = c.viewportInFlight || c.scrollInFlight;
     c.viewportCursor = null;
     c.viewportLive = false;
@@ -1377,6 +1471,9 @@ function handleMessage(c: Conn, event: MessageEvent) {
         c.viewportCache.reset();
         c.viewportCacheDirty = true;
         c.viewportCacheNavigable = false;
+        c.viewportCacheRendered = false;
+        c.viewportCacheBuilding = false;
+        c.viewportCacheBuildId++;
         c.term.write(data, () => appendShellOutput(c, data));
       } else {
         observeSuppressedOutput(c, data);
