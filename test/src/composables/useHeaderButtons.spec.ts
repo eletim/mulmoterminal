@@ -11,7 +11,12 @@ function withSetup<T>(composable: () => T): { result: T; unmount: () => void } {
 }
 
 const jsonResponse = (body: unknown) => ({ ok: true, json: () => Promise.resolve(body) }) as unknown as Response;
-const params = (cwd: string | null) => ({ cwd: ref(cwd), session: ref<string | null>(null), agent: ref<"claude" | "codex">("claude") });
+const params = (cwd: string | null) => ({
+  cwd: ref(cwd),
+  session: ref<string | null>(null),
+  agent: ref<"claude" | "codex">("claude"),
+  active: ref(true),
+});
 
 describe("useHeaderButtons", () => {
   afterEach(() => vi.unstubAllGlobals());

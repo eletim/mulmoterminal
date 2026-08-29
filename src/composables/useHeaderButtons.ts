@@ -1,10 +1,9 @@
-// Fetches a terminal's resolved header (action buttons + display chips) from GET /api/header —
-// the server merges global + per-dir config and substitutes this session's live context (branch,
-// dirty, model, …). Re-fetches when the dir/session/agent change or the window regains focus, so
-// ${branch}/${dirty} etc. stay current. `chips: null` means unconfigured (the client keeps its
+// Fetches the active terminal's resolved header (action buttons + display chips) from
+// GET /api/header. Activation and context changes refresh immediately, then the same 10s lifecycle
+// as git/PR keeps substitutions current. `chips: null` means unconfigured (the client keeps its
 // default header); an empty `buttons` array means nothing extra is shown.
 import { ref, type Ref } from "vue";
-import { useAutoRefresh } from "./useAutoRefresh";
+import { useActiveRepoPolling } from "./useActiveRepoPolling";
 import type { TerminalAgent } from "../../common/sessionAgent";
 import { isRecord, optionalBoolean, optionalString } from "../../common/isRecord";
 import { isUnknownArray } from "../../common/isUnknownArray";
@@ -71,6 +70,7 @@ interface Params {
   session: Ref<string | null>;
   agent: Ref<TerminalAgent>;
   model?: Ref<string | null>;
+  active: Ref<boolean>;
 }
 
 export function useHeaderButtons(params: Params) {
@@ -79,6 +79,12 @@ export function useHeaderButtons(params: Params) {
   let requestSeq = 0;
 
   async function refresh(): Promise<void> {
+    // Invalidate the previous context before either early return. A cwd/session switch can race
+    // an older response just as it can for git/PR metadata.
+    const seq = ++requestSeq;
+    if (!params.active.value) {
+      return;
+    }
     const cwd = params.cwd.value;
     if (!cwd) {
       buttons.value = [];
@@ -88,7 +94,6 @@ export function useHeaderButtons(params: Params) {
     const query = new URLSearchParams({ cwd, agent: params.agent.value });
     if (params.session.value) query.set("session", params.session.value);
     if (params.model?.value) query.set("model", params.model.value);
-    const seq = ++requestSeq;
     try {
       const res = await fetch(`/api/header?${query.toString()}`);
       if (seq !== requestSeq) return;
@@ -104,7 +109,7 @@ export function useHeaderButtons(params: Params) {
     }
   }
 
-  useAutoRefresh(refresh, [params.cwd, params.session, params.agent, () => params.model?.value]);
+  useActiveRepoPolling(refresh, params.active, [params.cwd, params.session, params.agent, () => params.model?.value], () => ++requestSeq);
 
   return { buttons, chips, refresh };
 }

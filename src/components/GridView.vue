@@ -51,7 +51,7 @@ import { preferredLaunchDir } from "./launchDir";
 import * as conn from "../composables/useTerminalConnections";
 import { rosterCellsKey, staleCacheKeys } from "./rosterCache";
 import type { RunCommand } from "./runCommand";
-import { becameCiFailing, EMPTY_SESSION_META, isPrPhase, mergeSessionMeta, type PrPhase, type SessionMetaView } from "./rosterPhase";
+import { becameCiFailing, EMPTY_SESSION_META, mergeSessionMeta, type PrPhase, type SessionMetaView } from "./rosterPhase";
 import { notifySound } from "../composables/notifySound";
 import { useGridActivity } from "../composables/useGridActivity";
 import { registerNewTerminalHandler, type NewTerminalRequest } from "../composables/useNewTerminal";
@@ -204,6 +204,12 @@ const onStatus = (uid: number, s: AttentionStatus) => (statusByUid[uid] = s);
 // Which cell the cursor is in, reported up from the grid. Un-zoomed this is the only notion of
 // "the terminal I am on", so the keyboard shortcuts rotate from it.
 const focusedCellUid = ref<number | null>(null);
+const activeCellUid = computed(() => {
+  if (!onTerminalsRoute()) return null;
+  if (expandedUid.value !== null) return expandedUid.value;
+  if (focusedCellUid.value !== null && displayCells.value.some((cell) => cell.uid === focusedCellUid.value)) return focusedCellUid.value;
+  return displayCells.value[0]?.uid ?? null;
+});
 const sessionStatus = computed(() => {
   const m = new Map<string, AttentionStatus>();
   for (const [id, a] of gridActivity) m.set(id, activityStatus(a.working, a.waiting, a.event));
@@ -233,28 +239,18 @@ const sessionMeta = reactive(new Map<string, SessionMetaView>());
 // Session metadata is filled by the terminal WebSocket's initial snapshot and then merged
 // from the existing `sessions` change stream. It is deliberately not part of the roster poll.
 // The PR workflow phase per directory (GET /api/pr-phase), shown in the roster beside the
-// agent status. Keyed by cwd, not session — the phase is the branch's, so cells sharing a dir
-// share one fetch. Best-effort and cached server-side, so the roster poll can re-fetch cheaply.
+// agent status. Keyed by cwd, not session — the phase is the branch's. Only the active cell
+// fetches it; keeping the last reported phase lets the roster remain informative without polling
+// inactive directories.
 const phaseByCwd = reactive(new Map<string, PrPhase>());
-const latestPhaseSeed = new Map<string, number>();
-async function seedPhase(cwd: string) {
-  const seed = (latestPhaseSeed.get(cwd) ?? 0) + 1;
-  latestPhaseSeed.set(cwd, seed);
-  try {
-    const res = await fetch(`/api/pr-phase?cwd=${encodeURIComponent(cwd)}`);
-    if (!res.ok || latestPhaseSeed.get(cwd) !== seed) return;
-    const d: unknown = await res.json();
-    if (latestPhaseSeed.get(cwd) !== seed) return;
-    const phase = isRecord(d) ? d.phase : undefined;
-    if (isPrPhase(phase)) {
-      // Before the set, so the previous value is still the one to compare against.
-      if (becameCiFailing(phaseByCwd.get(cwd), phase)) notifySound("pr-ci-failed", cwd);
-      phaseByCwd.set(cwd, phase);
-    }
-  } catch {
-    // best-effort — the next poll retries
-  }
-}
+const repoCwd = (cell: Cell | undefined): string | null => cell?.cwd ?? cell?.command?.cwd ?? null;
+const onPhase = (uid: number, phase: PrPhase) => {
+  const cell = gridCells.value.find(({ uid: cellUid }) => cellUid === uid);
+  const cwd = repoCwd(cell);
+  if (!cwd) return;
+  if (becameCiFailing(phaseByCwd.get(cwd), phase)) notifySound("pr-ci-failed", cwd);
+  phaseByCwd.set(cwd, phase);
+};
 // Drop what no cell asks for any more, so a day of relaunching cells doesn't leave an entry
 // behind for every session the grid ever showed.
 // The directory chrome each roster row is tinted with — its configured header colour, so
@@ -297,12 +293,12 @@ onBeforeUnmount(unsubscribeDirConfig);
 const forgetClosedCells = () => {
   const sessions = new Set(gridCells.value.map((c) => c.session).filter((s): s is string => !!s));
   const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
+  const repoCwds = new Set(gridCells.value.map(repoCwd).filter((cwd): cwd is string => cwd !== null));
   staleCacheKeys(sessionMeta.keys(), sessions).forEach((id) => {
     sessionMeta.delete(id);
   });
-  staleCacheKeys(phaseByCwd.keys(), cwds).forEach((cwd) => {
+  staleCacheKeys(phaseByCwd.keys(), repoCwds).forEach((cwd) => {
     phaseByCwd.delete(cwd);
-    latestPhaseSeed.delete(cwd);
   });
   staleCacheKeys(chromeByCwd.keys(), cwds).forEach((cwd) => {
     chromeByCwd.delete(cwd);
@@ -322,14 +318,8 @@ watch(
   { immediate: true },
 );
 
-const refreshAllPhases = () => {
-  const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
-  cwds.forEach((cwd) => void seedPhase(cwd));
-};
-
 const refreshRoster = () => {
   forgetClosedCells();
-  refreshAllPhases();
   refreshAllChrome();
 };
 const ROSTER_POLL_MS = 4000;
@@ -374,6 +364,7 @@ const chromeOf = (cwd: string | null): RowChrome => (cwd ? chromeByCwd.get(cwd) 
 const rosterRow = (c: Cell): CockpitRow => {
   const meta = (c.session ? sessionMeta.get(c.session) : undefined) ?? EMPTY_SESSION_META;
   const chrome = chromeOf(c.cwd);
+  const phaseCwd = repoCwd(c);
   return {
     uid: c.uid,
     cwd: c.cwd,
@@ -384,7 +375,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     prompt: meta.lastPrompt,
     response: meta.lastResponse,
     fallback: fallbackLabel(c),
-    phase: (c.cwd ? phaseByCwd.get(c.cwd) : undefined) ?? NO_PR_PHASE,
+    phase: (phaseCwd ? phaseByCwd.get(phaseCwd) : undefined) ?? NO_PR_PHASE,
     workPhase: meta.workPhase,
     headerColor: chrome.headerColor,
     headerTextColor: chrome.headerTextColor,
@@ -772,6 +763,7 @@ onBeforeUnmount(detachSpawnedChat);
       class="flex-1 min-h-0 min-w-0"
       :cells="displayCells"
       :expanded-uid="expandedUid"
+      :active-uid="activeCellUid"
       :list-rows="listRows"
       :cancel-uid="cancelUid"
       :default-cwd="defaultCwd"
@@ -797,6 +789,7 @@ onBeforeUnmount(detachSpawnedChat);
       @launch="onLaunch"
       @move="onMove"
       @status="onStatus"
+      @phase="onPhase"
     />
     <div v-else class="flex-1 min-h-0 min-w-0 bg-base" aria-busy="true" data-testid="grid-restoring"></div>
     <footer v-if="noRunningTerminals" class="flex-none border-t border-border bg-panel px-4 py-2 text-center">

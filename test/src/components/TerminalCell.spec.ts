@@ -93,11 +93,13 @@ function mountCell(
     openCwds?: string[];
     expanded?: boolean;
     zoomed?: boolean;
+    active?: boolean;
   } = {},
 ) {
   return mount(TerminalCell, {
     props: {
       uid: 1,
+      active: opts.active ?? true,
       expanded: opts.expanded ?? false,
       zoomed: opts.zoomed ?? false,
       initialSessionId,

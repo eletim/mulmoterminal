@@ -110,6 +110,10 @@ export class TerminalViewportCache {
       .join("\n");
   }
 
+  renderContent(): string {
+    return this.allRows().join("\n");
+  }
+
   shouldPrefetchOlder(): boolean {
     return !this.empty && this.rowsBefore <= this.visibleRows * VIEWPORT_CACHE_PREFETCH_CHUNKS;
   }

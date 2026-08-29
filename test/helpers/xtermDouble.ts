@@ -39,6 +39,7 @@ export interface XtermTermState {
   hasSelection: boolean;
   selection: string;
   onSelectionChange: () => void;
+  emitScroll: (line: number) => void;
   helperTextarea: HTMLTextAreaElement | null;
   /** What xterm hands the manager for every chunk on its way to the PTY — keystrokes AND the
    *  pointer reports the app feeds back through `term.input()`. Captured so a test can push
@@ -51,7 +52,9 @@ export interface XtermTermState {
   bufferBaseY: number;
   bufferCursorY: number;
   bufferLines: string[];
+  writes: string[];
   resizes: Array<[number, number]>;
+  scrollToLines: number[];
   /** How many terminals the manager has constructed for this state. The rebuild (#846) is
    *  otherwise invisible from outside: it swaps `c.term` for a fresh one behind the slot key. */
   constructed: number;
@@ -68,6 +71,7 @@ export function createXtermState(): { termState: XtermTermState; keyState: Xterm
       hasSelection: false,
       selection: "",
       onSelectionChange: () => {},
+      emitScroll: () => {},
       helperTextarea: null,
       emitData: () => {},
       // rows is 24 below, so this is exactly a full screen with nothing scrolled off: short by
@@ -76,7 +80,9 @@ export function createXtermState(): { termState: XtermTermState; keyState: Xterm
       bufferBaseY: 0,
       bufferCursorY: 0,
       bufferLines: [],
+      writes: [],
       resizes: [],
+      scrollToLines: [],
       constructed: 0,
     },
     keyState: { handler: () => true },
@@ -143,6 +149,9 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
       onSelectionChange(fn: () => void) {
         termState.onSelectionChange = fn;
       }
+      onScroll(fn: (line: number) => void) {
+        termState.emitScroll = fn;
+      }
       getSelection() {
         return termState.selection;
       }
@@ -156,6 +165,7 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
       }
       write(data?: string, callback?: () => void) {
         if (typeof data === "string") {
+          termState.writes.push(data);
           const normalized = data.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r\n?/g, "\n");
           const chunks = normalized.split("\n");
           if (!termState.bufferLines.length) termState.bufferLines.push("");
@@ -169,6 +179,10 @@ export function xtermModule(termState: XtermTermState, keyState: XtermKeyState) 
       reset() {}
       focus() {}
       scrollToBottom() {}
+      scrollToLine(line: number) {
+        termState.scrollToLines.push(line);
+        termState.emitScroll(line);
+      }
       dispose() {}
     },
   };

@@ -125,8 +125,8 @@ const mountGrid = async () => {
 // A TerminalGrid stub that exposes the ordering props the roster/grid receive.
 const OrderStub = {
   name: "TerminalGrid",
-  props: ["cells", "listRows", "expandedUid", "reorderable"],
-  emits: ["session-state"],
+  props: ["cells", "listRows", "expandedUid", "activeUid", "reorderable"],
+  emits: ["session-state", "phase", "runSpare"],
   template: '<div class="order-stub" />',
 };
 
@@ -208,6 +208,45 @@ describe("GridView roster ordering (#720)", () => {
     const rows = w.findComponent(OrderStub).props("listRows");
     expect(rows.map((r: { parked: boolean }) => r.parked)).toEqual([false, true]);
     w.unmount();
+  });
+
+  it("updates the roster phase from the active cell instead of polling every cwd", async () => {
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 20, session: IDS.idleA, cwd: "/repo" }], expanded: 20, page: 0, sortMode: "manual" }));
+    const w = mount(GridView, {
+      global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+    });
+    await flushPromises();
+    const grid = w.findComponent(OrderStub);
+    grid.vm.$emit("phase", 0, "ready");
+    await flushPromises();
+    expect(grid.props("listRows")[0].phase).toBe("ready");
+    w.unmount();
+  });
+
+  it("applies an active command cell phase using the command cwd", async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 20, session: IDS.idleA, cwd: "/repo" }], expanded: 20, page: 0, sortMode: "manual" }));
+      const w = mount(GridView, {
+        global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+      });
+      await flushPromises();
+      const grid = w.findComponent(OrderStub);
+      grid.vm.$emit("runSpare", 0, { source: "script", index: 1, label: "Build", cwd: "/command-repo" });
+      await flushPromises();
+      const command = grid.props("cells").find((cell: { command?: unknown }) => cell.command);
+
+      grid.vm.$emit("phase", command.uid, "ready");
+      await flushPromises();
+      expect(grid.props("listRows").find((row: { uid: number }) => row.uid === command.uid).phase).toBe("ready");
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      await flushPromises();
+      expect(grid.props("listRows").find((row: { uid: number }) => row.uid === command.uid).phase).toBe("ready");
+      w.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -314,7 +353,7 @@ const uuid = (n: number) => `${String(n % 10).repeat(8)}-aaaa-aaaa-aaaa-aaaaaaaa
 // way the real grid does when a terminal takes the cursor.
 const ShortcutGridStub = {
   name: "TerminalGrid",
-  props: ["cells", "listRows", "expandedUid", "reorderable"],
+  props: ["cells", "listRows", "expandedUid", "activeUid", "reorderable"],
   emits: ["focus-cell"],
   template: '<div class="shortcut-stub" />',
 };
@@ -361,6 +400,18 @@ describe("GridView keyboard shortcuts (#829)", () => {
     await press("F8");
     expect(gridOf(w).props("expandedUid")).toBeNull();
     expect(focused).toEqual([]);
+    w.unmount();
+  });
+
+  it("uses the first visible cell until focus selects one, then the expanded cell", async () => {
+    const w = await mountShortcutGrid(4);
+    expect(gridOf(w).props("activeUid")).toBe(0);
+    gridOf(w).vm.$emit("focus-cell", 2);
+    await flushPromises();
+    expect(gridOf(w).props("activeUid")).toBe(2);
+    await press("F8");
+    expect(gridOf(w).props("expandedUid")).toBe(2);
+    expect(gridOf(w).props("activeUid")).toBe(2);
     w.unmount();
   });
 

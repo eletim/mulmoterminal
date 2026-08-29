@@ -175,6 +175,7 @@ function copyPrompt() {
       :command="command"
       :expanded="expanded"
       :zoomed="zoomed"
+      :metadata-active="active"
       @exit="onExit"
     />
     <div v-if="showSummary" data-testid="cell-summary" class="flex max-h-[40%] min-h-0 flex-none flex-col border-t border-t-[#2a2a4e] bg-[#141b33]">
