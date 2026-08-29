@@ -24,6 +24,7 @@ function mountCell(expanded = false) {
   return mount(TerminalCell, {
     props: {
       uid: 1,
+      active: false,
       expanded,
       zoomed: false,
       initialSessionId: SESSION,

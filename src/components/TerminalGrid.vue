@@ -46,6 +46,7 @@ import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
 import type { TerminalAgent } from "../../common/sessionAgent";
 import { jsonBody } from "../jsonBody";
 import { isUnknownArray } from "../../common/isUnknownArray";
+import { useWorkItem } from "../composables/useWorkItem";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -74,6 +75,7 @@ export interface CockpitRow {
 const props = defineProps<{
   cells: Cell[];
   expandedUid: number | null;
+  activeUid?: number | null;
   // A text row per cell for the cockpit list shown beside the expanded terminal.
   listRows: CockpitRow[];
   cancelUid: number | null;
@@ -96,6 +98,7 @@ const emit = defineEmits<{
   (e: "launch", uid: number, pick: LaunchPick): void;
   (e: "move", uid: number, dir: -1 | 1): void;
   (e: "status", uid: number, value: AttentionStatus): void;
+  (e: "phase", uid: number, value: PrPhase): void;
   (e: "agent", uid: number, value: TerminalAgent): void;
   (e: "park", uid: number, value: boolean): void;
   // Shared preset list events — uid-less since they mutate the one config list.
@@ -103,6 +106,20 @@ const emit = defineEmits<{
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
+
+// TerminalCell owns its work-item chip and reports the resolved phase itself. Command and
+// persistent launcher cells use a different shell, so cover their active cwd here without
+// restoring the old all-cwd roster poll.
+const activeNonTerminalCell = computed(() => {
+  const cell = props.cells.find(({ uid }) => uid === props.activeUid);
+  return cell && (cell.command != null || cell.launcher != null) ? cell : null;
+});
+const activeNonTerminalCwd = computed(() => activeNonTerminalCell.value?.cwd ?? activeNonTerminalCell.value?.command?.cwd ?? null);
+const nonTerminalPollingActive = computed(() => activeNonTerminalCell.value !== null);
+useWorkItem(activeNonTerminalCwd, nonTerminalPollingActive, (item) => {
+  const cell = activeNonTerminalCell.value;
+  if (cell) emit("phase", cell.uid, item.phase);
+});
 
 // Whether a roster row that is waiting on the user blinks (#1131). The row's amber stays either
 // way; this is only the motion.
@@ -409,6 +426,7 @@ onToolGroupsAnnounced((announcement) => {
 const gridCellProps = (cell: Cell) => ({
   "data-uid": cell.uid,
   class: cellClass(cell.uid),
+  active: cell.uid === props.activeUid,
   expanded: cell.uid === props.expandedUid,
   filesOpen: filesOpen.value,
   rightPane: rightPane.value,
@@ -426,6 +444,7 @@ const gridCellEvents = (cell: Cell) => ({
   close: () => emit("close", cell.uid),
   move: (dir: -1 | 1) => emit("move", cell.uid, dir),
   status: (value: AttentionStatus) => emit("status", cell.uid, value),
+  phase: (value: PrPhase) => emit("phase", cell.uid, value),
 });
 
 // What the Canvas pane should say instead of its "ask Claude to draw something" hint. The pane

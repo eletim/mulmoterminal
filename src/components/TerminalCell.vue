@@ -143,6 +143,7 @@ const launchTarget = ref<LaunchAgent>(initialLaunchTarget());
 // launch leaves this cell instead of running in it.
 const agent = computed<TerminalAgent>(() => asTerminalAgent(launchTarget.value));
 const connectKey = ref(0);
+const metadataActive = computed(() => props.active);
 
 // The directory this terminal runs in (shown in the header, sent to the server).
 const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
@@ -151,10 +152,10 @@ const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
 const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(cwd);
 // What this cell is working on (PR + issue), for the `work` chip. Same directory, same kind of
 // poll as the git status below.
-const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd);
+const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd, metadataActive, (value) => emit("phase", value.phase));
 // Live git status (branch/dirty/ahead·behind) for the header chip. `refreshGit`
 // is called alongside loadDiff() so a finished turn's changes show immediately.
-const { status: gitStatus, refresh: refreshGit } = useGitStatus(cwd);
+const { status: gitStatus, refresh: refreshGit } = useGitStatus(cwd, metadataActive);
 // Activity timeline overlay (the header history button) — only meaningful for a Claude session.
 const timelineOpen = ref(false);
 // A small filmstrip thumbnail (some OTHER cell is zoomed): strip the header to just
@@ -210,7 +211,13 @@ const context = ref<CellContext | null>(null);
 // below, so with no config the header is exactly as before. When configured, the built-ins listed here
 // (git/diff/ctx/usage) render in that order — others are hidden — and custom chips render as text. `dir`,
 // the project badge, the status dot/activity, and the row-2 tools timeline stay structural.
-const { chips: headerChips } = useHeaderButtons({ cwd, session: sessionId, agent, model: computed(() => context.value?.model ?? null) });
+const { buttons: headerButtons, chips: headerChips } = useHeaderButtons({
+  cwd,
+  session: sessionId,
+  agent,
+  model: computed(() => context.value?.model ?? null),
+  active: metadataActive,
+});
 const ROW1_BUILTIN_CHIPS = new Set(["git", "work", "diff", "ctx", "usage"]);
 const DEFAULT_CELL_CHIP_IDS = ["git", "work", "diff", "ctx", "usage"];
 interface CellChipView {
@@ -1218,6 +1225,8 @@ onUnmounted(() => document.removeEventListener("keydown", onDiffKey));
           :hide-header="filmstrip"
           :expanded="expanded"
           :zoomed="zoomed"
+          :metadata-active="active"
+          :resolved-header-buttons="headerButtons"
           dev-terminal
           run-menu
           @session="onSession"

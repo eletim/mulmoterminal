@@ -16,6 +16,8 @@ import type { AttentionStatus } from "./attentionStatus";
 export type RightPane = "files" | "canvas" | "tools";
 
 export interface GridCellProps {
+  // Exactly one mounted terminal is the repo-metadata polling owner.
+  active: boolean;
   expanded: boolean;
   // True while SOME cell in the grid is zoomed → this cell is a filmstrip thumbnail
   // (unless it's the zoomed one). Only then does a header-background click zoom it.
@@ -43,4 +45,5 @@ export interface GridCellEmits {
   (e: "move", dir: -1 | 1): void;
   // Report activity up so the grid can attention-sort in auto mode.
   (e: "status", value: AttentionStatus): void;
+  (e: "phase", value: import("../../common/prPhase").PrPhase): void;
 }

@@ -10,7 +10,7 @@ let setInputEnabled = vi.fn();
 vi.mock("../../../src/components/Terminal.vue", () => ({
   default: {
     name: "TerminalView",
-    props: ["persistKey", "sessionId", "connectKey", "cwd", "launcher"],
+    props: ["persistKey", "sessionId", "connectKey", "cwd", "launcher", "metadataActive"],
     emits: ["session", "exit"],
     template: '<div class="stub-term" />',
     methods: {
@@ -26,7 +26,7 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
 
 const ID = "77777777-7777-4777-8777-777777777777";
 const LAUNCHER = { index: 1, label: "zsh" };
-const baseProps = { uid: 7, expanded: false, launcher: LAUNCHER, session: ID, cwd: "/work/proj", home: "/work" };
+const baseProps = { uid: 7, active: false, expanded: false, launcher: LAUNCHER, session: ID, cwd: "/work/proj", home: "/work" };
 const mountCell = (extra: Record<string, unknown> = {}) => mount(LauncherCell, { props: { ...baseProps, ...extra } });
 
 function deferred<T>() {
@@ -52,11 +52,12 @@ describe("LauncherCell header zoom", () => {
   });
 
   it("shows the label + dir and runs the configured launcher in its directory", () => {
-    const w = mountCell();
+    const w = mountCell({ active: true });
     expect(w.find(".cell-cmd").text()).toContain("zsh");
     const term = w.findComponent({ name: "TerminalView" });
     expect(term.props("launcher")).toEqual({ index: 1 });
     expect(term.props("cwd")).toBe("/work/proj");
+    expect(term.props("metadataActive")).toBe(true);
   });
 
   it("routes configured persistent launcher close through confirmed Core Delete", async () => {

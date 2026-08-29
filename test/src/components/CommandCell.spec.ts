@@ -11,7 +11,7 @@ const CAPTURED_OUTPUT = "npm ERR! cannot find module foo";
 vi.mock("../../../src/components/Terminal.vue", () => ({
   default: {
     name: "TerminalView",
-    props: ["sessionId", "connectKey", "cwd", "command"],
+    props: ["sessionId", "connectKey", "cwd", "command", "metadataActive"],
     emits: ["exit"],
     template: '<div class="stub-term" />',
     methods: {
@@ -23,7 +23,7 @@ vi.mock("../../../src/components/Terminal.vue", () => ({
 }));
 
 const COMMAND: RunCommand = { source: "script", index: 2, label: "Dev server", cwd: "/work/proj" };
-const mountCell = () => mount(CommandCell, { props: { expanded: false, command: COMMAND, home: "/work" } });
+const mountCell = () => mount(CommandCell, { props: { active: false, expanded: false, command: COMMAND, home: "/work" } });
 const term = (w: ReturnType<typeof mount>) => w.findComponent({ name: "TerminalView" });
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
@@ -40,12 +40,13 @@ describe("CommandCell", () => {
   });
 
   it("shows the label + dir and runs the command in its directory", () => {
-    const w = mountCell();
+    const w = mount(CommandCell, { props: { active: true, expanded: false, command: COMMAND, home: "/work" } });
     expect(w.find(".cell-cmd").text()).toContain("Dev server");
     expect(w.find(".cell-dir").text()).toBe("~/proj"); // ~-anchored to home
     expect(term(w).props("command")).toEqual(COMMAND);
     expect(term(w).props("cwd")).toBe("/work/proj"); // runs in the cell's dir
     expect(term(w).props("sessionId")).toBeNull(); // not a Claude session
+    expect(term(w).props("metadataActive")).toBe(true);
   });
 
   it("offers a re-run only after the command exits, and re-running reconnects", async () => {
@@ -79,7 +80,7 @@ describe("CommandCell", () => {
   // silently does nothing, and canvas/tools had no cell-level coverage at all — so all five are
   // asserted, not just the two that already were.
   it("forwards every chrome event, including the canvas and tools toggles", async () => {
-    const w = mount(CommandCell, { props: { expanded: true, filesOpen: false, canvasAvailable: true, command: COMMAND, home: "/work" } });
+    const w = mount(CommandCell, { props: { active: false, expanded: true, filesOpen: false, canvasAvailable: true, command: COMMAND, home: "/work" } });
     await w.find('[aria-label="Show files"]').trigger("click");
     await w.find('[aria-label="Show canvas"]').trigger("click");
     await w.find('[aria-label="Show tools"]').trigger("click");
@@ -95,9 +96,9 @@ describe("CommandCell", () => {
   // The canvas button is disabled when the directory has no render MCP, so the binding must carry
   // canvasAvailable through — a `true` that arrived as undefined would disable a usable button.
   it("disables the canvas toggle when the cell has no render MCP", () => {
-    const w = mount(CommandCell, { props: { expanded: true, command: COMMAND, home: "/work" } });
+    const w = mount(CommandCell, { props: { active: false, expanded: true, command: COMMAND, home: "/work" } });
     expect(w.find('[data-testid="cell-canvas-btn"]').attributes("disabled")).toBeDefined();
-    const available = mount(CommandCell, { props: { expanded: true, canvasAvailable: true, command: COMMAND, home: "/work" } });
+    const available = mount(CommandCell, { props: { active: false, expanded: true, canvasAvailable: true, command: COMMAND, home: "/work" } });
     expect(available.find('[data-testid="cell-canvas-btn"]').attributes("disabled")).toBeUndefined();
   });
 
@@ -109,14 +110,14 @@ describe("CommandCell", () => {
   });
 
   it("zooms on a header-background click when it's a filmstrip thumbnail", async () => {
-    const w = mount(CommandCell, { props: { expanded: false, zoomed: true, command: COMMAND, home: "/work" } });
+    const w = mount(CommandCell, { props: { active: false, expanded: false, zoomed: true, command: COMMAND, home: "/work" } });
     expect(w.find(".cell-header").classes()).toContain("is-zoomable");
     await w.find(".cell-header").trigger("click");
     expect(w.emitted("toggle-expand")).toHaveLength(1);
   });
 
   it("does not zoom on a header-background click while expanded (restore via the ⤡ button)", async () => {
-    const w = mount(CommandCell, { props: { expanded: true, command: COMMAND, home: "/work" } });
+    const w = mount(CommandCell, { props: { active: false, expanded: true, command: COMMAND, home: "/work" } });
     expect(w.find(".cell-header").classes()).not.toContain("is-zoomable");
     await w.find(".cell-header").trigger("click");
     expect(w.emitted("toggle-expand")).toBeUndefined();

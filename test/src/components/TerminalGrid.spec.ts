@@ -52,11 +52,12 @@ vi.mock("../../../src/components/LauncherCell.vue", () => ({
 
 const cell = (uid: number, session: string | null = null, cwd: string | null = null): Cell => ({ uid, session, cwd });
 const cmdCell = (uid: number, command: NonNullable<Cell["command"]>): Cell => ({ uid, session: null, cwd: null, command });
-const mountGrid = (cells: Cell[], expandedUid: number | null = null, cancelUid: number | null = null, reorderable = false) =>
+const mountGrid = (cells: Cell[], expandedUid: number | null = null, cancelUid: number | null = null, reorderable = false, activeUid: number | null = null) =>
   mount(TerminalGrid, {
     props: {
       cells,
       expandedUid,
+      activeUid,
       listRows: [],
       cancelUid,
       defaultCwd: "/work",
@@ -205,6 +206,30 @@ describe("TerminalGrid command cells", () => {
     const w = mountGrid([cell(0, "s0"), cmdCell(1, CMD)]);
     expect(cellsOf(w)).toHaveLength(1);
     expect(commandCellsOf(w)).toHaveLength(1);
+  });
+
+  it("polls and reports PR phase only when the command cell becomes active", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ phase: "ready" }) }) as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const w = mountGrid([cmdCell(3, CMD)]);
+    await flushPromises();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await w.setProps({ activeUid: 3 });
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith("/api/pr-phase?cwd=%2Fwork%2Fproj");
+    expect(w.emitted("phase")).toEqual([[3, "ready"]]);
+  });
+
+  it("polls and reports PR phase for an active persistent launcher cell", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ phase: "ci-running" }) }) as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const launcher: Cell = { uid: 4, session: "shell-session", cwd: "/work/shell", launcher: { shell: true, label: "shell" } };
+    const w = mountGrid([launcher], null, null, false, 4);
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith("/api/pr-phase?cwd=%2Fwork%2Fshell");
+    expect(w.emitted("phase")).toEqual([[4, "ci-running"]]);
   });
 
   it("re-emits 'run' from a launcher tagged with the cell uid", () => {

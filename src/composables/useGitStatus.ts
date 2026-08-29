@@ -1,15 +1,15 @@
-// Polls GET /api/git-status for a terminal's dir so the header can always show
-// branch / dirty / ahead·behind. Refreshes on mount, on cwd change, on window
-// focus, and on a light interval (only while the tab is visible). `refresh` is
-// exposed so a caller can force an update right after a turn finishes.
-import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
+// Polls GET /api/git-status for the active terminal's dir so its header can show branch / dirty /
+// ahead·behind. Activation and cwd changes refresh immediately; focus and the shared 10s cadence
+// refresh only while visible. `refresh` also observes `active`, so a background turn finishing
+// cannot make an inactive cell fetch.
+import { ref, type Ref } from "vue";
 import type { GitStatus } from "../../common/gitStatus";
 import { isRecord } from "../../common/isRecord";
+import { useActiveRepoPolling } from "./useActiveRepoPolling";
 
-const POLL_MS = 10_000;
 const isGitStatus = (v: unknown): v is GitStatus => isRecord(v) && typeof v.repo === "boolean";
 
-export function useGitStatus(cwd: Ref<string | null>) {
+export function useGitStatus(cwd: Ref<string | null>, active: Ref<boolean>) {
   const status = ref<GitStatus | null>(null);
   let req = 0;
 
@@ -23,6 +23,7 @@ export function useGitStatus(cwd: Ref<string | null>) {
       status.value = null;
       return;
     }
+    if (!active.value) return;
     try {
       const res = await fetch(`/api/git-status?cwd=${encodeURIComponent(dir)}`);
       if (!res.ok) return;
@@ -33,21 +34,7 @@ export function useGitStatus(cwd: Ref<string | null>) {
     }
   }
 
-  const refreshIfVisible = () => {
-    if (document.visibilityState === "visible") void refresh();
-  };
-
-  let timer: ReturnType<typeof setInterval> | undefined;
-  onMounted(() => {
-    void refresh();
-    window.addEventListener("focus", refreshIfVisible);
-    timer = setInterval(refreshIfVisible, POLL_MS);
-  });
-  onUnmounted(() => {
-    window.removeEventListener("focus", refreshIfVisible);
-    if (timer) clearInterval(timer);
-  });
-  watch(cwd, refresh);
+  useActiveRepoPolling(refresh, active, [cwd], () => ++req);
 
   return { status, refresh };
 }
