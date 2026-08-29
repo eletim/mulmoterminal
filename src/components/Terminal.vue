@@ -20,7 +20,9 @@ import type { TerminalAgent } from "../../common/sessionAgent";
 import RunMenu from "./RunMenu.vue";
 import GitBranchChip from "./GitBranchChip.vue";
 import { useHeaderButtons, hasPickFileButton, type HeaderButton } from "../composables/useHeaderButtons";
-import { useSessionContext } from "../composables/useSessionContext";
+import { usePubSub } from "../composables/usePubSub";
+import { isCellContext, type CellContext } from "./cellPayload";
+import { isRecord } from "../../common/isRecord";
 import { runHeaderButton } from "../composables/useHeaderAction";
 import { useManualCopy } from "../composables/useManualCopy";
 import type { RunCommand } from "./runCommand";
@@ -84,6 +86,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: "session" | "cwd", value: string): void;
+  (e: "session-state", value: Record<string, unknown>): void;
   (e: "exit", exitCode: number | null): void;
   (e: "run", command: RunCommand): void;
   // The user typed (or pasted) into this terminal. Output the server writes back never fires it.
@@ -96,6 +99,47 @@ const emit = defineEmits<{
   // terminalUserInput that is the entire reason this event exists. Pinned by a spec.
   (e: "input"): void;
 }>();
+
+const sessionContext = ref<CellContext | null>(null);
+let announcedSessionId: string | null = props.sessionId;
+let sessionState: Record<string, unknown> = {};
+let stateSinceAnnouncement: Record<string, unknown> = {};
+let stateRevisionsSinceAnnouncement: Record<string, number> = {};
+let lastSessionStateRevision = -1;
+let unsubscribeSessionState: (() => void) | null = null;
+let unsubscribeSessionReconnect: (() => void) | null = null;
+
+function applySessionState(state: Record<string, unknown>, initial: boolean): void {
+  if (typeof state.id !== "string" || state.id !== announcedSessionId) return;
+  const versioned = typeof state.revision === "number" && Number.isSafeInteger(state.revision);
+  const revision = versioned ? Number(state.revision) : 0;
+  if (!initial && revision < lastSessionStateRevision) return;
+  if (initial) {
+    const newerPushes = versioned
+      ? Object.fromEntries(Object.entries(stateSinceAnnouncement).filter(([key]) => (stateRevisionsSinceAnnouncement[key] ?? -1) > revision))
+      : stateSinceAnnouncement;
+    sessionState = { ...state, ...newerPushes };
+  } else {
+    sessionState = { ...sessionState, ...state };
+    stateSinceAnnouncement = { ...stateSinceAnnouncement, ...state };
+    for (const key of Object.keys(state)) stateRevisionsSinceAnnouncement[key] = revision;
+  }
+  lastSessionStateRevision = Math.max(lastSessionStateRevision, revision);
+  sessionContext.value = isCellContext(sessionState.context) ? sessionState.context : null;
+  emit("session-state", sessionState);
+}
+
+function announceSession(id: string): void {
+  if (announcedSessionId !== id) {
+    sessionState = {};
+    sessionContext.value = null;
+  }
+  announcedSessionId = id;
+  stateSinceAnnouncement = {};
+  stateRevisionsSinceAnnouncement = {};
+  lastSessionStateRevision = -1;
+  emit("session", id);
+}
 
 // The durable runtime (socket + xterm) lives in the manager, keyed by a stable slot
 // id. A persisted slot survives this component's unmount; an ephemeral one is torn
@@ -167,11 +211,8 @@ onUnmounted(() => clearTimeout(shellCopyTimer));
 const dirConfigCwd = computed(() => serverCwd.value ?? props.dirCwd ?? null);
 const { config: dirConfig } = useDirConfig(dirConfigCwd);
 
-// The running model, so header buttons/chips can substitute `${model}`.
-const { context: sessionContext } = useSessionContext(
-  computed(() => props.sessionId),
-  serverCwd,
-);
+// The running model arrives in the terminal's initial/change WebSocket state, so bringing the
+// browser window back into focus no longer performs a session-detail HTTP read.
 // Resolved header action buttons for this session's dir (GET /api/header) — the user's config, or the
 // built-in defaults when unconfigured. They target the running agent session, so they're suppressed on a
 // command/launcher terminal — those embed Terminal without a session and don't handle `run`.
@@ -261,6 +302,20 @@ let resizeObserver: ResizeObserver;
 let attachedHost: HTMLElement | null = null;
 
 onMounted(() => {
+  const sessionPubSub = usePubSub();
+  unsubscribeSessionState = sessionPubSub.subscribe("sessions", (value) => {
+    if (isRecord(value)) applySessionState(value, false);
+  });
+  // Socket.IO and the terminal WebSocket reconnect independently. Socket.IO only rejoins its
+  // room, so ask the still-live terminal socket for one current snapshot after missed events.
+  unsubscribeSessionReconnect = sessionPubSub.onReconnect(() => {
+    // Only pushes received after this authoritative read may overlay its result. Retaining
+    // pre-disconnect values here would undo state changes that happened during the outage.
+    if (conn.requestSessionState(slotKey)) {
+      stateSinceAnnouncement = {};
+      stateRevisionsSinceAnnouncement = {};
+    }
+  });
   // Probe voice-input capability so the mic button shows only where supported.
   voice.refreshAvailability().catch(() => {});
 
@@ -274,8 +329,9 @@ onMounted(() => {
     slotKey,
     currentTarget(),
     {
-      onSession: (id) => emit("session", id),
+      onSession: announceSession,
       onCwd: (c) => emit("cwd", c),
+      onSessionState: (state) => applySessionState(state, true),
       onExit: (exitCode) => emit("exit", exitCode),
       onInput: () => emit("input"),
       onInputDropped: (willReconnect) => void showHint(willReconnect ? INPUT_DROPPED_EN : INPUT_DROPPED_ENDED_EN, "cloud_off"),
@@ -536,6 +592,8 @@ const onPaste = createImagePasteHandler({
 });
 
 onUnmounted(() => {
+  unsubscribeSessionState?.();
+  unsubscribeSessionReconnect?.();
   resizeObserver?.disconnect();
   // Persisted slot: detach the view but KEEP the connection alive (the whole point —
   // navigating away / off-page paging doesn't reap the PTY). Ephemeral slot (command

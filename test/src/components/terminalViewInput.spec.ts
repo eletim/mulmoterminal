@@ -6,11 +6,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import type { ConnHandlers } from "../../../src/composables/useTerminalConnections";
 
+let reconnectHandler: (() => void) | null = null;
+let sessionPushHandler: ((value: unknown) => void) | null = null;
 vi.mock("../../../src/composables/usePubSub", () => ({
-  usePubSub: () => ({ subscribe: () => () => {}, onReconnect: () => () => {} }),
+  usePubSub: () => ({
+    subscribe: (_channel: string, handler: (value: unknown) => void) => {
+      sessionPushHandler = handler;
+      return () => {
+        sessionPushHandler = null;
+      };
+    },
+    onReconnect: (handler: () => void) => {
+      reconnectHandler = handler;
+      return () => {
+        reconnectHandler = null;
+      };
+    },
+  }),
 }));
 
 const attachedHandlers: ConnHandlers[] = [];
+const requestSessionState = vi.fn();
 vi.mock("../../../src/composables/useTerminalConnections", async () => {
   const { reactive } = await import("vue");
   return {
@@ -27,6 +43,7 @@ vi.mock("../../../src/composables/useTerminalConnections", async () => {
     insertText: () => {},
     sendView: () => {},
     readBuffer: () => null,
+    requestSessionState,
     submitText: () => true,
     isClaudeTarget: () => false,
   };
@@ -59,6 +76,9 @@ const declaredEmits = (component: unknown): string[] => {
 
 beforeEach(() => {
   attachedHandlers.length = 0;
+  reconnectHandler = null;
+  sessionPushHandler = null;
+  requestSessionState.mockReset().mockReturnValue(true);
   terminalConn.connView.clear();
   document.body.innerHTML = "";
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
@@ -66,6 +86,41 @@ beforeEach(() => {
 });
 
 describe("Terminal.vue reports the user typing", () => {
+  it("requests a current snapshot when the independent pub/sub socket reconnects", async () => {
+    await mountTerminal();
+    await flushPromises();
+    reconnectHandler?.();
+    expect(requestSessionState).toHaveBeenCalledWith("input-spec");
+  });
+
+  it("does not overlay pre-disconnect pushes onto the reconnect snapshot", async () => {
+    const w = await mountTerminal({ sessionId: "session-1" });
+    await flushPromises();
+    attachedHandlers[0]?.onSession?.("session-1");
+    attachedHandlers[0]?.onSessionState?.({ id: "session-1", working: false });
+    sessionPushHandler?.({ id: "session-1", working: true });
+
+    reconnectHandler?.();
+    attachedHandlers[0]?.onSessionState?.({ id: "session-1", working: false });
+
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: false });
+  });
+
+  it("ignores a delayed pub/sub update older than the terminal snapshot", async () => {
+    const w = await mountTerminal({ sessionId: "session-1" });
+    await flushPromises();
+    attachedHandlers[0]?.onSession?.("session-1");
+    sessionPushHandler?.({ id: "session-1", revision: 3, working: true });
+    attachedHandlers[0]?.onSessionState?.({ id: "session-1", revision: 4, working: false });
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: false });
+
+    sessionPushHandler?.({ id: "session-1", revision: 3, working: true });
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: false });
+
+    sessionPushHandler?.({ id: "session-1", revision: 5, working: true });
+    expect(w.emitted("session-state")?.at(-1)?.[0]).toMatchObject({ working: true });
+  });
+
   it("binds onInput when it attaches, so the connection has somewhere to report to", async () => {
     await mountTerminal();
     await flushPromises();

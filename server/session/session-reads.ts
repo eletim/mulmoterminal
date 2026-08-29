@@ -115,9 +115,9 @@ export const EMPTY_SUMMARY: SessionSummary = {
   workPhase: null,
 };
 
-// Transcripts are append-only and can be hundreds of MB; /api/session/:id is hit on every
-// window focus and by each grid cell as turns finish, so re-reading + re-parsing the whole
-// .jsonl each time blocked the event loop and janked the terminals. Memoize by (mtime,size):
+// Transcripts are append-only and can be hundreds of MB; initial/change session-state snapshots
+// and the compatibility GET can arrive from several viewers, so re-reading + re-parsing the whole
+// .jsonl each time would block the event loop and jank the terminals. Memoize by (mtime,size):
 // an unchanged transcript returns instantly, and a changed one is read + parsed ONCE (the six
 // derived values share one parse pass, vs. one parse per helper before).
 const sessionSummaryCache = createFileCache<SessionSummary>();

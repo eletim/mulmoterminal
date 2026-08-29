@@ -29,7 +29,7 @@ import { registeredGuiMcpGroups } from "../infra/gui-mcp-registration.js";
 import { TOOL_GROUPS, type ToolGroup } from "../../common/toolGroups.js";
 import { parseTerminalSize, type TerminalSize } from "../../common/terminalSize.js";
 import { handleCommandFrame } from "../session/pty-connection.js";
-import { closeWithError } from "../session/ws-frames.js";
+import { closeWithError, sendFrame } from "../session/ws-frames.js";
 import { ProviderRefusedError } from "../session/provider-env.js";
 import { sessionExistsOnDisk } from "../session/session-reads.js";
 import { canStartLauncher, isContinuingSession, resolveReattachableId, resolveSession, type SessionResolution } from "../session/session-resolve.js";
@@ -62,6 +62,8 @@ export interface WsRouteDeps {
   spawnLauncherPty: SpawnLauncherPty;
   spawnViewerPty: (sessionId: string, ws: WebSocket, cwd: string, agent: SessionAgent) => PtyEntry;
   resolveLauncher: ResolveLauncher;
+  /** Build one current display snapshot from Core/activity/transcript state on connect. */
+  sessionStateOf?: (sessionId: string, cwd: string) => Promise<unknown>;
 }
 
 export function attachViewer(deps: Pick<WsRouteDeps, "spawnViewerPty" | "reattachPty">, viewer: PtyEntry, ws: WebSocket, sessionId: string): PtyEntry {
@@ -510,7 +512,7 @@ export const startFailureMessageFor =
 // needs to read differs by cause: a pre-spawn diagnosis is already a sentence (#1063), anything
 // else needs naming.
 export function startAndWire(
-  deps: Pick<WsRouteDeps, "handleClientFrame" | "handleClientClose">,
+  deps: Pick<WsRouteDeps, "handleClientFrame" | "handleClientClose" | "sessionStateOf">,
   ws: WebSocket,
   session: {
     id: string;
@@ -540,6 +542,15 @@ export function startAndWire(
     ws.on("message", deliver);
     ws.on("close", () => deps.handleClientClose(entry, ws, session.id));
     session.early.release(deliver);
+    // This is the only unconditional state transfer: every connection/reconnection gets one
+    // current snapshot. Later changes arrive on the existing event-driven `sessions` pub/sub
+    // channel; an idle session schedules no reads and sends no repeated frame.
+    if (deps.sessionStateOf) {
+      void deps
+        .sessionStateOf(session.id, entry.cwd)
+        .then((state) => sendFrame(ws, { type: "session-state", requestId: 0, state }))
+        .catch(() => {});
+    }
   } finally {
     finishPendingTerminalLaunch(session.id);
   }

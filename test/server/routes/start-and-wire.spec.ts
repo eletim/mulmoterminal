@@ -72,6 +72,18 @@ function harness() {
 }
 
 describe("startAndWire", () => {
+  it("sends exactly one current session-state snapshot when a viewer connects", async () => {
+    const { socket, deps, early } = harness();
+    const state = { id: "s1", working: false, waiting: false, usage: { inputTokens: 1 } };
+    const sessionStateOf = vi.fn(async () => state);
+
+    startAndWire({ ...deps, sessionStateOf }, asWebSocket(socket), { id: "s1", tag: "claude", early, startFailureMessage: () => "nope" }, () => entry);
+    await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+
+    expect(sessionStateOf).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "session-state", requestId: 0, state });
+  });
+
   it("knows which websocket routes have an explicit session agent", () => {
     expect(sessionAgentForWsKind("claude")).toBe("claude");
     expect(sessionAgentForWsKind("codex")).toBe("codex");

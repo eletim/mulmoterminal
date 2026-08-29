@@ -98,6 +98,7 @@ const emit = defineEmits<{
   (e: "launch", uid: number, pick: LaunchPick): void;
   (e: "move", uid: number, dir: -1 | 1): void;
   (e: "status", uid: number, value: AttentionStatus): void;
+  (e: "session-state", uid: number, value: Record<string, unknown>): void;
   (e: "phase", uid: number, value: PrPhase): void;
   (e: "agent", uid: number, value: TerminalAgent): void;
   (e: "park", uid: number, value: boolean): void;
@@ -1065,6 +1066,7 @@ watch(
           v-on="gridCellEvents(cell)"
           @park="(on) => emit('park', cell.uid, on)"
           @session="(id) => emit('session', cell.uid, id)"
+          @session-state="(value: Record<string, unknown>) => emit('session-state', cell.uid, value)"
           @agent="(a) => emit('agent', cell.uid, a)"
           @cwd="(c) => emit('cwd', cell.uid, c)"
           @record-cwd="(c) => emit('record-cwd', c)"

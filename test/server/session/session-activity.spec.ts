@@ -26,6 +26,27 @@ afterEach(() => {
 });
 
 describe("session activity", () => {
+  it("pushes work phase and transcript extras on an actual change, then suppresses identical repeats", async () => {
+    const sessionExtrasOf = vi.fn(async () => ({
+      usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheCreationTokens: 4 },
+      context: { model: "claude-opus-4-8", contextTokens: 5 },
+    }));
+    const serviceDeps = makeDeps({ workPhaseOf: () => "planning", sessionExtrasOf });
+    const service = createSessionActivity(serviceDeps);
+
+    service.setWorking(ID, true, "UserPromptSubmit");
+    await vi.waitFor(() => expect(serviceDeps.publish).toHaveBeenCalledTimes(2));
+    expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ id: ID, working: true, workPhase: "planning" }));
+    expect(serviceDeps.publish).toHaveBeenCalledWith(
+      "sessions",
+      expect.objectContaining({ id: ID, usage: expect.objectContaining({ inputTokens: 1 }), context: expect.objectContaining({ contextTokens: 5 }) }),
+    );
+
+    service.publishActivity(ID);
+    await vi.waitFor(() => expect(sessionExtrasOf).toHaveBeenCalledTimes(2));
+    expect(serviceDeps.publish).toHaveBeenCalledTimes(2);
+  });
+
   it("publishes only changed UI flags", () => {
     const serviceDeps = makeDeps();
     viewerPtys.set(ID, entry());
@@ -71,7 +92,13 @@ describe("session activity", () => {
   });
 
   it("terminalizes display state on Core exit without releasing the viewer", () => {
-    const serviceDeps = makeDeps();
+    let workPhase: "implementing" | null = "implementing";
+    const serviceDeps = makeDeps({
+      workPhaseOf: () => workPhase,
+      forgetWorkPhase: vi.fn(() => {
+        workPhase = null;
+      }),
+    });
     viewerPtys.set(ID, entry());
     const service = createSessionActivity(serviceDeps);
     service.setWorking(ID, true, "UserPromptSubmit");
@@ -79,13 +106,36 @@ describe("session activity", () => {
     service.endSessionActivity(ID);
     expect(serviceDeps.publish).toHaveBeenCalledWith(
       "sessions",
-      expect.objectContaining({ id: ID, working: false, waiting: false, event: "exited", failed: false }),
+      expect.objectContaining({ id: ID, working: false, waiting: false, event: "exited", workPhase: null, failed: false }),
     );
     expect(activity.has(ID)).toBe(false);
     expect(lastPrompts.has(ID)).toBe(false);
     expect(lastResponses.has(ID)).toBe(false);
     expect(serviceDeps.forgetWorkPhase).toHaveBeenCalledWith(ID);
     expect(viewerPtys.has(ID)).toBe(true);
+  });
+
+  it("drops an older async state read that resolves after the final exit state", async () => {
+    const metadataResolvers: Array<(value: { cwd: string; agent: "claude" }) => void> = [];
+    const serviceDeps = makeDeps({
+      coreMetadataOf: vi.fn(
+        () =>
+          new Promise<{ cwd: string; agent: "claude" }>((resolve) => {
+            metadataResolvers.push(resolve);
+          }),
+      ),
+    });
+    const service = createSessionActivity(serviceDeps);
+
+    service.setWorking(ID, true, "UserPromptSubmit");
+    service.endSessionActivity(ID);
+    metadataResolvers[1]?.({ cwd: "/work", agent: "claude" });
+    await vi.waitFor(() => expect(serviceDeps.publish).toHaveBeenCalledTimes(1));
+    metadataResolvers[0]?.({ cwd: "/work", agent: "claude" });
+    await Promise.resolve();
+
+    expect(serviceDeps.publish).toHaveBeenCalledTimes(1);
+    expect(serviceDeps.publish).toHaveBeenCalledWith("sessions", expect.objectContaining({ working: false, event: "exited" }));
   });
 
   it("cannot change Core membership or invoke Stop/Delete", () => {

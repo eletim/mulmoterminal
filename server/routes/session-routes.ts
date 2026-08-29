@@ -10,11 +10,11 @@ import { SESSION_ID_RE } from "../config/env.js";
 import { normalizeAgent, workspaceForRoute } from "./routeParams.js";
 import { hasErrnoCode } from "../errors.js";
 import { isProbeSessionId } from "../agents/probe-session.js";
-import { activity, lastPrompts, lastResponses } from "../session/activity-store.js";
+import { activity } from "../session/activity-store.js";
 import { antigravityHistory, antigravityHistoryHydrated } from "../session/antigravity-history.js";
 import { backgroundHistoryHydrated, failedWorkerHistoryHydrated, isBackgroundHistory } from "../session/history-state.js";
-import { sessionMemos, sessionMemosHydrated, setSessionMemo } from "../session/history-memos.js";
-import { collectOnDiskSessionStats, readSessionMeta, readSessionSummary, sessionLastTurn, sessionTimeline } from "../session/session-reads.js";
+import { sessionMemosHydrated, setSessionMemo } from "../session/history-memos.js";
+import { collectOnDiskSessionStats, readSessionMeta, sessionLastTurn, sessionTimeline } from "../session/session-reads.js";
 import { formatHandoff, type HandoffShape } from "../session/handoff-text.js";
 import { projectSessionsDir } from "../session/project-dir.js";
 import { codexSessionsRoot } from "../agents/codex-session.js";
@@ -23,8 +23,7 @@ import { antigravityBrainRoot } from "../agents/antigravity-session.js";
 import { listAntigravitySessions } from "../agents/antigravity-sessions.js";
 import type { SessionMeta } from "../session/types.js";
 import { parseActivityIds, selectSessionRows } from "../session/session-list.js";
-import { sessionDetailView } from "../session/session-detail-view.js";
-import { clearedTranscripts } from "../session/cleared-transcripts.js";
+import { readSessionState } from "../session/session-state.js";
 import { requestBody } from "./requestBody.js";
 import type { CoreSession } from "../session/core-session-adapter.js";
 import { normalizeMemo } from "../../common/sessionMemo.js";
@@ -56,6 +55,7 @@ export interface SessionRouteDeps {
   /** Browser ownership is UI state only; it prevents cross-browser adoption/supersession. */
   hasViewer?: (sessionId: string) => boolean;
   setCoreMemo?: (sessionId: string, memo: string) => Promise<boolean>;
+  workPhaseOf?: (sessionId: string) => import("../session/workPhase.js").WorkPhase | null;
 }
 
 // GRID-ONLY (dev_tool): initial per-session status + last prompt, so a grid cell
@@ -68,23 +68,13 @@ async function sessionDetail(req: Request<{ id: string }>, res: Response, deps: 
   if (!SESSION_ID_RE.test(id)) return res.status(400).json({ error: "invalid session id" });
   const cwd = workspaceForRoute(req.query.cwd, res);
   if (cwd === null) return;
-  const { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse, userTurns, usage, context, workPhase } = await readSessionSummary(cwd, id);
+  const { state, userTurns } = await readSessionState(id, cwd, {
+    getCoreSession: async (sessionId) => (await deps.getCoreSession?.(sessionId)) ?? null,
+    ...(deps.workPhaseOf ? { workPhaseOf: deps.workPhaseOf } : {}),
+  });
   // If we haven't titled it yet, kick off a summary; sessionDetailView falls back meanwhile.
   deps.freshenRosterTitle(id, cwd, userTurns);
-  const core = await deps.getCoreSession?.(id);
-  if (!core) await sessionMemosHydrated; // history-only metadata must finish loading before it is read
-  const view = sessionDetailView(
-    {
-      lastPrompt: lastPrompts.get(id),
-      lastResponse: lastResponses.get(id),
-      aiTitle: core?.title,
-      memo: core ? core.memo : sessionMemos.get(id),
-    },
-    { lastPrompt: transcriptPrompt, lastResponse: transcriptResponse },
-    core?.exited ? {} : (activity.get(id) ?? {}),
-    clearedTranscripts.has(id),
-  );
-  res.json({ id, cwd, ...view, usage, context, workPhase: core?.exited ? null : workPhase });
+  res.json(state);
 }
 
 // The user's one-line note on a session (#1084). An empty text ERASES it — the same route, so a

@@ -31,6 +31,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
+import { isRecord } from "../../common/isRecord";
 import { guardMouseClicks, guardMouseTracking } from "./terminalMouseInput";
 import { wireSelectionEdgeAutoScroll, type SelectionEdgeAutoScrollHandle } from "./terminalSelectionAutoScroll";
 import { getTerminalScrollSpeed } from "./useTerminalScrollSpeed";
@@ -167,6 +168,7 @@ const submittableFor = (c: Conn, text: string): string => (isClaudeTarget(c.targ
 export interface ConnHandlers {
   onSession?: (id: string) => void;
   onCwd?: (cwd: string) => void;
+  onSessionState?: (state: Record<string, unknown>) => void;
   // `exitCode` is the command's status when the server reported one, else null (a start
   // failure, or an agent session that ended without one). A Run cell reads it to tell a
   // clean finish from a broken build.
@@ -208,6 +210,8 @@ interface Conn {
   ws: WebSocket | null;
   knownSessionId: string | null;
   knownCwd: string | null; // server-resolved cwd, replayed on (re)attach
+  knownSessionState: Record<string, unknown> | null;
+  sessionStateRequestId: number;
   target: ConnTarget;
   handlers: ConnHandlers;
   sawExit: boolean; // an intentional end (exit/superseded/error) — suppress reconnect
@@ -970,6 +974,8 @@ function ensure(key: string, target: ConnTarget, font: TerminalFont): Conn {
     ws: null,
     knownSessionId: target.sessionId,
     knownCwd: null,
+    knownSessionState: null,
+    sessionStateRequestId: 0,
     target,
     handlers: {},
     sawExit: false,
@@ -1114,6 +1120,9 @@ function connect(c: Conn) {
   c.scrollRefreshPending = false;
   c.scrollRequestId++;
   c.pendingScroll = null;
+  // The server's unconditional snapshot for a new socket is generation zero. Explicit
+  // re-seeds increment this value, so a slower earlier read cannot overwrite a newer one.
+  c.sessionStateRequestId = 0;
   c.sawExit = false;
   setStatus(c, "connecting");
   // Drop the previous session's resolved cwd so the Run menu can't list/launch the
@@ -1174,6 +1183,14 @@ function applySessionFrame(c: Conn, msg: Record<string, unknown>): void {
     c.handlers.onCwd?.(msg.cwd);
   }
   if (!c.viewportRequested) requestViewport(c);
+}
+
+function applySessionStateFrame(c: Conn, msg: Record<string, unknown>): void {
+  if (!isRecord(msg.state)) return;
+  const requestId = typeof msg.requestId === "number" ? msg.requestId : 0;
+  if (requestId !== c.sessionStateRequestId) return;
+  c.knownSessionState = msg.state;
+  c.handlers.onSessionState?.(c.knownSessionState);
 }
 
 function scheduleInitialPrefetch(c: Conn, distance = 1): void {
@@ -1481,6 +1498,8 @@ function handleMessage(c: Conn, event: MessageEvent) {
     }
   } else if (msg.type === "session") {
     applySessionFrame(c, msg);
+  } else if (msg.type === "session-state") {
+    applySessionStateFrame(c, msg);
   } else {
     applyTerminalFrame(c, msg);
   }
@@ -1502,6 +1521,8 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   // useful update; the parent's setters are idempotent for already-known values.
   if (c.knownSessionId) handlers.onSession?.(c.knownSessionId);
   if (c.knownCwd) handlers.onCwd?.(c.knownCwd);
+  if (c.knownSessionState) handlers.onSessionState?.(c.knownSessionState);
+  if (!created) requestSessionState(key);
   el.appendChild(c.host);
   if (theme) {
     c.theme = theme;
@@ -1526,6 +1547,16 @@ export function attach(key: string, target: ConnTarget, handlers: ConnHandlers, 
   });
 }
 
+/** Re-seed display state after the independent Socket.IO change stream reconnects. */
+export function requestSessionState(key: string): boolean {
+  const c = conns.get(key);
+  const ws = c?.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  const requestId = ++c.sessionStateRequestId;
+  ws.send(JSON.stringify({ type: "session-state", requestId }));
+  return true;
+}
+
 // Unmount a view but KEEP the slot alive (socket stays open, PTY stays alive). The
 // xterm's host is re-parented out of the DOM; the buffer/scrollback are preserved.
 export function detach(key: string, el: HTMLElement | null) {
@@ -1547,6 +1578,8 @@ export function retarget(key: string, target: ConnTarget) {
   c.target = target;
   c.knownSessionId = target.sessionId;
   c.knownCwd = null;
+  c.knownSessionState = null;
+  c.sessionStateRequestId = 0;
   c.viewportCursor = null;
   c.viewportLive = true;
   c.returningToLive = false;

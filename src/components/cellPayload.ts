@@ -2,7 +2,8 @@
 import { isRecord } from "../../common/isRecord";
 // running model/context that back its header badges.
 //
-// They arrive from /api/session/:id and the cost route, and the guards only asked whether a
+// They arrive in the WebSocket session-state snapshot/update stream and the cost route, and
+// the guards only asked whether a
 // key was PRESENT. `{ outputTokens: null }` — a field the server could not compute, or a
 // version skew — passed, and the badge rendered NaN. A guard that admits a shape it cannot
 // render is not doing the job the guard exists for (#611).

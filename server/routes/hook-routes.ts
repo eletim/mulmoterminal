@@ -210,8 +210,9 @@ async function handleHookRequest(deps: HookDeps, req: Request, res: Response) {
     // hook's phase (a turn's first Edit must read as "editing" in the same push, not the next one).
     // Live Core members only: any well-formed uuid may be posted here, but viewer detach removes
     // its process-local PTY and must not stop phase updates for a session that Core still owns.
-    if (coreCwd !== undefined) deps.noteWorkPhase(sessionId, event, toolName);
+    const workPhaseChanged = coreCwd !== undefined && deps.noteWorkPhase(sessionId, event, toolName);
     await handleActivityHook(deps, sessionId, event, active, message, notificationType);
+    if (workPhaseChanged) deps.publishActivity(sessionId);
     await handleToolHook(deps, sessionId, event, toolPayload(body), cwd);
     // A hidden translation worker that ends its turn while still pending never called
     // submitTranslation — fail it now rather than hang until the timeout. (When it DID

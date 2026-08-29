@@ -86,6 +86,7 @@ import { createMobileWebPushFeature, mobileWebPushActivityDeps as createMobileWe
 import { normalizeActivity } from "./session/activity-transition.js";
 import { mountConfiguredMobileTransport } from "./mobileTerminalTransport.js";
 import { createWorkPhaseTracker } from "./session/work-phase-tracker.js";
+import { readSessionState } from "./session/session-state.js";
 import { initWorkspaceSetup } from "./backends/workspaceSetup.js";
 import { initFileChangePublisher } from "./backends/fileChange.js";
 import { initNotifier } from "./backends/notifier.js";
@@ -93,6 +94,7 @@ import { stopWhisperSidecar } from "./backends/whisper.js";
 import { initUserTaskScheduler } from "./backends/scheduler.js";
 import { initMulmoScriptBackend } from "./backends/mulmoscript.js";
 import { createSessionActivity, SESSIONS_CHANNEL } from "./session/session-activity.js";
+import { currentSessionStateRevision, versionSessionStateUpdate } from "./session/session-state-revision.js";
 import { mountAppRoutes } from "./routes/app-routes.js";
 import { allowedToolNames, autoAllowedToolNames } from "./infra/plugins-registry.js";
 import { installProcessGuards } from "./infra/process-guards.js";
@@ -301,6 +303,7 @@ const { reattachPty, handleClientFrame, handleClientClose } = createConnectionHa
   recheckTerminalSize: (id) => tmuxSizeSync.requestCheck(id),
   cancelTerminalSizeCheck: (id) => tmuxSizeSync.cancel(id),
   currentEntryOf: (id) => viewerPtys.get(id),
+  sessionStateOf: (id, cwd) => sessionStateForViewer(id, cwd),
 });
 
 const mobileWebPush = createMobileWebPushFeature(MULMOTERMINAL_HOME);
@@ -315,13 +318,21 @@ const { publishActivity, acknowledgeShellDone, setWorking, setWaiting, endSessio
     const session = await coreSessions.find(id);
     return session ? { cwd: session.cwd, agent: session.agent } : null;
   },
+  workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
+  sessionExtrasOf: async (id, cwd) => {
+    const { state } = await readSessionState(id, cwd, {
+      getCoreSession: (sessionId) => coreSessions.find(sessionId),
+      workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+    });
+    return { usage: state.usage, context: state.context };
+  },
   ...mobileWebPushActivityDeps,
 });
 
 // AI-title bookkeeping (session/session-title.ts). publishActivity stays here — it
 // publishes the whole session row, of which the title is one field.
 const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = createTitleManager({
-  publishTitle: (id, title) => pubsub?.publish(SESSIONS_CHANNEL, { id, aiTitle: title }),
+  publishTitle: (id, title) => pubsub?.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(id, { id, aiTitle: title })),
   now: () => Date.now(),
   generateTitle: (turns) => generateTitleFromTurns(turns),
   hasTitle: async (id) => !!(await coreSessions.find(id))?.title,
@@ -345,6 +356,29 @@ const { forgetTitle, noteTitleTurn, maybeGenerateTitle, freshenRosterTitle } = c
   },
 });
 
+// Initial/reconnect snapshots replace the roster GET that also used to freshen restored titles.
+// Keep that side effect tied to an actual viewer snapshot, never to a timer. A declaration is
+// used because the connection handlers above retain this callback before the server starts.
+async function sessionStateForViewer(id: string, cwd: string) {
+  let revision = currentSessionStateRevision(id);
+  let snapshot = await readSessionState(id, cwd, {
+    getCoreSession: (sessionId) => coreSessions.find(sessionId),
+    workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+  });
+  // A push can cross this transcript/Core read. Retry once from the newer boundary; if another
+  // update crosses that read, its later revision still wins in the browser.
+  if (revision !== currentSessionStateRevision(id)) {
+    revision = currentSessionStateRevision(id);
+    snapshot = await readSessionState(id, cwd, {
+      getCoreSession: (sessionId) => coreSessions.find(sessionId),
+      workPhaseOf: (sessionId) => workPhaseTracker.phaseOf(sessionId),
+    });
+  }
+  const { state, userTurns } = snapshot;
+  freshenRosterTitle(id, cwd, userTurns);
+  return { ...state, revision };
+}
+
 // The PTY spawners (session/spawn-*.ts). They take what index.ts still owns — the session
 // lifecycle it drives, and this file's port and live user config bound into the two payload
 // builders (session/hook-settings.ts, session/mcp-config.ts) — as deps.
@@ -367,7 +401,7 @@ const spawnDeps: SpawnDeps = {
   publishActivity: (id) => publishActivity(id),
   uiPort: String(process.env.CLIENT_PORT || PORT),
   publishSessionCreated: (sessionId) => {
-    pubsub?.publish(SESSIONS_CHANNEL, { id: sessionId, working: false, waiting: false, event: "created" });
+    pubsub?.publish(SESSIONS_CHANNEL, versionSessionStateUpdate(sessionId, { id: sessionId, working: false, waiting: false, event: "created" }));
   },
   endSessionActivity,
 };
@@ -547,6 +581,7 @@ mountAppRoutes(app, {
   forgetTitle,
   noteTitleTurn,
   noteWorkPhase: (id, event, toolName) => workPhaseTracker.note(id, event, toolName),
+  workPhaseOf: (id) => workPhaseTracker.phaseOf(id),
   maybeGenerateTitle,
   // Defined further down; reached only from a request, which cannot arrive before listen().
   registerBackgroundSession: (id: string) => scheduledSessions.register(id),
@@ -863,6 +898,7 @@ const terminalWebSockets = mountTerminalWebSockets({
   spawnLauncherPty,
   spawnViewerPty: spawnSecondaryViewer,
   resolveLauncher,
+  sessionStateOf: (id, cwd) => sessionStateForViewer(id, cwd),
 });
 
 // A bind failure (most often the port already in use) must not surface as an unhandled
