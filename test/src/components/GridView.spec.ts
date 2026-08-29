@@ -153,6 +153,25 @@ describe("GridView event-driven session metadata", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not let an older pub/sub revision overwrite a newer terminal snapshot", async () => {
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 10, session: IDS.idleA, cwd: "/w" }], expanded: 10, page: 0, sortMode: "manual" }));
+    const w = mount(GridView, {
+      global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+    });
+    await flushPromises();
+    const grid = w.findComponent(OrderStub);
+
+    grid.vm.$emit("session-state", 0, { id: IDS.idleA, revision: 2, lastPrompt: "new snapshot" });
+    pubsub.push("sessions", { id: IDS.idleA, revision: 1, lastPrompt: "stale push" });
+    await flushPromises();
+    expect(grid.props("listRows")[0]).toMatchObject({ prompt: "new snapshot" });
+
+    pubsub.push("sessions", { id: IDS.idleA, revision: 3, lastPrompt: "newer push" });
+    await flushPromises();
+    expect(grid.props("listRows")[0]).toMatchObject({ prompt: "newer push" });
+    w.unmount();
+  });
 });
 
 describe("GridView roster ordering (#720)", () => {

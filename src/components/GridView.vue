@@ -236,8 +236,16 @@ const expandedUid = computed(() => zoomedUid(state.value));
 // AI summary + current prompt + the agent's latest reply — so many parallel agents can be
 // supervised past the 9-thumbnail grid, and the enlarged terminal is switched by picking a row.
 const sessionMeta = reactive(new Map<string, SessionMetaView>());
+const sessionMetaRevision = new Map<string, number>();
 // Session metadata is filled by the terminal WebSocket's initial snapshot and then merged
 // from the existing `sessions` change stream. It is deliberately not part of the roster poll.
+const mergeVersionedSessionMeta = (id: string, value: Record<string, unknown>) => {
+  const revision = typeof value.revision === "number" && Number.isSafeInteger(value.revision) ? value.revision : null;
+  const accepted = sessionMetaRevision.get(id);
+  if (revision !== null && accepted !== undefined && revision < accepted) return;
+  if (revision !== null) sessionMetaRevision.set(id, revision);
+  sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, value));
+};
 // The PR workflow phase per directory (GET /api/pr-phase), shown in the roster beside the
 // agent status. Keyed by cwd, not session — the phase is the branch's. Only the active cell
 // fetches it; keeping the last reported phase lets the roster remain informative without polling
@@ -296,6 +304,7 @@ const forgetClosedCells = () => {
   const repoCwds = new Set(gridCells.value.map(repoCwd).filter((cwd): cwd is string => cwd !== null));
   staleCacheKeys(sessionMeta.keys(), sessions).forEach((id) => {
     sessionMeta.delete(id);
+    sessionMetaRevision.delete(id);
   });
   staleCacheKeys(phaseByCwd.keys(), repoCwds).forEach((cwd) => {
     phaseByCwd.delete(cwd);
@@ -413,7 +422,7 @@ const onSession = (uid: number, id: string) => {
 const onSessionState = (uid: number, value: Record<string, unknown>) => {
   const id = gridCells.value.find((cell) => cell.uid === uid)?.session;
   if (!id || value.id !== id) return;
-  sessionMeta.set(id, mergeSessionMeta(sessionMeta.get(id) ?? EMPTY_SESSION_META, value));
+  mergeVersionedSessionMeta(id, value);
 };
 const onCwd = (uid: number, cwd: string) => (state.value = setCwd(state.value, uid, cwd));
 const onAgent = (uid: number, agent: TerminalAgent) => (state.value = setCellAgent(state.value, uid, agent));
@@ -697,7 +706,7 @@ const closedSessionId = (data: unknown): string | null => (isRecord(data) && typ
 const { subscribe: subscribeSessions, onReconnect } = usePubSub();
 const unsubscribeSessions = subscribeSessions("sessions", (data) => {
   if (isRecord(data) && typeof data.id === "string" && gridCells.value.some((cell) => cell.session === data.id)) {
-    sessionMeta.set(data.id, mergeSessionMeta(sessionMeta.get(data.id) ?? EMPTY_SESSION_META, data));
+    mergeVersionedSessionMeta(data.id, data);
   }
   if (isSessionCreated(data) && onTerminalsRoute()) void adoptUnplacedSessions();
   const closed = closedSessionId(data);
