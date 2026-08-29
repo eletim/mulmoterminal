@@ -126,7 +126,7 @@ const mountGrid = async () => {
 const OrderStub = {
   name: "TerminalGrid",
   props: ["cells", "listRows", "expandedUid", "activeUid", "reorderable"],
-  emits: ["session-state", "phase", "runSpare"],
+  emits: ["session", "session-state", "phase", "runSpare"],
   template: '<div class="order-stub" />',
 };
 
@@ -170,6 +170,23 @@ describe("GridView event-driven session metadata", () => {
     pubsub.push("sessions", { id: IDS.idleA, revision: 3, lastPrompt: "newer push" });
     await flushPromises();
     expect(grid.props("listRows")[0]).toMatchObject({ prompt: "newer push" });
+    w.unmount();
+  });
+
+  it("accepts a reset revision epoch after the terminal re-announces its session", async () => {
+    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 10, session: IDS.idleA, cwd: "/w" }], expanded: 10, page: 0, sortMode: "manual" }));
+    const w = mount(GridView, {
+      global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+    });
+    await flushPromises();
+    const grid = w.findComponent(OrderStub);
+
+    grid.vm.$emit("session-state", 0, { id: IDS.idleA, revision: 20, lastPrompt: "before restart" });
+    grid.vm.$emit("session", 0, IDS.idleA);
+    grid.vm.$emit("session-state", 0, { id: IDS.idleA, revision: 0, lastPrompt: "after restart" });
+    await flushPromises();
+
+    expect(grid.props("listRows")[0]).toMatchObject({ prompt: "after restart" });
     w.unmount();
   });
 });

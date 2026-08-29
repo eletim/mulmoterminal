@@ -415,6 +415,10 @@ function onAddTerminal() {
   state.value = addCell(state.value);
 }
 const onSession = (uid: number, id: string) => {
+  // The backend owns the revision counter and restarts it at zero. A terminal reconnect
+  // re-announces its session before sending the authoritative snapshot, which begins a new
+  // revision epoch for this browser-side roster cache.
+  sessionMetaRevision.delete(id);
   localActiveSessionIds.add(id);
   inactiveGridSessionIds.delete(id);
   state.value = setSession(state.value, uid, id);
