@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp, defineComponent, ref, watch } from "vue";
+import { createApp, defineComponent, ref } from "vue";
 import { flushPromises } from "@vue/test-utils";
 import { useGitStatus } from "../../../src/composables/useGitStatus";
 import { useHeaderButtons } from "../../../src/composables/useHeaderButtons";
@@ -38,10 +38,7 @@ describe("active-session repo metadata polling", () => {
     const app = createApp(
       defineComponent({
         setup() {
-          const { item, resolved } = useWorkItem(ref("/repo"), ref(true));
-          watch([item, resolved], ([value, ready]) => {
-            if (ready) phases.push(value.phase);
-          });
+          useWorkItem(ref("/repo"), ref(true), (value) => phases.push(value.phase));
           return () => null;
         },
       }),

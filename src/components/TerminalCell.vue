@@ -152,7 +152,7 @@ const cwd = ref<string | null>(props.initialCwd ?? props.defaultCwd);
 const { config: dirConfig, cellStyle, headerStyle } = useCellChrome(cwd);
 // What this cell is working on (PR + issue), for the `work` chip. Same directory, same kind of
 // poll as the git status below.
-const { item: workItem, resolved: workItemResolved, refresh: refreshWorkItem } = useWorkItem(cwd, metadataActive);
+const { item: workItem, refresh: refreshWorkItem } = useWorkItem(cwd, metadataActive, (value) => emit("phase", value.phase));
 // Live git status (branch/dirty/ahead·behind) for the header chip. `refreshGit`
 // is called alongside loadDiff() so a finished turn's changes show immediately.
 const { status: gitStatus, refresh: refreshGit } = useGitStatus(cwd, metadataActive);
@@ -839,9 +839,6 @@ watch(
   { immediate: true },
 );
 watch(status, (s) => emit("status", s), { immediate: true });
-watch([workItem, workItemResolved], ([value, resolved]) => {
-  if (props.active && resolved) emit("phase", value.phase);
-});
 
 const headerText = computed(() => cellHeaderText(memo.value, aiTitle.value, lastPrompt.value, sessionId.value));
 // A memo displaces the AI title from the line, so the tooltip is where that title goes — losing

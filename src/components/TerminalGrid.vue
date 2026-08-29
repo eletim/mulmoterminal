@@ -46,6 +46,7 @@ import { parsePaneStore, rememberPane, recallPane } from "./filesPaneStore";
 import type { TerminalAgent } from "../../common/sessionAgent";
 import { jsonBody } from "../jsonBody";
 import { isUnknownArray } from "../../common/isUnknownArray";
+import { useWorkItem } from "../composables/useWorkItem";
 
 // Renders the grid, auto-sized to the cell count, fully controlled by GridView:
 // `cells` is the active page's slice (≤9) when nothing is zoomed, and `expandedUid`
@@ -105,6 +106,20 @@ const emit = defineEmits<{
 }>();
 
 const gridStyle = computed(() => trackStyle(layoutForCount(props.cells.length)));
+
+// TerminalCell owns its work-item chip and reports the resolved phase itself. Command and
+// persistent launcher cells use a different shell, so cover their active cwd here without
+// restoring the old all-cwd roster poll.
+const activeNonTerminalCell = computed(() => {
+  const cell = props.cells.find(({ uid }) => uid === props.activeUid);
+  return cell && (cell.command != null || cell.launcher != null) ? cell : null;
+});
+const activeNonTerminalCwd = computed(() => activeNonTerminalCell.value?.cwd ?? activeNonTerminalCell.value?.command?.cwd ?? null);
+const nonTerminalPollingActive = computed(() => activeNonTerminalCell.value !== null);
+useWorkItem(activeNonTerminalCwd, nonTerminalPollingActive, (item) => {
+  const cell = activeNonTerminalCell.value;
+  if (cell) emit("phase", cell.uid, item.phase);
+});
 
 // Whether a roster row that is waiting on the user blinks (#1131). The row's amber stays either
 // way; this is only the motion.
