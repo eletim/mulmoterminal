@@ -267,7 +267,8 @@ const refreshAllMeta = () => gridCells.value.forEach((c) => c.session && void se
 // inactive directories.
 const phaseByCwd = reactive(new Map<string, PrPhase>());
 const onPhase = (uid: number, phase: PrPhase) => {
-  const cwd = gridCells.value.find((cell) => cell.uid === uid)?.cwd;
+  const cell = gridCells.value.find(({ uid: cellUid }) => cellUid === uid);
+  const cwd = cell?.cwd ?? cell?.command?.cwd;
   if (!cwd) return;
   if (becameCiFailing(phaseByCwd.get(cwd), phase)) notifySound("pr-ci-failed", cwd);
   phaseByCwd.set(cwd, phase);
@@ -388,6 +389,7 @@ const chromeOf = (cwd: string | null): RowChrome => (cwd ? chromeByCwd.get(cwd) 
 const rosterRow = (c: Cell): CockpitRow => {
   const meta = (c.session ? sessionMeta.get(c.session) : undefined) ?? EMPTY_SESSION_META;
   const chrome = chromeOf(c.cwd);
+  const repoCwd = c.cwd ?? c.command?.cwd;
   return {
     uid: c.uid,
     cwd: c.cwd,
@@ -398,7 +400,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     prompt: meta.lastPrompt,
     response: meta.lastResponse,
     fallback: fallbackLabel(c),
-    phase: (c.cwd ? phaseByCwd.get(c.cwd) : undefined) ?? NO_PR_PHASE,
+    phase: (repoCwd ? phaseByCwd.get(repoCwd) : undefined) ?? NO_PR_PHASE,
     workPhase: meta.workPhase,
     headerColor: chrome.headerColor,
     headerTextColor: chrome.headerTextColor,
