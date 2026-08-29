@@ -199,20 +199,29 @@ describe("GridView roster ordering (#720)", () => {
   });
 
   it("applies an active command cell phase using the command cwd", async () => {
-    localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 20, session: IDS.idleA, cwd: "/repo" }], expanded: 20, page: 0, sortMode: "manual" }));
-    const w = mount(GridView, {
-      global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
-    });
-    await flushPromises();
-    const grid = w.findComponent(OrderStub);
-    grid.vm.$emit("runSpare", 0, { source: "script", index: 1, label: "Build", cwd: "/command-repo" });
-    await flushPromises();
-    const command = grid.props("cells").find((cell: { command?: unknown }) => cell.command);
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem("grid_v2", JSON.stringify({ cells: [{ uid: 20, session: IDS.idleA, cwd: "/repo" }], expanded: 20, page: 0, sortMode: "manual" }));
+      const w = mount(GridView, {
+        global: { stubs: { TerminalGrid: OrderStub, AppToolbar: ToolbarStub, SettingsModal: SettingsStub } },
+      });
+      await flushPromises();
+      const grid = w.findComponent(OrderStub);
+      grid.vm.$emit("runSpare", 0, { source: "script", index: 1, label: "Build", cwd: "/command-repo" });
+      await flushPromises();
+      const command = grid.props("cells").find((cell: { command?: unknown }) => cell.command);
 
-    grid.vm.$emit("phase", command.uid, "ready");
-    await flushPromises();
-    expect(grid.props("listRows").find((row: { uid: number }) => row.uid === command.uid).phase).toBe("ready");
-    w.unmount();
+      grid.vm.$emit("phase", command.uid, "ready");
+      await flushPromises();
+      expect(grid.props("listRows").find((row: { uid: number }) => row.uid === command.uid).phase).toBe("ready");
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      await flushPromises();
+      expect(grid.props("listRows").find((row: { uid: number }) => row.uid === command.uid).phase).toBe("ready");
+      w.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

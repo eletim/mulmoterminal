@@ -266,9 +266,10 @@ const refreshAllMeta = () => gridCells.value.forEach((c) => c.session && void se
 // fetches it; keeping the last reported phase lets the roster remain informative without polling
 // inactive directories.
 const phaseByCwd = reactive(new Map<string, PrPhase>());
+const repoCwd = (cell: Cell | undefined): string | null => cell?.cwd ?? cell?.command?.cwd ?? null;
 const onPhase = (uid: number, phase: PrPhase) => {
   const cell = gridCells.value.find(({ uid: cellUid }) => cellUid === uid);
-  const cwd = cell?.cwd ?? cell?.command?.cwd;
+  const cwd = repoCwd(cell);
   if (!cwd) return;
   if (becameCiFailing(phaseByCwd.get(cwd), phase)) notifySound("pr-ci-failed", cwd);
   phaseByCwd.set(cwd, phase);
@@ -315,11 +316,12 @@ onBeforeUnmount(unsubscribeDirConfig);
 const forgetClosedCells = () => {
   const sessions = new Set(gridCells.value.map((c) => c.session).filter((s): s is string => !!s));
   const cwds = new Set(gridCells.value.map((c) => c.cwd).filter((c): c is string => c !== null));
+  const repoCwds = new Set(gridCells.value.map(repoCwd).filter((cwd): cwd is string => cwd !== null));
   staleCacheKeys(sessionMeta.keys(), sessions).forEach((id) => {
     sessionMeta.delete(id);
     latestMetaSeed.delete(id);
   });
-  staleCacheKeys(phaseByCwd.keys(), cwds).forEach((cwd) => {
+  staleCacheKeys(phaseByCwd.keys(), repoCwds).forEach((cwd) => {
     phaseByCwd.delete(cwd);
   });
   staleCacheKeys(chromeByCwd.keys(), cwds).forEach((cwd) => {
@@ -389,7 +391,7 @@ const chromeOf = (cwd: string | null): RowChrome => (cwd ? chromeByCwd.get(cwd) 
 const rosterRow = (c: Cell): CockpitRow => {
   const meta = (c.session ? sessionMeta.get(c.session) : undefined) ?? EMPTY_SESSION_META;
   const chrome = chromeOf(c.cwd);
-  const repoCwd = c.cwd ?? c.command?.cwd;
+  const phaseCwd = repoCwd(c);
   return {
     uid: c.uid,
     cwd: c.cwd,
@@ -400,7 +402,7 @@ const rosterRow = (c: Cell): CockpitRow => {
     prompt: meta.lastPrompt,
     response: meta.lastResponse,
     fallback: fallbackLabel(c),
-    phase: (repoCwd ? phaseByCwd.get(repoCwd) : undefined) ?? NO_PR_PHASE,
+    phase: (phaseCwd ? phaseByCwd.get(phaseCwd) : undefined) ?? NO_PR_PHASE,
     workPhase: meta.workPhase,
     headerColor: chrome.headerColor,
     headerTextColor: chrome.headerTextColor,
