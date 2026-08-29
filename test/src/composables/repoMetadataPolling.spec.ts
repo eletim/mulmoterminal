@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApp, defineComponent, ref } from "vue";
+import { createApp, defineComponent, ref, watch } from "vue";
 import { flushPromises } from "@vue/test-utils";
 import { useGitStatus } from "../../../src/composables/useGitStatus";
 import { useHeaderButtons } from "../../../src/composables/useHeaderButtons";
@@ -15,6 +15,12 @@ const responseFor = (url: string): Response => {
   return { ok: true, json: async () => body } as Response;
 };
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => (resolve = done));
+  return { promise, resolve };
+};
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -22,6 +28,35 @@ afterEach(() => {
 });
 
 describe("active-session repo metadata polling", () => {
+  it("publishes no placeholder PR phase before the first successful response", async () => {
+    const response = deferred<Response>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => response.promise),
+    );
+    const phases: string[] = [];
+    const app = createApp(
+      defineComponent({
+        setup() {
+          const { item, resolved } = useWorkItem(ref("/repo"), ref(true));
+          watch([item, resolved], ([value, ready]) => {
+            if (ready) phases.push(value.phase);
+          });
+          return () => null;
+        },
+      }),
+    );
+
+    app.mount(document.createElement("div"));
+    await flushPromises();
+    expect(phases).toEqual([]);
+
+    response.resolve({ ok: true, json: async () => ({ phase: "ci-failing" }) } as Response);
+    await flushPromises();
+    expect(phases).toEqual(["ci-failing"]);
+    app.unmount();
+  });
+
   it("refreshes only while active, immediately on each activation, and leaves no old timer", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => responseFor(String(input)));

@@ -88,6 +88,7 @@ async function postWorkComment(cwd: string, item: WorkItem, kind: WorkCommentKin
 
 export function useWorkItem(cwd: Ref<string | null>, active: Ref<boolean>) {
   const item = ref<WorkItem>({ ...EMPTY_WORK_ITEM });
+  const resolved = ref(false);
   let req = 0;
 
   async function refresh(): Promise<void> {
@@ -96,10 +97,12 @@ export function useWorkItem(cwd: Ref<string | null>, active: Ref<boolean>) {
     const my = ++req;
     const dir = cwd.value;
     if (!dir) {
+      resolved.value = false;
       item.value = { ...EMPTY_WORK_ITEM };
       return;
     }
     if (!active.value) return;
+    resolved.value = false;
     try {
       const res = await fetch(`/api/pr-phase?cwd=${encodeURIComponent(dir)}`);
       if (!res.ok) return;
@@ -108,6 +111,7 @@ export function useWorkItem(cwd: Ref<string | null>, active: Ref<boolean>) {
       const next = parseWorkItem(data);
       const kind = isIssueWorkCommentsEnabled() ? workCommentToPost(item.value, next) : null;
       item.value = next;
+      resolved.value = true;
       if (kind) void postWorkComment(dir, next, kind);
     } catch {
       // leave the last value; the next tick retries
@@ -116,5 +120,5 @@ export function useWorkItem(cwd: Ref<string | null>, active: Ref<boolean>) {
 
   useActiveRepoPolling(refresh, active, [cwd], () => ++req);
 
-  return { item, refresh };
+  return { item, resolved, refresh };
 }
