@@ -74,6 +74,7 @@ export interface CockpitRow {
 const props = defineProps<{
   cells: Cell[];
   expandedUid: number | null;
+  activeUid?: number | null;
   // A text row per cell for the cockpit list shown beside the expanded terminal.
   listRows: CockpitRow[];
   cancelUid: number | null;
@@ -96,6 +97,7 @@ const emit = defineEmits<{
   (e: "launch", uid: number, pick: LaunchPick): void;
   (e: "move", uid: number, dir: -1 | 1): void;
   (e: "status", uid: number, value: AttentionStatus): void;
+  (e: "phase", uid: number, value: PrPhase): void;
   (e: "agent", uid: number, value: TerminalAgent): void;
   (e: "park", uid: number, value: boolean): void;
   // Shared preset list events — uid-less since they mutate the one config list.
@@ -409,6 +411,7 @@ onToolGroupsAnnounced((announcement) => {
 const gridCellProps = (cell: Cell) => ({
   "data-uid": cell.uid,
   class: cellClass(cell.uid),
+  active: cell.uid === props.activeUid,
   expanded: cell.uid === props.expandedUid,
   filesOpen: filesOpen.value,
   rightPane: rightPane.value,
@@ -426,6 +429,7 @@ const gridCellEvents = (cell: Cell) => ({
   close: () => emit("close", cell.uid),
   move: (dir: -1 | 1) => emit("move", cell.uid, dir),
   status: (value: AttentionStatus) => emit("status", cell.uid, value),
+  phase: (value: PrPhase) => emit("phase", cell.uid, value),
 });
 
 // What the Canvas pane should say instead of its "ask Claude to draw something" hint. The pane

@@ -53,6 +53,7 @@ async function mountClaudeCell(cwd: string) {
   return mount(TerminalCell, {
     props: {
       uid: 1,
+      active: false,
       expanded: false,
       zoomed: false,
       initialSessionId: "11111111-1111-1111-1111-111111111111",
@@ -69,13 +70,13 @@ async function mountClaudeCell(cwd: string) {
 
 async function mountLauncherCell(cwd: string) {
   return mount(LauncherCell, {
-    props: { uid: 2, expanded: false, zoomed: false, launcher: { index: 0, label: "shell" }, session: null, cwd, home: "/home/me" },
+    props: { uid: 2, active: false, expanded: false, zoomed: false, launcher: { index: 0, label: "shell" }, session: null, cwd, home: "/home/me" },
   });
 }
 
 async function mountCommandCell(cwd: string) {
   return mount(CommandCell, {
-    props: { uid: 3, expanded: false, zoomed: false, command: { source: "script", index: 0, label: "build", cwd }, home: "/home/me" },
+    props: { uid: 3, active: false, expanded: false, zoomed: false, command: { source: "script", index: 0, label: "build", cwd }, home: "/home/me" },
   });
 }
 

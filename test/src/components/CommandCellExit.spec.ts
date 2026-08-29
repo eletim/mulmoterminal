@@ -18,6 +18,7 @@ const CWD = "/repo/app";
 const mountCell = () =>
   mount(CommandCell, {
     props: {
+      active: false,
       expanded: false,
       home: null,
       command: { source: "script" as const, index: 0, label: "build", cwd: CWD },

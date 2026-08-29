@@ -1,17 +1,12 @@
 // What this cell is working on — the branch's PR and the issue behind it — for the header chip.
-// Same shape of poll as useGitStatus (mount, cwd change, window focus, a light interval while
-// visible), because it answers the same question about the same directory and a user who commits
-// or opens a PR expects both chips to catch up together.
-//
-// The interval is slow on purpose: the server caches each (repo, branch) answer for 30s and the
-// call behind it shells out to `gh`, so polling faster buys nothing but subprocesses.
-import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
+// Same active-only 10s lifecycle as useGitStatus, because it answers the same question about the
+// same directory and a user who commits or opens a PR expects both chips to catch up together.
+import { ref, type Ref } from "vue";
 import { EMPTY_WORK_ITEM, isIssueNumber, isPrPhase, type WorkItem } from "../../common/prPhase";
 import { isRecord } from "../../common/isRecord";
 import { isIssueWorkCommentsEnabled } from "./issueWorkComments";
 import type { WorkCommentKind } from "../../common/workComment";
-
-const POLL_MS = 30_000;
+import { useActiveRepoPolling } from "./useActiveRepoPolling";
 
 // There is no PR #0 and no negative issue: a stale or malformed response saying so must render
 // nothing rather than an impossible link (found by CodeRabbit review).
@@ -91,7 +86,7 @@ async function postWorkComment(cwd: string, item: WorkItem, kind: WorkCommentKin
   }
 }
 
-export function useWorkItem(cwd: Ref<string | null>) {
+export function useWorkItem(cwd: Ref<string | null>, active: Ref<boolean>) {
   const item = ref<WorkItem>({ ...EMPTY_WORK_ITEM });
   let req = 0;
 
@@ -104,6 +99,7 @@ export function useWorkItem(cwd: Ref<string | null>) {
       item.value = { ...EMPTY_WORK_ITEM };
       return;
     }
+    if (!active.value) return;
     try {
       const res = await fetch(`/api/pr-phase?cwd=${encodeURIComponent(dir)}`);
       if (!res.ok) return;
@@ -118,25 +114,7 @@ export function useWorkItem(cwd: Ref<string | null>) {
     }
   }
 
-  const refreshIfVisible = () => {
-    if (document.visibilityState === "visible") void refresh();
-  };
-
-  let timer: ReturnType<typeof setInterval> | undefined;
-  onMounted(() => {
-    void refresh();
-    window.addEventListener("focus", refreshIfVisible);
-    // Switching browser TABS fires this and not `focus`, and at a 30s cadence a returning tab
-    // would otherwise show the previous PR state for most of a minute (CodeRabbit review).
-    document.addEventListener("visibilitychange", refreshIfVisible);
-    timer = setInterval(refreshIfVisible, POLL_MS);
-  });
-  onUnmounted(() => {
-    window.removeEventListener("focus", refreshIfVisible);
-    document.removeEventListener("visibilitychange", refreshIfVisible);
-    if (timer) clearInterval(timer);
-  });
-  watch(cwd, () => void refresh());
+  useActiveRepoPolling(refresh, active, [cwd], () => ++req);
 
   return { item, refresh };
 }

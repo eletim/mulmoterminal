@@ -115,6 +115,7 @@ function relaunch() {
       :launcher="target"
       :expanded="expanded"
       :zoomed="zoomed"
+      :metadata-active="active"
       @session="onSession"
       @exit="onExit"
     />

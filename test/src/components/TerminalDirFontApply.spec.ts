@@ -63,7 +63,7 @@ beforeEach(() => {
 const Terminal = (await import("../../../src/components/Terminal.vue")).default;
 
 async function mountTerminal(slot: string) {
-  return mount(Terminal, { props: { sessionId: null, connectKey: 1, persistKey: slot, cwd: `/proj/${slot}` } });
+  return mount(Terminal, { props: { metadataActive: true, sessionId: null, connectKey: 1, persistKey: slot, cwd: `/proj/${slot}` } });
 }
 
 describe("Terminal.vue resolves its directory's look from its own cwd", () => {
@@ -117,7 +117,7 @@ describe("Terminal.vue resolves its directory's look from its own cwd", () => {
 describe("Terminal.vue falls back to the dirCwd hint when it has no cwd", () => {
   it("resolves the directory's font from dirCwd alone", async () => {
     serveDirConfig({ fontSize: 18, fontFamily: "Cica, monospace" });
-    const w = mount(Terminal, { props: { sessionId: null, connectKey: 1, persistKey: "hinted", dirCwd: "/proj/hinted" } });
+    const w = mount(Terminal, { props: { metadataActive: true, sessionId: null, connectKey: 1, persistKey: "hinted", dirCwd: "/proj/hinted" } });
     await flushPromises();
 
     expect(setFontCalls.at(-1)).toEqual({ size: 18, family: "Cica, monospace" });

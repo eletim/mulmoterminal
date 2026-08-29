@@ -19,7 +19,7 @@ function mountGit(initialCwd: string | null) {
   const wrapper = mount(
     defineComponent({
       setup() {
-        status = useGitStatus(cwd).status;
+        status = useGitStatus(cwd, ref(true)).status;
         return () => h("div");
       },
     }),

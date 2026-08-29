@@ -66,6 +66,8 @@ const props = defineProps<{
   expanded?: boolean;
   zoomed?: boolean;
   persistKey?: string | null;
+  metadataActive: boolean;
+  resolvedHeaderButtons?: HeaderButton[];
   // The CANVAS side of <cwd>/.mulmoterminal.json — palette, font — is NOT a prop: this
   // component resolves it from its own cwd (see `dirConfig` below). It used to arrive as four
   // props, and four separate hosts each had to remember to pass them; two didn't, so a shell
@@ -173,13 +175,16 @@ const { context: sessionContext } = useSessionContext(
 // Resolved header action buttons for this session's dir (GET /api/header) — the user's config, or the
 // built-in defaults when unconfigured. They target the running agent session, so they're suppressed on a
 // command/launcher terminal — those embed Terminal without a session and don't handle `run`.
-const headerButtonsCwd = computed(() => (props.command || props.launcher ? null : serverCwd.value));
-const { buttons: headerButtons } = useHeaderButtons({
+const headerButtonsCwd = computed(() => (props.command || props.launcher || props.devTerminal ? null : serverCwd.value));
+const headerMetadataActive = computed(() => props.metadataActive && !props.command && !props.launcher && !props.devTerminal);
+const { buttons: ownHeaderButtons } = useHeaderButtons({
   cwd: headerButtonsCwd,
   session: computed(() => props.sessionId),
   agent: computed(() => props.agent ?? "claude"),
   model: computed(() => sessionContext.value?.model ?? null),
+  active: headerMetadataActive,
 });
+const headerButtons = computed(() => props.resolvedHeaderButtons ?? ownHeaderButtons.value);
 
 // `input`/`open` dispatch client-side. `shell` hands off to a command cell: the browser never holds the
 // command — it emits the button id + this session's context, and the server re-resolves it (see /ws/run).
@@ -202,7 +207,8 @@ function onHeaderButton(button: HeaderButton): void {
 // Git status chip — single view only. In the grid the embedding TerminalCell shows
 // its own chip, so null the cwd here to skip redundant polling (status stays null).
 const gitCwd = computed(() => (props.devTerminal ? null : serverCwd.value));
-const { status: gitStatus } = useGitStatus(gitCwd);
+const gitMetadataActive = computed(() => props.metadataActive && !props.devTerminal);
+const { status: gitStatus } = useGitStatus(gitCwd, gitMetadataActive);
 const dragOver = ref(false);
 const { themeId } = useTheme();
 const { fontSize } = useTerminalFontSize();

@@ -54,6 +54,7 @@ describe("every grid cell shows the directory's badge", () => {
     const w = mount(LauncherCell, {
       props: {
         uid: 1,
+        active: false,
         expanded: false,
         zoomed: false,
         launcher: { shell: true, label: "Shell" },
@@ -72,6 +73,7 @@ describe("every grid cell shows the directory's badge", () => {
     const w = mount(CommandCell, {
       props: {
         uid: 2,
+        active: false,
         expanded: false,
         zoomed: false,
         command: { source: "script" as const, index: 0, label: "build", cwd: "/proj/badge-command" },
@@ -88,6 +90,7 @@ describe("every grid cell shows the directory's badge", () => {
     const w = mount(TerminalCell, {
       props: {
         uid: 3,
+        active: false,
         expanded: false,
         zoomed: false,
         initialSessionId: "11111111-1111-1111-1111-111111111111",

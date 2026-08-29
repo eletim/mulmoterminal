@@ -33,6 +33,7 @@ function mountCell(props: { parked?: boolean; expanded?: boolean; zoomed?: boole
   return mount(TerminalCell, {
     props: {
       uid: 1,
+      active: false,
       expanded: false,
       zoomed: false,
       initialSessionId: SESSION,

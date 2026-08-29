@@ -45,7 +45,7 @@ const Terminal = (await import("../../../src/components/Terminal.vue")).default;
 const terminalConn = await import("../../../src/composables/useTerminalConnections");
 
 const mountTerminal = async (props: Record<string, unknown> = {}) => {
-  return mount(Terminal, { props: { sessionId: null, connectKey: 1, persistKey: "input-spec", cwd: "/proj/input-spec", ...props } });
+  return mount(Terminal, { props: { metadataActive: true, sessionId: null, connectKey: 1, persistKey: "input-spec", cwd: "/proj/input-spec", ...props } });
 };
 
 // The compiled SFC lists the names `defineEmits` declared. Read through a guard rather than a
