@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
   SessionCore,
   SessionNotFoundError,
+  TmuxCommandError,
   type CreateSessionOptions,
   type ScrollIntent,
   type ScrollResult,
@@ -146,14 +147,14 @@ export class CoreSessionAdapter {
   }
 
   async list(): Promise<CoreSession[]> {
-    const sessions = await this.core.list();
+    const sessions = await this.listNativeSessions();
     return Promise.all(sessions.map((session) => this.withMetadata(session)));
   }
 
   /** Lightweight membership projection for file authorization. Live cwd comes from Core's
    * native list; only remain-on-exit panes whose native cwd is gone need one metadata read. */
   async listCwds(): Promise<string[]> {
-    const sessions = await this.core.list();
+    const sessions = await this.listNativeSessions();
     return Promise.all(sessions.map(async (session) => session.cwd || (await this.core.listMetadata(session.id))[CWD_METADATA_KEY] || ""));
   }
 
@@ -338,6 +339,15 @@ export class CoreSessionAdapter {
     };
   }
 
+  private async listNativeSessions(): Promise<Session[]> {
+    try {
+      return await this.core.list();
+    } catch (error) {
+      if (isTmuxServerMissing(error, this.serverName)) return [];
+      throw error;
+    }
+  }
+
   private async setOptionalMetadata(id: string, key: string, value: string): Promise<void> {
     if (value === "") {
       await this.core.deleteMetadata(id, key);
@@ -397,6 +407,18 @@ function parseToolGroups(value: string | undefined): ToolGroup[] {
   } catch {
     return [];
   }
+}
+
+function isTmuxServerMissing(error: unknown, serverName: string): boolean {
+  if (!(error instanceof TmuxCommandError)) return false;
+  if (error.args[0] !== "-L" || error.args[1] !== serverName || error.args[2] !== "list-sessions") return false;
+
+  const stderr = error.stderr.trim();
+  return (
+    /^no server running on [^\r\n]+$/.test(stderr) ||
+    stderr === "failed to connect to server" ||
+    /^error connecting to [^\r\n]+ \(No such file or directory\)$/.test(stderr)
+  );
 }
 
 export const coreSessions = new CoreSessionAdapter();

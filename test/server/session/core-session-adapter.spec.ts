@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SessionNotFoundError, type SessionCore } from "tmux-session-core-ts";
+import { SessionNotFoundError, TmuxCommandError, type SessionCore } from "tmux-session-core-ts";
 import { CoreSessionAdapter } from "../../../server/session/core-session-adapter.js";
 
 const native = {
@@ -16,6 +16,44 @@ const native = {
 };
 
 describe("CoreSessionAdapter", () => {
+  const listError = (stderr: string, cause: unknown = Object.assign(new Error(stderr), { code: 1 })) =>
+    new TmuxCommandError(["-L", "test-core", "list-sessions", "-F", "format"], stderr, cause);
+
+  it.each([
+    "no server running on /tmp/tmux-1000/test-core\n",
+    "failed to connect to server\n",
+    "error connecting to /tmp/tmux-1000/test-core (No such file or directory)\n",
+  ])("treats a missing tmux server as an empty session list: %s", async (stderr) => {
+    const core = { list: vi.fn(async () => Promise.reject(listError(stderr))) } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core, serverName: "test-core" }).list()).resolves.toEqual([]);
+  });
+
+  it("treats a missing tmux server as an empty cwd membership list", async () => {
+    const core = { list: vi.fn(async () => Promise.reject(listError("no server running on /tmp/tmux-1000/test-core\n"))) } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core, serverName: "test-core" }).listCwds()).resolves.toEqual([]);
+  });
+
+  it.each([
+    ["generic tmux failure", listError("unknown command: list-sessions\n")],
+    ["permission failure", listError("error connecting to /tmp/tmux-1000/test-core (Permission denied)\n")],
+    ["unknown error", new Error("unexpected failure")],
+    ["malformed error", { name: "TmuxCommandError", stderr: "error connecting to /tmp/tmux-1000/test-core (No such file or directory)\n" }],
+    ["missing tmux executable", listError("", Object.assign(new Error("spawn tmux ENOENT"), { code: "ENOENT" }))],
+  ])("preserves %s", async (_label, error) => {
+    const core = { list: vi.fn(async () => Promise.reject(error)) } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core, serverName: "test-core" }).list()).rejects.toBe(error);
+  });
+
+  it("does not mistake another tmux server's absence for this adapter's empty list", async () => {
+    const error = new TmuxCommandError(["-L", "other-core", "list-sessions"], "no server running on /tmp/tmux-1000/other-core\n", { code: 1 });
+    const core = { list: vi.fn(async () => Promise.reject(error)) } as unknown as SessionCore;
+
+    await expect(new CoreSessionAdapter({ core, serverName: "test-core" }).list()).rejects.toBe(error);
+  });
+
   it("reconstructs client-owned fields from Core metadata", async () => {
     const core = {
       list: vi.fn(async () => [native]),
